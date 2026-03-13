@@ -1,0 +1,14 @@
+**/.git
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+tianshu/.tianshu/
+tianshu-web/node_modules/
+.venv
+venv
+.env
+htmlcov
+.coverage
+.idea
+.jbeval

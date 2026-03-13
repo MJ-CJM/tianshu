@@ -1,0 +1,20 @@
+services:
+  tianshu:
+    build:
+      context: ..
+      dockerfile: tianshu/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - tianshu-data:/data
+      - ./workspace:/workspace
+    env_file:
+      - .env
+    environment:
+      - TIANSHU_DB_PATH=/data/tianshu.db
+      - TIANSHU_WORKSPACE_DIR=/workspace
+      - TIANSHU_STATIC_DIR=/app/static
+    restart: unless-stopped
+
+volumes:
+  tianshu-data:
