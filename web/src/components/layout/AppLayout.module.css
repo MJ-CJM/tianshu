@@ -1,17 +1,13 @@
 .root {
   min-height: 100vh;
-  background:
-    linear-gradient(rgba(0, 212, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 212, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(160deg, #0a0e1a 0%, #0d1528 40%, #111232 70%, #0a0e1a 100%);
-  background-size: 40px 40px, 40px 40px, 100% 100%;
+  background: var(--ts-color-bg-page);
 }
 
 .content {
   overflow-y: auto;
   height: calc(100vh - 56px);
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 212, 255, 0.15) transparent;
+  scrollbar-color: var(--ts-color-scrollbar) transparent;
 }
 
 .content::-webkit-scrollbar {
@@ -23,12 +19,12 @@
 }
 
 .content::-webkit-scrollbar-thumb {
-  background: rgba(0, 212, 255, 0.15);
+  background: var(--ts-color-scrollbar);
   border-radius: 3px;
 }
 
 .content::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 212, 255, 0.3);
+  background: var(--ts-color-scrollbar-hover);
 }
 
 /* 表头使用宋体 */
@@ -53,7 +49,7 @@
 :global(.memorial-markdown h1),
 :global(.memorial-markdown h2),
 :global(.memorial-markdown h3) {
-  color: #e2e8f0;
+  color: var(--ts-color-text);
   margin: 1em 0 0.4em;
   font-weight: 600;
 }
@@ -63,16 +59,16 @@
 :global(.memorial-markdown h3) { font-size: 1.05em; }
 
 :global(.memorial-markdown code) {
-  background: rgba(0, 212, 255, 0.08);
-  border: 1px solid rgba(0, 212, 255, 0.15);
+  background: var(--ts-color-bg-code);
+  border: 1px solid var(--ts-color-border);
   border-radius: 3px;
   padding: 0.15em 0.4em;
   font-size: 0.9em;
 }
 
 :global(.memorial-markdown pre) {
-  background: rgba(0, 0, 0, 0.4) !important;
-  border: 1px solid rgba(30, 58, 95, 0.6);
+  background: var(--ts-color-bg-code) !important;
+  border: 1px solid var(--ts-color-border);
   border-radius: 6px;
   padding: 12px;
   overflow-x: auto;
@@ -92,10 +88,10 @@
 }
 
 :global(.memorial-markdown blockquote) {
-  border-left: 3px solid rgba(0, 212, 255, 0.3);
+  border-left: 3px solid var(--ts-color-border);
   margin: 0.6em 0;
   padding: 0.3em 0 0.3em 1em;
-  color: #94a3b8;
+  color: var(--ts-color-text-secondary);
 }
 
 :global(.memorial-markdown table) {
@@ -106,11 +102,11 @@
 
 :global(.memorial-markdown th),
 :global(.memorial-markdown td) {
-  border: 1px solid #1e3a5f;
+  border: 1px solid var(--ts-color-border);
   padding: 6px 10px;
   font-size: 0.9em;
 }
 
 :global(.memorial-markdown th) {
-  background: rgba(0, 212, 255, 0.06);
+  background: var(--ts-color-bg-code);
 }

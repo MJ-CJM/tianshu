@@ -74,6 +74,7 @@ class EdictStatusUpdateRequest(BaseModel):
 
 
 class LLMConfig(BaseModel):
+    name: str
     model: str
     api_key_masked: str
     api_base: str
@@ -82,6 +83,18 @@ class LLMConfig(BaseModel):
     top_p: float
     max_tokens: int
     enabled: bool
+
+
+class LLMConfigCreateRequest(BaseModel):
+    name: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    api_key: str = ""
+    api_base: str = ""
+    max_retries: int = Field(default=3, ge=0, le=10)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
+    max_tokens: int = Field(default=4096, ge=1, le=128000)
+    enabled: bool = True
 
 
 class LLMConfigUpdateRequest(BaseModel):
@@ -93,6 +106,23 @@ class LLMConfigUpdateRequest(BaseModel):
     top_p: float | None = Field(default=None, ge=0.0, le=1.0)
     max_tokens: int | None = Field(default=None, ge=1, le=128000)
     enabled: bool | None = None
+
+
+class LLMConfigListResponse(BaseModel):
+    configs: list[LLMConfig]
+    active_name: str
+
+
+class AgentConfig(BaseModel):
+    agent_max_iterations: int
+    agent_timeout_seconds: int
+    skills_char_budget: int
+
+
+class AgentConfigUpdateRequest(BaseModel):
+    agent_max_iterations: int | None = Field(default=None, ge=1, le=200)
+    agent_timeout_seconds: int | None = Field(default=None, ge=10, le=3600)
+    skills_char_budget: int | None = Field(default=None, ge=1000, le=500000)
 
 
 class ApiResponse(BaseModel, Generic[T]):

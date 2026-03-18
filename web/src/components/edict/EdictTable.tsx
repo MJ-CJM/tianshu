@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Input, Popconfirm, Popover, Table, Tag, message } from "antd";
+import { Button, Input, Popconfirm, Popover, Table, Tag, message, theme } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, EditOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
@@ -31,6 +31,7 @@ export default function EdictTable({
   onRefresh,
 }: EdictTableProps) {
   const navigate = useNavigate();
+  const { token } = theme.useToken();
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
@@ -67,7 +68,7 @@ export default function EdictTable({
       dataIndex: "id",
       width: 120,
       render: (id: string) => (
-        <MonoText style={{ color: "#00d4ff", fontSize: 12 }}>
+        <MonoText style={{ color: token.colorInfo, fontSize: 12 }}>
           {truncateId(id)}
         </MonoText>
       ),
@@ -94,7 +95,7 @@ export default function EdictTable({
       dataIndex: "created_at",
       width: 180,
       render: (v: string) => (
-        <span style={{ color: "#94a3b8", fontSize: 13 }}>{formatTime(v)}</span>
+        <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>{formatTime(v)}</span>
       ),
     },
     {

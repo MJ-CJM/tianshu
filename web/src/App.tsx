@@ -2,7 +2,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ConfigProvider, App as AntApp } from "antd";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import zhCN from "antd/locale/zh_CN";
-import themeConfig from "./theme";
+import { ThemeContext, useThemeProvider } from "./hooks/useTheme";
+import { getThemeConfig } from "./theme";
 import AppLayout from "./components/layout/AppLayout";
 import EdictListPage from "./pages/EdictListPage";
 import EdictCreatePage from "./pages/EdictCreatePage";
@@ -18,10 +19,12 @@ const queryClient = new QueryClient({
   },
 });
 
-export default function App() {
+function ThemedApp() {
+  const themeCtx = useThemeProvider();
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <ConfigProvider theme={themeConfig} locale={zhCN}>
+    <ThemeContext.Provider value={themeCtx}>
+      <ConfigProvider theme={getThemeConfig(themeCtx.mode)} locale={zhCN}>
         <AntApp>
           <BrowserRouter>
             <Routes>
@@ -34,6 +37,14 @@ export default function App() {
           </BrowserRouter>
         </AntApp>
       </ConfigProvider>
+    </ThemeContext.Provider>
+  );
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemedApp />
     </QueryClientProvider>
   );
 }

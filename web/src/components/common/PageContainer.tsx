@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Typography } from "antd";
+import { Typography, theme } from "antd";
 
 interface PageContainerProps {
   title: string;
@@ -12,6 +12,8 @@ export default function PageContainer({
   extra,
   children,
 }: PageContainerProps) {
+  const { token } = theme.useToken();
+
   return (
     <div style={{ padding: "24px 32px" }}>
       <div
@@ -26,10 +28,9 @@ export default function PageContainer({
           level={3}
           style={{
             margin: 0,
-            color: "#e2e8f0",
+            color: token.colorText,
             fontFamily: "'Noto Serif SC', serif",
             fontWeight: 700,
-            textShadow: "0 0 20px rgba(0, 212, 255, 0.15)",
           }}
         >
           {title}

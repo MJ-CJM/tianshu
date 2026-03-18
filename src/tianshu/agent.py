@@ -9,7 +9,6 @@ from collections.abc import Callable
 
 from pydantic import BaseModel, Field
 
-from tianshu.config import TianshuSettings
 from tianshu.config_manager import ConfigManager
 from tianshu.llm import LLMClient
 from tianshu.models import Edict, TaskStatus, UsageSummary
@@ -41,12 +40,10 @@ class Agent:
         config_manager: ConfigManager,
         tools: ToolRegistry,
         skills: SkillsLoader,
-        settings: TianshuSettings,
     ) -> None:
         self._config_manager = config_manager
         self._tools = tools
         self._skills = skills
-        self._settings = settings
         self._shutdown_event = asyncio.Event()
 
     def request_shutdown(self) -> None:
@@ -77,7 +74,8 @@ class Agent:
             max_tokens=state.max_tokens,
         )
 
-        system_prompt = self._build_system_prompt(edict)
+        agent_cfg = self._config_manager.agent_config
+        system_prompt = self._build_system_prompt(edict, agent_cfg.skills_char_budget)
 
         if user_content is None:
             user_content = edict.goal
@@ -97,7 +95,7 @@ class Agent:
             if on_event is not None:
                 on_event(event)
 
-        for iteration in range(self._settings.agent_max_iterations):
+        for iteration in range(agent_cfg.agent_max_iterations):
             if self._shutdown_event.is_set():
                 return AgentResult(
                     status=TaskStatus.CANCELLED,
@@ -133,19 +131,24 @@ class Agent:
 
                 # Execute each tool call sequentially
                 for tc in response.tool_calls:
-                    result = await self._tools.execute(tc["name"], tc["args"])
+                    tool_result = await self._tools.execute(tc["name"], tc["args"])
+                    content = tool_result.content
+                    if len(content) > 8000:
+                        content = content[:8000] + "\n[... truncated]"
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
-                        "content": result[:500],  # Truncate per NanoBot pattern
+                        "content": content,
                     })
                     args_str = tc["args"] if isinstance(tc["args"], str) else json.dumps(tc["args"])
                     _emit({
-                        "type": "tool.completed",
+                        "type": "tool.failed" if tool_result.is_error else "tool.completed",
                         "tool": tc["name"],
                         "iteration": iteration,
                         "args_preview": args_str[:200],
-                        "result_preview": result[:200],
+                        "result_preview": tool_result.content[:200],
+                        "is_error": tool_result.is_error,
+                        "details": tool_result.details,
                     })
             else:
                 # No tool calls = final answer
@@ -159,14 +162,15 @@ class Agent:
 
         return AgentResult(
             status=TaskStatus.FAILED,
-            error=f"Max iterations ({self._settings.agent_max_iterations}) reached",
+            error=f"Max iterations ({agent_cfg.agent_max_iterations}) reached",
             usage=usage,
             events=events,
         )
 
-    def _build_system_prompt(self, edict: Edict) -> str:
+    def _build_system_prompt(self, edict: Edict, skills_char_budget: int) -> str:
         parts = [_SYSTEM_IDENTITY]
 
+        self._skills.set_char_budget(skills_char_budget)
         skills_text = self._skills.load_all()
         if skills_text:
             parts.append(skills_text)

@@ -1,4 +1,4 @@
-import { Space, Typography } from "antd";
+import { Space, Typography, theme } from "antd";
 import { SyncOutlined, ClockCircleOutlined } from "@ant-design/icons";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -15,13 +15,13 @@ interface MemorialCardProps {
 }
 
 export default function MemorialCard({ memorial, index }: MemorialCardProps) {
+  const { token } = theme.useToken();
   const title = index !== undefined ? `奏折 #${index + 1}` : "奏折";
   const isRunning = memorial.status === "running";
-  const borderColor = STATUS_COLORS[memorial.status] ?? "#1e3a5f";
+  const borderColor = STATUS_COLORS[memorial.status] ?? token.colorBorder;
   const duration = formatDuration(memorial.started_at, memorial.completed_at);
   const hasDuration = duration !== "—";
 
-  // When summary equals result, only show result (avoid duplication)
   const showSummary = memorial.summary && memorial.summary !== memorial.result;
 
   return (
@@ -30,9 +30,9 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
         <Space size="middle">
           <span>{title}</span>
           <StatusTag status={memorial.status} />
-          {isRunning && <SyncOutlined spin style={{ color: "#00d4ff" }} />}
+          {isRunning && <SyncOutlined spin style={{ color: token.colorInfo }} />}
           {hasDuration && (
-            <Typography.Text style={{ color: "#64748b", fontSize: 12 }}>
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
               <ClockCircleOutlined style={{ marginRight: 4 }} />
               {duration}
             </Typography.Text>
@@ -47,10 +47,10 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
     >
       {memorial.instruction && (
         <div style={{ marginBottom: 12 }}>
-          <Typography.Text style={{ color: "#94a3b8", fontSize: 12 }}>
+          <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
             指令：
           </Typography.Text>
-          <Typography.Text style={{ color: "#e2e8f0" }}>
+          <Typography.Text style={{ color: token.colorText }}>
             {memorial.instruction}
           </Typography.Text>
         </div>
@@ -62,7 +62,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
             要旨
           </Typography.Text>
           <Typography.Paragraph
-            style={{ color: "#e2e8f0", marginTop: 4, marginBottom: 0 }}
+            style={{ color: token.colorText, marginTop: 4, marginBottom: 0 }}
           >
             {memorial.summary}
           </Typography.Paragraph>
@@ -77,14 +77,14 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
           <div
             className="memorial-markdown"
             style={{
-              color: "#e2e8f0",
+              color: token.colorText,
               marginTop: 4,
               fontFamily: "'JetBrains Mono', monospace",
               fontSize: 13,
-              background: "rgba(0,0,0,0.3)",
+              background: "var(--ts-color-bg-subtle)",
               padding: 12,
               borderRadius: 6,
-              border: "1px solid #1e3a5f",
+              border: `1px solid ${token.colorBorder}`,
               lineHeight: 1.7,
             }}
           >
@@ -102,7 +102,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
           </Typography.Text>
           <Typography.Paragraph
             style={{
-              color: "#ff4d4f",
+              color: token.colorError,
               marginTop: 4,
               marginBottom: 0,
               fontFamily: "'JetBrains Mono', monospace",

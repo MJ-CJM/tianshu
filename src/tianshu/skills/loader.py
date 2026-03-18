@@ -26,6 +26,9 @@ class SkillsLoader:
         self._workspace_dir = workspace_dir
         self._char_budget = char_budget
 
+    def set_char_budget(self, budget: int) -> None:
+        self._char_budget = budget
+
     def load_all(self) -> str:
         skills: dict[str, str] = {}  # name -> content
 

@@ -17,7 +17,7 @@ export default function StatusTag({ status }: StatusTagProps) {
       className={isRunning ? styles.pulse : undefined}
       style={
         isRunning
-          ? { boxShadow: `0 0 8px ${color}80` }
+          ? undefined
           : undefined
       }
     >

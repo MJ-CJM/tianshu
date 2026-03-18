@@ -52,6 +52,7 @@ export interface EdictUpdateRequest {
 }
 
 export interface LLMConfig {
+  name: string;
   model: string;
   api_key_masked: string;
   api_base: string;
@@ -60,6 +61,18 @@ export interface LLMConfig {
   top_p: number;
   max_tokens: number;
   enabled: boolean;
+}
+
+export interface LLMConfigCreateRequest {
+  name: string;
+  model: string;
+  api_key?: string;
+  api_base?: string;
+  max_retries?: number;
+  temperature?: number;
+  top_p?: number;
+  max_tokens?: number;
+  enabled?: boolean;
 }
 
 export interface LLMConfigUpdateRequest {
@@ -71,6 +84,23 @@ export interface LLMConfigUpdateRequest {
   top_p?: number;
   max_tokens?: number;
   enabled?: boolean;
+}
+
+export interface LLMConfigListResponse {
+  configs: LLMConfig[];
+  active_name: string;
+}
+
+export interface AgentConfig {
+  agent_max_iterations: number;
+  agent_timeout_seconds: number;
+  skills_char_budget: number;
+}
+
+export interface AgentConfigUpdateRequest {
+  agent_max_iterations?: number;
+  agent_timeout_seconds?: number;
+  skills_char_budget?: number;
 }
 
 export interface ApiResponse<T> {

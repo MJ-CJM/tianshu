@@ -35,20 +35,15 @@ def submit(
         console.print_json(json.dumps(data))
         return
 
-    memorial = data.get("data", {})
-    status = memorial.get("status", "unknown")
+    edict = data.get("data", {})
+    status = edict.get("status", "unknown")
     color = _STATUS_COLORS.get(status, "white")
 
     console.print(f"\nEdict submitted:")
-    console.print(f"  Edict ID:    {memorial.get('edict_id', 'N/A')}")
-    console.print(f"  Memorial ID: {memorial.get('id', 'N/A')}")
-    console.print(f"  Status:      [{color}]{status}[/{color}]")
-
-    if memorial.get("summary"):
-        console.print(f"\n[bold]Summary:[/bold]")
-        console.print(memorial["summary"])
-    if memorial.get("error"):
-        console.print(f"\n[red]Error:[/red] {memorial['error']}")
+    console.print(f"  Edict ID: {edict.get('id', 'N/A')}")
+    console.print(f"  Goal:     {edict.get('goal', 'N/A')}")
+    console.print(f"  Status:   [{color}]{status}[/{color}]")
+    console.print(f"\nUse [bold]tianshu edict get {edict.get('id', '<id>')}[/bold] to check progress")
 
 
 @app.command("get")

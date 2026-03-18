@@ -9,9 +9,10 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from tianshu.agent import Agent
-from tianshu.config import TianshuSettings
-from tianshu.config_manager import ConfigManager
+from tianshu.config_manager import ConfigManager, LLMConfigState
 from tianshu.models import (
+    AgentConfig,
+    AgentConfigUpdateRequest,
     ApiResponse,
     Edict,
     EdictCreateRequest,
@@ -20,6 +21,8 @@ from tianshu.models import (
     EdictUpdateRequest,
     FollowUpRequest,
     LLMConfig,
+    LLMConfigCreateRequest,
+    LLMConfigListResponse,
     LLMConfigUpdateRequest,
     Memorial,
     TaskStatus,
@@ -35,7 +38,7 @@ gateway_router = APIRouter()
 async def create_edict(body: EdictCreateRequest, request: Request):
     storage = request.app.state.storage
     agent = request.app.state.agent
-    settings = request.app.state.settings
+    config_manager: ConfigManager = request.app.state.config_manager
 
     title = body.goal[:20] + "…" if len(body.goal) > 20 else body.goal
     edict = Edict(title=title, goal=body.goal, context=body.context)
@@ -46,7 +49,7 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     storage.append_event(edict.id, memorial.id, "edict.submitted", {"goal": edict.goal})
 
     task = asyncio.create_task(
-        _run_agent(agent, edict, memorial, storage, settings)
+        _run_agent(agent, edict, memorial, storage, config_manager)
     )
     request.app.state.running_tasks.add(task)
     task.add_done_callback(request.app.state.running_tasks.discard)
@@ -62,7 +65,7 @@ async def _run_agent(
     edict: Edict,
     memorial: Memorial,
     storage: Storage,
-    settings: TianshuSettings,
+    config_manager: ConfigManager,
     history: list[dict] | None = None,
     user_content: str | None = None,
 ) -> None:
@@ -78,6 +81,7 @@ async def _run_agent(
         storage.append_event(edict.id, memorial.id, event["type"], event)
 
     try:
+        timeout = config_manager.agent_config.agent_timeout_seconds
         result = await asyncio.wait_for(
             agent.execute(
                 edict,
@@ -85,7 +89,7 @@ async def _run_agent(
                 history=history,
                 user_content=user_content,
             ),
-            timeout=settings.agent_timeout_seconds,
+            timeout=timeout,
         )
         memorial.status = result.status
         memorial.summary = result.summary
@@ -113,7 +117,7 @@ async def _run_agent(
         raise
     except asyncio.TimeoutError:
         memorial.status = TaskStatus.FAILED
-        memorial.error = f"Execution timed out after {settings.agent_timeout_seconds}s"
+        memorial.error = f"Execution timed out after {timeout}s"
         storage.append_event(edict.id, memorial.id, "execution.failed", {
             "error": memorial.error,
         })
@@ -225,7 +229,7 @@ async def list_edict_memorials(edict_id: str, request: Request):
 async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request):
     storage = request.app.state.storage
     agent = request.app.state.agent
-    settings = request.app.state.settings
+    config_manager: ConfigManager = request.app.state.config_manager
 
     edict = storage.get_edict(edict_id)
     if not edict:
@@ -244,7 +248,7 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
     storage.append_event(edict.id, memorial.id, "followup.submitted", {"instruction": body.instruction})
 
     task = asyncio.create_task(
-        _run_agent(agent, edict, memorial, storage, settings, history=history, user_content=body.instruction)
+        _run_agent(agent, edict, memorial, storage, config_manager, history=history, user_content=body.instruction)
     )
     request.app.state.running_tasks.add(task)
     task.add_done_callback(request.app.state.running_tasks.discard)
@@ -300,9 +304,38 @@ async def get_memorial(memorial_id: str, request: Request):
     return ApiResponse(success=True, data=memorial.model_dump(mode="json"))
 
 
-def _state_to_config(cm: ConfigManager) -> LLMConfig:
-    s = cm.state
+@gateway_router.get("/agent-config", response_model=ApiResponse)
+async def get_agent_config(request: Request):
+    cm: ConfigManager = request.app.state.config_manager
+    state = cm.agent_config
+    data = AgentConfig(
+        agent_max_iterations=state.agent_max_iterations,
+        agent_timeout_seconds=state.agent_timeout_seconds,
+        skills_char_budget=state.skills_char_budget,
+    )
+    return ApiResponse(success=True, data=data.model_dump())
+
+
+@gateway_router.put("/agent-config", response_model=ApiResponse)
+async def update_agent_config(body: AgentConfigUpdateRequest, request: Request):
+    cm: ConfigManager = request.app.state.config_manager
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        state = cm.agent_config
+    else:
+        state = cm.update_agent_config(**updates)
+        logger.info("Agent config updated: %s", list(updates.keys()))
+    data = AgentConfig(
+        agent_max_iterations=state.agent_max_iterations,
+        agent_timeout_seconds=state.agent_timeout_seconds,
+        skills_char_budget=state.skills_char_budget,
+    )
+    return ApiResponse(success=True, data=data.model_dump())
+
+
+def _state_to_config(s: LLMConfigState) -> LLMConfig:
     return LLMConfig(
+        name=s.name,
         model=s.model,
         api_key_masked=ConfigManager.mask_api_key(s.api_key),
         api_base=s.api_base,
@@ -314,10 +347,13 @@ def _state_to_config(cm: ConfigManager) -> LLMConfig:
     )
 
 
+# --- Legacy single-config endpoints (operate on active config) ---
+
+
 @gateway_router.get("/config", response_model=ApiResponse)
 async def get_config(request: Request):
     cm: ConfigManager = request.app.state.config_manager
-    return ApiResponse(success=True, data=_state_to_config(cm).model_dump())
+    return ApiResponse(success=True, data=_state_to_config(cm.state).model_dump())
 
 
 @gateway_router.put("/config", response_model=ApiResponse)
@@ -325,7 +361,80 @@ async def update_config(body: LLMConfigUpdateRequest, request: Request):
     cm: ConfigManager = request.app.state.config_manager
     updates = body.model_dump(exclude_none=True)
     if not updates:
-        return ApiResponse(success=True, data=_state_to_config(cm).model_dump())
+        return ApiResponse(success=True, data=_state_to_config(cm.state).model_dump())
     cm.update(**updates)
     logger.info("LLM config updated: %s", list(updates.keys()))
-    return ApiResponse(success=True, data=_state_to_config(cm).model_dump())
+    return ApiResponse(success=True, data=_state_to_config(cm.state).model_dump())
+
+
+# --- Multi-config endpoints ---
+
+
+@gateway_router.get("/configs", response_model=ApiResponse)
+async def list_configs(request: Request):
+    cm: ConfigManager = request.app.state.config_manager
+    configs, active_name = cm.list_configs()
+    resp = LLMConfigListResponse(
+        configs=[_state_to_config(c) for c in configs],
+        active_name=active_name,
+    )
+    return ApiResponse(success=True, data=resp.model_dump())
+
+
+@gateway_router.post("/configs", response_model=ApiResponse, status_code=201)
+async def create_config(body: LLMConfigCreateRequest, request: Request):
+    cm: ConfigManager = request.app.state.config_manager
+    state = LLMConfigState(
+        name=body.name,
+        model=body.model,
+        api_key=body.api_key,
+        api_base=body.api_base,
+        max_retries=body.max_retries,
+        temperature=body.temperature,
+        top_p=body.top_p,
+        max_tokens=body.max_tokens,
+        enabled=body.enabled,
+    )
+    try:
+        cm.add_config(state)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return ApiResponse(success=True, data=_state_to_config(state).model_dump())
+
+
+@gateway_router.put("/configs/{name}", response_model=ApiResponse)
+async def update_named_config(name: str, body: LLMConfigUpdateRequest, request: Request):
+    cm: ConfigManager = request.app.state.config_manager
+    updates = body.model_dump(exclude_none=True)
+    try:
+        new_state = cm.update_config(name, **updates) if updates else cm.get_config(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+    return ApiResponse(success=True, data=_state_to_config(new_state).model_dump())
+
+
+@gateway_router.delete("/configs/{name}", response_model=ApiResponse)
+async def delete_named_config(name: str, request: Request):
+    cm: ConfigManager = request.app.state.config_manager
+    try:
+        cm.delete_config(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return ApiResponse(success=True, data={"name": name})
+
+
+@gateway_router.put("/configs/{name}/activate", response_model=ApiResponse)
+async def activate_config(name: str, request: Request):
+    cm: ConfigManager = request.app.state.config_manager
+    try:
+        cm.set_active(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+    configs, active_name = cm.list_configs()
+    resp = LLMConfigListResponse(
+        configs=[_state_to_config(c) for c in configs],
+        active_name=active_name,
+    )
+    return ApiResponse(success=True, data=resp.model_dump())

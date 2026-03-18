@@ -1,6 +1,44 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getConfig, updateConfig } from "../api/config";
-import type { LLMConfigUpdateRequest } from "../api/types";
+import {
+  activateConfig,
+  createConfig,
+  deleteConfig,
+  getAgentConfig,
+  getConfig,
+  listConfigs,
+  updateAgentConfig,
+  updateConfig,
+  updateNamedConfig,
+} from "../api/config";
+import type {
+  AgentConfigUpdateRequest,
+  LLMConfigCreateRequest,
+  LLMConfigUpdateRequest,
+} from "../api/types";
+
+const CONFIGS_KEY = ["configs"];
+const AGENT_CONFIG_KEY = ["agent-config"];
+
+// --- Agent Config ---
+
+export function useAgentConfig() {
+  return useQuery({
+    queryKey: AGENT_CONFIG_KEY,
+    queryFn: getAgentConfig,
+  });
+}
+
+export function useUpdateAgentConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (req: AgentConfigUpdateRequest) => updateAgentConfig(req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AGENT_CONFIG_KEY });
+    },
+  });
+}
+
+// --- Legacy (active config) ---
 
 export function useConfig() {
   return useQuery({
@@ -14,6 +52,58 @@ export function useUpdateConfig() {
   return useMutation({
     mutationFn: (req: LLMConfigUpdateRequest) => updateConfig(req),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["config"] });
+      queryClient.invalidateQueries({ queryKey: CONFIGS_KEY });
+    },
+  });
+}
+
+// --- Multi-config ---
+
+export function useConfigs() {
+  return useQuery({
+    queryKey: CONFIGS_KEY,
+    queryFn: listConfigs,
+  });
+}
+
+export function useCreateConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (req: LLMConfigCreateRequest) => createConfig(req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CONFIGS_KEY });
+    },
+  });
+}
+
+export function useUpdateNamedConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, req }: { name: string; req: LLMConfigUpdateRequest }) =>
+      updateNamedConfig(name, req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CONFIGS_KEY });
+    },
+  });
+}
+
+export function useDeleteConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => deleteConfig(name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CONFIGS_KEY });
+    },
+  });
+}
+
+export function useActivateConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => activateConfig(name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CONFIGS_KEY });
       queryClient.invalidateQueries({ queryKey: ["config"] });
     },
   });

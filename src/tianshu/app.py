@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from tianshu.agent import Agent
 from tianshu.config import TianshuSettings
-from tianshu.config_manager import ConfigManager, LLMConfigState
+from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
 from tianshu.gateway import gateway_router
 from tianshu.skills.loader import SkillsLoader
 from tianshu.storage import Storage
@@ -55,6 +55,7 @@ async def lifespan(app: FastAPI):
 
     # LLM Config Manager
     initial_state = LLMConfigState(
+        name=settings.llm_model,
         model=settings.llm_model,
         api_key=settings.llm_api_key,
         api_base=settings.llm_api_base,
@@ -63,15 +64,19 @@ async def lifespan(app: FastAPI):
         top_p=settings.llm_top_p,
         max_tokens=settings.llm_max_tokens,
     )
-    config_manager = ConfigManager(initial_state)
+    agent_config = AgentConfigState(
+        agent_max_iterations=settings.agent_max_iterations,
+        agent_timeout_seconds=settings.agent_timeout_seconds,
+        skills_char_budget=settings.skills_char_budget,
+    )
+    config_manager = ConfigManager(initial_state, agent_config=agent_config)
     app.state.config_manager = config_manager
 
     # Agent
     agent = Agent(
-        config_manager=config_manager, tools=tools, skills=skills, settings=settings
+        config_manager=config_manager, tools=tools, skills=skills,
     )
     app.state.agent = agent
-    app.state.settings = settings
 
     app.state.running_tasks = set()
 

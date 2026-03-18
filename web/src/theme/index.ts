@@ -1,51 +1,95 @@
-import { theme, type ThemeConfig } from "antd";
+import { theme } from "antd";
+import type { ThemeConfig } from "antd";
+import type { ThemeMode } from "../hooks/useTheme";
 
-const themeConfig: ThemeConfig = {
-  algorithm: theme.darkAlgorithm,
+const sharedToken = {
+  fontFamily:
+    "'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  fontFamilyCode: "'JetBrains Mono', 'Fira Code', monospace",
+  borderRadius: 10,
+  wireframe: false,
+};
+
+const sharedComponents = {
+  Descriptions: { titleMarginBottom: 8 },
+  Statistic: { titleFontSize: 12, contentFontSize: 22 },
+};
+
+export const lightTheme: ThemeConfig = {
   token: {
-    colorPrimary: "#00d4ff",
-    colorBgBase: "#0a0e1a",
-    colorBgContainer: "rgba(17, 24, 39, 0.65)",
-    colorBgElevated: "rgba(26, 35, 50, 0.85)",
-    colorBorder: "rgba(30, 58, 95, 0.8)",
-    colorText: "#e2e8f0",
-    colorTextSecondary: "#94a3b8",
-    fontFamily:
-      "'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    fontFamilyCode: "'JetBrains Mono', 'Fira Code', monospace",
-    borderRadius: 10,
-    wireframe: false,
+    ...sharedToken,
+    colorPrimary: "#1a1a1a",
+    colorBgBase: "#f8f8f7",
+    colorBgContainer: "#ffffff",
+    colorBgElevated: "#ffffff",
+    colorBorder: "#e8e8e5",
+    colorText: "#1a1a1a",
+    colorTextSecondary: "#8e8e8e",
   },
   components: {
+    ...sharedComponents,
     Layout: {
-      siderBg: "rgba(13, 19, 33, 0.85)",
-      headerBg: "rgba(13, 19, 33, 0.9)",
+      siderBg: "#ffffff",
+      headerBg: "#ffffff",
       bodyBg: "transparent",
     },
     Menu: {
-      darkItemBg: "transparent",
-      darkItemSelectedBg: "rgba(0, 212, 255, 0.1)",
-      darkItemHoverBg: "rgba(0, 212, 255, 0.06)",
+      itemBg: "transparent",
+      itemSelectedBg: "rgba(0, 0, 0, 0.04)",
+      itemHoverBg: "rgba(0, 0, 0, 0.02)",
     },
     Table: {
-      headerBg: "rgba(17, 24, 39, 0.8)",
-      rowHoverBg: "rgba(0, 212, 255, 0.05)",
+      headerBg: "#fafafa",
+      rowHoverBg: "rgba(0, 0, 0, 0.02)",
     },
     Card: {
-      colorBgContainer: "rgba(17, 24, 39, 0.65)",
+      colorBgContainer: "#ffffff",
       paddingLG: 20,
     },
     Button: {
-      primaryShadow: "0 0 12px rgba(0, 212, 255, 0.3)",
-    },
-    Descriptions: {
-      titleMarginBottom: 8,
-    },
-    Statistic: {
-      titleFontSize: 12,
-      contentFontSize: 22,
+      primaryShadow: "0 2px 4px rgba(0, 0, 0, 0.06)",
     },
   },
 };
 
-export default themeConfig;
+export const darkTheme: ThemeConfig = {
+  algorithm: theme.darkAlgorithm,
+  token: {
+    ...sharedToken,
+    colorPrimary: "#e8e8e8",
+    colorBgBase: "#141414",
+    colorBgContainer: "#1f1f1f",
+    colorBgElevated: "#1f1f1f",
+    colorBorder: "#303030",
+    colorText: "#e8e8e8",
+    colorTextSecondary: "#999999",
+  },
+  components: {
+    ...sharedComponents,
+    Layout: {
+      siderBg: "#141414",
+      headerBg: "#141414",
+      bodyBg: "transparent",
+    },
+    Menu: {
+      itemBg: "transparent",
+      itemSelectedBg: "rgba(255, 255, 255, 0.08)",
+      itemHoverBg: "rgba(255, 255, 255, 0.04)",
+    },
+    Table: {
+      headerBg: "#1a1a1a",
+      rowHoverBg: "rgba(255, 255, 255, 0.04)",
+    },
+    Card: {
+      colorBgContainer: "#1f1f1f",
+      paddingLG: 20,
+    },
+    Button: {
+      primaryShadow: "0 2px 4px rgba(0, 0, 0, 0.2)",
+    },
+  },
+};
+
+export function getThemeConfig(mode: ThemeMode): ThemeConfig {
+  return mode === "dark" ? darkTheme : lightTheme;
+}

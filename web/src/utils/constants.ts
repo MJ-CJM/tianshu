@@ -2,7 +2,7 @@ import type { EdictStatus, TaskStatus } from "../api/types";
 
 export const STATUS_COLORS: Record<TaskStatus, string> = {
   submitted: "#faad14",
-  running: "#00d4ff",
+  running: "#1890ff",
   completed: "#52c41a",
   failed: "#ff4d4f",
   cancelled: "#8c8c8c",

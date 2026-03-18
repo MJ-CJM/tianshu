@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Button, Input, Modal, Spin, Typography, Tag, Space, Popconfirm, message } from "antd";
+import { Button, Input, Modal, Spin, Typography, Tag, Space, Popconfirm, message, theme } from "antd";
 import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined } from "@ant-design/icons";
 import { useEdictDetail } from "../hooks/useEdictDetail";
 import { followUpEdict, updateEdictStatus, updateEdict } from "../api/edicts";
@@ -17,6 +17,7 @@ import type { UsageSummary } from "../api/types";
 export default function EdictDetailPage() {
   const { edictId } = useParams<{ edictId: string }>();
   const navigate = useNavigate();
+  const { token } = theme.useToken();
   const { edict, memorials, events, isLoading, refetch } = useEdictDetail(edictId ?? "");
   const [instruction, setInstruction] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -163,20 +164,20 @@ export default function EdictDetailPage() {
         style={{ marginBottom: 24 }}
       >
         <div style={{ marginBottom: 12 }}>
-          <Typography.Text style={{ color: "#e2e8f0", fontSize: 15 }}>
+          <Typography.Text style={{ color: token.colorText, fontSize: 15 }}>
             {edict.goal}
           </Typography.Text>
         </div>
         {edict.context && (
           <div style={{ marginBottom: 12 }}>
-            <Typography.Text style={{ color: "#94a3b8", fontSize: 13 }}>
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 13 }}>
               {edict.context}
             </Typography.Text>
           </div>
         )}
-        <Space size={16} style={{ color: "#475569", fontSize: 12 }}>
+        <Space size={16} style={{ color: token.colorTextSecondary, fontSize: 12 }}>
           <span title={edict.id}>
-            <MonoText style={{ color: "#475569", fontSize: 11 }}>
+            <MonoText style={{ color: token.colorTextSecondary, fontSize: 11 }}>
               {truncateId(edict.id, 12)}
             </MonoText>
           </span>
