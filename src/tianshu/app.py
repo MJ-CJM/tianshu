@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,8 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from tianshu.agent import Agent
 from tianshu.config import TianshuSettings
+from tianshu.config_manager import ConfigManager, LLMConfigState
 from tianshu.gateway import gateway_router
-from tianshu.llm import LLMClient
 from tianshu.skills.loader import SkillsLoader
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
@@ -54,32 +53,36 @@ async def lifespan(app: FastAPI):
         char_budget=settings.skills_char_budget,
     )
 
-    # LLM
-    llm = LLMClient(
+    # LLM Config Manager
+    initial_state = LLMConfigState(
         model=settings.llm_model,
         api_key=settings.llm_api_key,
+        api_base=settings.llm_api_base,
         max_retries=settings.llm_max_retries,
+        temperature=settings.llm_temperature,
+        top_p=settings.llm_top_p,
+        max_tokens=settings.llm_max_tokens,
     )
+    config_manager = ConfigManager(initial_state)
+    app.state.config_manager = config_manager
 
     # Agent
-    agent = Agent(llm=llm, tools=tools, skills=skills, settings=settings)
+    agent = Agent(
+        config_manager=config_manager, tools=tools, skills=skills, settings=settings
+    )
     app.state.agent = agent
     app.state.settings = settings
 
-    # Graceful shutdown (only in main thread)
-    import threading
-
-    if threading.current_thread() is threading.main_thread():
-        def _handle_signal(sig, _frame):
-            logger.info("Received signal %s, shutting down...", sig)
-            agent.request_shutdown()
-
-        signal.signal(signal.SIGINT, _handle_signal)
-        signal.signal(signal.SIGTERM, _handle_signal)
+    app.state.running_tasks = set()
 
     logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     yield
 
+    # Graceful shutdown: cancel running agent tasks, then clean up
+    agent.request_shutdown()
+    for task in list(app.state.running_tasks):
+        task.cancel()
+    await asyncio.gather(*app.state.running_tasks, return_exceptions=True)
     storage.close()
     logger.info("Tianshu shutdown complete")
 

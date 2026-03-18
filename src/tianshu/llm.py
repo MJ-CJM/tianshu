@@ -27,10 +27,23 @@ class LLMResponse:
 
 
 class LLMClient:
-    def __init__(self, model: str, api_key: str, max_retries: int = 3) -> None:
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        api_base: str = "",
+        max_retries: int = 3,
+        temperature: float = 0.7,
+        top_p: float = 1.0,
+        max_tokens: int = 4096,
+    ) -> None:
         self._model = model
         self._api_key = api_key
+        self._api_base = api_base
         self._max_retries = max_retries
+        self._temperature = temperature
+        self._top_p = top_p
+        self._max_tokens = max_tokens
 
     @retry(
         wait=wait_exponential(min=1, max=4),
@@ -45,12 +58,23 @@ class LLMClient:
         messages: list[dict],
         tools: list[dict] | None = None,
     ) -> LLMResponse:
+        # When api_base is set and model has no provider prefix,
+        # prepend "openai/" so LiteLLM routes via OpenAI-compatible path.
+        model = self._model
+        if self._api_base and "/" not in model:
+            model = f"openai/{model}"
+
         kwargs: dict = {
-            "model": self._model,
+            "model": model,
             "messages": messages,
+            "temperature": self._temperature,
+            "top_p": self._top_p,
+            "max_tokens": self._max_tokens,
         }
         if self._api_key:
             kwargs["api_key"] = self._api_key
+        if self._api_base:
+            kwargs["api_base"] = self._api_base
         if tools:
             kwargs["tools"] = tools
 

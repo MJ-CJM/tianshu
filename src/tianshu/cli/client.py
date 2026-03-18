@@ -38,3 +38,17 @@ def api_post(path: str, json_data: dict) -> dict:
     except httpx.HTTPStatusError as e:
         print(f"API error: {e.response.status_code} - {e.response.text}", file=sys.stderr)
         raise SystemExit(1)
+
+
+def api_put(path: str, json_data: dict) -> dict:
+    try:
+        with httpx.Client(base_url=_base_url(), timeout=360.0) as client:
+            resp = client.put(path, json=json_data)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.ConnectError:
+        print(f"Cannot connect to Tianshu ({_base_url()})", file=sys.stderr)
+        raise SystemExit(1)
+    except httpx.HTTPStatusError as e:
+        print(f"API error: {e.response.status_code} - {e.response.text}", file=sys.stderr)
+        raise SystemExit(1)

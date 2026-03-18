@@ -16,3 +16,5 @@ venv/
 htmlcov/
 node_modules/
 src/tianshu/web/static/
+web/*.local
+web/tsconfig.tsbuildinfo

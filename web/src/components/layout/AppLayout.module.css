@@ -1,0 +1,19 @@
+.root {
+  min-height: 100vh;
+  background:
+    linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+    #0a0e1a;
+  background-size: 40px 40px;
+}
+
+.content {
+  overflow-y: auto;
+  height: calc(100vh - 56px);
+}
+
+/* 表头使用宋体 */
+:global(.ant-table-thead > tr > th) {
+  font-family: 'Noto Serif SC', serif !important;
+  font-weight: 700 !important;
+}

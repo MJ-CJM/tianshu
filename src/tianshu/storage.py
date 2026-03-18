@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ulid import ULID
 
-from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
+from tianshu.models import Edict, EdictStatus, Memorial, TaskStatus, UsageSummary
 
 
 class Storage:
@@ -25,6 +25,7 @@ class Storage:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._create_tables()
+        self._migrate()
 
     def _create_tables(self) -> None:
         with self._conn:
@@ -64,6 +65,19 @@ class Storage:
                     ON events(edict_id);
             """)
 
+    def _migrate(self) -> None:
+        migrations = [
+            "ALTER TABLE edicts ADD COLUMN status TEXT NOT NULL DEFAULT 'open'",
+            "ALTER TABLE memorials ADD COLUMN instruction TEXT",
+        ]
+        for sql in migrations:
+            try:
+                self._conn.execute(sql)
+                self._conn.commit()
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    raise
+
     def close(self) -> None:
         if self._conn:
             self._conn.close()
@@ -74,8 +88,8 @@ class Storage:
     def save_edict(self, edict: Edict) -> None:
         with self._lock, self._conn:
             self._conn.execute(
-                "INSERT INTO edicts (id, goal, context, created_at) VALUES (?, ?, ?, ?)",
-                (edict.id, edict.goal, edict.context, edict.created_at.isoformat()),
+                "INSERT INTO edicts (id, goal, context, status, created_at) VALUES (?, ?, ?, ?, ?)",
+                (edict.id, edict.goal, edict.context, edict.status.value, edict.created_at.isoformat()),
             )
 
     def get_edict(self, edict_id: str) -> Edict | None:
@@ -91,16 +105,11 @@ class Storage:
         with self._lock:
             if status:
                 rows = self._conn.execute(
-                    """SELECT e.* FROM edicts e
-                       JOIN memorials m ON m.edict_id = e.id
-                       WHERE m.status = ?
-                       ORDER BY e.created_at DESC LIMIT ? OFFSET ?""",
+                    "SELECT * FROM edicts WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
                     (status, limit, offset),
                 ).fetchall()
                 total = self._conn.execute(
-                    """SELECT COUNT(*) FROM edicts e
-                       JOIN memorials m ON m.edict_id = e.id
-                       WHERE m.status = ?""",
+                    "SELECT COUNT(*) FROM edicts WHERE status = ?",
                     (status,),
                 ).fetchone()[0]
             else:
@@ -111,15 +120,22 @@ class Storage:
                 total = self._conn.execute("SELECT COUNT(*) FROM edicts").fetchone()[0]
         return [self._row_to_edict(r) for r in rows], total
 
+    def update_edict_status(self, edict_id: str, status: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE edicts SET status = ? WHERE id = ?",
+                (status, edict_id),
+            )
+
     # --- Memorial ---
 
     def save_memorial(self, memorial: Memorial) -> None:
         with self._lock, self._conn:
             self._conn.execute(
                 """INSERT INTO memorials
-                   (id, edict_id, status, summary, result, usage_json,
+                   (id, edict_id, instruction, status, summary, result, usage_json,
                     error, created_at, started_at, completed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 self._memorial_to_params(memorial),
             )
 
@@ -156,6 +172,14 @@ class Storage:
                 (edict_id,),
             ).fetchone()
         return self._row_to_memorial(row) if row else None
+
+    def list_memorials_by_edict(self, edict_id: str) -> list[Memorial]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM memorials WHERE edict_id = ? ORDER BY created_at ASC",
+                (edict_id,),
+            ).fetchall()
+        return [self._row_to_memorial(r) for r in rows]
 
     def list_memorials(
         self, status: str | None = None, limit: int = 50, offset: int = 0
@@ -227,6 +251,7 @@ class Storage:
             id=row["id"],
             goal=row["goal"],
             context=row["context"],
+            status=EdictStatus(row["status"]),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
@@ -236,6 +261,7 @@ class Storage:
         return Memorial(
             id=row["id"],
             edict_id=row["edict_id"],
+            instruction=row["instruction"],
             status=TaskStatus(row["status"]),
             summary=row["summary"],
             result=row["result"],
@@ -257,6 +283,7 @@ class Storage:
         return (
             m.id,
             m.edict_id,
+            m.instruction,
             m.status.value,
             m.summary,
             m.result,

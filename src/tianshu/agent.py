@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from collections.abc import Callable
 
 from pydantic import BaseModel, Field
 
 from tianshu.config import TianshuSettings
+from tianshu.config_manager import ConfigManager
 from tianshu.llm import LLMClient
 from tianshu.models import Edict, TaskStatus, UsageSummary
 from tianshu.skills.loader import SkillsLoader
@@ -35,12 +38,12 @@ class AgentResult(BaseModel):
 class Agent:
     def __init__(
         self,
-        llm: LLMClient,
+        config_manager: ConfigManager,
         tools: ToolRegistry,
         skills: SkillsLoader,
         settings: TianshuSettings,
     ) -> None:
-        self._llm = llm
+        self._config_manager = config_manager
         self._tools = tools
         self._skills = skills
         self._settings = settings
@@ -49,19 +52,50 @@ class Agent:
     def request_shutdown(self) -> None:
         self._shutdown_event.set()
 
-    async def execute(self, edict: Edict) -> AgentResult:
-        system_prompt = self._build_system_prompt(edict)
-        user_content = edict.goal
-        if edict.context:
-            user_content += f"\n\nAdditional context: {edict.context}"
+    async def execute(
+        self,
+        edict: Edict,
+        on_event: Callable[[dict], None] | None = None,
+        history: list[dict] | None = None,
+        user_content: str | None = None,
+    ) -> AgentResult:
+        # Read runtime config at execution start
+        state = self._config_manager.state
+        if not state.enabled:
+            return AgentResult(
+                status=TaskStatus.FAILED,
+                error="LLM is currently disabled",
+            )
 
-        messages: list[dict] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ]
+        llm = LLMClient(
+            model=state.model,
+            api_key=state.api_key,
+            api_base=state.api_base,
+            max_retries=state.max_retries,
+            temperature=state.temperature,
+            top_p=state.top_p,
+            max_tokens=state.max_tokens,
+        )
+
+        system_prompt = self._build_system_prompt(edict)
+
+        if user_content is None:
+            user_content = edict.goal
+            if edict.context:
+                user_content += f"\n\nAdditional context: {edict.context}"
+
+        messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": user_content})
 
         usage = UsageSummary()
         events: list[dict] = []
+
+        def _emit(event: dict) -> None:
+            events.append(event)
+            if on_event is not None:
+                on_event(event)
 
         for iteration in range(self._settings.agent_max_iterations):
             if self._shutdown_event.is_set():
@@ -72,8 +106,10 @@ class Agent:
                     events=events,
                 )
 
+            _emit({"type": "iteration.started", "iteration": iteration})
+
             openai_tools = self._tools.get_openai_tools() or None
-            response = await self._llm.chat(messages, tools=openai_tools)
+            response = await llm.chat(messages, tools=openai_tools)
             usage = self._accumulate_usage(usage, response.usage)
 
             if response.tool_calls:
@@ -103,10 +139,13 @@ class Agent:
                         "tool_call_id": tc["id"],
                         "content": result[:500],  # Truncate per NanoBot pattern
                     })
-                    events.append({
+                    args_str = tc["args"] if isinstance(tc["args"], str) else json.dumps(tc["args"])
+                    _emit({
                         "type": "tool.completed",
                         "tool": tc["name"],
                         "iteration": iteration,
+                        "args_preview": args_str[:200],
+                        "result_preview": result[:200],
                     })
             else:
                 # No tool calls = final answer

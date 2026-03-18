@@ -1,0 +1,19 @@
+.card {
+  border: 1px solid #1e3a5f;
+  box-shadow: 0 0 15px rgba(0, 212, 255, 0.05);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.card:hover {
+  border-color: rgba(0, 212, 255, 0.3);
+  box-shadow: 0 0 25px rgba(0, 212, 255, 0.1);
+}
+
+.runningGlow {
+  animation: borderGlow 3s ease-in-out infinite;
+}
+
+@keyframes borderGlow {
+  0%, 100% { border-color: #1e3a5f; box-shadow: 0 0 15px rgba(0, 212, 255, 0.05); }
+  50% { border-color: rgba(0, 212, 255, 0.4); box-shadow: 0 0 20px rgba(0, 212, 255, 0.15); }
+}
