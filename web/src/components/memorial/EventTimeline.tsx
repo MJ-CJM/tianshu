@@ -93,7 +93,7 @@ export default function EventTimeline({ events }: EventTimelineProps) {
   });
 
   return (
-    <GlowCard title={`批阅记录 (${events.length})`}>
+    <GlowCard title={`办理记录 (${events.length})`}>
       <Collapse
         ghost
         items={[

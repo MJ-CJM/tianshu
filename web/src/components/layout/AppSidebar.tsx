@@ -105,7 +105,7 @@ export default function AppSidebar() {
       trigger={null}
       width={200}
       collapsedWidth={60}
-      style={{ borderRight: "1px solid #1e3a5f" }}
+      style={{ borderRight: "1px solid rgba(30, 58, 95, 0.6)", backdropFilter: "blur(12px)" }}
     >
       <div
         style={{
@@ -125,7 +125,7 @@ export default function AppSidebar() {
 
         <div
           style={{
-            borderTop: "1px solid #1e3a5f",
+            borderTop: "1px solid rgba(30, 58, 95, 0.6)",
             padding: collapsed ? "8px 0" : "8px 12px",
             display: "flex",
             flexDirection: "column",

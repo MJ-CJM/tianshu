@@ -10,7 +10,7 @@ export const STATUS_COLORS: Record<TaskStatus, string> = {
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
   submitted: "已呈递",
-  running: "批阅中",
+  running: "办理中",
   completed: "已完成",
   failed: "已驳回",
   cancelled: "已撤回",

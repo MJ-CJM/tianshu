@@ -1,19 +1,116 @@
 .root {
   min-height: 100vh;
   background:
-    linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px),
-    #0a0e1a;
-  background-size: 40px 40px;
+    linear-gradient(rgba(0, 212, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(160deg, #0a0e1a 0%, #0d1528 40%, #111232 70%, #0a0e1a 100%);
+  background-size: 40px 40px, 40px 40px, 100% 100%;
 }
 
 .content {
   overflow-y: auto;
   height: calc(100vh - 56px);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 212, 255, 0.15) transparent;
+}
+
+.content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.content::-webkit-scrollbar-thumb {
+  background: rgba(0, 212, 255, 0.15);
+  border-radius: 3px;
+}
+
+.content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 212, 255, 0.3);
 }
 
 /* 表头使用宋体 */
 :global(.ant-table-thead > tr > th) {
   font-family: 'Noto Serif SC', serif !important;
   font-weight: 700 !important;
+}
+
+/* Markdown 内容样式 */
+:global(.memorial-markdown) {
+  word-break: break-word;
+}
+
+:global(.memorial-markdown p) {
+  margin: 0 0 0.6em;
+}
+
+:global(.memorial-markdown p:last-child) {
+  margin-bottom: 0;
+}
+
+:global(.memorial-markdown h1),
+:global(.memorial-markdown h2),
+:global(.memorial-markdown h3) {
+  color: #e2e8f0;
+  margin: 1em 0 0.4em;
+  font-weight: 600;
+}
+
+:global(.memorial-markdown h1) { font-size: 1.3em; }
+:global(.memorial-markdown h2) { font-size: 1.15em; }
+:global(.memorial-markdown h3) { font-size: 1.05em; }
+
+:global(.memorial-markdown code) {
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.15);
+  border-radius: 3px;
+  padding: 0.15em 0.4em;
+  font-size: 0.9em;
+}
+
+:global(.memorial-markdown pre) {
+  background: rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid rgba(30, 58, 95, 0.6);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+
+:global(.memorial-markdown pre code) {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+:global(.memorial-markdown ul),
+:global(.memorial-markdown ol) {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+
+:global(.memorial-markdown blockquote) {
+  border-left: 3px solid rgba(0, 212, 255, 0.3);
+  margin: 0.6em 0;
+  padding: 0.3em 0 0.3em 1em;
+  color: #94a3b8;
+}
+
+:global(.memorial-markdown table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.6em 0;
+}
+
+:global(.memorial-markdown th),
+:global(.memorial-markdown td) {
+  border: 1px solid #1e3a5f;
+  padding: 6px 10px;
+  font-size: 0.9em;
+}
+
+:global(.memorial-markdown th) {
+  background: rgba(0, 212, 255, 0.06);
 }

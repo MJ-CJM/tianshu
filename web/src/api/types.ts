@@ -15,6 +15,7 @@ export type EdictStatus = "open" | "completed" | "cancelled";
 
 export interface Edict {
   id: string;
+  title: string;
   goal: string;
   context: string | null;
   status: EdictStatus;
@@ -42,6 +43,12 @@ export interface EdictEvent {
   edict_id: string;
   memorial_id: string | null;
   payload: Record<string, unknown>;
+}
+
+export interface EdictUpdateRequest {
+  title?: string;
+  goal?: string;
+  context?: string;
 }
 
 export interface LLMConfig {

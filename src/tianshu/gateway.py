@@ -17,6 +17,7 @@ from tianshu.models import (
     EdictCreateRequest,
     EdictStatus,
     EdictStatusUpdateRequest,
+    EdictUpdateRequest,
     FollowUpRequest,
     LLMConfig,
     LLMConfigUpdateRequest,
@@ -36,7 +37,8 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     agent = request.app.state.agent
     settings = request.app.state.settings
 
-    edict = Edict(goal=body.goal, context=body.context)
+    title = body.goal[:20] + "…" if len(body.goal) > 20 else body.goal
+    edict = Edict(title=title, goal=body.goal, context=body.context)
     storage.save_edict(edict)
 
     memorial = Memorial(edict_id=edict.id, instruction=edict.goal, status=TaskStatus.SUBMITTED)
@@ -146,12 +148,16 @@ def _build_history(edict: Edict, memorials: list[Memorial]) -> list[dict]:
 async def list_edicts(
     request: Request,
     status: EdictStatus | None = None,
+    search: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
     storage = request.app.state.storage
     edicts, total = storage.list_edicts(
-        status=status.value if status else None, limit=limit, offset=offset
+        status=status.value if status else None,
+        search=search or None,
+        limit=limit,
+        offset=offset,
     )
     return ApiResponse(
         success=True,
@@ -167,6 +173,34 @@ async def get_edict(edict_id: str, request: Request):
     if not edict:
         raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
     return ApiResponse(success=True, data=edict.model_dump(mode="json"))
+
+
+@gateway_router.patch("/edicts/{edict_id}", response_model=ApiResponse)
+async def update_edict(edict_id: str, body: EdictUpdateRequest, request: Request):
+    storage = request.app.state.storage
+    edict = storage.get_edict(edict_id)
+    if not edict:
+        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    if edict.status != EdictStatus.OPEN:
+        raise HTTPException(status_code=400, detail="只有进行中的敕令可以编辑")
+    storage.update_edict(edict_id, title=body.title, goal=body.goal, context=body.context)
+    storage.append_event(edict_id, None, "edict.updated", {
+        "goal": body.goal, "context": body.context,
+    })
+    updated = storage.get_edict(edict_id)
+    return ApiResponse(success=True, data=updated.model_dump(mode="json"))
+
+
+@gateway_router.delete("/edicts/{edict_id}", response_model=ApiResponse)
+async def delete_edict(edict_id: str, request: Request):
+    storage = request.app.state.storage
+    edict = storage.get_edict(edict_id)
+    if not edict:
+        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    if edict.status not in (EdictStatus.OPEN, EdictStatus.CANCELLED):
+        raise HTTPException(status_code=400, detail="已结案的敕令不可删除")
+    storage.delete_edict(edict_id)
+    return ApiResponse(success=True, data={"id": edict_id})
 
 
 @gateway_router.get("/edicts/{edict_id}/memorial")

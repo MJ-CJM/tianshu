@@ -1,12 +1,15 @@
 .card {
-  border: 1px solid #1e3a5f;
-  box-shadow: 0 0 15px rgba(0, 212, 255, 0.05);
-  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+  border: 1px solid rgba(30, 58, 95, 0.8);
+  box-shadow: 0 0 15px rgba(0, 212, 255, 0.05), 0 4px 24px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
+  background: rgba(17, 24, 39, 0.65) !important;
+  transition: box-shadow 0.3s ease, border-color 0.3s ease, transform 0.2s ease;
 }
 
 .card:hover {
-  border-color: rgba(0, 212, 255, 0.3);
-  box-shadow: 0 0 25px rgba(0, 212, 255, 0.1);
+  border-color: rgba(0, 212, 255, 0.25);
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.08), 0 8px 32px rgba(0, 0, 0, 0.4);
+  transform: translateY(-1px);
 }
 
 .runningGlow {
@@ -14,6 +17,12 @@
 }
 
 @keyframes borderGlow {
-  0%, 100% { border-color: #1e3a5f; box-shadow: 0 0 15px rgba(0, 212, 255, 0.05); }
-  50% { border-color: rgba(0, 212, 255, 0.4); box-shadow: 0 0 20px rgba(0, 212, 255, 0.15); }
+  0%, 100% {
+    border-color: rgba(30, 58, 95, 0.8);
+    box-shadow: 0 0 15px rgba(0, 212, 255, 0.05), 0 4px 24px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    border-color: rgba(0, 212, 255, 0.4);
+    box-shadow: 0 0 25px rgba(0, 212, 255, 0.15), 0 4px 24px rgba(0, 0, 0, 0.3);
+  }
 }

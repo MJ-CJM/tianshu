@@ -20,7 +20,7 @@ export default function EdictCreatePage() {
       if (res.success && res.data) {
         notification.success({
           message: "敕令已呈递",
-          description: "天枢正在批阅",
+          description: "天枢正在办理",
         });
         navigate(`/edicts/${res.data.id}`);
       }

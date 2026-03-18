@@ -1,12 +1,11 @@
-import { Descriptions, Typography } from "antd";
-import { SyncOutlined } from "@ant-design/icons";
+import { Space, Typography } from "antd";
+import { SyncOutlined, ClockCircleOutlined } from "@ant-design/icons";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Memorial } from "../../api/types";
 import GlowCard from "../common/GlowCard";
 import StatusTag from "../edict/StatusTag";
-import MonoText from "../common/MonoText";
-import { formatTime, truncateId, formatDuration } from "../../utils/format";
+import { formatDuration } from "../../utils/format";
 import { STATUS_COLORS } from "../../utils/constants";
 import glowStyles from "../common/GlowCard.module.css";
 
@@ -19,16 +18,26 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
   const title = index !== undefined ? `奏折 #${index + 1}` : "奏折";
   const isRunning = memorial.status === "running";
   const borderColor = STATUS_COLORS[memorial.status] ?? "#1e3a5f";
+  const duration = formatDuration(memorial.started_at, memorial.completed_at);
+  const hasDuration = duration !== "—";
+
+  // When summary equals result, only show result (avoid duplication)
+  const showSummary = memorial.summary && memorial.summary !== memorial.result;
 
   return (
     <GlowCard
       title={
-        <span>
-          {title}
-          {isRunning && (
-            <SyncOutlined spin style={{ marginLeft: 8, color: "#00d4ff" }} />
+        <Space size="middle">
+          <span>{title}</span>
+          <StatusTag status={memorial.status} />
+          {isRunning && <SyncOutlined spin style={{ color: "#00d4ff" }} />}
+          {hasDuration && (
+            <Typography.Text style={{ color: "#64748b", fontSize: 12 }}>
+              <ClockCircleOutlined style={{ marginRight: 4 }} />
+              {duration}
+            </Typography.Text>
           )}
-        </span>
+        </Space>
       }
       className={isRunning ? glowStyles.runningGlow : undefined}
       style={{
@@ -36,35 +45,19 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
         borderLeft: `3px solid ${borderColor}`,
       }}
     >
-      <Descriptions column={2} size="small" colon={false}>
-        <Descriptions.Item label="编号">
-          <MonoText style={{ fontSize: 12 }}>
-            {truncateId(memorial.id)}
-          </MonoText>
-        </Descriptions.Item>
-        <Descriptions.Item label="状态">
-          <StatusTag status={memorial.status} />
-        </Descriptions.Item>
-        {memorial.instruction && (
-          <Descriptions.Item label="指令" span={2}>
+      {memorial.instruction && (
+        <div style={{ marginBottom: 12 }}>
+          <Typography.Text style={{ color: "#94a3b8", fontSize: 12 }}>
+            指令：
+          </Typography.Text>
+          <Typography.Text style={{ color: "#e2e8f0" }}>
             {memorial.instruction}
-          </Descriptions.Item>
-        )}
-        <Descriptions.Item label="开折时间">
-          {formatTime(memorial.started_at)}
-        </Descriptions.Item>
-        <Descriptions.Item label="封折时间">
-          {formatTime(memorial.completed_at)}
-        </Descriptions.Item>
-        {memorial.started_at && memorial.completed_at && (
-          <Descriptions.Item label="耗时">
-            {formatDuration(memorial.started_at, memorial.completed_at)}
-          </Descriptions.Item>
-        )}
-      </Descriptions>
+          </Typography.Text>
+        </div>
+      )}
 
-      {memorial.summary && (
-        <div style={{ marginTop: 16 }}>
+      {showSummary && (
+        <div style={{ marginBottom: 12 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             要旨
           </Typography.Text>
@@ -77,9 +70,9 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
       )}
 
       {memorial.result && (
-        <div style={{ marginTop: 16 }}>
+        <div>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            详文
+            {showSummary ? "详文" : "奏报"}
           </Typography.Text>
           <div
             className="memorial-markdown"
@@ -103,9 +96,9 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
       )}
 
       {memorial.error && (
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 12 }}>
           <Typography.Text type="danger" style={{ fontSize: 12 }}>
-            驳回
+            未竟
           </Typography.Text>
           <Typography.Paragraph
             style={{

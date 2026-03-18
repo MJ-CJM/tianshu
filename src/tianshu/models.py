@@ -32,6 +32,7 @@ class UsageSummary(BaseModel):
 
 class Edict(BaseModel):
     id: str = Field(default_factory=lambda: str(ULID()))
+    title: str = ""
     goal: str
     context: str | None = None
     status: EdictStatus = EdictStatus.OPEN
@@ -59,6 +60,12 @@ class EdictCreateRequest(BaseModel):
 
 class FollowUpRequest(BaseModel):
     instruction: str = Field(min_length=1)
+    context: str | None = None
+
+
+class EdictUpdateRequest(BaseModel):
+    title: str | None = None
+    goal: str | None = None
     context: str | None = None
 
 

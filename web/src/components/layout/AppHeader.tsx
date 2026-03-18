@@ -1,4 +1,4 @@
-import { Layout, Space, Typography } from "antd";
+import { Layout } from "antd";
 import HealthDot from "../common/HealthDot";
 
 export default function AppHeader() {
@@ -9,30 +9,32 @@ export default function AppHeader() {
         alignItems: "center",
         justifyContent: "space-between",
         padding: "0 24px",
-        borderBottom: "1px solid #1e3a5f",
+        borderBottom: "1px solid rgba(30, 58, 95, 0.6)",
         height: 56,
+        backdropFilter: "blur(12px)",
       }}
     >
-      <Space align="center" size={12}>
-        <img src="/favicon.svg" alt="天枢" style={{ width: 28, height: 28 }} />
-        <Typography.Title
-          level={4}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <img src="/favicon.svg" alt="天枢" style={{ width: 28, height: 28, display: "block" }} />
+        <span
           style={{
-            margin: 0,
             color: "#00d4ff",
             fontFamily: "'Noto Serif SC', serif",
             fontWeight: 700,
+            fontSize: 18,
             letterSpacing: 2,
+            lineHeight: 1,
+            textShadow: "0 0 12px rgba(0, 212, 255, 0.4)",
           }}
         >
           天枢
-        </Typography.Title>
-        <Typography.Text
-          style={{ color: "#64748b", fontSize: 12, marginLeft: 4 }}
+        </span>
+        <span
+          style={{ color: "#475569", fontSize: 12, letterSpacing: 1, lineHeight: 1 }}
         >
           中枢台
-        </Typography.Text>
-      </Space>
+        </span>
+      </div>
       <HealthDot />
     </Layout.Header>
   );

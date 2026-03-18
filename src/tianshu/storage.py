@@ -39,7 +39,7 @@ class Storage:
 
                 CREATE TABLE IF NOT EXISTS memorials (
                     id TEXT PRIMARY KEY,
-                    edict_id TEXT NOT NULL REFERENCES edicts(id),
+                    edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE CASCADE,
                     status TEXT NOT NULL,
                     summary TEXT,
                     result TEXT,
@@ -52,7 +52,7 @@ class Storage:
 
                 CREATE TABLE IF NOT EXISTS events (
                     id TEXT PRIMARY KEY,
-                    edict_id TEXT NOT NULL,
+                    edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE CASCADE,
                     memorial_id TEXT,
                     event_type TEXT NOT NULL,
                     payload_json TEXT NOT NULL DEFAULT '{}',
@@ -69,6 +69,7 @@ class Storage:
         migrations = [
             "ALTER TABLE edicts ADD COLUMN status TEXT NOT NULL DEFAULT 'open'",
             "ALTER TABLE memorials ADD COLUMN instruction TEXT",
+            "ALTER TABLE edicts ADD COLUMN title TEXT NOT NULL DEFAULT ''",
         ]
         for sql in migrations:
             try:
@@ -88,8 +89,8 @@ class Storage:
     def save_edict(self, edict: Edict) -> None:
         with self._lock, self._conn:
             self._conn.execute(
-                "INSERT INTO edicts (id, goal, context, status, created_at) VALUES (?, ?, ?, ?, ?)",
-                (edict.id, edict.goal, edict.context, edict.status.value, edict.created_at.isoformat()),
+                "INSERT INTO edicts (id, title, goal, context, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (edict.id, edict.title, edict.goal, edict.context, edict.status.value, edict.created_at.isoformat()),
             )
 
     def get_edict(self, edict_id: str) -> Edict | None:
@@ -100,25 +101,61 @@ class Storage:
         return self._row_to_edict(row) if row else None
 
     def list_edicts(
-        self, status: str | None = None, limit: int = 50, offset: int = 0
+        self,
+        status: str | None = None,
+        search: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
     ) -> tuple[list[Edict], int]:
+        conditions: list[str] = []
+        params: list[str | int] = []
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+        if search:
+            conditions.append("(title LIKE ? OR goal LIKE ?)")
+            params.append(f"%{search}%")
+            params.append(f"%{search}%")
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         with self._lock:
-            if status:
-                rows = self._conn.execute(
-                    "SELECT * FROM edicts WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                    (status, limit, offset),
-                ).fetchall()
-                total = self._conn.execute(
-                    "SELECT COUNT(*) FROM edicts WHERE status = ?",
-                    (status,),
-                ).fetchone()[0]
-            else:
-                rows = self._conn.execute(
-                    "SELECT * FROM edicts ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                    (limit, offset),
-                ).fetchall()
-                total = self._conn.execute("SELECT COUNT(*) FROM edicts").fetchone()[0]
+            rows = self._conn.execute(
+                f"SELECT * FROM edicts{where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (*params, limit, offset),
+            ).fetchall()
+            total = self._conn.execute(
+                f"SELECT COUNT(*) FROM edicts{where}",
+                params,
+            ).fetchone()[0]
         return [self._row_to_edict(r) for r in rows], total
+
+    def update_edict(
+        self, edict_id: str, title: str | None = None, goal: str | None = None, context: str | None = None,
+    ) -> None:
+        sets: list[str] = []
+        params: list[str] = []
+        if title is not None:
+            sets.append("title = ?")
+            params.append(title)
+        if goal is not None:
+            sets.append("goal = ?")
+            params.append(goal)
+        if context is not None:
+            sets.append("context = ?")
+            params.append(context)
+        if not sets:
+            return
+        params.append(edict_id)
+        with self._lock, self._conn:
+            self._conn.execute(
+                f"UPDATE edicts SET {', '.join(sets)} WHERE id = ?",
+                params,
+            )
+
+    def delete_edict(self, edict_id: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM events WHERE edict_id = ?", (edict_id,))
+            self._conn.execute("DELETE FROM memorials WHERE edict_id = ?", (edict_id,))
+            self._conn.execute("DELETE FROM edicts WHERE id = ?", (edict_id,))
 
     def update_edict_status(self, edict_id: str, status: str) -> None:
         with self._lock, self._conn:
@@ -249,6 +286,7 @@ class Storage:
     def _row_to_edict(row: sqlite3.Row) -> Edict:
         return Edict(
             id=row["id"],
+            title=row["title"],
             goal=row["goal"],
             context=row["context"],
             status=EdictStatus(row["status"]),

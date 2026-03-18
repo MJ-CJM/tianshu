@@ -29,6 +29,7 @@ export default function PageContainer({
             color: "#e2e8f0",
             fontFamily: "'Noto Serif SC', serif",
             fontWeight: 700,
+            textShadow: "0 0 20px rgba(0, 212, 255, 0.15)",
           }}
         >
           {title}

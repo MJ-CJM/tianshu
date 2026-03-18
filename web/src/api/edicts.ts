@@ -1,5 +1,5 @@
 import apiClient from "./client";
-import type { ApiResponse, Edict, EdictStatus, Memorial, EdictEvent } from "./types";
+import type { ApiResponse, Edict, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent } from "./types";
 
 export async function createEdict(body: {
   goal: string;
@@ -14,6 +14,7 @@ export async function createEdict(body: {
 
 export async function listEdicts(params: {
   status?: string;
+  search?: string;
   limit?: number;
   offset?: number;
 }): Promise<ApiResponse<Edict[]>> {
@@ -64,6 +65,26 @@ export async function followUpEdict(
   const { data } = await apiClient.post<ApiResponse<Memorial>>(
     `/edicts/${edictId}/follow-up`,
     body,
+  );
+  return data;
+}
+
+export async function updateEdict(
+  edictId: string,
+  body: EdictUpdateRequest,
+): Promise<ApiResponse<Edict>> {
+  const { data } = await apiClient.patch<ApiResponse<Edict>>(
+    `/edicts/${edictId}`,
+    body,
+  );
+  return data;
+}
+
+export async function deleteEdict(
+  edictId: string,
+): Promise<ApiResponse<{ id: string }>> {
+  const { data } = await apiClient.delete<ApiResponse<{ id: string }>>(
+    `/edicts/${edictId}`,
   );
   return data;
 }
