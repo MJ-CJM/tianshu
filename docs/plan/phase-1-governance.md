@@ -454,6 +454,115 @@ src/tianshu/cli/commands/
 
 ---
 
+### Step 1.15 — AgentPersona 数据模型与 Bootstrap 文件
+
+**目标**：定义 AgentPersona Pydantic 模型，创建 4 位 Phase 1 官员的 SOUL.md / ROLE.md 文件。
+
+**涉及文件**
+```
+src/tianshu/persona/
+  __init__.py
+  model.py
+personas/
+  court/COURT.md
+  court/MEMORY.md
+  neige/SOUL.md, ROLE.md, MEMORY.md
+  bingbu/SOUL.md, ROLE.md, MEMORY.md
+  ducha/SOUL.md, ROLE.md, MEMORY.md
+  tongzheng/SOUL.md, ROLE.md, MEMORY.md
+```
+
+**依赖**：Step 1.1
+
+**验收条件**
+- [ ] `AgentPersona` Pydantic 模型：id, name, department, soul_path, role_path, memory_path, skills_dir, tools_allowed, tools_denied, tool_tier_max, can_delegate, delegates_to
+- [ ] 4 位官员的 SOUL.md 定义人格特质、思维方式、沟通风格
+- [ ] 4 位官员的 ROLE.md 定义职责范围、决策权限、输出标准
+- [ ] `COURT.md` 定义朝堂协议和官员间规则
+- [ ] 各官员 MEMORY.md 初始化为空模板
+- [ ] 单元测试覆盖模型序列化与校验
+
+**复杂度**：中
+
+---
+
+### Step 1.16 — Persona Loader 与系统提示构建器
+
+**目标**：加载 persona 文件，构建角色化 system prompt，修改 Agent Loop 注入 Persona。
+
+**涉及文件**
+```
+src/tianshu/persona/
+  loader.py
+  prompt_builder.py
+src/tianshu/executor/agent.py（修改 _build_system_prompt）
+```
+
+**依赖**：Step 1.15
+
+**验收条件**
+- [ ] `PersonaLoader` 根据官员 ID 加载 SOUL.md + ROLE.md + MEMORY.md
+- [ ] `PromptBuilder` 按 8 层注入顺序构建系统提示：Base Identity → COURT.md → SOUL.md → ROLE.md → Per-agent MEMORY.md → Court MEMORY.md → Skills → Task Context
+- [ ] 修改 `agent.py` 的 `_build_system_prompt`，支持 Persona 注入
+- [ ] 无 Persona 时回退到通用提示（向后兼容 Phase 0）
+- [ ] 文件不存在时优雅降级，不中断执行
+- [ ] 单元测试覆盖加载、构建、回退
+
+**复杂度**：中
+
+---
+
+### Step 1.17 — Planner 中的官员选择逻辑
+
+**目标**：Planner 为子任务分配执行官员，Plan 输出契约增加 `assigned_official` 字段。
+
+**涉及文件**
+```
+src/tianshu/persona/
+  selector.py
+src/tianshu/planner/planner.py（修改）
+src/tianshu/models/plan.py（修改）
+```
+
+**依赖**：Step 1.4 + Step 1.15
+
+**验收条件**
+- [ ] `OfficialSelector` 根据子任务类型匹配最合适的官员
+- [ ] 默认映射：规划类 → neige，执行类 → bingbu，审计类 → ducha，通知类 → tongzheng
+- [ ] `Plan` 模型新增 `assigned_official` 字段（可选，无值时使用默认 bingbu）
+- [ ] Planner 在生成 Plan 时调用 OfficialSelector
+- [ ] 单元测试覆盖选择逻辑和默认回退
+
+**复杂度**：低
+
+---
+
+### Step 1.18 — 文件级 Per-Agent 记忆
+
+**目标**：基础的 MEMORY.md 读写 + 日志追加，执行完成后自动写入官员日志。
+
+**涉及文件**
+```
+src/tianshu/persona/
+  memory_manager.py
+personas/*/MEMORY.md
+personas/*/memory/
+```
+
+**依赖**：Step 1.15 + Step 1.9（agent_end 钩子）
+
+**验收条件**
+- [ ] `PersonaMemoryManager` 支持读取官员 MEMORY.md 和朝堂共享 MEMORY.md
+- [ ] 支持追加日志到 `personas/<id>/memory/YYYY-MM-DD.md`
+- [ ] 通过 `agent_end` 钩子集成：执行完成后提取关键经验写入官员日志
+- [ ] 日志条目包含分类标记（W/B/O/S）和置信度
+- [ ] 文件不存在时自动创建
+- [ ] 单元测试覆盖读写、追加、钩子集成
+
+**复杂度**：低
+
+---
+
 ## Step 依赖关系图
 
 ```
@@ -488,6 +597,16 @@ src/tianshu/cli/commands/
                     1.10 Skills 热重载（独立）
 ```
 
+**Persona 相关依赖**：
+
+```
+1.1 数据模型 ──> 1.15 AgentPersona 模型 ──> 1.16 Persona Loader ──> 修改 agent.py
+                        │
+                        ├──> 1.17 官员选择（+ 依赖 1.4 Planner）
+                        │
+                        └──> 1.18 Per-Agent 记忆（+ 依赖 1.9 agent_end 钩子）
+```
+
 **可并行组**：
 - 组 A：Step 1.3（Scheduler）— 依赖 1.1 + 1.2
 - 组 B：Step 1.4（Planner）→ 1.5（Executor）→ 1.6 → 1.7 → 1.8（主执行链）
@@ -496,8 +615,11 @@ src/tianshu/cli/commands/
 - 组 E：Step 1.11（WebSocket 实时）→ 1.12（批红台）— 依赖 1.7 / 1.8
 - 组 F：Step 1.13（事件时间线）— 依赖 1.2 + 1.5
 - 组 G：Step 1.14（CLI 治理指令）— 依赖 0.12 + 1.2 + 1.3 + 1.7 + 1.8
+- 组 H：Step 1.15（AgentPersona 模型）→ 1.16（Persona Loader）— 依赖 1.1
+- 组 I：Step 1.17（官员选择）— 依赖 1.4 + 1.15
+- 组 J：Step 1.18（Per-Agent 记忆）— 依赖 1.15 + 1.9
 
-Step 1.2 是核心汇聚点，后续大部分 Step 依赖它。Step 1.11/1.12/1.13 可在主执行链完成后并行开发。
+Step 1.2 是核心汇聚点，后续大部分 Step 依赖它。Step 1.11-1.14 可在主执行链完成后并行开发。Step 1.15-1.18（Persona 相关）可在 1.1 完成后并行于主执行链推进。
 
 ## 测试策略
 

@@ -59,14 +59,27 @@
 
 > **设计决策**：六部是职责分类框架，不是模块切分方案。遵循 `project-analysis.md` 的警告——"不要为了凑齐朝廷结构而硬拆模块"。每项职责挂靠到最自然的 owner 上，而不是为每个部硬造一个包。
 
+**官员映射（Phase 1+）**
+
+制度层定义"做什么"，官员层定义"谁来做、以什么风格做"。每个部院配置一位专属官员（Agent Persona），以人格化的方式承接该部院的治理职责。详见 `agent-persona.md`。
+
+| 部院 | 官员 | 官员 ID | 引入阶段 |
+|------|------|---------|---------|
+| 内阁 | 内阁首辅 | `neige` | Phase 1 |
+| 兵部 | 兵部尚书 | `bingbu` | Phase 1 |
+| 都察院 | 都察院左都御史 | `ducha` | Phase 1 |
+| 通政司 | 通政使 | `tongzheng` | Phase 1 |
+| 文渊阁 | 文渊阁大学士 | `wenyuan` | Phase 2 |
+| 户部 | 户部尚书 | `hubu` | Phase 2 |
+
 ### 1.5 运行阶段矩阵
 
-| Phase | 目标 | 运行方式 | 新增能力 | 系统真相来源 |
-|------|------|---------|---------|-------------|
-| Phase 0 | 跑通最小闭环 | Web 服务进程（FastAPI + Uvicorn） | 单 Agent、ReAct、基础工具、Skills、SQLite、Docker | SQLite |
-| Phase 1 | 引入治理与异步调度 | Web 服务 + 事件驱动调度 | `Scheduler`、`EventBus`、`Planner`、`Auditor`、`Notifier`、人工复核 | SQLite + 事件日志 |
-| Phase 2 | 引入平台化能力 | 平台化 Web 服务 | `Memory`、`CostManager`、多 Provider、多通道通知、`PluginApi` | SQLite |
-| Phase 3 | 多 Agent 与分布式扩展 | 容器集群 / K8s / Temporal | DAG、多 Agent 并发、PostgreSQL、水平扩缩容 | PostgreSQL + Durable Workflow |
+| Phase | 目标 | 运行方式 | 新增能力 | Persona 能力 | 系统真相来源 |
+|------|------|---------|---------|-------------|-------------|
+| Phase 0 | 跑通最小闭环 | Web 服务进程（FastAPI + Uvicorn） | 单 Agent、ReAct、基础工具、Skills、SQLite、Docker | 单一通用 prompt | SQLite |
+| Phase 1 | 引入治理与异步调度 | Web 服务 + 事件驱动调度 | `Scheduler`、`EventBus`、`Planner`、`Auditor`、`Notifier`、人工复核 | 4 官员 persona 注入 + 文件级记忆 | SQLite + 事件日志 |
+| Phase 2 | 引入平台化能力 | 平台化 Web 服务 | `Memory`、`CostManager`、多 Provider、多通道通知、`PluginApi` | 6 官员 + 完整 R/R/R 记忆循环 | SQLite |
+| Phase 3 | 多 Agent 与分布式扩展 | 容器集群 / K8s / Temporal | DAG、多 Agent 并发、PostgreSQL、水平扩缩容 | 多官员并发实例 + 会商协议 | PostgreSQL + Durable Workflow |
 
 ### 1.6 技术选型
 
@@ -408,6 +421,10 @@ Thinking -> Acting -> Observing -> Thinking -> ... -> Done / Failed
 | `Done` | LLM 返回最终答案，无 `tool_calls` | 生成最终输出 |
 | `Failed` | 超限、超时、不可恢复异常 | 返回失败结果 |
 
+**Phase 1+ Persona 注入**
+
+Phase 1 起，Agent Loop 在 Thinking 阶段之前增加 Persona 注入步骤：根据任务分配的官员 ID 加载对应的 `SOUL.md` + `ROLE.md`，构建角色化 system prompt。无 Persona 时回退到通用提示（向后兼容 Phase 0）。详见 `agent-persona.md` §4.2 注入顺序。
+
 ### 4.2 消息历史管理
 
 **阶段策略**
@@ -519,6 +536,7 @@ T0-T3 是工具的固有风险等级，Policy Pipeline 决定在具体执行场�
 - **排定子任务优先级**：结合 Edict.priority 和任务依赖关系，决定执行顺序
 - **选择 Agent 和工具集**：根据子任务类型匹配最合适的 Skill 和工具组合（Phase 2+ 可查询文渊阁历史经验辅助选择）
 - **资源冲突协调**：当多个 Edict 竞争同一资源（如同一工作区、同一外部 API 配额）时，由 Planner 协调分配，而非让 Executor 自行抢占
+- **官员选择**（Phase 1+）：根据子任务类型和职责映射，为每个子任务指定执行官员（`assigned_official`），如规划类分配给内阁，执行类分配给兵部，审计类分配给都察院
 
 **输出契约**
 
@@ -531,6 +549,7 @@ T0-T3 是工具的固有风险等级，Policy Pipeline 决定在具体执行场�
 - `can_run_parallel`：是否可并行
 - `estimated_tokens`：预估 Token 用量
 - `priority_order`：建议执行顺序
+- `assigned_official`：各子任务指定的执行官员 ID（Phase 1+）
 
 **边界**
 
@@ -652,6 +671,25 @@ T0-T3 是工具的固有风险等级，Policy Pipeline 决定在具体执行场�
 - 不直接消费 Notifier 的发送结果作为业务真相
 - 不在 Phase 0 引入，避免 MVP 复杂化
 - 检索结果仅作为参考，不强制约束 Planner 的规划决策
+
+**多官员记忆架构（Phase 1+）**
+
+Phase 1 起，文渊阁管理两层记忆：
+
+| 层级 | 存储位置 | 读权限 | 写权限 |
+|------|---------|--------|--------|
+| 官员私有 | `personas/<id>/MEMORY.md` | 本人 + 内阁 | 本人 |
+| 朝堂共享 | `personas/court/MEMORY.md` | 所有官员 | 仅文渊阁 |
+
+Source of Truth = Markdown 文件；派生索引 = SQLite FTS5（Phase 2）+ 可选向量索引（Phase 3）。
+
+**Retain / Recall / Reflect 循环**（Phase 2 引入）
+
+- **Retain**（执行后）：各官员提取域内经验写入私有日志，通过 `agent_end` 钩子触发
+- **Recall**（执行前）：查询私有 + 共享记忆注入上下文，通过 `before_agent_start` 钩子触发
+- **Reflect**（定期）：文渊阁大学士归纳跨官员共性模式，沉淀到共享记忆，淘汰过时条目
+
+详见 `agent-persona.md` §5-§6。
 
 ### 5.7 户部（CostManager）
 
@@ -957,6 +995,12 @@ src/tianshu/
         SKILL.md
       shell/
         SKILL.md
+personas/               # 官员 Bootstrap 文件（Phase 1+）
+  court/
+    COURT.md
+    MEMORY.md
+  neige/ bingbu/ ducha/ tongzheng/
+    SOUL.md / ROLE.md / MEMORY.md
 Dockerfile              # 容器化支持
 docker-compose.yml      # 一键启动
 ```
@@ -1017,6 +1061,16 @@ src/tianshu/
       __init__.py
       file_backend.py
       sqlite_backend.py
+
+  persona/
+    __init__.py
+    model.py              # AgentPersona 数据模型
+    loader.py             # Persona 文件加载器
+    prompt_builder.py     # 角色化 system prompt 构建器
+    selector.py           # 官员选择器
+    memory_manager.py     # Per-agent 记忆管理
+    consultation.py       # 会商协议（Phase 3）
+    evaluation.py         # 官员绩效评估（Phase 3）
 
   cost/
     __init__.py

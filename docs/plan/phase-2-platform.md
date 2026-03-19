@@ -309,6 +309,62 @@ src/tianshu/cli/commands/
 
 ---
 
+### Step 2.10 — 完整 R/R/R 记忆循环
+
+**目标**：实现 Retain/Recall/Reflect 完整循环 + SQLite FTS5 检索，新增文渊阁大学士和户部尚书官员。
+
+**涉及文件**
+```
+src/tianshu/persona/
+  memory_manager.py（增强）
+src/tianshu/memory/backends/
+  sqlite_backend.py（增强，FTS5 支持）
+personas/
+  wenyuan/SOUL.md, ROLE.md, MEMORY.md
+  hubu/SOUL.md, ROLE.md, MEMORY.md
+```
+
+**依赖**：Step 2.1 + Step 1.18
+
+**验收条件**
+- [ ] **Retain**：`agent_end` 钩子触发，各官员提取域内经验写入私有日志，带分类标记（W/B/O/S）+ 置信度
+- [ ] **Recall**：`before_agent_start` 钩子触发，查询私有 + 共享记忆，按相关性和置信度排序注入上下文
+- [ ] **Reflect**：文渊阁大学士扫描各官员近期日志，归纳共性模式沉淀到共享记忆，淘汰过时条目
+- [ ] SQLite FTS5 全文检索索引，从 Markdown 文件派生，可重建
+- [ ] 新增 wenyuan（文渊阁大学士）和 hubu（户部尚书）两位官员的 Bootstrap 文件
+- [ ] 记忆条目支持 `@entity_name` 实体引用
+- [ ] 单元测试覆盖 R/R/R 三个环节、FTS5 检索、新官员加载
+
+**复杂度**：高
+
+---
+
+### Step 2.11 — 跨官员记忆共享策略
+
+**目标**：定义和执行记忆访问权限控制，确保记忆隔离与共享的安全性。
+
+**涉及文件**
+```
+src/tianshu/persona/
+  memory_manager.py（增强）
+personas/court/COURT.md（更新权限规则）
+```
+
+**依赖**：Step 2.10
+
+**验收条件**
+- [ ] 各官员可读自己的私有记忆 + 朝堂共享记忆
+- [ ] 只有 wenyuan（文渊阁大学士）可写入朝堂共享记忆
+- [ ] neige（内阁首辅）可读所有官员的私有记忆（全局视野）
+- [ ] 其他官员不能读取他人的私有记忆
+- [ ] 权限规则在 `COURT.md` 中声明，`PersonaMemoryManager` 执行
+- [ ] 越权访问记录审计日志
+- [ ] 单元测试覆盖各权限组合
+
+**复杂度**：低
+
+---
+
 ## Step 依赖关系图
 
 ```
@@ -329,6 +385,14 @@ src/tianshu/cli/commands/
           2.6 PluginApi ───┘
 ```
 
+**Persona 相关依赖**：
+
+```
+2.1 Memory ──┐
+             ├──> 2.10 完整 R/R/R 循环 ──> 2.11 跨官员记忆共享
+1.18 记忆 ───┘
+```
+
 **可并行组**：
 - 组 A：Step 2.1（Memory）、Step 2.2（CostManager）— 无依赖
 - 组 B：Step 2.4（多通道通知）— 独立，基于 Phase 1 Notifier
@@ -336,8 +400,10 @@ src/tianshu/cli/commands/
 - 组 D：Step 2.7（成本报表台）— 依赖 2.2
 - 组 E：Step 2.8（Provider/插件管理台）— 依赖 2.3 + 2.6
 - 组 F：Step 2.9（CLI 平台指令）— 依赖 0.12 + 2.2 + 2.3 + 2.6
+- 组 G：Step 2.10（R/R/R 循环）— 依赖 2.1 + 1.18
+- 组 H：Step 2.11（记忆共享策略）— 依赖 2.10
 
-Step 2.7 可在 2.2 完成后立即开始。Step 2.8 和 2.9 需等待 2.6 完成。
+Step 2.7 可在 2.2 完成后立即开始。Step 2.8 和 2.9 需等待 2.6 完成。Step 2.10-2.11（Persona 记忆相关）可在 2.1 完成后并行于平台化主线推进。
 
 ## 测试策略
 
