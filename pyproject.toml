@@ -19,12 +19,18 @@ dependencies = [
     "python-frontmatter>=1.0",
     "httpx>=0.27",
     "jsonschema>=4.0",
+    "watchdog>=4.0",
+    "croniter>=2.0",
 ]
 
 [project.optional-dependencies]
 cli = [
     "typer[all]>=0.12",
     "rich>=13.0",
+    "websockets>=12.0",
+]
+notify = [
+    "aiosmtplib>=2.0",
 ]
 dev = [
     "pytest>=8.0",

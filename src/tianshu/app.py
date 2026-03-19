@@ -10,11 +10,33 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from tianshu.agent import Agent
+from tianshu.auditor.auditor import Auditor
+from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
 from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
+from tianshu.cost.manager import CostManager
+from tianshu.consultation.session import ConsultationSession
+from tianshu.executor.agent import Agent
+from tianshu.executor.dag_scheduler import DAGScheduler
+from tianshu.executor.lanes import LaneManager
+from tianshu.executor.worker_pool import WorkerPool
+from tianshu.providers.manager import ProviderManager
+from tianshu.executor.approvals import ApprovalManager
+from tianshu.executor.executor import Executor
+from tianshu.executor.hooks import HookRegistry, HookType
+from tianshu.persona.evaluator import PerformanceEvaluator
 from tianshu.gateway import gateway_router
-from tianshu.skills.loader import SkillsLoader
+from tianshu.memory.manager import MemoryManager
+from tianshu.notifier.channel_registry import ChannelRegistry
+from tianshu.notifier.notifier import Notifier
+from tianshu.plugins.api import PluginApi
+from tianshu.plugins.loader import PluginLoader
+from tianshu.persona.loader import PersonaLoader
+from tianshu.persona.prompt_builder import PromptBuilder
+from tianshu.persona.selector import OfficialSelector
+from tianshu.planner.planner import Planner
+from tianshu.scheduler.scheduler import Scheduler
+from tianshu.skills.loader import SkillsLoader, SkillsWatcher
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.registry import ToolRegistry
@@ -31,16 +53,24 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     settings = TianshuSettings()
 
-    # Storage
+    # --- Storage ---
     storage = Storage(settings.db_path)
     storage.init_db()
     app.state.storage = storage
 
-    # Tools
+    # --- EventBus ---
+    event_bus = EventBus(storage=storage)
+    app.state.event_bus = event_bus
+
+    # --- HookRegistry ---
+    hook_registry = HookRegistry()
+    app.state.hook_registry = hook_registry
+
+    # --- Tools ---
     tools = ToolRegistry()
     register_builtins(tools, settings.workspace_dir)
 
-    # Skills
+    # --- Skills ---
     builtin_skills_dir = Path(__file__).parent / "skills" / "builtin"
     workspace_path = (
         Path(settings.workspace_dir).resolve()
@@ -53,7 +83,17 @@ async def lifespan(app: FastAPI):
         char_budget=settings.skills_char_budget,
     )
 
-    # LLM Config Manager
+    # --- Persona ---
+    personas_dir = Path(__file__).parent.parent.parent / "personas"
+    persona_loader = PersonaLoader(personas_dir)
+    persona_loader.load_all()
+
+    prompt_builder = PromptBuilder(
+        personas_dir=personas_dir,
+        skills_loader=skills,
+    )
+
+    # --- LLM Config Manager ---
     initial_state = LLMConfigState(
         name=settings.llm_model,
         model=settings.llm_model,
@@ -72,22 +112,195 @@ async def lifespan(app: FastAPI):
     config_manager = ConfigManager(initial_state, agent_config=agent_config)
     app.state.config_manager = config_manager
 
-    # Agent
+    # --- ProviderManager ---
+    provider_manager = ProviderManager(storage=storage, config_manager=config_manager)
+    app.state.provider_manager = provider_manager
+
+    # --- Agent ---
     agent = Agent(
-        config_manager=config_manager, tools=tools, skills=skills,
+        config_manager=config_manager,
+        tools=tools,
+        skills=skills,
+        hook_registry=hook_registry,
+        prompt_builder=prompt_builder,
+        provider_manager=provider_manager,
     )
     app.state.agent = agent
 
-    app.state.running_tasks = set()
+    # --- WorkerPool & LaneManager ---
+    worker_pool = WorkerPool(max_concurrency=settings.max_global_concurrency)
+    app.state.worker_pool = worker_pool
+
+    lane_manager = LaneManager(max_global_concurrency=settings.max_global_concurrency)
+    app.state.lane_manager = lane_manager
+
+    # --- Executor ---
+    executor = Executor(
+        event_bus=event_bus,
+        storage=storage,
+        config_manager=config_manager,
+        hook_registry=hook_registry,
+    )
+    executor.set_agent(agent)
+    app.state.executor = executor
+
+    # --- DAGScheduler ---
+    dag_scheduler = DAGScheduler(
+        worker_pool=worker_pool,
+        agent=agent,
+        storage=storage,
+        event_bus=event_bus,
+        persona_loader=persona_loader,
+        prompt_builder=prompt_builder,
+    )
+    executor.set_dag_scheduler(dag_scheduler)
+    executor.set_lane_manager(lane_manager)
+    app.state.dag_scheduler = dag_scheduler
+
+    # --- Auditor ---
+    auditor = Auditor(
+        event_bus=event_bus,
+        storage=storage,
+        config_manager=config_manager,
+    )
+    app.state.auditor = auditor
+
+    # --- ChannelRegistry ---
+    channel_registry = ChannelRegistry()
+    app.state.channel_registry = channel_registry
+
+    # Register channels from environment
+    if settings.feishu_webhook:
+        from tianshu.notifier.channels.feishu import FeishuChannel
+        channel_registry.register(FeishuChannel(settings.feishu_webhook))
+    if settings.dingtalk_webhook:
+        from tianshu.notifier.channels.dingtalk import DingTalkChannel
+        channel_registry.register(DingTalkChannel(
+            settings.dingtalk_webhook,
+            secret=settings.dingtalk_secret,
+        ))
+    if settings.smtp_host:
+        from tianshu.notifier.channels.email import EmailChannel
+        channel_registry.register(EmailChannel(
+            smtp_host=settings.smtp_host,
+            smtp_port=settings.smtp_port,
+            username=settings.smtp_username,
+            password=settings.smtp_password,
+            from_addr=settings.smtp_from,
+            to_addrs=settings.smtp_to.split(",") if settings.smtp_to else [],
+        ))
+
+    # --- Notifier ---
+    notifier = Notifier(storage=storage, channel_registry=channel_registry)
+    app.state.notifier = notifier
+
+    # --- ApprovalManager ---
+    approval_manager = ApprovalManager(
+        event_bus=event_bus,
+        storage=storage,
+    )
+    app.state.approval_manager = approval_manager
+
+    # --- MemoryManager ---
+    memory_manager = MemoryManager(storage=storage, config_manager=config_manager, hook_registry=hook_registry)
+    app.state.memory_manager = memory_manager
+
+    # --- CostManager ---
+    cost_manager = CostManager(storage=storage, event_bus=event_bus)
+    app.state.cost_manager = cost_manager
+
+    # --- ConsultationSession ---
+    consultation = ConsultationSession(
+        persona_loader=persona_loader,
+        config_manager=config_manager,
+        provider_manager=provider_manager,
+    )
+    app.state.consultation = consultation
+
+    # --- PerformanceEvaluator ---
+    evaluator = PerformanceEvaluator(storage=storage)
+    app.state.evaluator = evaluator
+
+    # --- OfficialSelector ---
+    official_selector = OfficialSelector(persona_loader)
+    app.state.official_selector = official_selector
+
+    # --- Planner ---
+    planner = Planner(
+        event_bus=event_bus,
+        storage=storage,
+        config_manager=config_manager,
+        official_selector=official_selector,
+    )
+    app.state.planner = planner
+
+    # --- Scheduler ---
+    scheduler = Scheduler(
+        event_bus=event_bus,
+        storage=storage,
+    )
+    app.state.scheduler = scheduler
+
+    # --- EventBus subscriptions ---
+    event_bus.on("edict.submitted", scheduler.handle_submitted)
+    event_bus.on("edict.scheduled", planner.handle_scheduled, priority=50)
+    event_bus.on("plan.completed", executor.handle_plan_completed, priority=100)
+    event_bus.on("execution.completed", auditor.handle_execution_completed)
+    event_bus.on("execution.completed", cost_manager.handle_execution_completed, priority=150)
+    event_bus.on("execution.completed", memory_manager.handle_execution_completed, priority=200)
+    event_bus.on("execution.failed", notifier.handle_execution_failed)
+    event_bus.on("execution.failed", cost_manager.handle_execution_failed, priority=150)
+    event_bus.on("audit.completed", notifier.handle_audit_completed)
+    event_bus.on("audit.completed", memory_manager.handle_audit_completed, priority=200)
+    event_bus.on("cost.budget_exceeded", notifier.handle_execution_failed)
+
+    # --- PluginApi ---
+    plugin_api = PluginApi(
+        storage=storage,
+        tool_registry=tools,
+        hook_registry=hook_registry,
+        channel_registry=channel_registry,
+        provider_manager=provider_manager,
+        skills_loader=skills,
+    )
+    app.state.plugin_api = plugin_api
+
+    # Discover and register local plugins
+    plugins_dir = Path(__file__).parent.parent.parent / "plugins"
+    plugin_loader = PluginLoader(plugins_dir)
+    for manifest in plugin_loader.discover():
+        plugin_api.register_plugin(manifest)
+
+    # --- Hook registrations ---
+    hook_registry.register(HookType.BEFORE_AGENT_START, memory_manager.on_before_agent_start, priority=50)
+    hook_registry.register(HookType.BEFORE_ITERATION, cost_manager.on_before_iteration, priority=10)
+    hook_registry.register(HookType.LLM_OUTPUT, cost_manager.on_llm_output, priority=50)
+    hook_registry.register(HookType.AGENT_END, memory_manager.on_agent_end, priority=100)
+
+    # --- Skills hot-reload watcher ---
+    skills_watcher = SkillsWatcher(skills)
+    try:
+        skills_watcher.start()
+    except Exception:
+        logger.warning("SkillsWatcher failed to start (watchdog may not be installed)")
+        skills_watcher = None
+
+    # --- Backward compat ---
+    app.state.running_tasks = executor.running_tasks
+
+    # --- Start scheduler ---
+    await scheduler.start()
 
     logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     yield
 
-    # Graceful shutdown: cancel running agent tasks, then clean up
+    # --- Graceful shutdown ---
     agent.request_shutdown()
-    for task in list(app.state.running_tasks):
-        task.cancel()
-    await asyncio.gather(*app.state.running_tasks, return_exceptions=True)
+    if skills_watcher:
+        skills_watcher.stop()
+    await scheduler.stop()
+    await worker_pool.shutdown()
+    await executor.shutdown()
     storage.close()
     logger.info("Tianshu shutdown complete")
 

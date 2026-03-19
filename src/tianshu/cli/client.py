@@ -66,3 +66,8 @@ def api_delete(path: str) -> dict:
     except httpx.HTTPStatusError as e:
         print(f"API error: {e.response.status_code} - {e.response.text}", file=sys.stderr)
         raise SystemExit(1)
+
+
+def get_client() -> httpx.Client:
+    """Get a reusable HTTP client for CLI commands."""
+    return httpx.Client(base_url=_base_url(), timeout=360.0)

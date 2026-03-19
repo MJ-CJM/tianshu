@@ -8,7 +8,32 @@ from pathlib import Path
 
 from ulid import ULID
 
-from tianshu.models import Edict, EdictStatus, Memorial, TaskStatus, UsageSummary
+from tianshu.models import (
+    AuditResult,
+    DAGExecution,
+    DAGNode,
+    DAGNodeStatus,
+    Decree,
+    Edict,
+    EdictDispatch,
+    EdictRuntime,
+    EdictSchedule,
+    EdictStatus,
+    Memorial,
+    TaskStatus,
+    UsageSummary,
+)
+
+# Deferred import to avoid circular deps
+_MemoryEntry = None
+
+
+def _get_memory_entry():
+    global _MemoryEntry
+    if _MemoryEntry is None:
+        from tianshu.memory.models import MemoryEntry
+        _MemoryEntry = MemoryEntry
+    return _MemoryEntry
 
 
 class Storage:
@@ -59,24 +84,166 @@ class Storage:
                     created_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS decrees (
+                    id TEXT PRIMARY KEY,
+                    memorial_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    comment TEXT,
+                    amended_goal TEXT,
+                    actor TEXT NOT NULL DEFAULT 'human',
+                    created_at TEXT NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_memorials_edict_id
                     ON memorials(edict_id);
                 CREATE INDEX IF NOT EXISTS idx_events_edict_id
                     ON events(edict_id);
+                CREATE INDEX IF NOT EXISTS idx_decrees_memorial_id
+                    ON decrees(memorial_id);
+
+                CREATE TABLE IF NOT EXISTS memory_entries (
+                    id TEXT PRIMARY KEY,
+                    persona_id TEXT NOT NULL,
+                    edict_id TEXT,
+                    memorial_id TEXT,
+                    category TEXT NOT NULL DEFAULT 'observation',
+                    content TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'agent',
+                    confidence REAL NOT NULL DEFAULT 1.0,
+                    entity_refs_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT,
+                    access_level TEXT NOT NULL DEFAULT 'private'
+                );
+                CREATE INDEX IF NOT EXISTS idx_memory_persona
+                    ON memory_entries(persona_id);
+                CREATE INDEX IF NOT EXISTS idx_memory_category
+                    ON memory_entries(category);
+
+                CREATE TABLE IF NOT EXISTS cost_ledger (
+                    id TEXT PRIMARY KEY,
+                    edict_id TEXT NOT NULL,
+                    memorial_id TEXT,
+                    provider_name TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                    completion_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    cost_cny REAL NOT NULL DEFAULT 0.0,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_cost_edict
+                    ON cost_ledger(edict_id);
+                CREATE INDEX IF NOT EXISTS idx_cost_created
+                    ON cost_ledger(created_at);
+
+                CREATE TABLE IF NOT EXISTS cost_budgets (
+                    id TEXT PRIMARY KEY,
+                    scope TEXT NOT NULL,
+                    budget_cny REAL NOT NULL,
+                    spent_cny REAL NOT NULL DEFAULT 0.0,
+                    period TEXT NOT NULL DEFAULT 'monthly',
+                    reset_at TEXT,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS providers (
+                    name TEXT PRIMARY KEY,
+                    model TEXT NOT NULL,
+                    api_base TEXT,
+                    capabilities_json TEXT NOT NULL DEFAULT '[]',
+                    rpm_limit INTEGER,
+                    tpm_limit INTEGER,
+                    rpm_current INTEGER NOT NULL DEFAULT 0,
+                    tpm_current INTEGER NOT NULL DEFAULT 0,
+                    rpm_window_start TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    priority INTEGER NOT NULL DEFAULT 100,
+                    cost_per_1k_prompt REAL,
+                    cost_per_1k_completion REAL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS plugins (
+                    name TEXT PRIMARY KEY,
+                    version TEXT NOT NULL DEFAULT '0.0.0',
+                    manifest_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    sha256 TEXT,
+                    installed_at TEXT NOT NULL,
+                    updated_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS dag_executions (
+                    id TEXT PRIMARY KEY,
+                    edict_id TEXT NOT NULL,
+                    plan_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    root_memorial_id TEXT,
+                    max_concurrency INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    completed_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_dag_edict
+                    ON dag_executions(edict_id);
+
+                CREATE TABLE IF NOT EXISTS dag_nodes (
+                    node_id TEXT NOT NULL,
+                    dag_execution_id TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    depends_on_json TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    assigned_official TEXT,
+                    assigned_worker TEXT,
+                    tools_required_json TEXT NOT NULL DEFAULT '[]',
+                    memorial_id TEXT,
+                    checkpoint_json TEXT,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    error TEXT,
+                    PRIMARY KEY (dag_execution_id, node_id)
+                );
             """)
 
     def _migrate(self) -> None:
         migrations = [
+            # Phase 0 migrations
             "ALTER TABLE edicts ADD COLUMN status TEXT NOT NULL DEFAULT 'open'",
             "ALTER TABLE memorials ADD COLUMN instruction TEXT",
             "ALTER TABLE edicts ADD COLUMN title TEXT NOT NULL DEFAULT ''",
+            # Phase 1 edict migrations
+            "ALTER TABLE edicts ADD COLUMN idempotency_key TEXT",
+            "ALTER TABLE edicts ADD COLUMN source TEXT NOT NULL DEFAULT 'api'",
+            "ALTER TABLE edicts ADD COLUMN submitter TEXT",
+            "ALTER TABLE edicts ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'",
+            "ALTER TABLE edicts ADD COLUMN review_policy TEXT NOT NULL DEFAULT 'never'",
+            "ALTER TABLE edicts ADD COLUMN output_format TEXT",
+            "ALTER TABLE edicts ADD COLUMN constraints_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE edicts ADD COLUMN schedule_json TEXT NOT NULL DEFAULT '{}'",
+            "ALTER TABLE edicts ADD COLUMN dispatch_json TEXT",
+            "ALTER TABLE edicts ADD COLUMN runtime_json TEXT NOT NULL DEFAULT '{}'",
+            "ALTER TABLE edicts ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
+            # Phase 1 memorial migrations
+            "ALTER TABLE memorials ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE memorials ADD COLUMN parent_memorial_id TEXT",
+            "ALTER TABLE memorials ADD COLUMN review_status TEXT NOT NULL DEFAULT 'not_required'",
+            "ALTER TABLE memorials ADD COLUMN audit_json TEXT",
+            "ALTER TABLE memorials ADD COLUMN artifacts_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE memorials ADD COLUMN timeline_json TEXT NOT NULL DEFAULT '[]'",
+            # Phase 3 memorial migrations
+            "ALTER TABLE memorials ADD COLUMN dag_node_id TEXT",
+            "ALTER TABLE memorials ADD COLUMN persona_id TEXT",
+            # USD → CNY column renames
+            "ALTER TABLE cost_ledger RENAME COLUMN cost_usd TO cost_cny",
+            "ALTER TABLE cost_budgets RENAME COLUMN budget_usd TO budget_cny",
+            "ALTER TABLE cost_budgets RENAME COLUMN spent_usd TO spent_cny",
         ]
         for sql in migrations:
             try:
                 self._conn.execute(sql)
                 self._conn.commit()
             except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e):
+                if "duplicate column name" not in str(e) and "no such column" not in str(e):
                     raise
 
     def close(self) -> None:
@@ -89,8 +256,31 @@ class Storage:
     def save_edict(self, edict: Edict) -> None:
         with self._lock, self._conn:
             self._conn.execute(
-                "INSERT INTO edicts (id, title, goal, context, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (edict.id, edict.title, edict.goal, edict.context, edict.status.value, edict.created_at.isoformat()),
+                """INSERT INTO edicts
+                   (id, title, goal, context, status, created_at,
+                    idempotency_key, source, submitter, priority, review_policy,
+                    output_format, constraints_json, schedule_json, dispatch_json,
+                    runtime_json, metadata_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    edict.id,
+                    edict.title,
+                    edict.goal,
+                    edict.context,
+                    edict.status.value,
+                    edict.created_at.isoformat(),
+                    edict.idempotency_key,
+                    edict.source,
+                    edict.submitter,
+                    edict.priority,
+                    edict.review_policy,
+                    edict.output_format,
+                    json.dumps(edict.constraints),
+                    edict.schedule.model_dump_json(),
+                    edict.dispatch.model_dump_json() if edict.dispatch else None,
+                    edict.runtime.model_dump_json(),
+                    json.dumps(edict.metadata, default=str),
+                ),
             )
 
     def get_edict(self, edict_id: str) -> Edict | None:
@@ -171,8 +361,10 @@ class Storage:
             self._conn.execute(
                 """INSERT INTO memorials
                    (id, edict_id, instruction, status, summary, result, usage_json,
-                    error, created_at, started_at, completed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    error, created_at, started_at, completed_at,
+                    attempt, parent_memorial_id, review_status, audit_json,
+                    artifacts_json, timeline_json, dag_node_id, persona_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 self._memorial_to_params(memorial),
             )
 
@@ -181,7 +373,10 @@ class Storage:
             self._conn.execute(
                 """UPDATE memorials SET
                    status=?, summary=?, result=?, usage_json=?, error=?,
-                   started_at=?, completed_at=?
+                   started_at=?, completed_at=?,
+                   attempt=?, review_status=?, audit_json=?,
+                   artifacts_json=?, timeline_json=?,
+                   dag_node_id=?, persona_id=?
                    WHERE id=?""",
                 (
                     memorial.status.value,
@@ -191,6 +386,13 @@ class Storage:
                     memorial.error,
                     memorial.started_at.isoformat() if memorial.started_at else None,
                     memorial.completed_at.isoformat() if memorial.completed_at else None,
+                    memorial.attempt,
+                    memorial.review_status,
+                    memorial.audit.model_dump_json() if memorial.audit else None,
+                    json.dumps([a.model_dump() for a in memorial.artifacts], default=str),
+                    json.dumps([t.model_dump() for t in memorial.timeline], default=str),
+                    memorial.dag_node_id,
+                    memorial.persona_id,
                     memorial.id,
                 ),
             )
@@ -238,6 +440,44 @@ class Storage:
                 total = self._conn.execute("SELECT COUNT(*) FROM memorials").fetchone()[0]
         return [self._row_to_memorial(r) for r in rows], total
 
+    # --- Decree ---
+
+    def save_decree(self, decree: Decree) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT INTO decrees
+                   (id, memorial_id, action, comment, amended_goal, actor, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    decree.id,
+                    decree.memorial_id,
+                    decree.action,
+                    decree.comment,
+                    decree.amended_goal,
+                    decree.actor,
+                    decree.created_at.isoformat(),
+                ),
+            )
+
+    def list_decrees_by_memorial(self, memorial_id: str) -> list[Decree]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM decrees WHERE memorial_id = ? ORDER BY created_at ASC",
+                (memorial_id,),
+            ).fetchall()
+        return [
+            Decree(
+                id=r["id"],
+                memorial_id=r["memorial_id"],
+                action=r["action"],
+                comment=r["comment"],
+                amended_goal=r["amended_goal"],
+                actor=r["actor"],
+                created_at=datetime.fromisoformat(r["created_at"]),
+            )
+            for r in rows
+        ]
+
     # --- Events ---
 
     def append_event(
@@ -280,26 +520,764 @@ class Storage:
             for r in rows
         ]
 
+    # --- Audit ---
+
+    def get_audit_stats(self, top_n: int = 20) -> dict:
+        with self._lock:
+            # Query A — global summary
+            summary_row = self._conn.execute("""
+                SELECT
+                    COUNT(*) as total_memorials,
+                    COALESCE(SUM(json_extract(usage_json, '$.prompt_tokens')), 0) as total_prompt_tokens,
+                    COALESCE(SUM(json_extract(usage_json, '$.completion_tokens')), 0) as total_completion_tokens,
+                    COALESCE(SUM(json_extract(usage_json, '$.total_tokens')), 0) as total_tokens,
+                    COUNT(CASE WHEN json_extract(audit_json, '$.verdict') = 'pass' THEN 1 END) as audit_pass,
+                    COUNT(CASE WHEN json_extract(audit_json, '$.verdict') = 'flag' THEN 1 END) as audit_flag,
+                    COUNT(CASE WHEN json_extract(audit_json, '$.verdict') = 'block' THEN 1 END) as audit_block,
+                    COUNT(CASE WHEN review_status = 'pending' THEN 1 END) as review_pending,
+                    COUNT(CASE WHEN review_status = 'approved' THEN 1 END) as review_approved,
+                    COUNT(CASE WHEN review_status = 'rejected' THEN 1 END) as review_rejected
+                FROM memorials
+            """).fetchone()
+
+            summary = {
+                "total_memorials": summary_row["total_memorials"],
+                "total_prompt_tokens": summary_row["total_prompt_tokens"],
+                "total_completion_tokens": summary_row["total_completion_tokens"],
+                "total_tokens": summary_row["total_tokens"],
+                "audit_pass": summary_row["audit_pass"],
+                "audit_flag": summary_row["audit_flag"],
+                "audit_block": summary_row["audit_block"],
+                "review_pending": summary_row["review_pending"],
+                "review_approved": summary_row["review_approved"],
+                "review_rejected": summary_row["review_rejected"],
+            }
+
+            # Query B — per-edict token usage
+            per_edict_rows = self._conn.execute("""
+                SELECT
+                    m.edict_id,
+                    e.title as edict_title,
+                    e.priority,
+                    json_extract(e.runtime_json, '$.token_budget') as token_budget,
+                    COUNT(*) as memorial_count,
+                    COALESCE(SUM(json_extract(m.usage_json, '$.prompt_tokens')), 0) as prompt_tokens,
+                    COALESCE(SUM(json_extract(m.usage_json, '$.completion_tokens')), 0) as completion_tokens,
+                    COALESCE(SUM(json_extract(m.usage_json, '$.total_tokens')), 0) as total_tokens
+                FROM memorials m
+                JOIN edicts e ON m.edict_id = e.id
+                GROUP BY m.edict_id
+                ORDER BY total_tokens DESC
+                LIMIT ?
+            """, (top_n,)).fetchall()
+
+            per_edict = [
+                {
+                    "edict_id": r["edict_id"],
+                    "edict_title": r["edict_title"],
+                    "priority": r["priority"],
+                    "token_budget": r["token_budget"],
+                    "memorial_count": r["memorial_count"],
+                    "prompt_tokens": r["prompt_tokens"],
+                    "completion_tokens": r["completion_tokens"],
+                    "total_tokens": r["total_tokens"],
+                }
+                for r in per_edict_rows
+            ]
+
+            # Query C — recent audits
+            audit_rows = self._conn.execute("""
+                SELECT
+                    m.id, m.edict_id, e.title as edict_title,
+                    m.audit_json, m.review_status, m.completed_at
+                FROM memorials m
+                JOIN edicts e ON m.edict_id = e.id
+                WHERE m.audit_json IS NOT NULL
+                ORDER BY COALESCE(m.completed_at, m.created_at) DESC
+                LIMIT 20
+            """).fetchall()
+
+            recent_audits = []
+            for r in audit_rows:
+                audit_data = json.loads(r["audit_json"]) if r["audit_json"] else {}
+                recent_audits.append({
+                    "memorial_id": r["id"],
+                    "edict_id": r["edict_id"],
+                    "edict_title": r["edict_title"],
+                    "verdict": audit_data.get("verdict"),
+                    "reasons": audit_data.get("reasons", []),
+                    "rules_checked": audit_data.get("rules_checked", 0),
+                    "llm_reviewed": audit_data.get("llm_reviewed", False),
+                    "review_status": r["review_status"],
+                    "completed_at": r["completed_at"],
+                })
+
+        return {
+            "summary": summary,
+            "per_edict": per_edict,
+            "recent_audits": recent_audits,
+        }
+
+    # --- Memory ---
+
+    def save_memory_entry(self, entry) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT INTO memory_entries
+                   (id, persona_id, edict_id, memorial_id, category, content,
+                    source, confidence, entity_refs_json, created_at, expires_at, access_level)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    entry.id,
+                    entry.persona_id,
+                    entry.edict_id,
+                    entry.memorial_id,
+                    entry.category,
+                    entry.content,
+                    entry.source,
+                    entry.confidence,
+                    json.dumps(entry.entity_refs),
+                    entry.created_at.isoformat(),
+                    entry.expires_at.isoformat() if entry.expires_at else None,
+                    entry.access_level,
+                ),
+            )
+
+    def search_memory(
+        self,
+        persona_id: str,
+        query: str | None = None,
+        category: str | None = None,
+        limit: int = 20,
+        include_shared: bool = False,
+    ) -> list:
+        MemoryEntry = _get_memory_entry()
+        conditions = []
+        params: list = []
+
+        if include_shared:
+            conditions.append("(persona_id = ? OR access_level IN ('shared', 'court'))")
+            params.append(persona_id)
+        else:
+            conditions.append("persona_id = ?")
+            params.append(persona_id)
+
+        if category:
+            conditions.append("category = ?")
+            params.append(category)
+        if query:
+            conditions.append("content LIKE ?")
+            params.append(f"%{query}%")
+
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM memory_entries{where} ORDER BY created_at DESC LIMIT ?",
+                (*params, limit),
+            ).fetchall()
+        return [self._row_to_memory_entry(r) for r in rows]
+
+    def list_memory_by_persona(self, persona_id: str, limit: int = 50) -> list:
+        MemoryEntry = _get_memory_entry()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM memory_entries WHERE persona_id = ? ORDER BY created_at DESC LIMIT ?",
+                (persona_id, limit),
+            ).fetchall()
+        return [self._row_to_memory_entry(r) for r in rows]
+
+    def delete_memory_entry(self, entry_id: str) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM memory_entries WHERE id = ?", (entry_id,)
+            )
+            return cursor.rowcount > 0
+
+    def delete_memory_entries_batch(self, entry_ids: list[str]) -> int:
+        """Delete multiple memory entries by ID. Returns count of deleted rows."""
+        if not entry_ids:
+            return 0
+        placeholders = ",".join("?" for _ in entry_ids)
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                f"DELETE FROM memory_entries WHERE id IN ({placeholders})",
+                entry_ids,
+            )
+            return cursor.rowcount
+
+    @staticmethod
+    def _row_to_memory_entry(row: sqlite3.Row):
+        MemoryEntry = _get_memory_entry()
+        return MemoryEntry(
+            id=row["id"],
+            persona_id=row["persona_id"],
+            edict_id=row["edict_id"],
+            memorial_id=row["memorial_id"],
+            category=row["category"],
+            content=row["content"],
+            source=row["source"],
+            confidence=row["confidence"],
+            entity_refs=json.loads(row["entity_refs_json"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            expires_at=datetime.fromisoformat(row["expires_at"]) if row["expires_at"] else None,
+            access_level=row["access_level"],
+        )
+
+    # --- Cost Ledger ---
+
+    def save_cost_record(self, record) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT INTO cost_ledger
+                   (id, edict_id, memorial_id, provider_name, model,
+                    prompt_tokens, completion_tokens, total_tokens, cost_cny, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    record.id,
+                    record.edict_id,
+                    record.memorial_id,
+                    record.provider_name,
+                    record.model,
+                    record.prompt_tokens,
+                    record.completion_tokens,
+                    record.total_tokens,
+                    record.cost_cny,
+                    record.created_at.isoformat(),
+                ),
+            )
+
+    def get_cost_summary(
+        self,
+        period: str | None = None,
+        edict_id: str | None = None,
+    ) -> dict:
+        conditions: list[str] = []
+        params: list = []
+        if edict_id:
+            conditions.append("edict_id = ?")
+            params.append(edict_id)
+        if period == "day":
+            conditions.append("date(created_at) = date('now')")
+        elif period == "week":
+            conditions.append("date(created_at) >= date('now', '-7 days')")
+        elif period == "month":
+            conditions.append("date(created_at) >= date('now', '-30 days')")
+
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        with self._lock:
+            row = self._conn.execute(
+                f"""SELECT
+                    COUNT(*) as total_records,
+                    COALESCE(SUM(prompt_tokens), 0) as total_prompt_tokens,
+                    COALESCE(SUM(completion_tokens), 0) as total_completion_tokens,
+                    COALESCE(SUM(total_tokens), 0) as total_tokens,
+                    COALESCE(SUM(cost_cny), 0.0) as total_cost_cny
+                FROM cost_ledger{where}""",
+                params,
+            ).fetchone()
+        return {
+            "total_records": row["total_records"],
+            "total_prompt_tokens": row["total_prompt_tokens"],
+            "total_completion_tokens": row["total_completion_tokens"],
+            "total_tokens": row["total_tokens"],
+            "total_cost_cny": row["total_cost_cny"],
+        }
+
+    def list_cost_records(
+        self,
+        edict_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        conditions: list[str] = []
+        params: list = []
+        if edict_id:
+            conditions.append("edict_id = ?")
+            params.append(edict_id)
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM cost_ledger{where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                (*params, limit, offset),
+            ).fetchall()
+            total = self._conn.execute(
+                f"SELECT COUNT(*) FROM cost_ledger{where}", params
+            ).fetchone()[0]
+        return [dict(r) for r in rows], total
+
+    def get_budget(self, scope: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM cost_budgets WHERE scope = ?", (scope,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_budget(
+        self,
+        scope: str,
+        budget_cny: float,
+        period: str = "monthly",
+    ) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            existing = self._conn.execute(
+                "SELECT id FROM cost_budgets WHERE scope = ?", (scope,)
+            ).fetchone()
+            if existing:
+                self._conn.execute(
+                    "UPDATE cost_budgets SET budget_cny = ?, period = ? WHERE scope = ?",
+                    (budget_cny, period, scope),
+                )
+            else:
+                self._conn.execute(
+                    """INSERT INTO cost_budgets (id, scope, budget_cny, period, created_at)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (str(ULID()), scope, budget_cny, period, now),
+                )
+
+    def update_budget_spent(self, scope: str, amount_cny: float) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE cost_budgets SET spent_cny = spent_cny + ? WHERE scope = ?",
+                (amount_cny, scope),
+            )
+
+    # --- Providers ---
+
+    def save_provider(self, provider: dict) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO providers
+                   (name, model, api_base, capabilities_json, rpm_limit, tpm_limit,
+                    rpm_current, tpm_current, rpm_window_start, status, priority,
+                    cost_per_1k_prompt, cost_per_1k_completion, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    provider["name"],
+                    provider["model"],
+                    provider.get("api_base"),
+                    json.dumps(provider.get("capabilities", [])),
+                    provider.get("rpm_limit"),
+                    provider.get("tpm_limit"),
+                    provider.get("rpm_current", 0),
+                    provider.get("tpm_current", 0),
+                    provider.get("rpm_window_start"),
+                    provider.get("status", "active"),
+                    provider.get("priority", 100),
+                    provider.get("cost_per_1k_prompt"),
+                    provider.get("cost_per_1k_completion"),
+                    provider.get("created_at", datetime.now(UTC).isoformat()),
+                ),
+            )
+
+    def get_provider(self, name: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM providers WHERE name = ?", (name,)
+            ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["capabilities"] = json.loads(d.pop("capabilities_json", "[]"))
+        return d
+
+    def list_providers(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM providers ORDER BY priority ASC"
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["capabilities"] = json.loads(d.pop("capabilities_json", "[]"))
+            result.append(d)
+        return result
+
+    def delete_provider(self, name: str) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM providers WHERE name = ?", (name,)
+            )
+            return cursor.rowcount > 0
+
+    def update_provider(self, name: str, updates: dict) -> None:
+        sets: list[str] = []
+        params: list = []
+        for key, value in updates.items():
+            if key == "capabilities":
+                sets.append("capabilities_json = ?")
+                params.append(json.dumps(value))
+            elif key in ("model", "api_base", "status", "rpm_limit", "tpm_limit",
+                         "priority", "cost_per_1k_prompt", "cost_per_1k_completion"):
+                sets.append(f"{key} = ?")
+                params.append(value)
+        if not sets:
+            return
+        params.append(name)
+        with self._lock, self._conn:
+            self._conn.execute(
+                f"UPDATE providers SET {', '.join(sets)} WHERE name = ?", params
+            )
+
+    # --- Plugins ---
+
+    def save_plugin(self, plugin: dict) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO plugins
+                   (name, version, manifest_json, status, sha256, installed_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    plugin["name"],
+                    plugin.get("version", "0.0.0"),
+                    json.dumps(plugin.get("manifest", {})),
+                    plugin.get("status", "active"),
+                    plugin.get("sha256"),
+                    plugin.get("installed_at", now),
+                    now,
+                ),
+            )
+
+    def list_plugins(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM plugins ORDER BY name ASC"
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["manifest"] = json.loads(d.pop("manifest_json", "{}"))
+            result.append(d)
+        return result
+
+    def get_plugin(self, name: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM plugins WHERE name = ?", (name,)
+            ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["manifest"] = json.loads(d.pop("manifest_json", "{}"))
+        return d
+
+    def update_plugin_status(self, name: str, status: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE plugins SET status = ?, updated_at = ? WHERE name = ?",
+                (status, datetime.now(UTC).isoformat(), name),
+            )
+
+    # --- DAG Executions ---
+
+    def save_dag_execution(self, execution: DAGExecution) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT INTO dag_executions
+                   (id, edict_id, plan_json, status, root_memorial_id,
+                    max_concurrency, created_at, completed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    execution.id,
+                    execution.edict_id,
+                    execution.plan_json,
+                    execution.status,
+                    execution.root_memorial_id,
+                    execution.max_concurrency,
+                    execution.created_at.isoformat(),
+                    execution.completed_at.isoformat() if execution.completed_at else None,
+                ),
+            )
+            for node in execution.nodes:
+                node.dag_execution_id = execution.id
+                self._conn.execute(
+                    """INSERT INTO dag_nodes
+                       (node_id, dag_execution_id, description, depends_on_json,
+                        status, assigned_official, assigned_worker,
+                        tools_required_json, memorial_id, checkpoint_json,
+                        started_at, completed_at, error)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        node.node_id,
+                        execution.id,
+                        node.description,
+                        json.dumps(node.depends_on),
+                        node.status.value,
+                        node.assigned_official,
+                        node.assigned_worker,
+                        json.dumps(node.tools_required),
+                        node.memorial_id,
+                        node.checkpoint_json,
+                        node.started_at.isoformat() if node.started_at else None,
+                        node.completed_at.isoformat() if node.completed_at else None,
+                        node.error,
+                    ),
+                )
+
+    def get_dag_execution(self, dag_id: str) -> DAGExecution | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM dag_executions WHERE id = ?", (dag_id,)
+            ).fetchone()
+            if not row:
+                return None
+            nodes = self._get_dag_nodes_internal(dag_id)
+        return self._row_to_dag_execution(row, nodes)
+
+    def get_dag_by_edict(self, edict_id: str) -> DAGExecution | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM dag_executions WHERE edict_id = ? ORDER BY created_at DESC LIMIT 1",
+                (edict_id,),
+            ).fetchone()
+            if not row:
+                return None
+            nodes = self._get_dag_nodes_internal(row["id"])
+        return self._row_to_dag_execution(row, nodes)
+
+    def get_dag_nodes(self, dag_execution_id: str) -> list[DAGNode]:
+        with self._lock:
+            return self._get_dag_nodes_internal(dag_execution_id)
+
+    def _get_dag_nodes_internal(self, dag_execution_id: str) -> list[DAGNode]:
+        rows = self._conn.execute(
+            "SELECT * FROM dag_nodes WHERE dag_execution_id = ?",
+            (dag_execution_id,),
+        ).fetchall()
+        return [self._row_to_dag_node(r) for r in rows]
+
+    def update_dag_execution_status(
+        self, dag_id: str, status: str, completed_at: datetime | None = None,
+    ) -> None:
+        with self._lock, self._conn:
+            if completed_at:
+                self._conn.execute(
+                    "UPDATE dag_executions SET status = ?, completed_at = ? WHERE id = ?",
+                    (status, completed_at.isoformat(), dag_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE dag_executions SET status = ? WHERE id = ?",
+                    (status, dag_id),
+                )
+
+    def update_dag_node_status(
+        self,
+        dag_execution_id: str,
+        node_id: str,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            if status == "running":
+                self._conn.execute(
+                    "UPDATE dag_nodes SET status = ?, started_at = ? WHERE dag_execution_id = ? AND node_id = ?",
+                    (status, now, dag_execution_id, node_id),
+                )
+            elif status in ("completed", "failed", "cancelled"):
+                self._conn.execute(
+                    "UPDATE dag_nodes SET status = ?, completed_at = ?, error = ? WHERE dag_execution_id = ? AND node_id = ?",
+                    (status, now, error, dag_execution_id, node_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE dag_nodes SET status = ?, error = ? WHERE dag_execution_id = ? AND node_id = ?",
+                    (status, error, dag_execution_id, node_id),
+                )
+
+    def update_dag_node_checkpoint(
+        self, dag_execution_id: str, node_id: str, checkpoint_json: str | None,
+    ) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE dag_nodes SET checkpoint_json = ? WHERE dag_execution_id = ? AND node_id = ?",
+                (checkpoint_json, dag_execution_id, node_id),
+            )
+
+    def save_dag_node(self, node: DAGNode) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO dag_nodes
+                   (node_id, dag_execution_id, description, depends_on_json,
+                    status, assigned_official, assigned_worker,
+                    tools_required_json, memorial_id, checkpoint_json,
+                    started_at, completed_at, error)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    node.node_id,
+                    node.dag_execution_id,
+                    node.description,
+                    json.dumps(node.depends_on),
+                    node.status.value,
+                    node.assigned_official,
+                    node.assigned_worker,
+                    json.dumps(node.tools_required),
+                    node.memorial_id,
+                    node.checkpoint_json,
+                    node.started_at.isoformat() if node.started_at else None,
+                    node.completed_at.isoformat() if node.completed_at else None,
+                    node.error,
+                ),
+            )
+
+    @staticmethod
+    def _row_to_dag_execution(row: sqlite3.Row, nodes: list[DAGNode]) -> DAGExecution:
+        return DAGExecution(
+            id=row["id"],
+            edict_id=row["edict_id"],
+            plan_json=row["plan_json"],
+            status=row["status"],
+            root_memorial_id=row["root_memorial_id"],
+            max_concurrency=row["max_concurrency"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+            nodes=nodes,
+        )
+
+    @staticmethod
+    def _row_to_dag_node(row: sqlite3.Row) -> DAGNode:
+        return DAGNode(
+            node_id=row["node_id"],
+            dag_execution_id=row["dag_execution_id"],
+            description=row["description"],
+            depends_on=json.loads(row["depends_on_json"]),
+            status=DAGNodeStatus(row["status"]),
+            assigned_official=row["assigned_official"],
+            assigned_worker=row["assigned_worker"],
+            tools_required=json.loads(row["tools_required_json"]),
+            memorial_id=row["memorial_id"],
+            checkpoint_json=row["checkpoint_json"],
+            started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
+            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+            error=row["error"],
+        )
+
+    # --- Persona Stats (Phase 3.12) ---
+
+    def get_persona_stats(self, persona_id: str) -> dict:
+        with self._lock:
+            row = self._conn.execute("""
+                SELECT
+                    COUNT(*) as total_executions,
+                    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
+                    COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed,
+                    COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled,
+                    COALESCE(SUM(json_extract(usage_json, '$.total_tokens')), 0) as total_tokens,
+                    COALESCE(AVG(
+                        CASE WHEN completed_at IS NOT NULL AND started_at IS NOT NULL
+                        THEN (julianday(completed_at) - julianday(started_at)) * 86400
+                        END
+                    ), 0.0) as avg_duration_seconds
+                FROM memorials
+                WHERE persona_id = ?
+            """, (persona_id,)).fetchone()
+
+        total = row["total_executions"] or 0
+        completed = row["completed"] or 0
+        success_rate = (completed / total * 100) if total > 0 else 0.0
+        total_tokens = row["total_tokens"] or 0
+        avg_tokens = (total_tokens / total) if total > 0 else 0.0
+
+        # Cost from cost_ledger (join via memorial_id)
+        cost_row = self._conn.execute("""
+            SELECT COALESCE(SUM(cl.cost_cny), 0.0) as total_cost
+            FROM cost_ledger cl
+            JOIN memorials m ON cl.memorial_id = m.id
+            WHERE m.persona_id = ?
+        """, (persona_id,)).fetchone()
+
+        return {
+            "total_executions": total,
+            "completed": completed,
+            "failed": row["failed"] or 0,
+            "cancelled": row["cancelled"] or 0,
+            "success_rate": round(success_rate, 2),
+            "total_tokens": total_tokens,
+            "avg_tokens_per_execution": round(avg_tokens, 1),
+            "total_cost_cny": round(cost_row["total_cost"], 6) if cost_row else 0.0,
+            "avg_duration_seconds": round(row["avg_duration_seconds"] or 0.0, 2),
+        }
+
     # --- Helpers ---
 
     @staticmethod
     def _row_to_edict(row: sqlite3.Row) -> Edict:
+        # Handle optional Phase 1 columns gracefully
+        keys = row.keys()
+
+        schedule = EdictSchedule()
+        if "schedule_json" in keys and row["schedule_json"]:
+            try:
+                schedule = EdictSchedule.model_validate_json(row["schedule_json"])
+            except Exception:
+                pass
+
+        dispatch = None
+        if "dispatch_json" in keys and row["dispatch_json"]:
+            try:
+                dispatch = EdictDispatch.model_validate_json(row["dispatch_json"])
+            except Exception:
+                pass
+
+        runtime = EdictRuntime()
+        if "runtime_json" in keys and row["runtime_json"]:
+            try:
+                runtime = EdictRuntime.model_validate_json(row["runtime_json"])
+            except Exception:
+                pass
+
+        constraints = []
+        if "constraints_json" in keys and row["constraints_json"]:
+            try:
+                constraints = json.loads(row["constraints_json"])
+            except Exception:
+                pass
+
+        metadata = {}
+        if "metadata_json" in keys and row["metadata_json"]:
+            try:
+                metadata = json.loads(row["metadata_json"])
+            except Exception:
+                pass
+
         return Edict(
             id=row["id"],
-            title=row["title"],
+            title=row["title"] if "title" in keys else "",
             goal=row["goal"],
             context=row["context"],
-            status=EdictStatus(row["status"]),
+            status=EdictStatus(row["status"]) if "status" in keys else EdictStatus.OPEN,
             created_at=datetime.fromisoformat(row["created_at"]),
+            idempotency_key=row["idempotency_key"] if "idempotency_key" in keys else None,
+            source=row["source"] if "source" in keys else "api",
+            submitter=row["submitter"] if "submitter" in keys else None,
+            priority=row["priority"] if "priority" in keys else "normal",
+            review_policy=row["review_policy"] if "review_policy" in keys else "never",
+            output_format=row["output_format"] if "output_format" in keys else None,
+            constraints=constraints,
+            schedule=schedule,
+            dispatch=dispatch,
+            runtime=runtime,
+            metadata=metadata,
         )
 
     @staticmethod
     def _row_to_memorial(row: sqlite3.Row) -> Memorial:
+        keys = row.keys()
         usage_data = json.loads(row["usage_json"]) if row["usage_json"] else {}
+
+        audit = None
+        if "audit_json" in keys and row["audit_json"]:
+            try:
+                audit = AuditResult.model_validate_json(row["audit_json"])
+            except Exception:
+                pass
+
         return Memorial(
             id=row["id"],
             edict_id=row["edict_id"],
-            instruction=row["instruction"],
+            instruction=row["instruction"] if "instruction" in keys else None,
             status=TaskStatus(row["status"]),
             summary=row["summary"],
             result=row["result"],
@@ -314,6 +1292,12 @@ class Storage:
                 if row["completed_at"]
                 else None
             ),
+            attempt=row["attempt"] if "attempt" in keys else 1,
+            parent_memorial_id=row["parent_memorial_id"] if "parent_memorial_id" in keys else None,
+            review_status=row["review_status"] if "review_status" in keys else "not_required",
+            audit=audit,
+            dag_node_id=row["dag_node_id"] if "dag_node_id" in keys else None,
+            persona_id=row["persona_id"] if "persona_id" in keys else None,
         )
 
     @staticmethod
@@ -330,4 +1314,12 @@ class Storage:
             m.created_at.isoformat(),
             m.started_at.isoformat() if m.started_at else None,
             m.completed_at.isoformat() if m.completed_at else None,
+            m.attempt,
+            m.parent_memorial_id,
+            m.review_status,
+            m.audit.model_dump_json() if m.audit else None,
+            json.dumps([a.model_dump() for a in m.artifacts], default=str),
+            json.dumps([t.model_dump() for t in m.timeline], default=str),
+            m.dag_node_id,
+            m.persona_id,
         )

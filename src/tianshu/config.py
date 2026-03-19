@@ -21,3 +21,15 @@ class TianshuSettings(BaseSettings):
     workspace_dir: str = "."
     skills_char_budget: int = 30000
     static_dir: str = "/app/static"
+    # Phase 3: concurrency
+    max_global_concurrency: int = 8
+    # Phase 2: notification channels
+    feishu_webhook: str = ""
+    dingtalk_webhook: str = ""
+    dingtalk_secret: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_to: str = ""

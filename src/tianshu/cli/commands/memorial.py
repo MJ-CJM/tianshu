@@ -98,3 +98,46 @@ def list_memorials(
         )
 
     console.print(table)
+
+
+@app.command("review")
+def review(
+    limit: int = typer.Option(20, "--limit", "-l", help="Max results"),
+    fmt: str = typer.Option("table", "--format", "-f", help="Output format: table|json"),
+):
+    """List all memorials pending review (needs_review status)."""
+    data = api_get("/api/memorials", params={"status": "needs_review", "limit": limit})
+
+    if fmt == "json":
+        console.print_json(json.dumps(data))
+        return
+
+    memorials = data.get("data", [])
+    meta = data.get("metadata", {})
+
+    if not memorials:
+        console.print("[green]No memorials pending review.[/green]")
+        return
+
+    table = Table(title=f"Pending Review (total: {meta.get('total', len(memorials))})")
+    table.add_column("Memorial ID", style="dim", max_width=26)
+    table.add_column("Edict ID", style="dim", max_width=26)
+    table.add_column("Audit")
+    table.add_column("Instruction", max_width=40)
+
+    for m in memorials:
+        audit = m.get("audit", {})
+        verdict = audit.get("verdict", "—") if audit else "—"
+        verdict_color = {"pass": "green", "flag": "yellow", "block": "red"}.get(verdict, "white")
+        table.add_row(
+            m.get("id", ""),
+            m.get("edict_id", ""),
+            f"[{verdict_color}]{verdict}[/{verdict_color}]",
+            (m.get("instruction") or "")[:40],
+        )
+
+    console.print(table)
+    console.print(
+        "\n[bold]Use[/bold] [cyan]tianshu decree submit --memorial-id <id> --action approve[/cyan] "
+        "[bold]to approve[/bold]"
+    )

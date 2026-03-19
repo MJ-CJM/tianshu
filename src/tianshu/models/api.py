@@ -1,61 +1,35 @@
-"""Core data models - Edict and Memorial."""
+"""API request/response models."""
 
-from datetime import UTC, datetime
-from enum import Enum
-from typing import Generic, TypeVar
+from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from ulid import ULID
 
-T = TypeVar("T")
-
-
-class TaskStatus(str, Enum):
-    SUBMITTED = "submitted"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+from tianshu.models.common import EdictStatus
 
 
-class EdictStatus(str, Enum):
-    OPEN = "open"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
+class EdictScheduleRequest(BaseModel):
+    type: str = "immediate"
+    cron: str | None = None
+    at: str | None = None
 
 
-class UsageSummary(BaseModel):
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
-
-
-class Edict(BaseModel):
-    id: str = Field(default_factory=lambda: str(ULID()))
-    title: str = ""
-    goal: str
-    context: str | None = None
-    status: EdictStatus = EdictStatus.OPEN
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
-class Memorial(BaseModel):
-    id: str = Field(default_factory=lambda: str(ULID()))
-    edict_id: str
-    instruction: str | None = None
-    status: TaskStatus = TaskStatus.SUBMITTED
-    summary: str | None = None
-    result: str | None = None
-    usage: UsageSummary = Field(default_factory=UsageSummary)
-    error: str | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
+class EdictRuntimeRequest(BaseModel):
+    timeout_seconds: int | None = Field(default=None, ge=10, le=3600)
+    max_iterations: int | None = Field(default=None, ge=1, le=200)
+    retry_limit: int | None = Field(default=None, ge=0, le=10)
+    token_budget: int | None = None
+    cost_budget_cny: float | None = None
 
 
 class EdictCreateRequest(BaseModel):
     goal: str = Field(min_length=1)
     context: str | None = None
+    schedule: EdictScheduleRequest | None = None
+    priority: str | None = None
+    review_policy: str | None = None
+    constraints: list[str] | None = None
+    output_format: str | None = None
+    runtime: EdictRuntimeRequest | None = None
 
 
 class FollowUpRequest(BaseModel):
@@ -71,6 +45,14 @@ class EdictUpdateRequest(BaseModel):
 
 class EdictStatusUpdateRequest(BaseModel):
     status: EdictStatus
+
+
+class DecreeCreateRequest(BaseModel):
+    memorial_id: str = Field(min_length=1)
+    action: str = Field(min_length=1)
+    comment: str | None = None
+    amended_goal: str | None = None
+    actor: str = "human"
 
 
 class LLMConfig(BaseModel):
@@ -123,10 +105,3 @@ class AgentConfigUpdateRequest(BaseModel):
     agent_max_iterations: int | None = Field(default=None, ge=1, le=200)
     agent_timeout_seconds: int | None = Field(default=None, ge=10, le=3600)
     skills_char_budget: int | None = Field(default=None, ge=1000, le=500000)
-
-
-class ApiResponse(BaseModel, Generic[T]):
-    success: bool
-    data: T | None = None
-    error: str | None = None
-    metadata: dict | None = None

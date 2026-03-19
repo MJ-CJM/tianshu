@@ -3,7 +3,11 @@ export type TaskStatus =
   | "running"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "scheduled"
+  | "planning"
+  | "auditing"
+  | "needs_review";
 
 export interface UsageSummary {
   prompt_tokens: number;
@@ -13,6 +17,43 @@ export interface UsageSummary {
 
 export type EdictStatus = "open" | "completed" | "cancelled";
 
+export interface EdictSchedule {
+  type: "immediate" | "once" | "cron";
+  at: string | null;
+  cron: string | null;
+  timezone: string;
+}
+
+export interface EdictRuntime {
+  timeout_seconds: number;
+  max_iterations: number;
+  max_concurrency: number;
+  retry_limit: number;
+  token_budget: number | null;
+  cost_budget_cny: number | null;
+  approval_required_tools: string[];
+}
+
+export interface ArtifactRef {
+  name: string;
+  type: string;
+  path: string | null;
+  url: string | null;
+}
+
+export interface TimelineItem {
+  timestamp: string;
+  event: string;
+  detail: string | null;
+}
+
+export interface SchedulerJob {
+  job_id: string;
+  edict_id: string;
+  schedule_type: string;
+  next_run: string | null;
+}
+
 export interface Edict {
   id: string;
   title: string;
@@ -20,6 +61,21 @@ export interface Edict {
   context: string | null;
   status: EdictStatus;
   created_at: string;
+  priority: "urgent" | "normal" | "low";
+  review_policy: "never" | "on_failure" | "on_flag" | "always";
+  schedule: EdictSchedule;
+  runtime: EdictRuntime;
+  constraints: string[];
+  output_format: string | null;
+  source: string;
+  submitter: string | null;
+}
+
+export interface AuditResult {
+  verdict: "pass" | "flag" | "block";
+  reasons: string[];
+  rules_checked: number;
+  llm_reviewed: boolean;
 }
 
 export interface Memorial {
@@ -34,6 +90,14 @@ export interface Memorial {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  attempt: number;
+  parent_memorial_id: string | null;
+  review_status: "not_required" | "pending" | "approved" | "rejected";
+  audit: AuditResult | null;
+  artifacts: ArtifactRef[];
+  timeline: TimelineItem[];
+  persona_id: string | null;
+  dag_node_id: string | null;
 }
 
 export interface EdictEvent {
@@ -45,10 +109,47 @@ export interface EdictEvent {
   payload: Record<string, unknown>;
 }
 
+export interface EdictCreateRequest {
+  goal: string;
+  context?: string;
+  schedule?: { type: string; cron?: string; at?: string };
+  priority?: string;
+  review_policy?: string;
+  constraints?: string[];
+  output_format?: string;
+  runtime?: Partial<EdictRuntime>;
+}
+
 export interface EdictUpdateRequest {
   title?: string;
   goal?: string;
   context?: string;
+}
+
+export interface Decree {
+  id: string;
+  memorial_id: string;
+  action: "approve" | "reject" | "retry" | "amend" | "cancel";
+  comment: string | null;
+  amended_goal: string | null;
+  actor: string;
+  created_at: string;
+}
+
+export interface DecreeCreateRequest {
+  memorial_id: string;
+  action: string;
+  comment?: string;
+  amended_goal?: string;
+  actor?: string;
+}
+
+export interface WsMessage {
+  type: string;
+  edict_id?: string;
+  memorial_id?: string;
+  status?: string;
+  [key: string]: unknown;
 }
 
 export interface LLMConfig {
@@ -103,6 +204,50 @@ export interface AgentConfigUpdateRequest {
   skills_char_budget?: number;
 }
 
+// --- Audit types ---
+
+export interface AuditStatsSummary {
+  total_memorials: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  audit_pass: number;
+  audit_flag: number;
+  audit_block: number;
+  review_pending: number;
+  review_approved: number;
+  review_rejected: number;
+}
+
+export interface EdictUsageRow {
+  edict_id: string;
+  edict_title: string;
+  priority: string;
+  token_budget: number | null;
+  memorial_count: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+export interface RecentAuditRow {
+  memorial_id: string;
+  edict_id: string;
+  edict_title: string;
+  verdict: "pass" | "flag" | "block";
+  reasons: string[];
+  rules_checked: number;
+  llm_reviewed: boolean;
+  review_status: string | null;
+  completed_at: string | null;
+}
+
+export interface AuditStats {
+  summary: AuditStatsSummary;
+  per_edict: EdictUsageRow[];
+  recent_audits: RecentAuditRow[];
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data: T | null;
@@ -112,4 +257,167 @@ export interface ApiResponse<T> {
     limit: number;
     offset: number;
   } | null;
+}
+
+// --- Cost types ---
+
+export interface CostRecord {
+  id: string;
+  edict_id: string;
+  memorial_id: string | null;
+  provider_name: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_cny: number;
+  created_at: string;
+}
+
+export interface CostSummary {
+  total_records: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  total_cost_cny: number;
+}
+
+export interface BudgetStatus {
+  scope: string;
+  budget_cny: number;
+  spent_cny: number;
+  remaining_cny: number;
+  period: "daily" | "weekly" | "monthly";
+  exceeded: boolean;
+}
+
+// --- Provider types ---
+
+export interface ProviderInfo {
+  name: string;
+  model: string;
+  api_base: string | null;
+  capabilities: string[];
+  status: "active" | "degraded" | "disabled";
+  priority: number;
+  rpm_limit: number | null;
+  tpm_limit: number | null;
+  rpm_current: number;
+  tpm_current: number;
+  cost_per_1k_prompt: number | null;
+  cost_per_1k_completion: number | null;
+  created_at: string;
+}
+
+// --- Plugin types ---
+
+export interface PluginInfo {
+  name: string;
+  version: string;
+  manifest: Record<string, unknown>;
+  status: string;
+  sha256: string | null;
+  installed_at: string;
+  updated_at: string | null;
+}
+
+// --- DAG types (Phase 3) ---
+
+export type DAGNodeStatus = "pending" | "ready" | "running" | "completed" | "failed" | "cancelled";
+
+export interface DAGNode {
+  node_id: string;
+  dag_execution_id: string;
+  description: string;
+  depends_on: string[];
+  status: DAGNodeStatus;
+  assigned_official: string | null;
+  assigned_worker: string | null;
+  tools_required: string[];
+  memorial_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+}
+
+export interface DAGExecution {
+  id: string;
+  edict_id: string;
+  plan_json: string;
+  status: string;
+  root_memorial_id: string | null;
+  max_concurrency: number;
+  created_at: string;
+  completed_at: string | null;
+  nodes: DAGNode[];
+}
+
+export interface PersonaInfo {
+  id: string;
+  name: string;
+  department: string;
+  tools_allowed: string[];
+  can_delegate: boolean;
+}
+
+export interface PersonaMetrics {
+  persona_id: string;
+  total_executions: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  success_rate: number;
+  total_tokens: number;
+  avg_tokens_per_execution: number;
+  total_cost_cny: number;
+  avg_duration_seconds: number;
+}
+
+// --- Consultation types (Phase 3) ---
+
+export interface ConsultationRequest {
+  topic: string;
+  context?: string;
+  edict_id?: string;
+  persona_ids: string[];
+  synthesizer_persona_id?: string;
+}
+
+export interface PersonaOpinion {
+  persona_id: string;
+  persona_name: string;
+  department: string;
+  opinion: string;
+  confidence: number;
+  key_points: string[];
+}
+
+export type ConsultationStatus = "pending" | "running" | "completed" | "failed";
+
+export interface ConsultationResponse {
+  id: string;
+  status: ConsultationStatus;
+  request: ConsultationRequest | null;
+  opinions: PersonaOpinion[];
+  synthesis: string | null;
+  decision: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+// --- Memory types ---
+
+export interface MemoryEntry {
+  id: string;
+  persona_id: string;
+  edict_id: string | null;
+  memorial_id: string | null;
+  category: "observation" | "insight" | "entity" | "summary";
+  content: string;
+  source: "agent" | "compaction" | "reflection";
+  confidence: number;
+  entity_refs: string[];
+  created_at: string;
+  expires_at: string | null;
+  access_level: "private" | "shared" | "court";
 }

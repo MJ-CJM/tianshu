@@ -10,6 +10,10 @@ import {
   PlusCircleOutlined,
   StopOutlined,
   ExclamationCircleOutlined,
+  ScheduleOutlined,
+  BulbOutlined,
+  SafetyCertificateOutlined,
+  RedoOutlined,
 } from "@ant-design/icons";
 import type { EdictEvent } from "../../api/types";
 import GlowCard from "../common/GlowCard";
@@ -74,6 +78,46 @@ const EVENT_CONFIG: Record<
     color: "#52c41a",
     icon: <StopOutlined />,
     label: "敕令结案",
+  },
+  "edict.scheduled": {
+    color: "#faad14",
+    icon: <ScheduleOutlined />,
+    label: "调度排期",
+  },
+  "plan.completed": {
+    color: "#722ed1",
+    icon: <BulbOutlined />,
+    label: "规划完成",
+  },
+  "audit.completed": {
+    color: "#13c2c2",
+    icon: <SafetyCertificateOutlined />,
+    label: "审计完成",
+  },
+  "decree.approved": {
+    color: "#52c41a",
+    icon: <CheckCircleOutlined />,
+    label: "批红：准",
+  },
+  "decree.rejected": {
+    color: "#ff4d4f",
+    icon: <CloseCircleOutlined />,
+    label: "批红：驳",
+  },
+  "decree.retry": {
+    color: "#faad14",
+    icon: <RedoOutlined />,
+    label: "批红：重办",
+  },
+  "decree.cancelled": {
+    color: "#8c8c8c",
+    icon: <StopOutlined />,
+    label: "批红：撤回",
+  },
+  "tool.blocked": {
+    color: "#ff4d4f",
+    icon: <StopOutlined />,
+    label: "工具拦截",
   },
 };
 

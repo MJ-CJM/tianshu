@@ -1,7 +1,12 @@
 import { Layout, theme } from "antd";
 import HealthDot from "../common/HealthDot";
+import ConnectionIndicator from "../common/ConnectionIndicator";
 
-export default function AppHeader() {
+interface AppHeaderProps {
+  isWsConnected?: boolean;
+}
+
+export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
   const { token } = theme.useToken();
 
   return (
@@ -35,7 +40,10 @@ export default function AppHeader() {
           中枢台
         </span>
       </div>
-      <HealthDot />
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <ConnectionIndicator isConnected={isWsConnected} />
+        <HealthDot />
+      </div>
     </Layout.Header>
   );
 }

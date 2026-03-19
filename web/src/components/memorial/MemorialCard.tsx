@@ -1,13 +1,35 @@
-import { Space, Typography, theme } from "antd";
-import { SyncOutlined, ClockCircleOutlined } from "@ant-design/icons";
+import { Space, Typography, Tag, Button, theme } from "antd";
+import { SyncOutlined, ClockCircleOutlined, SafetyCertificateOutlined, PaperClipOutlined, LinkOutlined, UserOutlined, DeploymentUnitOutlined } from "@ant-design/icons";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useNavigate } from "react-router-dom";
 import type { Memorial } from "../../api/types";
 import GlowCard from "../common/GlowCard";
 import StatusTag from "../edict/StatusTag";
 import { formatDuration } from "../../utils/format";
 import { STATUS_COLORS } from "../../utils/constants";
 import glowStyles from "../common/GlowCard.module.css";
+
+const PERSONA_LABELS: Record<string, string> = {
+  bingbu: "兵部",
+  neige: "内阁",
+  ducha: "都察院",
+  tongzheng: "通政司",
+  wenyuan: "文渊阁",
+  hubu: "户部",
+};
+
+const AUDIT_COLORS: Record<string, string> = {
+  pass: "success",
+  flag: "warning",
+  block: "error",
+};
+
+const AUDIT_LABELS: Record<string, string> = {
+  pass: "审计通过",
+  flag: "审计标记",
+  block: "审计拦截",
+};
 
 interface MemorialCardProps {
   memorial: Memorial;
@@ -16,7 +38,9 @@ interface MemorialCardProps {
 
 export default function MemorialCard({ memorial, index }: MemorialCardProps) {
   const { token } = theme.useToken();
-  const title = index !== undefined ? `奏折 #${index + 1}` : "奏折";
+  const navigate = useNavigate();
+  const attemptLabel = memorial.attempt > 1 ? ` (第 ${memorial.attempt} 次)` : "";
+  const title = index !== undefined ? `奏折 #${index + 1}${attemptLabel}` : `奏折${attemptLabel}`;
   const isRunning = memorial.status === "running";
   const borderColor = STATUS_COLORS[memorial.status] ?? token.colorBorder;
   const duration = formatDuration(memorial.started_at, memorial.completed_at);
@@ -31,11 +55,41 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
           <span>{title}</span>
           <StatusTag status={memorial.status} />
           {isRunning && <SyncOutlined spin style={{ color: token.colorInfo }} />}
+          {memorial.audit && (
+            <Tag
+              icon={<SafetyCertificateOutlined />}
+              color={AUDIT_COLORS[memorial.audit.verdict] ?? "default"}
+            >
+              {AUDIT_LABELS[memorial.audit.verdict] ?? memorial.audit.verdict}
+            </Tag>
+          )}
+          {memorial.review_status === "pending" && (
+            <Button
+              type="link"
+              size="small"
+              onClick={() => navigate("/approvals")}
+              style={{ padding: 0 }}
+            >
+              待批红
+            </Button>
+          )}
           {hasDuration && (
             <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
               <ClockCircleOutlined style={{ marginRight: 4 }} />
               {duration}
             </Typography.Text>
+          )}
+          {memorial.persona_id && (
+            <Tag style={{ fontSize: 11 }}>
+              <UserOutlined style={{ marginRight: 2 }} />
+              {PERSONA_LABELS[memorial.persona_id] ?? memorial.persona_id}
+            </Tag>
+          )}
+          {memorial.dag_node_id && (
+            <Tag style={{ fontSize: 11 }} color="blue">
+              <DeploymentUnitOutlined style={{ marginRight: 2 }} />
+              {memorial.dag_node_id}
+            </Tag>
           )}
         </Space>
       }
@@ -111,6 +165,31 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
           >
             {memorial.error}
           </Typography.Paragraph>
+        </div>
+      )}
+
+      {memorial.artifacts && memorial.artifacts.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            <PaperClipOutlined style={{ marginRight: 4 }} />
+            附件
+          </Typography.Text>
+          <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {memorial.artifacts.map((artifact, i) => (
+              <Tag key={i} icon={<LinkOutlined />}>
+                {artifact.url ? (
+                  <a href={artifact.url} target="_blank" rel="noopener noreferrer">
+                    {artifact.name}
+                  </a>
+                ) : (
+                  artifact.name
+                )}
+                <span style={{ marginLeft: 4, color: token.colorTextTertiary, fontSize: 11 }}>
+                  ({artifact.type})
+                </span>
+              </Tag>
+            ))}
+          </div>
         </div>
       )}
     </GlowCard>

@@ -26,10 +26,20 @@ _STATUS_COLORS = {
 def submit(
     goal: str = typer.Option(..., "--goal", "-g", help="Task goal"),
     context: str = typer.Option(None, "--context", "-c", help="Additional context"),
+    schedule_type: str = typer.Option("immediate", "--schedule-type", help="Schedule: immediate|once|cron"),
+    cron: str = typer.Option(None, "--cron", help="Cron expression (for schedule_type=cron)"),
+    priority: str = typer.Option("normal", "--priority", "-p", help="Priority: urgent|normal|low"),
     fmt: str = typer.Option("table", "--format", "-f", help="Output format: table|json"),
 ):
     """Submit a new edict."""
-    data = api_post("/api/edicts", {"goal": goal, "context": context})
+    body: dict = {"goal": goal, "context": context}
+    if schedule_type != "immediate":
+        body["schedule"] = {"type": schedule_type}
+        if cron:
+            body["schedule"]["cron"] = cron
+    if priority != "normal":
+        body["priority"] = priority
+    data = api_post("/api/edicts", body)
 
     if fmt == "json":
         console.print_json(json.dumps(data))

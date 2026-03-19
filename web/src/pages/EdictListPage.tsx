@@ -19,7 +19,7 @@ const statusOptions = [
 export default function EdictListPage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("open");
   const [searchText, setSearchText] = useState("");
   const [searchValue, setSearchValue] = useState("");
 
@@ -54,14 +54,19 @@ export default function EdictListPage() {
     queryClient.invalidateQueries({ queryKey: ["edicts"] });
   };
 
+  const handleBatchDelete = async (edictIds: string[]) => {
+    await Promise.all(edictIds.map((id) => deleteEdict(id)));
+    queryClient.invalidateQueries({ queryKey: ["edicts"] });
+  };
+
   return (
     <PageContainer
-      title="敕令卷宗"
+      title="敕令总览"
       extra={
         <Space>
           <Input
             prefix={<SearchOutlined />}
-            placeholder="搜索卷宗..."
+            placeholder="搜索敕令..."
             allowClear
             value={searchText}
             onChange={(e) => {
@@ -101,6 +106,7 @@ export default function EdictListPage() {
         loading={edictsQuery.isLoading}
         onPageChange={(p) => setPage(p)}
         onDelete={handleDelete}
+        onBatchDelete={handleBatchDelete}
         onRefresh={() => queryClient.invalidateQueries({ queryKey: ["edicts"] })}
       />
     </PageContainer>

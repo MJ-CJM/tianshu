@@ -20,6 +20,11 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
+    // 允许请求通过 config.silentCodes 标记可静默的 HTTP 状态码
+    const silentCodes: number[] = error.config?.silentCodes ?? [];
+    if (silentCodes.includes(error.response?.status)) {
+      return Promise.reject(error);
+    }
     const message =
       error.response?.data?.detail ??
       error.response?.data?.error ??

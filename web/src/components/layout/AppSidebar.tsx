@@ -28,6 +28,14 @@ import {
   SunOutlined,
   MoonOutlined,
   DeleteOutlined,
+  AuditOutlined,
+  ScheduleOutlined,
+  SafetyCertificateOutlined,
+  DollarOutlined,
+  ApiOutlined,
+  BookOutlined,
+  TeamOutlined,
+  CrownOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
@@ -41,6 +49,7 @@ import {
   useActivateConfig,
 } from "../../hooks/useConfig";
 import { useTheme } from "../../hooks/useTheme";
+import { useNeedsReview } from "../../hooks/useApprovals";
 import type {
   AgentConfigUpdateRequest,
   LLMConfig,
@@ -48,11 +57,11 @@ import type {
   LLMConfigUpdateRequest,
 } from "../../api/types";
 
-const menuItems = [
+const staticMenuItems = [
   {
     key: "/",
     icon: <UnorderedListOutlined />,
-    label: "敕令卷宗",
+    label: "敕令总览",
   },
   {
     key: "/edicts/create",
@@ -74,6 +83,56 @@ export default function AppSidebar() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addForm] = Form.useForm<LLMConfigCreateRequest>();
+
+  const { data: reviewData } = useNeedsReview();
+  const reviewCount = reviewData?.metadata?.total ?? reviewData?.data?.length ?? 0;
+
+  const menuItems = [
+    ...staticMenuItems,
+    {
+      key: "/approvals",
+      icon: <AuditOutlined />,
+      label: reviewCount > 0 ? `批红台 (${reviewCount})` : "批红台",
+    },
+    {
+      key: "/scheduler",
+      icon: <ScheduleOutlined />,
+      label: "文书房",
+    },
+    {
+      key: "/audit",
+      icon: <SafetyCertificateOutlined />,
+      label: "审计司",
+    },
+    {
+      key: "/cost",
+      icon: <DollarOutlined />,
+      label: "户部账房",
+    },
+    {
+      key: "/memory",
+      icon: <BookOutlined />,
+      label: "文渊阁",
+    },
+    {
+      key: "/consultation",
+      icon: <TeamOutlined />,
+      label: "廷议",
+    },
+    {
+      key: "/personas",
+      icon: <CrownOutlined />,
+      label: "百官阁",
+    },
+    {
+      key: "/providers",
+      icon: <ApiOutlined />,
+      label: "Provider管理",
+    },
+  ];
+
+  // Note: DAG battle map is accessible via edict detail "查看作战图" button,
+  // not as a direct sidebar item (it requires a dagId parameter).
 
   const { data: configsData, isLoading } = useConfigs();
   const createMutation = useCreateConfig();

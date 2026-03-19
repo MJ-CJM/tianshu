@@ -1,10 +1,7 @@
 import apiClient from "./client";
-import type { ApiResponse, Edict, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent } from "./types";
+import type { ApiResponse, Edict, EdictCreateRequest, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent } from "./types";
 
-export async function createEdict(body: {
-  goal: string;
-  context?: string;
-}): Promise<ApiResponse<Edict>> {
+export async function createEdict(body: EdictCreateRequest): Promise<ApiResponse<Edict>> {
   const { data } = await apiClient.post<ApiResponse<Edict>>(
     "/edicts",
     body,

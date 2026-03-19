@@ -5,15 +5,13 @@ import { createEdict } from "../api/edicts";
 import EdictForm from "../components/edict/EdictForm";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
+import type { EdictCreateRequest } from "../api/types";
 
 export default function EdictCreatePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (values: {
-    goal: string;
-    context?: string;
-  }) => {
+  const handleSubmit = async (values: EdictCreateRequest) => {
     setLoading(true);
     try {
       const res = await createEdict(values);
