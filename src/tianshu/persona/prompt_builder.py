@@ -1,10 +1,23 @@
-"""Prompt builder — 8-layer system prompt injection for persona-aware agents."""
+"""Prompt builder — 8-layer system prompt injection for persona-aware agents.
+
+Layer injection order:
+  1: Base Identity
+  2: COURT.md (shared court context)           — from personas/
+  3: SOUL.md (persona identity)                — from personas/
+  4: ROLE.md (persona role specifics)           — from personas/
+  5: MEMORY.md (core long-term memory)          — from ~/.tianshu/memory/
+  5.5: Recent Activity (last 2 days logs)       — from ~/.tianshu/memory/
+  6: Court MEMORY.md (shared court memory)      — from ~/.tianshu/memory/
+  7: Skills
+  8: Task Context
+"""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
+from tianshu.memory.markdown_backend import MarkdownMemoryBackend
 from tianshu.models.edict import Edict
 from tianshu.persona.model import AgentPersona
 from tianshu.skills.loader import SkillsLoader
@@ -26,9 +39,19 @@ class PromptBuilder:
         self,
         personas_dir: Path,
         skills_loader: SkillsLoader,
+        memory_dir: Path | None = None,
     ) -> None:
         self._personas_dir = personas_dir
         self._skills = skills_loader
+
+        if memory_dir is None:
+            memory_dir = Path("~/.tianshu/memory").expanduser()
+        self._memory_dir = Path(memory_dir).expanduser()
+
+        self._md_backend = MarkdownMemoryBackend(
+            memory_dir=self._memory_dir,
+            personas_dir=self._personas_dir,
+        )
 
     def build(
         self,
@@ -43,36 +66,43 @@ class PromptBuilder:
         parts.append(_BASE_IDENTITY)
 
         if persona:
-            # Layer 2: COURT.md (shared court context)
+            # Layer 2: COURT.md (shared court context) — from personas/
             court_path = self._personas_dir / "court" / "COURT.md"
             court_text = self._read_file(court_path)
             if court_text:
                 parts.append(court_text)
 
-            # Layer 3: SOUL.md (persona identity)
+            # Layer 3: SOUL.md (persona identity) — from personas/
             soul_text = self._read_file(persona.soul_path)
             if soul_text:
                 parts.append(soul_text)
 
-            # Layer 4: ROLE.md (persona role specifics)
+            # Layer 4: ROLE.md (persona role specifics) — from personas/
             role_text = self._read_file(persona.role_path)
             if role_text:
                 parts.append(role_text)
 
-            # Layer 5: Per-agent MEMORY.md
-            memory_text = self._read_file(persona.memory_path)
+            # Layer 5: MEMORY.md — from ~/.tianshu/memory/{persona}/
+            memory_text = self._md_backend.read_core_memory(persona.id)
             if memory_text:
                 parts.append(f"# Agent Memory\n\n{memory_text}")
 
-            # Layer 6: Court MEMORY.md (shared memory)
-            court_memory = self._personas_dir / "court" / "MEMORY.md"
-            court_mem_text = self._read_file(court_memory)
+            # Layer 5.5: Recent Activity (last 2 days logs)
+            recent_logs = self._md_backend.read_recent_logs(
+                persona.id, days=2, char_budget=2000,
+            )
+            if recent_logs:
+                parts.append(f"# Recent Activity\n\n{recent_logs}")
+
+            # Layer 6: Court MEMORY.md — from ~/.tianshu/memory/court/
+            court_mem_text = self._md_backend.read_core_memory("court")
             if court_mem_text:
                 parts.append(f"# Court Memory\n\n{court_mem_text}")
 
-        # Layer 7: Skills
+        # Layer 7: Skills (filtered by persona if skills_allowed is set)
         self._skills.set_char_budget(skills_char_budget)
-        skills_text = self._skills.load_all()
+        filter_names = persona.skills_allowed if persona and persona.skills_allowed else None
+        skills_text = self._skills.load_all(filter_names=filter_names)
         if skills_text:
             parts.append(skills_text)
 

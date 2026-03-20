@@ -1,4 +1,4 @@
-import type { ApiResponse, MemoryEntry } from "./types";
+import type { ApiResponse, MemoryEntry, EdictMemorialGroup } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -52,6 +52,16 @@ export async function deleteMemoryEntries(
     },
   );
   return resp.data ?? { deleted: 0 };
+}
+
+export async function getPersonaMemorials(
+  personaId: string,
+  limit = 100,
+): Promise<EdictMemorialGroup[]> {
+  const resp = await fetchJson<ApiResponse<EdictMemorialGroup[]>>(
+    `/api/memorials/by-persona/${personaId}?limit=${limit}`,
+  );
+  return resp.data ?? [];
 }
 
 export async function getMemoryPolicies(): Promise<

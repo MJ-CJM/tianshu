@@ -111,7 +111,10 @@ export interface EdictEvent {
 
 export interface EdictCreateRequest {
   goal: string;
+  title?: string;
   context?: string;
+  idempotency_key?: string;
+  submitter?: string;
   schedule?: { type: string; cron?: string; at?: string };
   priority?: string;
   review_policy?: string;
@@ -357,7 +360,54 @@ export interface PersonaInfo {
   name: string;
   department: string;
   tools_allowed: string[];
+  tools_denied: string[];
+  skills_allowed: string[];
+  tool_tier_max: number;
   can_delegate: boolean;
+  delegates_to: string[];
+}
+
+export interface PersonaCreateRequest {
+  id: string;
+  name: string;
+  department: string;
+  tools_allowed?: string[];
+  tools_denied?: string[];
+  skills_allowed?: string[];
+  tool_tier_max?: number;
+  can_delegate?: boolean;
+  delegates_to?: string[];
+}
+
+export interface PersonaUpdateRequest {
+  name?: string;
+  department?: string;
+  tools_allowed?: string[];
+  tools_denied?: string[];
+  skills_allowed?: string[];
+  tool_tier_max?: number;
+  can_delegate?: boolean;
+  delegates_to?: string[];
+}
+
+export interface MemorialBrief {
+  id: string;
+  instruction: string | null;
+  status: TaskStatus;
+  result: string | null;
+  summary: string | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface EdictMemorialGroup {
+  edict_id: string;
+  edict_title: string;
+  edict_goal: string;
+  edict_status: string;
+  memorials: MemorialBrief[];
 }
 
 export interface PersonaMetrics {
@@ -420,4 +470,42 @@ export interface MemoryEntry {
   created_at: string;
   expires_at: string | null;
   access_level: "private" | "shared" | "court";
+}
+
+// --- System management types (藏兵阁) ---
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  source: "builtin" | "user" | "workspace" | "injected";
+  always: boolean;
+  tool_tier: string | null;
+  path: string;
+  content_length: number;
+}
+
+export interface SkillDetail extends SkillInfo {
+  content: string;
+}
+
+export interface ToolInfo {
+  name: string;
+  description: string;
+  tier: number;
+  parameters: Record<string, unknown>;
+  personas: string[];
+}
+
+export interface PromptFileInfo {
+  persona_id: string;
+  filename: string;
+  path: string;
+  size: number;
+  modified: string;
+}
+
+export interface PromptFileContent {
+  persona_id: string;
+  filename: string;
+  content: string;
 }

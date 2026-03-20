@@ -77,20 +77,28 @@ async def lifespan(app: FastAPI):
         if settings.workspace_dir != "."
         else None
     )
+    user_skills_dir = Path("~/.tianshu/skills").expanduser()
+    user_skills_dir.mkdir(parents=True, exist_ok=True)
     skills = SkillsLoader(
         builtin_dir=builtin_skills_dir,
         workspace_dir=workspace_path,
+        user_dir=user_skills_dir,
         char_budget=settings.skills_char_budget,
     )
 
+    # --- Memory dir ---
+    memory_dir = Path(settings.memory_dir).expanduser()
+
     # --- Persona ---
     personas_dir = Path(__file__).parent.parent.parent / "personas"
-    persona_loader = PersonaLoader(personas_dir)
+    persona_loader = PersonaLoader(personas_dir, storage=storage)
     persona_loader.load_all()
+    app.state.persona_loader = persona_loader
 
     prompt_builder = PromptBuilder(
         personas_dir=personas_dir,
         skills_loader=skills,
+        memory_dir=memory_dir,
     )
 
     # --- LLM Config Manager ---
@@ -126,6 +134,10 @@ async def lifespan(app: FastAPI):
         provider_manager=provider_manager,
     )
     app.state.agent = agent
+    app.state.skills_loader = skills
+    app.state.tool_registry = tools
+    app.state.prompt_builder = prompt_builder
+    app.state.personas_dir = personas_dir
 
     # --- WorkerPool & LaneManager ---
     worker_pool = WorkerPool(max_concurrency=settings.max_global_concurrency)
@@ -202,7 +214,14 @@ async def lifespan(app: FastAPI):
     app.state.approval_manager = approval_manager
 
     # --- MemoryManager ---
-    memory_manager = MemoryManager(storage=storage, config_manager=config_manager, hook_registry=hook_registry)
+    memory_manager = MemoryManager(
+        storage=storage,
+        config_manager=config_manager,
+        hook_registry=hook_registry,
+        personas_dir=personas_dir,
+        memory_dir=memory_dir,
+    )
+    memory_manager.ensure_memory_dirs()
     app.state.memory_manager = memory_manager
 
     # --- CostManager ---
@@ -214,6 +233,7 @@ async def lifespan(app: FastAPI):
         persona_loader=persona_loader,
         config_manager=config_manager,
         provider_manager=provider_manager,
+        memory_manager=memory_manager,
     )
     app.state.consultation = consultation
 
@@ -271,11 +291,39 @@ async def lifespan(app: FastAPI):
     for manifest in plugin_loader.discover():
         plugin_api.register_plugin(manifest)
 
+    # Wire event writer for hook execution events (8.2 support)
+    hook_registry.set_event_writer(storage)
+
     # --- Hook registrations ---
     hook_registry.register(HookType.BEFORE_AGENT_START, memory_manager.on_before_agent_start, priority=50)
     hook_registry.register(HookType.BEFORE_ITERATION, cost_manager.on_before_iteration, priority=10)
     hook_registry.register(HookType.LLM_OUTPUT, cost_manager.on_llm_output, priority=50)
     hook_registry.register(HookType.AGENT_END, memory_manager.on_agent_end, priority=100)
+    hook_registry.register(HookType.BEFORE_TOOL_CALL, approval_manager.on_before_tool_call, priority=10)
+
+    # --- DigestGenerator ---
+    from tianshu.notifier.digest import DigestGenerator
+    digest_generator = DigestGenerator(storage=storage)
+    app.state.digest_generator = digest_generator
+
+    # Schedule daily digest via cron loop
+    async def _digest_cron_loop() -> None:
+        """Run daily digest at roughly every 24h."""
+        import asyncio
+        while True:
+            try:
+                await asyncio.sleep(86400)  # 24 hours
+                digest = digest_generator.generate_daily()
+                await notifier.broadcast_ws(digest)
+                # Dispatch to all registered external channels
+                await channel_registry.send_all(digest, str(digest))
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Digest generation failed")
+
+    digest_task = asyncio.create_task(_digest_cron_loop())
+    app.state._digest_task = digest_task
 
     # --- Skills hot-reload watcher ---
     skills_watcher = SkillsWatcher(skills)
@@ -298,6 +346,8 @@ async def lifespan(app: FastAPI):
     agent.request_shutdown()
     if skills_watcher:
         skills_watcher.stop()
+    if hasattr(app.state, "_digest_task") and not app.state._digest_task.done():
+        app.state._digest_task.cancel()
     await scheduler.stop()
     await worker_pool.shutdown()
     await executor.shutdown()

@@ -51,6 +51,12 @@ class Storage:
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._create_tables()
         self._migrate()
+        self._init_fts()
+
+    def _init_fts(self) -> None:
+        """Initialize FTS5 full-text search for memory entries."""
+        from tianshu.memory.fts import create_fts_table
+        self._fts_available = create_fts_table(self._conn)
 
     def _create_tables(self) -> None:
         with self._conn:
@@ -187,6 +193,35 @@ class Storage:
                 CREATE INDEX IF NOT EXISTS idx_dag_edict
                     ON dag_executions(edict_id);
 
+                CREATE TABLE IF NOT EXISTS scheduler_jobs (
+                    job_id TEXT PRIMARY KEY,
+                    edict_id TEXT NOT NULL,
+                    schedule_type TEXT NOT NULL,
+                    cron_expr TEXT,
+                    next_run TEXT,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_edict
+                    ON scheduler_jobs(edict_id);
+                CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_status
+                    ON scheduler_jobs(status);
+
+                CREATE TABLE IF NOT EXISTS personas (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    department TEXT NOT NULL,
+                    tools_allowed TEXT DEFAULT '[]',
+                    tools_denied TEXT DEFAULT '[]',
+                    tool_tier_max INTEGER DEFAULT 0,
+                    can_delegate INTEGER DEFAULT 0,
+                    delegates_to TEXT DEFAULT '[]',
+                    soul_path TEXT,
+                    role_path TEXT,
+                    created_at TEXT,
+                    updated_at TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS dag_nodes (
                     node_id TEXT NOT NULL,
                     dag_execution_id TEXT NOT NULL,
@@ -237,6 +272,8 @@ class Storage:
             "ALTER TABLE cost_ledger RENAME COLUMN cost_usd TO cost_cny",
             "ALTER TABLE cost_budgets RENAME COLUMN budget_usd TO budget_cny",
             "ALTER TABLE cost_budgets RENAME COLUMN spent_usd TO spent_cny",
+            # Phase 2: persona skills_allowed
+            "ALTER TABLE personas ADD COLUMN skills_allowed TEXT DEFAULT '[]'",
         ]
         for sql in migrations:
             try:
@@ -652,6 +689,35 @@ class Storage:
         include_shared: bool = False,
     ) -> list:
         MemoryEntry = _get_memory_entry()
+
+        # Try FTS5 first if available and query is provided
+        if query and getattr(self, "_fts_available", False):
+            from tianshu.memory.fts import fts_search
+            with self._lock:
+                fts_ids = fts_search(self._conn, query, persona_id=persona_id, limit=limit)
+            if fts_ids:
+                placeholders = ",".join("?" for _ in fts_ids)
+                extra_conditions = []
+                extra_params: list = list(fts_ids)
+                if include_shared:
+                    extra_conditions.append(
+                        "(persona_id = ? OR access_level IN ('shared', 'court'))"
+                    )
+                    extra_params.append(persona_id)
+                if category:
+                    extra_conditions.append("category = ?")
+                    extra_params.append(category)
+                where_extra = (
+                    f" AND {' AND '.join(extra_conditions)}" if extra_conditions else ""
+                )
+                with self._lock:
+                    rows = self._conn.execute(
+                        f"SELECT * FROM memory_entries WHERE id IN ({placeholders}){where_extra} ORDER BY created_at DESC LIMIT ?",
+                        (*extra_params, limit),
+                    ).fetchall()
+                return [self._row_to_memory_entry(r) for r in rows]
+
+        # Fallback to LIKE search
         conditions = []
         params: list = []
 
@@ -1154,6 +1220,82 @@ class Storage:
             error=row["error"],
         )
 
+    # --- Scheduler Jobs ---
+
+    def save_scheduler_job(
+        self,
+        job_id: str,
+        edict_id: str,
+        schedule_type: str,
+        cron_expr: str | None = None,
+        next_run: datetime | None = None,
+    ) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO scheduler_jobs
+                   (job_id, edict_id, schedule_type, cron_expr, next_run, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, 'active', ?)""",
+                (
+                    job_id,
+                    edict_id,
+                    schedule_type,
+                    cron_expr,
+                    next_run.isoformat() if next_run else None,
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+
+    def update_scheduler_job_next_run(self, job_id: str, next_run: datetime | None) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE scheduler_jobs SET next_run = ? WHERE job_id = ?",
+                (next_run.isoformat() if next_run else None, job_id),
+            )
+
+    def delete_scheduler_job(self, job_id: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE scheduler_jobs SET status = 'cancelled' WHERE job_id = ?",
+                (job_id,),
+            )
+
+    def list_active_scheduler_jobs(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM scheduler_jobs WHERE status = 'active' ORDER BY created_at ASC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # --- Idempotency ---
+
+    def find_edict_by_idempotency_key(
+        self, submitter: str | None, idempotency_key: str,
+    ) -> Edict | None:
+        """Find an existing edict by (submitter, idempotency_key) pair."""
+        with self._lock:
+            if submitter:
+                row = self._conn.execute(
+                    "SELECT * FROM edicts WHERE idempotency_key = ? AND submitter = ?",
+                    (idempotency_key, submitter),
+                ).fetchone()
+            else:
+                row = self._conn.execute(
+                    "SELECT * FROM edicts WHERE idempotency_key = ?",
+                    (idempotency_key,),
+                ).fetchone()
+        return self._row_to_edict(row) if row else None
+
+    # --- Edict active memorial check ---
+
+    def has_active_memorials(self, edict_id: str) -> bool:
+        """Check if edict has any SUBMITTED or RUNNING memorials."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM memorials WHERE edict_id = ? AND status IN ('submitted', 'running')",
+                (edict_id,),
+            ).fetchone()
+        return row[0] > 0
+
     # --- Persona Stats (Phase 3.12) ---
 
     def get_persona_stats(self, persona_id: str) -> dict:
@@ -1199,6 +1341,165 @@ class Storage:
             "total_cost_cny": round(cost_row["total_cost"], 6) if cost_row else 0.0,
             "avg_duration_seconds": round(row["avg_duration_seconds"] or 0.0, 2),
         }
+
+    # --- Persona CRUD ---
+
+    def save_persona(self, persona: dict) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO personas
+                   (id, name, department, tools_allowed, tools_denied,
+                    skills_allowed, tool_tier_max, can_delegate, delegates_to,
+                    soul_path, role_path, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    persona["id"],
+                    persona["name"],
+                    persona["department"],
+                    json.dumps(persona.get("tools_allowed", [])),
+                    json.dumps(persona.get("tools_denied", [])),
+                    json.dumps(persona.get("skills_allowed", [])),
+                    persona.get("tool_tier_max", 0),
+                    int(persona.get("can_delegate", False)),
+                    json.dumps(persona.get("delegates_to", [])),
+                    persona.get("soul_path"),
+                    persona.get("role_path"),
+                    persona.get("created_at", now),
+                    now,
+                ),
+            )
+
+    def list_personas(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM personas ORDER BY department, name"
+            ).fetchall()
+        return [self._row_to_persona_dict(r) for r in rows]
+
+    def get_persona(self, persona_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM personas WHERE id = ?", (persona_id,)
+            ).fetchone()
+        return self._row_to_persona_dict(row) if row else None
+
+    def update_persona(self, persona_id: str, **fields) -> None:
+        allowed = {
+            "name", "department", "tools_allowed", "tools_denied",
+            "skills_allowed", "tool_tier_max", "can_delegate", "delegates_to",
+            "soul_path", "role_path",
+        }
+        sets: list[str] = []
+        params: list = []
+        for key, value in fields.items():
+            if key not in allowed:
+                continue
+            if key in ("tools_allowed", "tools_denied", "skills_allowed", "delegates_to"):
+                sets.append(f"{key} = ?")
+                params.append(json.dumps(value))
+            elif key == "can_delegate":
+                sets.append("can_delegate = ?")
+                params.append(int(value))
+            else:
+                sets.append(f"{key} = ?")
+                params.append(value)
+        if not sets:
+            return
+        sets.append("updated_at = ?")
+        params.append(datetime.now(UTC).isoformat())
+        params.append(persona_id)
+        with self._lock, self._conn:
+            self._conn.execute(
+                f"UPDATE personas SET {', '.join(sets)} WHERE id = ?",
+                params,
+            )
+
+    def delete_persona(self, persona_id: str) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM personas WHERE id = ?", (persona_id,)
+            )
+            return cursor.rowcount > 0
+
+    @staticmethod
+    def _row_to_persona_dict(row: sqlite3.Row) -> dict:
+        keys = row.keys()
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "department": row["department"],
+            "tools_allowed": json.loads(row["tools_allowed"]),
+            "tools_denied": json.loads(row["tools_denied"]),
+            "skills_allowed": json.loads(row["skills_allowed"]) if "skills_allowed" in keys else [],
+            "tool_tier_max": row["tool_tier_max"],
+            "can_delegate": bool(row["can_delegate"]),
+            "delegates_to": json.loads(row["delegates_to"]),
+            "soul_path": row["soul_path"],
+            "role_path": row["role_path"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    # --- Memorials by Persona ---
+
+    def list_memorials_by_persona(
+        self,
+        persona_id: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[dict], int]:
+        """Return memorials grouped by edict for a persona.
+
+        For 'bingbu' (default executor), also includes memorials with NULL persona_id
+        to cover legacy data created before persona_id tracking was added.
+        """
+        if persona_id == "bingbu":
+            join_where = "(m.persona_id = ? OR m.persona_id IS NULL)"
+            count_where = "(persona_id = ? OR persona_id IS NULL)"
+        else:
+            join_where = "m.persona_id = ?"
+            count_where = "persona_id = ?"
+        with self._lock:
+            rows = self._conn.execute(
+                f"""SELECT m.*, e.title as edict_title, e.goal as edict_goal, e.status as edict_status
+                   FROM memorials m
+                   JOIN edicts e ON m.edict_id = e.id
+                   WHERE {join_where}
+                   ORDER BY m.created_at DESC
+                   LIMIT ? OFFSET ?""",
+                (persona_id, limit, offset),
+            ).fetchall()
+            total = self._conn.execute(
+                f"SELECT COUNT(*) FROM memorials WHERE {count_where}",
+                (persona_id,),
+            ).fetchone()[0]
+
+        # Group by edict_id
+        edicts_map: dict[str, dict] = {}
+        for r in rows:
+            eid = r["edict_id"]
+            if eid not in edicts_map:
+                edicts_map[eid] = {
+                    "edict_id": eid,
+                    "edict_title": r["edict_title"],
+                    "edict_goal": r["edict_goal"],
+                    "edict_status": r["edict_status"],
+                    "memorials": [],
+                }
+            edicts_map[eid]["memorials"].append({
+                "id": r["id"],
+                "instruction": r["instruction"],
+                "status": r["status"],
+                "result": r["result"],
+                "summary": r["summary"],
+                "error": r["error"],
+                "created_at": r["created_at"],
+                "started_at": r["started_at"],
+                "completed_at": r["completed_at"],
+            })
+
+        return list(edicts_map.values()), total
 
     # --- Helpers ---
 

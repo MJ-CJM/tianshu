@@ -68,14 +68,23 @@ class HookRegistry:
             e for e in entries if e.handler is not handler
         ]
 
+    def set_event_writer(self, writer: object) -> None:
+        """Set a storage reference for writing hook execution events."""
+        self._event_writer = writer
+
     async def run(self, hook_type: HookType, **context: Any) -> HookResult:
         """Run all handlers for a hook type. Returns first blocking result or empty."""
         combined = HookResult()
         for entry in self._hooks.get(hook_type, []):
+            handler_name = entry.handler.__qualname__
             try:
                 result = await asyncio.wait_for(
                     entry.handler(**context), timeout=HOOK_TIMEOUT
                 )
+
+                # Write hook execution event for frontend visibility (8.2)
+                self._write_hook_event(hook_type, handler_name, context, blocked=bool(result and result.block))
+
                 if result and result.block:
                     return result
                 if result and result.modified_args:
@@ -83,13 +92,47 @@ class HookRegistry:
             except asyncio.TimeoutError:
                 logger.warning(
                     "Hook %s timed out for %s",
-                    entry.handler.__qualname__,
+                    handler_name,
                     hook_type.value,
                 )
+                self._write_hook_event(hook_type, handler_name, context, error="timeout")
             except Exception:
                 logger.exception(
                     "Hook %s failed for %s",
-                    entry.handler.__qualname__,
+                    handler_name,
                     hook_type.value,
                 )
+                self._write_hook_event(hook_type, handler_name, context, error="exception")
         return combined
+
+    def _write_hook_event(
+        self,
+        hook_type: HookType,
+        handler_name: str,
+        context: dict,
+        blocked: bool = False,
+        error: str | None = None,
+    ) -> None:
+        """Write hook execution record to events table."""
+        writer = getattr(self, "_event_writer", None)
+        if not writer:
+            return
+        edict = context.get("edict")
+        memorial = context.get("memorial")
+        edict_id = getattr(edict, "id", None) if edict else None
+        memorial_id = getattr(memorial, "id", None) if memorial else None
+        if not edict_id:
+            return
+        try:
+            writer.append_event(
+                edict_id,
+                memorial_id,
+                f"hook.{hook_type.value}",
+                {
+                    "handler": handler_name,
+                    "blocked": blocked,
+                    "error": error,
+                },
+            )
+        except Exception:
+            pass

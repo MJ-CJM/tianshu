@@ -32,6 +32,52 @@ class ApprovalManager:
         self._pending: dict[str, asyncio.Event] = {}
         self._results: dict[str, Decree] = {}
 
+    async def on_before_tool_call(self, **context: object) -> object:
+        """BEFORE_TOOL_CALL hook — check if tool requires approval."""
+        from tianshu.executor.hooks import HookResult
+
+        tool_name = context.get("tool_name")
+        edict = context.get("edict")
+        memorial = context.get("memorial")
+        if not tool_name or not edict:
+            return None
+
+        # Check if tool is in approval_required_tools list
+        runtime = getattr(edict, "runtime", None)
+        if not runtime:
+            return None
+        required_tools = getattr(runtime, "approval_required_tools", [])
+        if not required_tools or tool_name not in required_tools:
+            return None
+
+        # Tool requires approval — emit event and wait
+        memorial_id = getattr(memorial, "id", None) if memorial else None
+        if not memorial_id:
+            return HookResult(
+                block=True,
+                reason=f"Tool '{tool_name}' requires approval but no memorial context",
+            )
+
+        self._storage.append_event(
+            getattr(edict, "id", ""),
+            memorial_id,
+            "tool.approval_required",
+            {"tool_name": tool_name},
+        )
+
+        decree = await self.wait_for_approval(memorial_id, tool_name)
+        if decree is None:
+            return HookResult(
+                block=True,
+                reason=f"Tool '{tool_name}' approval timed out or rejected",
+            )
+        if decree.action == "approve":
+            return None
+        return HookResult(
+            block=True,
+            reason=f"Tool '{tool_name}' rejected: {decree.comment or 'no reason'}",
+        )
+
     async def wait_for_approval(
         self,
         memorial_id: str,

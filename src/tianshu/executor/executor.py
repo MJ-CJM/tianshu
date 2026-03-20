@@ -142,6 +142,9 @@ class Executor:
             )
             self._storage.save_memorial(memorial)
 
+        # Set default persona_id if not already assigned (DAG worker sets it)
+        if not memorial.persona_id:
+            memorial.persona_id = "bingbu"
         memorial.status = TaskStatus.RUNNING
         memorial.started_at = datetime.now(UTC)
         self._storage.update_memorial(memorial)
@@ -262,6 +265,29 @@ class Executor:
                 memorial=memorial,
                 usage=memorial.usage,
             )
+
+            # Auto-retry: if failed and retry_limit not exhausted
+            if (
+                memorial.status == TaskStatus.FAILED
+                and edict.runtime.retry_limit > 0
+                and memorial.attempt < edict.runtime.retry_limit
+            ):
+                logger.info(
+                    "Auto-retry edict %s: attempt %d/%d",
+                    edict.id, memorial.attempt + 1, edict.runtime.retry_limit,
+                )
+                retry_memorial = Memorial(
+                    edict_id=edict.id,
+                    instruction=memorial.instruction or edict.goal,
+                    attempt=memorial.attempt + 1,
+                    parent_memorial_id=memorial.id,
+                )
+                self._storage.save_memorial(retry_memorial)
+                retry_task = asyncio.create_task(
+                    self.execute_edict(edict, memorial=retry_memorial)
+                )
+                self._running_tasks.add(retry_task)
+                retry_task.add_done_callback(self._running_tasks.discard)
 
     async def cancel_dag(self, dag_id: str) -> list[str]:
         """Cancel a running DAG execution."""

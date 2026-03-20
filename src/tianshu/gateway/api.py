@@ -71,8 +71,24 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     storage: Storage = request.app.state.storage
     event_bus: EventBus = request.app.state.event_bus
 
-    title = body.goal[:20] + "…" if len(body.goal) > 20 else body.goal
+    # Idempotency check: (submitter, idempotency_key) dedup
+    if body.idempotency_key:
+        existing = storage.find_edict_by_idempotency_key(
+            body.submitter, body.idempotency_key,
+        )
+        if existing:
+            return ApiResponse(
+                success=True,
+                data=existing.model_dump(mode="json"),
+                metadata={"deduplicated": True},
+            )
+
+    title = body.title or (body.goal[:20] + "…" if len(body.goal) > 20 else body.goal)
     edict_kwargs: dict = {"title": title, "goal": body.goal, "context": body.context}
+    if body.idempotency_key:
+        edict_kwargs["idempotency_key"] = body.idempotency_key
+    if body.submitter:
+        edict_kwargs["submitter"] = body.submitter
     if body.priority:
         edict_kwargs["priority"] = body.priority
     if body.review_policy:
@@ -164,6 +180,12 @@ async def delete_edict(edict_id: str, request: Request):
     edict = storage.get_edict(edict_id)
     if not edict:
         raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    # Only allow deletion of completed/cancelled edicts, or those with no active memorials
+    if edict.status == EdictStatus.OPEN and storage.has_active_memorials(edict_id):
+        raise HTTPException(
+            status_code=409,
+            detail="无法删除正在执行中的敕令，请先取消执行",
+        )
     storage.delete_edict(edict_id)
     return ApiResponse(success=True, data={"id": edict_id})
 
@@ -346,6 +368,8 @@ async def get_persona_memory(
     limit: int = Query(default=50, ge=1, le=200),
 ):
     mm: MemoryManager = request.app.state.memory_manager
+    # Auto-sync once per persona per session (won't re-sync after user deletes)
+    mm.auto_sync_if_needed(persona_id)
     entries = mm.list_by_persona(persona_id, limit=limit)
     return ApiResponse(
         success=True,
@@ -357,12 +381,27 @@ async def get_persona_memory(
 async def recall_memory(request: Request):
     mm: MemoryManager = request.app.state.memory_manager
     body = await request.json()
+    source = body.pop("source", "sqlite")
     query = MemoryQuery(**body)
-    entries = mm.recall(query)
+    entries = mm.recall(query, source=source)
     return ApiResponse(
         success=True,
         data=[e.model_dump(mode="json") for e in entries],
     )
+
+
+@gateway_router.post("/memory/sync", response_model=ApiResponse)
+async def sync_memory_index(request: Request):
+    """Manually trigger SQLite index rebuild from Markdown files."""
+    mm: MemoryManager = request.app.state.memory_manager
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    persona_id = body.get("persona_id")
+    if persona_id:
+        count = mm.sync_index(persona_id)
+        results = {persona_id: count}
+    else:
+        results = mm.sync_all_indices()
+    return ApiResponse(success=True, data=results)
 
 
 @gateway_router.delete("/memory/{entry_id}", response_model=ApiResponse)
@@ -831,10 +870,116 @@ async def list_personas(request: Request):
             "name": p.name,
             "department": p.department,
             "tools_allowed": p.tools_allowed,
+            "tools_denied": p.tools_denied,
+            "skills_allowed": p.skills_allowed,
+            "tool_tier_max": p.tool_tier_max,
             "can_delegate": p.can_delegate,
+            "delegates_to": p.delegates_to,
         }
         for p in personas
     ])
+
+
+@gateway_router.post("/personas", response_model=ApiResponse, status_code=201)
+async def create_persona(request: Request):
+    from tianshu.persona.loader import PersonaLoader
+    from tianshu.persona.model import AgentPersona
+
+    loader: PersonaLoader = request.app.state.persona_loader
+    body = await request.json()
+    if not body.get("id") or not body.get("name") or not body.get("department"):
+        raise HTTPException(status_code=400, detail="id, name, department are required")
+
+    # Check duplicate
+    if loader.get(body["id"]):
+        raise HTTPException(status_code=409, detail=f"Persona '{body['id']}' already exists")
+
+    personas_dir = loader._dir
+    persona = AgentPersona(
+        id=body["id"],
+        name=body["name"],
+        department=body["department"],
+        soul_path=personas_dir / body["id"] / "SOUL.md",
+        role_path=personas_dir / body["id"] / "ROLE.md",
+        memory_path=personas_dir / body["id"] / "MEMORY.md",
+        tools_allowed=body.get("tools_allowed", []),
+        tools_denied=body.get("tools_denied", []),
+        skills_allowed=body.get("skills_allowed", []),
+        tool_tier_max=body.get("tool_tier_max", 0),
+        can_delegate=body.get("can_delegate", False),
+        delegates_to=body.get("delegates_to", []),
+    )
+    loader.save(persona)
+    return ApiResponse(success=True, data={
+        "id": persona.id,
+        "name": persona.name,
+        "department": persona.department,
+        "tools_allowed": persona.tools_allowed,
+        "tools_denied": persona.tools_denied,
+        "skills_allowed": persona.skills_allowed,
+        "tool_tier_max": persona.tool_tier_max,
+        "can_delegate": persona.can_delegate,
+        "delegates_to": persona.delegates_to,
+    })
+
+
+@gateway_router.put("/personas/{persona_id}", response_model=ApiResponse)
+async def update_persona(persona_id: str, request: Request):
+    from tianshu.persona.loader import PersonaLoader
+
+    loader: PersonaLoader = request.app.state.persona_loader
+    storage: Storage = request.app.state.storage
+
+    existing = loader.get(persona_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
+
+    body = await request.json()
+    storage.update_persona(persona_id, **body)
+    # Reload from DB to refresh in-memory cache
+    loader.load_all()
+
+    updated = loader.get(persona_id)
+    return ApiResponse(success=True, data={
+        "id": updated.id,
+        "name": updated.name,
+        "department": updated.department,
+        "tools_allowed": updated.tools_allowed,
+        "tools_denied": updated.tools_denied,
+        "skills_allowed": updated.skills_allowed,
+        "tool_tier_max": updated.tool_tier_max,
+        "can_delegate": updated.can_delegate,
+        "delegates_to": updated.delegates_to,
+    })
+
+
+@gateway_router.delete("/personas/{persona_id}", response_model=ApiResponse)
+async def delete_persona(persona_id: str, request: Request):
+    from tianshu.persona.loader import PersonaLoader
+
+    loader: PersonaLoader = request.app.state.persona_loader
+    existing = loader.get(persona_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
+
+    loader.delete(persona_id)
+    return ApiResponse(success=True, data={"id": persona_id})
+
+
+@gateway_router.get("/memorials/by-persona/{persona_id}")
+async def list_memorials_by_persona(
+    persona_id: str,
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    storage: Storage = request.app.state.storage
+    grouped, total = storage.list_memorials_by_persona(persona_id, limit=limit, offset=offset)
+    return ApiResponse(
+        success=True,
+        data=grouped,
+        metadata={"total": total, "limit": limit, "offset": offset},
+    )
 
 
 @gateway_router.get("/personas/{persona_id}/metrics")
@@ -842,3 +987,178 @@ async def get_persona_metrics(persona_id: str, request: Request):
     evaluator: PerformanceEvaluator = request.app.state.evaluator
     metrics = evaluator.evaluate(persona_id)
     return ApiResponse(success=True, data=metrics.model_dump())
+
+
+# --- Skills endpoints (藏兵阁) ---
+
+
+@gateway_router.get("/skills")
+async def list_skills(request: Request):
+    from tianshu.skills.loader import SkillsLoader
+    loader: SkillsLoader = request.app.state.skills_loader
+    skills = loader.list_all_metadata()
+    return ApiResponse(success=True, data=skills)
+
+
+@gateway_router.get("/skills/{name}")
+async def get_skill(name: str, request: Request):
+    from tianshu.skills.loader import SkillsLoader
+    loader: SkillsLoader = request.app.state.skills_loader
+    skill = loader.get_skill(name)
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+    return ApiResponse(success=True, data=skill)
+
+
+@gateway_router.put("/skills/{name}", response_model=ApiResponse)
+async def update_skill(name: str, request: Request):
+    from tianshu.skills.loader import SkillsLoader
+    loader: SkillsLoader = request.app.state.skills_loader
+    body = await request.json()
+    content = body.get("content")
+    if content is None:
+        raise HTTPException(status_code=400, detail="content is required")
+    try:
+        skill = loader.save_skill(name, content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+    return ApiResponse(success=True, data=skill)
+
+
+@gateway_router.post("/skills", response_model=ApiResponse, status_code=201)
+async def create_skill(request: Request):
+    from tianshu.skills.loader import SkillsLoader
+    loader: SkillsLoader = request.app.state.skills_loader
+    body = await request.json()
+    name = body.get("name")
+    content = body.get("content", "")
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    try:
+        skill = loader.create_skill(name, content)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return ApiResponse(success=True, data=skill)
+
+
+@gateway_router.delete("/skills/{name}", response_model=ApiResponse)
+async def delete_skill(name: str, request: Request):
+    from tianshu.skills.loader import SkillsLoader
+    loader: SkillsLoader = request.app.state.skills_loader
+    # Check if it's a builtin skill
+    skill = loader.get_skill(name)
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+    if skill["source"] == "builtin":
+        raise HTTPException(status_code=403, detail="Cannot delete builtin skills")
+    deleted = loader.delete_skill(name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+    return ApiResponse(success=True, data={"name": name})
+
+
+# --- Tools endpoints (藏兵阁) ---
+
+
+@gateway_router.get("/tools")
+async def list_tools(request: Request):
+    from tianshu.tools.registry import ToolRegistry
+    registry: ToolRegistry = request.app.state.tool_registry
+    persona_loader = request.app.state.persona_loader
+    definitions = registry.list_definitions()
+
+    # Build tool -> personas mapping
+    all_personas = list(persona_loader._personas.values())
+    result = []
+    for defn in definitions:
+        personas = []
+        for p in all_personas:
+            if p.tools_allowed and defn.name in p.tools_allowed:
+                personas.append(p.id)
+            elif not p.tools_denied or defn.name not in p.tools_denied:
+                if defn.tier <= p.tool_tier_max:
+                    personas.append(p.id)
+        result.append({
+            "name": defn.name,
+            "description": defn.description,
+            "tier": defn.tier,
+            "parameters": defn.parameters,
+            "personas": personas,
+        })
+    return ApiResponse(success=True, data=result)
+
+
+# --- System Prompt endpoints (藏兵阁) ---
+
+
+_PROMPT_FILE_WHITELIST = {"SOUL.md", "ROLE.md", "COURT.md", "MEMORY.md"}
+
+
+@gateway_router.get("/system-prompt/files")
+async def list_prompt_files(request: Request):
+    from pathlib import Path
+    personas_dir: Path = request.app.state.personas_dir
+    result = []
+    if not personas_dir.is_dir():
+        return ApiResponse(success=True, data=result)
+    for persona_dir in sorted(personas_dir.iterdir()):
+        if not persona_dir.is_dir():
+            continue
+        persona_id = persona_dir.name
+        for md_file in sorted(persona_dir.glob("*.md")):
+            if md_file.name in _PROMPT_FILE_WHITELIST:
+                stat = md_file.stat()
+                from datetime import datetime, UTC
+                result.append({
+                    "persona_id": persona_id,
+                    "filename": md_file.name,
+                    "path": str(md_file),
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                })
+    return ApiResponse(success=True, data=result)
+
+
+@gateway_router.get("/system-prompt/files/{persona_id}/{filename}")
+async def get_prompt_file(persona_id: str, filename: str, request: Request):
+    from pathlib import Path
+    if filename not in _PROMPT_FILE_WHITELIST:
+        raise HTTPException(status_code=400, detail=f"File '{filename}' is not in whitelist")
+    personas_dir: Path = request.app.state.personas_dir
+    file_path = personas_dir / persona_id / filename
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail=f"File not found: {persona_id}/{filename}")
+    content = file_path.read_text(encoding="utf-8")
+    return ApiResponse(success=True, data={"persona_id": persona_id, "filename": filename, "content": content})
+
+
+@gateway_router.put("/system-prompt/files/{persona_id}/{filename}", response_model=ApiResponse)
+async def update_prompt_file(persona_id: str, filename: str, request: Request):
+    from pathlib import Path
+    if filename not in _PROMPT_FILE_WHITELIST:
+        raise HTTPException(status_code=400, detail=f"File '{filename}' is not in whitelist")
+    personas_dir: Path = request.app.state.personas_dir
+    file_path = personas_dir / persona_id / filename
+    if not file_path.parent.is_dir():
+        raise HTTPException(status_code=404, detail=f"Persona directory '{persona_id}' not found")
+    body = await request.json()
+    content = body.get("content")
+    if content is None:
+        raise HTTPException(status_code=400, detail="content is required")
+    file_path.write_text(content, encoding="utf-8")
+    return ApiResponse(success=True, data={"persona_id": persona_id, "filename": filename, "size": len(content)})
+
+
+@gateway_router.get("/system-prompt/preview/{persona_id}")
+async def preview_system_prompt(persona_id: str, request: Request):
+    from tianshu.persona.prompt_builder import PromptBuilder
+    prompt_builder: PromptBuilder = request.app.state.prompt_builder
+    persona_loader = request.app.state.persona_loader
+    persona = persona_loader.get(persona_id)
+    if not persona:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
+    # Build a dummy edict for preview
+    from tianshu.models.edict import Edict
+    dummy_edict = Edict(title="Preview", goal="System prompt preview")
+    preview = prompt_builder.build(dummy_edict, persona=persona)
+    return ApiResponse(success=True, data={"persona_id": persona_id, "prompt": preview})

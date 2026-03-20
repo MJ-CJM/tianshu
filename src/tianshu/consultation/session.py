@@ -27,10 +27,12 @@ class ConsultationSession:
         persona_loader: PersonaLoader,
         config_manager: ConfigManager,
         provider_manager: ProviderManager | None = None,
+        memory_manager: object | None = None,
     ) -> None:
         self._personas = persona_loader
         self._config_manager = config_manager
         self._provider_manager = provider_manager
+        self._memory_manager = memory_manager
         self._synthesizer = Synthesizer(config_manager, provider_manager)
         self._sessions: dict[str, ConsultationResponse] = {}
 
@@ -75,6 +77,38 @@ class ConsultationSession:
 
             response.status = "completed"
             response.completed_at = datetime.now(UTC)
+
+            # Store consultation result to court Markdown (source of truth)
+            if self._memory_manager and response.synthesis:
+                try:
+                    content = (
+                        f"Consultation on '{request.topic[:60]}': "
+                        f"{response.synthesis[:200]}"
+                    )
+                    # Append to court daily log
+                    from tianshu.memory.models import MemoryEntry
+                    entry = MemoryEntry(
+                        persona_id="court",
+                        category="insight",
+                        content=content,
+                        source="agent",
+                        access_level="court",
+                    )
+                    self._memory_manager.store(entry)  # writes MD only
+
+                    # Also append important decisions to court/MEMORY.md
+                    md = self._memory_manager.md_backend
+                    existing = md.read_core_memory("court")
+                    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+                    section = (
+                        f"\n## Consultation ({date_str})\n"
+                        f"- {content}\n"
+                    )
+                    if response.decision:
+                        section += f"- Decision: {response.decision[:200]}\n"
+                    md.write_core_memory("court", existing + section)
+                except Exception:
+                    logger.debug("Failed to store consultation result to memory")
 
         except Exception as e:
             logger.exception("Consultation failed: %s", e)

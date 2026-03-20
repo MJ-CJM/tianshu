@@ -36,6 +36,7 @@ import {
   BookOutlined,
   TeamOutlined,
   CrownOutlined,
+  ToolOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
@@ -128,6 +129,11 @@ export default function AppSidebar() {
       key: "/providers",
       icon: <ApiOutlined />,
       label: "Provider管理",
+    },
+    {
+      key: "/system",
+      icon: <ToolOutlined />,
+      label: "藏兵阁",
     },
   ];
 

@@ -59,6 +59,11 @@ class Auditor:
             )
             return
 
+        # Set AUDITING status
+        if memorial.status == TaskStatus.COMPLETED:
+            memorial.status = TaskStatus.AUDITING
+            self._storage.update_memorial(memorial)
+
         # Skip audit if policy is "never"
         if edict.review_policy == "never":
             audit_result = AuditResult(verdict="pass", rules_checked=0)
@@ -85,6 +90,7 @@ class Auditor:
             memorial.status = TaskStatus.NEEDS_REVIEW
         else:
             memorial.review_status = "not_required"
+            memorial.status = TaskStatus.COMPLETED
 
         self._storage.update_memorial(memorial)
 

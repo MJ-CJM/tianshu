@@ -29,8 +29,13 @@ REFLECTION_COOLDOWN = 3600  # 1 hour
 class Reflector:
     """Generates insights from observations via LLM reflection."""
 
-    def __init__(self, config_manager: ConfigManager) -> None:
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        md_backend: object | None = None,
+    ) -> None:
         self._config_manager = config_manager
+        self._md_backend = md_backend
         self._last_reflection: dict[str, datetime] = {}
 
     def can_reflect(self, persona_id: str) -> bool:
@@ -94,5 +99,29 @@ class Reflector:
                 source="reflection",
                 confidence=0.8,
             ))
+
+        # Write insights to persona MEMORY.md (source of truth)
+        if insights and self._md_backend and hasattr(self._md_backend, "write_core_memory"):
+            date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+            insight_lines = "\n".join(f"- {i.content}" for i in insights)
+
+            # Append to persona's MEMORY.md
+            try:
+                existing = self._md_backend.read_core_memory(persona_id)
+                new_section = f"\n## Insights ({date_str})\n{insight_lines}\n"
+                self._md_backend.write_core_memory(persona_id, existing + new_section)
+            except Exception:
+                logger.debug("Failed to write insights to MEMORY.md for %s", persona_id)
+
+            # Also append cross-persona insights to court/MEMORY.md
+            if persona_id != "court":
+                try:
+                    court_existing = self._md_backend.read_core_memory("court")
+                    court_section = (
+                        f"\n## {persona_id} Insights ({date_str})\n{insight_lines}\n"
+                    )
+                    self._md_backend.write_core_memory("court", court_existing + court_section)
+                except Exception:
+                    logger.debug("Failed to write cross-persona insights to court MEMORY.md")
 
         return insights

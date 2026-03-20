@@ -17,6 +17,7 @@ class AgentPersona(BaseModel):
     skills_dir: Path | None = None
     tools_allowed: list[str] = Field(default_factory=list)
     tools_denied: list[str] = Field(default_factory=list)
+    skills_allowed: list[str] = Field(default_factory=list)
     tool_tier_max: int = 0
     can_delegate: bool = False
     delegates_to: list[str] = Field(default_factory=list)

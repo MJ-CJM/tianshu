@@ -78,7 +78,13 @@ class Notifier:
             "edict_id": event.edict_id,
             **render_status(memorial),
         }
-        await self._debounced_broadcast(memorial_id, message)
+
+        # Check edict priority — urgent skips debounce
+        edict = self._storage.get_edict(event.edict_id) if event.edict_id else None
+        if edict and edict.priority == "urgent":
+            await self.broadcast_ws(message)
+        else:
+            await self._debounced_broadcast(memorial_id, message)
 
         # Dispatch to external channels
         await self._dispatch_external(event, memorial, message)

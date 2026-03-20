@@ -100,6 +100,15 @@ class Planner:
             logger.error("Planner: edict %s not found", edict_id)
             return
 
+        # Set PLANNING status on memorial
+        memorial_id = event.memorial_id
+        if memorial_id:
+            from tianshu.models.common import TaskStatus
+            memorial = self._storage.get_memorial(memorial_id)
+            if memorial and memorial.status.value in ("submitted", "scheduled"):
+                memorial.status = TaskStatus.PLANNING
+                self._storage.update_memorial(memorial)
+
         plan = await self.plan(edict)
 
         payload: dict = {"plan": plan.model_dump()}

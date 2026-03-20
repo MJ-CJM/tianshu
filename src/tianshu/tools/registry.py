@@ -52,6 +52,10 @@ class ToolRegistry:
             for defn, _ in self._tools.values()
         ]
 
+    def list_definitions(self) -> list[ToolDefinition]:
+        """Return all registered ToolDefinition objects."""
+        return [defn for defn, _ in self._tools.values()]
+
     async def execute(self, name: str, args: str | dict) -> ToolResult:
         if name not in self._tools:
             return error_result(f"Error: tool '{name}' not found")

@@ -5,6 +5,7 @@ import {
   deleteMemoryEntry,
   deleteMemoryEntries,
   getMemoryPolicies,
+  getPersonaMemorials,
 } from "../api/memory";
 
 export function usePersonaMemory(personaId: string, limit = 50) {
@@ -45,5 +46,13 @@ export function useMemoryPolicies() {
   return useQuery({
     queryKey: ["memory", "policies"],
     queryFn: getMemoryPolicies,
+  });
+}
+
+export function usePersonaMemorials(personaId: string, limit = 100) {
+  return useQuery({
+    queryKey: ["memorials", "by-persona", personaId, limit],
+    queryFn: () => getPersonaMemorials(personaId, limit),
+    enabled: !!personaId,
   });
 }

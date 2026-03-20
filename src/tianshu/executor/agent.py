@@ -119,6 +119,11 @@ class Agent:
 
         max_iterations = edict.runtime.max_iterations or agent_cfg.agent_max_iterations
 
+        # Context window budget — estimate 4 chars per token, compact at 80%
+        token_budget = edict.runtime.token_budget
+        context_limit = token_budget if token_budget else 128000
+        compact_threshold = int(context_limit * 0.8)
+
         for iteration in range(max_iterations):
             if self._shutdown_event.is_set():
                 return AgentResult(
@@ -127,6 +132,34 @@ class Agent:
                     usage=usage,
                     events=events,
                 )
+
+            # Context compaction: estimate tokens and compress if near limit
+            estimated_tokens = sum(len(str(m.get("content", ""))) // 4 for m in messages)
+            if estimated_tokens > compact_threshold and len(messages) > 4:
+                # Keep system prompt + last 4 messages, summarize middle
+                preserved_head = messages[:1]  # system prompt
+                preserved_tail = messages[-4:]  # recent context
+                middle = messages[1:-4]
+                if middle:
+                    summary_parts = []
+                    for m in middle:
+                        role = m.get("role", "")
+                        content = str(m.get("content", ""))[:200]
+                        summary_parts.append(f"[{role}] {content}")
+                    compacted_msg = {
+                        "role": "system",
+                        "content": (
+                            "[Context compacted] Previous conversation summary:\n"
+                            + "\n".join(summary_parts[-10:])
+                        ),
+                    }
+                    messages = preserved_head + [compacted_msg] + preserved_tail
+                    _emit({
+                        "type": "context.compacted",
+                        "iteration": iteration,
+                        "original_messages": len(middle) + len(preserved_head) + len(preserved_tail),
+                        "compacted_to": len(messages),
+                    })
 
             _emit({"type": "iteration.started", "iteration": iteration})
 

@@ -40,6 +40,18 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
           中枢台
         </span>
       </div>
+      <div
+        style={{
+          flex: 1,
+          textAlign: "center",
+          color: token.colorTextSecondary,
+          fontSize: 13,
+          letterSpacing: 1,
+          fontStyle: "italic",
+        }}
+      >
+        成功只有一个——按照自己的方式，去度过人生。
+      </div>
       <div style={{ display: "flex", alignItems: "center" }}>
         <ConnectionIndicator isConnected={isWsConnected} />
         <HealthDot />

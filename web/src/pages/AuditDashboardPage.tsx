@@ -1,7 +1,8 @@
-import { Button, Card, Row, Col, Statistic, Table, Tag, Tooltip } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { Button, Card, Row, Col, Statistic, Table, Tag, Tooltip, Timeline } from "antd";
+import { ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { useAuditStats } from "../hooks/useAudit";
 import PageContainer from "../components/common/PageContainer";
 import MonoText from "../components/common/MonoText";
@@ -14,6 +15,91 @@ import {
   REVIEW_STATUS_LABELS,
 } from "../utils/constants";
 import type { EdictUsageRow, RecentAuditRow } from "../api/types";
+import apiClient from "../api/client";
+
+interface HookEvent {
+  id: string;
+  event_type: string;
+  edict_id: string;
+  memorial_id: string | null;
+  payload: {
+    handler?: string;
+    blocked?: boolean;
+    error?: string | null;
+  };
+  created_at: string;
+}
+
+function HookEventsCard() {
+  // Fetch recent hook events from the most recent edicts
+  const { data: recentEdicts } = useQuery({
+    queryKey: ["edicts", "recent"],
+    queryFn: async () => {
+      const resp = await apiClient.get("/edicts?limit=5");
+      return resp.data?.data ?? [];
+    },
+    staleTime: 30000,
+  });
+
+  const edictIds: string[] = (recentEdicts ?? []).map((e: { id: string }) => e.id);
+
+  const { data: hookEvents, isLoading } = useQuery({
+    queryKey: ["hookEvents", edictIds],
+    queryFn: async () => {
+      const allEvents: HookEvent[] = [];
+      for (const eid of edictIds) {
+        try {
+          const resp = await apiClient.get(`/edicts/${eid}/events`);
+          const events: HookEvent[] = (resp.data?.data ?? []).filter(
+            (e: HookEvent) => e.event_type.startsWith("hook.")
+          );
+          allEvents.push(...events);
+        } catch {
+          // skip
+        }
+      }
+      return allEvents
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, 20);
+    },
+    enabled: edictIds.length > 0,
+    staleTime: 15000,
+  });
+
+  const events = hookEvents ?? [];
+  if (events.length === 0 && !isLoading) return null;
+
+  return (
+    <Card
+      title={
+        <span>
+          <ThunderboltOutlined style={{ marginRight: 8 }} />
+          Hook 触发记录
+        </span>
+      }
+      style={{ marginTop: 24 }}
+      size="small"
+      loading={isLoading}
+    >
+      <Timeline
+        items={events.map((evt) => ({
+          color: evt.payload.error ? "red" : evt.payload.blocked ? "orange" : "green",
+          children: (
+            <div style={{ fontSize: 13 }}>
+              <Tag>{evt.event_type.replace("hook.", "")}</Tag>
+              <MonoText style={{ fontSize: 11 }}>{evt.payload.handler ?? "—"}</MonoText>
+              {evt.payload.blocked && <Tag color="orange" style={{ marginLeft: 4 }}>blocked</Tag>}
+              {evt.payload.error && <Tag color="red" style={{ marginLeft: 4 }}>{evt.payload.error}</Tag>}
+              <span style={{ color: "#888", marginLeft: 8, fontSize: 11 }}>
+                {formatTime(evt.created_at)}
+              </span>
+            </div>
+          ),
+        }))}
+      />
+    </Card>
+  );
+}
 
 export default function AuditDashboardPage() {
   const navigate = useNavigate();
@@ -207,6 +293,8 @@ export default function AuditDashboardPage() {
           locale={{ emptyText: "暂无审计记录" }}
         />
       </Card>
+
+      <HookEventsCard />
     </PageContainer>
   );
 }

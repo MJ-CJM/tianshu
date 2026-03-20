@@ -1,8 +1,9 @@
-"""Persona loader — discover and load persona definitions from disk."""
+"""Persona loader — dual-source: file system (seed) + SQLite (runtime)."""
 
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -13,33 +14,80 @@ logger = logging.getLogger(__name__)
 
 
 class PersonaLoader:
-    """Loads persona definitions from the personas/ directory."""
+    """Loads persona definitions from SQLite, seeding from file system on first run."""
 
-    def __init__(self, personas_dir: Path) -> None:
+    def __init__(self, personas_dir: Path, storage=None) -> None:
         self._dir = personas_dir
+        self._storage = storage
         self._personas: dict[str, AgentPersona] = {}
 
     def load_all(self) -> dict[str, AgentPersona]:
-        """Discover and load all persona definitions."""
-        if not self._dir.is_dir():
-            logger.warning("Personas directory not found: %s", self._dir)
-            return {}
-
-        self._personas.clear()
-        for entry in sorted(self._dir.iterdir()):
-            if not entry.is_dir() or entry.name == "court":
-                continue
-            persona = self._load_persona(entry)
-            if persona:
-                self._personas[persona.id] = persona
-
+        """Load from SQLite (primary) + file system (seed)."""
+        if self._storage:
+            self._seed_from_files()
+            self._load_from_db()
+        else:
+            self._load_from_files()
         logger.info("Loaded %d personas", len(self._personas))
         return dict(self._personas)
 
     def get(self, persona_id: str) -> AgentPersona | None:
         return self._personas.get(persona_id)
 
-    def _load_persona(self, persona_dir: Path) -> AgentPersona | None:
+    def save(self, persona: AgentPersona) -> None:
+        """Save or update a persona in SQLite and in-memory cache."""
+        if not self._storage:
+            raise RuntimeError("Storage not configured for persona persistence")
+        self._storage.save_persona(self._persona_to_dict(persona))
+        self._personas[persona.id] = persona
+
+    def delete(self, persona_id: str) -> bool:
+        """Delete a persona from SQLite and in-memory cache."""
+        if not self._storage:
+            raise RuntimeError("Storage not configured for persona persistence")
+        deleted = self._storage.delete_persona(persona_id)
+        self._personas.pop(persona_id, None)
+        return deleted
+
+    # --- Internal ---
+
+    def _seed_from_files(self) -> None:
+        """Seed file-system persona definitions into SQLite if not already present."""
+        if not self._dir.is_dir():
+            return
+        for entry in sorted(self._dir.iterdir()):
+            if not entry.is_dir() or entry.name == "court":
+                continue
+            existing = self._storage.get_persona(entry.name)
+            if existing:
+                continue
+            persona = self._load_persona_from_dir(entry)
+            if persona:
+                self._storage.save_persona(self._persona_to_dict(persona))
+                logger.info("Seeded persona '%s' from file system", entry.name)
+
+    def _load_from_db(self) -> None:
+        """Load all personas from SQLite into in-memory cache."""
+        self._personas.clear()
+        rows = self._storage.list_personas()
+        for row in rows:
+            persona = self._dict_to_persona(row)
+            self._personas[persona.id] = persona
+
+    def _load_from_files(self) -> None:
+        """Legacy: load directly from file system (no SQLite)."""
+        if not self._dir.is_dir():
+            logger.warning("Personas directory not found: %s", self._dir)
+            return
+        self._personas.clear()
+        for entry in sorted(self._dir.iterdir()):
+            if not entry.is_dir() or entry.name == "court":
+                continue
+            persona = self._load_persona_from_dir(entry)
+            if persona:
+                self._personas[persona.id] = persona
+
+    def _load_persona_from_dir(self, persona_dir: Path) -> AgentPersona | None:
         soul_path = persona_dir / "SOUL.md"
         role_path = persona_dir / "ROLE.md"
         memory_path = persona_dir / "MEMORY.md"
@@ -51,7 +99,6 @@ class PersonaLoader:
             )
             return None
 
-        # Read metadata from SOUL.md frontmatter if present
         meta = self._read_frontmatter(soul_path)
         name = meta.get("name", persona_dir.name)
         department = meta.get("department", persona_dir.name)
@@ -69,6 +116,46 @@ class PersonaLoader:
             tool_tier_max=meta.get("tool_tier_max", 0),
             can_delegate=meta.get("can_delegate", False),
             delegates_to=meta.get("delegates_to", []),
+        )
+
+    @staticmethod
+    def _persona_to_dict(persona: AgentPersona) -> dict:
+        return {
+            "id": persona.id,
+            "name": persona.name,
+            "department": persona.department,
+            "tools_allowed": persona.tools_allowed,
+            "tools_denied": persona.tools_denied,
+            "skills_allowed": persona.skills_allowed,
+            "tool_tier_max": persona.tool_tier_max,
+            "can_delegate": persona.can_delegate,
+            "delegates_to": persona.delegates_to,
+            "soul_path": str(persona.soul_path),
+            "role_path": str(persona.role_path),
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+
+    def _dict_to_persona(self, d: dict) -> AgentPersona:
+        persona_dir = self._dir / d["id"]
+        soul_path = Path(d["soul_path"]) if d.get("soul_path") else persona_dir / "SOUL.md"
+        role_path = Path(d["role_path"]) if d.get("role_path") else persona_dir / "ROLE.md"
+        memory_path = persona_dir / "MEMORY.md"
+        skills_dir = persona_dir / "skills" if (persona_dir / "skills").is_dir() else None
+
+        return AgentPersona(
+            id=d["id"],
+            name=d["name"],
+            department=d["department"],
+            soul_path=soul_path,
+            role_path=role_path,
+            memory_path=memory_path,
+            skills_dir=skills_dir,
+            tools_allowed=d.get("tools_allowed", []),
+            tools_denied=d.get("tools_denied", []),
+            skills_allowed=d.get("skills_allowed", []),
+            tool_tier_max=d.get("tool_tier_max", 0),
+            can_delegate=d.get("can_delegate", False),
+            delegates_to=d.get("delegates_to", []),
         )
 
     @staticmethod

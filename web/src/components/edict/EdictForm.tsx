@@ -15,6 +15,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
   const handleFinish = (values: Record<string, unknown>) => {
     const req: EdictCreateRequest = {
       goal: values.goal as string,
+      title: (values.title as string) || undefined,
       context: (values.context as string) || undefined,
     };
 
@@ -56,6 +57,10 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     if (maxIterations !== undefined && maxIterations !== 20) {
       runtime.max_iterations = maxIterations;
     }
+    const maxConcurrency = values.max_concurrency as number | undefined;
+    if (maxConcurrency !== undefined && maxConcurrency !== 1) {
+      runtime.max_concurrency = maxConcurrency;
+    }
     const retryLimit = values.retry_limit as number | undefined;
     if (retryLimit !== undefined && retryLimit !== 0) {
       runtime.retry_limit = retryLimit;
@@ -88,6 +93,10 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       }}
       style={{ maxWidth: 640 }}
     >
+      <Form.Item name="title" label="敕令标题（可选）">
+        <Input placeholder="留空则自动截取旨意前 20 字" />
+      </Form.Item>
+
       <Form.Item
         name="goal"
         label="敕令旨意"
@@ -211,6 +220,10 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
 
                 <Form.Item name="max_iterations" label="最大迭代次数">
                   <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder="默认 20" />
+                </Form.Item>
+
+                <Form.Item name="max_concurrency" label="DAG 并发度">
+                  <InputNumber min={1} max={8} style={{ width: "100%" }} placeholder="默认 1" />
                 </Form.Item>
 
                 <Form.Item name="retry_limit" label="重试次数">

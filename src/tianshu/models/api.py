@@ -16,6 +16,7 @@ class EdictScheduleRequest(BaseModel):
 class EdictRuntimeRequest(BaseModel):
     timeout_seconds: int | None = Field(default=None, ge=10, le=3600)
     max_iterations: int | None = Field(default=None, ge=1, le=200)
+    max_concurrency: int | None = Field(default=None, ge=1, le=8)
     retry_limit: int | None = Field(default=None, ge=0, le=10)
     token_budget: int | None = None
     cost_budget_cny: float | None = None
@@ -23,7 +24,10 @@ class EdictRuntimeRequest(BaseModel):
 
 class EdictCreateRequest(BaseModel):
     goal: str = Field(min_length=1)
+    title: str | None = None
     context: str | None = None
+    idempotency_key: str | None = None
+    submitter: str | None = None
     schedule: EdictScheduleRequest | None = None
     priority: str | None = None
     review_policy: str | None = None
