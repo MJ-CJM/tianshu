@@ -89,6 +89,21 @@ const EVENT_CONFIG: Record<
     icon: <BulbOutlined />,
     label: "规划完成",
   },
+  "plan.pending_review": {
+    color: "#faad14",
+    icon: <ExclamationCircleOutlined />,
+    label: "规划待审批",
+  },
+  "plan.approved": {
+    color: "#52c41a",
+    icon: <CheckCircleOutlined />,
+    label: "规划已批准",
+  },
+  "plan.rejected": {
+    color: "#ff4d4f",
+    icon: <CloseCircleOutlined />,
+    label: "规划已驳回",
+  },
   "audit.completed": {
     color: "#13c2c2",
     icon: <SafetyCertificateOutlined />,
@@ -295,6 +310,9 @@ export default function EventTimeline({ events }: EventTimelineProps) {
     return [groups[groups.length - 1]!.key];
   });
 
+  // Card-level collapse — default collapsed
+  const [expanded, setExpanded] = useState(false);
+
   const collapseItems = groups.map((group) => ({
     key: group.key,
     label: (
@@ -326,15 +344,26 @@ export default function EventTimeline({ events }: EventTimelineProps) {
   }));
 
   return (
-    <GlowCard title={`办理记录 (${events.length})`}>
-      <Collapse
-        ghost
-        activeKey={activeKeys}
-        onChange={(keys) =>
-          setActiveKeys(Array.isArray(keys) ? keys : [keys])
-        }
-        items={collapseItems}
-      />
+    <GlowCard
+      title={
+        <span
+          style={{ cursor: "pointer", userSelect: "none" }}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "▾" : "▸"} 办理记录 ({events.length})
+        </span>
+      }
+    >
+      {expanded && (
+        <Collapse
+          ghost
+          activeKey={activeKeys}
+          onChange={(keys) =>
+            setActiveKeys(Array.isArray(keys) ? keys : [keys])
+          }
+          items={collapseItems}
+        />
+      )}
     </GlowCard>
   );
 }

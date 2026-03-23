@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Button, Input, Modal, Spin, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, message, theme } from "antd";
-import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined } from "@ant-design/icons";
+import { Button, Input, Modal, Spin, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme } from "antd";
+import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined } from "@ant-design/icons";
 import { useEdictDetail } from "../hooks/useEdictDetail";
-import { followUpEdict, updateEdictStatus, updateEdict } from "../api/edicts";
+import { followUpEdict, updateEdictStatus, updateEdict, approvePlan, rejectPlan } from "../api/edicts";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
 import MonoText from "../components/common/MonoText";
@@ -39,6 +39,62 @@ export default function EdictDetailPage() {
   const [decreeModalOpen, setDecreeModalOpen] = useState(false);
   const { data: dagExecution } = useDagByEdict(edictId);
   const hasDag = dagExecution && dagExecution.nodes && dagExecution.nodes.length > 1;
+
+  // Extract plan event for display
+  const planEvent = useMemo(() => {
+    // Find the most recent plan event (pending_review or completed)
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i]!;
+      if (e.event_type === "plan.pending_review" || e.event_type === "plan.completed") {
+        return e;
+      }
+    }
+    return null;
+  }, [events]);
+
+  const planTasks = useMemo(() => {
+    const plan = planEvent?.payload?.plan as Record<string, unknown> | undefined;
+    return (plan?.tasks as Array<Record<string, unknown>>) ?? [];
+  }, [planEvent]);
+
+  const isPendingPlanReview = useMemo(() => {
+    const hasPending = events.some((e) => e.event_type === "plan.pending_review");
+    const hasResolution = events.some(
+      (e) => e.event_type === "plan.approved" || e.event_type === "plan.rejected"
+        || (e.event_type === "plan.completed" && planEvent?.event_type !== "plan.pending_review"),
+    );
+    return hasPending && !hasResolution;
+  }, [events, planEvent]);
+
+  const [planApproving, setPlanApproving] = useState(false);
+
+  const handleApprovePlan = async () => {
+    if (!edictId) return;
+    setPlanApproving(true);
+    try {
+      await approvePlan(edictId);
+      message.success("规划方案已批准，开始执行");
+      refetch();
+    } catch {
+      message.error("批准规划失败");
+    } finally {
+      setPlanApproving(false);
+    }
+  };
+
+  const handleRejectPlan = async () => {
+    if (!edictId) return;
+    setPlanApproving(true);
+    try {
+      await rejectPlan(edictId);
+      message.success("规划方案已驳回");
+      refetch();
+    } catch {
+      message.error("驳回规划失败");
+    } finally {
+      setPlanApproving(false);
+    }
+  };
 
   const hasActiveMemorial = memorials.some((m) =>
     ["running", "submitted", "scheduled", "planning", "auditing"].includes(m.status),
@@ -242,6 +298,24 @@ export default function EdictDetailPage() {
               label: "来源",
               children: edict.source,
             },
+            {
+              key: "assigned_persona",
+              label: "执行方式",
+              children: edict.assigned_persona_id ? (
+                <Tag color="orange">{edict.assigned_persona_id}</Tag>
+              ) : (
+                "内阁决策"
+              ),
+            },
+            ...(!edict.assigned_persona_id ? [{
+              key: "planner_persona",
+              label: "规划官",
+              children: edict.planner_persona_id ? (
+                <Tag color="purple">{edict.planner_persona_id}</Tag>
+              ) : (
+                "全局配置"
+              ),
+            }] : []),
           ]}
         />
 
@@ -314,6 +388,76 @@ export default function EdictDetailPage() {
         </Space>
       </GlowCard>
 
+      {planEvent && planTasks.length > 0 && (
+        <GlowCard
+          title={
+            <Space>
+              <BulbOutlined />
+              规划方案
+              {isPendingPlanReview && <Tag color="warning">待审批</Tag>}
+              {!isPendingPlanReview && planEvent.event_type === "plan.completed" && (
+                <Tag color="success">已执行</Tag>
+              )}
+            </Space>
+          }
+          style={{ marginBottom: 24, borderLeft: "3px solid #722ed1" }}
+        >
+          <Table
+            size="small"
+            pagination={false}
+            dataSource={planTasks}
+            rowKey="task_id"
+            columns={[
+              {
+                title: "任务",
+                dataIndex: "description",
+                ellipsis: true,
+              },
+              {
+                title: "执行官",
+                dataIndex: "assigned_official",
+                width: 120,
+                render: (v: string) => <Tag color="blue">{v}</Tag>,
+              },
+              {
+                title: "依赖",
+                dataIndex: "depends_on",
+                width: 120,
+                render: (v: string[]) => (v && v.length > 0 ? v.join(", ") : "\u2014"),
+              },
+              {
+                title: "工具",
+                dataIndex: "tools_required",
+                width: 160,
+                render: (v: string[]) =>
+                  v && v.length > 0
+                    ? v.map((t: string) => <Tag key={t}>{t}</Tag>)
+                    : "\u2014",
+              },
+            ]}
+          />
+
+          {isPendingPlanReview && edict.status === "open" && (
+            <Space style={{ marginTop: 16 }}>
+              <Button
+                type="primary"
+                onClick={handleApprovePlan}
+                loading={planApproving}
+              >
+                准（执行此方案）
+              </Button>
+              <Button
+                danger
+                onClick={handleRejectPlan}
+                loading={planApproving}
+              >
+                驳（驳回方案）
+              </Button>
+            </Space>
+          )}
+        </GlowCard>
+      )}
+
       {memorials.map((memorial, index) => (
         <MemorialCard key={memorial.id} memorial={memorial} index={index} />
       ))}
@@ -374,21 +518,51 @@ export default function EdictDetailPage() {
               autoSize={{ minRows: 2, maxRows: 6 }}
               style={{ flex: 1 }}
             />
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={handleFollowUp}
-              loading={submitting}
-              disabled={!instruction.trim()}
-            >
-              继续批示 (Ctrl+Enter)
-            </Button>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+            <div style={{ flex: 1, textAlign: "center" }}>
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={handleFollowUp}
+                loading={submitting}
+                disabled={!instruction.trim()}
+              >
+                继续批示 (Ctrl+Enter)
+              </Button>
+            </div>
+            {edict.status === "open" && (
+              <Space size="small">
+                <Popconfirm
+                  title="确认结案？"
+                  description="结案后将无法继续下达指令"
+                  onConfirm={handleClose}
+                  okText="确认"
+                  cancelText="取消"
+                >
+                  <Button size="small" icon={<CheckOutlined />}>
+                    结案
+                  </Button>
+                </Popconfirm>
+                <Popconfirm
+                  title="确认废除？"
+                  description="废除后敕令将被标记为已撤回"
+                  onConfirm={handleCancel}
+                  okText="确认"
+                  cancelText="取消"
+                >
+                  <Button size="small" icon={<StopOutlined />} danger>
+                    废除
+                  </Button>
+                </Popconfirm>
+              </Space>
+            )}
           </div>
         </GlowCard>
       )}
 
-      {edict.status === "open" && (
-        <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+      {!canFollowUp && edict.status === "open" && (
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginBottom: 24 }}>
           <Popconfirm
             title="确认结案？"
             description="结案后将无法继续下达指令"

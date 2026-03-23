@@ -34,6 +34,9 @@ class EdictCreateRequest(BaseModel):
     constraints: list[str] | None = None
     output_format: str | None = None
     runtime: EdictRuntimeRequest | None = None
+    assigned_persona_id: str | None = None
+    planner_persona_id: str | None = None
+    plan_review: bool = False
 
 
 class FollowUpRequest(BaseModel):

@@ -69,6 +69,9 @@ export interface Edict {
   output_format: string | null;
   source: string;
   submitter: string | null;
+  assigned_persona_id?: string | null;
+  planner_persona_id?: string | null;
+  plan_review?: boolean;
 }
 
 export interface AuditResult {
@@ -121,6 +124,9 @@ export interface EdictCreateRequest {
   constraints?: string[];
   output_format?: string;
   runtime?: Partial<EdictRuntime>;
+  assigned_persona_id?: string | null;
+  planner_persona_id?: string | null;
+  plan_review?: boolean;
 }
 
 export interface EdictUpdateRequest {
@@ -355,16 +361,36 @@ export interface DAGExecution {
   nodes: DAGNode[];
 }
 
+export interface DepartmentInfo {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+}
+
+export interface DepartmentCreateRequest {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface DepartmentUpdateRequest {
+  name?: string;
+  description?: string;
+}
+
 export interface PersonaInfo {
   id: string;
   name: string;
   department: string;
+  department_name?: string;
   tools_allowed: string[];
   tools_denied: string[];
   skills_allowed: string[];
   tool_tier_max: number;
   can_delegate: boolean;
   delegates_to: string[];
+  llm_config_name?: string | null;
 }
 
 export interface PersonaCreateRequest {
@@ -377,6 +403,7 @@ export interface PersonaCreateRequest {
   tool_tier_max?: number;
   can_delegate?: boolean;
   delegates_to?: string[];
+  llm_config_name?: string | null;
 }
 
 export interface PersonaUpdateRequest {
@@ -388,6 +415,7 @@ export interface PersonaUpdateRequest {
   tool_tier_max?: number;
   can_delegate?: boolean;
   delegates_to?: string[];
+  llm_config_name?: string | null;
 }
 
 export interface MemorialBrief {
@@ -508,4 +536,154 @@ export interface PromptFileContent {
   persona_id: string;
   filename: string;
   content: string;
+}
+
+// --- Ops Monitor types (运维监控台) ---
+
+export interface EventBusHandler {
+  handler: string;
+  priority: number;
+}
+
+export interface EventBusHandlers {
+  [eventType: string]: EventBusHandler[];
+}
+
+export interface EventBusStats {
+  [eventType: string]: number;
+}
+
+export interface RecentEvent {
+  id: string;
+  edict_id: string;
+  memorial_id: string | null;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface HookRegistryEntry {
+  handler: string;
+  priority: number;
+}
+
+export interface HooksRegistry {
+  [hookType: string]: HookRegistryEntry[];
+}
+
+export interface NotificationChannel {
+  name: string;
+  type: string;
+  rpm_limit: number;
+  recent_sends: number;
+}
+
+export interface MemoryStats {
+  [personaId: string]: {
+    entry_count: number;
+    total_chars: number;
+    estimated_tokens: number;
+    by_category: Record<string, number>;
+    markdown_files: number;
+    markdown_size_bytes: number;
+  };
+}
+
+export interface PromptLayer {
+  layer: number;
+  name: string;
+  source: string;
+  chars: number;
+  tokens_est: number;
+  char_budget?: number;
+  filtered_by?: string[] | null;
+}
+
+export interface PromptLayersResponse {
+  persona_id: string | null;
+  total_chars: number;
+  total_tokens_est: number;
+  layers: PromptLayer[];
+}
+
+export interface RoutingRule {
+  persona_id: string;
+  name: string;
+  department: string;
+  preferred_department: string;
+  is_fallback: boolean;
+}
+
+export interface KeywordRule {
+  name: string;
+  department: string;
+  keywords: string[];
+}
+
+export interface DelegationChain {
+  from_id: string;
+  from_name: string;
+  delegates_to: string[];
+}
+
+export interface RoutingRules {
+  default_map: Record<string, RoutingRule>;
+  keyword_map: Record<string, KeywordRule>;
+  delegation_chains: DelegationChain[];
+}
+
+export interface AuditRuleInfo {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  severity: string;
+}
+
+export interface ReviewPolicyInfo {
+  value: string;
+  label: string;
+  description: string;
+}
+
+export interface AuditRulesResponse {
+  rules: AuditRuleInfo[];
+  review_policies: ReviewPolicyInfo[];
+}
+
+// --- Planner stats types ---
+
+export interface PlannerHistoryItem {
+  edict_id: string;
+  title: string;
+  goal: string;
+  assigned_persona_id: string | null;
+  planner_persona_id: string | null;
+  plan_type: "passthrough" | "dag";
+  task_count: number;
+  created_at: string;
+}
+
+export interface PlannerStats {
+  total_edicts: number;
+  passthrough_count: number;
+  dag_count: number;
+  avg_tasks_per_dag: number;
+  recent_history: PlannerHistoryItem[];
+}
+
+export interface CompactionResult {
+  status: string;
+  reason?: string;
+  original_count?: number;
+  compacted_count?: number;
+  summary?: string;
+  tokens_saved?: number;
+}
+
+export interface ReflectionResult {
+  status: string;
+  reason?: string;
+  insights_generated?: number;
+  insights?: string[];
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Tabs,
   Table,
@@ -6,6 +6,8 @@ import {
   Button,
   Drawer,
   Input,
+  InputNumber,
+  Switch,
   Space,
   Spin,
   Modal,
@@ -13,8 +15,15 @@ import {
   Popconfirm,
   Segmented,
   Typography,
+  Collapse,
+  Divider,
   notification,
   theme,
+  Card,
+  Progress,
+  Row,
+  Col,
+  Statistic,
 } from "antd";
 import {
   EditOutlined,
@@ -35,8 +44,28 @@ import {
   useUpdatePromptFile,
   usePromptPreview,
 } from "../hooks/useSystem";
+import { useProviders, useDeleteProvider, usePlugins } from "../hooks/useProviders";
+import { usePromptLayers } from "../hooks/useOps";
 import { usePersonas } from "../hooks/usePersonas";
-import type { SkillInfo, ToolInfo } from "../api/types";
+import {
+  useAgentConfig,
+  useUpdateAgentConfig,
+  useConfigs,
+  useCreateConfig,
+  useUpdateNamedConfig,
+  useDeleteConfig,
+  useActivateConfig,
+} from "../hooks/useConfig";
+import type {
+  SkillInfo,
+  ToolInfo,
+  ProviderInfo,
+  PluginInfo,
+  LLMConfig,
+  LLMConfigCreateRequest,
+  LLMConfigUpdateRequest,
+  AgentConfigUpdateRequest,
+} from "../api/types";
 
 const monoStyle: React.CSSProperties = {
   fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
@@ -399,6 +428,52 @@ function ToolsTab() {
   );
 }
 
+// ==================== Prompt Layers ====================
+
+function PromptLayersCard({ personaId }: { personaId: string | null }) {
+  const { data: layers, isLoading } = usePromptLayers(personaId);
+
+  if (!personaId || !layers) return null;
+
+  return (
+    <Card title="Prompt 分层分析" size="small" loading={isLoading} style={{ marginTop: 16 }}>
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={8}>
+          <Statistic title="总字符数" value={layers.total_chars} />
+        </Col>
+        <Col span={8}>
+          <Statistic title="估算 Token" value={layers.total_tokens_est} />
+        </Col>
+        <Col span={8}>
+          <Statistic title="层数" value={layers.layers.length} />
+        </Col>
+      </Row>
+      <Table
+        columns={[
+          { title: "层", dataIndex: "layer", key: "layer", width: 60, align: "center" as const },
+          { title: "名称", dataIndex: "name", key: "name", width: 150 },
+          { title: "来源", dataIndex: "source", key: "source", ellipsis: true,
+            render: (v: string) => <Typography.Text style={{ fontSize: 12 }}>{v}</Typography.Text> },
+          { title: "字符", dataIndex: "chars", key: "chars", width: 80, align: "right" as const },
+          { title: "Token (est)", dataIndex: "tokens_est", key: "tokens_est", width: 100, align: "right" as const },
+          { title: "占比", key: "percent", width: 120,
+            render: (_: unknown, record: { chars: number }) => (
+              <Progress
+                percent={Math.round((record.chars / (layers.total_chars || 1)) * 100)}
+                size="small"
+                strokeColor={record.chars > 5000 ? "#faad14" : "#1890ff"}
+              />
+            ),
+          },
+        ]}
+        dataSource={layers.layers.map((l) => ({ key: l.layer, ...l }))}
+        size="small"
+        pagination={false}
+      />
+    </Card>
+  );
+}
+
 // ==================== Tab 3: System Prompt ====================
 
 function SystemPromptTab() {
@@ -606,7 +681,627 @@ function SystemPromptTab() {
           <Typography.Text type="secondary">无法生成预览</Typography.Text>
         )}
       </Modal>
+
+      <PromptLayersCard personaId={activePersona} />
     </>
+  );
+}
+
+// ==================== Tab 4: Providers + LLM Config ====================
+
+interface ConfigFormState extends LLMConfigUpdateRequest {
+  api_key?: string;
+}
+
+function configToForm(c: LLMConfig): ConfigFormState {
+  return {
+    model: c.model,
+    api_base: c.api_base,
+    max_retries: c.max_retries,
+    temperature: c.temperature,
+    top_p: c.top_p,
+    max_tokens: c.max_tokens,
+    enabled: c.enabled,
+  };
+}
+
+function ConfigPanelBody({
+  config,
+  form,
+  isActive,
+  canDelete,
+  token,
+  onFieldChange,
+  onApply,
+  onActivate,
+  onDelete,
+  applyLoading,
+  activateLoading,
+}: {
+  config: LLMConfig;
+  form: ConfigFormState;
+  isActive: boolean;
+  canDelete: boolean;
+  token: ReturnType<typeof theme.useToken>["token"];
+  onFieldChange: (field: string, value: unknown) => void;
+  onApply: () => void;
+  onActivate: () => void;
+  onDelete: () => void;
+  applyLoading: boolean;
+  activateLoading: boolean;
+}) {
+  const labelStyle = {
+    marginBottom: 4,
+    fontSize: 13,
+    color: token.colorTextTertiary,
+  };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 12 }}>
+        <div style={labelStyle}>Model</div>
+        <Input
+          size="small"
+          value={form.model ?? ""}
+          onChange={(e) => onFieldChange("model", e.target.value)}
+        />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={labelStyle}>API Key ({config.api_key_masked})</div>
+        <Input.Password
+          size="small"
+          placeholder="输入新 Key 以更新"
+          value={form.api_key ?? ""}
+          onChange={(e) => onFieldChange("api_key", e.target.value)}
+        />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={labelStyle}>API Base</div>
+        <Input
+          size="small"
+          placeholder="https://open.bigmodel.cn/api/paas/v4"
+          value={form.api_base ?? ""}
+          onChange={(e) => onFieldChange("api_base", e.target.value)}
+        />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={labelStyle}>Max Retries</div>
+        <InputNumber
+          size="small"
+          min={0}
+          max={10}
+          value={form.max_retries}
+          onChange={(v) => onFieldChange("max_retries", v ?? 0)}
+        />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={labelStyle}>Temperature</div>
+        <InputNumber
+          size="small"
+          min={0}
+          max={2}
+          step={0.1}
+          value={form.temperature}
+          onChange={(v) => onFieldChange("temperature", v ?? 0.7)}
+          style={{ width: 100 }}
+        />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={labelStyle}>Top P</div>
+        <InputNumber
+          size="small"
+          min={0}
+          max={1}
+          step={0.1}
+          value={form.top_p}
+          onChange={(v) => onFieldChange("top_p", v ?? 1.0)}
+          style={{ width: 100 }}
+        />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={labelStyle}>Max Tokens</div>
+        <InputNumber
+          size="small"
+          min={1}
+          max={128000}
+          value={form.max_tokens}
+          onChange={(v) => onFieldChange("max_tokens", v ?? 4096)}
+          style={{ width: 140 }}
+        />
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={labelStyle}>Enabled</div>
+        <Switch
+          size="small"
+          checked={form.enabled}
+          onChange={(v) => onFieldChange("enabled", v)}
+        />
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button size="small" type="primary" loading={applyLoading} onClick={onApply}>
+            应用
+          </Button>
+          {!isActive && (
+            <Button size="small" loading={activateLoading} onClick={onActivate}>
+              激活
+            </Button>
+          )}
+        </div>
+        {canDelete && (
+          <Popconfirm
+            title="确认删除此配置？"
+            onConfirm={onDelete}
+            okText="删除"
+            cancelText="取消"
+          >
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProvidersTab() {
+  const { token } = theme.useToken();
+  const { data: providers, isLoading: providersLoading } = useProviders();
+  const deleteProviderMutation = useDeleteProvider();
+
+  // LLM Config state
+  const { data: configsData, isLoading: configsLoading } = useConfigs();
+  const createMutation = useCreateConfig();
+  const updateMutation = useUpdateNamedConfig();
+  const deleteMutation = useDeleteConfig();
+  const activateMutation = useActivateConfig();
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [addForm] = Form.useForm<LLMConfigCreateRequest>();
+  const [forms, setForms] = useState<Record<string, ConfigFormState>>({});
+
+  useEffect(() => {
+    if (configsData?.configs) {
+      setForms((prev) => {
+        const next: Record<string, ConfigFormState> = {};
+        for (const c of configsData.configs) {
+          next[c.name] = prev[c.name] ?? configToForm(c);
+        }
+        return next;
+      });
+    }
+  }, [configsData]);
+
+  const updateField = useCallback(
+    (name: string, field: string, value: unknown) => {
+      setForms((prev) => ({
+        ...prev,
+        [name]: { ...prev[name], [field]: value },
+      }));
+    },
+    [],
+  );
+
+  const handleApply = useCallback(
+    (name: string) => {
+      const form = forms[name];
+      const config = configsData?.configs.find((c) => c.name === name);
+      if (!form || !config) return;
+
+      const payload: LLMConfigUpdateRequest = {};
+      if (form.model !== undefined && form.model !== config.model)
+        payload.model = form.model;
+      if (form.api_base !== undefined && form.api_base !== config.api_base)
+        payload.api_base = form.api_base;
+      if (form.max_retries !== undefined && form.max_retries !== config.max_retries)
+        payload.max_retries = form.max_retries;
+      if (form.temperature !== undefined && form.temperature !== config.temperature)
+        payload.temperature = form.temperature;
+      if (form.top_p !== undefined && form.top_p !== config.top_p)
+        payload.top_p = form.top_p;
+      if (form.max_tokens !== undefined && form.max_tokens !== config.max_tokens)
+        payload.max_tokens = form.max_tokens;
+      if (form.enabled !== undefined && form.enabled !== config.enabled)
+        payload.enabled = form.enabled;
+      if (form.api_key) payload.api_key = form.api_key;
+
+      if (Object.keys(payload).length === 0) {
+        notification.info({ message: "无变更" });
+        return;
+      }
+      updateMutation.mutate(
+        { name, req: payload },
+        {
+          onSuccess: () => {
+            notification.success({ message: "配置已更新" });
+            setForms((prev) => ({
+              ...prev,
+              [name]: { ...prev[name], api_key: undefined },
+            }));
+          },
+        },
+      );
+    },
+    [forms, configsData, updateMutation],
+  );
+
+  const handleAdd = useCallback(() => {
+    addForm.validateFields().then((values) => {
+      createMutation.mutate(values, {
+        onSuccess: () => {
+          notification.success({ message: `配置 "${values.name}" 已添加` });
+          setAddModalOpen(false);
+          addForm.resetFields();
+        },
+        onError: (err: unknown) => {
+          const msg = err instanceof Error ? err.message : "名称已存在";
+          notification.error({ message: msg });
+        },
+      });
+    });
+  }, [addForm, createMutation]);
+
+  const handleDeleteProvider = (name: string) => {
+    deleteProviderMutation.mutate(name, {
+      onSuccess: () => notification.success({ message: `Provider "${name}" 已删除` }),
+    });
+  };
+
+  const configs = configsData?.configs ?? [];
+  const activeName = configsData?.active_name ?? "";
+
+  const providerColumns: import("antd/es/table").ColumnsType<ProviderInfo> = [
+    { title: "名称", dataIndex: "name", key: "name", width: 140 },
+    { title: "模型", dataIndex: "model", key: "model", width: 160 },
+    {
+      title: "状态", dataIndex: "status", key: "status", width: 100,
+      render: (v: string) => {
+        const color = v === "active" ? "green" : v === "degraded" ? "orange" : "red";
+        return <Tag color={color}>{v}</Tag>;
+      },
+    },
+    { title: "优先级", dataIndex: "priority", key: "priority", width: 80, align: "right" },
+    {
+      title: "RPM", dataIndex: "rpm_limit", key: "rpm_limit", width: 80, align: "right",
+      render: (v: number | null) => v ?? "—",
+    },
+    {
+      title: "Prompt ¥/1K", dataIndex: "cost_per_1k_prompt", key: "cost",
+      width: 110, align: "right",
+      render: (v: number | null) => (v != null ? `¥${v.toFixed(4)}` : "—"),
+    },
+    {
+      title: "", key: "actions", width: 50,
+      render: (_, record) => (
+        <Popconfirm title="确定删除？" onConfirm={() => handleDeleteProvider(record.name)}>
+          <Button type="text" danger size="small" icon={<DeleteOutlined />} />
+        </Popconfirm>
+      ),
+    },
+  ];
+
+  const collapseItems = configs.map((c) => ({
+    key: c.name,
+    label: (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          width: "100%",
+        }}
+      >
+        <span style={{ fontWeight: 500 }}>
+          {c.name}
+          {c.name === activeName && (
+            <Tag color="green" style={{ marginLeft: 8, fontSize: 11 }}>
+              活跃
+            </Tag>
+          )}
+        </span>
+        <span style={{ fontSize: 12, color: token.colorTextTertiary }}>
+          {c.model}
+        </span>
+      </div>
+    ),
+    children: (
+      <ConfigPanelBody
+        config={c}
+        form={forms[c.name] ?? configToForm(c)}
+        isActive={c.name === activeName}
+        canDelete={configs.length > 1 && c.name !== activeName}
+        token={token}
+        onFieldChange={(field, value) => updateField(c.name, field, value)}
+        onApply={() => handleApply(c.name)}
+        onActivate={() =>
+          activateMutation.mutate(c.name, {
+            onSuccess: () =>
+              notification.success({ message: `已切换活跃配置为 "${c.name}"` }),
+          })
+        }
+        onDelete={() =>
+          deleteMutation.mutate(c.name, {
+            onSuccess: () =>
+              notification.success({ message: `配置 "${c.name}" 已删除` }),
+          })
+        }
+        applyLoading={updateMutation.isPending}
+        activateLoading={activateMutation.isPending}
+      />
+    ),
+  }));
+
+  return (
+    <>
+      {/* Provider 列表 */}
+      <Typography.Title level={5} style={{ marginBottom: 12 }}>Provider 列表</Typography.Title>
+      <Table<ProviderInfo>
+        columns={providerColumns}
+        dataSource={providers ?? []}
+        rowKey="name"
+        loading={providersLoading}
+        size="small"
+        pagination={false}
+        locale={{ emptyText: "暂无 Provider" }}
+      />
+
+      <Divider />
+
+      {/* LLM 配置管理 */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
+        <Typography.Title level={5} style={{ margin: 0 }}>LLM 配置</Typography.Title>
+        <Button
+          type="primary"
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={() => setAddModalOpen(true)}
+        >
+          添加配置
+        </Button>
+      </div>
+
+      {configsLoading ? (
+        <Spin />
+      ) : (
+        <Collapse
+          accordion
+          items={collapseItems}
+          style={{ background: "transparent" }}
+        />
+      )}
+
+      {/* Add Config Modal */}
+      <Modal
+        title="添加模型配置"
+        open={addModalOpen}
+        onOk={handleAdd}
+        onCancel={() => {
+          setAddModalOpen(false);
+          addForm.resetFields();
+        }}
+        confirmLoading={createMutation.isPending}
+        okText="添加"
+        cancelText="取消"
+      >
+        <Form form={addForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            name="name"
+            label="配置名称"
+            rules={[{ required: true, message: "请输入配置名称" }]}
+          >
+            <Input placeholder="例如 gpt-4o" />
+          </Form.Item>
+          <Form.Item
+            name="model"
+            label="模型"
+            rules={[{ required: true, message: "请输入模型名" }]}
+          >
+            <Input placeholder="例如 gpt-4o" />
+          </Form.Item>
+          <Form.Item name="api_key" label="API Key">
+            <Input.Password placeholder="可选" />
+          </Form.Item>
+          <Form.Item name="api_base" label="API Base">
+            <Input placeholder="可选" />
+          </Form.Item>
+          <Form.Item name="max_retries" label="Max Retries" initialValue={3}>
+            <InputNumber min={0} max={10} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="temperature" label="Temperature" initialValue={0.7}>
+            <InputNumber min={0} max={2} step={0.1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="top_p" label="Top P" initialValue={1.0}>
+            <InputNumber min={0} max={1} step={0.1} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item name="max_tokens" label="Max Tokens" initialValue={4096}>
+            <InputNumber min={1} max={128000} style={{ width: "100%" }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </>
+  );
+}
+
+// ==================== Tab 5: Plugins ====================
+
+function PluginsTab() {
+  const { data: plugins, isLoading } = usePlugins();
+
+  const columns: import("antd/es/table").ColumnsType<PluginInfo> = [
+    { title: "名称", dataIndex: "name", key: "name", width: 160 },
+    { title: "版本", dataIndex: "version", key: "version", width: 100 },
+    {
+      title: "状态", dataIndex: "status", key: "status", width: 100,
+      render: (v: string) => <Tag color={v === "active" ? "green" : "default"}>{v}</Tag>,
+    },
+    {
+      title: "SHA256", dataIndex: "sha256", key: "sha256", ellipsis: true,
+      render: (v: string | null) => v ? <Typography.Text style={{ fontSize: 11 }} copyable>{v}</Typography.Text> : "—",
+    },
+    {
+      title: "安装时间", dataIndex: "installed_at", key: "installed_at", width: 180,
+      render: (v: string) => (v ? new Date(v).toLocaleString("zh-CN") : "—"),
+    },
+  ];
+
+  return (
+    <Table<PluginInfo>
+      columns={columns}
+      dataSource={plugins ?? []}
+      rowKey="name"
+      loading={isLoading}
+      size="small"
+      pagination={false}
+      locale={{ emptyText: "暂无插件" }}
+    />
+  );
+}
+
+// ==================== Tab 6: Global Config ====================
+
+function GlobalConfigTab() {
+  const { token } = theme.useToken();
+  const { data: agentConfigData } = useAgentConfig();
+  const updateAgentMutation = useUpdateAgentConfig();
+  const [agentForm, setAgentForm] = useState<AgentConfigUpdateRequest>({});
+
+  useEffect(() => {
+    if (agentConfigData) {
+      setAgentForm((prev) => {
+        if (Object.keys(prev).length === 0) {
+          return { ...agentConfigData };
+        }
+        return prev;
+      });
+    }
+  }, [agentConfigData]);
+
+  const handleApply = useCallback(() => {
+    if (!agentConfigData) return;
+    const payload: AgentConfigUpdateRequest = {};
+    if (
+      agentForm.agent_max_iterations !== undefined &&
+      agentForm.agent_max_iterations !== agentConfigData.agent_max_iterations
+    )
+      payload.agent_max_iterations = agentForm.agent_max_iterations;
+    if (
+      agentForm.agent_timeout_seconds !== undefined &&
+      agentForm.agent_timeout_seconds !== agentConfigData.agent_timeout_seconds
+    )
+      payload.agent_timeout_seconds = agentForm.agent_timeout_seconds;
+    if (
+      agentForm.skills_char_budget !== undefined &&
+      agentForm.skills_char_budget !== agentConfigData.skills_char_budget
+    )
+      payload.skills_char_budget = agentForm.skills_char_budget;
+
+    if (Object.keys(payload).length === 0) {
+      notification.info({ message: "无变更" });
+      return;
+    }
+    updateAgentMutation.mutate(payload, {
+      onSuccess: (data) => {
+        notification.success({ message: "执行参数已更新" });
+        setAgentForm({ ...data });
+      },
+    });
+  }, [agentForm, agentConfigData, updateAgentMutation]);
+
+  const labelStyle: React.CSSProperties = {
+    marginBottom: 4,
+    fontSize: 13,
+    color: token.colorTextTertiary,
+  };
+
+  return (
+    <Row gutter={16}>
+      <Col xs={24} md={12} lg={8}>
+        <Card title="Agent 参数" size="small">
+          <div style={{ marginBottom: 16 }}>
+            <div style={labelStyle}>最大迭代次数</div>
+            <InputNumber
+              min={1}
+              max={200}
+              step={1}
+              value={agentForm.agent_max_iterations}
+              onChange={(v) =>
+                setAgentForm((prev) => ({
+                  ...prev,
+                  agent_max_iterations: v ?? 20,
+                }))
+              }
+              style={{ width: "100%" }}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={labelStyle}>执行超时 (秒)</div>
+            <InputNumber
+              min={10}
+              max={3600}
+              step={10}
+              value={agentForm.agent_timeout_seconds}
+              onChange={(v) =>
+                setAgentForm((prev) => ({
+                  ...prev,
+                  agent_timeout_seconds: v ?? 300,
+                }))
+              }
+              style={{ width: "100%" }}
+            />
+          </div>
+        </Card>
+      </Col>
+      <Col xs={24} md={12} lg={8}>
+        <Card title="Skill 参数" size="small">
+          <div style={{ marginBottom: 16 }}>
+            <div style={labelStyle}>字符预算</div>
+            <InputNumber
+              min={1000}
+              max={500000}
+              step={1000}
+              value={agentForm.skills_char_budget}
+              onChange={(v) =>
+                setAgentForm((prev) => ({
+                  ...prev,
+                  skills_char_budget: v ?? 30000,
+                }))
+              }
+              style={{ width: "100%" }}
+            />
+          </div>
+        </Card>
+      </Col>
+      <Col xs={24} lg={8} style={{ display: "flex", alignItems: "flex-start", paddingTop: 38 }}>
+        <Button
+          type="primary"
+          loading={updateAgentMutation.isPending}
+          onClick={handleApply}
+        >
+          应用
+        </Button>
+      </Col>
+    </Row>
   );
 }
 
@@ -632,6 +1327,21 @@ export default function SystemManagementPage() {
             key: "prompt",
             label: "圣旨模板",
             children: <SystemPromptTab />,
+          },
+          {
+            key: "providers",
+            label: "模型供应",
+            children: <ProvidersTab />,
+          },
+          {
+            key: "plugins",
+            label: "插件",
+            children: <PluginsTab />,
+          },
+          {
+            key: "config",
+            label: "全局配置",
+            children: <GlobalConfigTab />,
           },
         ]}
       />

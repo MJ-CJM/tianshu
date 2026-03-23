@@ -21,3 +21,4 @@ class AgentPersona(BaseModel):
     tool_tier_max: int = 0
     can_delegate: bool = False
     delegates_to: list[str] = Field(default_factory=list)
+    llm_config_name: str | None = None  # references llm_configs.name; None = use global

@@ -41,6 +41,7 @@ class Executor:
         self._agent = None  # set via set_agent()
         self._dag_scheduler = None  # set via set_dag_scheduler()
         self._lane_manager = None  # set via set_lane_manager()
+        self._persona_loader = None  # set via set_persona_loader()
         self._running_tasks: set[asyncio.Task] = set()
 
     def set_agent(self, agent: object) -> None:
@@ -51,6 +52,9 @@ class Executor:
 
     def set_lane_manager(self, lane_manager: object) -> None:
         self._lane_manager = lane_manager
+
+    def set_persona_loader(self, persona_loader: object) -> None:
+        self._persona_loader = persona_loader
 
     @property
     def running_tasks(self) -> set[asyncio.Task]:
@@ -76,26 +80,38 @@ class Executor:
 
         # Multi-task plan → DAG execution
         if plan and len(plan.tasks) > 1 and self._dag_scheduler:
-            task = asyncio.create_task(self._execute_dag(edict, plan))
+            logger.debug(
+                "[EXEC] Edict %s: using DAG path, %d tasks, max_concurrency=%d",
+                edict.id, len(plan.tasks), edict.runtime.max_concurrency,
+            )
+            task = asyncio.create_task(self._execute_dag(edict, plan, memorial=memorial))
         else:
             task = asyncio.create_task(self.execute_edict(edict, plan, memorial=memorial))
 
         self._running_tasks.add(task)
         task.add_done_callback(self._running_tasks.discard)
 
-    async def _execute_dag(self, edict: Edict, plan: Plan) -> None:
+    async def _execute_dag(
+        self, edict: Edict, plan: Plan, memorial: Memorial | None = None,
+    ) -> None:
         """Create DAG from plan and run via DAGScheduler."""
         max_concurrency = edict.runtime.max_concurrency
         execution = plan.to_dag(edict.id, max_concurrency=max_concurrency)
 
-        # Create root memorial
-        root_memorial = Memorial(
-            edict_id=edict.id,
-            instruction=edict.goal,
-            status=TaskStatus.RUNNING,
-            started_at=datetime.now(UTC),
-        )
-        self._storage.save_memorial(root_memorial)
+        # Reuse the original memorial as root (update from PLANNING → RUNNING)
+        if memorial:
+            root_memorial = memorial
+            root_memorial.status = TaskStatus.RUNNING
+            root_memorial.started_at = datetime.now(UTC)
+            self._storage.update_memorial(root_memorial)
+        else:
+            root_memorial = Memorial(
+                edict_id=edict.id,
+                instruction=edict.goal,
+                status=TaskStatus.RUNNING,
+                started_at=datetime.now(UTC),
+            )
+            self._storage.save_memorial(root_memorial)
         execution.root_memorial_id = root_memorial.id
 
         # Persist DAG
@@ -142,9 +158,21 @@ class Executor:
             )
             self._storage.save_memorial(memorial)
 
-        # Set default persona_id if not already assigned (DAG worker sets it)
+        # Set persona_id: plan assignment > edict assignment > default
         if not memorial.persona_id:
-            memorial.persona_id = "bingbu"
+            plan_persona = None
+            if plan and plan.tasks:
+                plan_persona = plan.tasks[0].assigned_official
+            memorial.persona_id = (
+                edict.assigned_persona_id
+                or plan_persona
+                or "bingbu"
+            )
+        logger.debug(
+            "[EXEC] Edict %s: start execution, persona=%s, timeout=%ds, max_iter=%d",
+            edict.id, memorial.persona_id,
+            edict.runtime.timeout_seconds, edict.runtime.max_iterations,
+        )
         memorial.status = TaskStatus.RUNNING
         memorial.started_at = datetime.now(UTC)
         self._storage.update_memorial(memorial)
@@ -186,6 +214,11 @@ class Executor:
             if memory_history:
                 history = (history or []) + memory_history
 
+        # Resolve persona object for Agent (enables llm_config_name passthrough)
+        persona = None
+        if self._persona_loader and memorial.persona_id:
+            persona = self._persona_loader.get(memorial.persona_id)
+
         def on_event(event: dict) -> None:
             self._storage.append_event(edict.id, memorial.id, event["type"], event)
 
@@ -197,6 +230,7 @@ class Executor:
                     on_event=on_event,
                     history=history,
                     user_content=user_content,
+                    persona=persona,
                 ),
                 timeout=timeout,
             )
@@ -227,6 +261,10 @@ class Executor:
             event_type = "execution.failed"
         finally:
             memorial.completed_at = datetime.now(UTC)
+            logger.debug(
+                "[EXEC] Edict %s: finished status=%s, error=%s",
+                edict.id, memorial.status.value, memorial.error,
+            )
 
             # Save memorial BEFORE emitting event so auditor reads fresh data
             try:

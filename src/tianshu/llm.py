@@ -36,6 +36,7 @@ class LLMClient:
         temperature: float = 0.7,
         top_p: float = 1.0,
         max_tokens: int = 4096,
+        timeout: int = 300,
     ) -> None:
         self._model = model
         self._api_key = api_key
@@ -44,6 +45,7 @@ class LLMClient:
         self._temperature = temperature
         self._top_p = top_p
         self._max_tokens = max_tokens
+        self._timeout = timeout
 
     @retry(
         wait=wait_exponential(min=1, max=4),
@@ -58,11 +60,24 @@ class LLMClient:
         messages: list[dict],
         tools: list[dict] | None = None,
     ) -> LLMResponse:
-        # When api_base is set and model has no provider prefix,
-        # prepend "openai/" so LiteLLM routes via OpenAI-compatible path.
+        # Infer litellm provider prefix from api_base when model has none,
+        # so litellm applies the correct parameter adaptation per provider.
+        _PROVIDER_HINTS: dict[str, str] = {
+            "deepseek": "deepseek",
+            "minimaxi": "openai",
+            "minimax": "openai",
+        }
+
         model = self._model
-        if self._api_base and "/" not in model:
-            model = f"openai/{model}"
+        api_base = self._api_base.strip() if self._api_base else ""
+        if "/" not in model and api_base:
+            base_lower = api_base.lower()
+            prefix = "openai"
+            for hint, provider in _PROVIDER_HINTS.items():
+                if hint in base_lower:
+                    prefix = provider
+                    break
+            model = f"{prefix}/{model}"
 
         kwargs: dict = {
             "model": model,
@@ -70,14 +85,20 @@ class LLMClient:
             "temperature": self._temperature,
             "top_p": self._top_p,
             "max_tokens": self._max_tokens,
+            "timeout": self._timeout,
+            "drop_params": True,
         }
         if self._api_key:
             kwargs["api_key"] = self._api_key
-        if self._api_base:
-            kwargs["api_base"] = self._api_base
+        if api_base:
+            kwargs["api_base"] = api_base
         if tools:
             kwargs["tools"] = tools
 
+        logger.debug(
+            "[LLM] request: model=%s, messages=%d, tools=%d, temperature=%.1f",
+            model, len(messages), len(tools or []), self._temperature,
+        )
         response = await litellm.acompletion(**kwargs)
         choice = response.choices[0]
         message = choice.message
@@ -101,6 +122,11 @@ class LLMClient:
                 for tc in message.tool_calls
             ]
 
+        logger.debug(
+            "[LLM] response: model=%s, tokens=%d/%d/%d, tool_calls=%d, has_reasoning=%s",
+            model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
+            len(tool_calls or []), bool(getattr(message, "reasoning_content", None)),
+        )
         return LLMResponse(
             content=message.content,
             tool_calls=tool_calls,

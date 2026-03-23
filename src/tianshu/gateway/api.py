@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSock
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager, LLMConfigState
+from tianshu.providers.manager import ProviderManager
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.models import (
@@ -105,13 +106,30 @@ async def create_edict(body: EdictCreateRequest, request: Request):
         rt_data = {k: v for k, v in body.runtime.model_dump().items() if v is not None}
         if rt_data:
             edict_kwargs["runtime"] = EdictRuntime(**rt_data)
+    if body.assigned_persona_id:
+        persona_loader = request.app.state.persona_loader
+        if not persona_loader.get(body.assigned_persona_id):
+            raise HTTPException(400, f"Persona '{body.assigned_persona_id}' not found")
+        edict_kwargs["assigned_persona_id"] = body.assigned_persona_id
+    if body.planner_persona_id:
+        persona_loader = request.app.state.persona_loader
+        if not persona_loader.get(body.planner_persona_id):
+            raise HTTPException(400, f"Planner persona '{body.planner_persona_id}' not found")
+        edict_kwargs["planner_persona_id"] = body.planner_persona_id
+    if body.plan_review:
+        edict_kwargs["plan_review"] = True
     edict = Edict(**edict_kwargs)
     storage.save_edict(edict)
+    logger.debug(
+        "[API] Edict %s: submitted goal=%.100s, priority=%s, schedule=%s, assigned=%s",
+        edict.id, edict.goal, edict.priority, edict.schedule.type, edict.assigned_persona_id,
+    )
 
     memorial = Memorial(edict_id=edict.id, instruction=edict.goal, status=TaskStatus.SUBMITTED)
     storage.save_memorial(memorial)
 
-    await event_bus.emit(
+    # Fire-and-forget: 不阻塞 API 响应，事件链在后台异步执行
+    event_bus.fire(
         make_event(
             "edict.submitted",
             edict_id=edict.id,
@@ -194,11 +212,10 @@ async def delete_edict(edict_id: str, request: Request):
 async def get_memorial_by_edict(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
     memorial = storage.get_memorial_by_edict(edict_id)
-    if not memorial:
-        raise HTTPException(
-            status_code=404, detail=f"Memorial for edict '{edict_id}' not found"
-        )
-    return ApiResponse(success=True, data=memorial.model_dump(mode="json"))
+    return ApiResponse(
+        success=True,
+        data=memorial.model_dump(mode="json") if memorial else None,
+    )
 
 
 @gateway_router.get("/edicts/{edict_id}/memorials")
@@ -206,6 +223,84 @@ async def list_edict_memorials(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
     memorials = storage.list_memorials_by_edict(edict_id)
     return ApiResponse(success=True, data=[m.model_dump(mode="json") for m in memorials])
+
+
+@gateway_router.post("/edicts/{edict_id}/plan/approve", response_model=ApiResponse)
+async def approve_plan(edict_id: str, request: Request):
+    """Approve a pending plan and trigger execution."""
+    storage: Storage = request.app.state.storage
+    event_bus: EventBus = request.app.state.event_bus
+    edict = storage.get_edict(edict_id)
+    if not edict:
+        raise HTTPException(404, "Edict not found")
+
+    events = storage.get_events(edict_id)
+    plan_event = None
+    for e in reversed(events):
+        if e["event_type"] == "plan.pending_review":
+            plan_event = e
+            break
+    if not plan_event:
+        raise HTTPException(400, "No pending plan to approve")
+
+    plan_payload = plan_event.get("payload", {})
+    memorial_id = plan_event.get("memorial_id")
+
+    # Restore memorial status
+    if memorial_id:
+        memorial = storage.get_memorial(memorial_id)
+        if memorial and memorial.status == TaskStatus.NEEDS_REVIEW:
+            memorial.status = TaskStatus.PLANNING
+            storage.update_memorial(memorial)
+
+    # Record approval event
+    storage.append_event(edict_id, memorial_id, "plan.approved", {
+        "actor": "human",
+        "plan": plan_payload.get("plan", {}),
+    })
+
+    # Fire-and-forget: 不阻塞 API 响应
+    event_bus.fire(
+        make_event(
+            "plan.completed",
+            edict_id=edict_id,
+            memorial_id=memorial_id,
+            producer="planner",
+            payload=plan_payload,
+        )
+    )
+    return ApiResponse(success=True, data={"status": "approved"})
+
+
+@gateway_router.post("/edicts/{edict_id}/plan/reject", response_model=ApiResponse)
+async def reject_plan(edict_id: str, request: Request):
+    """Reject a pending plan."""
+    storage: Storage = request.app.state.storage
+    edict = storage.get_edict(edict_id)
+    if not edict:
+        raise HTTPException(404, "Edict not found")
+
+    events = storage.get_events(edict_id)
+    plan_event = None
+    for e in reversed(events):
+        if e["event_type"] == "plan.pending_review":
+            plan_event = e
+            break
+    if not plan_event:
+        raise HTTPException(400, "No pending plan to reject")
+
+    memorial_id = plan_event.get("memorial_id")
+    if memorial_id:
+        memorial = storage.get_memorial(memorial_id)
+        if memorial:
+            memorial.status = TaskStatus.FAILED
+            memorial.error = "规划方案被驳回"
+            storage.update_memorial(memorial)
+
+    storage.append_event(edict_id, memorial_id, "plan.rejected", {
+        "actor": "human",
+    })
+    return ApiResponse(success=True, data={"status": "rejected"})
 
 
 @gateway_router.post("/edicts/{edict_id}/follow-up", response_model=ApiResponse, status_code=202)
@@ -714,6 +809,8 @@ async def create_config(body: LLMConfigCreateRequest, request: Request):
         cm.add_config(state)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    pm: ProviderManager = request.app.state.provider_manager
+    pm.sync_from_config(state)
     return ApiResponse(success=True, data=_state_to_config(state).model_dump())
 
 
@@ -725,6 +822,9 @@ async def update_named_config(name: str, body: LLMConfigUpdateRequest, request: 
         new_state = cm.update_config(name, **updates) if updates else cm.get_config(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+    if new_state:
+        pm: ProviderManager = request.app.state.provider_manager
+        pm.sync_from_config(new_state)
     return ApiResponse(success=True, data=_state_to_config(new_state).model_dump())
 
 
@@ -737,6 +837,8 @@ async def delete_named_config(name: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    pm: ProviderManager = request.app.state.provider_manager
+    pm.unregister(name)
     return ApiResponse(success=True, data={"name": name})
 
 
@@ -747,6 +849,8 @@ async def activate_config(name: str, request: Request):
         cm.set_active(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+    pm: ProviderManager = request.app.state.provider_manager
+    pm.sync_all()
     configs, active_name = cm.list_configs()
     resp = LLMConfigListResponse(
         configs=[_state_to_config(c) for c in configs],
@@ -857,24 +961,77 @@ async def get_consultation(consultation_id: str, request: Request):
     return ApiResponse(success=True, data=result.model_dump(mode="json"))
 
 
+# --- Department endpoints ---
+
+
+@gateway_router.get("/departments")
+async def list_departments(request: Request):
+    storage: Storage = request.app.state.storage
+    departments = storage.list_departments()
+    return ApiResponse(success=True, data=departments)
+
+
+@gateway_router.post("/departments", response_model=ApiResponse, status_code=201)
+async def create_department(request: Request):
+    storage: Storage = request.app.state.storage
+    body = await request.json()
+    if not body.get("id") or not body.get("name"):
+        raise HTTPException(status_code=400, detail="id and name are required")
+    if storage.get_department(body["id"]):
+        raise HTTPException(status_code=409, detail=f"Department '{body['id']}' already exists")
+    storage.save_department(body)
+    dept = storage.get_department(body["id"])
+    return ApiResponse(success=True, data=dept)
+
+
+@gateway_router.put("/departments/{dept_id}", response_model=ApiResponse)
+async def update_department(dept_id: str, request: Request):
+    storage: Storage = request.app.state.storage
+    existing = storage.get_department(dept_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Department '{dept_id}' not found")
+    body = await request.json()
+    storage.update_department(dept_id, **body)
+    updated = storage.get_department(dept_id)
+    return ApiResponse(success=True, data=updated)
+
+
+@gateway_router.delete("/departments/{dept_id}", response_model=ApiResponse)
+async def delete_department(dept_id: str, request: Request):
+    storage: Storage = request.app.state.storage
+    existing = storage.get_department(dept_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Department '{dept_id}' not found")
+    deleted = storage.delete_department(dept_id)
+    if not deleted:
+        raise HTTPException(status_code=409, detail="Cannot delete department with assigned personas")
+    return ApiResponse(success=True, data={"id": dept_id})
+
+
 # --- Persona endpoints (Phase 3) ---
 
 
 @gateway_router.get("/personas")
 async def list_personas(request: Request):
     selector: OfficialSelector = request.app.state.official_selector
+    storage: Storage = request.app.state.storage
     personas = selector.list_all()
+    # Build department name lookup
+    departments = storage.list_departments()
+    dept_name_map = {d["id"]: d["name"] for d in departments}
     return ApiResponse(success=True, data=[
         {
             "id": p.id,
             "name": p.name,
             "department": p.department,
+            "department_name": dept_name_map.get(p.department),
             "tools_allowed": p.tools_allowed,
             "tools_denied": p.tools_denied,
             "skills_allowed": p.skills_allowed,
             "tool_tier_max": p.tool_tier_max,
             "can_delegate": p.can_delegate,
             "delegates_to": p.delegates_to,
+            "llm_config_name": p.llm_config_name,
         }
         for p in personas
     ])
@@ -894,20 +1051,59 @@ async def create_persona(request: Request):
     if loader.get(body["id"]):
         raise HTTPException(status_code=409, detail=f"Persona '{body['id']}' already exists")
 
+    # Validate department exists
+    storage: Storage = request.app.state.storage
+    if not storage.get_department(body["department"]):
+        raise HTTPException(status_code=400, detail=f"Department '{body['department']}' does not exist")
+
+    # Validate llm_config_name FK if provided
+    llm_config_name = body.get("llm_config_name") or None
+    if llm_config_name:
+        from tianshu.config_manager import ConfigManager
+        config_manager: ConfigManager = request.app.state.config_manager
+        if not config_manager.get_config(llm_config_name):
+            raise HTTPException(
+                status_code=400,
+                detail=f"LLM config '{llm_config_name}' does not exist",
+            )
+
     personas_dir = loader._dir
+    persona_dir = personas_dir / body["id"]
+    persona_dir.mkdir(parents=True, exist_ok=True)
+
+    soul_path = persona_dir / "SOUL.md"
+    role_path = persona_dir / "ROLE.md"
+
+    # Create default SOUL.md / ROLE.md if not present
+    if not soul_path.exists():
+        dept_label = body["department"]
+        soul_path.write_text(
+            f"---\nname: {body['name']}\ndepartment: {dept_label}\n---\n\n"
+            f"# {body['name']}\n\n"
+            f"你是{body['name']}，隶属{dept_label}。\n",
+            encoding="utf-8",
+        )
+    if not role_path.exists():
+        role_path.write_text(
+            f"# {body['name']} — 职责\n\n"
+            f"作为{body['department']}的官员，你负责执行交办的任务。\n",
+            encoding="utf-8",
+        )
+
     persona = AgentPersona(
         id=body["id"],
         name=body["name"],
         department=body["department"],
-        soul_path=personas_dir / body["id"] / "SOUL.md",
-        role_path=personas_dir / body["id"] / "ROLE.md",
-        memory_path=personas_dir / body["id"] / "MEMORY.md",
+        soul_path=soul_path,
+        role_path=role_path,
+        memory_path=persona_dir / "MEMORY.md",
         tools_allowed=body.get("tools_allowed", []),
         tools_denied=body.get("tools_denied", []),
         skills_allowed=body.get("skills_allowed", []),
         tool_tier_max=body.get("tool_tier_max", 0),
         can_delegate=body.get("can_delegate", False),
         delegates_to=body.get("delegates_to", []),
+        llm_config_name=llm_config_name,
     )
     loader.save(persona)
     return ApiResponse(success=True, data={
@@ -920,6 +1116,7 @@ async def create_persona(request: Request):
         "tool_tier_max": persona.tool_tier_max,
         "can_delegate": persona.can_delegate,
         "delegates_to": persona.delegates_to,
+        "llm_config_name": persona.llm_config_name,
     })
 
 
@@ -935,6 +1132,18 @@ async def update_persona(persona_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
 
     body = await request.json()
+    # Validate department FK if changing department
+    if "department" in body and not storage.get_department(body["department"]):
+        raise HTTPException(status_code=400, detail=f"Department '{body['department']}' does not exist")
+    # Validate llm_config_name FK if provided
+    if "llm_config_name" in body and body["llm_config_name"]:
+        from tianshu.config_manager import ConfigManager
+        config_manager: ConfigManager = request.app.state.config_manager
+        if not config_manager.get_config(body["llm_config_name"]):
+            raise HTTPException(
+                status_code=400,
+                detail=f"LLM config '{body['llm_config_name']}' does not exist",
+            )
     storage.update_persona(persona_id, **body)
     # Reload from DB to refresh in-memory cache
     loader.load_all()
@@ -950,6 +1159,7 @@ async def update_persona(persona_id: str, request: Request):
         "tool_tier_max": updated.tool_tier_max,
         "can_delegate": updated.can_delegate,
         "delegates_to": updated.delegates_to,
+        "llm_config_name": updated.llm_config_name,
     })
 
 
@@ -1162,3 +1372,294 @@ async def preview_system_prompt(persona_id: str, request: Request):
     dummy_edict = Edict(title="Preview", goal="System prompt preview")
     preview = prompt_builder.build(dummy_edict, persona=persona)
     return ApiResponse(success=True, data={"persona_id": persona_id, "prompt": preview})
+
+
+# --- EventBus introspection endpoints (运维监控台) ---
+
+@gateway_router.get("/event-bus/handlers")
+async def list_event_bus_handlers(request: Request):
+    """List all registered event handlers with priorities."""
+    event_bus: EventBus = request.app.state.event_bus
+    result = {}
+    for event_type, entries in event_bus._handlers.items():
+        result[event_type] = [
+            {"handler": e.handler.__qualname__, "priority": e.priority}
+            for e in entries
+        ]
+    return ApiResponse(success=True, data=result)
+
+
+@gateway_router.get("/event-bus/stats")
+async def get_event_bus_stats(request: Request):
+    """Get event type distribution from storage."""
+    storage: Storage = request.app.state.storage
+    stats = storage.get_event_stats()
+    return ApiResponse(success=True, data=stats)
+
+
+@gateway_router.get("/event-bus/recent")
+async def get_recent_events(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    """Get recent events across all edicts."""
+    storage: Storage = request.app.state.storage
+    events = storage.get_recent_events(limit=limit)
+    return ApiResponse(success=True, data=events)
+
+
+# --- Hooks introspection endpoints (运维监控台) ---
+
+@gateway_router.get("/hooks/registry")
+async def list_hooks_registry(request: Request):
+    """List all registered hooks with handler info and priorities."""
+    from tianshu.executor.hooks import HookRegistry
+    hook_registry: HookRegistry = request.app.state.hook_registry
+    result = {}
+    for hook_type, entries in hook_registry._hooks.items():
+        result[hook_type.value] = [
+            {"handler": e.handler.__qualname__, "priority": e.priority}
+            for e in entries
+        ]
+    return ApiResponse(success=True, data=result)
+
+
+# --- Notification channel endpoints (通政司·驿传) ---
+
+@gateway_router.get("/notifications/channels")
+async def list_notification_channels(request: Request):
+    """List registered notification channels with rate limit info."""
+    from tianshu.notifier.channel_registry import ChannelRegistry
+    registry: ChannelRegistry = request.app.state.channel_registry
+    channels = []
+    for name in registry.list_channels():
+        channel = registry.get(name)
+        rpm = registry._rate_limits.get(name, 10)
+        recent_sends = len(registry._send_log.get(name, []))
+        channels.append({
+            "name": name,
+            "type": type(channel).__name__,
+            "rpm_limit": rpm,
+            "recent_sends": recent_sends,
+        })
+    return ApiResponse(success=True, data=channels)
+
+
+# --- Memory maintenance endpoints (文渊阁·整编) ---
+
+@gateway_router.post("/memory/compact", response_model=ApiResponse)
+async def compact_memory(request: Request):
+    """Trigger memory compaction for a persona."""
+    mm: MemoryManager = request.app.state.memory_manager
+    body = await request.json()
+    persona_id = body.get("persona_id")
+    if not persona_id:
+        raise HTTPException(status_code=400, detail="persona_id is required")
+    max_age_days = body.get("max_age_days", 7)
+    entries = mm.list_by_persona(persona_id, limit=200)
+    from datetime import UTC, datetime, timedelta
+    cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
+    old_entries = [e for e in entries if e.created_at < cutoff.isoformat()]
+    if len(old_entries) <= 3:
+        return ApiResponse(success=True, data={
+            "status": "skipped",
+            "reason": f"Only {len(old_entries)} entries older than {max_age_days} days (need >3)",
+        })
+    result = await mm._compactor.compact(persona_id, old_entries)
+    return ApiResponse(success=True, data={
+        "status": "completed",
+        "original_count": result.original_count,
+        "compacted_count": result.compacted_count,
+        "summary": result.summary,
+        "tokens_saved": result.tokens_saved,
+    })
+
+
+@gateway_router.post("/memory/reflect", response_model=ApiResponse)
+async def trigger_reflection(request: Request):
+    """Trigger memory reflection for a persona."""
+    mm: MemoryManager = request.app.state.memory_manager
+    body = await request.json()
+    persona_id = body.get("persona_id")
+    if not persona_id:
+        raise HTTPException(status_code=400, detail="persona_id is required")
+    if not mm._reflector.can_reflect(persona_id):
+        return ApiResponse(success=True, data={
+            "status": "cooldown",
+            "reason": "Reflection cooldown active (1 hour between reflections)",
+        })
+    observations = [
+        e for e in mm.list_by_persona(persona_id, limit=50)
+        if e.category == "observation"
+    ]
+    if not observations:
+        return ApiResponse(success=True, data={
+            "status": "skipped",
+            "reason": "No observations to reflect on",
+        })
+    insights = await mm._reflector.reflect(persona_id, observations)
+    for insight in insights:
+        mm.store_to_index(insight)
+    return ApiResponse(success=True, data={
+        "status": "completed",
+        "insights_generated": len(insights),
+        "insights": [i.content for i in insights],
+    })
+
+
+@gateway_router.get("/memory/stats")
+async def get_memory_stats(request: Request):
+    """Get memory statistics per persona."""
+    mm: MemoryManager = request.app.state.memory_manager
+    from pathlib import Path
+    stats = {}
+    for persona_dir in sorted(mm._memory_dir.iterdir()):
+        if not persona_dir.is_dir():
+            continue
+        pid = persona_dir.name
+        entries = mm.list_by_persona(pid, limit=500)
+        total_chars = sum(len(e.content) for e in entries)
+        by_category = {}
+        for e in entries:
+            by_category[e.category] = by_category.get(e.category, 0) + 1
+        md_files = list(persona_dir.glob("**/*.md"))
+        md_size = sum(f.stat().st_size for f in md_files)
+        stats[pid] = {
+            "entry_count": len(entries),
+            "total_chars": total_chars,
+            "estimated_tokens": total_chars // 4,
+            "by_category": by_category,
+            "markdown_files": len(md_files),
+            "markdown_size_bytes": md_size,
+        }
+    return ApiResponse(success=True, data=stats)
+
+
+# --- Prompt layer visualization (翰林院·拟旨) ---
+
+@gateway_router.get("/system-prompt/layers/{persona_id}")
+async def get_prompt_layers(persona_id: str, request: Request):
+    """Get system prompt breakdown by layer."""
+    from tianshu.persona.prompt_builder import PromptBuilder
+    prompt_builder: PromptBuilder = request.app.state.prompt_builder
+    persona_loader = request.app.state.persona_loader
+    persona = persona_loader.get(persona_id)
+    if not persona:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
+    from tianshu.models.edict import Edict
+    dummy_edict = Edict(title="Preview", goal="Layer analysis")
+    layers = prompt_builder.build_layers(dummy_edict, persona=persona)
+    return ApiResponse(success=True, data=layers)
+
+
+# --- Official routing rules (吏部·铨选) ---
+
+@gateway_router.get("/routing/rules")
+async def get_routing_rules(request: Request):
+    """Get official routing rules and keyword mappings."""
+    selector: OfficialSelector = request.app.state.official_selector
+    personas = selector.list_all()
+    delegation = []
+    for p in personas:
+        if p.can_delegate and p.delegates_to:
+            delegation.append({
+                "from_id": p.id,
+                "from_name": p.name,
+                "delegates_to": p.delegates_to,
+            })
+    return ApiResponse(success=True, data={
+        "default_map": selector.get_default_map(),
+        "keyword_map": selector.get_keyword_map(),
+        "delegation_chains": delegation,
+    })
+
+
+# --- Audit rules management (刑部·律典) ---
+
+@gateway_router.get("/audit/rules")
+async def get_audit_rules(request: Request):
+    """Get configured audit rules and review policies."""
+    rules = [
+        {
+            "id": "token_budget",
+            "name": "Token 预算检查",
+            "description": "检查 Token 用量是否超过敕令预算限制",
+            "enabled": True,
+            "severity": "flag",
+        },
+        {
+            "id": "execution_error",
+            "name": "执行错误检查",
+            "description": "检查执行过程中是否有错误发生",
+            "enabled": True,
+            "severity": "flag",
+        },
+        {
+            "id": "empty_result",
+            "name": "空结果检查",
+            "description": "检查执行结果是否为空（无结果且无错误）",
+            "enabled": True,
+            "severity": "flag",
+        },
+    ]
+    review_policies = [
+        {"value": "never", "label": "从不审计", "description": "跳过所有审计流程"},
+        {"value": "on_failure", "label": "失败时审计", "description": "仅在执行失败时触发审计"},
+        {"value": "on_flag", "label": "标记时审计", "description": "规则标记后触发 LLM 深度审阅"},
+        {"value": "always", "label": "始终审计", "description": "无论结果如何都强制人工复核"},
+    ]
+    return ApiResponse(success=True, data={
+        "rules": rules,
+        "review_policies": review_policies,
+    })
+
+
+# --- Planner stats ---
+
+
+@gateway_router.get("/planner/stats")
+async def get_planner_stats(request: Request):
+    """Get planning statistics: total edicts, passthrough count, DAG count, avg tasks."""
+    storage: Storage = request.app.state.storage
+    with storage._lock:
+        total_edicts = storage._conn.execute("SELECT COUNT(*) FROM edicts").fetchone()[0]
+        dag_count = storage._conn.execute("SELECT COUNT(*) FROM dag_executions").fetchone()[0]
+        avg_tasks_row = storage._conn.execute(
+            "SELECT AVG(node_count) FROM (SELECT dag_execution_id, COUNT(*) AS node_count FROM dag_nodes GROUP BY dag_execution_id)"
+        ).fetchone()
+        avg_tasks = round(avg_tasks_row[0], 1) if avg_tasks_row[0] else 0
+
+        # Recent planning history: edicts + whether they have DAGs
+        recent_rows = storage._conn.execute(
+            """SELECT e.id, e.title, e.goal, e.assigned_persona_id, e.planner_persona_id,
+                      e.created_at,
+                      d.id AS dag_id,
+                      (SELECT COUNT(*) FROM dag_nodes dn WHERE dn.dag_execution_id = d.id) AS node_count
+               FROM edicts e
+               LEFT JOIN dag_executions d ON d.edict_id = e.id
+               ORDER BY e.created_at DESC
+               LIMIT 20""",
+        ).fetchall()
+
+    passthrough_count = total_edicts - dag_count
+    history = []
+    for r in recent_rows:
+        keys = r.keys()
+        history.append({
+            "edict_id": r["id"],
+            "title": r["title"],
+            "goal": r["goal"],
+            "assigned_persona_id": r["assigned_persona_id"] if "assigned_persona_id" in keys else None,
+            "planner_persona_id": r["planner_persona_id"] if "planner_persona_id" in keys else None,
+            "plan_type": "dag" if r["dag_id"] else "passthrough",
+            "task_count": r["node_count"] or 1,
+            "created_at": r["created_at"],
+        })
+
+    return ApiResponse(success=True, data={
+        "total_edicts": total_edicts,
+        "passthrough_count": passthrough_count,
+        "dag_count": dag_count,
+        "avg_tasks_per_dag": avg_tasks,
+        "recent_history": history,
+    })

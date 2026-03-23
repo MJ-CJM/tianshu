@@ -4,20 +4,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate } from "react-router-dom";
 import type { Memorial } from "../../api/types";
+import { usePersonas } from "../../hooks/usePersonas";
 import GlowCard from "../common/GlowCard";
 import StatusTag from "../edict/StatusTag";
 import { formatDuration } from "../../utils/format";
 import { STATUS_COLORS } from "../../utils/constants";
 import glowStyles from "../common/GlowCard.module.css";
-
-const PERSONA_LABELS: Record<string, string> = {
-  bingbu: "兵部",
-  neige: "内阁",
-  ducha: "都察院",
-  tongzheng: "通政司",
-  wenyuan: "文渊阁",
-  hubu: "户部",
-};
 
 const AUDIT_COLORS: Record<string, string> = {
   pass: "success",
@@ -39,6 +31,7 @@ interface MemorialCardProps {
 export default function MemorialCard({ memorial, index }: MemorialCardProps) {
   const { token } = theme.useToken();
   const navigate = useNavigate();
+  const { data: personas } = usePersonas();
   const attemptLabel = memorial.attempt > 1 ? ` (第 ${memorial.attempt} 次)` : "";
   const title = index !== undefined ? `奏折 #${index + 1}${attemptLabel}` : `奏折${attemptLabel}`;
   const isRunning = memorial.status === "running";
@@ -79,12 +72,15 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
               {duration}
             </Typography.Text>
           )}
-          {memorial.persona_id && (
-            <Tag style={{ fontSize: 11 }}>
-              <UserOutlined style={{ marginRight: 2 }} />
-              {PERSONA_LABELS[memorial.persona_id] ?? memorial.persona_id}
-            </Tag>
-          )}
+          {memorial.persona_id && (() => {
+            const persona = (personas ?? []).find((p) => p.id === memorial.persona_id);
+            return (
+              <Tag style={{ fontSize: 11 }}>
+                <UserOutlined style={{ marginRight: 2 }} />
+                {persona ? `${persona.name}（${persona.department}）` : memorial.persona_id}
+              </Tag>
+            );
+          })()}
           {memorial.dag_node_id && (
             <Tag style={{ fontSize: 11 }} color="blue">
               <DeploymentUnitOutlined style={{ marginRight: 2 }} />

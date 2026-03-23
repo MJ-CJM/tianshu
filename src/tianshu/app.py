@@ -42,16 +42,15 @@ from tianshu.tools.builtins import register_builtins
 from tianshu.tools.registry import ToolRegistry
 from tianshu.web import mount_web
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+from tianshu.logging_config import setup_logging
+
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = TianshuSettings()
+    setup_logging(log_dir=settings.log_dir, console_level=settings.log_level)
 
     # --- Storage ---
     storage = Storage(settings.db_path)
@@ -117,11 +116,12 @@ async def lifespan(app: FastAPI):
         agent_timeout_seconds=settings.agent_timeout_seconds,
         skills_char_budget=settings.skills_char_budget,
     )
-    config_manager = ConfigManager(initial_state, agent_config=agent_config)
+    config_manager = ConfigManager(initial_state, agent_config=agent_config, storage=storage)
     app.state.config_manager = config_manager
 
     # --- ProviderManager ---
     provider_manager = ProviderManager(storage=storage, config_manager=config_manager)
+    provider_manager.sync_all()
     app.state.provider_manager = provider_manager
 
     # --- Agent ---
@@ -154,6 +154,7 @@ async def lifespan(app: FastAPI):
         hook_registry=hook_registry,
     )
     executor.set_agent(agent)
+    executor.set_persona_loader(persona_loader)
     app.state.executor = executor
 
     # --- DAGScheduler ---
@@ -251,6 +252,9 @@ async def lifespan(app: FastAPI):
         storage=storage,
         config_manager=config_manager,
         official_selector=official_selector,
+        persona_loader=persona_loader,
+        prompt_builder=prompt_builder,
+        tool_registry=tools,
     )
     app.state.planner = planner
 

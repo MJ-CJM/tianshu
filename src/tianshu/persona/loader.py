@@ -42,11 +42,17 @@ class PersonaLoader:
         self._personas[persona.id] = persona
 
     def delete(self, persona_id: str) -> bool:
-        """Delete a persona from SQLite and in-memory cache."""
+        """Delete a persona from SQLite, in-memory cache, and file system."""
         if not self._storage:
             raise RuntimeError("Storage not configured for persona persistence")
         deleted = self._storage.delete_persona(persona_id)
         self._personas.pop(persona_id, None)
+        # Remove file system directory so _seed_from_files won't resurrect it
+        persona_dir = self._dir / persona_id
+        if persona_dir.is_dir():
+            import shutil
+            shutil.rmtree(persona_dir)
+            logger.info("Removed persona directory: %s", persona_dir)
         return deleted
 
     # --- Internal ---
@@ -116,6 +122,8 @@ class PersonaLoader:
             tool_tier_max=meta.get("tool_tier_max", 0),
             can_delegate=meta.get("can_delegate", False),
             delegates_to=meta.get("delegates_to", []),
+            llm_config_name=meta.get("llm_config_name"),
+            skills_allowed=meta.get("skills_allowed", []),
         )
 
     @staticmethod
@@ -132,6 +140,7 @@ class PersonaLoader:
             "delegates_to": persona.delegates_to,
             "soul_path": str(persona.soul_path),
             "role_path": str(persona.role_path),
+            "llm_config_name": persona.llm_config_name,
             "created_at": datetime.now(UTC).isoformat(),
         }
 
@@ -156,6 +165,7 @@ class PersonaLoader:
             tool_tier_max=d.get("tool_tier_max", 0),
             can_delegate=d.get("can_delegate", False),
             delegates_to=d.get("delegates_to", []),
+            llm_config_name=d.get("llm_config_name"),
         )
 
     @staticmethod

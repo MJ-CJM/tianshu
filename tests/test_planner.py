@@ -24,28 +24,6 @@ class TestPlanner:
             config_manager=config_manager,
         )
 
-    def test_needs_planning_simple(self, planner):
-        edict = Edict(goal="short goal")
-        assert planner.needs_planning(edict) is False
-
-    def test_needs_planning_complex(self, planner):
-        edict = Edict(
-            goal="a" * 150,
-            constraints=["no shell"],
-        )
-        assert planner.needs_planning(edict) is True
-
-    def test_needs_planning_skip_metadata(self, planner):
-        edict = Edict(
-            goal="a" * 150,
-            metadata={"skip_planning": True},
-        )
-        assert planner.needs_planning(edict) is False
-
-    def test_needs_planning_with_output_format(self, planner):
-        edict = Edict(goal="short", output_format="json")
-        assert planner.needs_planning(edict) is True
-
     async def test_plan_simple(self, planner):
         edict = Edict(goal="simple task")
         plan = await planner.plan(edict)

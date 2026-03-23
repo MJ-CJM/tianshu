@@ -78,6 +78,7 @@ class DAGScheduler:
 
         async def on_node_complete(node_id: str, error: str | None) -> None:
             if error:
+                logger.debug("[DAG] Edict %s: node %s failed, error=%s", edict.id, node_id, error)
                 dag.mark_failed(node_id, error)
                 cancelled = dag.propagate_failure(node_id)
                 for cid in cancelled:
@@ -94,6 +95,7 @@ class DAGScheduler:
                     payload={"dag_id": execution.id, "node_id": node_id, "error": error},
                 ))
             else:
+                logger.debug("[DAG] Edict %s: node %s completed", edict.id, node_id)
                 dag.mark_completed(node_id)
                 self._storage.update_dag_node_status(
                     execution.id, node_id, DAGNodeStatus.COMPLETED.value,
@@ -132,7 +134,7 @@ class DAGScheduler:
             completed_at=execution.completed_at,
         )
 
-        # Aggregate usage into root memorial
+        # Aggregate usage + results into root memorial
         if execution.root_memorial_id:
             total_usage = UsageSummary()
             for usage in self._node_usage.values():
@@ -141,9 +143,21 @@ class DAGScheduler:
                     completion_tokens=total_usage.completion_tokens + usage.completion_tokens,
                     total_tokens=total_usage.total_tokens + usage.total_tokens,
                 )
+
+            # Synthesize sub-task results into root memorial
+            result_parts: list[str] = []
+            for node in execution.nodes:
+                node_result = self._node_results.get(node.node_id)
+                if node_result:
+                    result_parts.append(
+                        f"## {node.node_id}: {node.description}\n\n{node_result}"
+                    )
+            combined_result = "\n\n---\n\n".join(result_parts) if result_parts else None
+
             root = self._storage.get_memorial(execution.root_memorial_id)
             if root:
                 root.usage = total_usage
+                root.result = combined_result
                 root.status = TaskStatus.COMPLETED if execution.status == "completed" else TaskStatus.FAILED
                 root.completed_at = datetime.now(UTC)
                 self._storage.update_memorial(root)
@@ -170,6 +184,10 @@ class DAGScheduler:
     ) -> None:
         ready_nodes = dag.get_ready_nodes()
         for node in ready_nodes:
+            logger.debug(
+                "[DAG] Edict %s: scheduling node %s, persona=%s, deps=%s",
+                edict.id, node.node_id, node.assigned_official, node.depends_on,
+            )
             dag.mark_running(node.node_id)
             node.started_at = datetime.now(UTC)
             self._storage.update_dag_node_status(

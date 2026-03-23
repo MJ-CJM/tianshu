@@ -76,6 +76,16 @@ class PromptBuilder:
             soul_text = self._read_file(persona.soul_path)
             if soul_text:
                 parts.append(soul_text)
+            else:
+                # Fallback: generate minimal identity from persona metadata
+                parts.append(
+                    f"You are {persona.name}, serving in the {persona.department} department. "
+                    f"Your persona ID is {persona.id}. Respond in character."
+                )
+                logger.warning(
+                    "SOUL.md not found for persona %s (%s), using fallback identity",
+                    persona.id, persona.soul_path,
+                )
 
             # Layer 4: ROLE.md (persona role specifics) — from personas/
             role_text = self._read_file(persona.role_path)
@@ -110,6 +120,122 @@ class PromptBuilder:
         parts.append(f"Current task ID: {edict.id}")
 
         return "\n\n".join(parts)
+
+    def build_layers(
+        self,
+        edict: Edict,
+        persona: AgentPersona | None = None,
+        skills_char_budget: int = 30000,
+    ) -> list[dict]:
+        """Build system prompt and return per-layer breakdown."""
+        layers: list[dict] = []
+
+        # Layer 1: Base Identity
+        layers.append({
+            "layer": 1,
+            "name": "Base Identity",
+            "source": "(builtin)",
+            "chars": len(_BASE_IDENTITY),
+            "tokens_est": len(_BASE_IDENTITY) // 4,
+        })
+
+        if persona:
+            # Layer 2: COURT.md
+            court_path = self._personas_dir / "court" / "COURT.md"
+            court_text = self._read_file(court_path)
+            layers.append({
+                "layer": 2,
+                "name": "COURT.md",
+                "source": str(court_path),
+                "chars": len(court_text),
+                "tokens_est": len(court_text) // 4,
+            })
+
+            # Layer 3: SOUL.md
+            soul_text = self._read_file(persona.soul_path)
+            layers.append({
+                "layer": 3,
+                "name": "SOUL.md",
+                "source": str(persona.soul_path),
+                "chars": len(soul_text),
+                "tokens_est": len(soul_text) // 4,
+            })
+
+            # Layer 4: ROLE.md
+            role_text = self._read_file(persona.role_path)
+            layers.append({
+                "layer": 4,
+                "name": "ROLE.md",
+                "source": str(persona.role_path),
+                "chars": len(role_text),
+                "tokens_est": len(role_text) // 4,
+            })
+
+            # Layer 5: MEMORY.md
+            memory_text = self._md_backend.read_core_memory(persona.id)
+            layers.append({
+                "layer": 5,
+                "name": "MEMORY.md",
+                "source": f"~/.tianshu/memory/{persona.id}/MEMORY.md",
+                "chars": len(memory_text),
+                "tokens_est": len(memory_text) // 4,
+            })
+
+            # Layer 5.5: Recent Activity
+            recent_logs = self._md_backend.read_recent_logs(
+                persona.id, days=2, char_budget=2000,
+            )
+            layers.append({
+                "layer": 5.5,
+                "name": "Recent Activity",
+                "source": f"~/.tianshu/memory/{persona.id}/logs/",
+                "chars": len(recent_logs),
+                "tokens_est": len(recent_logs) // 4,
+            })
+
+            # Layer 6: Court MEMORY.md
+            court_mem = self._md_backend.read_core_memory("court")
+            layers.append({
+                "layer": 6,
+                "name": "Court MEMORY.md",
+                "source": "~/.tianshu/memory/court/MEMORY.md",
+                "chars": len(court_mem),
+                "tokens_est": len(court_mem) // 4,
+            })
+
+        # Layer 7: Skills
+        self._skills.set_char_budget(skills_char_budget)
+        filter_names = persona.skills_allowed if persona and persona.skills_allowed else None
+        skills_text = self._skills.load_all(filter_names=filter_names)
+        layers.append({
+            "layer": 7,
+            "name": "Skills",
+            "source": "(skills loader)",
+            "chars": len(skills_text),
+            "tokens_est": len(skills_text) // 4,
+            "char_budget": skills_char_budget,
+            "filtered_by": filter_names,
+        })
+
+        # Layer 8: Task Context
+        task_ctx = f"Current task ID: {edict.id}"
+        layers.append({
+            "layer": 8,
+            "name": "Task Context",
+            "source": "(runtime)",
+            "chars": len(task_ctx),
+            "tokens_est": len(task_ctx) // 4,
+        })
+
+        total_chars = sum(l["chars"] for l in layers)
+        total_tokens = sum(l["tokens_est"] for l in layers)
+
+        return {
+            "persona_id": persona.id if persona else None,
+            "total_chars": total_chars,
+            "total_tokens_est": total_tokens,
+            "layers": layers,
+        }
 
     @staticmethod
     def _read_file(path: Path) -> str:

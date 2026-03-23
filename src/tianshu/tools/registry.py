@@ -73,6 +73,11 @@ class ToolRegistry:
         except jsonschema.ValidationError as e:
             return error_result(f"Parameter validation failed: {e.message}")
 
+        logger.debug(
+            "[TOOL] execute: name=%s, tier=%d, args_keys=%s",
+            name, defn.tier, list(args.keys()) if isinstance(args, dict) else "raw",
+        )
+
         # Before hooks
         for hook in self._hooks:
             modified = await hook.before_tool_call(name, args)
@@ -84,6 +89,11 @@ class ToolRegistry:
         except Exception as e:
             logger.exception("Tool '%s' raised an unexpected exception", name)
             return error_result(f"Error executing {name}: {e}")
+
+        logger.debug(
+            "[TOOL] result: name=%s, success=%s, output_len=%d",
+            name, not result.is_error, len(result.content or ""),
+        )
 
         # After hooks
         for hook in self._hooks:

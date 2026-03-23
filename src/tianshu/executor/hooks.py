@@ -85,6 +85,10 @@ class HookRegistry:
                 # Write hook execution event for frontend visibility (8.2)
                 self._write_hook_event(hook_type, handler_name, context, blocked=bool(result and result.block))
 
+                logger.debug(
+                    "[HOOK] %s: handler=%s, blocked=%s",
+                    hook_type.value, handler_name, bool(result and result.block),
+                )
                 if result and result.block:
                     return result
                 if result and result.modified_args:

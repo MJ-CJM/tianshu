@@ -74,9 +74,17 @@ class Agent:
                 error="LLM is currently disabled",
             )
 
+        # Extract persona-level LLM config override
+        persona_config_name = getattr(persona, "llm_config_name", None) if persona else None
+
         if self._provider_manager and hasattr(self._provider_manager, "get_client"):
-            llm = self._provider_manager.get_client()
+            llm = self._provider_manager.get_client(config_name_override=persona_config_name)
         else:
+            # Direct LLMClient path: apply persona config if available
+            if persona_config_name:
+                named = self._config_manager.get_config(persona_config_name)
+                if named and named.enabled:
+                    state = named
             llm = LLMClient(
                 model=state.model,
                 api_key=state.api_key,
@@ -135,6 +143,10 @@ class Agent:
 
             # Context compaction: estimate tokens and compress if near limit
             estimated_tokens = sum(len(str(m.get("content", ""))) // 4 for m in messages)
+            logger.debug(
+                "[AGENT] Edict %s: iteration %d/%d, messages=%d, est_tokens=%d",
+                edict.id, iteration, max_iterations, len(messages), estimated_tokens,
+            )
             if estimated_tokens > compact_threshold and len(messages) > 4:
                 # Keep system prompt + last 4 messages, summarize middle
                 preserved_head = messages[:1]  # system prompt
@@ -147,13 +159,18 @@ class Agent:
                         content = str(m.get("content", ""))[:200]
                         summary_parts.append(f"[{role}] {content}")
                     compacted_msg = {
-                        "role": "system",
+                        "role": "user",
                         "content": (
-                            "[Context compacted] Previous conversation summary:\n"
+                            "[Context compacted — do not respond to this] Previous conversation summary:\n"
                             + "\n".join(summary_parts[-10:])
                         ),
                     }
+                    original_count = len(middle) + len(preserved_head) + len(preserved_tail)
                     messages = preserved_head + [compacted_msg] + preserved_tail
+                    logger.debug(
+                        "[AGENT] Edict %s: context compacted at iter %d, %d→%d messages",
+                        edict.id, iteration, original_count, len(messages),
+                    )
                     _emit({
                         "type": "context.compacted",
                         "iteration": iteration,
@@ -200,6 +217,10 @@ class Agent:
 
             response = await llm.chat(messages, tools=openai_tools)
             usage = self._accumulate_usage(usage, response.usage)
+            logger.debug(
+                "[AGENT] Edict %s: iter %d LLM response, tool_calls=%d, has_content=%s",
+                edict.id, iteration, len(response.tool_calls or []), bool(response.content),
+            )
 
             # LLM output hook — includes usage for cost tracking
             if self._hooks:
@@ -256,6 +277,10 @@ class Agent:
                             })
                             continue
 
+                    logger.debug(
+                        "[AGENT] Edict %s: iter %d tool=%s, args=%.200s",
+                        edict.id, iteration, tc["name"], str(tc["args"])[:200],
+                    )
                     tool_result = await self._tools.execute(tc["name"], tc["args"])
                     content = tool_result.content
                     if len(content) > 8000:

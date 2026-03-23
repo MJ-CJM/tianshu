@@ -31,6 +31,7 @@ class Auditor:
         self._reviewer = LLMReviewer(config_manager)
 
     async def audit(self, edict: Edict, memorial: "Memorial") -> AuditResult:
+        logger.debug("[AUDIT] Edict %s: start audit, policy=%s", edict.id, edict.review_policy)
         # Layer 1: fast rules
         result = self._rules.check(edict, memorial)
 
@@ -40,6 +41,10 @@ class Auditor:
                 edict, memorial, result.reasons
             )
 
+        logger.debug(
+            "[AUDIT] Edict %s: verdict=%s, reasons=%s, llm_reviewed=%s",
+            edict.id, result.verdict, result.reasons, result.verdict == "flag" and edict.review_policy != "never",
+        )
         return result
 
     async def handle_execution_completed(self, event: EventEnvelope) -> None:

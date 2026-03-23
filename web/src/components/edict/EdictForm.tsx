@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Form, Input, InputNumber, Button, Collapse, Select, Divider } from "antd";
+import { Form, Input, InputNumber, Button, Collapse, Select, Divider, Radio, Switch } from "antd";
 import { SendOutlined } from "@ant-design/icons";
+import { usePersonas } from "../../hooks/usePersonas";
 import type { EdictCreateRequest, EdictRuntime } from "../../api/types";
 
 interface EdictFormProps {
@@ -11,6 +12,19 @@ interface EdictFormProps {
 export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
   const [form] = Form.useForm();
   const [scheduleType, setScheduleType] = useState("immediate");
+  const [assignMode, setAssignMode] = useState<"auto" | "direct">("auto");
+  const { data: personas } = usePersonas();
+
+  const personaOptions = (personas ?? []).map((p) => ({
+    value: p.id,
+    label: `${p.name} (${p.id})`,
+  }));
+
+  const cabinetPersonas = (personas ?? []).filter((p) => p.department === "neige");
+  const plannerOptions = cabinetPersonas.map((p) => ({
+    value: p.id,
+    label: `${p.name}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
+  }));
 
   const handleFinish = (values: Record<string, unknown>) => {
     const req: EdictCreateRequest = {
@@ -77,6 +91,18 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       req.runtime = runtime;
     }
 
+    if (assignMode === "direct" && values.assigned_persona_id) {
+      req.assigned_persona_id = values.assigned_persona_id as string;
+    }
+
+    if (assignMode === "auto" && values.planner_persona_id) {
+      req.planner_persona_id = values.planner_persona_id as string;
+    }
+
+    if (assignMode === "auto" && values.plan_review) {
+      req.plan_review = true;
+    }
+
     onSubmit(req);
   };
 
@@ -108,6 +134,62 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
           style={{ resize: "vertical" }}
         />
       </Form.Item>
+
+      <Form.Item label="执行方式">
+        <Radio.Group
+          value={assignMode}
+          onChange={(e) => {
+            setAssignMode(e.target.value);
+            if (e.target.value === "auto") {
+              form.setFieldValue("assigned_persona_id", undefined);
+            }
+          }}
+        >
+          <Radio value="auto">内阁决策（自动规划分配）</Radio>
+          <Radio value="direct">直接指派官员</Radio>
+        </Radio.Group>
+      </Form.Item>
+
+      {assignMode === "direct" && (
+        <Form.Item
+          name="assigned_persona_id"
+          rules={[{ required: true, message: "请选择执行官员" }]}
+        >
+          <Select
+            placeholder="选择官员"
+            options={personaOptions}
+            showSearch
+            optionFilterProp="label"
+          />
+        </Form.Item>
+      )}
+
+      {assignMode === "auto" && cabinetPersonas.length > 1 && (
+        <Form.Item
+          name="planner_persona_id"
+          label="规划官（可选）"
+          tooltip="选择使用哪位内阁官员进行规划，不同官员可使用不同的 LLM"
+        >
+          <Select
+            placeholder="自动（使用全局配置）"
+            options={plannerOptions}
+            allowClear
+            showSearch
+            optionFilterProp="label"
+          />
+        </Form.Item>
+      )}
+
+      {assignMode === "auto" && (
+        <Form.Item
+          name="plan_review"
+          label="规划审批"
+          valuePropName="checked"
+          tooltip="开启后，规划方案需人工审批通过后才会执行"
+        >
+          <Switch />
+        </Form.Item>
+      )}
 
       <Form.Item name="context" label="附则（可选）">
         <Input.TextArea

@@ -180,6 +180,20 @@ class Storage:
                     updated_at TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS llm_configs (
+                    name TEXT PRIMARY KEY,
+                    model TEXT NOT NULL,
+                    api_key TEXT NOT NULL,
+                    api_base TEXT NOT NULL DEFAULT '',
+                    max_retries INTEGER NOT NULL DEFAULT 3,
+                    temperature REAL NOT NULL DEFAULT 0.7,
+                    top_p REAL NOT NULL DEFAULT 1.0,
+                    max_tokens INTEGER NOT NULL DEFAULT 4096,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    is_active INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS dag_executions (
                     id TEXT PRIMARY KEY,
                     edict_id TEXT NOT NULL,
@@ -206,6 +220,13 @@ class Storage:
                     ON scheduler_jobs(edict_id);
                 CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_status
                     ON scheduler_jobs(status);
+
+                CREATE TABLE IF NOT EXISTS departments (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
 
                 CREATE TABLE IF NOT EXISTS personas (
                     id TEXT PRIMARY KEY,
@@ -274,6 +295,14 @@ class Storage:
             "ALTER TABLE cost_budgets RENAME COLUMN spent_usd TO spent_cny",
             # Phase 2: persona skills_allowed
             "ALTER TABLE personas ADD COLUMN skills_allowed TEXT DEFAULT '[]'",
+            # Phase 2: persona → LLM config binding
+            "ALTER TABLE personas ADD COLUMN llm_config_name TEXT",
+            # Phase 2.1: edict → assigned persona
+            "ALTER TABLE edicts ADD COLUMN assigned_persona_id TEXT",
+            # Planner persona: use a specific cabinet persona's LLM config for planning
+            "ALTER TABLE edicts ADD COLUMN planner_persona_id TEXT",
+            # Phase 2.2: plan review — require human approval before execution
+            "ALTER TABLE edicts ADD COLUMN plan_review INTEGER DEFAULT 0",
         ]
         for sql in migrations:
             try:
@@ -282,6 +311,41 @@ class Storage:
             except sqlite3.OperationalError as e:
                 if "duplicate column name" not in str(e) and "no such column" not in str(e):
                     raise
+
+        # Seed departments from existing personas (one-time)
+        self._seed_departments()
+
+    def _seed_departments(self) -> None:
+        """Populate departments table from existing personas if empty."""
+        count = self._conn.execute("SELECT COUNT(*) FROM departments").fetchone()[0]
+        if count > 0:
+            return
+
+        KNOWN = {
+            "bingbu": "兵部 (Ministry of War)",
+            "neige": "内阁 (Imperial Cabinet)",
+            "ducha": "都察院 (Censorate)",
+            "tongzheng": "通政司 (Bureau of Coordination)",
+            "wenyuan": "文渊阁 (Grand Secretariat)",
+            "hubu": "户部 (Ministry of Revenue)",
+        }
+
+        now = datetime.now(UTC).isoformat()
+        # Collect distinct departments from personas
+        rows = self._conn.execute(
+            "SELECT DISTINCT department FROM personas"
+        ).fetchall()
+        dept_ids = {r[0] for r in rows}
+        # Merge with known defaults
+        dept_ids.update(KNOWN.keys())
+
+        with self._conn:
+            for dept_id in dept_ids:
+                name = KNOWN.get(dept_id, dept_id)
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO departments (id, name, description, created_at) VALUES (?, ?, '', ?)",
+                    (dept_id, name, now),
+                )
 
     def close(self) -> None:
         if self._conn:
@@ -297,8 +361,9 @@ class Storage:
                    (id, title, goal, context, status, created_at,
                     idempotency_key, source, submitter, priority, review_policy,
                     output_format, constraints_json, schedule_json, dispatch_json,
-                    runtime_json, metadata_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    runtime_json, metadata_json, assigned_persona_id,
+                    planner_persona_id, plan_review)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     edict.id,
                     edict.title,
@@ -317,6 +382,9 @@ class Storage:
                     edict.dispatch.model_dump_json() if edict.dispatch else None,
                     edict.runtime.model_dump_json(),
                     json.dumps(edict.metadata, default=str),
+                    edict.assigned_persona_id,
+                    edict.planner_persona_id,
+                    int(edict.plan_review),
                 ),
             )
 
@@ -556,6 +624,35 @@ class Storage:
             }
             for r in rows
         ]
+
+    def get_event_stats(self) -> dict:
+        """Get event count by type."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT event_type, COUNT(*) as count FROM events GROUP BY event_type ORDER BY count DESC"
+            )
+            rows = cur.fetchall()
+            return {row[0]: row[1] for row in rows}
+
+    def get_recent_events(self, limit: int = 50) -> list[dict]:
+        """Get recent events across all edicts."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT id, edict_id, memorial_id, event_type, payload_json, created_at "
+                "FROM events ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
+            return [
+                {
+                    "id": row[0],
+                    "edict_id": row[1],
+                    "memorial_id": row[2],
+                    "event_type": row[3],
+                    "payload": json.loads(row[4]) if row[4] else {},
+                    "created_at": row[5],
+                }
+                for row in cur.fetchall()
+            ]
 
     # --- Audit ---
 
@@ -906,6 +1003,58 @@ class Storage:
             self._conn.execute(
                 "UPDATE cost_budgets SET spent_cny = spent_cny + ? WHERE scope = ?",
                 (amount_cny, scope),
+            )
+
+    # --- LLM Configs ---
+
+    def save_llm_config(self, config: dict) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO llm_configs
+                   (name, model, api_key, api_base, max_retries, temperature,
+                    top_p, max_tokens, enabled, is_active, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    config["name"],
+                    config["model"],
+                    config["api_key"],
+                    config.get("api_base", ""),
+                    config.get("max_retries", 3),
+                    config.get("temperature", 0.7),
+                    config.get("top_p", 1.0),
+                    config.get("max_tokens", 4096),
+                    1 if config.get("enabled", True) else 0,
+                    1 if config.get("is_active", False) else 0,
+                    config.get("created_at", datetime.now(UTC).isoformat()),
+                ),
+            )
+
+    def list_llm_configs(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM llm_configs ORDER BY is_active DESC, name ASC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_llm_config(self, name: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM llm_configs WHERE name = ?", (name,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_llm_config(self, name: str) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM llm_configs WHERE name = ?", (name,)
+            )
+            return cursor.rowcount > 0
+
+    def set_active_llm_config(self, name: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE llm_configs SET is_active = 0")
+            self._conn.execute(
+                "UPDATE llm_configs SET is_active = 1 WHERE name = ?", (name,)
             )
 
     # --- Providers ---
@@ -1342,6 +1491,67 @@ class Storage:
             "avg_duration_seconds": round(row["avg_duration_seconds"] or 0.0, 2),
         }
 
+    # --- Department CRUD ---
+
+    def save_department(self, dept: dict) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO departments (id, name, description, created_at) VALUES (?, ?, ?, ?)",
+                (
+                    dept["id"],
+                    dept["name"],
+                    dept.get("description", ""),
+                    dept.get("created_at", now),
+                ),
+            )
+
+    def list_departments(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM departments ORDER BY id"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_department(self, dept_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM departments WHERE id = ?", (dept_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def update_department(self, dept_id: str, **fields) -> None:
+        allowed = {"name", "description"}
+        sets: list[str] = []
+        params: list = []
+        for key, value in fields.items():
+            if key not in allowed:
+                continue
+            sets.append(f"{key} = ?")
+            params.append(value)
+        if not sets:
+            return
+        params.append(dept_id)
+        with self._lock, self._conn:
+            self._conn.execute(
+                f"UPDATE departments SET {', '.join(sets)} WHERE id = ?",
+                params,
+            )
+
+    def delete_department(self, dept_id: str) -> bool:
+        """Delete department. Refuses if any persona references it."""
+        with self._lock:
+            ref_count = self._conn.execute(
+                "SELECT COUNT(*) FROM personas WHERE department = ?", (dept_id,)
+            ).fetchone()[0]
+            if ref_count > 0:
+                return False
+            with self._conn:
+                cursor = self._conn.execute(
+                    "DELETE FROM departments WHERE id = ?", (dept_id,)
+                )
+                return cursor.rowcount > 0
+
     # --- Persona CRUD ---
 
     def save_persona(self, persona: dict) -> None:
@@ -1351,8 +1561,8 @@ class Storage:
                 """INSERT OR REPLACE INTO personas
                    (id, name, department, tools_allowed, tools_denied,
                     skills_allowed, tool_tier_max, can_delegate, delegates_to,
-                    soul_path, role_path, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    soul_path, role_path, llm_config_name, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     persona["id"],
                     persona["name"],
@@ -1365,6 +1575,7 @@ class Storage:
                     json.dumps(persona.get("delegates_to", [])),
                     persona.get("soul_path"),
                     persona.get("role_path"),
+                    persona.get("llm_config_name"),
                     persona.get("created_at", now),
                     now,
                 ),
@@ -1388,7 +1599,7 @@ class Storage:
         allowed = {
             "name", "department", "tools_allowed", "tools_denied",
             "skills_allowed", "tool_tier_max", "can_delegate", "delegates_to",
-            "soul_path", "role_path",
+            "soul_path", "role_path", "llm_config_name",
         }
         sets: list[str] = []
         params: list = []
@@ -1437,6 +1648,7 @@ class Storage:
             "delegates_to": json.loads(row["delegates_to"]),
             "soul_path": row["soul_path"],
             "role_path": row["role_path"],
+            "llm_config_name": row["llm_config_name"] if "llm_config_name" in keys else None,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -1556,6 +1768,9 @@ class Storage:
             priority=row["priority"] if "priority" in keys else "normal",
             review_policy=row["review_policy"] if "review_policy" in keys else "never",
             output_format=row["output_format"] if "output_format" in keys else None,
+            assigned_persona_id=row["assigned_persona_id"] if "assigned_persona_id" in keys else None,
+            planner_persona_id=row["planner_persona_id"] if "planner_persona_id" in keys else None,
+            plan_review=bool(row["plan_review"]) if "plan_review" in keys else False,
             constraints=constraints,
             schedule=schedule,
             dispatch=dispatch,

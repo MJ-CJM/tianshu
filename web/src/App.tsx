@@ -13,12 +13,12 @@ import ApprovalQueuePage from "./pages/ApprovalQueuePage";
 import SchedulerPage from "./pages/SchedulerPage";
 import AuditDashboardPage from "./pages/AuditDashboardPage";
 import CostDashboardPage from "./pages/CostDashboardPage";
-import ProviderDashboardPage from "./pages/ProviderDashboardPage";
 import MemoryDashboardPage from "./pages/MemoryDashboardPage";
 import ConsultationPage from "./pages/ConsultationPage";
+import CabinetPage from "./pages/CabinetPage";
 import PersonaDashboardPage from "./pages/PersonaDashboardPage";
+import PersonaDetailPage from "./pages/PersonaDetailPage";
 import SystemManagementPage from "./pages/SystemManagementPage";
-
 // Lazy-loaded DAG Battle Map (heavy @xyflow/react dependency)
 const DagBattleMapPage = React.lazy(() => import("./pages/DagBattleMapPage"));
 
@@ -51,8 +51,9 @@ function ThemedApp() {
                 <Route path="/cost" element={<CostDashboardPage />} />
                 <Route path="/memory" element={<MemoryDashboardPage />} />
                 <Route path="/consultation" element={<ConsultationPage />} />
+                <Route path="/cabinet" element={<CabinetPage />} />
                 <Route path="/personas" element={<PersonaDashboardPage />} />
-                <Route path="/providers" element={<ProviderDashboardPage />} />
+                <Route path="/personas/:personaId" element={<PersonaDetailPage />} />
                 <Route path="/system" element={<SystemManagementPage />} />
                 <Route
                   path="/dag/:dagId"

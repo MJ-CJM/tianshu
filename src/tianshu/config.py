@@ -22,6 +22,8 @@ class TianshuSettings(BaseSettings):
     skills_char_budget: int = 30000
     static_dir: str = "/app/static"
     memory_dir: str = "~/.tianshu/memory"
+    log_dir: str = "~/.tianshu/logs"
+    log_level: str = "INFO"
     # Phase 3: concurrency
     max_global_concurrency: int = 8
     # Phase 2: notification channels

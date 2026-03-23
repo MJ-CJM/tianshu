@@ -137,7 +137,10 @@ class MemoryManager:
         except Exception:
             logger.exception("Markdown write failed for %s", entry.id)
 
-        logger.debug("Memory stored (MD): %s for %s", entry.id, entry.persona_id)
+        logger.debug(
+            "[MEM] store: persona=%s, category=%s, content_len=%d",
+            entry.persona_id, entry.category, len(entry.content),
+        )
         return entry
 
     def store_to_index(self, entry: MemoryEntry) -> None:
@@ -159,6 +162,10 @@ class MemoryManager:
         source='sqlite' → search SQLite index (Web/API)
         source='markdown' → search Markdown daily logs (Agent)
         """
+        logger.debug(
+            "[MEM] recall: persona=%s, query=%.80s, source=%s",
+            query.persona_id, query.query, source,
+        )
         if source == "markdown" and query.query:
             md_results = self._md_backend.search_daily_logs(
                 query.persona_id, query.query, limit=query.limit,
@@ -371,7 +378,7 @@ class MemoryManager:
             return None
 
         history_messages = [
-            {"role": "system", "content": f"[Memory] {r['content']}"}
+            {"role": "user", "content": f"[Memory context — do not respond to this] {r['content']}"}
             for r in md_results[:5]
         ]
         if not history_messages:

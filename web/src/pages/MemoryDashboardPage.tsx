@@ -7,6 +7,7 @@ import {
   Tabs,
   Tag,
   Input,
+  InputNumber,
   Button,
   Empty,
   Popconfirm,
@@ -16,6 +17,9 @@ import {
   Typography,
   Spin,
   theme,
+  Row,
+  Col,
+  Statistic,
 } from "antd";
 import {
   DeleteOutlined,
@@ -23,6 +27,7 @@ import {
   TeamOutlined,
   MessageOutlined,
   FileTextOutlined,
+  BarChartOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import {
@@ -33,6 +38,7 @@ import {
   useMemoryPolicies,
   usePersonaMemorials,
 } from "../hooks/useMemory";
+import { useMemoryStats, useCompactMemory, useTriggerReflection } from "../hooks/useOps";
 import type { MemoryEntry, EdictMemorialGroup, MemorialBrief } from "../api/types";
 import PageContainer from "../components/common/PageContainer";
 
@@ -436,6 +442,152 @@ function ConversationHistoryTab({ persona }: { persona: string }) {
   );
 }
 
+function MemoryMaintenanceTab({ persona }: { persona: string }) {
+  const { data: stats } = useMemoryStats();
+  const compactMutation = useCompactMemory();
+  const reflectMutation = useTriggerReflection();
+  const [maxAgeDays, setMaxAgeDays] = useState(7);
+
+  const personaStats = stats?.[persona];
+
+  const handleCompact = () => {
+    compactMutation.mutate(
+      { personaId: persona, maxAgeDays },
+      {
+        onSuccess: (resp) => {
+          const data = resp.data;
+          if (data?.status === "completed") {
+            notification.success({
+              message: "压缩完成",
+              description: `${data.original_count} → ${data.compacted_count} 条，节省约 ${data.tokens_saved} tokens`,
+            });
+          } else {
+            notification.info({
+              message: data?.status === "skipped" ? "跳过压缩" : "压缩结果",
+              description: data?.reason,
+            });
+          }
+        },
+      },
+    );
+  };
+
+  const handleReflect = () => {
+    reflectMutation.mutate(persona, {
+      onSuccess: (resp) => {
+        const data = resp.data;
+        if (data?.status === "completed") {
+          notification.success({
+            message: "反思完成",
+            description: `生成 ${data.insights_generated} 条洞察`,
+          });
+        } else {
+          notification.info({
+            message: data?.status === "cooldown" ? "冷却中" : "反思结果",
+            description: data?.reason,
+          });
+        }
+      },
+    });
+  };
+
+  return (
+    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      {/* Stats */}
+      {personaStats && (
+        <Row gutter={16}>
+          <Col span={6}>
+            <Card size="small">
+              <Statistic title="记忆条目" value={personaStats.entry_count} />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small">
+              <Statistic title="估算 Token" value={personaStats.estimated_tokens} />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small">
+              <Statistic title="Markdown 文件" value={personaStats.markdown_files} />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card size="small">
+              <Statistic
+                title="文件大小"
+                value={(personaStats.markdown_size_bytes / 1024).toFixed(1)}
+                suffix="KB"
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {personaStats?.by_category && (
+        <Card title="分类统计" size="small">
+          <Row gutter={16}>
+            {Object.entries(personaStats.by_category).map(([cat, count]) => (
+              <Col key={cat} span={6}>
+                <Statistic
+                  title={cat}
+                  value={count as number}
+                  valueStyle={{
+                    color: cat === "insight" ? "#faad14" :
+                      cat === "observation" ? "#1890ff" :
+                      cat === "summary" ? "#722ed1" : "#52c41a",
+                  }}
+                />
+              </Col>
+            ))}
+          </Row>
+        </Card>
+      )}
+
+      {/* Operations */}
+      <Card title="记忆压缩" size="small">
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Text type="secondary">
+            将超过指定天数的旧记忆压缩为摘要，节省 Token 用量。
+          </Text>
+          <Space>
+            <Text>压缩</Text>
+            <InputNumber
+              value={maxAgeDays}
+              onChange={(v) => setMaxAgeDays(v ?? 7)}
+              min={1}
+              max={90}
+              style={{ width: 80 }}
+            />
+            <Text>天前的记忆</Text>
+            <Button
+              type="primary"
+              loading={compactMutation.isPending}
+              onClick={handleCompact}
+            >
+              执行压缩
+            </Button>
+          </Space>
+        </Space>
+      </Card>
+
+      <Card title="记忆反思" size="small">
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Text type="secondary">
+            使用 LLM 从观察记忆中提取洞察和模式。每个官员有 1 小时冷却期。
+          </Text>
+          <Button
+            type="primary"
+            loading={reflectMutation.isPending}
+            onClick={handleReflect}
+          >
+            触发反思
+          </Button>
+        </Space>
+      </Card>
+    </Space>
+  );
+}
+
 export default function MemoryDashboardPage() {
   const [persona, setPersona] = useState("bingbu");
   const [activeTab, setActiveTab] = useState("memory");
@@ -475,6 +627,16 @@ export default function MemoryDashboardPage() {
                 </Space>
               ),
               children: <ConversationHistoryTab persona={persona} />,
+            },
+            {
+              key: "maintenance",
+              label: (
+                <Space>
+                  <BarChartOutlined />
+                  维护
+                </Space>
+              ),
+              children: <MemoryMaintenanceTab persona={persona} />,
             },
           ]}
         />

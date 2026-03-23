@@ -1,9 +1,17 @@
-import { Button, Card, Row, Col, Statistic, Table, Tag, Tooltip, Timeline } from "antd";
-import { ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { useState } from "react";
+import { Button, Card, Row, Col, Statistic, Table, Tag, Tooltip, Timeline, Tabs, Space, Descriptions } from "antd";
+import {
+  ReloadOutlined,
+  ThunderboltOutlined,
+  NodeIndexOutlined,
+  ApiOutlined,
+} from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuditStats } from "../hooks/useAudit";
+import { useAuditRules } from "../hooks/useOps";
+import { EventBusTab, WorkersTab, HooksTab } from "./OpsMonitorPage";
 import PageContainer from "../components/common/PageContainer";
 import MonoText from "../components/common/MonoText";
 import { formatTokens, formatTime, truncateId } from "../utils/format";
@@ -14,7 +22,7 @@ import {
   VERDICT_COLORS,
   REVIEW_STATUS_LABELS,
 } from "../utils/constants";
-import type { EdictUsageRow, RecentAuditRow } from "../api/types";
+import type { EdictUsageRow, RecentAuditRow, ReviewPolicyInfo } from "../api/types";
 import apiClient from "../api/client";
 
 interface HookEvent {
@@ -104,6 +112,8 @@ function HookEventsCard() {
 export default function AuditDashboardPage() {
   const navigate = useNavigate();
   const { data: stats, isLoading, refetch } = useAuditStats();
+  const [activeTab, setActiveTab] = useState("stats");
+  const { data: rulesData } = useAuditRules();
 
   const summary = stats?.summary;
   const audited = (summary?.audit_pass ?? 0) + (summary?.audit_flag ?? 0) + (summary?.audit_block ?? 0);
@@ -224,77 +234,170 @@ export default function AuditDashboardPage() {
 
   return (
     <PageContainer
-      title="审计司"
+      title="都察院"
       extra={
         <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
           刷新
         </Button>
       }
     >
-      <Row gutter={16}>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="Token 总量"
-              value={summary?.total_tokens ?? 0}
-              formatter={(v) => formatTokens(Number(v))}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic title="奏折总数" value={summary?.total_memorials ?? 0} />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="审计通过率"
-              value={passRate}
-              precision={1}
-              suffix="%"
-              valueStyle={{ color: "#52c41a" }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="标记率"
-              value={flagRate}
-              precision={1}
-              suffix="%"
-              valueStyle={{ color: "#faad14" }}
-            />
-          </Card>
-        </Col>
-      </Row>
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          {
+            key: "stats",
+            label: "审计统计",
+            children: (
+              <>
+                <Row gutter={16}>
+                  <Col span={6}>
+                    <Card size="small">
+                      <Statistic
+                        title="Token 总量"
+                        value={summary?.total_tokens ?? 0}
+                        formatter={(v) => formatTokens(Number(v))}
+                      />
+                    </Card>
+                  </Col>
+                  <Col span={6}>
+                    <Card size="small">
+                      <Statistic title="奏折总数" value={summary?.total_memorials ?? 0} />
+                    </Card>
+                  </Col>
+                  <Col span={6}>
+                    <Card size="small">
+                      <Statistic
+                        title="审计通过率"
+                        value={passRate}
+                        precision={1}
+                        suffix="%"
+                        valueStyle={{ color: "#52c41a" }}
+                      />
+                    </Card>
+                  </Col>
+                  <Col span={6}>
+                    <Card size="small">
+                      <Statistic
+                        title="标记率"
+                        value={flagRate}
+                        precision={1}
+                        suffix="%"
+                        valueStyle={{ color: "#faad14" }}
+                      />
+                    </Card>
+                  </Col>
+                </Row>
 
-      <Card title="敕令 Token 用量" style={{ marginTop: 24 }} size="small">
-        <Table<EdictUsageRow>
-          columns={usageColumns}
-          dataSource={stats?.per_edict ?? []}
-          rowKey="edict_id"
-          loading={isLoading}
-          pagination={false}
-          size="small"
-          locale={{ emptyText: "暂无数据" }}
-        />
-      </Card>
+                <Card title="敕令 Token 用量" style={{ marginTop: 24 }} size="small">
+                  <Table<EdictUsageRow>
+                    columns={usageColumns}
+                    dataSource={stats?.per_edict ?? []}
+                    rowKey="edict_id"
+                    loading={isLoading}
+                    pagination={false}
+                    size="small"
+                    locale={{ emptyText: "暂无数据" }}
+                  />
+                </Card>
 
-      <Card title="最近审计结果" style={{ marginTop: 24 }} size="small">
-        <Table<RecentAuditRow>
-          columns={auditColumns}
-          dataSource={stats?.recent_audits ?? []}
-          rowKey="memorial_id"
-          loading={isLoading}
-          pagination={false}
-          size="small"
-          locale={{ emptyText: "暂无审计记录" }}
-        />
-      </Card>
+                <Card title="最近审计结果" style={{ marginTop: 24 }} size="small">
+                  <Table<RecentAuditRow>
+                    columns={auditColumns}
+                    dataSource={stats?.recent_audits ?? []}
+                    rowKey="memorial_id"
+                    loading={isLoading}
+                    pagination={false}
+                    size="small"
+                    locale={{ emptyText: "暂无审计记录" }}
+                  />
+                </Card>
 
-      <HookEventsCard />
+                <HookEventsCard />
+              </>
+            ),
+          },
+          {
+            key: "eventbus",
+            label: (
+              <Space>
+                <ThunderboltOutlined />
+                事件流
+              </Space>
+            ),
+            children: <EventBusTab />,
+          },
+          {
+            key: "workers",
+            label: (
+              <Space>
+                <NodeIndexOutlined />
+                并发控制
+              </Space>
+            ),
+            children: <WorkersTab />,
+          },
+          {
+            key: "hooks",
+            label: (
+              <Space>
+                <ApiOutlined />
+                Hooks & 通知
+              </Space>
+            ),
+            children: <HooksTab />,
+          },
+          {
+            key: "rules",
+            label: "规则管理",
+            children: (
+              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                <Card title="审计规则" size="small">
+                  <Table
+                    columns={[
+                      { title: "规则名称", dataIndex: "name", key: "name" },
+                      { title: "描述", dataIndex: "description", key: "description" },
+                      {
+                        title: "严重级别",
+                        dataIndex: "severity",
+                        key: "severity",
+                        width: 100,
+                        render: (v: string) => (
+                          <Tag color={v === "block" ? "red" : v === "flag" ? "orange" : "default"}>{v}</Tag>
+                        ),
+                      },
+                      {
+                        title: "状态",
+                        dataIndex: "enabled",
+                        key: "enabled",
+                        width: 80,
+                        render: (v: boolean) => (
+                          <Tag color={v ? "green" : "default"}>{v ? "启用" : "禁用"}</Tag>
+                        ),
+                      },
+                    ]}
+                    dataSource={rulesData?.rules ?? []}
+                    rowKey="id"
+                    size="small"
+                    pagination={false}
+                    locale={{ emptyText: "暂无规则" }}
+                  />
+                </Card>
+
+                <Card title="审阅策略" size="small">
+                  <Descriptions column={1} bordered size="small">
+                    {(rulesData?.review_policies ?? []).map((p: ReviewPolicyInfo) => (
+                      <Descriptions.Item key={p.value} label={<Tag color="blue">{p.label}</Tag>}>
+                        {p.description}（值：<MonoText>{p.value}</MonoText>）
+                      </Descriptions.Item>
+                    ))}
+                  </Descriptions>
+                </Card>
+              </Space>
+            ),
+          },
+        ]}
+      />
     </PageContainer>
   );
 }

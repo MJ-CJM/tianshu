@@ -10,7 +10,7 @@ from tianshu.providers.litellm_provider import create_llm_client
 from tianshu.providers.protocol import ProviderCapability, ProviderInfo, TaskRequirements
 
 if TYPE_CHECKING:
-    from tianshu.config_manager import ConfigManager
+    from tianshu.config_manager import ConfigManager, LLMConfigState
     from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,40 @@ class ProviderManager:
     ) -> None:
         self._storage = storage
         self._config_manager = config_manager
+
+    # --- Config ↔ Provider sync ---
+
+    def sync_from_config(self, config: LLMConfigState) -> None:
+        """Create or update a provider entry from an LLMConfigState."""
+        configs, active_name = self._config_manager.list_configs()
+        is_active = config.name == active_name
+        self._storage.save_provider({
+            "name": config.name,
+            "model": config.model,
+            "api_base": config.api_base or None,
+            "capabilities": ["chat", "streaming"],
+            "status": "active" if config.enabled else "disabled",
+            "priority": 0 if is_active else 100,
+        })
+
+    def sync_all(self) -> None:
+        """Sync all LLM configs to the providers table."""
+        configs, active_name = self._config_manager.list_configs()
+        synced_names: set[str] = set()
+        for cfg in configs:
+            self._storage.save_provider({
+                "name": cfg.name,
+                "model": cfg.model,
+                "api_base": cfg.api_base or None,
+                "capabilities": ["chat", "streaming"],
+                "status": "active" if cfg.enabled else "disabled",
+                "priority": 0 if cfg.name == active_name else 100,
+            })
+            synced_names.add(cfg.name)
+        # Remove orphaned providers that no longer have a config
+        for row in self._storage.list_providers():
+            if row["name"] not in synced_names:
+                self._storage.delete_provider(row["name"])
 
     def register(self, info: ProviderInfo) -> None:
         """Register or update a provider."""
@@ -60,11 +94,31 @@ class ProviderManager:
     def get_client(
         self,
         requirements: TaskRequirements | None = None,
+        config_name_override: str | None = None,
     ) -> LLMClient:
         """Select the best provider and return an LLMClient.
 
         Falls back to ConfigManager's active config if no suitable provider found.
+        If *config_name_override* is given (e.g. from a persona), use that config directly.
         """
+        # Persona-level LLM config override
+        if config_name_override:
+            cfg = self._config_manager.get_config(config_name_override)
+            if cfg and cfg.enabled:
+                return create_llm_client(
+                    model=cfg.model,
+                    api_key=cfg.api_key,
+                    api_base=cfg.api_base,
+                    max_retries=cfg.max_retries,
+                    temperature=cfg.temperature,
+                    top_p=cfg.top_p,
+                    max_tokens=cfg.max_tokens,
+                )
+            logger.warning(
+                "Persona LLM config '%s' not found or disabled, falling back",
+                config_name_override,
+            )
+
         providers = self.list_providers()
         active_providers = [p for p in providers if p.status == "active"]
 
@@ -93,8 +147,10 @@ class ProviderManager:
         if not selected:
             return self._fallback_client()
 
-        # Use ConfigManager to get API key for this provider
-        state = self._config_manager.state
+        # Use the selected provider's own config for api_key if available
+        cfg = self._config_manager.get_config(selected.name)
+        fallback = self._config_manager.state
+        state = cfg or fallback
         return create_llm_client(
             model=selected.model,
             api_key=state.api_key,
