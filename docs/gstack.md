@@ -1,0 +1,2 @@
+恢复方法：                                                                                                                                                                            
+  cd .claude/skills && mv _gstack_disabled gstack && cd gstack && ./setup

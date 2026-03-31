@@ -105,6 +105,11 @@ class Agent:
                 skills_char_budget=agent_cfg.skills_char_budget,
             )
         else:
+            if persona and hasattr(persona, "id"):
+                logger.warning(
+                    "[AGENT] Edict %s: prompt_builder unavailable, persona %s context will be lost",
+                    edict.id, getattr(persona, "id", "unknown"),
+                )
             system_prompt = self._build_system_prompt(edict, agent_cfg.skills_char_budget)
 
         if user_content is None:

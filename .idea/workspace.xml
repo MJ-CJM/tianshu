@@ -5,12 +5,275 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="29b9f7f8-4aad-416b-a46d-9d8979907ac7" name="更改" comment="">
-      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/tianshu/agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/agent.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/tianshu/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/tianshu/gateway.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/gateway.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/tianshu/models.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/tianshu/storage.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/storage.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/gstack.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/settings.json" beforeDir="false" afterPath="$PROJECT_DIR$/.claude/settings.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/autoplan" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/benchmark" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/browse" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/canary" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/careful" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/codex" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/cso" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/design-consultation" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/design-review" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/document-release" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/freeze" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack-upgrade" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-autoplan/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-benchmark/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-browse/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-canary/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-careful/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-cso/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-design-consultation/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-design-review/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-document-release/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-freeze/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-guard/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-investigate/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-land-and-deploy/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-office-hours/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-plan-ceo-review/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-plan-design-review/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-plan-eng-review/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-qa-only/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-qa/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-retro/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-review/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-setup-browser-cookies/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-setup-deploy/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-ship/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-unfreeze/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack-upgrade/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.agents/skills/gstack/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.env.example" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.github/workflows/skill-docs.yml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/AGENTS.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/ARCHITECTURE.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/BROWSER.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/CHANGELOG.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/CLAUDE.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/CONTRIBUTING.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/ETHOS.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/LICENSE" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/TODOS.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/VERSION" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/autoplan/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/autoplan/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/benchmark/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/benchmark/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/dev-setup" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/dev-teardown" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-analytics" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-community-dashboard" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-config" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-diff-scope" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-global-discover.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-repo-mode" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-review-log" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-review-read" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-slug" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-telemetry-log" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-telemetry-sync" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/bin/gstack-update-check" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/bin/find-browse" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/bin/remote-slug" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/scripts/build-node-server.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/browser-manager.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/buffers.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/bun-polyfill.cjs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/cli.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/commands.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/config.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/cookie-import-browser.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/cookie-picker-routes.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/cookie-picker-ui.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/find-browse.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/meta-commands.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/platform.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/read-commands.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/server.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/snapshot.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/url-validation.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/src/write-commands.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/bun-polyfill.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/commands.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/config.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/cookie-import-browser.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/cookie-picker-routes.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/find-browse.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/basic.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/cursor-interactive.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/dialog.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/empty.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/forms.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/qa-eval-checkout.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/qa-eval-spa.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/qa-eval.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/responsive.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/snapshot.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/spa.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/states.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/fixtures/upload.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/gstack-config.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/gstack-update-check.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/handoff.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/path-validation.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/platform.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/snapshot.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/test-server.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/browse/test/url-validation.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/canary/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/canary/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/careful/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/careful/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/careful/bin/check-careful.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/codex/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/codex/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/conductor.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/cso/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/cso/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/design-consultation/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/design-consultation/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/design-review/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/design-review/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/docs/images/github-2013.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/docs/images/github-2026.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/docs/skills.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/document-release/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/document-release/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/freeze/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/freeze/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/freeze/bin/check-freeze.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/gstack-upgrade/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/gstack-upgrade/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/guard/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/guard/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/investigate/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/investigate/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/land-and-deploy/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/land-and-deploy/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/office-hours/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/office-hours/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/package.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/plan-ceo-review/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/plan-ceo-review/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/plan-design-review/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/plan-design-review/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/plan-eng-review/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/plan-eng-review/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/qa-only/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/qa-only/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/qa/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/qa/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/qa/references/issue-taxonomy.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/qa/templates/qa-report-template.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/retro/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/retro/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/review/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/review/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/review/TODOS-format.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/review/checklist.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/review/design-checklist.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/review/greptile-triage.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/scripts/analytics.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/scripts/dev-skill.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/scripts/eval-compare.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/scripts/eval-list.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/scripts/eval-select.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/scripts/eval-summary.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/scripts/eval-watch.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/scripts/gen-skill-docs.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/scripts/skill-check.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/setup" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/setup-browser-cookies/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/setup-browser-cookies/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/setup-deploy/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/setup-deploy/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/ship/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/ship/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/supabase/config.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/supabase/functions/community-pulse/index.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/supabase/functions/telemetry-ingest/index.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/supabase/functions/update-check/index.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/supabase/migrations/001_telemetry.sql" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/analytics.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/codex-e2e.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/fixtures/coverage-audit-fixture.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/fixtures/eval-baselines.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/fixtures/qa-eval-checkout-ground-truth.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/fixtures/qa-eval-ground-truth.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/fixtures/qa-eval-spa-ground-truth.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/fixtures/review-eval-design-slop.css" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/fixtures/review-eval-design-slop.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/fixtures/review-eval-enum-diff.rb" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/fixtures/review-eval-enum.rb" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/fixtures/review-eval-vuln.rb" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/gemini-e2e.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/gen-skill-docs.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/global-discover.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/codex-session-runner.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/e2e-helpers.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/eval-store.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/eval-store.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/gemini-session-runner.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/gemini-session-runner.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/llm-judge.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/observability.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/session-runner.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/session-runner.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/skill-parser.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/helpers/touchfiles.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/hook-scripts.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-e2e-browse.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-e2e-deploy.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-e2e-design.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-e2e-plan.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-e2e-qa-bugs.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-e2e-qa-workflow.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-e2e-review.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-e2e-workflow.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-e2e.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-llm-eval.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-parser.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-routing-e2e.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/skill-validation.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/telemetry.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/test/touchfiles.test.ts" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/unfreeze/SKILL.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/gstack/unfreeze/SKILL.md.tmpl" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/guard" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/investigate" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/land-and-deploy" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/office-hours" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/plan-ceo-review" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/plan-design-review" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/plan-eng-review" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/qa" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/qa-only" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/retro" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/review" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/setup-browser-cookies" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/setup-deploy" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/ship" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.claude/skills/unfreeze" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/tianshu.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/tianshu.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/impl/phase1-3.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/impl/phase1-2.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tianshu/executor/agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/executor/agent.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tianshu/executor/dag_scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/executor/dag_scheduler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tianshu/executor/executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/executor/executor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tianshu/memory/manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/memory/manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tianshu/persona/loader.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/persona/loader.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tianshu/persona/model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/persona/model.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tianshu/persona/prompt_builder.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/persona/prompt_builder.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tianshu/planner/planner.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/tianshu/planner/planner.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -28,26 +291,27 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.types.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "git-widget-placeholder": "feat__phase1",
-    "last_opened_file_path": "/Users/chenjiamin/tiangong/tianshu",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "project.propVCSSupport.DirectoryMappings",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.types.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;feat__phase3&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/chenjiamin/tiangong/tianshu&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;project.propVCSSupport.DirectoryMappings&quot;,
+    &quot;ts.external.directory.path&quot;: &quot;/Users/chenjiamin/tiangong/tianshu/web/node_modules/typescript/lib&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$" />
@@ -77,7 +341,10 @@
       <workItem from="1773217559099" duration="41000" />
       <workItem from="1773364095600" duration="25000" />
       <workItem from="1773364303968" duration="15637000" />
-      <workItem from="1773717186859" duration="18176000" />
+      <workItem from="1773717186859" duration="57681000" />
+      <workItem from="1774834629109" duration="1817000" />
+      <workItem from="1774957640681" duration="1264000" />
+      <workItem from="1774962433383" duration="86000" />
     </task>
     <servers />
   </component>

@@ -58,19 +58,15 @@ class PersonaLoader:
     # --- Internal ---
 
     def _seed_from_files(self) -> None:
-        """Seed file-system persona definitions into SQLite if not already present."""
-        if not self._dir.is_dir():
-            return
-        for entry in sorted(self._dir.iterdir()):
-            if not entry.is_dir() or entry.name == "court":
-                continue
-            existing = self._storage.get_persona(entry.name)
-            if existing:
-                continue
-            persona = self._load_persona_from_dir(entry)
-            if persona:
-                self._storage.save_persona(self._persona_to_dict(persona))
-                logger.info("Seeded persona '%s' from file system", entry.name)
+        """Ensure file-system persona directories are available as prompt templates.
+
+        File directories (e.g. personas/ducha/) serve as department-level prompt
+        templates (SOUL.md, ROLE.md).  They are NOT auto-seeded into the database
+        as standalone personas.  Named personas in the DB reference their department
+        directory for prompt files via the ``department`` field.
+        """
+        # No-op: file directories are used as template sources only.
+        # DB personas link to them via _dict_to_persona() using the department field.
 
     def _load_from_db(self) -> None:
         """Load all personas from SQLite into in-memory cache."""
@@ -99,9 +95,15 @@ class PersonaLoader:
         memory_path = persona_dir / "MEMORY.md"
 
         if not soul_path.exists() or not role_path.exists():
+            missing = []
+            if not soul_path.exists():
+                missing.append("SOUL.md")
+            if not role_path.exists():
+                missing.append("ROLE.md")
             logger.warning(
-                "Persona %s missing SOUL.md or ROLE.md, skipping",
-                persona_dir.name,
+                "Persona '%s' missing %s — skipping. "
+                "Create these files in %s to activate this persona.",
+                persona_dir.name, " and ".join(missing), persona_dir,
             )
             return None
 
@@ -145,9 +147,18 @@ class PersonaLoader:
         }
 
     def _dict_to_persona(self, d: dict) -> AgentPersona:
-        persona_dir = self._dir / d["id"]
-        soul_path = Path(d["soul_path"]) if d.get("soul_path") else persona_dir / "SOUL.md"
-        role_path = Path(d["role_path"]) if d.get("role_path") else persona_dir / "ROLE.md"
+        # Resolve prompt files: prefer department directory (shared template),
+        # fall back to persona ID directory, then explicit DB path.
+        dept_dir = self._dir / d.get("department", d["id"])
+        id_dir = self._dir / d["id"]
+        if dept_dir.is_dir():
+            persona_dir = dept_dir
+        elif id_dir.is_dir():
+            persona_dir = id_dir
+        else:
+            persona_dir = dept_dir  # will yield missing-file warnings
+        soul_path = Path(d["soul_path"]) if d.get("soul_path") and Path(d["soul_path"]).exists() else persona_dir / "SOUL.md"
+        role_path = Path(d["role_path"]) if d.get("role_path") and Path(d["role_path"]).exists() else persona_dir / "ROLE.md"
         memory_path = persona_dir / "MEMORY.md"
         skills_dir = persona_dir / "skills" if (persona_dir / "skills").is_dir() else None
 

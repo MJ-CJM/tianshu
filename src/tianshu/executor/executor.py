@@ -15,6 +15,7 @@ from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan
+from tianshu.persona.model import DEFAULT_EXECUTOR_ID
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -166,7 +167,7 @@ class Executor:
             memorial.persona_id = (
                 edict.assigned_persona_id
                 or plan_persona
-                or "bingbu"
+                or DEFAULT_EXECUTOR_ID
             )
         logger.debug(
             "[EXEC] Edict %s: start execution, persona=%s, timeout=%ds, max_iter=%d",

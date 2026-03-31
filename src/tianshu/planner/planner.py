@@ -12,6 +12,7 @@ from tianshu.llm import LLMClient
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.plan import Plan, PlanTask
+from tianshu.persona.model import DEFAULT_EXECUTOR_ID
 from tianshu.planner.prompts import (
     PLANNING_USER_TEMPLATE,
     build_planning_prompt,
@@ -245,7 +246,7 @@ class Planner:
                 )
             )
 
-    def _passthrough_plan(self, edict: Edict, persona_id: str = "bingbu") -> Plan:
+    def _passthrough_plan(self, edict: Edict, persona_id: str = DEFAULT_EXECUTOR_ID) -> Plan:
         """Single-task plan that passes the entire goal to the executor."""
         task = PlanTask(
             task_id="main",
@@ -293,10 +294,17 @@ class Planner:
             if t.assigned_official and t.assigned_official in valid_ids:
                 continue
             # Invalid or missing → selector fallback
-            if self._selector:
-                from tianshu.persona.selector import OfficialSelector
-                selector: OfficialSelector = self._selector
-                persona = selector.select_for_task(t.description)
-                t.assigned_official = persona.id if persona else "bingbu"
+            old_id = t.assigned_official or "unset"
+            if self._selector and hasattr(self._selector, "select_for_task"):
+                persona = self._selector.select_for_task(t.description)
+                t.assigned_official = persona.id if persona else DEFAULT_EXECUTOR_ID
             else:
-                t.assigned_official = "bingbu"
+                t.assigned_official = DEFAULT_EXECUTOR_ID
+            logger.info(
+                "Task %s: persona reassigned %s → %s (selector match on description)",
+                t.task_id, old_id, t.assigned_official,
+            )
+
+        # Log final assignments for debugging
+        assignments = {t.task_id: t.assigned_official for t in tasks}
+        logger.info("Plan assignments finalized: %s", assignments)

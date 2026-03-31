@@ -350,6 +350,23 @@ class MemoryManager:
     # Hook handlers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _resolve_persona_id(context: dict, plan: object = None) -> str:
+        """Extract persona ID from context with consistent fallback chain.
+
+        Priority: context["persona"].id > plan.tasks[0].assigned_official > DEFAULT_EXECUTOR_ID
+        """
+        from tianshu.persona.model import DEFAULT_EXECUTOR_ID
+
+        persona = context.get("persona")
+        if persona and hasattr(persona, "id") and persona.id:
+            return persona.id
+        if plan and hasattr(plan, "tasks") and plan.tasks:
+            first_task = plan.tasks[0]
+            if first_task and hasattr(first_task, "assigned_official") and first_task.assigned_official:
+                return first_task.assigned_official
+        return DEFAULT_EXECUTOR_ID
+
     async def on_before_agent_start(self, **context: object) -> object:
         """BEFORE_AGENT_START hook — inject relevant memories from Markdown."""
         from tianshu.executor.hooks import HookResult
@@ -358,13 +375,8 @@ class MemoryManager:
         if not edict:
             return None
 
-        # Determine persona
         plan = context.get("plan")
-        persona_id = "bingbu"
-        if plan and hasattr(plan, "tasks") and plan.tasks:
-            first_task = plan.tasks[0]
-            if hasattr(first_task, "persona_id") and first_task.persona_id:
-                persona_id = first_task.persona_id
+        persona_id = self._resolve_persona_id(context, plan)
 
         # Search Markdown daily logs for relevant context
         goal = getattr(edict, "goal", None)
@@ -400,10 +412,7 @@ class MemoryManager:
         if status != TaskStatus.COMPLETED or not summary:
             return
 
-        persona_id = "bingbu"
-        persona = context.get("persona")
-        if persona and hasattr(persona, "id"):
-            persona_id = persona.id
+        persona_id = self._resolve_persona_id(context)
 
         edict_goal = getattr(edict, "goal", "unknown")
 

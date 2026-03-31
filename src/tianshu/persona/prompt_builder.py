@@ -70,15 +70,16 @@ class PromptBuilder:
             court_path = self._personas_dir / "court" / "COURT.md"
             court_text = self._read_file(court_path)
             if court_text:
-                parts.append(court_text)
+                parts.append(f"# Court Protocol\n\n{court_text}")
 
             # Layer 3: SOUL.md (persona identity) — from personas/
             soul_text = self._read_file(persona.soul_path)
             if soul_text:
-                parts.append(soul_text)
+                parts.append(f"# Persona Identity [{persona.id}]\n\n{soul_text}")
             else:
                 # Fallback: generate minimal identity from persona metadata
                 parts.append(
+                    f"# Persona Identity [{persona.id}]\n\n"
                     f"You are {persona.name}, serving in the {persona.department} department. "
                     f"Your persona ID is {persona.id}. Respond in character."
                 )
@@ -90,7 +91,7 @@ class PromptBuilder:
             # Layer 4: ROLE.md (persona role specifics) — from personas/
             role_text = self._read_file(persona.role_path)
             if role_text:
-                parts.append(role_text)
+                parts.append(f"# Role Specification\n\n{role_text}")
 
             # Layer 5: MEMORY.md — from ~/.tianshu/memory/{persona}/
             memory_text = self._md_backend.read_core_memory(persona.id)

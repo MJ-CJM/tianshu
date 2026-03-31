@@ -16,6 +16,7 @@ from tianshu.models.common import TaskStatus, UsageSummary
 from tianshu.models.edict import Edict
 from tianshu.models.events import make_event
 from tianshu.persona.loader import PersonaLoader
+from tianshu.persona.model import DEFAULT_EXECUTOR_ID
 from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.storage import Storage
 
@@ -198,6 +199,16 @@ class DAGScheduler:
             persona = None
             if node.assigned_official and self._persona_loader:
                 persona = self._persona_loader.get(node.assigned_official)
+            if persona is None and self._persona_loader:
+                # Fallback: use bingbu (default executor) rather than None
+                fallback = self._persona_loader.get(DEFAULT_EXECUTOR_ID)
+                if fallback:
+                    persona = fallback
+                    logger.warning(
+                        "[DAG] Edict %s node %s: assigned_official '%s' not found, "
+                        "falling back to bingbu",
+                        edict.id, node.node_id, node.assigned_official,
+                    )
 
             # Gather upstream results
             upstream = {

@@ -7,6 +7,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 
+DEFAULT_EXECUTOR_ID = "bingbu"
+"""Default persona ID used as fallback when no specific persona is assigned."""
+
+
 class AgentPersona(BaseModel):
     id: str  # "neige" | "bingbu" | "ducha" | "tongzheng"
     name: str
