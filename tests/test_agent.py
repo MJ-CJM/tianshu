@@ -200,3 +200,83 @@ class TestAgentNewLoop:
 
         assert result.compact_count == 0
         assert isinstance(result.recovery_attempts, dict)
+
+
+class TestAgentIntegration:
+    """Integration tests for the full loop with tools + compaction."""
+
+    @pytest.fixture
+    def tools(self):
+        registry = ToolRegistry()
+        from tianshu.tools.types import ok_result
+        from tianshu.tools.registry import ToolDefinition
+
+        async def mock_grep(**kwargs):
+            return ok_result("line1: match\nline2: match\n" + "x" * 500)
+
+        registry.register(
+            "grep",
+            mock_grep,
+            ToolDefinition(
+                name="grep",
+                description="Search",
+                parameters={
+                    "type": "object",
+                    "properties": {"pattern": {"type": "string"}},
+                },
+            ),
+        )
+        return registry
+
+    @pytest.fixture
+    def skills(self, tmp_path):
+        return SkillsLoader(builtin_dir=tmp_path, char_budget=0)
+
+    @pytest.fixture
+    def agent(self, config_manager, tools, skills):
+        return Agent(config_manager=config_manager, tools=tools, skills=skills)
+
+    async def test_multi_turn_with_tool_calls(self, agent):
+        """Test multi-turn agent loop with tool calls."""
+        edict = Edict(goal="find bugs")
+        edict.runtime.max_iterations = 5
+
+        call_count = 0
+
+        def make_response():
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return MagicMock(
+                    content=f"thinking step {call_count}",
+                    tool_calls=[
+                        {
+                            "id": f"tc{call_count}",
+                            "name": "grep",
+                            "args": '{"pattern": "bug"}',
+                        }
+                    ],
+                    usage=UsageSummary(
+                        prompt_tokens=50, completion_tokens=50, total_tokens=100
+                    ),
+                    finish_reason="tool_calls",
+                )
+            return MagicMock(
+                content="Found 2 bugs in main.py",
+                tool_calls=None,
+                usage=UsageSummary(
+                    prompt_tokens=100, completion_tokens=100, total_tokens=200
+                ),
+                finish_reason="stop",
+            )
+
+        with patch("tianshu.executor.agent.LLMClient") as MockLLM:
+            mock_llm = AsyncMock()
+            mock_llm.chat.side_effect = lambda *a, **kw: make_response()
+            MockLLM.return_value = mock_llm
+            result = await agent.execute(edict)
+
+        assert result.status == TaskStatus.COMPLETED
+        assert result.exit_reason == ExitReason.COMPLETED
+        assert result.iteration_count == 2
+        assert "2 bugs" in result.summary
