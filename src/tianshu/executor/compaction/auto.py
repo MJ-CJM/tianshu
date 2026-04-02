@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 COMPACT_THRESHOLD_RATIO = 0.75
 COMPACT_BUFFER_TOKENS = 20_000
-MAX_CONSECUTIVE_FAILURES = 3
+MAX_CONSECUTIVE_FAILURES = 3  # TODO: implement circuit breaker to stop retrying after N failures
 PRESERVE_TAIL = 6
 
 _COMPACT_PROMPT = """你是一个对话压缩助手。请将以下对话历史压缩为简洁的摘要。

@@ -45,5 +45,6 @@ def mock_llm_client():
         tool_calls=None,
         usage=UsageSummary(prompt_tokens=10, completion_tokens=20, total_tokens=30),
         reasoning_content=None,
+        finish_reason="stop",
     )
     return mock

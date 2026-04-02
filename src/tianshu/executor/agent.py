@@ -7,6 +7,7 @@ import json
 import logging
 from collections.abc import Callable
 
+import litellm
 from pydantic import BaseModel, Field
 
 from tianshu.config_manager import ConfigManager
@@ -142,8 +143,9 @@ class Agent:
                 on_event(event)
 
         max_iterations = edict.runtime.max_iterations or agent_cfg.agent_max_iterations
-        token_budget = edict.runtime.token_budget
-        context_limit = token_budget if token_budget else 128000
+        # Context window size for compaction thresholds (separate from spending budget)
+        context_limit = 128000  # TODO: derive from model config / provider metadata
+
 
         # --- New: LoopState replaces mutable messages list ---
         state = LoopState(messages=tuple(messages), iteration=0)
@@ -218,7 +220,7 @@ class Agent:
                 response = await llm.chat(current_messages, tools=openai_tools)
             except Exception as e:
                 if _is_context_overflow(e):
-                    recovered = await reactive_compact(state, mock_llm=llm, context_limit=context_limit)
+                    recovered = await reactive_compact(state, llm=llm, context_limit=context_limit)
                     if recovered is not None and not state.compact_attempted:
                         state = recovered
                         recovery_attempts["context_overflow"] = recovery_attempts.get("context_overflow", 0) + 1
@@ -439,5 +441,8 @@ class Agent:
 
 
 def _is_context_overflow(e: Exception) -> bool:
+    # Prefer LiteLLM's typed exception for reliable detection
+    if isinstance(e, litellm.ContextWindowExceededError):
+        return True
     msg = str(e).lower()
     return any(k in msg for k in ("context_length", "prompt_too_long", "context window"))

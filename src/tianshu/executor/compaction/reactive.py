@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 async def reactive_compact(
     state: LoopState,
-    mock_llm: "LLMClient",
+    llm: "LLMClient",
     context_limit: int,
 ) -> LoopState | None:
     """Two-step recovery for context overflow errors.
@@ -35,7 +35,7 @@ async def reactive_compact(
 
     # Step 2: auto compact
     try:
-        result = await auto_compact(aggressive, mock_llm, context_limit)
+        result = await auto_compact(aggressive, llm, context_limit)
         logger.info("Reactive compact: auto compact succeeded")
         return result
     except Exception:
