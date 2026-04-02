@@ -24,6 +24,7 @@ class LLMResponse:
     tool_calls: list[dict] | None
     usage: UsageSummary
     reasoning_content: str | None = None
+    finish_reason: str | None = None
 
 
 class LLMClient:
@@ -132,4 +133,5 @@ class LLMClient:
             tool_calls=tool_calls,
             usage=usage,
             reasoning_content=getattr(message, "reasoning_content", None),
+            finish_reason=getattr(choice, "finish_reason", None),
         )
