@@ -10,12 +10,18 @@ from collections.abc import Callable
 from pydantic import BaseModel, Field
 
 from tianshu.config_manager import ConfigManager
+from tianshu.executor.compaction.auto import auto_compact, should_auto_compact
+from tianshu.executor.compaction.micro import micro_compact
+from tianshu.executor.compaction.reactive import reactive_compact
+from tianshu.executor.exit_reason import ExitReason
 from tianshu.executor.hooks import HookRegistry, HookResult, HookType
+from tianshu.executor.loop_state import LoopState
 from tianshu.llm import LLMClient
 from tianshu.models import Edict, TaskStatus, UsageSummary
 from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.skills.loader import SkillsLoader
 from tianshu.tools.registry import ToolRegistry
+from tianshu.tools.types import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +40,11 @@ class AgentResult(BaseModel):
     usage: UsageSummary = Field(default_factory=UsageSummary)
     error: str | None = None
     events: list[dict] = Field(default_factory=list)
+    # Phase 1 new fields
+    exit_reason: ExitReason = ExitReason.COMPLETED
+    iteration_count: int = 0
+    compact_count: int = 0
+    recovery_attempts: dict = Field(default_factory=dict)
 
 
 class Agent:
@@ -67,8 +78,8 @@ class Agent:
         persona: object | None = None,
     ) -> AgentResult:
         # Read runtime config at execution start
-        state = self._config_manager.state
-        if not state.enabled:
+        config_state = self._config_manager.state
+        if not config_state.enabled:
             return AgentResult(
                 status=TaskStatus.FAILED,
                 error="LLM is currently disabled",
@@ -84,15 +95,15 @@ class Agent:
             if persona_config_name:
                 named = self._config_manager.get_config(persona_config_name)
                 if named and named.enabled:
-                    state = named
+                    config_state = named
             llm = LLMClient(
-                model=state.model,
-                api_key=state.api_key,
-                api_base=state.api_base,
-                max_retries=state.max_retries,
-                temperature=state.temperature,
-                top_p=state.top_p,
-                max_tokens=state.max_tokens,
+                model=config_state.model,
+                api_key=config_state.api_key,
+                api_base=config_state.api_base,
+                max_retries=config_state.max_retries,
+                temperature=config_state.temperature,
+                top_p=config_state.top_p,
+                max_tokens=config_state.max_tokens,
             )
 
         agent_cfg = self._config_manager.agent_config
@@ -131,116 +142,130 @@ class Agent:
                 on_event(event)
 
         max_iterations = edict.runtime.max_iterations or agent_cfg.agent_max_iterations
-
-        # Context window budget — estimate 4 chars per token, compact at 80%
         token_budget = edict.runtime.token_budget
         context_limit = token_budget if token_budget else 128000
-        compact_threshold = int(context_limit * 0.8)
 
-        for iteration in range(max_iterations):
+        # --- New: LoopState replaces mutable messages list ---
+        state = LoopState(messages=tuple(messages), iteration=0)
+        recovery_attempts: dict[str, int] = {}
+
+        while state.iteration < max_iterations:
             if self._shutdown_event.is_set():
-                return AgentResult(
-                    status=TaskStatus.CANCELLED,
+                return self._build_result(
+                    state, ExitReason.CANCELLED,
+                    usage=usage, events=events, recovery=recovery_attempts,
                     error="Shutdown requested",
-                    usage=usage,
-                    events=events,
                 )
 
-            # Context compaction: estimate tokens and compress if near limit
-            estimated_tokens = sum(len(str(m.get("content", ""))) // 4 for m in messages)
-            logger.debug(
-                "[AGENT] Edict %s: iteration %d/%d, messages=%d, est_tokens=%d",
-                edict.id, iteration, max_iterations, len(messages), estimated_tokens,
-            )
-            if estimated_tokens > compact_threshold and len(messages) > 4:
-                # Keep system prompt + last 4 messages, summarize middle
-                preserved_head = messages[:1]  # system prompt
-                preserved_tail = messages[-4:]  # recent context
-                middle = messages[1:-4]
-                if middle:
-                    summary_parts = []
-                    for m in middle:
-                        role = m.get("role", "")
-                        content = str(m.get("content", ""))[:200]
-                        summary_parts.append(f"[{role}] {content}")
-                    compacted_msg = {
-                        "role": "user",
-                        "content": (
-                            "[Context compacted — do not respond to this] Previous conversation summary:\n"
-                            + "\n".join(summary_parts[-10:])
-                        ),
-                    }
-                    original_count = len(middle) + len(preserved_head) + len(preserved_tail)
-                    messages = preserved_head + [compacted_msg] + preserved_tail
-                    logger.debug(
-                        "[AGENT] Edict %s: context compacted at iter %d, %d→%d messages",
-                        edict.id, iteration, original_count, len(messages),
-                    )
+            # Phase 1: micro compact (per-turn tool result cleanup, zero LLM cost)
+            state = micro_compact(state)
+
+            # Phase 2: auto compact (threshold-triggered LLM summarization)
+            if should_auto_compact(state.messages, context_limit) and not state.compact_attempted:
+                try:
+                    state = await auto_compact(state, llm, context_limit)
                     _emit({
                         "type": "context.compacted",
-                        "iteration": iteration,
-                        "original_messages": len(middle) + len(preserved_head) + len(preserved_tail),
-                        "compacted_to": len(messages),
+                        "iteration": state.iteration,
+                        "strategy": "auto",
+                        "message_count": len(state.messages),
                     })
+                except Exception:
+                    logger.warning("Auto compact failed", exc_info=True)
 
-            _emit({"type": "iteration.started", "iteration": iteration})
+            logger.debug(
+                "[AGENT] Edict %s: iteration %d/%d, messages=%d",
+                edict.id, state.iteration, max_iterations, len(state.messages),
+            )
+            _emit({"type": "iteration.started", "iteration": state.iteration})
 
             # Before iteration hook (budget check, audit, etc.)
             if self._hooks:
                 iter_hook = await self._hooks.run(
                     HookType.BEFORE_ITERATION,
                     edict=edict,
-                    iteration=iteration,
+                    iteration=state.iteration,
                     usage=usage,
                 )
                 if iter_hook.block:
-                    return AgentResult(
-                        status=TaskStatus.FAILED,
-                        error=f"Blocked at iteration {iteration}: {iter_hook.reason}",
-                        usage=usage,
-                        events=events,
+                    return self._build_result(
+                        state, ExitReason.HOOK_BLOCKED,
+                        usage=usage, events=events, recovery=recovery_attempts,
+                        error=f"Blocked at iteration {state.iteration}: {iter_hook.reason}",
                     )
 
             openai_tools = self._tools.get_openai_tools() or None
-            # Apply tool filter if specified (DAG node tool trimming)
             if tool_filter and openai_tools:
                 openai_tools = [
                     t for t in openai_tools
                     if t.get("function", {}).get("name") in tool_filter
                 ] or None
 
-            # LLM input hook — can modify messages
+            # LLM input hook
+            current_messages = list(state.messages)
             if self._hooks:
                 input_hook = await self._hooks.run(
                     HookType.LLM_INPUT,
-                    messages=messages,
+                    messages=current_messages,
                     edict=edict,
-                    iteration=iteration,
+                    iteration=state.iteration,
                 )
                 if input_hook.modified_args and "messages" in input_hook.modified_args:
-                    messages = input_hook.modified_args["messages"]
+                    current_messages = input_hook.modified_args["messages"]
 
-            response = await llm.chat(messages, tools=openai_tools)
+            # Phase 3: LLM call with context overflow recovery
+            try:
+                response = await llm.chat(current_messages, tools=openai_tools)
+            except Exception as e:
+                if _is_context_overflow(e):
+                    recovered = await reactive_compact(state, mock_llm=llm, context_limit=context_limit)
+                    if recovered is not None and not state.compact_attempted:
+                        state = recovered
+                        recovery_attempts["context_overflow"] = recovery_attempts.get("context_overflow", 0) + 1
+                        _emit({
+                            "type": "context.compacted",
+                            "iteration": state.iteration,
+                            "strategy": "reactive",
+                            "message_count": len(state.messages),
+                        })
+                        continue
+                    return self._build_result(
+                        state, ExitReason.CONTEXT_OVERFLOW,
+                        usage=usage, events=events, recovery=recovery_attempts,
+                        error=str(e),
+                    )
+                return self._build_result(
+                    state, ExitReason.LLM_ERROR,
+                    usage=usage, events=events, recovery=recovery_attempts,
+                    error=str(e),
+                )
+
             usage = self._accumulate_usage(usage, response.usage)
-            logger.debug(
-                "[AGENT] Edict %s: iter %d LLM response, tool_calls=%d, has_content=%s",
-                edict.id, iteration, len(response.tool_calls or []), bool(response.content),
+            state = state.accumulate_usage(
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
             )
 
-            # LLM output hook — includes usage for cost tracking
+            # LLM output hook
             if self._hooks:
                 await self._hooks.run(
                     HookType.LLM_OUTPUT,
                     content=response.content,
                     tool_calls=response.tool_calls,
-                    iteration=iteration,
+                    iteration=state.iteration,
                     usage=response.usage,
                     edict=edict,
-                    config_state=state,
+                    config_state=config_state,
                 )
 
+            logger.debug(
+                "[AGENT] Edict %s: iter %d LLM response, tool_calls=%d, has_content=%s, finish_reason=%s",
+                edict.id, state.iteration, len(response.tool_calls or []),
+                bool(response.content), response.finish_reason,
+            )
+
             if response.tool_calls:
-                # Append assistant message with tool_calls
+                # Build assistant message with tool_calls
                 assistant_msg: dict = {
                     "role": "assistant",
                     "content": response.content or "",
@@ -256,20 +281,19 @@ class Agent:
                         for tc in response.tool_calls
                     ],
                 }
-                messages.append(assistant_msg)
+                new_messages = list(state.messages) + [assistant_msg]
 
                 # Execute each tool call sequentially
                 for tc in response.tool_calls:
-                    # Before tool call hook
                     if self._hooks:
                         hook_result = await self._hooks.run(
                             HookType.BEFORE_TOOL_CALL,
                             tool_name=tc["name"],
                             tool_args=tc["args"],
-                            iteration=iteration,
+                            iteration=state.iteration,
                         )
                         if hook_result.block:
-                            messages.append({
+                            new_messages.append({
                                 "role": "tool",
                                 "tool_call_id": tc["id"],
                                 "content": f"Tool blocked: {hook_result.reason}",
@@ -277,60 +301,121 @@ class Agent:
                             _emit({
                                 "type": "tool.blocked",
                                 "tool": tc["name"],
-                                "iteration": iteration,
+                                "iteration": state.iteration,
                                 "reason": hook_result.reason,
                             })
                             continue
 
                     logger.debug(
                         "[AGENT] Edict %s: iter %d tool=%s, args=%.200s",
-                        edict.id, iteration, tc["name"], str(tc["args"])[:200],
+                        edict.id, state.iteration, tc["name"], str(tc["args"])[:200],
                     )
-                    tool_result = await self._tools.execute(tc["name"], tc["args"])
+                    try:
+                        tool_result = await self._tools.execute(tc["name"], tc["args"])
+                    except Exception as tool_err:
+                        tool_result = ToolResult(content=f"Tool error: {tool_err}", is_error=True)
+
                     content = tool_result.content
                     if len(content) > 8000:
                         content = content[:8000] + "\n[... truncated]"
-                    messages.append({
+                    new_messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
                         "content": content,
                     })
 
-                    # After tool call hook
                     if self._hooks:
                         await self._hooks.run(
                             HookType.AFTER_TOOL_CALL,
                             tool_name=tc["name"],
                             tool_args=tc["args"],
                             tool_result=tool_result,
-                            iteration=iteration,
+                            iteration=state.iteration,
                         )
 
                     args_str = tc["args"] if isinstance(tc["args"], str) else json.dumps(tc["args"])
                     _emit({
                         "type": "tool.failed" if tool_result.is_error else "tool.completed",
                         "tool": tc["name"],
-                        "iteration": iteration,
+                        "iteration": state.iteration,
                         "args_preview": args_str[:200],
                         "result_preview": tool_result.content[:200],
                         "is_error": tool_result.is_error,
                         "details": tool_result.details,
                     })
+
+                # State replacement: advance to next turn
+                state = state.next_turn(new_messages)
             else:
-                # No tool calls = final answer
-                return AgentResult(
-                    status=TaskStatus.COMPLETED,
+                # No tool calls — check for output truncation recovery
+                if response.finish_reason == "length" and state.output_recovery_count < 3:
+                    continuation = {
+                        "role": "user",
+                        "content": "你的输出被截断了。请从中断处直接继续，不要重复已输出的内容。",
+                    }
+                    new_msgs = list(state.messages) + [
+                        {"role": "assistant", "content": response.content or ""},
+                        continuation,
+                    ]
+                    state = LoopState(
+                        messages=tuple(new_msgs),
+                        iteration=state.iteration,
+                        transition_reason="output_continuation",
+                        output_recovery_count=state.output_recovery_count + 1,
+                        compact_attempted=state.compact_attempted,
+                        total_compact_count=state.total_compact_count,
+                        total_prompt_tokens=state.total_prompt_tokens,
+                        total_completion_tokens=state.total_completion_tokens,
+                    )
+                    recovery_attempts["output_continuation"] = recovery_attempts.get("output_continuation", 0) + 1
+                    continue
+
+                exit_reason = (
+                    ExitReason.OUTPUT_TRUNCATED
+                    if response.finish_reason == "length"
+                    else ExitReason.COMPLETED
+                )
+                return self._build_result(
+                    state, exit_reason,
                     summary=response.content,
-                    result=response.content,
-                    usage=usage,
-                    events=events,
+                    usage=usage, events=events, recovery=recovery_attempts,
                 )
 
-        return AgentResult(
-            status=TaskStatus.FAILED,
+        # Loop exhausted
+        return self._build_result(
+            state, ExitReason.MAX_ITERATIONS,
+            usage=usage, events=events, recovery=recovery_attempts,
             error=f"Max iterations ({max_iterations}) reached",
-            usage=usage,
-            events=events,
+        )
+
+    def _build_result(
+        self,
+        state: LoopState,
+        exit_reason: ExitReason,
+        *,
+        usage: UsageSummary | None = None,
+        events: list[dict] | None = None,
+        summary: str | None = None,
+        error: str | None = None,
+        recovery: dict | None = None,
+    ) -> AgentResult:
+        if exit_reason == ExitReason.COMPLETED:
+            status = TaskStatus.COMPLETED
+        elif exit_reason == ExitReason.CANCELLED:
+            status = TaskStatus.CANCELLED
+        else:
+            status = TaskStatus.FAILED
+        return AgentResult(
+            status=status,
+            summary=summary,
+            result=summary,
+            usage=usage or UsageSummary(),
+            error=error,
+            events=events or [],
+            exit_reason=exit_reason,
+            iteration_count=state.iteration,
+            compact_count=state.total_compact_count,
+            recovery_attempts=recovery or {},
         )
 
     def _build_system_prompt(self, edict: Edict, skills_char_budget: int) -> str:
@@ -351,3 +436,8 @@ class Agent:
             completion_tokens=total.completion_tokens + delta.completion_tokens,
             total_tokens=total.total_tokens + delta.total_tokens,
         )
+
+
+def _is_context_overflow(e: Exception) -> bool:
+    msg = str(e).lower()
+    return any(k in msg for k in ("context_length", "prompt_too_long", "context window"))
