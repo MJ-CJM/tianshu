@@ -34,7 +34,7 @@ class SkillsLoader:
     def load_index(
         self,
         filter_names: list[str] | None = None,
-        include_dormant: bool = False,
+        include_dormant: bool = False,  # wired in Task 10 (C3 dormant filtering)
     ) -> str:
         """Return skill index (name + description only) for system prompt injection."""
         metadata = self.list_all_metadata()
@@ -67,55 +67,30 @@ class SkillsLoader:
 
     def load_always(self, filter_names: list[str] | None = None) -> str:
         """Return full content of skills marked always=true."""
-        skills: dict[str, str] = {}
-        self._scan_dir(self._builtin_dir, skills)
-        if self._user_dir and self._user_dir.is_dir():
-            self._scan_dir(self._user_dir, skills)
-        if self._workspace_dir:
-            ws_skills = self._workspace_dir / "skills"
-            if ws_skills.is_dir():
-                self._scan_dir(ws_skills, skills)
-        if hasattr(self, "_injected_skills"):
-            skills.update(self._injected_skills)
+        # Use list_all_metadata (single parse) to find always-on skill names
+        metadata = self.list_all_metadata()
+        always_names = {m["name"] for m in metadata if m.get("always", False)}
 
         if filter_names:
-            filter_set = set(filter_names)
-            skills = {k: v for k, v in skills.items() if k in filter_set}
+            always_names &= set(filter_names)
 
-        # Filter to only always=true skills
-        always_skills: dict[str, str] = {}
-        for name, content in skills.items():
-            meta = self._get_skill_metadata(name)
-            if meta and meta.get("always", False):
-                always_skills[name] = content
-
-        if not always_skills:
+        if not always_names:
             return ""
 
-        parts = [f"## Skill: {name}\n\n{content}" for name, content in always_skills.items()]
+        # Load full content only for always-on skills
+        parts: list[str] = []
         total = 0
-        kept: list[str] = []
-        for p in parts:
-            if total + len(p) > self._char_budget:
+        for name in always_names:
+            skill = self.get_skill(name)
+            if not skill:
+                continue
+            entry = f"## Skill: {name}\n\n{skill['content']}"
+            if total + len(entry) > self._char_budget:
                 break
-            kept.append(p)
-            total += len(p)
+            parts.append(entry)
+            total += len(entry)
 
-        return "\n\n---\n\n".join(kept) if kept else ""
-
-    def _get_skill_metadata(self, name: str) -> dict | None:
-        """Return parsed openclaw metadata for a skill by name."""
-        for base, _source in self._search_dirs():
-            skill_file = base / name / "SKILL.md"
-            if skill_file.is_file():
-                try:
-                    post = frontmatter.load(str(skill_file))
-                    meta = post.metadata or {}
-                    oc = meta.get("metadata", {}).get("openclaw", {})
-                    return {"always": oc.get("always", False)}
-                except Exception:
-                    return None
-        return None
+        return "\n\n---\n\n".join(parts) if parts else ""
 
     def patch_skill(self, name: str, old: str, new: str) -> dict:
         """Find-and-replace within a skill's content. Returns updated skill dict."""
