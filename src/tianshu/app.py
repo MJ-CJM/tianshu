@@ -37,6 +37,8 @@ from tianshu.persona.selector import OfficialSelector
 from tianshu.planner.planner import Planner
 from tianshu.scheduler.scheduler import Scheduler
 from tianshu.skills.loader import SkillsLoader, SkillsWatcher
+from tianshu.skills.reviewer import SkillReviewHandler
+from tianshu.skills.validator import SkillValidator
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.skill_tools import register_skill_tools
@@ -306,6 +308,11 @@ async def lifespan(app: FastAPI):
     hook_registry.register(HookType.LLM_OUTPUT, cost_manager.on_llm_output, priority=50)
     hook_registry.register(HookType.AGENT_END, memory_manager.on_agent_end, priority=100)
     hook_registry.register(HookType.BEFORE_TOOL_CALL, approval_manager.on_before_tool_call, priority=10)
+
+    # Skill review hook (learning loop)
+    skill_validator = SkillValidator()
+    skill_reviewer = SkillReviewHandler(skills, config_manager, skill_validator)
+    hook_registry.register(HookType.AGENT_END, skill_reviewer.on_agent_end, priority=200)
 
     # --- DigestGenerator ---
     from tianshu.notifier.digest import DigestGenerator
