@@ -13,6 +13,19 @@ from tianshu.tools.types import ToolResult, error_result, ok_result
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _MAX_CONTENT_SIZE = 256 * 1024  # 256KB
 
+# Module-level shared set for tracking which skills are active in current execution
+_active_skills: set[str] = set()
+
+
+def get_active_skills() -> set[str]:
+    """Return the set of skills viewed during current execution."""
+    return _active_skills
+
+
+def clear_active_skills() -> None:
+    """Clear the active skills set (call at end of agent execution)."""
+    _active_skills.clear()
+
 
 class MetricsStore(Protocol):
     """Protocol for skill metrics storage (implemented in Task 8)."""
@@ -87,7 +100,9 @@ async def _skill_view(
 # --- skill_manage action handlers ---
 
 
-async def _handle_create(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
+async def _handle_create(
+    skills: SkillsLoader, name: str, metrics_store: MetricsStore | None = None, **kwargs: Any,
+) -> ToolResult:
     content = kwargs.get("content")
     if not content:
         return error_result("'content' is required for create action")
@@ -95,6 +110,8 @@ async def _handle_create(skills: SkillsLoader, name: str, **kwargs: Any) -> Tool
         return error_result(f"Content exceeds {_MAX_CONTENT_SIZE} bytes limit")
     try:
         result = skills.create_skill(name, content)
+        if metrics_store:
+            metrics_store.ensure_exists(name)
         return ok_result(json.dumps({"status": "created", "skill": result}, ensure_ascii=False))
     except ValueError as e:
         return error_result(str(e))
@@ -173,7 +190,7 @@ async def _skill_manage(
             "hyphens, dots, underscores; 1-64 chars; start with letter/digit."
         )
 
-    if action in ("delete", "activate"):
+    if action in ("create", "delete", "activate"):
         return await handler(skills, name, metrics_store=metrics_store, **kwargs)
     return await handler(skills, name, **kwargs)
 
@@ -182,7 +199,6 @@ def register_skill_tools(
     registry: ToolRegistry,
     skills: SkillsLoader,
     metrics_store: MetricsStore | None = None,
-    active_skills_ref: set[str] | None = None,
 ) -> None:
     """Register skill_list, skill_view, and skill_manage tools."""
 
@@ -219,7 +235,7 @@ def register_skill_tools(
         lambda **kwargs: _skill_view(
             skills,
             metrics_store=metrics_store,
-            active_skills_ref=active_skills_ref,
+            active_skills_ref=_active_skills,
             **kwargs,
         ),
         ToolDefinition(

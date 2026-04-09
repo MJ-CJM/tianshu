@@ -57,6 +57,7 @@ class Agent:
         hook_registry: HookRegistry | None = None,
         prompt_builder: PromptBuilder | None = None,
         provider_manager: object | None = None,
+        metrics_store: object | None = None,
     ) -> None:
         self._config_manager = config_manager
         self._tools = tools
@@ -64,6 +65,7 @@ class Agent:
         self._hooks = hook_registry
         self._prompt_builder = prompt_builder
         self._provider_manager = provider_manager
+        self._metrics_store = metrics_store
         self._shutdown_event = asyncio.Event()
 
     def request_shutdown(self) -> None:
@@ -407,6 +409,21 @@ class Agent:
             status = TaskStatus.CANCELLED
         else:
             status = TaskStatus.FAILED
+        # Update skill metrics based on exit reason
+        try:
+            from tianshu.tools.skill_tools import clear_active_skills, get_active_skills
+
+            if self._metrics_store:
+                active = get_active_skills()
+                for skill_name in active:
+                    if exit_reason == ExitReason.COMPLETED:
+                        self._metrics_store.increment_success(skill_name)
+                    else:
+                        self._metrics_store.increment_failure(skill_name)
+                clear_active_skills()
+        except Exception:
+            logger.debug("Skill metrics update failed", exc_info=True)
+
         return AgentResult(
             status=status,
             summary=summary,

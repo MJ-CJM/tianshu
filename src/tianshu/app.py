@@ -37,6 +37,7 @@ from tianshu.persona.selector import OfficialSelector
 from tianshu.planner.planner import Planner
 from tianshu.scheduler.scheduler import Scheduler
 from tianshu.skills.loader import SkillsLoader, SkillsWatcher
+from tianshu.skills.metrics import SkillMetricsStore
 from tianshu.skills.reviewer import SkillReviewHandler
 from tianshu.skills.validator import SkillValidator
 from tianshu.storage import Storage
@@ -87,7 +88,8 @@ async def lifespan(app: FastAPI):
         user_dir=user_skills_dir,
         char_budget=settings.skills_char_budget,
     )
-    register_skill_tools(tools, skills)
+    metrics_store = SkillMetricsStore(storage._conn)
+    register_skill_tools(tools, skills, metrics_store=metrics_store)
 
     # --- Memory dir ---
     memory_dir = Path(settings.memory_dir).expanduser()
@@ -136,6 +138,7 @@ async def lifespan(app: FastAPI):
         hook_registry=hook_registry,
         prompt_builder=prompt_builder,
         provider_manager=provider_manager,
+        metrics_store=metrics_store,
     )
     app.state.agent = agent
     app.state.skills_loader = skills
