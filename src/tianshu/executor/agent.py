@@ -424,9 +424,15 @@ class Agent:
         parts = [_SYSTEM_IDENTITY]
 
         self._skills.set_char_budget(skills_char_budget)
-        skills_text = self._skills.load_all()
-        if skills_text:
-            parts.append(skills_text)
+
+        # Progressive loading: index + always-on skills
+        index_text = self._skills.load_index()
+        if index_text:
+            parts.append(index_text)
+
+        always_text = self._skills.load_always()
+        if always_text:
+            parts.append(always_text)
 
         parts.append(f"Current task ID: {edict.id}")
         return "\n\n".join(parts)

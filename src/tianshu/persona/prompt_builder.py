@@ -110,12 +110,19 @@ class PromptBuilder:
             if court_mem_text:
                 parts.append(f"# Court Memory\n\n{court_mem_text}")
 
-        # Layer 7: Skills (filtered by persona if skills_allowed is set)
+        # Layer 7: Skills — index + always-on skills
         self._skills.set_char_budget(skills_char_budget)
         filter_names = persona.skills_allowed if persona and persona.skills_allowed else None
-        skills_text = self._skills.load_all(filter_names=filter_names)
-        if skills_text:
-            parts.append(skills_text)
+
+        # 7a: Inject skill index (name + description) for progressive loading
+        index_text = self._skills.load_index(filter_names=filter_names)
+        if index_text:
+            parts.append(index_text)
+
+        # 7b: Inject full content for always=true skills
+        always_text = self._skills.load_always(filter_names=filter_names)
+        if always_text:
+            parts.append(always_text)
 
         # Layer 8: Task Context
         parts.append(f"Current task ID: {edict.id}")
@@ -204,16 +211,18 @@ class PromptBuilder:
                 "tokens_est": len(court_mem) // 4,
             })
 
-        # Layer 7: Skills
+        # Layer 7: Skills — index + always-on
         self._skills.set_char_budget(skills_char_budget)
         filter_names = persona.skills_allowed if persona and persona.skills_allowed else None
-        skills_text = self._skills.load_all(filter_names=filter_names)
+        index_text = self._skills.load_index(filter_names=filter_names)
+        always_text = self._skills.load_always(filter_names=filter_names)
+        skills_total = len(index_text) + len(always_text)
         layers.append({
             "layer": 7,
-            "name": "Skills",
+            "name": "Skills (index + always)",
             "source": "(skills loader)",
-            "chars": len(skills_text),
-            "tokens_est": len(skills_text) // 4,
+            "chars": skills_total,
+            "tokens_est": skills_total // 4,
             "char_budget": skills_char_budget,
             "filtered_by": filter_names,
         })
