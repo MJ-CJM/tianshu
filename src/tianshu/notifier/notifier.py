@@ -151,3 +151,33 @@ class Notifier:
             self._debounce_timers.pop(key, None)
 
         self._debounce_timers[key] = asyncio.create_task(_send())
+
+
+class WebSocketStreamCallback:
+    """StreamCallback implementation that pushes deltas to WebSocket clients."""
+
+    def __init__(self, notifier: Notifier, edict_id: str) -> None:
+        self._notifier = notifier
+        self._edict_id = edict_id
+
+    async def on_delta(self, text: str) -> None:
+        await self._notifier.broadcast_ws({
+            "type": "stream.delta",
+            "edict_id": self._edict_id,
+            "text": text,
+        })
+
+    async def on_tool_call_start(self, name: str) -> None:
+        await self._notifier.broadcast_ws({
+            "type": "stream.tool_start",
+            "edict_id": self._edict_id,
+            "tool_name": name,
+        })
+
+    async def on_tool_call_end(self, name: str, result: object) -> None:
+        await self._notifier.broadcast_ws({
+            "type": "stream.tool_end",
+            "edict_id": self._edict_id,
+            "tool_name": name,
+            "is_error": getattr(result, "is_error", False),
+        })
