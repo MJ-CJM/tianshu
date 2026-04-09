@@ -39,6 +39,7 @@ from tianshu.scheduler.scheduler import Scheduler
 from tianshu.skills.loader import SkillsLoader, SkillsWatcher
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
+from tianshu.tools.skill_tools import register_skill_tools
 from tianshu.tools.registry import ToolRegistry
 from tianshu.web import mount_web
 
@@ -84,6 +85,7 @@ async def lifespan(app: FastAPI):
         user_dir=user_skills_dir,
         char_budget=settings.skills_char_budget,
     )
+    register_skill_tools(tools, skills)
 
     # --- Memory dir ---
     memory_dir = Path(settings.memory_dir).expanduser()
