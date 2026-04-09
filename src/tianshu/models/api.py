@@ -106,9 +106,13 @@ class AgentConfig(BaseModel):
     agent_max_iterations: int
     agent_timeout_seconds: int
     skills_char_budget: int
+    skill_review_enabled: bool
+    skill_review_interval: int
 
 
 class AgentConfigUpdateRequest(BaseModel):
     agent_max_iterations: int | None = Field(default=None, ge=1, le=200)
     agent_timeout_seconds: int | None = Field(default=None, ge=10, le=3600)
     skills_char_budget: int | None = Field(default=None, ge=1000, le=500000)
+    skill_review_enabled: bool | None = None
+    skill_review_interval: int | None = Field(default=None, ge=1, le=100)

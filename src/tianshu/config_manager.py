@@ -28,6 +28,8 @@ class AgentConfigState:
     agent_max_iterations: int = 20
     agent_timeout_seconds: int = 300
     skills_char_budget: int = 30000
+    skill_review_enabled: bool = True
+    skill_review_interval: int = 5
 
 
 class ConfigManager:
