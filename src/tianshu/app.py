@@ -42,6 +42,7 @@ from tianshu.skills.reviewer import SkillReviewHandler
 from tianshu.skills.validator import SkillValidator
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
+from tianshu.tools.memory_tools import register_memory_tools
 from tianshu.tools.skill_tools import register_skill_tools
 from tianshu.tools.registry import ToolRegistry
 from tianshu.web import mount_web
@@ -90,6 +91,7 @@ async def lifespan(app: FastAPI):
     )
     metrics_store = SkillMetricsStore(storage._conn)
     register_skill_tools(tools, skills, metrics_store=metrics_store)
+    register_memory_tools(tools, storage)
 
     # --- Memory dir ---
     memory_dir = Path(settings.memory_dir).expanduser()
