@@ -79,6 +79,8 @@ class Agent:
         user_content: str | None = None,
         tool_filter: list[str] | None = None,
         persona: object | None = None,
+        stream_callback: object | None = None,
+        cancellation_token: object | None = None,
     ) -> AgentResult:
         # Read runtime config at execution start
         config_state = self._config_manager.state
@@ -217,9 +219,29 @@ class Agent:
                 if input_hook.modified_args and "messages" in input_hook.modified_args:
                     current_messages = input_hook.modified_args["messages"]
 
+            # Check cancellation before LLM call
+            if cancellation_token and getattr(cancellation_token, "is_cancelled", False):
+                return self._build_result(
+                    state, ExitReason.CANCELLED,
+                    usage=usage, events=events, recovery=recovery_attempts,
+                )
+
             # Phase 3: LLM call with context overflow recovery + fallback
             try:
-                response = await llm.chat(current_messages, tools=openai_tools)
+                if stream_callback:
+                    final_response = None
+                    async for chunk in llm.chat_stream(current_messages, tools=openai_tools):
+                        if cancellation_token and getattr(cancellation_token, "is_cancelled", False):
+                            return self._build_result(
+                                state, ExitReason.CANCELLED,
+                                usage=usage, events=events, recovery=recovery_attempts,
+                            )
+                        if chunk.content and not chunk.tool_calls:
+                            await stream_callback.on_delta(chunk.content)
+                        final_response = chunk
+                    response = final_response
+                else:
+                    response = await llm.chat(current_messages, tools=openai_tools)
             except Exception as e:
                 if _is_context_overflow(e):
                     recovered = await reactive_compact(state, llm=llm, context_limit=context_limit)
@@ -349,10 +371,14 @@ class Agent:
                         "[AGENT] Edict %s: iter %d tool=%s, args=%.200s",
                         edict.id, state.iteration, tc["name"], str(tc["args"])[:200],
                     )
+                    if stream_callback:
+                        await stream_callback.on_tool_call_start(tc["name"])
                     try:
                         tool_result = await self._tools.execute(tc["name"], tc["args"])
                     except Exception as tool_err:
                         tool_result = ToolResult(content=f"Tool error: {tool_err}", is_error=True)
+                    if stream_callback:
+                        await stream_callback.on_tool_call_end(tc["name"], tool_result)
 
                     content = tool_result.content
                     if len(content) > 8000:
