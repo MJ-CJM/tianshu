@@ -108,6 +108,7 @@ class AgentConfig(BaseModel):
     skills_char_budget: int
     skill_review_enabled: bool
     skill_review_interval: int
+    fallback_llm_config_name: str | None
 
 
 class AgentConfigUpdateRequest(BaseModel):
@@ -116,3 +117,4 @@ class AgentConfigUpdateRequest(BaseModel):
     skills_char_budget: int | None = Field(default=None, ge=1000, le=500000)
     skill_review_enabled: bool | None = None
     skill_review_interval: int | None = Field(default=None, ge=1, le=100)
+    fallback_llm_config_name: str | None = None

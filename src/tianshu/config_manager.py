@@ -30,6 +30,7 @@ class AgentConfigState:
     skills_char_budget: int = 30000
     skill_review_enabled: bool = True
     skill_review_interval: int = 5
+    fallback_llm_config_name: str | None = None
 
 
 class ConfigManager:

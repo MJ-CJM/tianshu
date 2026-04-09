@@ -217,7 +217,7 @@ class Agent:
                 if input_hook.modified_args and "messages" in input_hook.modified_args:
                     current_messages = input_hook.modified_args["messages"]
 
-            # Phase 3: LLM call with context overflow recovery
+            # Phase 3: LLM call with context overflow recovery + fallback
             try:
                 response = await llm.chat(current_messages, tools=openai_tools)
             except Exception as e:
@@ -238,11 +238,46 @@ class Agent:
                         usage=usage, events=events, recovery=recovery_attempts,
                         error=str(e),
                     )
-                return self._build_result(
-                    state, ExitReason.LLM_ERROR,
-                    usage=usage, events=events, recovery=recovery_attempts,
-                    error=str(e),
-                )
+
+                # Attempt fallback model if configured
+                fallback_name = agent_cfg.fallback_llm_config_name
+                if fallback_name and "fallback" not in recovery_attempts:
+                    fallback_cfg = self._config_manager.get_config(fallback_name)
+                    if fallback_cfg and fallback_cfg.enabled:
+                        logger.warning(
+                            "[AGENT] Primary LLM failed, switching to fallback '%s': %s",
+                            fallback_name, e,
+                        )
+                        fallback_llm = LLMClient(
+                            model=fallback_cfg.model,
+                            api_key=fallback_cfg.api_key,
+                            api_base=fallback_cfg.api_base,
+                            max_retries=fallback_cfg.max_retries,
+                            temperature=fallback_cfg.temperature,
+                            top_p=fallback_cfg.top_p,
+                            max_tokens=fallback_cfg.max_tokens,
+                        )
+                        try:
+                            response = await fallback_llm.chat(current_messages, tools=openai_tools)
+                            recovery_attempts["fallback"] = fallback_name
+                        except Exception as fallback_err:
+                            return self._build_result(
+                                state, ExitReason.LLM_ERROR,
+                                usage=usage, events=events, recovery=recovery_attempts,
+                                error=f"Primary: {e}; Fallback: {fallback_err}",
+                            )
+                    else:
+                        return self._build_result(
+                            state, ExitReason.LLM_ERROR,
+                            usage=usage, events=events, recovery=recovery_attempts,
+                            error=str(e),
+                        )
+                else:
+                    return self._build_result(
+                        state, ExitReason.LLM_ERROR,
+                        usage=usage, events=events, recovery=recovery_attempts,
+                        error=str(e),
+                    )
 
             usage = self._accumulate_usage(usage, response.usage)
             state = state.accumulate_usage(
