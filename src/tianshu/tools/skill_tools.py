@@ -39,21 +39,33 @@ class MetricsStore(Protocol):
 async def _skill_list(
     skills: SkillsLoader,
     query: str | None = None,
-    include_dormant: bool = False,  # wired in Task 10 (C3 dormant filtering)
+    include_dormant: bool = False,
+    metrics_store: MetricsStore | None = None,
 ) -> ToolResult:
-    """List all available skills with name, description, and source."""
+    """List all available skills with name, description, source, and status."""
     metadata = skills.list_all_metadata()
     if query:
         q = query.lower()
         metadata = [m for m in metadata if q in m["name"].lower()]
-    result = [
-        {
+
+    result = []
+    for m in metadata:
+        entry: dict = {
             "name": m["name"],
             "description": m.get("description", ""),
             "source": m.get("source", "unknown"),
+            "status": "healthy",
         }
-        for m in metadata
-    ]
+        if metrics_store:
+            metrics = metrics_store.get(m["name"])
+            if metrics:
+                entry["status"] = metrics.status
+                entry["usage_count"] = metrics.usage_count
+                entry["success_rate"] = metrics.success_rate
+                if not include_dormant and metrics.is_dormant() and metrics.created_by == "agent":
+                    continue
+        result.append(entry)
+
     return ok_result(json.dumps(result, ensure_ascii=False, indent=2))
 
 
@@ -204,7 +216,7 @@ def register_skill_tools(
 
     registry.register(
         "skill_list",
-        lambda **kwargs: _skill_list(skills, **kwargs),
+        lambda **kwargs: _skill_list(skills, metrics_store=metrics_store, **kwargs),
         ToolDefinition(
             name="skill_list",
             description=(

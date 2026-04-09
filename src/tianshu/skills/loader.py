@@ -34,7 +34,8 @@ class SkillsLoader:
     def load_index(
         self,
         filter_names: list[str] | None = None,
-        include_dormant: bool = False,  # wired in Task 10 (C3 dormant filtering)
+        include_dormant: bool = False,
+        metrics_store: object | None = None,
     ) -> str:
         """Return skill index (name + description only) for system prompt injection."""
         metadata = self.list_all_metadata()
@@ -43,10 +44,27 @@ class SkillsLoader:
             filter_set = set(filter_names)
             metadata = [m for m in metadata if m["name"] in filter_set]
 
+        # Filter dormant agent-created skills (unless explicitly requested)
+        if not include_dormant and metrics_store is not None:
+            filtered = []
+            for m in metadata:
+                metrics = metrics_store.get(m["name"])
+                if metrics and metrics.is_dormant() and metrics.created_by == "agent":
+                    continue
+                filtered.append(m)
+            metadata = filtered
+
         lines: list[str] = []
         for m in metadata:
             desc = m.get("description", "")
-            lines.append(f"- {m['name']}: {desc}")
+            status_marker = ""
+            if metrics_store is not None:
+                metrics = metrics_store.get(m["name"])
+                if metrics and metrics.status == "warning":
+                    status_marker = " [low success rate]"
+                elif metrics and metrics.status == "retire_suggested":
+                    status_marker = " [retire suggested]"
+            lines.append(f"- {m['name']}: {desc}{status_marker}")
 
         if not lines:
             return ""
