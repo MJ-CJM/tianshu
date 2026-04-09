@@ -3,28 +3,36 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
+from typing import Any, Protocol
 
 from tianshu.skills.loader import SkillsLoader
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, error_result, ok_result
 
-logger = logging.getLogger(__name__)
-
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _MAX_CONTENT_SIZE = 256 * 1024  # 256KB
 
 
+class MetricsStore(Protocol):
+    """Protocol for skill metrics storage (implemented in Task 8)."""
+
+    def ensure_exists(self, name: str) -> None: ...
+    def increment_usage(self, name: str) -> None: ...
+    def get(self, name: str) -> Any: ...
+    def delete(self, name: str) -> None: ...
+
+
 async def _skill_list(
     skills: SkillsLoader,
-    category: str | None = None,
-    include_dormant: bool = False,
+    query: str | None = None,
+    include_dormant: bool = False,  # wired in Task 10 (C3 dormant filtering)
 ) -> ToolResult:
     """List all available skills with name, description, and source."""
     metadata = skills.list_all_metadata()
-    if category:
-        metadata = [m for m in metadata if category.lower() in m["name"].lower()]
+    if query:
+        q = query.lower()
+        metadata = [m for m in metadata if q in m["name"].lower()]
     result = [
         {
             "name": m["name"],
@@ -39,8 +47,8 @@ async def _skill_list(
 async def _skill_view(
     skills: SkillsLoader,
     name: str,
-    metrics_store: object | None = None,
-    active_skills_ref: set | None = None,
+    metrics_store: MetricsStore | None = None,
+    active_skills_ref: set[str] | None = None,
 ) -> ToolResult:
     """View the full content of a skill."""
     skill = skills.get_skill(name)
@@ -76,17 +84,87 @@ async def _skill_view(
     }, ensure_ascii=False, indent=2))
 
 
+# --- skill_manage action handlers ---
+
+
+async def _handle_create(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
+    content = kwargs.get("content")
+    if not content:
+        return error_result("'content' is required for create action")
+    if len(content) > _MAX_CONTENT_SIZE:
+        return error_result(f"Content exceeds {_MAX_CONTENT_SIZE} bytes limit")
+    try:
+        result = skills.create_skill(name, content)
+        return ok_result(json.dumps({"status": "created", "skill": result}, ensure_ascii=False))
+    except ValueError as e:
+        return error_result(str(e))
+
+
+async def _handle_edit(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
+    content = kwargs.get("content")
+    if not content:
+        return error_result("'content' is required for edit action")
+    if len(content) > _MAX_CONTENT_SIZE:
+        return error_result(f"Content exceeds {_MAX_CONTENT_SIZE} bytes limit")
+    try:
+        result = skills.save_skill(name, content)
+        return ok_result(json.dumps({"status": "updated", "skill": result}, ensure_ascii=False))
+    except FileNotFoundError as e:
+        return error_result(str(e))
+
+
+async def _handle_patch(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
+    patch_old = kwargs.get("patch_old")
+    patch_new = kwargs.get("patch_new")
+    if not patch_old or not patch_new:
+        return error_result("'patch_old' and 'patch_new' are required for patch action")
+    try:
+        result = skills.patch_skill(name, patch_old, patch_new)
+        return ok_result(json.dumps({"status": "patched", "skill": result}, ensure_ascii=False))
+    except (FileNotFoundError, ValueError) as e:
+        return error_result(str(e))
+
+
+async def _handle_delete(
+    skills: SkillsLoader, name: str, metrics_store: MetricsStore | None = None, **kwargs: Any,
+) -> ToolResult:
+    deleted = skills.delete_skill(name)
+    if deleted:
+        if metrics_store:
+            metrics_store.delete(name)
+        return ok_result(json.dumps({"status": "deleted", "name": name}))
+    return error_result(f"Skill '{name}' not found or is a builtin (cannot delete)")
+
+
+async def _handle_activate(
+    skills: SkillsLoader, name: str, metrics_store: MetricsStore | None = None, **kwargs: Any,
+) -> ToolResult:
+    if metrics_store:
+        metrics_store.ensure_exists(name)
+        metrics_store.increment_usage(name)
+        return ok_result(json.dumps({"status": "activated", "name": name}))
+    return error_result("Metrics store not available, cannot activate")
+
+
+_ACTION_HANDLERS = {
+    "create": _handle_create,
+    "edit": _handle_edit,
+    "patch": _handle_patch,
+    "delete": _handle_delete,
+    "activate": _handle_activate,
+}
+
+
 async def _skill_manage(
     skills: SkillsLoader,
     action: str,
     name: str,
-    content: str | None = None,
-    patch_old: str | None = None,
-    patch_new: str | None = None,
-    metrics_store: object | None = None,
+    metrics_store: MetricsStore | None = None,
+    **kwargs: Any,
 ) -> ToolResult:
     """Create, edit, patch, delete, or activate a skill."""
-    if action not in ("create", "edit", "patch", "delete", "activate"):
+    handler = _ACTION_HANDLERS.get(action)
+    if not handler:
         return error_result(f"Invalid action: {action}. Must be create/edit/patch/delete/activate")
 
     if not _NAME_RE.match(name):
@@ -95,61 +173,16 @@ async def _skill_manage(
             "hyphens, dots, underscores; 1-64 chars; start with letter/digit."
         )
 
-    if action == "create":
-        if not content:
-            return error_result("'content' is required for create action")
-        if len(content) > _MAX_CONTENT_SIZE:
-            return error_result(f"Content exceeds {_MAX_CONTENT_SIZE} bytes limit")
-        try:
-            result = skills.create_skill(name, content)
-            return ok_result(json.dumps({"status": "created", "skill": result}, ensure_ascii=False))
-        except ValueError as e:
-            return error_result(str(e))
-
-    elif action == "edit":
-        if not content:
-            return error_result("'content' is required for edit action")
-        if len(content) > _MAX_CONTENT_SIZE:
-            return error_result(f"Content exceeds {_MAX_CONTENT_SIZE} bytes limit")
-        try:
-            result = skills.save_skill(name, content)
-            return ok_result(json.dumps({"status": "updated", "skill": result}, ensure_ascii=False))
-        except FileNotFoundError as e:
-            return error_result(str(e))
-
-    elif action == "patch":
-        if not patch_old or not patch_new:
-            return error_result("'patch_old' and 'patch_new' are required for patch action")
-        try:
-            result = skills.patch_skill(name, patch_old, patch_new)
-            return ok_result(json.dumps({"status": "patched", "skill": result}, ensure_ascii=False))
-        except (FileNotFoundError, ValueError) as e:
-            return error_result(str(e))
-
-    elif action == "delete":
-        deleted = skills.delete_skill(name)
-        if deleted:
-            if metrics_store:
-                metrics_store.delete(name)
-            return ok_result(json.dumps({"status": "deleted", "name": name}))
-        return error_result(f"Skill '{name}' not found or is a builtin (cannot delete)")
-
-    elif action == "activate":
-        # Reactivate a dormant skill by touching its last_used_at
-        if metrics_store:
-            metrics_store.ensure_exists(name)
-            metrics_store.increment_usage(name)
-            return ok_result(json.dumps({"status": "activated", "name": name}))
-        return error_result("Metrics store not available, cannot activate")
-
-    return error_result(f"Unknown action: {action}")
+    if action in ("delete", "activate"):
+        return await handler(skills, name, metrics_store=metrics_store, **kwargs)
+    return await handler(skills, name, **kwargs)
 
 
 def register_skill_tools(
     registry: ToolRegistry,
     skills: SkillsLoader,
-    metrics_store: object | None = None,
-    active_skills_ref: set | None = None,
+    metrics_store: MetricsStore | None = None,
+    active_skills_ref: set[str] | None = None,
 ) -> None:
     """Register skill_list, skill_view, and skill_manage tools."""
 
@@ -165,9 +198,9 @@ def register_skill_tools(
             parameters={
                 "type": "object",
                 "properties": {
-                    "category": {
+                    "query": {
                         "type": "string",
-                        "description": "Filter skills by category keyword (optional)",
+                        "description": "Filter skills by name substring (optional)",
                     },
                     "include_dormant": {
                         "type": "boolean",
