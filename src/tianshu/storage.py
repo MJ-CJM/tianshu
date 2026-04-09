@@ -259,6 +259,17 @@ class Storage:
                     error TEXT,
                     PRIMARY KEY (dag_execution_id, node_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS skill_metrics (
+                    skill_name    TEXT PRIMARY KEY,
+                    usage_count   INTEGER NOT NULL DEFAULT 0,
+                    success_count INTEGER NOT NULL DEFAULT 0,
+                    failure_count INTEGER NOT NULL DEFAULT 0,
+                    last_used_at  TEXT,
+                    created_at    TEXT,
+                    created_by    TEXT NOT NULL DEFAULT 'manual',
+                    source_edict_id TEXT
+                );
             """)
 
     def _migrate(self) -> None:
