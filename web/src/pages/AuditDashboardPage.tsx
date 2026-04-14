@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Card, Row, Col, Statistic, Table, Tag, Tooltip, Timeline, Tabs, Space, Descriptions } from "antd";
 import {
   ReloadOutlined,
   ThunderboltOutlined,
   NodeIndexOutlined,
   ApiOutlined,
+  SafetyOutlined,
 } from "@ant-design/icons";
+import { fetchPolicyStats } from "../api/policy";
+import type { PolicyStats } from "../api/policy";
 import type { ColumnsType } from "antd/es/table";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -106,6 +109,67 @@ function HookEventsCard() {
         }))}
       />
     </Card>
+  );
+}
+
+function PolicyDecisionsTab() {
+  const [stats, setStats] = useState<PolicyStats | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetchPolicyStats().then((s) => {
+        if (!cancelled) setStats(s);
+      });
+    };
+    load();
+    const timer = setInterval(load, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  return (
+    <Row gutter={16}>
+      <Col span={4}>
+        <Card size="small">
+          <Statistic
+            title="Allow"
+            value={stats?.allow ?? 0}
+            valueStyle={{ color: "#52c41a" }}
+          />
+        </Card>
+      </Col>
+      <Col span={4}>
+        <Card size="small">
+          <Statistic
+            title="Deny"
+            value={stats?.deny ?? 0}
+            valueStyle={{ color: "#ff4d4f" }}
+          />
+        </Card>
+      </Col>
+      <Col span={4}>
+        <Card size="small">
+          <Statistic
+            title="Require Approval"
+            value={stats?.require_approval ?? 0}
+            valueStyle={{ color: "#fa8c16" }}
+          />
+        </Card>
+      </Col>
+      <Col span={4}>
+        <Card size="small">
+          <Statistic title="Approved" value={stats?.approved ?? 0} />
+        </Card>
+      </Col>
+      <Col span={4}>
+        <Card size="small">
+          <Statistic title="Rejected" value={stats?.rejected ?? 0} />
+        </Card>
+      </Col>
+    </Row>
   );
 }
 
@@ -316,6 +380,16 @@ export default function AuditDashboardPage() {
                 <HookEventsCard />
               </>
             ),
+          },
+          {
+            key: "policy",
+            label: (
+              <Space>
+                <SafetyOutlined />
+                Policy Decisions
+              </Space>
+            ),
+            children: <PolicyDecisionsTab />,
           },
           {
             key: "eventbus",
