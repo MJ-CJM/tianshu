@@ -56,11 +56,28 @@ class ToolRegistry:
         """Return all registered ToolDefinition objects."""
         return [defn for defn, _ in self._tools.values()]
 
+    def get_definition(self, name: str) -> ToolDefinition | None:
+        """返回 name 对应的 ToolDefinition，未注册时返回 None。"""
+        entry = self._tools.get(name)
+        return entry[0] if entry else None
+
     async def execute(self, name: str, args: str | dict) -> ToolResult:
+        # Spec Section 2: function-local import to avoid top-level circular dependency
+        from tianshu.tools.types import ToolTier
+
         if name not in self._tools:
             return error_result(f"Error: tool '{name}' not found")
 
         defn, func = self._tools[name]
+
+        # Spec Section 2: 未声明 tier 的工具 runtime 视为 T3_DANGEROUS
+        if defn.tier is None or defn.tier not in (0, 1, 2, 3):
+            logger.error(
+                "[TOOL] %s has invalid tier=%r, downgrading to T3_DANGEROUS",
+                name, defn.tier,
+            )
+            # 动态覆盖这一次调用的 tier（不改 registry 里的定义，避免副作用）
+            defn = defn.model_copy(update={"tier": ToolTier.T3_DANGEROUS.value})
 
         try:
             if isinstance(args, str):
@@ -77,6 +94,16 @@ class ToolRegistry:
             "[TOOL] execute: name=%s, tier=%d, args_keys=%s",
             name, defn.tier, list(args.keys()) if isinstance(args, dict) else "raw",
         )
+
+        # Spec Section 2: T0_READONLY 工具走快路径 — 跳过 _hooks 链
+        # 仍然 validate schema + 日志，但不经过 ToolHook 的 before/after 回调。
+        if defn.tier == ToolTier.T0_READONLY:
+            logger.debug("[TOOL] fast-path T0: name=%s", name)
+            try:
+                return await func(**args)
+            except Exception as e:
+                logger.exception("Tool '%s' raised in fast path", name)
+                return error_result(f"Error executing {name}: {e}")
 
         # Before hooks
         for hook in self._hooks:
