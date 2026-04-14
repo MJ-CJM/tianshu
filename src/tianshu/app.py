@@ -46,6 +46,11 @@ from tianshu.tools.builtins import register_builtins
 from tianshu.tools.memory_tools import register_memory_tools
 from tianshu.tools.policy import PolicyEngine
 from tianshu.tools.policy_rules import build_default_rules
+from tianshu.tools.policy_store import (
+    CompositeSessionRuleStore,
+    InMemorySessionRuleStore,
+    SqliteSessionRuleStore,
+)
 from tianshu.tools.skill_tools import register_skill_tools
 from tianshu.tools.registry import ToolRegistry
 from tianshu.web import mount_web
@@ -219,10 +224,18 @@ async def lifespan(app: FastAPI):
     notifier = Notifier(storage=storage, channel_registry=channel_registry)
     app.state.notifier = notifier
 
+    # --- SessionRuleStore ---
+    session_rule_store = CompositeSessionRuleStore(
+        in_memory=InMemorySessionRuleStore(),
+        sqlite=SqliteSessionRuleStore(storage=storage),
+    )
+    app.state.session_rule_store = session_rule_store
+
     # --- ApprovalManager ---
     approval_manager = ApprovalManager(
         event_bus=event_bus,
         storage=storage,
+        session_rule_store=session_rule_store,
     )
     app.state.approval_manager = approval_manager
 
@@ -235,7 +248,7 @@ async def lifespan(app: FastAPI):
         workspace_root=Path(settings.workspace_dir).resolve(),
         storage=storage,
         tool_registry=tools,
-        session_rule_store=None,   # Step 3 填充
+        session_rule_store=session_rule_store,
         approval_manager=approval_manager,
     )
     app.state.policy_hook = policy_hook
