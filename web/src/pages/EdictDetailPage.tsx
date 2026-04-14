@@ -11,6 +11,7 @@ import MemorialCard from "../components/memorial/MemorialCard";
 import UsageDisplay from "../components/memorial/UsageDisplay";
 import EventTimeline from "../components/memorial/EventTimeline";
 import DecreeModal from "../components/decree/DecreeModal";
+import { PolicyTimeline } from "../components/policy/PolicyTimeline";
 import { useDagByEdict } from "../hooks/useDag";
 import { formatTime, truncateId } from "../utils/format";
 import {
@@ -589,6 +590,8 @@ export default function EdictDetailPage() {
       )}
 
       {events.length > 0 && <EventTimeline events={events} />}
+
+      {edictId && <PolicyTimeline edictId={edictId} />}
 
       <Modal
         title="编辑敕令"
