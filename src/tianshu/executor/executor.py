@@ -34,11 +34,13 @@ class Executor:
         storage: Storage,
         config_manager: ConfigManager,
         hook_registry: HookRegistry,
+        session_rule_store: object | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
         self._config_manager = config_manager
         self._hooks = hook_registry
+        self._session_rule_store = session_rule_store
         self._agent = None  # set via set_agent()
         self._dag_scheduler = None  # set via set_dag_scheduler()
         self._lane_manager = None  # set via set_lane_manager()
@@ -188,6 +190,45 @@ class Executor:
             )
         )
 
+        # Spec Section 5: 展开 PolicyProfile 为 edict-scope session rules
+        if (
+            edict.runtime.policy_profile is not None
+            and self._session_rule_store is not None
+        ):
+            try:
+                from tianshu.tools.policy_profile import (
+                    PolicyProfile,
+                    expand_profile_to_rules,
+                )
+
+                payload = edict.runtime.policy_profile
+                profile = PolicyProfile(
+                    allowed_paths=tuple(payload.allowed_paths),
+                    allowed_bash_prefixes=tuple(payload.allowed_bash_prefixes),
+                    tier_overrides=dict(payload.tier_overrides),
+                    auto_approve_max_tier=int(payload.auto_approve_max_tier),
+                    expires_after_seconds=payload.expires_after_seconds,
+                    template_name=payload.template_name,
+                )
+                created = await expand_profile_to_rules(
+                    profile, edict, self._session_rule_store,
+                )
+                self._storage.append_event(
+                    edict.id,
+                    memorial.id,
+                    "policy.profile_applied",
+                    {
+                        "template_name": profile.template_name,
+                        "rules_created": created,
+                        "allowed_paths": list(profile.allowed_paths),
+                        "allowed_bash_prefixes": list(profile.allowed_bash_prefixes),
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "[EXEC] Edict %s: failed to expand policy profile", edict.id,
+                )
+
         # Session start hook
         await self._hooks.run(
             HookType.SESSION_START,
@@ -305,6 +346,16 @@ class Executor:
                 memorial=memorial,
                 usage=memorial.usage,
             )
+
+            # Spec Section 4: 清理本 edict 的 edict-scope session rules
+            if self._session_rule_store is not None:
+                try:
+                    await self._session_rule_store.clear_edict(edict.id)
+                except Exception:
+                    logger.exception(
+                        "[EXEC] Edict %s: failed to clear edict session rules",
+                        edict.id,
+                    )
 
             # Auto-retry: if failed and retry_limit not exhausted
             if (

@@ -163,30 +163,6 @@ async def lifespan(app: FastAPI):
     lane_manager = LaneManager(max_global_concurrency=settings.max_global_concurrency)
     app.state.lane_manager = lane_manager
 
-    # --- Executor ---
-    executor = Executor(
-        event_bus=event_bus,
-        storage=storage,
-        config_manager=config_manager,
-        hook_registry=hook_registry,
-    )
-    executor.set_agent(agent)
-    executor.set_persona_loader(persona_loader)
-    app.state.executor = executor
-
-    # --- DAGScheduler ---
-    dag_scheduler = DAGScheduler(
-        worker_pool=worker_pool,
-        agent=agent,
-        storage=storage,
-        event_bus=event_bus,
-        persona_loader=persona_loader,
-        prompt_builder=prompt_builder,
-    )
-    executor.set_dag_scheduler(dag_scheduler)
-    executor.set_lane_manager(lane_manager)
-    app.state.dag_scheduler = dag_scheduler
-
     # --- Auditor ---
     auditor = Auditor(
         event_bus=event_bus,
@@ -230,6 +206,31 @@ async def lifespan(app: FastAPI):
         sqlite=SqliteSessionRuleStore(storage=storage),
     )
     app.state.session_rule_store = session_rule_store
+
+    # --- Executor ---
+    executor = Executor(
+        event_bus=event_bus,
+        storage=storage,
+        config_manager=config_manager,
+        hook_registry=hook_registry,
+        session_rule_store=session_rule_store,
+    )
+    executor.set_agent(agent)
+    executor.set_persona_loader(persona_loader)
+    app.state.executor = executor
+
+    # --- DAGScheduler ---
+    dag_scheduler = DAGScheduler(
+        worker_pool=worker_pool,
+        agent=agent,
+        storage=storage,
+        event_bus=event_bus,
+        persona_loader=persona_loader,
+        prompt_builder=prompt_builder,
+    )
+    executor.set_dag_scheduler(dag_scheduler)
+    executor.set_lane_manager(lane_manager)
+    app.state.dag_scheduler = dag_scheduler
 
     # --- ApprovalManager ---
     approval_manager = ApprovalManager(
