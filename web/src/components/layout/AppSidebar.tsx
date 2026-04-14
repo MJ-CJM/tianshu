@@ -20,6 +20,7 @@ import {
   TeamOutlined,
   CrownOutlined,
   ToolOutlined,
+  SafetyOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
@@ -90,6 +91,11 @@ export default function AppSidebar() {
       key: "/personas",
       icon: <TeamOutlined />,
       label: "百官阁",
+    },
+    {
+      key: "/session-rules",
+      icon: <SafetyOutlined />,
+      label: "权印司",
     },
     {
       key: "/system",
