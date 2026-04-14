@@ -159,7 +159,7 @@ class CompositeSessionRuleStore:
     """组合存储：edict scope 走 InMemory，always scope 走 Sqlite。"""
 
     in_memory: InMemorySessionRuleStore
-    sqlite: "SqliteSessionRuleStore"  # noqa: F821
+    sqlite: "SqliteSessionRuleStore"
 
     async def create(self, rule: SessionRule) -> None:
         if rule.scope == "always":
@@ -233,3 +233,109 @@ def assert_can_grant(tool_name: str, scope: str) -> None:
         raise ValueError(
             f"Cannot grant 'always' scope to bash-family tool {tool_name!r}"
         )
+
+
+# ---------- SQLite 实现 ----------
+
+
+@dataclass
+class SqliteSessionRuleStore:
+    """always scope 持久化。依赖 tianshu.storage.Storage 的 `_conn`。"""
+
+    storage: object  # Storage 实例，不绑死类型避免循环导入
+
+    async def create(self, rule: SessionRule) -> None:
+        conn = self.storage._conn  # type: ignore[attr-defined]
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO session_rules (
+                rule_id, tool_name, arg_fingerprint, scope, edict_id,
+                granted_at, granted_by_decree_id, source, reason, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                rule.rule_id,
+                rule.tool_name,
+                rule.arg_fingerprint,
+                rule.scope,
+                rule.edict_id,
+                rule.granted_at.isoformat(),
+                rule.granted_by_decree_id,
+                rule.source,
+                rule.reason,
+                rule.expires_at.isoformat() if rule.expires_at else None,
+            ),
+        )
+        conn.commit()
+
+    async def find_match(
+        self, tool_name: str, args: dict, edict_id: str | None,
+    ) -> SessionRule | None:
+        conn = self.storage._conn  # type: ignore[attr-defined]
+        fp = compute_fingerprint(tool_name, args)
+        now_iso = datetime.now(UTC).isoformat()
+        row = conn.execute(
+            """
+            SELECT rule_id, tool_name, arg_fingerprint, scope, edict_id,
+                   granted_at, granted_by_decree_id, source, reason, expires_at
+            FROM session_rules
+            WHERE tool_name = ? AND arg_fingerprint = ? AND scope = 'always'
+              AND (expires_at IS NULL OR expires_at > ?)
+            ORDER BY granted_at DESC
+            LIMIT 1
+            """,
+            (tool_name, fp, now_iso),
+        ).fetchone()
+        if not row:
+            return None
+        return _row_to_rule(row)
+
+    async def list_by_scope(
+        self, scope: str, edict_id: str | None = None,
+    ) -> list[SessionRule]:
+        conn = self.storage._conn  # type: ignore[attr-defined]
+        if edict_id is not None:
+            rows = conn.execute(
+                "SELECT rule_id, tool_name, arg_fingerprint, scope, edict_id, "
+                "granted_at, granted_by_decree_id, source, reason, expires_at "
+                "FROM session_rules WHERE scope = ? AND edict_id = ? "
+                "ORDER BY granted_at DESC",
+                (scope, edict_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT rule_id, tool_name, arg_fingerprint, scope, edict_id, "
+                "granted_at, granted_by_decree_id, source, reason, expires_at "
+                "FROM session_rules WHERE scope = ? "
+                "ORDER BY granted_at DESC",
+                (scope,),
+            ).fetchall()
+        return [_row_to_rule(r) for r in rows]
+
+    async def revoke(self, rule_id: str) -> None:
+        conn = self.storage._conn  # type: ignore[attr-defined]
+        conn.execute("DELETE FROM session_rules WHERE rule_id = ?", (rule_id,))
+        conn.commit()
+
+    async def clear_edict(self, edict_id: str) -> None:
+        """always scope 默认不随 edict 清理 — no-op。"""
+        return None
+
+
+def _row_to_rule(row) -> SessionRule:
+    (
+        rule_id, tool_name, arg_fingerprint, scope, edict_id,
+        granted_at, granted_by_decree_id, source, reason, expires_at,
+    ) = row
+    return SessionRule(
+        rule_id=rule_id,
+        tool_name=tool_name,
+        arg_fingerprint=arg_fingerprint,
+        scope=scope,
+        edict_id=edict_id,
+        granted_at=datetime.fromisoformat(granted_at),
+        granted_by_decree_id=granted_by_decree_id,
+        source=source,
+        reason=reason,
+        expires_at=datetime.fromisoformat(expires_at) if expires_at else None,
+    )

@@ -270,6 +270,25 @@ class Storage:
                     created_by    TEXT NOT NULL DEFAULT 'manual',
                     source_edict_id TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS session_rules (
+                    rule_id              TEXT PRIMARY KEY,
+                    tool_name            TEXT NOT NULL,
+                    arg_fingerprint      TEXT NOT NULL,
+                    scope                TEXT NOT NULL CHECK (scope IN ('edict', 'always')),
+                    edict_id             TEXT,
+                    granted_at           TEXT NOT NULL,
+                    granted_by_decree_id TEXT,
+                    source               TEXT NOT NULL CHECK (source IN ('approval', 'profile', 'manual')),
+                    reason               TEXT,
+                    expires_at           TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_session_rules_tool_scope
+                    ON session_rules(tool_name, scope, arg_fingerprint);
+
+                CREATE INDEX IF NOT EXISTS idx_session_rules_edict
+                    ON session_rules(edict_id);
             """)
 
     def _migrate(self) -> None:
