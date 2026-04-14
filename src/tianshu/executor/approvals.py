@@ -26,11 +26,15 @@ class ApprovalManager:
         self,
         event_bus: EventBus,
         storage: Storage,
+        session_rule_store: object | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
+        self._session_rule_store = session_rule_store
         self._pending: dict[str, asyncio.Event] = {}
         self._results: dict[str, Decree] = {}
+        # Spec Section 4: 记录 wait_for_approval 时的 tool_name，方便 _handle_approve 生成 session rule
+        self._pending_tool: dict[str, str] = {}
 
     async def on_before_tool_call(self, **context: object) -> object:
         """Deprecated pre-Step-2 entry point.
@@ -51,6 +55,7 @@ class ApprovalManager:
         """Block until a decree is submitted for this memorial, or timeout."""
         evt = asyncio.Event()
         self._pending[memorial_id] = evt
+        self._pending_tool[memorial_id] = tool_name
 
         logger.info(
             "Waiting for approval on memorial %s (tool: %s)",
@@ -69,6 +74,7 @@ class ApprovalManager:
             return None
         finally:
             self._pending.pop(memorial_id, None)
+            self._pending_tool.pop(memorial_id, None)
 
     async def submit_decree(self, decree: Decree) -> None:
         """Process a decree and update memorial status accordingly."""
@@ -109,6 +115,10 @@ class ApprovalManager:
                 payload={"decree_id": decree.id, "comment": decree.comment},
             )
         )
+
+        # Spec Section 4: grant_scope 升级为 session rule
+        if decree.grant_scope and decree.grant_scope != "once" and self._session_rule_store:
+            await self._write_session_rule_from_decree(memorial, decree)
 
     async def _handle_reject(self, memorial: Memorial, decree: Decree) -> None:
         memorial.review_status = "rejected"
@@ -190,3 +200,79 @@ class ApprovalManager:
                 payload={"decree_id": decree.id},
             )
         )
+
+    async def _write_session_rule_from_decree(
+        self, memorial: Memorial, decree: Decree,
+    ) -> None:
+        """根据 decree.grant_scope 写 session rule，供后续调用直接命中。"""
+        from tianshu.tools.policy_store import (
+            assert_can_grant,
+            compute_fingerprint,
+            make_session_rule,
+        )
+
+        tool_name = self._pending_tool.get(decree.memorial_id) or ""
+        if not tool_name:
+            logger.warning(
+                "decree %s: no tool_name recorded for memorial %s, skip session rule",
+                decree.id, decree.memorial_id,
+            )
+            return
+
+        # bash + always 被硬约束禁止
+        try:
+            assert_can_grant(tool_name, decree.grant_scope or "once")
+        except ValueError as e:
+            logger.warning("decree %s: %s — downgrading to once", decree.id, e)
+            return
+
+        args = self._fetch_latest_approval_args(memorial.id, memorial.edict_id, tool_name)
+        fingerprint = compute_fingerprint(tool_name, args)
+
+        rule = make_session_rule(
+            tool_name=tool_name,
+            arg_fingerprint=fingerprint,
+            scope=decree.grant_scope,  # "edict" | "always"
+            source="approval",
+            reason=decree.grant_reason or f"granted by decree {decree.id}",
+            edict_id=memorial.edict_id if decree.grant_scope == "edict" else None,
+            granted_by_decree_id=decree.id,
+        )
+        try:
+            await self._session_rule_store.create(rule)  # type: ignore[union-attr]
+        except Exception:
+            logger.exception("failed to create session rule from decree %s", decree.id)
+            return
+
+        self._storage.append_event(
+            memorial.edict_id,
+            memorial.id,
+            "policy.session_rule_created",
+            {
+                "rule_id": rule.rule_id,
+                "tool_name": tool_name,
+                "scope": rule.scope,
+                "source": rule.source,
+                "arg_fingerprint": rule.arg_fingerprint,
+                "decree_id": decree.id,
+            },
+        )
+
+    def _fetch_latest_approval_args(
+        self, memorial_id: str, edict_id: str, tool_name: str,
+    ) -> dict:
+        """从 events 表反查最近一次 tool.approval_required 的 args_summary。"""
+        try:
+            rows = self._storage.get_events(edict_id)
+        except Exception:
+            return {}
+        for row in reversed(rows or []):
+            if row.get("memorial_id") != memorial_id:
+                continue
+            if row.get("event_type") != "tool.approval_required":
+                continue
+            payload = row.get("payload") or {}
+            if payload.get("tool_name") != tool_name:
+                continue
+            return payload.get("args_summary") or {}
+        return {}

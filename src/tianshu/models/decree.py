@@ -17,3 +17,6 @@ class Decree(BaseModel):
     amended_goal: str | None = None
     actor: str = "human"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # Spec Section 4: session rule 升级支持
+    grant_scope: Literal["once", "edict", "always"] | None = None
+    grant_reason: str | None = None
