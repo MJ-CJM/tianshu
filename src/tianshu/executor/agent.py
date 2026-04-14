@@ -18,7 +18,7 @@ from tianshu.executor.exit_reason import ExitReason
 from tianshu.executor.hooks import HookRegistry, HookResult, HookType
 from tianshu.executor.loop_state import LoopState
 from tianshu.llm import LLMClient
-from tianshu.models import Edict, TaskStatus, UsageSummary
+from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.skills.loader import SkillsLoader
 from tianshu.tools.registry import ToolRegistry
@@ -74,6 +74,7 @@ class Agent:
     async def execute(
         self,
         edict: Edict,
+        memorial: Memorial | None = None,
         on_event: Callable[[dict], None] | None = None,
         history: list[dict] | None = None,
         user_content: str | None = None,
@@ -346,12 +347,25 @@ class Agent:
 
                 # Execute each tool call sequentially
                 for tc in response.tool_calls:
-                    if self._hooks:
+                    # Tier fast-path: T0_READONLY bypasses HookRegistry at agent layer.
+                    # Registry has its own T0 fast path too — defense in depth, avoids
+                    # emitting noise hook events for readonly tools. Spec Section 2.
+                    from tianshu.tools.types import ToolTier
+
+                    tool_defn = self._tools.get_definition(tc["name"])
+                    tool_tier = (
+                        tool_defn.tier if tool_defn else ToolTier.T3_DANGEROUS.value
+                    )
+                    is_fast_path = tool_tier == ToolTier.T0_READONLY.value
+
+                    if self._hooks and not is_fast_path:
                         hook_result = await self._hooks.run(
                             HookType.BEFORE_TOOL_CALL,
                             tool_name=tc["name"],
                             tool_args=tc["args"],
                             iteration=state.iteration,
+                            edict=edict,
+                            memorial=memorial,
                         )
                         if hook_result.block:
                             new_messages.append({
@@ -389,13 +403,15 @@ class Agent:
                         "content": content,
                     })
 
-                    if self._hooks:
+                    if self._hooks and not is_fast_path:
                         await self._hooks.run(
                             HookType.AFTER_TOOL_CALL,
                             tool_name=tc["name"],
                             tool_args=tc["args"],
                             tool_result=tool_result,
                             iteration=state.iteration,
+                            edict=edict,
+                            memorial=memorial,
                         )
 
                     args_str = tc["args"] if isinstance(tc["args"], str) else json.dumps(tc["args"])

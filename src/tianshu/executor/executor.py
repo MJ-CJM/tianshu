@@ -228,6 +228,7 @@ class Executor:
             result = await asyncio.wait_for(
                 self._agent.execute(
                     edict,
+                    memorial=memorial,
                     on_event=on_event,
                     history=history,
                     user_content=user_content,
