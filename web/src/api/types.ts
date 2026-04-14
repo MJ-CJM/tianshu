@@ -24,6 +24,15 @@ export interface EdictSchedule {
   timezone: string;
 }
 
+export interface EdictPolicyProfile {
+  template_name: string | null;
+  allowed_paths: string[];
+  allowed_bash_prefixes: string[];
+  tier_overrides: Record<string, number>;
+  auto_approve_max_tier: number;
+  expires_after_seconds: number | null;
+}
+
 export interface EdictRuntime {
   timeout_seconds: number;
   max_iterations: number;
@@ -32,6 +41,7 @@ export interface EdictRuntime {
   token_budget: number | null;
   cost_budget_cny: number | null;
   approval_required_tools: string[];
+  policy_profile?: EdictPolicyProfile | null;
 }
 
 export interface ArtifactRef {

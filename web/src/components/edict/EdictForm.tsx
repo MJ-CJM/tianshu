@@ -3,6 +3,8 @@ import { Form, Input, InputNumber, Button, Collapse, Select, Divider, Radio, Swi
 import { SendOutlined } from "@ant-design/icons";
 import { usePersonas } from "../../hooks/usePersonas";
 import type { EdictCreateRequest, EdictRuntime } from "../../api/types";
+import PolicyProfilePanel from "../policy/PolicyProfilePanel";
+import type { PolicyProfileValue } from "../policy/PolicyProfilePanel";
 
 interface EdictFormProps {
   onSubmit: (values: EdictCreateRequest) => void;
@@ -13,6 +15,8 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
   const [form] = Form.useForm();
   const [scheduleType, setScheduleType] = useState("immediate");
   const [assignMode, setAssignMode] = useState<"auto" | "direct">("auto");
+  const [policyProfile, setPolicyProfile] =
+    useState<PolicyProfileValue | null>(null);
   const { data: personas } = usePersonas();
 
   const personaOptions = (personas ?? []).map((p) => ({
@@ -86,6 +90,14 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     const costBudget = values.cost_budget_cny as number | undefined;
     if (costBudget) {
       runtime.cost_budget_cny = costBudget;
+    }
+    if (
+      policyProfile &&
+      (policyProfile.template_name ||
+        policyProfile.allowed_paths.length > 0 ||
+        policyProfile.allowed_bash_prefixes.length > 0)
+    ) {
+      runtime.policy_profile = policyProfile;
     }
     if (Object.keys(runtime).length > 0) {
       req.runtime = runtime;
@@ -319,6 +331,12 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                 <Form.Item name="cost_budget_cny" label="费用预算 (CNY)">
                   <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder="不限" />
                 </Form.Item>
+
+                <Divider style={{ margin: "12px 0" }} />
+                <PolicyProfilePanel
+                  value={policyProfile ?? undefined}
+                  onChange={setPolicyProfile}
+                />
               </>
             ),
           },
