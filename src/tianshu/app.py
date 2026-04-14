@@ -24,6 +24,7 @@ from tianshu.providers.manager import ProviderManager
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.executor.hooks import HookRegistry, HookType
+from tianshu.executor.policy_hook import PolicyHook
 from tianshu.persona.evaluator import PerformanceEvaluator
 from tianshu.gateway import gateway_router
 from tianshu.memory.manager import MemoryManager
@@ -43,6 +44,8 @@ from tianshu.skills.validator import SkillValidator
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.memory_tools import register_memory_tools
+from tianshu.tools.policy import PolicyEngine
+from tianshu.tools.policy_rules import build_default_rules
 from tianshu.tools.skill_tools import register_skill_tools
 from tianshu.tools.registry import ToolRegistry
 from tianshu.web import mount_web
@@ -222,6 +225,25 @@ async def lifespan(app: FastAPI):
         storage=storage,
     )
     app.state.approval_manager = approval_manager
+
+    # --- PolicyEngine + PolicyHook ---
+    policy_engine = PolicyEngine(rules=build_default_rules())
+    app.state.policy_engine = policy_engine
+
+    policy_hook = PolicyHook(
+        engine=policy_engine,
+        workspace_root=Path(settings.workspace_dir).resolve(),
+        storage=storage,
+        tool_registry=tools,
+        session_rule_store=None,   # Step 3 填充
+        approval_manager=approval_manager,
+    )
+    app.state.policy_hook = policy_hook
+    hook_registry.register(
+        HookType.BEFORE_TOOL_CALL,
+        policy_hook.on_before_tool_call,
+        priority=5,  # 先于 approval_manager.on_before_tool_call(priority=10) 执行
+    )
 
     # --- MemoryManager ---
     memory_manager = MemoryManager(
