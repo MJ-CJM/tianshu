@@ -33,50 +33,15 @@ class ApprovalManager:
         self._results: dict[str, Decree] = {}
 
     async def on_before_tool_call(self, **context: object) -> object:
-        """BEFORE_TOOL_CALL hook — check if tool requires approval."""
-        from tianshu.executor.hooks import HookResult
+        """Deprecated pre-Step-2 entry point.
 
-        tool_name = context.get("tool_name")
-        edict = context.get("edict")
-        memorial = context.get("memorial")
-        if not tool_name or not edict:
-            return None
+        入口判断已迁移到 PolicyHook（Spec Section 3 规则 4 ApprovalRequiredListRule）。
+        保留方法签名以兼容已有 HookRegistry 注册，但直接返回 None 放行。
 
-        # Check if tool is in approval_required_tools list
-        runtime = getattr(edict, "runtime", None)
-        if not runtime:
-            return None
-        required_tools = getattr(runtime, "approval_required_tools", [])
-        if not required_tools or tool_name not in required_tools:
-            return None
-
-        # Tool requires approval — emit event and wait
-        memorial_id = getattr(memorial, "id", None) if memorial else None
-        if not memorial_id:
-            return HookResult(
-                block=True,
-                reason=f"Tool '{tool_name}' requires approval but no memorial context",
-            )
-
-        self._storage.append_event(
-            getattr(edict, "id", ""),
-            memorial_id,
-            "tool.approval_required",
-            {"tool_name": tool_name},
-        )
-
-        decree = await self.wait_for_approval(memorial_id, tool_name)
-        if decree is None:
-            return HookResult(
-                block=True,
-                reason=f"Tool '{tool_name}' approval timed out or rejected",
-            )
-        if decree.action == "approve":
-            return None
-        return HookResult(
-            block=True,
-            reason=f"Tool '{tool_name}' rejected: {decree.comment or 'no reason'}",
-        )
+        实时审批的 wait_for_approval / submit_decree 仍然由本类提供，
+        由 PolicyHook 在 require_approval 分支里直接调用。
+        """
+        return None
 
     async def wait_for_approval(
         self,
