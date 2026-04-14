@@ -4,11 +4,13 @@ import AppHeader from "./AppHeader";
 import AppSidebar from "./AppSidebar";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useWsQueryInvalidation } from "../../hooks/useWsQueryInvalidation";
+import { useWsPolicyToasts } from "../../hooks/useWsPolicyToasts";
 import styles from "./AppLayout.module.css";
 
 export default function AppLayout() {
   const { isConnected, lastMessage } = useWebSocket();
   useWsQueryInvalidation(lastMessage);
+  useWsPolicyToasts(lastMessage);
 
   return (
     <Layout className={styles.root}>

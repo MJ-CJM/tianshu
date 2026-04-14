@@ -30,6 +30,7 @@ class PolicyHook:
         tool_registry: object,
         session_rule_store: object | None = None,
         approval_manager: object | None = None,
+        notifier: object | None = None,
     ) -> None:
         self._engine = engine
         self._workspace_root = workspace_root.resolve()
@@ -37,6 +38,7 @@ class PolicyHook:
         self._tool_registry = tool_registry
         self._session_rule_store = session_rule_store
         self._approval_manager = approval_manager
+        self._notifier = notifier
 
     async def on_before_tool_call(self, **context: object) -> HookResult | None:
         tool_name = context.get("tool_name")
@@ -116,21 +118,37 @@ class PolicyHook:
             )
 
         # 写事件，触发前端 toast
+        approval_payload = {
+            "tool_name": ctx.tool_name,
+            "rule_id": decision.rule_id,
+            "reason": decision.reason,
+            "tool_tier": ctx.tool_tier.name,
+            "args_summary": self._summarize_args(ctx.args),
+        }
+        edict_id = getattr(ctx.edict, "id", "")
         try:
             self._storage.append_event(  # type: ignore[attr-defined]
-                getattr(ctx.edict, "id", ""),
+                edict_id,
                 memorial_id,
                 "tool.approval_required",
-                {
-                    "tool_name": ctx.tool_name,
-                    "rule_id": decision.rule_id,
-                    "reason": decision.reason,
-                    "tool_tier": ctx.tool_tier.name,
-                    "args_summary": self._summarize_args(ctx.args),
-                },
+                approval_payload,
             )
         except Exception:
             logger.exception("policy_hook: failed to append tool.approval_required event")
+
+        # Broadcast to WS so frontend can show toast
+        if self._notifier is not None:
+            try:
+                import asyncio
+                coro = self._notifier.broadcast_ws({  # type: ignore[attr-defined]
+                    "type": "tool.approval_required",
+                    "edict_id": edict_id,
+                    "memorial_id": memorial_id,
+                    "payload": approval_payload,
+                })
+                asyncio.create_task(coro)
+            except Exception:
+                logger.exception("policy_hook: failed to broadcast tool.approval_required")
 
         decree = await self._approval_manager.wait_for_approval(memorial_id, ctx.tool_name)  # type: ignore[attr-defined]
         if decree is None:
@@ -155,24 +173,43 @@ class PolicyHook:
         memorial_id = getattr(ctx.memorial, "id", None) if ctx.memorial else None
         if not edict_id:
             return
+        payload = {
+            "tool_name": ctx.tool_name,
+            "tool_tier": ctx.tool_tier.name,
+            "verdict": decision.verdict,
+            "rule_id": decision.rule_id,
+            "reason": decision.reason,
+            "iteration": ctx.iteration,
+            "args_summary": self._summarize_args(ctx.args),
+            "metadata": decision.metadata,
+        }
         try:
             self._storage.append_event(  # type: ignore[attr-defined]
                 edict_id,
                 memorial_id,
                 event_type,
-                {
-                    "tool_name": ctx.tool_name,
-                    "tool_tier": ctx.tool_tier.name,
-                    "verdict": decision.verdict,
-                    "rule_id": decision.rule_id,
-                    "reason": decision.reason,
-                    "iteration": ctx.iteration,
-                    "args_summary": self._summarize_args(ctx.args),
-                    "metadata": decision.metadata,
-                },
+                payload,
             )
         except Exception:
             logger.exception("policy_hook: failed to write %s event", event_type)
+
+        # Broadcast deny decisions to WS so frontend can show toast
+        if (
+            self._notifier is not None
+            and event_type == "policy.decision"
+            and decision.verdict == "deny"
+        ):
+            try:
+                import asyncio
+                coro = self._notifier.broadcast_ws({  # type: ignore[attr-defined]
+                    "type": "policy.decision",
+                    "edict_id": edict_id,
+                    "memorial_id": memorial_id,
+                    "payload": payload,
+                })
+                asyncio.create_task(coro)
+            except Exception:
+                logger.exception("policy_hook: failed to broadcast policy.decision")
 
     @staticmethod
     def _summarize_args(args: dict) -> dict:

@@ -251,6 +251,7 @@ async def lifespan(app: FastAPI):
         tool_registry=tools,
         session_rule_store=session_rule_store,
         approval_manager=approval_manager,
+        notifier=notifier,
     )
     app.state.policy_hook = policy_hook
     hook_registry.register(
