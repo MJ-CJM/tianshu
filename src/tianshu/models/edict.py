@@ -25,6 +25,21 @@ class EdictDispatch(BaseModel):
     target: str | None = None
 
 
+class PolicyProfilePayload(BaseModel):
+    """Pydantic 版 PolicyProfile — 用于 JSON 序列化。
+
+    运行时 Executor 会把它转成 tools.policy_profile.PolicyProfile（frozen dataclass）
+    再调用 expand_profile_to_rules。
+    """
+
+    allowed_paths: list[str] = Field(default_factory=list)
+    allowed_bash_prefixes: list[str] = Field(default_factory=list)
+    tier_overrides: dict[str, int] = Field(default_factory=dict)
+    auto_approve_max_tier: int = 1  # T1_WORKSPACE
+    expires_after_seconds: int | None = None
+    template_name: str | None = None
+
+
 class EdictRuntime(BaseModel):
     timeout_seconds: int = 300
     max_iterations: int = 20
@@ -33,6 +48,9 @@ class EdictRuntime(BaseModel):
     token_budget: int | None = None
     cost_budget_cny: float | None = None
     approval_required_tools: list[str] = Field(default_factory=list)
+    # Spec Section 5: Policy Profile 预配权限
+    policy_profile: PolicyProfilePayload | None = None
+    tier_overrides: dict[str, int] = Field(default_factory=dict)
 
 
 class Edict(BaseModel):
