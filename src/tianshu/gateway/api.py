@@ -1663,3 +1663,127 @@ async def get_planner_stats(request: Request):
         "avg_tasks_per_dag": avg_tasks,
         "recent_history": history,
     })
+
+
+# --- Policy endpoints (Spec Section 6) ---
+
+
+@gateway_router.get("/edicts/{edict_id}/policy_events")
+async def list_policy_events(edict_id: str, request: Request):
+    """Return policy.* + hook.* + tool.approval_required + decree.* events for an edict."""
+    storage: Storage = request.app.state.storage
+    rows = storage.get_events(edict_id)
+    data = []
+    for row in rows:
+        typ = row.get("event_type") or ""
+        if not (
+            typ.startswith("policy.")
+            or typ.startswith("hook.")
+            or typ == "tool.approval_required"
+            or typ.startswith("decree.")
+        ):
+            continue
+        data.append({
+            "id": row.get("id"),
+            "memorial_id": row.get("memorial_id"),
+            "type": typ,
+            "payload": row.get("payload") or {},
+            "created_at": row.get("created_at"),
+        })
+    return ApiResponse(success=True, data={"events": data})
+
+
+@gateway_router.get("/policy/session_rules")
+async def list_session_rules(request: Request, scope: str = "always"):
+    """List session rules by scope. scope = 'edict' | 'always'."""
+    store = getattr(request.app.state, "session_rule_store", None)
+    if store is None:
+        return ApiResponse(success=True, data={"rules": []})
+    rules = await store.list_by_scope(scope=scope)
+    data = [
+        {
+            "rule_id": r.rule_id,
+            "tool_name": r.tool_name,
+            "arg_fingerprint": r.arg_fingerprint,
+            "scope": r.scope,
+            "edict_id": r.edict_id,
+            "granted_at": r.granted_at.isoformat(),
+            "granted_by_decree_id": r.granted_by_decree_id,
+            "source": r.source,
+            "reason": r.reason,
+            "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+        }
+        for r in rules
+    ]
+    return ApiResponse(success=True, data={"rules": data})
+
+
+@gateway_router.delete("/policy/session_rules/{rule_id}", response_model=ApiResponse)
+async def revoke_session_rule(rule_id: str, request: Request):
+    """Manually revoke a session rule."""
+    store = getattr(request.app.state, "session_rule_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="SessionRuleStore not configured")
+    await store.revoke(rule_id)
+    storage: Storage = request.app.state.storage
+    try:
+        storage.append_event(
+            "",
+            None,
+            "policy.session_rule_revoked",
+            {"rule_id": rule_id, "source": "manual"},
+        )
+    except Exception:
+        logger.exception("failed to append policy.session_rule_revoked event")
+    return ApiResponse(success=True, data={"rule_id": rule_id, "revoked": True})
+
+
+@gateway_router.get("/policy/stats")
+async def policy_stats(request: Request):
+    """Aggregate today's allow/deny/require_approval/approved/rejected counts."""
+    import json as _json
+
+    storage: Storage = request.app.state.storage
+    conn = storage._conn
+    stats = {"allow": 0, "deny": 0, "require_approval": 0, "approved": 0, "rejected": 0}
+    rows = conn.execute(
+        """
+        SELECT event_type, payload_json FROM events
+        WHERE date(created_at) = date('now')
+          AND event_type IN ('policy.decision', 'decree.approved', 'decree.rejected')
+        """
+    ).fetchall()
+    for row in rows:
+        typ = row[0]
+        payload = row[1]
+        if typ == "decree.approved":
+            stats["approved"] += 1
+        elif typ == "decree.rejected":
+            stats["rejected"] += 1
+        elif typ == "policy.decision":
+            try:
+                parsed = _json.loads(payload) if isinstance(payload, str) else (payload or {})
+                verdict = parsed.get("verdict", "")
+                if verdict in stats:
+                    stats[verdict] += 1
+            except Exception:
+                pass
+    return ApiResponse(success=True, data=stats)
+
+
+@gateway_router.get("/policy/templates")
+async def list_policy_templates():
+    """List built-in PolicyProfile templates."""
+    from tianshu.tools.policy_profile import BUILTIN_TEMPLATES
+
+    data = [
+        {
+            "name": name,
+            "allowed_paths": list(p.allowed_paths),
+            "allowed_bash_prefixes": list(p.allowed_bash_prefixes),
+            "tier_overrides": dict(p.tier_overrides),
+            "auto_approve_max_tier": p.auto_approve_max_tier,
+        }
+        for name, p in BUILTIN_TEMPLATES.items()
+    ]
+    return ApiResponse(success=True, data={"templates": data})
