@@ -7,7 +7,7 @@ from pathlib import Path
 
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
-from tianshu.tools.types import ToolResult, error_result, ok_result
+from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
 _MAX_ENTRIES = 500
 
@@ -63,6 +63,6 @@ def register_list_dir(registry: ToolRegistry, workspace: Path) -> None:
                     },
                 },
             },
-            tier=0,
+            tier=ToolTier.T0_READONLY.value,
         ),
     )

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
-from tianshu.tools.types import ToolResult, error_result, ok_result
+from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
 _SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv"}
 _MAX_OUTPUT_BYTES = 50_000
@@ -91,6 +91,6 @@ def register_find_files(registry: ToolRegistry, workspace: Path) -> None:
                 },
                 "required": ["pattern"],
             },
-            tier=0,
+            tier=ToolTier.T0_READONLY.value,
         ),
     )

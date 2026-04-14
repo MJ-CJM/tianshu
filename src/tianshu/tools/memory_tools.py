@@ -7,7 +7,7 @@ import logging
 
 from tianshu.storage import Storage
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
-from tianshu.tools.types import ToolResult, error_result, ok_result
+from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,6 @@ def register_memory_tools(registry: ToolRegistry, storage: Storage) -> None:
                 },
                 "required": ["query"],
             },
-            tier=0,
+            tier=ToolTier.T0_READONLY.value,
         ),
     )
