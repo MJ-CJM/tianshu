@@ -10,6 +10,7 @@ import {
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import GlowCard from "../common/GlowCard";
+import PendingToolCallCard from "./PendingToolCallCard";
 import { formatTime } from "../../utils/format";
 import {
   deriveEdictPhase,
@@ -17,19 +18,21 @@ import {
   PHASE_COLORS,
   type EdictPhase,
 } from "../../utils/edictPhase";
-import type { Edict, Memorial } from "../../api/types";
+import type { Edict, Memorial, PendingToolCall } from "../../api/types";
 import styles from "../common/GlowCard.module.css";
 
 interface EdictActivityCardProps {
   edict: Edict;
   latestMemorial: Memorial | null;
   onOpenDecree: (memorial: Memorial, action: string) => void;
+  pendingToolCalls?: PendingToolCall[];
 }
 
 export default function EdictActivityCard({
   edict,
   latestMemorial,
   onOpenDecree,
+  pendingToolCalls = [],
 }: EdictActivityCardProps) {
   const { token } = theme.useToken();
   const navigate = useNavigate();
@@ -38,6 +41,9 @@ export default function EdictActivityCard({
   const handleClick = () => {
     navigate(`/edicts/${edict.id}`);
   };
+
+  const hasPendingTool = pendingToolCalls.length > 0;
+  const borderColor = hasPendingTool ? "#faad14" : PHASE_COLORS[phase];
 
   return (
     <GlowCard
@@ -50,6 +56,9 @@ export default function EdictActivityCard({
             <Tag color="#ff4d4f">紧急</Tag>
           )}
           <Tag color={PHASE_COLORS[phase]}>{PHASE_LABELS[phase]}</Tag>
+          {hasPendingTool && (
+            <Tag color="orange">工具待批 ({pendingToolCalls.length})</Tag>
+          )}
           <Typography.Text
             style={{ color: token.colorTextSecondary, fontSize: 12 }}
           >
@@ -58,11 +67,18 @@ export default function EdictActivityCard({
         </Space>
       }
       style={{
-        borderLeft: `3px solid ${PHASE_COLORS[phase]}`,
+        borderLeft: `3px solid ${borderColor}`,
         cursor: "pointer",
       }}
       onClick={handleClick}
     >
+      {hasPendingTool && (
+        <div onClick={(e) => e.stopPropagation()}>
+          {pendingToolCalls.map((p) => (
+            <PendingToolCallCard key={p.memorial_id} pending={p} />
+          ))}
+        </div>
+      )}
       <PhaseContent
         phase={phase}
         memorial={latestMemorial}

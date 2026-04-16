@@ -29,6 +29,7 @@ from tianshu.models import (
     LLMConfigUpdateRequest,
     Memorial,
     TaskStatus,
+    ToolDecisionRequest,
     make_event,
 )
 from tianshu.consultation.models import ConsultationRequest
@@ -435,6 +436,44 @@ async def create_decree(body: DecreeCreateRequest, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+    return ApiResponse(success=True, data=decree.model_dump(mode="json"))
+
+
+# --- Mid-execution tool approval endpoints (PolicyHook integration) ---
+
+
+@gateway_router.get("/approvals/pending_tool_calls", response_model=ApiResponse)
+async def list_pending_tool_calls(request: Request):
+    """Return in-memory pending tool-call approvals awaited by PolicyHook.
+
+    Used by 批红台 to render mid-execution approval cards. The state is sourced
+    from `ApprovalManager._pending` (authoritative) and enriched with the latest
+    `tool.approval_required` event payload for each memorial.
+    """
+    approval_manager: ApprovalManager = request.app.state.approval_manager
+    items = approval_manager.list_pending_tool_calls()
+    return ApiResponse(success=True, data={"items": items})
+
+
+@gateway_router.post(
+    "/approvals/tool_decision",
+    response_model=ApiResponse,
+    status_code=201,
+)
+async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
+    """Approve or reject a pending tool-call without mutating memorial status."""
+    approval_manager: ApprovalManager = request.app.state.approval_manager
+    try:
+        decree = await approval_manager.submit_tool_decision(
+            memorial_id=body.memorial_id,
+            action=body.action,
+            comment=body.comment,
+            grant_scope=body.grant_scope,
+            grant_reason=body.grant_reason,
+            actor=body.actor,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return ApiResponse(success=True, data=decree.model_dump(mode="json"))
 
 
@@ -1694,14 +1733,20 @@ async def list_policy_events(edict_id: str, request: Request):
 
 
 @gateway_router.get("/policy/session_rules")
-async def list_session_rules(request: Request, scope: str = "always"):
-    """List session rules by scope. scope = 'edict' | 'always'."""
+async def list_session_rules(request: Request, scope: str = "all"):
+    """List session rules. scope = 'edict' | 'always' | 'all'."""
     store = getattr(request.app.state, "session_rule_store", None)
     if store is None:
         return ApiResponse(success=True, data={"rules": []})
-    rules = await store.list_by_scope(scope=scope)
-    data = [
-        {
+    if scope == "all":
+        edict_rules = await store.list_by_scope(scope="edict")
+        always_rules = await store.list_by_scope(scope="always")
+        rules = edict_rules + always_rules
+    else:
+        rules = await store.list_by_scope(scope=scope)
+
+    def _serialize(r):  # noqa: ANN001, ANN202
+        return {
             "rule_id": r.rule_id,
             "tool_name": r.tool_name,
             "arg_fingerprint": r.arg_fingerprint,
@@ -1713,9 +1758,79 @@ async def list_session_rules(request: Request, scope: str = "always"):
             "reason": r.reason,
             "expires_at": r.expires_at.isoformat() if r.expires_at else None,
         }
-        for r in rules
-    ]
-    return ApiResponse(success=True, data={"rules": data})
+
+    return ApiResponse(success=True, data={"rules": [_serialize(r) for r in rules]})
+
+
+@gateway_router.post("/policy/session_rules", response_model=ApiResponse, status_code=201)
+async def create_session_rule(request: Request):
+    """Manually create a session rule (source='manual')."""
+    from datetime import timedelta
+
+    from tianshu.tools.policy_store import assert_can_grant, make_session_rule
+
+    store = getattr(request.app.state, "session_rule_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="SessionRuleStore not configured")
+
+    body = await request.json()
+    tool_name: str = body.get("tool_name", "").strip()
+    scope: str = body.get("scope", "always")
+    reason: str = body.get("reason", "").strip() or "手动添加"
+    expires_days: int | None = body.get("expires_days")
+    edict_id: str | None = body.get("edict_id")
+
+    if not tool_name:
+        raise HTTPException(status_code=422, detail="tool_name is required")
+    if scope not in ("edict", "always"):
+        raise HTTPException(status_code=422, detail="scope must be 'edict' or 'always'")
+    if scope == "edict" and not edict_id:
+        raise HTTPException(status_code=422, detail="edict_id is required for edict scope")
+
+    try:
+        assert_can_grant(tool_name, scope)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    expires_after = timedelta(days=expires_days) if expires_days and expires_days > 0 else None
+
+    rule = make_session_rule(
+        tool_name=tool_name,
+        arg_fingerprint="*",  # manual rules match any args
+        scope=scope,
+        source="manual",
+        reason=reason,
+        edict_id=edict_id,
+        expires_after=expires_after,
+    )
+    await store.create(rule)
+
+    storage: Storage = request.app.state.storage
+    try:
+        storage.append_event(
+            edict_id or "",
+            None,
+            "policy.session_rule_created",
+            {
+                "rule_id": rule.rule_id,
+                "tool_name": tool_name,
+                "scope": scope,
+                "source": "manual",
+                "reason": reason,
+            },
+        )
+    except Exception:
+        logger.exception("failed to append policy.session_rule_created event")
+
+    return ApiResponse(
+        success=True,
+        data={
+            "rule_id": rule.rule_id,
+            "tool_name": rule.tool_name,
+            "scope": rule.scope,
+            "source": rule.source,
+        },
+    )
 
 
 @gateway_router.delete("/policy/session_rules/{rule_id}", response_model=ApiResponse)

@@ -163,6 +163,28 @@ export interface DecreeCreateRequest {
   actor?: string;
 }
 
+export type ToolGrantScope = "once" | "edict" | "always";
+
+export interface PendingToolCall {
+  memorial_id: string;
+  edict_id: string;
+  tool_name: string;
+  rule_id: string | null;
+  reason: string | null;
+  tool_tier: string | null;
+  args_summary: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export interface ToolDecisionRequest {
+  memorial_id: string;
+  action: "approve" | "reject";
+  comment?: string;
+  actor?: string;
+  grant_scope?: ToolGrantScope;
+  grant_reason?: string;
+}
+
 export interface WsMessage {
   type: string;
   edict_id?: string;

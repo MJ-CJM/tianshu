@@ -1,7 +1,11 @@
 import { useState, useMemo } from "react";
 import { Button, Empty, Input, Select, Space } from "antd";
 import { ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { useOpenEdicts, useEdictLatestMemorials } from "../hooks/useApprovals";
+import {
+  useOpenEdicts,
+  useEdictLatestMemorials,
+  usePendingToolCalls,
+} from "../hooks/useApprovals";
 import DecreeModal from "../components/decree/DecreeModal";
 import EdictActivityCard from "../components/decree/EdictActivityCard";
 import PageContainer from "../components/common/PageContainer";
@@ -11,7 +15,7 @@ import {
   PHASE_LABELS,
   type EdictPhase,
 } from "../utils/edictPhase";
-import type { Memorial } from "../api/types";
+import type { Memorial, PendingToolCall } from "../api/types";
 
 const phaseOptions = [
   { value: "", label: "全部阶段" },
@@ -24,6 +28,17 @@ export default function ApprovalQueuePage() {
   const edictIds = useMemo(() => edicts.map((e) => e.id), [edicts]);
 
   const memorialQueries = useEdictLatestMemorials(edictIds);
+  const { data: pendingToolCalls = [] } = usePendingToolCalls();
+
+  const pendingByEdict = useMemo(() => {
+    const map = new Map<string, PendingToolCall[]>();
+    for (const p of pendingToolCalls) {
+      const list = map.get(p.edict_id) ?? [];
+      list.push(p);
+      map.set(p.edict_id, list);
+    }
+    return map;
+  }, [pendingToolCalls]);
 
   const [searchText, setSearchText] = useState("");
   const [phaseFilter, setPhaseFilter] = useState<EdictPhase | "">("");
@@ -49,7 +64,8 @@ export default function ApprovalQueuePage() {
       const query = memorialQueries[i];
       const latestMemorial = query?.data?.data ?? null;
       const phase = deriveEdictPhase(latestMemorial);
-      return { edict, latestMemorial, phase };
+      const pending = pendingByEdict.get(edict.id) ?? [];
+      return { edict, latestMemorial, phase, pending };
     });
 
     const keyword = searchText.trim().toLowerCase();
@@ -65,8 +81,14 @@ export default function ApprovalQueuePage() {
         }
         return true;
       })
-      .sort((a, b) => PHASE_SORT_ORDER[a.phase] - PHASE_SORT_ORDER[b.phase]);
-  }, [edicts, memorialQueries, searchText, phaseFilter]);
+      .sort((a, b) => {
+        // Pending tool approvals take priority over phase order
+        const ap = a.pending.length > 0 ? 1 : 0;
+        const bp = b.pending.length > 0 ? 1 : 0;
+        if (ap !== bp) return bp - ap;
+        return PHASE_SORT_ORDER[a.phase] - PHASE_SORT_ORDER[b.phase];
+      });
+  }, [edicts, memorialQueries, pendingByEdict, searchText, phaseFilter]);
 
   return (
     <PageContainer
@@ -103,12 +125,13 @@ export default function ApprovalQueuePage() {
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {items.map(({ edict, latestMemorial }) => (
+          {items.map(({ edict, latestMemorial, pending }) => (
             <EdictActivityCard
               key={edict.id}
               edict={edict}
               latestMemorial={latestMemorial}
               onOpenDecree={openModal}
+              pendingToolCalls={pending}
             />
           ))}
         </div>

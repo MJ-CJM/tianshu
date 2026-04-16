@@ -121,7 +121,8 @@ class InMemorySessionRuleStore:
         for rule in self._rules.values():
             if rule.tool_name != tool_name:
                 continue
-            if rule.arg_fingerprint != fp:
+            # "*" = wildcard (manual rules match any args)
+            if rule.arg_fingerprint != "*" and rule.arg_fingerprint != fp:
                 continue
             if rule.scope == "edict" and rule.edict_id != edict_id:
                 continue
@@ -274,12 +275,14 @@ class SqliteSessionRuleStore:
         conn = self.storage._conn  # type: ignore[attr-defined]
         fp = compute_fingerprint(tool_name, args)
         now_iso = datetime.now(UTC).isoformat()
+        # Match exact fingerprint OR wildcard "*" (manual rules)
         row = conn.execute(
             """
             SELECT rule_id, tool_name, arg_fingerprint, scope, edict_id,
                    granted_at, granted_by_decree_id, source, reason, expires_at
             FROM session_rules
-            WHERE tool_name = ? AND arg_fingerprint = ? AND scope = 'always'
+            WHERE tool_name = ? AND (arg_fingerprint = ? OR arg_fingerprint = '*')
+              AND scope = 'always'
               AND (expires_at IS NULL OR expires_at > ?)
             ORDER BY granted_at DESC
             LIMIT 1

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from tianshu.models.common import EdictStatus
@@ -60,6 +62,20 @@ class DecreeCreateRequest(BaseModel):
     comment: str | None = None
     amended_goal: str | None = None
     actor: str = "human"
+
+
+class ToolDecisionRequest(BaseModel):
+    """Mid-execution tool approval / rejection — targets PolicyHook waits.
+
+    Unlike DecreeCreateRequest, this request does NOT mutate memorial status.
+    """
+
+    memorial_id: str = Field(min_length=1)
+    action: Literal["approve", "reject"]
+    comment: str | None = None
+    actor: str = "human"
+    grant_scope: Literal["once", "edict", "always"] | None = None
+    grant_reason: str | None = None
 
 
 class LLMConfig(BaseModel):

@@ -12,6 +12,7 @@ from tianshu.models.api import (
     LLMConfigCreateRequest,
     LLMConfigListResponse,
     LLMConfigUpdateRequest,
+    ToolDecisionRequest,
 )
 from tianshu.models.common import (
     ApiResponse,
@@ -69,4 +70,5 @@ __all__ = [
     "LLMConfigCreateRequest",
     "LLMConfigListResponse",
     "LLMConfigUpdateRequest",
+    "ToolDecisionRequest",
 ]

@@ -24,6 +24,12 @@ const CONSULTATION_INVALIDATION_TYPES = new Set([
   "consultation.failed",
 ]);
 
+const TOOL_APPROVAL_INVALIDATION_TYPES = new Set([
+  "tool.approval_required",
+  "decree.approved",
+  "decree.rejected",
+]);
+
 export function useWsQueryInvalidation(lastMessage: WsMessage | null): void {
   const queryClient = useQueryClient();
 
@@ -59,6 +65,15 @@ export function useWsQueryInvalidation(lastMessage: WsMessage | null): void {
 
     if (CONSULTATION_INVALIDATION_TYPES.has(type)) {
       queryClient.invalidateQueries({ queryKey: ["consultation"] });
+    }
+
+    if (TOOL_APPROVAL_INVALIDATION_TYPES.has(type)) {
+      queryClient.invalidateQueries({
+        queryKey: ["approvals", "pending_tool_calls"],
+      });
+      if (edict_id) {
+        queryClient.invalidateQueries({ queryKey: ["policy_events", edict_id] });
+      }
     }
   }, [lastMessage, queryClient]);
 }

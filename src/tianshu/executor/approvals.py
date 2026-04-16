@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
+from typing import Literal
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.models.common import TaskStatus
@@ -75,6 +76,125 @@ class ApprovalManager:
         finally:
             self._pending.pop(memorial_id, None)
             self._pending_tool.pop(memorial_id, None)
+
+    def list_pending_tool_calls(self) -> list[dict]:
+        """List in-memory pending tool approvals enriched with metadata.
+
+        Used by 批红台 (ApprovalQueuePage) to render mid-execution tool approval
+        cards. Each entry is built from `_pending` + `_pending_tool` plus the most
+        recent `tool.approval_required` event for the memorial.
+        """
+        out: list[dict] = []
+        for memorial_id, tool_name in list(self._pending_tool.items()):
+            memorial = self._storage.get_memorial(memorial_id)
+            if not memorial:
+                continue
+            # Reverse scan events for the latest tool.approval_required
+            latest_payload: dict = {}
+            latest_created_at: str | None = None
+            try:
+                rows = self._storage.get_events(memorial.edict_id)
+            except Exception:
+                rows = []
+            for row in reversed(rows or []):
+                if row.get("memorial_id") != memorial_id:
+                    continue
+                if row.get("event_type") != "tool.approval_required":
+                    continue
+                payload = row.get("payload") or {}
+                if payload.get("tool_name") == tool_name:
+                    latest_payload = payload
+                    latest_created_at = row.get("created_at")
+                    break
+            out.append(
+                {
+                    "memorial_id": memorial_id,
+                    "edict_id": memorial.edict_id,
+                    "tool_name": tool_name,
+                    "rule_id": latest_payload.get("rule_id"),
+                    "reason": latest_payload.get("reason"),
+                    "tool_tier": latest_payload.get("tool_tier"),
+                    "args_summary": latest_payload.get("args_summary") or {},
+                    "created_at": latest_created_at,
+                }
+            )
+        return out
+
+    async def submit_tool_decision(
+        self,
+        memorial_id: str,
+        action: Literal["approve", "reject"],
+        *,
+        comment: str | None = None,
+        grant_scope: Literal["once", "edict", "always"] | None = None,
+        grant_reason: str | None = None,
+        actor: str = "human",
+    ) -> Decree:
+        """Approve/reject a mid-execution tool call WITHOUT mutating memorial status.
+
+        Unlike `submit_decree`, this method targets pending tool approvals raised
+        by `PolicyHook._request_approval`. The memorial is still running — we must
+        only unblock `wait_for_approval`, emit a decree event, and optionally
+        persist a session rule via `grant_scope`.
+        """
+        if memorial_id not in self._pending:
+            raise ValueError(
+                f"No pending tool approval for memorial '{memorial_id}'",
+            )
+
+        memorial = self._storage.get_memorial(memorial_id)
+        if not memorial:
+            raise ValueError(f"Memorial '{memorial_id}' not found")
+
+        decree = Decree(
+            memorial_id=memorial_id,
+            action=action,
+            comment=comment,
+            actor=actor,
+            grant_scope=grant_scope,
+            grant_reason=grant_reason,
+        )
+        self._storage.save_decree(decree)
+
+        event_type = "decree.approved" if action == "approve" else "decree.rejected"
+        await self._bus.emit(
+            make_event(
+                event_type,
+                edict_id=memorial.edict_id,
+                memorial_id=memorial.id,
+                producer="approval_manager",
+                payload={
+                    "decree_id": decree.id,
+                    "comment": decree.comment,
+                    "mid_execution": True,
+                    "tool_name": self._pending_tool.get(memorial_id),
+                    "grant_scope": grant_scope,
+                },
+            )
+        )
+
+        # session rule escalation — only on approve + edict/always scope
+        if (
+            action == "approve"
+            and grant_scope
+            and grant_scope != "once"
+            and self._session_rule_store is not None
+        ):
+            try:
+                await self._write_session_rule_from_decree(memorial, decree)
+            except Exception:
+                logger.exception(
+                    "submit_tool_decision: failed to write session rule for decree %s",
+                    decree.id,
+                )
+
+        # wake up the waiting tool call
+        self._results[memorial_id] = decree
+        evt = self._pending.get(memorial_id)
+        if evt:
+            evt.set()
+
+        return decree
 
     async def submit_decree(self, decree: Decree) -> None:
         """Process a decree and update memorial status accordingly."""

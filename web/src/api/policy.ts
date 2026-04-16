@@ -48,7 +48,7 @@ export async function fetchPolicyEvents(
 }
 
 export async function fetchSessionRules(
-  scope: "edict" | "always" = "always",
+  scope: "edict" | "always" | "all" = "all",
 ): Promise<SessionRule[]> {
   const { data } = await apiClient.get<ApiResponse<{ rules: SessionRule[] }>>(
     `/policy/session_rules`,
@@ -59,6 +59,35 @@ export async function fetchSessionRules(
 
 export async function revokeSessionRule(ruleId: string): Promise<void> {
   await apiClient.delete(`/policy/session_rules/${ruleId}`);
+}
+
+export interface CreateSessionRuleRequest {
+  tool_name: string;
+  scope: "edict" | "always";
+  reason?: string;
+  expires_days?: number | null;
+  edict_id?: string;
+}
+
+export async function createSessionRule(
+  body: CreateSessionRuleRequest,
+): Promise<ApiResponse<{ rule_id: string }>> {
+  const { data } = await apiClient.post<ApiResponse<{ rule_id: string }>>(
+    `/policy/session_rules`,
+    body,
+  );
+  return data;
+}
+
+export interface ToolInfo {
+  name: string;
+  description: string;
+  tier: number;
+}
+
+export async function fetchTools(): Promise<ToolInfo[]> {
+  const { data } = await apiClient.get<ApiResponse<ToolInfo[]>>(`/tools`);
+  return data?.data ?? [];
 }
 
 export async function fetchPolicyStats(): Promise<PolicyStats> {
