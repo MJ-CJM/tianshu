@@ -19,7 +19,10 @@ from typing import TYPE_CHECKING
 
 from tianshu.memory.access_control import MemoryAccessControl
 from tianshu.memory.backends.sqlite_backend import SQLiteMemoryBackend
+from tianshu.memory.chunker import chunk_text
 from tianshu.memory.compactor import MemoryCompactor
+from tianshu.memory.config import MemoryConfig
+from tianshu.memory.drawer import Drawer
 from tianshu.memory.markdown_backend import MarkdownMemoryBackend
 from tianshu.memory.models import CompactionResult, MemoryEntry, MemoryQuery
 from tianshu.memory.reflect import Reflector
@@ -54,6 +57,8 @@ class MemoryManager:
         hook_registry: object | None = None,
         personas_dir: Path | None = None,
         memory_dir: Path | None = None,
+        drawer_store: object | None = None,
+        memory_config: MemoryConfig | None = None,
     ) -> None:
         self._storage = storage
         self._backend = SQLiteMemoryBackend(storage)
@@ -61,6 +66,8 @@ class MemoryManager:
         self._access_control = MemoryAccessControl(storage)
         self._config_manager = config_manager
         self._hooks = hook_registry
+        self._drawer_store = drawer_store
+        self._memory_config = memory_config or MemoryConfig()
 
         if personas_dir is None:
             personas_dir = Path(__file__).parent.parent.parent.parent / "personas"
@@ -142,6 +149,48 @@ class MemoryManager:
             entry.persona_id, entry.category, len(entry.content),
         )
         return entry
+
+    async def retain_drawers(
+        self,
+        persona_id: str,
+        room: str,
+        content: str,
+        edict_id: str,
+        category: str = "W",
+        confidence: float = 0.9,
+    ) -> list[str]:
+        """Chunk content into drawers and store them. Returns drawer IDs."""
+        if not self._drawer_store or not self._memory_config.enabled:
+            return []
+
+        from datetime import timezone
+
+        from ulid import ULID
+
+        chunks = chunk_text(
+            content,
+            max_chars=self._memory_config.chunk_max_chars,
+            min_chars=self._memory_config.chunk_min_chars,
+        )
+
+        ids: list[str] = []
+        ts = datetime.now(timezone.utc).isoformat()
+        for i, chunk in enumerate(chunks):
+            drawer = Drawer(
+                id=str(ULID()),
+                wing=persona_id,
+                room=room,
+                content=chunk,
+                source_edict_id=edict_id,
+                timestamp=ts,
+                category=category,
+                confidence=confidence,
+                chunk_index=i,
+            )
+            await self._drawer_store.store_drawer(drawer)
+            ids.append(drawer.id)
+
+        return ids
 
     def store_to_index(self, entry: MemoryEntry) -> None:
         """Write directly to SQLite index only — for Web/API display needs."""
@@ -367,6 +416,25 @@ class MemoryManager:
                 return first_task.assigned_official
         return DEFAULT_EXECUTOR_ID
 
+    @staticmethod
+    def _infer_room(edict: object) -> str:
+        """Infer room name from edict goal. Simple keyword matching."""
+        if not edict:
+            return "general"
+        goal = (getattr(edict, "goal", "") or "").lower()
+        room_keywords = {
+            "execution": ["deploy", "run", "execute", "build", "install"],
+            "planning": ["plan", "design", "architect", "decompose"],
+            "audit": ["review", "audit", "check", "inspect"],
+            "tools": ["tool", "command", "script", "cli"],
+            "recovery": ["fix", "error", "bug", "recover", "debug"],
+            "cost-patterns": ["cost", "token", "budget", "usage"],
+        }
+        for room, keywords in room_keywords.items():
+            if any(kw in goal for kw in keywords):
+                return room
+        return "general"
+
     async def on_before_agent_start(self, **context: object) -> object:
         """BEFORE_AGENT_START hook — inject relevant memories from Markdown."""
         from tianshu.executor.hooks import HookResult
@@ -425,6 +493,21 @@ class MemoryManager:
             source="agent",
         )
         self.store(entry)  # Markdown only
+
+        # Also store as drawers for Memory Palace
+        if self._drawer_store and summary:
+            room = self._infer_room(edict)
+            try:
+                await self.retain_drawers(
+                    persona_id=persona_id,
+                    room=room,
+                    content=summary,
+                    edict_id=getattr(edict, "id", "") or "",
+                    category="W",
+                    confidence=0.9,
+                )
+            except Exception:
+                logger.exception("Failed to retain drawers for %s", persona_id)
 
     # ------------------------------------------------------------------
     # EventBus handlers
