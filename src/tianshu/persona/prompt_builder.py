@@ -6,6 +6,7 @@ Layer injection order:
   3: SOUL.md (persona identity)                — from personas/
   4: ROLE.md (persona role specifics)           — from personas/
   5: MEMORY.md (core long-term memory)          — from ~/.tianshu/memory/
+  5.1: L1 Critical Facts (Memory Palace)        — from DrawerStore
   5.5: Recent Activity (last 2 days logs)       — from ~/.tianshu/memory/
   6: Court MEMORY.md (shared court memory)      — from ~/.tianshu/memory/
   7: Skills
@@ -17,6 +18,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from tianshu.memory.config import MemoryConfig
 from tianshu.memory.markdown_backend import MarkdownMemoryBackend
 from tianshu.models.edict import Edict
 from tianshu.persona.model import AgentPersona
@@ -41,10 +43,14 @@ class PromptBuilder:
         skills_loader: SkillsLoader,
         memory_dir: Path | None = None,
         metrics_store: object | None = None,
+        drawer_store: object | None = None,
+        memory_config: MemoryConfig | None = None,
     ) -> None:
         self._personas_dir = personas_dir
         self._skills = skills_loader
         self._metrics_store = metrics_store
+        self._drawer_store = drawer_store
+        self._memory_config = memory_config or MemoryConfig()
 
         if memory_dir is None:
             memory_dir = Path("~/.tianshu/memory").expanduser()
@@ -99,6 +105,12 @@ class PromptBuilder:
             memory_text = self._md_backend.read_core_memory(persona.id)
             if memory_text:
                 parts.append(f"# Agent Memory\n\n{memory_text}")
+
+            # Layer 5.1: L1 Critical Facts (Memory Palace)
+            if self._drawer_store and self._memory_config.l1_enabled:
+                l1 = self._get_l1_sync(persona.id)
+                if l1:
+                    parts.append(l1)
 
             # Layer 5.5: Recent Activity (last 2 days logs)
             recent_logs = self._md_backend.read_recent_logs(
@@ -254,6 +266,29 @@ class PromptBuilder:
             "total_tokens_est": total_tokens,
             "layers": layers,
         }
+
+    def _get_l1_sync(self, persona_id: str) -> str:
+        """Synchronously get L1 critical facts from drawer store."""
+        import asyncio
+
+        from tianshu.memory.layers import MemoryStack
+
+        try:
+            stack = MemoryStack(store=self._drawer_store, config=self._memory_config)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop and loop.is_running():
+                # Already in async context — run in a separate thread
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    return pool.submit(asyncio.run, stack.get_l1(persona_id)).result()
+            else:
+                return asyncio.run(stack.get_l1(persona_id))
+        except Exception:
+            logger.debug("L1 injection skipped for %s", persona_id)
+            return ""
 
     @staticmethod
     def _read_file(path: Path) -> str:

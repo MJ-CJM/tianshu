@@ -436,7 +436,7 @@ class MemoryManager:
         return "general"
 
     async def on_before_agent_start(self, **context: object) -> object:
-        """BEFORE_AGENT_START hook — inject relevant memories from Markdown."""
+        """BEFORE_AGENT_START hook — inject relevant memories from Markdown + Palace."""
         from tianshu.executor.hooks import HookResult
 
         edict = context.get("edict")
@@ -446,21 +446,35 @@ class MemoryManager:
         plan = context.get("plan")
         persona_id = self._resolve_persona_id(context, plan)
 
-        # Search Markdown daily logs for relevant context
         goal = getattr(edict, "goal", None)
         if not goal:
             return None
 
+        history_messages: list[dict] = []
+
+        # Existing: search Markdown daily logs
         md_results = self._md_backend.search_daily_logs(
             persona_id, goal, limit=10,
         )
-        if not md_results:
-            return None
+        for r in md_results[:5]:
+            history_messages.append(
+                {"role": "user", "content": f"[Memory context — do not respond to this] {r['content']}"}
+            )
 
-        history_messages = [
-            {"role": "user", "content": f"[Memory context — do not respond to this] {r['content']}"}
-            for r in md_results[:5]
-        ]
+        # NEW: drawer-based L2 recall
+        if self._drawer_store and self._memory_config.l2_recall_enabled:
+            try:
+                from tianshu.memory.layers import MemoryStack
+                stack = MemoryStack(store=self._drawer_store, config=self._memory_config)
+                results = await stack.recall(goal, wing=persona_id, include_court=True)
+                for r in results[:5]:
+                    history_messages.append({
+                        "role": "user",
+                        "content": f"[Palace 记忆 | {r.wing}/{r.room}] {r.content}",
+                    })
+            except Exception:
+                logger.exception("Failed to recall drawers for %s", persona_id)
+
         if not history_messages:
             return None
 
