@@ -27,6 +27,8 @@ from tianshu.executor.hooks import HookRegistry, HookType
 from tianshu.executor.policy_hook import PolicyHook
 from tianshu.persona.evaluator import PerformanceEvaluator
 from tianshu.gateway import gateway_router
+from tianshu.memory.config import MemoryConfig
+from tianshu.memory.drawer_store import DrawerStore
 from tianshu.memory.manager import MemoryManager
 from tianshu.notifier.channel_registry import ChannelRegistry
 from tianshu.notifier.notifier import Notifier
@@ -110,11 +112,21 @@ async def lifespan(app: FastAPI):
     persona_loader.load_all()
     app.state.persona_loader = persona_loader
 
+    # --- Memory Palace (Drawer Store) ---
+    memory_config = MemoryConfig()
+    drawer_db_path = memory_dir / "drawers.sqlite3"
+    drawer_db_path.parent.mkdir(parents=True, exist_ok=True)
+    drawer_store = DrawerStore(str(drawer_db_path))
+    app.state.drawer_store = drawer_store
+    app.state.memory_config = memory_config
+
     prompt_builder = PromptBuilder(
         personas_dir=personas_dir,
         skills_loader=skills,
         memory_dir=memory_dir,
         metrics_store=metrics_store,
+        drawer_store=drawer_store,
+        memory_config=memory_config,
     )
 
     # --- LLM Config Manager ---
@@ -268,6 +280,8 @@ async def lifespan(app: FastAPI):
         hook_registry=hook_registry,
         personas_dir=personas_dir,
         memory_dir=memory_dir,
+        drawer_store=drawer_store,
+        memory_config=memory_config,
     )
     memory_manager.ensure_memory_dirs()
     app.state.memory_manager = memory_manager
