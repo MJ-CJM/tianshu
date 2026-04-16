@@ -1902,3 +1902,60 @@ async def list_policy_templates():
         for name, p in BUILTIN_TEMPLATES.items()
     ]
     return ApiResponse(success=True, data={"templates": data})
+
+
+# ---- Memory Palace API ----
+
+
+@gateway_router.get("/memory/search")
+async def memory_search(
+    request: Request,
+    query: str = Query(..., description="Search query"),
+    wing: str | None = Query(None, description="Filter by wing (persona ID)"),
+    room: str | None = Query(None, description="Filter by room"),
+    n_results: int = Query(10, ge=1, le=100, description="Max results"),
+):
+    """Search the Memory Palace drawer store via BM25."""
+    drawer_store = getattr(request.app.state, "drawer_store", None)
+    if not drawer_store:
+        return ApiResponse(success=False, error="Memory Palace not initialized")
+
+    results = await drawer_store.search(query, wing=wing, room=room, n_results=n_results)
+    return ApiResponse(
+        success=True,
+        data={
+            "query": query,
+            "filters": {"wing": wing, "room": room},
+            "results": [
+                {
+                    "drawer_id": r.drawer_id,
+                    "content": r.content,
+                    "wing": r.wing,
+                    "room": r.room,
+                    "score": r.score,
+                    "matched_via": r.matched_via,
+                }
+                for r in results
+            ],
+        },
+    )
+
+
+@gateway_router.get("/memory/l1")
+async def memory_l1(
+    request: Request,
+    wing: str = Query(..., description="Wing to generate L1 for"),
+):
+    """Get L1 critical facts for a specific wing."""
+    drawer_store = getattr(request.app.state, "drawer_store", None)
+    memory_config = getattr(request.app.state, "memory_config", None)
+    if not drawer_store:
+        return ApiResponse(success=False, error="Memory Palace not initialized")
+
+    from tianshu.memory.config import MemoryConfig
+    from tianshu.memory.layers import MemoryStack
+
+    config = memory_config or MemoryConfig()
+    stack = MemoryStack(store=drawer_store, config=config)
+    l1 = await stack.get_l1(wing)
+    return ApiResponse(success=True, data={"wing": wing, "l1": l1})
