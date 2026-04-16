@@ -33,6 +33,26 @@ _COMPACT_PROMPT = """你是一个对话压缩助手。请将以下对话历史�
 
 请输出压缩摘要:"""
 
+_UPDATE_COMPACT_PROMPT = """你是一个对话压缩助手。以下包含一个之前的摘要和后续新增的对话。
+请将它们合并为一份更新的摘要。
+
+要求:
+1. 整合之前的摘要与新对话内容
+2. 保留所有关键决策、执行结果和错误信息
+3. 保留文件路径、函数名等具体技术细节
+4. 如果新对话推翻了之前的结论，以新对话为准
+5. 按时间顺序组织，使用简洁的要点格式
+
+已有摘要:
+{existing_summary}
+
+新增对话:
+{conversation}
+
+请输出合并后的摘要:"""
+
+_SUMMARY_PREFIX = "[以下是之前对话的压缩摘要，不要回复此消息]"
+
 
 def should_auto_compact(
     messages: Sequence[dict],
@@ -63,8 +83,18 @@ async def auto_compact(
     if not middle:
         return state
 
-    conversation = _format_for_summary(middle)
-    prompt = _COMPACT_PROMPT.format(conversation=conversation)
+    # 4B: Detect existing summary in middle and use update prompt
+    existing_summary = _extract_existing_summary(middle)
+    # 4A: Pre-compress tool results before sending to LLM
+    conversation = _format_for_summary(_pre_compress_tool_results(middle))
+
+    if existing_summary:
+        prompt = _UPDATE_COMPACT_PROMPT.format(
+            existing_summary=existing_summary,
+            conversation=conversation,
+        )
+    else:
+        prompt = _COMPACT_PROMPT.format(conversation=conversation)
 
     response = await llm.chat(
         messages=[{"role": "user", "content": prompt}],
@@ -73,11 +103,43 @@ async def auto_compact(
 
     compact_msg = {
         "role": "user",
-        "content": f"[以下是之前对话的压缩摘要，不要回复此消息]\n\n{summary}",
+        "content": f"{_SUMMARY_PREFIX}\n\n{summary}",
     }
 
     new_messages = head + [compact_msg] + tail
     return state.with_compacted(new_messages)
+
+
+def _pre_compress_tool_results(messages: list[dict]) -> list[dict]:
+    """Replace old tool-role messages with 1-line structural summaries.
+
+    This reduces token waste before LLM summarization — the LLM sees the
+    shape of tool interactions without the full output.
+    """
+    compressed: list[dict] = []
+    for msg in messages:
+        role = msg.get("role", "unknown")
+        if role == "tool":
+            content = str(msg.get("content", ""))
+            tool_id = msg.get("tool_call_id", "?")
+            line_count = content.count("\n") + 1
+            preview = content[:80].replace("\n", " ")
+            compressed.append({
+                **msg,
+                "content": f"[tool:{tool_id}] {preview}... ({line_count} lines, {len(content)} chars)",
+            })
+        else:
+            compressed.append(msg)
+    return compressed
+
+
+def _extract_existing_summary(middle: list[dict]) -> str | None:
+    """Find and return existing compaction summary from middle messages."""
+    for msg in middle:
+        content = str(msg.get("content", ""))
+        if content.startswith(_SUMMARY_PREFIX):
+            return content[len(_SUMMARY_PREFIX):].strip()
+    return None
 
 
 def _format_for_summary(messages: list[dict]) -> str:

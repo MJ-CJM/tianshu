@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import tempfile
+from collections import OrderedDict
 from pathlib import Path
 
 import frontmatter
@@ -13,6 +15,26 @@ logger = logging.getLogger(__name__)
 
 _MAX_FILE_SIZE = 256 * 1024  # 256KB
 _MAX_CANDIDATES_PER_DIR = 300
+_L1_MAX_ENTRIES = 8
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    """Write content atomically: tempfile in same dir + os.replace()."""
+    dir_ = path.parent
+    fd = -1
+    tmp_path = ""
+    try:
+        fd, tmp_path = tempfile.mkstemp(dir=dir_, suffix=".tmp")
+        os.write(fd, content.encode("utf-8"))
+        os.close(fd)
+        fd = -1
+        os.replace(tmp_path, str(path))
+    except BaseException:
+        if fd >= 0:
+            os.close(fd)
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
 
 
 class SkillsLoader:
@@ -28,8 +50,21 @@ class SkillsLoader:
         self._user_dir = user_dir  # ~/.tianshu/skills
         self._char_budget = char_budget
 
+        # L1: In-memory LRU cache for get_skill()
+        self._l1_cache: OrderedDict[str, dict] = OrderedDict()
+        # L2: File stat snapshot for list_all_metadata() — {path: (mtime_ns, size)}
+        self._l2_stats: dict[str, tuple[int, int]] = {}
+        self._l2_metadata: list[dict] | None = None
+
     def set_char_budget(self, budget: int) -> None:
         self._char_budget = budget
+
+    def invalidate_cache(self) -> None:
+        """Clear all cache layers. Called by SkillsWatcher on file changes."""
+        self._l1_cache.clear()
+        self._l2_stats.clear()
+        self._l2_metadata = None
+        logger.debug("Skills cache invalidated")
 
     def load_index(
         self,
@@ -111,16 +146,23 @@ class SkillsLoader:
         return "\n\n---\n\n".join(parts) if parts else ""
 
     def patch_skill(self, name: str, old: str, new: str) -> dict:
-        """Find-and-replace within a skill's content. Returns updated skill dict."""
+        """Find-and-replace within a skill's content using fuzzy matching."""
+        from tianshu.skills.fuzzy_match import fuzzy_replace
+
         skill = self.get_skill(name)
         if not skill:
             raise FileNotFoundError(f"Skill '{name}' not found")
 
         content = skill["content"]
-        if old not in content:
+        try:
+            updated_content, strategy = fuzzy_replace(content, old, new)
+        except ValueError:
             raise ValueError(f"Pattern not found in skill '{name}'")
 
-        updated_content = content.replace(old, new, 1)
+        if strategy != "exact":
+            logger.info(
+                "patch_skill('%s'): matched via '%s' strategy", name, strategy,
+            )
         return self.save_skill(name, updated_content)
 
     def register_skill(self, name: str, content: str) -> None:
@@ -228,17 +270,23 @@ class SkillsLoader:
 
     def list_all_metadata(self) -> list[dict]:
         """Return structured metadata for all skills (builtin + workspace + injected)."""
+        # L2: Check if file stats match cached snapshot
+        if self._l2_metadata is not None and self._l2_stats_valid():
+            return self._l2_metadata
+
+        # L3: Full disk scan
         result: list[dict] = []
+        new_stats: dict[str, tuple[int, int]] = {}
         # Builtin
-        self._collect_metadata(self._builtin_dir, "builtin", result)
+        self._collect_metadata(self._builtin_dir, "builtin", result, new_stats)
         # User (~/.tianshu/skills)
         if self._user_dir and self._user_dir.is_dir():
-            self._collect_metadata(self._user_dir, "user", result)
+            self._collect_metadata(self._user_dir, "user", result, new_stats)
         # Workspace
         if self._workspace_dir:
             ws_skills = self._workspace_dir / "skills"
             if ws_skills.is_dir():
-                self._collect_metadata(ws_skills, "workspace", result)
+                self._collect_metadata(ws_skills, "workspace", result, new_stats)
         # Injected
         if hasattr(self, "_injected_skills"):
             for name, content in self._injected_skills.items():
@@ -251,9 +299,30 @@ class SkillsLoader:
                     "path": "",
                     "content_length": len(content),
                 })
+
+        # Populate L2
+        self._l2_metadata = result
+        self._l2_stats = new_stats
         return result
 
-    def _collect_metadata(self, base: Path, source: str, out: list[dict]) -> None:
+    def _l2_stats_valid(self) -> bool:
+        """Check if all cached file stats still match disk."""
+        for path_str, (cached_mtime, cached_size) in self._l2_stats.items():
+            try:
+                st = os.stat(path_str)
+                if st.st_mtime_ns != cached_mtime or st.st_size != cached_size:
+                    return False
+            except OSError:
+                return False
+        return True
+
+    def _collect_metadata(
+        self,
+        base: Path,
+        source: str,
+        out: list[dict],
+        stats: dict[str, tuple[int, int]] | None = None,
+    ) -> None:
         if not base.is_dir():
             return
         candidates = sorted(base.iterdir())[:_MAX_CANDIDATES_PER_DIR]
@@ -261,6 +330,11 @@ class SkillsLoader:
             skill_file = entry / "SKILL.md" if entry.is_dir() else None
             if skill_file and skill_file.is_file():
                 try:
+                    # Record file stats for L2 cache validation
+                    if stats is not None:
+                        st = skill_file.stat()
+                        stats[str(skill_file)] = (st.st_mtime_ns, st.st_size)
+
                     post = frontmatter.load(str(skill_file))
                     meta = post.metadata or {}
                     oc = meta.get("metadata", {}).get("openclaw", {})
@@ -290,7 +364,13 @@ class SkillsLoader:
                 "content_length": len(self._injected_skills[name]),
                 "content": self._injected_skills[name],
             }
-        # Search workspace first (higher priority), then builtin
+
+        # L1 cache check
+        if name in self._l1_cache:
+            self._l1_cache.move_to_end(name)
+            return self._l1_cache[name]
+
+        # L3: Full disk read
         for base, source in self._search_dirs():
             skill_file = base / name / "SKILL.md"
             if skill_file.is_file():
@@ -298,7 +378,7 @@ class SkillsLoader:
                     post = frontmatter.load(str(skill_file))
                     meta = post.metadata or {}
                     oc = meta.get("metadata", {}).get("openclaw", {})
-                    return {
+                    result = {
                         "name": name,
                         "description": meta.get("description", ""),
                         "source": source,
@@ -308,6 +388,11 @@ class SkillsLoader:
                         "content_length": len(post.content),
                         "content": post.content,
                     }
+                    # Populate L1
+                    self._l1_cache[name] = result
+                    if len(self._l1_cache) > _L1_MAX_ENTRIES:
+                        self._l1_cache.popitem(last=False)
+                    return result
                 except Exception:
                     logger.warning("Failed to load skill '%s'", name)
                     return None
@@ -334,10 +419,13 @@ class SkillsLoader:
                 try:
                     post = frontmatter.load(str(skill_file))
                     post.content = content
-                    skill_file.write_text(frontmatter.dumps(post), encoding="utf-8")
+                    _atomic_write(skill_file, frontmatter.dumps(post))
                 except Exception:
                     # Fallback: write raw content
-                    skill_file.write_text(content, encoding="utf-8")
+                    _atomic_write(skill_file, content)
+                # Invalidate caches for this skill
+                self._l1_cache.pop(name, None)
+                self._l2_metadata = None
                 return self.get_skill(name)  # type: ignore[return-value]
         raise FileNotFoundError(f"Skill '{name}' not found")
 
@@ -358,17 +446,19 @@ class SkillsLoader:
             raise ValueError(f"Skill '{name}' already exists")
         skill_dir.mkdir()
         skill_file = skill_dir / "SKILL.md"
-        skill_file.write_text(content, encoding="utf-8")
+        _atomic_write(skill_file, content)
+        self._l2_metadata = None  # Invalidate metadata cache
         return self.get_skill(name)  # type: ignore[return-value]
 
     def delete_skill(self, name: str) -> bool:
         """Delete a user/workspace skill. Builtin skills cannot be deleted."""
-        # Check workspace first, then user dir
         for base in self._writable_dirs():
             skill_dir = base / name
             if skill_dir.is_dir():
                 import shutil as _shutil
                 _shutil.rmtree(skill_dir)
+                self._l1_cache.pop(name, None)
+                self._l2_metadata = None
                 return True
         return False
 
@@ -448,6 +538,7 @@ class SkillsWatcher:
 
         async def _do_reload() -> None:
             await asyncio.sleep(self.DEBOUNCE_SECONDS)
+            self._loader.invalidate_cache()
             self._loader.load_all()
             logger.info("Skills reloaded after file change")
 

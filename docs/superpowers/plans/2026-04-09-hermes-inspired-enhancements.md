@@ -1,6 +1,6 @@
 # Hermes-Inspired Enhancements Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Upgrade tianshu's skill system to be self-improving (progressive loading, agent-writable, auto-review, quality tracking), add fallback model, streaming, and cross-session memory search.
 
@@ -30,7 +30,7 @@
 **Files:**
 - Modify: `src/tianshu/skills/loader.py:40-76` (add `load_index`, `load_always`, `patch_skill`)
 
-- [ ] **Step 1: Add `load_index()` method**
+- [x] **Step 1: Add `load_index()` method**
 
 Add after `set_char_budget()` (line 32) in `SkillsLoader`:
 
@@ -70,7 +70,7 @@ def load_index(
     return header + "\n".join(lines) + footer
 ```
 
-- [ ] **Step 2: Add `load_always()` method**
+- [x] **Step 2: Add `load_always()` method**
 
 Add after `load_index()`:
 
@@ -114,7 +114,7 @@ def load_always(self, filter_names: list[str] | None = None) -> str:
     return "\n\n---\n\n".join(kept) if kept else ""
 ```
 
-- [ ] **Step 3: Add helper `_get_skill_metadata()` for always check**
+- [x] **Step 3: Add helper `_get_skill_metadata()` for always check**
 
 ```python
 def _get_skill_metadata(self, name: str) -> dict | None:
@@ -132,7 +132,7 @@ def _get_skill_metadata(self, name: str) -> dict | None:
     return None
 ```
 
-- [ ] **Step 4: Add `patch_skill()` method**
+- [x] **Step 4: Add `patch_skill()` method**
 
 ```python
 def patch_skill(self, name: str, old: str, new: str) -> dict:
@@ -149,7 +149,7 @@ def patch_skill(self, name: str, old: str, new: str) -> dict:
     return self.save_skill(name, updated_content)
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tianshu/skills/loader.py
@@ -163,7 +163,7 @@ git commit -m "feat(skills): add load_index, load_always, patch_skill to SkillsL
 **Files:**
 - Create: `src/tianshu/tools/skill_tools.py`
 
-- [ ] **Step 1: Create `skill_tools.py` with all three tools**
+- [x] **Step 1: Create `skill_tools.py` with all three tools**
 
 ```python
 """Skill management tools — list, view, and manage skills."""
@@ -408,7 +408,7 @@ def register_skill_tools(registry: ToolRegistry, skills: SkillsLoader) -> None:
     )
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/tianshu/tools/skill_tools.py
@@ -423,7 +423,7 @@ git commit -m "feat(tools): add skill_list, skill_view, skill_manage tools"
 - Modify: `src/tianshu/persona/prompt_builder.py:113-118`
 - Modify: `src/tianshu/executor/agent.py:423-432`
 
-- [ ] **Step 1: Update PromptBuilder Layer 7**
+- [x] **Step 1: Update PromptBuilder Layer 7**
 
 In `src/tianshu/persona/prompt_builder.py`, replace lines 113-118:
 
@@ -454,7 +454,7 @@ With:
             parts.append(always_text)
 ```
 
-- [ ] **Step 2: Update Agent._build_system_prompt fallback**
+- [x] **Step 2: Update Agent._build_system_prompt fallback**
 
 In `src/tianshu/executor/agent.py`, replace lines 423-432:
 
@@ -492,7 +492,7 @@ With:
         return "\n\n".join(parts)
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/tianshu/persona/prompt_builder.py src/tianshu/executor/agent.py
@@ -506,7 +506,7 @@ git commit -m "feat(skills): switch prompt injection to index + always-on mode"
 **Files:**
 - Modify: `src/tianshu/app.py:69-70` (add skill tools registration after builtins)
 
-- [ ] **Step 1: Add import and registration**
+- [x] **Step 1: Add import and registration**
 
 In `src/tianshu/app.py`, add import at top:
 
@@ -522,7 +522,7 @@ After the existing `register_builtins(tools, settings.workspace_dir)` line (~lin
 
 Where `skills_loader` is the `SkillsLoader` instance created around line 81-86. If the `SkillsLoader` is created after the tools registration, move the `register_skill_tools` call to after the `SkillsLoader` instantiation.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/tianshu/app.py
@@ -536,7 +536,7 @@ git commit -m "feat(app): wire up skill_list, skill_view, skill_manage tools"
 **Files:**
 - Create: `src/tianshu/skills/validator.py`
 
-- [ ] **Step 1: Create validator module**
+- [x] **Step 1: Create validator module**
 
 ```python
 """Skill content validation — security scanning before write."""
@@ -673,7 +673,7 @@ class SkillValidator:
         return findings
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/tianshu/skills/validator.py
@@ -689,7 +689,7 @@ git commit -m "feat(skills): add SkillValidator for security scanning"
 - Modify: `src/tianshu/config_manager.py:26-30`
 - Modify: `src/tianshu/models/api.py:105-114`
 
-- [ ] **Step 1: Update AgentConfigState with review config**
+- [x] **Step 1: Update AgentConfigState with review config**
 
 In `src/tianshu/config_manager.py`, update `AgentConfigState`:
 
@@ -703,7 +703,7 @@ class AgentConfigState:
     skill_review_interval: int = 5
 ```
 
-- [ ] **Step 2: Update API models**
+- [x] **Step 2: Update API models**
 
 In `src/tianshu/models/api.py`, update `AgentConfig`:
 
@@ -727,7 +727,7 @@ class AgentConfigUpdateRequest(BaseModel):
     skill_review_interval: int | None = Field(default=None, ge=1, le=100)
 ```
 
-- [ ] **Step 3: Create SkillReviewHandler**
+- [x] **Step 3: Create SkillReviewHandler**
 
 ```python
 """Skill review handler — hook-driven learning loop."""
@@ -939,7 +939,7 @@ class SkillReviewHandler:
                 logger.warning("[SKILL_REVIEW] Failed to update skill '%s': %s", skill_name, e)
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/tianshu/skills/reviewer.py src/tianshu/config_manager.py src/tianshu/models/api.py
@@ -953,7 +953,7 @@ git commit -m "feat(skills): add SkillReviewHandler for hook-driven learning loo
 **Files:**
 - Modify: `src/tianshu/app.py` (add import + hook registration)
 
-- [ ] **Step 1: Add import and registration**
+- [x] **Step 1: Add import and registration**
 
 Add import:
 
@@ -975,7 +975,7 @@ After the existing hook registrations (~line 306), add:
         )
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/tianshu/app.py
@@ -990,7 +990,7 @@ git commit -m "feat(app): wire up SkillReviewHandler hook for auto skill learnin
 - Create: `src/tianshu/skills/metrics.py`
 - Modify: `src/tianshu/storage.py` (add `skill_metrics` table)
 
-- [ ] **Step 1: Add `skill_metrics` table to storage**
+- [x] **Step 1: Add `skill_metrics` table to storage**
 
 In `src/tianshu/storage.py`, add to `_create_tables()` (before the closing `"""`):
 
@@ -1007,7 +1007,7 @@ In `src/tianshu/storage.py`, add to `_create_tables()` (before the closing `"""`
                 );
 ```
 
-- [ ] **Step 2: Create `metrics.py`**
+- [x] **Step 2: Create `metrics.py`**
 
 ```python
 """Skill quality metrics — SQLite-backed usage tracking and health scoring."""
@@ -1134,7 +1134,7 @@ class SkillMetricsStore:
         )
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/tianshu/skills/metrics.py src/tianshu/storage.py
@@ -1150,7 +1150,7 @@ git commit -m "feat(skills): add SkillMetrics model and SQLite store"
 - Modify: `src/tianshu/executor/agent.py` (track active_skills, update success/failure on exit)
 - Modify: `src/tianshu/app.py` (create SkillMetricsStore, pass to tools and agent)
 
-- [ ] **Step 1: Update `register_skill_tools` to accept metrics store**
+- [x] **Step 1: Update `register_skill_tools` to accept metrics store**
 
 In `src/tianshu/tools/skill_tools.py`, update function signature and tool handlers:
 
@@ -1276,7 +1276,7 @@ In `register_skill_tools`, use `_active_skills` directly:
     )
 ```
 
-- [ ] **Step 2: Update Agent to track success/failure**
+- [x] **Step 2: Update Agent to track success/failure**
 
 In `src/tianshu/executor/agent.py`, add import:
 
@@ -1315,7 +1315,7 @@ Add `metrics_store` to Agent `__init__`:
         self._metrics_store = metrics_store
 ```
 
-- [ ] **Step 3: Wire up in app.py**
+- [x] **Step 3: Wire up in app.py**
 
 Add import:
 
@@ -1344,7 +1344,7 @@ Pass `metrics_store` to Agent constructor:
         )
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/tianshu/tools/skill_tools.py src/tianshu/executor/agent.py src/tianshu/app.py
@@ -1359,7 +1359,7 @@ git commit -m "feat(skills): wire metrics tracking into skill_view and agent exe
 - Modify: `src/tianshu/skills/loader.py` (add dormant filtering to `load_index`)
 - Modify: `src/tianshu/tools/skill_tools.py` (add status + dormant to `skill_list`)
 
-- [ ] **Step 1: Update `load_index` to accept metrics store for filtering**
+- [x] **Step 1: Update `load_index` to accept metrics store for filtering**
 
 In `src/tianshu/skills/loader.py`, update `load_index()`:
 
@@ -1418,7 +1418,7 @@ def load_index(
     return header + "\n".join(lines) + footer
 ```
 
-- [ ] **Step 2: Update `skill_list` to include status and metrics**
+- [x] **Step 2: Update `skill_list` to include status and metrics**
 
 In `src/tianshu/tools/skill_tools.py`, update `_skill_list`:
 
@@ -1455,7 +1455,7 @@ async def _skill_list(
     return ok_result(json.dumps(result, ensure_ascii=False, indent=2))
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/tianshu/skills/loader.py src/tianshu/tools/skill_tools.py
@@ -1471,7 +1471,7 @@ git commit -m "feat(skills): add dormant filtering and quality status to skill i
 - Modify: `src/tianshu/executor/agent.py` (LLM call fallback)
 - Modify: `src/tianshu/models/api.py`
 
-- [ ] **Step 1: Add fallback config**
+- [x] **Step 1: Add fallback config**
 
 In `src/tianshu/config_manager.py`, update `AgentConfigState`:
 
@@ -1504,7 +1504,7 @@ class AgentConfigUpdateRequest(BaseModel):
     fallback_llm_config_name: str | None = None
 ```
 
-- [ ] **Step 2: Add fallback logic in agent execute**
+- [x] **Step 2: Add fallback logic in agent execute**
 
 In `src/tianshu/executor/agent.py`, locate the LLM call (around line 220: `response = await llm.chat(...)`). Wrap it with fallback:
 
@@ -1538,7 +1538,7 @@ In `src/tianshu/executor/agent.py`, locate the LLM call (around line 220: `respo
                     raise
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/tianshu/config_manager.py src/tianshu/executor/agent.py src/tianshu/models/api.py
@@ -1552,7 +1552,7 @@ git commit -m "feat(agent): add fallback model support on LLM failure"
 **Files:**
 - Create: `src/tianshu/executor/streaming.py`
 
-- [ ] **Step 1: Create streaming protocols**
+- [x] **Step 1: Create streaming protocols**
 
 ```python
 """Streaming callback and cancellation token for agent execution."""
@@ -1604,7 +1604,7 @@ class CancellationToken:
             return False
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/tianshu/executor/streaming.py
@@ -1619,7 +1619,7 @@ git commit -m "feat(executor): add StreamCallback protocol and CancellationToken
 - Modify: `src/tianshu/llm.py` (add `chat_stream` method)
 - Modify: `src/tianshu/executor/agent.py` (accept and use stream_callback + cancellation_token)
 
-- [ ] **Step 1: Add `chat_stream` to LLMClient**
+- [x] **Step 1: Add `chat_stream` to LLMClient**
 
 In `src/tianshu/llm.py`, add after `chat()` method:
 
@@ -1724,7 +1724,7 @@ In `src/tianshu/llm.py`, add after `chat()` method:
 
 Note: Move `_PROVIDER_HINTS` to module-level (extracted from `chat()`) to reuse.
 
-- [ ] **Step 2: Update Agent.execute to accept streaming params**
+- [x] **Step 2: Update Agent.execute to accept streaming params**
 
 In `src/tianshu/executor/agent.py`, add imports:
 
@@ -1793,7 +1793,7 @@ After tool execution:
                     await stream_callback.on_tool_call_end(tc["name"], tool_result)
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/tianshu/llm.py src/tianshu/executor/agent.py
@@ -1807,7 +1807,7 @@ git commit -m "feat(streaming): add chat_stream to LLMClient and streaming suppo
 **Files:**
 - Modify: `src/tianshu/notifier/notifier.py` (add StreamCallback implementation)
 
-- [ ] **Step 1: Add WebSocket stream callback**
+- [x] **Step 1: Add WebSocket stream callback**
 
 In `src/tianshu/notifier/notifier.py`, add after the `Notifier` class:
 
@@ -1842,7 +1842,7 @@ class WebSocketStreamCallback:
         })
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src/tianshu/notifier/notifier.py
@@ -1857,7 +1857,7 @@ git commit -m "feat(notifier): add WebSocketStreamCallback for real-time streami
 - Create: `src/tianshu/tools/memory_tools.py`
 - Modify: `src/tianshu/app.py` (register tool)
 
-- [ ] **Step 1: Create `memory_tools.py`**
+- [x] **Step 1: Create `memory_tools.py`**
 
 ```python
 """Memory search tool — cross-session recall for agent long-term experience."""
@@ -1963,7 +1963,7 @@ def register_memory_tools(registry: ToolRegistry, storage: Storage) -> None:
     )
 ```
 
-- [ ] **Step 2: Register in app.py**
+- [x] **Step 2: Register in app.py**
 
 Add import:
 
@@ -1977,7 +1977,7 @@ After `register_skill_tools(...)`:
         register_memory_tools(tools, storage)
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/tianshu/tools/memory_tools.py src/tianshu/app.py

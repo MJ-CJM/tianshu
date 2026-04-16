@@ -71,6 +71,7 @@ def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
                 "required": ["command"],
             },
             tier=ToolTier.T3_DANGEROUS.value,
+            max_result_chars=16000,
         ),
     )
 
@@ -103,6 +104,7 @@ def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
                 "required": ["path"],
             },
             tier=ToolTier.T0_READONLY.value,
+            max_result_chars=12000,
         ),
     )
 

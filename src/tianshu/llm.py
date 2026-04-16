@@ -33,6 +33,60 @@ _PROVIDER_HINTS: dict[str, str] = {
     "minimax": "openai",
 }
 
+_ANTHROPIC_PREFIXES = ("claude", "anthropic/")
+
+
+def _is_anthropic_model(model: str) -> bool:
+    """Check if model is an Anthropic Claude model."""
+    lower = model.lower()
+    return any(lower.startswith(p) for p in _ANTHROPIC_PREFIXES)
+
+
+def _apply_prompt_caching(messages: list[dict], model: str) -> list[dict]:
+    """Add cache_control breakpoints for Anthropic models.
+
+    Strategy: mark system messages and the last 3 non-system messages with
+    cache_control: {"type": "ephemeral"}. This enables Anthropic's prompt
+    caching (~75% input token savings on cached portions).
+
+    For non-Anthropic models, returns messages unchanged.
+    """
+    if not _is_anthropic_model(model):
+        return messages
+
+    result = [dict(m) for m in messages]
+    cache_marker = {"type": "ephemeral"}
+
+    # Mark system messages
+    for msg in result:
+        if msg.get("role") == "system":
+            msg["content"] = _add_cache_control(msg.get("content", ""), cache_marker)
+
+    # Mark last 3 non-system messages
+    non_system = [i for i, m in enumerate(result) if m.get("role") != "system"]
+    for idx in non_system[-3:]:
+        msg = result[idx]
+        if msg.get("role") in ("user", "assistant"):
+            msg["content"] = _add_cache_control(msg.get("content", ""), cache_marker)
+
+    return result
+
+
+def _add_cache_control(content: str | list | dict, marker: dict) -> list[dict]:
+    """Convert content to block format and add cache_control to the last block."""
+    if isinstance(content, str):
+        blocks = [{"type": "text", "text": content}]
+    elif isinstance(content, list):
+        blocks = [dict(b) if isinstance(b, dict) else {"type": "text", "text": str(b)} for b in content]
+    elif isinstance(content, dict):
+        blocks = [dict(content)]
+    else:
+        blocks = [{"type": "text", "text": str(content)}]
+
+    if blocks:
+        blocks[-1]["cache_control"] = marker
+    return blocks
+
 
 class LLMClient:
     def __init__(
@@ -69,6 +123,7 @@ class LLMClient:
         tools: list[dict] | None = None,
     ) -> LLMResponse:
         model, api_base = self._resolve_model()
+        messages = _apply_prompt_caching(messages, model)
 
         kwargs: dict = {
             "model": model,
@@ -133,6 +188,7 @@ class LLMClient:
     ):
         """Streaming chat — yields LLMResponse chunks. Final chunk has full usage."""
         model, api_base = self._resolve_model()
+        messages = _apply_prompt_caching(messages, model)
 
         kwargs: dict = {
             "model": model,

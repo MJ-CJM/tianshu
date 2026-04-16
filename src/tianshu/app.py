@@ -114,6 +114,7 @@ async def lifespan(app: FastAPI):
         personas_dir=personas_dir,
         skills_loader=skills,
         memory_dir=memory_dir,
+        metrics_store=metrics_store,
     )
 
     # --- LLM Config Manager ---

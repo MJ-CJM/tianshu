@@ -40,9 +40,11 @@ class PromptBuilder:
         personas_dir: Path,
         skills_loader: SkillsLoader,
         memory_dir: Path | None = None,
+        metrics_store: object | None = None,
     ) -> None:
         self._personas_dir = personas_dir
         self._skills = skills_loader
+        self._metrics_store = metrics_store
 
         if memory_dir is None:
             memory_dir = Path("~/.tianshu/memory").expanduser()
@@ -115,7 +117,10 @@ class PromptBuilder:
         filter_names = persona.skills_allowed if persona and persona.skills_allowed else None
 
         # 7a: Inject skill index (name + description) for progressive loading
-        index_text = self._skills.load_index(filter_names=filter_names)
+        index_text = self._skills.load_index(
+            filter_names=filter_names,
+            metrics_store=self._metrics_store,
+        )
         if index_text:
             parts.append(index_text)
 
@@ -214,7 +219,10 @@ class PromptBuilder:
         # Layer 7: Skills — index + always-on
         self._skills.set_char_budget(skills_char_budget)
         filter_names = persona.skills_allowed if persona and persona.skills_allowed else None
-        index_text = self._skills.load_index(filter_names=filter_names)
+        index_text = self._skills.load_index(
+            filter_names=filter_names,
+            metrics_store=self._metrics_store,
+        )
         always_text = self._skills.load_always(filter_names=filter_names)
         skills_total = len(index_text) + len(always_text)
         layers.append({

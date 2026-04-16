@@ -395,8 +395,9 @@ class Agent:
                         await stream_callback.on_tool_call_end(tc["name"], tool_result)
 
                     content = tool_result.content
-                    if len(content) > 8000:
-                        content = content[:8000] + "\n[... truncated]"
+                    max_chars = tool_defn.max_result_chars if tool_defn else 8000
+                    if len(content) > max_chars:
+                        content = content[:max_chars] + "\n[... truncated]"
                     new_messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
@@ -520,7 +521,7 @@ class Agent:
         self._skills.set_char_budget(skills_char_budget)
 
         # Progressive loading: index + always-on skills
-        index_text = self._skills.load_index()
+        index_text = self._skills.load_index(metrics_store=self._metrics_store)
         if index_text:
             parts.append(index_text)
 

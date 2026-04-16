@@ -1,4 +1,9 @@
-"""Skill content validation — security scanning before write."""
+"""Skill content validation — security scanning before write.
+
+Delegates content security scanning to SkillsGuard (guard.py) which provides
+50+ patterns across 13 threat categories. This module retains structural
+validation (name, size, frontmatter).
+"""
 
 from __future__ import annotations
 
@@ -7,25 +12,12 @@ from dataclasses import dataclass
 
 import frontmatter as fm
 
+from tianshu.skills.guard import SkillsGuard, TrustLevel
+
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _MAX_CONTENT_SIZE = 256 * 1024
 
-# Patterns that indicate potential secrets
-_SECRET_PATTERNS = [
-    re.compile(r"(?:api[_-]?key|apikey)\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{20,}", re.IGNORECASE),
-    re.compile(r"(?:secret|token|password|passwd|pwd)\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{8,}", re.IGNORECASE),
-    re.compile(r"sk-[A-Za-z0-9]{20,}"),  # OpenAI-style keys
-    re.compile(r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}"),  # GitHub tokens
-    re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access keys
-]
-
-# Patterns that indicate dangerous commands (warn, not block)
-_DANGER_PATTERNS = [
-    re.compile(r"rm\s+-rf\s+/", re.IGNORECASE),
-    re.compile(r"sudo\s+", re.IGNORECASE),
-    re.compile(r"chmod\s+777", re.IGNORECASE),
-    re.compile(r":\(\)\s*\{\s*:\|\s*:\s*&\s*\}\s*;", re.IGNORECASE),  # fork bomb
-]
+_guard = SkillsGuard()
 
 
 @dataclass(frozen=True)
@@ -44,14 +36,29 @@ class ValidationResult:
 class SkillValidator:
     """Validate skill content before writing."""
 
-    def validate(self, name: str, content: str) -> ValidationResult:
+    def validate(
+        self,
+        name: str,
+        content: str,
+        source: str = "community",
+    ) -> ValidationResult:
         findings: list[ValidationFinding] = []
 
+        # Structural checks (name, size, frontmatter)
         findings.extend(self._check_name_format(name))
         findings.extend(self._check_size(content))
         findings.extend(self._check_frontmatter(content))
-        findings.extend(self._check_no_secrets(content))
-        findings.extend(self._check_no_dangerous_commands(content))
+
+        # Security scan via SkillsGuard
+        trust_level = SkillsGuard.resolve_trust_level(source)
+        guard_result = _guard.scan_content(content, trust_level)
+        for gf in guard_result.findings:
+            level = "error" if gf.severity.value in ("critical", "high") else "warning"
+            findings.append(ValidationFinding(
+                level=level,
+                check=f"guard:{gf.category.value}",
+                message=gf.message,
+            ))
 
         has_errors = any(f.level == "error" for f in findings)
         return ValidationResult(valid=not has_errors, findings=tuple(findings))
@@ -99,30 +106,3 @@ class SkillValidator:
             ))
         return findings
 
-    @staticmethod
-    def _check_no_secrets(content: str) -> list[ValidationFinding]:
-        for pattern in _SECRET_PATTERNS:
-            match = pattern.search(content)
-            if match:
-                start = max(0, match.start() - 10)
-                end = min(len(content), match.end() + 10)
-                snippet = content[start:end]
-                return [ValidationFinding(
-                    level="error",
-                    check="secrets",
-                    message=f"Possible secret detected near: ...{snippet}...",
-                )]
-        return []
-
-    @staticmethod
-    def _check_no_dangerous_commands(content: str) -> list[ValidationFinding]:
-        findings: list[ValidationFinding] = []
-        for pattern in _DANGER_PATTERNS:
-            match = pattern.search(content)
-            if match:
-                findings.append(ValidationFinding(
-                    level="warning",
-                    check="dangerous_command",
-                    message=f"Dangerous command pattern detected: {match.group()!r}",
-                ))
-        return findings

@@ -264,6 +264,7 @@ class Executor:
         def on_event(event: dict) -> None:
             self._storage.append_event(edict.id, memorial.id, event["type"], event)
 
+        result = None  # Capture AgentResult for AGENT_END hook context
         try:
             timeout = edict.runtime.timeout_seconds
             result = await asyncio.wait_for(
@@ -332,12 +333,13 @@ class Executor:
             except Exception:
                 logger.exception("Failed to emit %s for memorial %s", event_type, memorial.id)
 
-            # Agent end hook
-            await self._hooks.run(
-                HookType.AGENT_END,
-                edict=edict,
-                memorial=memorial,
-            )
+            # Agent end hook — pass AgentResult context for skill review
+            agent_end_ctx: dict = {"edict": edict, "memorial": memorial}
+            if result is not None:
+                agent_end_ctx["exit_reason"] = result.exit_reason
+                agent_end_ctx["iteration_count"] = result.iteration_count
+                agent_end_ctx["events"] = result.events
+            await self._hooks.run(HookType.AGENT_END, **agent_end_ctx)
 
             # Session end hook
             await self._hooks.run(

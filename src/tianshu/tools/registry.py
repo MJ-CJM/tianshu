@@ -19,6 +19,7 @@ class ToolDefinition(BaseModel):
     description: str
     parameters: dict
     tier: int = 0  # T0-T3, Phase 0: label only, no runtime interception
+    max_result_chars: int = 8000  # Per-tool result truncation limit
 
 
 class ToolRegistry:

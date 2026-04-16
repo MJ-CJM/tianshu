@@ -233,5 +233,6 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
                 "required": ["pattern"],
             },
             tier=ToolTier.T0_READONLY.value,
+            max_result_chars=12000,
         ),
     )

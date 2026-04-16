@@ -198,7 +198,7 @@ class SkillReviewHandler:
             logger.warning("[SKILL_REVIEW] Create action but no content provided")
             return
 
-        validation = self._validator.validate(name, content)
+        validation = self._validator.validate(name, content, source="agent-created")
         if not validation.valid:
             findings_str = "; ".join(f.message for f in validation.findings if f.level == "error")
             logger.warning("[SKILL_REVIEW] Validation failed for '%s': %s", name, findings_str)
