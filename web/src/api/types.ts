@@ -564,6 +564,11 @@ export interface PromptFileInfo {
   modified: string;
 }
 
+export interface PromptFilesResponse {
+  files: PromptFileInfo[];
+  departments: Record<string, string>;
+}
+
 export interface PromptFileContent {
   persona_id: string;
   filename: string;

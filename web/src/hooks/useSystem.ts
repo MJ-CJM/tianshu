@@ -79,7 +79,7 @@ export function usePromptFiles() {
   return useQuery({
     queryKey: ["system-prompt", "files"],
     queryFn: listPromptFiles,
-    select: (data) => data.data ?? [],
+    select: (data) => data.data ?? { files: [], departments: {} },
   });
 }
 

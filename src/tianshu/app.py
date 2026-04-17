@@ -108,9 +108,15 @@ async def lifespan(app: FastAPI):
 
     # --- Persona ---
     personas_dir = Path(__file__).parent.parent.parent / "personas"
-    persona_loader = PersonaLoader(personas_dir, storage=storage)
+    runtime_personas_dir = Path(settings.runtime_personas_dir).expanduser()
+    persona_loader = PersonaLoader(
+        personas_dir,
+        storage=storage,
+        runtime_personas_dir=runtime_personas_dir,
+    )
     persona_loader.load_all()
     app.state.persona_loader = persona_loader
+    app.state.runtime_personas_dir = runtime_personas_dir
 
     # --- Memory Palace (Drawer Store) ---
     memory_config = MemoryConfig()

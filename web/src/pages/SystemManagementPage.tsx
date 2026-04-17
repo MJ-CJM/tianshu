@@ -430,13 +430,34 @@ function ToolsTab() {
 
 // ==================== Prompt Layers ====================
 
-function PromptLayersCard({ personaId }: { personaId: string | null }) {
+function PromptLayersCard({
+  personaId,
+  deptId,
+  title,
+  onEditFile,
+}: {
+  personaId: string | null;
+  deptId?: string;
+  title?: string;
+  onEditFile?: (personaId: string, filename: string) => void;
+}) {
   const { data: layers, isLoading } = usePromptLayers(personaId);
 
   if (!personaId || !layers) return null;
 
+  // Map layer names to editable file targets
+  const editableMap: Record<string, { pid: string; filename: string }> = {
+    "COURT.md": { pid: "court", filename: "COURT.md" },
+    "Court MEMORY.md": { pid: "court", filename: "MEMORY.md" },
+    ...(deptId ? {
+      "SOUL.md": { pid: deptId, filename: "SOUL.md" },
+      "ROLE.md": { pid: deptId, filename: "ROLE.md" },
+      "MEMORY.md": { pid: deptId, filename: "MEMORY.md" },
+    } : {}),
+  };
+
   return (
-    <Card title="Prompt 分层分析" size="small" loading={isLoading} style={{ marginTop: 16 }}>
+    <Card title={title ?? "Prompt 分层分析"} size="small" loading={isLoading} style={{ marginTop: 16 }}>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
           <Statistic title="总字符数" value={layers.total_chars} />
@@ -457,7 +478,7 @@ function PromptLayersCard({ personaId }: { personaId: string | null }) {
           { title: "字符", dataIndex: "chars", key: "chars", width: 80, align: "right" as const },
           { title: "Token (est)", dataIndex: "tokens_est", key: "tokens_est", width: 100, align: "right" as const },
           { title: "占比", key: "percent", width: 120,
-            render: (_: unknown, record: { chars: number }) => (
+            render: (_: unknown, record: { chars: number; name: string }) => (
               <Progress
                 percent={Math.round((record.chars / (layers.total_chars || 1)) * 100)}
                 size="small"
@@ -465,6 +486,24 @@ function PromptLayersCard({ personaId }: { personaId: string | null }) {
               />
             ),
           },
+          ...(onEditFile ? [{
+            title: "操作" as const,
+            key: "actions" as const,
+            width: 70,
+            align: "center" as const,
+            render: (_: unknown, record: { chars: number; name: string }) => {
+              const target = editableMap[record.name];
+              if (!target) return null;
+              return (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => onEditFile(target.pid, target.filename)}
+                />
+              );
+            },
+          }] : []),
         ]}
         dataSource={layers.layers.map((l) => ({ key: l.layer, ...l }))}
         size="small"
@@ -479,7 +518,7 @@ function PromptLayersCard({ personaId }: { personaId: string | null }) {
 function SystemPromptTab() {
   const { token } = theme.useToken();
   const { data: personas } = usePersonas();
-  const { data: promptFiles } = usePromptFiles();
+  const { data: promptData } = usePromptFiles();
   const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
   const [editingFile, setEditingFile] = useState<{
     personaId: string;
@@ -488,10 +527,14 @@ function SystemPromptTab() {
   const [editContent, setEditContent] = useState("");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewPersona, setPreviewPersona] = useState<string | null>(null);
+  const [selectedOfficer, setSelectedOfficer] = useState<string | null>(null);
+
+  const promptFiles = promptData?.files ?? [];
+  const departments = promptData?.departments ?? {};
 
   const personaIds = (personas ?? []).map((p) => p.id);
   // Also include "court" if it has prompt files
-  const allPersonaIds = promptFiles
+  const allPersonaIds = promptFiles.length > 0
     ? [...new Set(promptFiles.map((f) => f.persona_id))]
     : [];
   const displayIds =
@@ -550,10 +593,9 @@ function SystemPromptTab() {
         <div style={{ marginBottom: 16 }}>
           <Segmented
             value={activePersona ?? ""}
-            onChange={(val) => setSelectedPersona(val as string)}
+            onChange={(val) => { setSelectedPersona(val as string); setSelectedOfficer(null); }}
             options={displayIds.map((id) => {
-              const p = (personas ?? []).find((pp) => pp.id === id);
-              const label = p ? p.name : id === "court" ? "朝廷" : id;
+              const label = departments[id] ?? id;
               return { value: id, label };
             })}
           />
@@ -562,22 +604,13 @@ function SystemPromptTab() {
 
       {activePersona && (
         <>
-          <div
-            style={{
-              marginBottom: 16,
-              display: "flex",
-              justifyContent: "flex-end",
-            }}
+          {/* Template files */}
+          <Typography.Text
+            type="secondary"
+            style={{ display: "block", marginBottom: 8, fontSize: 12 }}
           >
-            <Button
-              icon={<EyeOutlined />}
-              onClick={() => handlePreview(activePersona)}
-              disabled={activePersona === "court"}
-            >
-              预览组装 Prompt
-            </Button>
-          </div>
-
+            部门模板文件
+          </Typography.Text>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
             {personaFiles.length === 0 ? (
               <Typography.Text type="secondary">
@@ -620,6 +653,56 @@ function SystemPromptTab() {
               ))
             )}
           </div>
+
+          {/* Personas belonging to this department */}
+          {activePersona !== "court" && (() => {
+            const deptPersonas = (personas ?? []).filter(
+              (p) => p.department === activePersona,
+            );
+            if (deptPersonas.length === 0) return null;
+            return (
+              <div style={{ marginTop: 24 }}>
+                <Typography.Text
+                  type="secondary"
+                  style={{ display: "block", marginBottom: 8, fontSize: 12 }}
+                >
+                  使用此模板的官员（点击查看/编辑 Prompt 分层）
+                </Typography.Text>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  {deptPersonas.map((p) => {
+                    const isSelected = selectedOfficer === p.id;
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => setSelectedOfficer(isSelected ? null : p.id)}
+                        style={{
+                          border: `1px solid ${isSelected ? token.colorPrimary : token.colorBorder}`,
+                          borderRadius: token.borderRadius,
+                          padding: "10px 16px",
+                          background: isSelected ? token.colorPrimaryBg : token.colorBgContainer,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                        }}
+                      >
+                        <Typography.Text strong>{p.name}</Typography.Text>
+                        <Tag style={{ marginRight: 0 }}>{p.id}</Tag>
+                        <Button
+                          size="small"
+                          icon={<EyeOutlined />}
+                          onClick={(e) => { e.stopPropagation(); handlePreview(p.id); }}
+                        >
+                          预览
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </>
       )}
 
@@ -682,7 +765,18 @@ function SystemPromptTab() {
         )}
       </Modal>
 
-      <PromptLayersCard personaId={activePersona} />
+      {activePersona !== "court" && (
+        <PromptLayersCard
+          personaId={selectedOfficer ?? activePersona}
+          deptId={activePersona ?? undefined}
+          title={
+            selectedOfficer
+              ? `${(personas ?? []).find((p) => p.id === selectedOfficer)?.name ?? selectedOfficer} — Prompt 分层`
+              : "Prompt 分层分析"
+          }
+          onEditFile={handleEdit}
+        />
+      )}
     </>
   );
 }
@@ -1325,7 +1419,7 @@ export default function SystemManagementPage() {
           },
           {
             key: "prompt",
-            label: "圣旨模板",
+            label: "Prompt 模板",
             children: <SystemPromptTab />,
           },
           {

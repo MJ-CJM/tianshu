@@ -38,7 +38,7 @@ def _get_memory_entry():
 
 class Storage:
     def __init__(self, db_path: str) -> None:
-        self._db_path = db_path
+        self._db_path = str(Path(db_path).expanduser())
         self._lock = threading.Lock()
         self._conn: sqlite3.Connection | None = None
 

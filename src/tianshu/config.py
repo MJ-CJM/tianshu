@@ -15,13 +15,14 @@ class TianshuSettings(BaseSettings):
     llm_max_tokens: int = 4096
     agent_max_iterations: int = 20
     agent_timeout_seconds: int = 300
-    db_path: str = ".tianshu/tianshu.db"
+    db_path: str = "~/.tianshu/tianshu.db"
     host: str = "0.0.0.0"
     port: int = 8000
     workspace_dir: str = "."
     skills_char_budget: int = 30000
     static_dir: str = "/app/static"
     memory_dir: str = "~/.tianshu/memory"
+    runtime_personas_dir: str = "~/.tianshu/personas"
     log_dir: str = "~/.tianshu/logs"
     log_level: str = "INFO"
     # Phase 3: concurrency

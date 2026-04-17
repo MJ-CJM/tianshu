@@ -1,8 +1,21 @@
-"""Persona loader — dual-source: file system (seed) + SQLite (runtime)."""
+"""Persona loader — dual-source: file system (seed) + SQLite (runtime).
+
+SOUL.md / ROLE.md identity files live in two layers:
+
+- ``personas/{department}/`` (git-tracked)   — department-level template,
+  used as seed source for new officials.
+- ``~/.tianshu/personas/{persona_id}/``      — per-official runtime identity;
+  each persona gets its own copy that can diverge and "evolve" independently.
+
+On first load of a persona, the runtime directory is created and seeded from
+the department template. Subsequent edits through the UI write to the runtime
+path only — the git template is untouched. This mirrors the MEMORY.md pattern.
+"""
 
 from __future__ import annotations
 
 import logging
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,13 +26,53 @@ from tianshu.persona.model import AgentPersona
 logger = logging.getLogger(__name__)
 
 
+_IDENTITY_FILES = ("SOUL.md", "ROLE.md")
+
+
 class PersonaLoader:
     """Loads persona definitions from SQLite, seeding from file system on first run."""
 
-    def __init__(self, personas_dir: Path, storage=None) -> None:
+    def __init__(
+        self,
+        personas_dir: Path,
+        storage=None,
+        runtime_personas_dir: Path | None = None,
+    ) -> None:
         self._dir = personas_dir
         self._storage = storage
+        if runtime_personas_dir is None:
+            runtime_personas_dir = Path("~/.tianshu/personas").expanduser()
+        self._runtime_dir = Path(runtime_personas_dir).expanduser()
         self._personas: dict[str, AgentPersona] = {}
+
+    @property
+    def runtime_dir(self) -> Path:
+        return self._runtime_dir
+
+    def ensure_runtime_identity(
+        self,
+        persona_id: str,
+        template_source_dir: Path,
+    ) -> tuple[Path, Path]:
+        """Ensure runtime SOUL.md/ROLE.md exist for a persona; seed if missing.
+
+        Returns (soul_path, role_path) pointing to the runtime copies.
+        Seeding is idempotent: existing runtime files are never overwritten,
+        so each persona can diverge from the template freely.
+        """
+        target_dir = self._runtime_dir / persona_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for fname in _IDENTITY_FILES:
+            target = target_dir / fname
+            if target.exists():
+                continue
+            template = template_source_dir / fname
+            if template.exists():
+                shutil.copy2(template, target)
+                logger.info(
+                    "Seeded %s/%s from %s", persona_id, fname, template,
+                )
+        return target_dir / "SOUL.md", target_dir / "ROLE.md"
 
     def load_all(self) -> dict[str, AgentPersona]:
         """Load from SQLite (primary) + file system (seed)."""
@@ -90,15 +143,15 @@ class PersonaLoader:
                 self._personas[persona.id] = persona
 
     def _load_persona_from_dir(self, persona_dir: Path) -> AgentPersona | None:
-        soul_path = persona_dir / "SOUL.md"
-        role_path = persona_dir / "ROLE.md"
+        template_soul = persona_dir / "SOUL.md"
+        template_role = persona_dir / "ROLE.md"
         memory_path = persona_dir / "MEMORY.md"
 
-        if not soul_path.exists() or not role_path.exists():
+        if not template_soul.exists() or not template_role.exists():
             missing = []
-            if not soul_path.exists():
+            if not template_soul.exists():
                 missing.append("SOUL.md")
-            if not role_path.exists():
+            if not template_role.exists():
                 missing.append("ROLE.md")
             logger.warning(
                 "Persona '%s' missing %s — skipping. "
@@ -107,9 +160,14 @@ class PersonaLoader:
             )
             return None
 
-        meta = self._read_frontmatter(soul_path)
+        meta = self._read_frontmatter(template_soul)
         name = meta.get("name", persona_dir.name)
         department = meta.get("department", persona_dir.name)
+
+        # Seed runtime identity from this template dir (persona_id == dir name here)
+        soul_path, role_path = self.ensure_runtime_identity(
+            persona_dir.name, persona_dir,
+        )
 
         return AgentPersona(
             id=persona_dir.name,
@@ -147,20 +205,22 @@ class PersonaLoader:
         }
 
     def _dict_to_persona(self, d: dict) -> AgentPersona:
-        # Resolve prompt files: prefer department directory (shared template),
-        # fall back to persona ID directory, then explicit DB path.
+        # Locate the department template directory (the seed source).
         dept_dir = self._dir / d.get("department", d["id"])
         id_dir = self._dir / d["id"]
         if dept_dir.is_dir():
-            persona_dir = dept_dir
+            template_dir = dept_dir
         elif id_dir.is_dir():
-            persona_dir = id_dir
+            template_dir = id_dir
         else:
-            persona_dir = dept_dir  # will yield missing-file warnings
-        soul_path = Path(d["soul_path"]) if d.get("soul_path") and Path(d["soul_path"]).exists() else persona_dir / "SOUL.md"
-        role_path = Path(d["role_path"]) if d.get("role_path") and Path(d["role_path"]).exists() else persona_dir / "ROLE.md"
-        memory_path = persona_dir / "MEMORY.md"
-        skills_dir = persona_dir / "skills" if (persona_dir / "skills").is_dir() else None
+            template_dir = dept_dir  # will yield missing-file warnings on first use
+
+        # SOUL.md / ROLE.md: per-persona runtime copies (seeded from template).
+        # Stored DB paths are ignored — runtime location is authoritative.
+        soul_path, role_path = self.ensure_runtime_identity(d["id"], template_dir)
+
+        memory_path = template_dir / "MEMORY.md"
+        skills_dir = template_dir / "skills" if (template_dir / "skills").is_dir() else None
 
         return AgentPersona(
             id=d["id"],

@@ -299,7 +299,8 @@ function OverviewTab({
 
 function PromptFilesTab({ personaId }: { personaId: string }) {
   const { token } = theme.useToken();
-  const { data: promptFiles } = usePromptFiles();
+  const { data: promptData } = usePromptFiles();
+  const promptFiles = promptData?.files ?? [];
   const [editingFile, setEditingFile] = useState<{
     personaId: string;
     filename: string;
@@ -317,7 +318,7 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
   );
   const { data: layers, isLoading: layersLoading } = usePromptLayers(personaId);
 
-  const personaFiles = (promptFiles ?? []).filter(
+  const personaFiles = promptFiles.filter(
     (f: PromptFileInfo) => f.persona_id === personaId,
   );
 

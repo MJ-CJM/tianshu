@@ -753,16 +753,21 @@ async def update_plugin_status(name: str, request: Request):
 # --- Config endpoints ---
 
 
-@gateway_router.get("/agent-config", response_model=ApiResponse)
-async def get_agent_config(request: Request):
-    cm: ConfigManager = request.app.state.config_manager
-    state = cm.agent_config
-    data = AgentConfig(
+def _state_to_agent_config(state) -> AgentConfig:
+    return AgentConfig(
         agent_max_iterations=state.agent_max_iterations,
         agent_timeout_seconds=state.agent_timeout_seconds,
         skills_char_budget=state.skills_char_budget,
+        skill_review_enabled=state.skill_review_enabled,
+        skill_review_interval=state.skill_review_interval,
+        fallback_llm_config_name=state.fallback_llm_config_name,
     )
-    return ApiResponse(success=True, data=data.model_dump())
+
+
+@gateway_router.get("/agent-config", response_model=ApiResponse)
+async def get_agent_config(request: Request):
+    cm: ConfigManager = request.app.state.config_manager
+    return ApiResponse(success=True, data=_state_to_agent_config(cm.agent_config).model_dump())
 
 
 @gateway_router.put("/agent-config", response_model=ApiResponse)
@@ -774,12 +779,7 @@ async def update_agent_config(body: AgentConfigUpdateRequest, request: Request):
     else:
         state = cm.update_agent_config(**updates)
         logger.info("Agent config updated: %s", list(updates.keys()))
-    data = AgentConfig(
-        agent_max_iterations=state.agent_max_iterations,
-        agent_timeout_seconds=state.agent_timeout_seconds,
-        skills_char_budget=state.skills_char_budget,
-    )
-    return ApiResponse(success=True, data=data.model_dump())
+    return ApiResponse(success=True, data=_state_to_agent_config(state).model_dump())
 
 
 def _state_to_config(s: LLMConfigState) -> LLMConfig:
@@ -1343,38 +1343,128 @@ async def list_tools(request: Request):
 _PROMPT_FILE_WHITELIST = {"SOUL.md", "ROLE.md", "COURT.md", "MEMORY.md"}
 
 
+def _read_dept_display_name(persona_dir) -> str:
+    """Read department display name from SOUL.md or COURT.md frontmatter."""
+    import yaml
+    # Try SOUL.md first, then COURT.md (for court directory)
+    for fname in ("SOUL.md", "COURT.md"):
+        md_path = persona_dir / fname
+        if not md_path.exists():
+            continue
+        try:
+            text = md_path.read_text(encoding="utf-8")
+            if text.startswith("---"):
+                end = text.index("---", 3)
+                meta = yaml.safe_load(text[3:end]) or {}
+                raw = meta.get("name", "")
+                if not raw:
+                    continue
+                # Use the Chinese portion before the English parenthetical
+                if "(" in raw:
+                    raw = raw[:raw.index("(")].strip()
+                # Map well-known English names to Chinese
+                if raw == "Imperial Court":
+                    return "朝廷"
+                return raw
+        except Exception:
+            continue
+    return persona_dir.name
+
+
+def _resolve_runtime_identity_seed(request: Request, persona_id: str) -> None:
+    """Ensure runtime SOUL.md / ROLE.md exist for a persona (seeded from template)."""
+    persona_loader = request.app.state.persona_loader
+    personas_dir = request.app.state.personas_dir
+    persona = persona_loader.get(persona_id)
+    if persona:
+        template_dir = personas_dir / (persona.department or persona.id)
+        if not template_dir.is_dir():
+            template_dir = personas_dir / persona.id
+    else:
+        template_dir = personas_dir / persona_id
+    persona_loader.ensure_runtime_identity(persona_id, template_dir)
+
+
+def _prompt_file_path(request: Request, persona_id: str, filename: str):
+    """Resolve the backing path for a prompt file.
+
+    Runtime-backed (per-persona, evolvable):
+      - SOUL.md / ROLE.md  → ~/.tianshu/personas/{pid}/
+      - MEMORY.md          → ~/.tianshu/memory/{pid}/
+
+    Template-backed (git-tracked, shared by department):
+      - COURT.md           → personas/{pid}/COURT.md
+    """
+    personas_dir = request.app.state.personas_dir
+    runtime_personas_dir = request.app.state.runtime_personas_dir
+    if filename == "MEMORY.md":
+        memory_manager = request.app.state.memory_manager
+        return memory_manager.memory_dir / persona_id / filename
+    if filename in ("SOUL.md", "ROLE.md"):
+        return runtime_personas_dir / persona_id / filename
+    return personas_dir / persona_id / filename
+
+
 @gateway_router.get("/system-prompt/files")
 async def list_prompt_files(request: Request):
+    from datetime import datetime, UTC
     from pathlib import Path
     personas_dir: Path = request.app.state.personas_dir
+    memory_manager = request.app.state.memory_manager
+    memory_dir: Path = memory_manager.memory_dir
+    runtime_personas_dir: Path = request.app.state.runtime_personas_dir
     result = []
+    departments: dict[str, str] = {}
     if not personas_dir.is_dir():
-        return ApiResponse(success=True, data=result)
+        return ApiResponse(success=True, data={"files": result, "departments": departments})
     for persona_dir in sorted(personas_dir.iterdir()):
         if not persona_dir.is_dir():
             continue
         persona_id = persona_dir.name
+        departments[persona_id] = _read_dept_display_name(persona_dir)
+        seen_files: set[str] = set()
         for md_file in sorted(persona_dir.glob("*.md")):
-            if md_file.name in _PROMPT_FILE_WHITELIST:
-                stat = md_file.stat()
-                from datetime import datetime, UTC
-                result.append({
-                    "persona_id": persona_id,
-                    "filename": md_file.name,
-                    "path": str(md_file),
-                    "size": stat.st_size,
-                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
-                })
-    return ApiResponse(success=True, data=result)
+            if md_file.name not in _PROMPT_FILE_WHITELIST:
+                continue
+            if md_file.name == "MEMORY.md":
+                runtime = memory_dir / persona_id / "MEMORY.md"
+                target = runtime if runtime.is_file() else md_file
+            elif md_file.name in ("SOUL.md", "ROLE.md"):
+                runtime = runtime_personas_dir / persona_id / md_file.name
+                target = runtime if runtime.is_file() else md_file
+            else:
+                target = md_file
+            stat = target.stat()
+            seen_files.add(md_file.name)
+            result.append({
+                "persona_id": persona_id,
+                "filename": md_file.name,
+                "path": str(target),
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+            })
+        # Surface runtime-only files for personas without a template entry
+        runtime_memory = memory_dir / persona_id / "MEMORY.md"
+        if "MEMORY.md" not in seen_files and runtime_memory.is_file():
+            stat = runtime_memory.stat()
+            result.append({
+                "persona_id": persona_id,
+                "filename": "MEMORY.md",
+                "path": str(runtime_memory),
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+            })
+    return ApiResponse(success=True, data={"files": result, "departments": departments})
 
 
 @gateway_router.get("/system-prompt/files/{persona_id}/{filename}")
 async def get_prompt_file(persona_id: str, filename: str, request: Request):
-    from pathlib import Path
     if filename not in _PROMPT_FILE_WHITELIST:
         raise HTTPException(status_code=400, detail=f"File '{filename}' is not in whitelist")
-    personas_dir: Path = request.app.state.personas_dir
-    file_path = personas_dir / persona_id / filename
+    if filename in ("SOUL.md", "ROLE.md"):
+        # Lazy seed so reading a persona that has never been loaded still works
+        _resolve_runtime_identity_seed(request, persona_id)
+    file_path = _prompt_file_path(request, persona_id, filename)
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail=f"File not found: {persona_id}/{filename}")
     content = file_path.read_text(encoding="utf-8")
@@ -1383,19 +1473,58 @@ async def get_prompt_file(persona_id: str, filename: str, request: Request):
 
 @gateway_router.put("/system-prompt/files/{persona_id}/{filename}", response_model=ApiResponse)
 async def update_prompt_file(persona_id: str, filename: str, request: Request):
-    from pathlib import Path
     if filename not in _PROMPT_FILE_WHITELIST:
         raise HTTPException(status_code=400, detail=f"File '{filename}' is not in whitelist")
-    personas_dir: Path = request.app.state.personas_dir
-    file_path = personas_dir / persona_id / filename
-    if not file_path.parent.is_dir():
-        raise HTTPException(status_code=404, detail=f"Persona directory '{persona_id}' not found")
     body = await request.json()
     content = body.get("content")
     if content is None:
         raise HTTPException(status_code=400, detail="content is required")
+    if filename == "MEMORY.md":
+        memory_manager = request.app.state.memory_manager
+        memory_manager.md_backend.write_core_memory(persona_id, content)
+        return ApiResponse(success=True, data={"persona_id": persona_id, "filename": filename, "size": len(content)})
+    if filename in ("SOUL.md", "ROLE.md"):
+        _resolve_runtime_identity_seed(request, persona_id)
+    file_path = _prompt_file_path(request, persona_id, filename)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding="utf-8")
     return ApiResponse(success=True, data={"persona_id": persona_id, "filename": filename, "size": len(content)})
+
+
+@gateway_router.post("/system-prompt/files/{persona_id}/{filename}/reset", response_model=ApiResponse)
+async def reset_prompt_file(persona_id: str, filename: str, request: Request):
+    """Reset a runtime identity file (SOUL.md / ROLE.md / MEMORY.md) to its department template."""
+    if filename not in ("SOUL.md", "ROLE.md", "MEMORY.md"):
+        raise HTTPException(status_code=400, detail=f"File '{filename}' cannot be reset (not runtime-backed)")
+    persona_loader = request.app.state.persona_loader
+    personas_dir = request.app.state.personas_dir
+    persona = persona_loader.get(persona_id)
+    template_dir = personas_dir / (persona.department if persona else persona_id)
+    if not template_dir.is_dir():
+        template_dir = personas_dir / persona_id
+    template_file = template_dir / filename
+    if not template_file.is_file():
+        raise HTTPException(status_code=404, detail=f"Template not found: {template_file}")
+    content = template_file.read_text(encoding="utf-8")
+    if filename == "MEMORY.md":
+        request.app.state.memory_manager.md_backend.write_core_memory(persona_id, content)
+    else:
+        target = _prompt_file_path(request, persona_id, filename)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    return ApiResponse(success=True, data={"persona_id": persona_id, "filename": filename, "size": len(content)})
+
+
+def _resolve_persona(persona_loader, persona_id: str):
+    """Resolve persona from DB, falling back to file-system template directory."""
+    persona = persona_loader.get(persona_id)
+    if persona:
+        return persona
+    # Fallback: load on-the-fly from file-system template directory
+    persona_dir = persona_loader._dir / persona_id
+    if persona_dir.is_dir():
+        return persona_loader._load_persona_from_dir(persona_dir)
+    return None
 
 
 @gateway_router.get("/system-prompt/preview/{persona_id}")
@@ -1403,7 +1532,7 @@ async def preview_system_prompt(persona_id: str, request: Request):
     from tianshu.persona.prompt_builder import PromptBuilder
     prompt_builder: PromptBuilder = request.app.state.prompt_builder
     persona_loader = request.app.state.persona_loader
-    persona = persona_loader.get(persona_id)
+    persona = _resolve_persona(persona_loader, persona_id)
     if not persona:
         raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
     # Build a dummy edict for preview
@@ -1582,7 +1711,7 @@ async def get_prompt_layers(persona_id: str, request: Request):
     from tianshu.persona.prompt_builder import PromptBuilder
     prompt_builder: PromptBuilder = request.app.state.prompt_builder
     persona_loader = request.app.state.persona_loader
-    persona = persona_loader.get(persona_id)
+    persona = _resolve_persona(persona_loader, persona_id)
     if not persona:
         raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
     from tianshu.models.edict import Edict

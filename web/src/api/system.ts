@@ -4,7 +4,7 @@ import type {
   SkillInfo,
   SkillDetail,
   ToolInfo,
-  PromptFileInfo,
+  PromptFilesResponse,
   PromptFileContent,
 } from "./types";
 
@@ -63,9 +63,9 @@ export async function listTools(): Promise<ApiResponse<ToolInfo[]>> {
 // --- System Prompt ---
 
 export async function listPromptFiles(): Promise<
-  ApiResponse<PromptFileInfo[]>
+  ApiResponse<PromptFilesResponse>
 > {
-  const { data } = await apiClient.get<ApiResponse<PromptFileInfo[]>>(
+  const { data } = await apiClient.get<ApiResponse<PromptFilesResponse>>(
     "/system-prompt/files",
   );
   return data;
