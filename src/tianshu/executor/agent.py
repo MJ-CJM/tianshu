@@ -116,7 +116,7 @@ class Agent:
 
         # Use PromptBuilder if available, else fallback to legacy
         if self._prompt_builder:
-            system_prompt = self._prompt_builder.build(
+            system_prompt = await self._prompt_builder.build(
                 edict,
                 persona=persona,
                 skills_char_budget=agent_cfg.skills_char_budget,

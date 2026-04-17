@@ -25,28 +25,31 @@ class TestPromptBuilder:
     def builder(self, personas_dir, skills):
         return PromptBuilder(personas_dir=personas_dir, skills_loader=skills)
 
-    def test_build_without_persona(self, builder):
+    @pytest.mark.asyncio
+    async def test_build_without_persona(self, builder):
         edict = Edict(goal="test task")
-        prompt = builder.build(edict)
+        prompt = await builder.build(edict)
         assert "Tianshu" in prompt
         assert edict.id in prompt
 
-    def test_build_with_persona(self, builder, personas_dir):
+    @pytest.mark.asyncio
+    async def test_build_with_persona(self, builder, personas_dir):
         loader = PersonaLoader(personas_dir)
         loader.load_all()
         persona = loader.get("bingbu")
 
         edict = Edict(goal="test task")
-        prompt = builder.build(edict, persona=persona)
+        prompt = await builder.build(edict, persona=persona)
         assert "Tianshu" in prompt
         assert "兵部" in prompt or "Ministry of War" in prompt
         assert edict.id in prompt
 
-    def test_build_includes_court(self, builder, personas_dir):
+    @pytest.mark.asyncio
+    async def test_build_includes_court(self, builder, personas_dir):
         loader = PersonaLoader(personas_dir)
         loader.load_all()
         persona = loader.get("neige")
 
         edict = Edict(goal="plan something")
-        prompt = builder.build(edict, persona=persona)
+        prompt = await builder.build(edict, persona=persona)
         assert "Imperial Court" in prompt or "朝廷" in prompt

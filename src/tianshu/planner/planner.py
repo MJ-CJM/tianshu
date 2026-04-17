@@ -106,7 +106,7 @@ class Planner:
             planner_persona = self._persona_loader.get(edict.planner_persona_id)
             if planner_persona:
                 try:
-                    persona_context = self._prompt_builder.build(
+                    persona_context = await self._prompt_builder.build(
                         edict, persona=planner_persona, skills_char_budget=5000,
                     )
                 except Exception:

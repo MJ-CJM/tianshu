@@ -1106,28 +1106,38 @@ async def create_persona(request: Request):
                 detail=f"LLM config '{llm_config_name}' does not exist",
             )
 
-    personas_dir = loader._dir
-    persona_dir = personas_dir / body["id"]
-    persona_dir.mkdir(parents=True, exist_ok=True)
+    # Runtime identity: write SOUL.md/ROLE.md to ~/.tianshu/personas/{id}/
+    # and leave personas/ (git-tracked) untouched. If a department template
+    # directory exists, seed from it; otherwise write minimal defaults.
+    runtime_personas_dir: Path = request.app.state.runtime_personas_dir
+    runtime_dir = runtime_personas_dir / body["id"]
+    runtime_dir.mkdir(parents=True, exist_ok=True)
 
-    soul_path = persona_dir / "SOUL.md"
-    role_path = persona_dir / "ROLE.md"
+    template_dir = loader._dir / body["department"]
+    if template_dir.is_dir():
+        soul_path, role_path = loader.ensure_runtime_identity(
+            body["id"], template_dir,
+        )
+    else:
+        soul_path = runtime_dir / "SOUL.md"
+        role_path = runtime_dir / "ROLE.md"
+        if not soul_path.exists():
+            dept_label = body["department"]
+            soul_path.write_text(
+                f"---\nname: {body['name']}\ndepartment: {dept_label}\n---\n\n"
+                f"# {body['name']}\n\n"
+                f"你是{body['name']}，隶属{dept_label}。\n",
+                encoding="utf-8",
+            )
+        if not role_path.exists():
+            role_path.write_text(
+                f"# {body['name']} — 职责\n\n"
+                f"作为{body['department']}的官员，你负责执行交办的任务。\n",
+                encoding="utf-8",
+            )
 
-    # Create default SOUL.md / ROLE.md if not present
-    if not soul_path.exists():
-        dept_label = body["department"]
-        soul_path.write_text(
-            f"---\nname: {body['name']}\ndepartment: {dept_label}\n---\n\n"
-            f"# {body['name']}\n\n"
-            f"你是{body['name']}，隶属{dept_label}。\n",
-            encoding="utf-8",
-        )
-    if not role_path.exists():
-        role_path.write_text(
-            f"# {body['name']} — 职责\n\n"
-            f"作为{body['department']}的官员，你负责执行交办的任务。\n",
-            encoding="utf-8",
-        )
+    memory_manager = request.app.state.memory_manager
+    memory_path = memory_manager.memory_dir / body["id"] / "MEMORY.md"
 
     persona = AgentPersona(
         id=body["id"],
@@ -1135,7 +1145,7 @@ async def create_persona(request: Request):
         department=body["department"],
         soul_path=soul_path,
         role_path=role_path,
-        memory_path=persona_dir / "MEMORY.md",
+        memory_path=memory_path,
         tools_allowed=body.get("tools_allowed", []),
         tools_denied=body.get("tools_denied", []),
         skills_allowed=body.get("skills_allowed", []),
@@ -1538,7 +1548,7 @@ async def preview_system_prompt(persona_id: str, request: Request):
     # Build a dummy edict for preview
     from tianshu.models.edict import Edict
     dummy_edict = Edict(title="Preview", goal="System prompt preview")
-    preview = prompt_builder.build(dummy_edict, persona=persona)
+    preview = await prompt_builder.build(dummy_edict, persona=persona)
     return ApiResponse(success=True, data={"persona_id": persona_id, "prompt": preview})
 
 
@@ -1716,7 +1726,7 @@ async def get_prompt_layers(persona_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
     from tianshu.models.edict import Edict
     dummy_edict = Edict(title="Preview", goal="Layer analysis")
-    layers = prompt_builder.build_layers(dummy_edict, persona=persona)
+    layers = await prompt_builder.build_layers(dummy_edict, persona=persona)
     return ApiResponse(success=True, data=layers)
 
 
@@ -2034,9 +2044,11 @@ async def list_policy_templates():
 
 
 # ---- Memory Palace API ----
+# NOTE: dedicated /memory-palace/* prefix to avoid being swallowed by the
+# earlier-registered /memory/{persona_id} route.
 
 
-@gateway_router.get("/memory/search")
+@gateway_router.get("/memory-palace/search")
 async def memory_search(
     request: Request,
     query: str = Query(..., description="Search query"),
@@ -2070,7 +2082,7 @@ async def memory_search(
     )
 
 
-@gateway_router.get("/memory/l1")
+@gateway_router.get("/memory-palace/l1")
 async def memory_l1(
     request: Request,
     wing: str = Query(..., description="Wing to generate L1 for"),

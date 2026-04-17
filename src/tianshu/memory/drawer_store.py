@@ -4,9 +4,23 @@ from __future__ import annotations
 
 import math
 import sqlite3
+import threading
 from datetime import datetime, timezone
 
 from tianshu.memory.drawer import Drawer, DrawerResult
+
+
+def _escape_fts5_query(query: str) -> str:
+    """Escape user input for FTS5 MATCH to avoid syntax errors on special chars.
+
+    Splits on whitespace and wraps each non-empty token as a phrase ("..."),
+    doubling any internal quote. Tokens become phrases joined with implicit AND,
+    which also covers inputs like "C++", "foo(bar)", and `hello"world`.
+    """
+    tokens = [t for t in query.split() if t]
+    if not tokens:
+        return ""
+    return " ".join('"' + t.replace('"', '""') + '"' for t in tokens)
 
 
 class DrawerStore:
@@ -14,8 +28,9 @@ class DrawerStore:
 
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
-        self._conn = sqlite3.connect(db_path)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._lock = threading.Lock()
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -46,23 +61,24 @@ class DrawerStore:
         self._conn.commit()
 
     async def store_drawer(self, drawer: Drawer) -> str:
-        self._conn.execute(
-            """INSERT OR REPLACE INTO drawers
-               (id, wing, room, content, source_edict_id, timestamp, category, confidence, chunk_index)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (drawer.id, drawer.wing, drawer.room, drawer.content,
-             drawer.source_edict_id, drawer.timestamp, drawer.category,
-             drawer.confidence, drawer.chunk_index),
-        )
-        # Sync to FTS
-        try:
+        with self._lock:
             self._conn.execute(
-                "INSERT OR REPLACE INTO drawers_fts (id, wing, room, content) VALUES (?, ?, ?, ?)",
-                (drawer.id, drawer.wing, drawer.room, drawer.content),
+                """INSERT OR REPLACE INTO drawers
+                   (id, wing, room, content, source_edict_id, timestamp, category, confidence, chunk_index)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (drawer.id, drawer.wing, drawer.room, drawer.content,
+                 drawer.source_edict_id, drawer.timestamp, drawer.category,
+                 drawer.confidence, drawer.chunk_index),
             )
-        except sqlite3.OperationalError:
-            pass
-        self._conn.commit()
+            # Sync to FTS
+            try:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO drawers_fts (id, wing, room, content) VALUES (?, ?, ?, ?)",
+                    (drawer.id, drawer.wing, drawer.room, drawer.content),
+                )
+            except sqlite3.OperationalError:
+                pass
+            self._conn.commit()
         return drawer.id
 
     async def search(
@@ -81,7 +97,9 @@ class DrawerStore:
     def _fts5_search(
         self, query: str, wing: str | None, room: str | None, n: int,
     ) -> list[DrawerResult]:
-        fts_query = query
+        fts_query = _escape_fts5_query(query)
+        if not fts_query:
+            return []
         where_parts: list[str] = []
         params: list[str] = [fts_query]
 
@@ -106,7 +124,8 @@ class DrawerStore:
             LIMIT ?
         """
         params.append(str(n))
-        rows = self._conn.execute(sql, params).fetchall()
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
 
         results: list[DrawerResult] = []
         for row in rows:
@@ -142,7 +161,8 @@ class DrawerStore:
             LIMIT ?
         """
         params.append(str(n))
-        rows = self._conn.execute(sql, params).fetchall()
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
         return [
             DrawerResult(
                 drawer_id=row["id"], content=row["content"],
@@ -158,36 +178,39 @@ class DrawerStore:
         room: str | None = None,
         limit: int = 100,
     ) -> list[Drawer]:
-        if room:
-            rows = self._conn.execute(
-                "SELECT * FROM drawers WHERE wing = ? AND room = ? ORDER BY timestamp DESC LIMIT ?",
-                (wing, room, limit),
-            ).fetchall()
-        else:
-            rows = self._conn.execute(
-                "SELECT * FROM drawers WHERE wing = ? ORDER BY timestamp DESC LIMIT ?",
-                (wing, limit),
-            ).fetchall()
+        with self._lock:
+            if room:
+                rows = self._conn.execute(
+                    "SELECT * FROM drawers WHERE wing = ? AND room = ? ORDER BY timestamp DESC LIMIT ?",
+                    (wing, room, limit),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM drawers WHERE wing = ? ORDER BY timestamp DESC LIMIT ?",
+                    (wing, limit),
+                ).fetchall()
         return [self._row_to_drawer(r) for r in rows]
 
     async def delete_drawer(self, drawer_id: str) -> bool:
-        cur = self._conn.execute("DELETE FROM drawers WHERE id = ?", (drawer_id,))
-        try:
-            self._conn.execute("DELETE FROM drawers_fts WHERE id = ?", (drawer_id,))
-        except sqlite3.OperationalError:
-            pass
-        self._conn.commit()
-        return cur.rowcount > 0
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM drawers WHERE id = ?", (drawer_id,))
+            try:
+                self._conn.execute("DELETE FROM drawers_fts WHERE id = ?", (drawer_id,))
+            except sqlite3.OperationalError:
+                pass
+            self._conn.commit()
+            return cur.rowcount > 0
 
     async def get_l1(self, wing: str, max_chars: int = 3200) -> str:
         """Generate L1 critical facts for a wing.
 
         Scores drawers by confidence x recency_decay, picks Top-K, groups by room.
         """
-        rows = self._conn.execute(
-            "SELECT * FROM drawers WHERE wing = ? ORDER BY timestamp DESC LIMIT 2000",
-            (wing,),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM drawers WHERE wing = ? ORDER BY timestamp DESC LIMIT 2000",
+                (wing,),
+            ).fetchall()
 
         if not rows:
             return ""
@@ -242,4 +265,5 @@ class DrawerStore:
         )
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()

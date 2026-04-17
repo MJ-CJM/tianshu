@@ -61,7 +61,7 @@ class PromptBuilder:
             personas_dir=self._personas_dir,
         )
 
-    def build(
+    async def build(
         self,
         edict: Edict,
         persona: AgentPersona | None = None,
@@ -108,7 +108,7 @@ class PromptBuilder:
 
             # Layer 5.1: L1 Critical Facts (Memory Palace)
             if self._drawer_store and self._memory_config.l1_enabled:
-                l1 = self._get_l1_sync(persona.id)
+                l1 = await self._get_l1(persona.id)
                 if l1:
                     parts.append(l1)
 
@@ -146,12 +146,12 @@ class PromptBuilder:
 
         return "\n\n".join(parts)
 
-    def build_layers(
+    async def build_layers(
         self,
         edict: Edict,
         persona: AgentPersona | None = None,
         skills_char_budget: int = 30000,
-    ) -> list[dict]:
+    ) -> dict:
         """Build system prompt and return per-layer breakdown."""
         layers: list[dict] = []
 
@@ -204,6 +204,18 @@ class PromptBuilder:
                 "source": f"~/.tianshu/memory/{persona.id}/MEMORY.md",
                 "chars": len(memory_text),
                 "tokens_est": len(memory_text) // 4,
+            })
+
+            # Layer 5.1: L1 Critical Facts (Memory Palace)
+            l1_text = ""
+            if self._drawer_store and self._memory_config.l1_enabled:
+                l1_text = await self._get_l1(persona.id)
+            layers.append({
+                "layer": 5.1,
+                "name": "L1 Critical Facts",
+                "source": "(Memory Palace)",
+                "chars": len(l1_text),
+                "tokens_est": len(l1_text) // 4,
             })
 
             # Layer 5.5: Recent Activity
@@ -267,25 +279,13 @@ class PromptBuilder:
             "layers": layers,
         }
 
-    def _get_l1_sync(self, persona_id: str) -> str:
-        """Synchronously get L1 critical facts from drawer store."""
-        import asyncio
-
+    async def _get_l1(self, persona_id: str) -> str:
+        """Fetch L1 critical facts from drawer store (no-op if store missing)."""
         from tianshu.memory.layers import MemoryStack
 
         try:
             stack = MemoryStack(store=self._drawer_store, config=self._memory_config)
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-            if loop and loop.is_running():
-                # Already in async context — run in a separate thread
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    return pool.submit(asyncio.run, stack.get_l1(persona_id)).result()
-            else:
-                return asyncio.run(stack.get_l1(persona_id))
+            return await stack.get_l1(persona_id)
         except Exception:
             logger.debug("L1 injection skipped for %s", persona_id)
             return ""
