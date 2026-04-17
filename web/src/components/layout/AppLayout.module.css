@@ -1,0 +1,112 @@
+.root {
+  min-height: 100vh;
+  background: var(--ts-color-bg-page);
+}
+
+.content {
+  overflow-y: auto;
+  height: calc(100vh - 56px);
+  scrollbar-width: thin;
+  scrollbar-color: var(--ts-color-scrollbar) transparent;
+}
+
+.content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.content::-webkit-scrollbar-thumb {
+  background: var(--ts-color-scrollbar);
+  border-radius: 3px;
+}
+
+.content::-webkit-scrollbar-thumb:hover {
+  background: var(--ts-color-scrollbar-hover);
+}
+
+/* 表头使用宋体 */
+:global(.ant-table-thead > tr > th) {
+  font-family: 'Noto Serif SC', serif !important;
+  font-weight: 700 !important;
+}
+
+/* Markdown 内容样式 */
+:global(.memorial-markdown) {
+  word-break: break-word;
+}
+
+:global(.memorial-markdown p) {
+  margin: 0 0 0.6em;
+}
+
+:global(.memorial-markdown p:last-child) {
+  margin-bottom: 0;
+}
+
+:global(.memorial-markdown h1),
+:global(.memorial-markdown h2),
+:global(.memorial-markdown h3) {
+  color: var(--ts-color-text);
+  margin: 1em 0 0.4em;
+  font-weight: 600;
+}
+
+:global(.memorial-markdown h1) { font-size: 1.3em; }
+:global(.memorial-markdown h2) { font-size: 1.15em; }
+:global(.memorial-markdown h3) { font-size: 1.05em; }
+
+:global(.memorial-markdown code) {
+  background: var(--ts-color-bg-code);
+  border: 1px solid var(--ts-color-border);
+  border-radius: 3px;
+  padding: 0.15em 0.4em;
+  font-size: 0.9em;
+}
+
+:global(.memorial-markdown pre) {
+  background: var(--ts-color-bg-code) !important;
+  border: 1px solid var(--ts-color-border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+
+:global(.memorial-markdown pre code) {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+:global(.memorial-markdown ul),
+:global(.memorial-markdown ol) {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+
+:global(.memorial-markdown blockquote) {
+  border-left: 3px solid var(--ts-color-border);
+  margin: 0.6em 0;
+  padding: 0.3em 0 0.3em 1em;
+  color: var(--ts-color-text-secondary);
+}
+
+:global(.memorial-markdown table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.6em 0;
+}
+
+:global(.memorial-markdown th),
+:global(.memorial-markdown td) {
+  border: 1px solid var(--ts-color-border);
+  padding: 6px 10px;
+  font-size: 0.9em;
+}
+
+:global(.memorial-markdown th) {
+  background: var(--ts-color-bg-code);
+}

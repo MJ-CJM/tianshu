@@ -1,0 +1,25 @@
+.wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.ok {
+  background: #52c41a;
+}
+
+.err {
+  background: #ff4d4f;
+}
+
+.label {
+  font-size: 12px;
+  color: var(--ts-color-text-secondary);
+}

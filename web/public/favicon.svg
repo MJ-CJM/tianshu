@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="100%" stop-color="#0055ff"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="100%" stop-color="#0088ff"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1.2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="starGlow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer ring: orbit -->
+  <circle cx="16" cy="16" r="14.5" fill="none" stroke="url(#g1)" stroke-width="1" opacity="0.35"/>
+  <!-- Inner ring: pivot -->
+  <circle cx="16" cy="16" r="10" fill="none" stroke="url(#g2)" stroke-width="0.8" opacity="0.5" stroke-dasharray="3 2"/>
+
+  <!-- Cross-hair axes (枢 = pivot) -->
+  <line x1="16" y1="3" x2="16" y2="29" stroke="#00d4ff" stroke-width="0.4" opacity="0.2"/>
+  <line x1="3" y1="16" x2="29" y2="16" stroke="#00d4ff" stroke-width="0.4" opacity="0.2"/>
+
+  <!-- North Star burst (天枢 = alpha star) -->
+  <line x1="16" y1="10" x2="16" y2="22" stroke="url(#g2)" stroke-width="1.6" filter="url(#glow)" opacity="0.9"/>
+  <line x1="10" y1="16" x2="22" y2="16" stroke="url(#g2)" stroke-width="1.6" filter="url(#glow)" opacity="0.9"/>
+  <line x1="11.8" y1="11.8" x2="20.2" y2="20.2" stroke="#00d4ff" stroke-width="0.7" opacity="0.4"/>
+  <line x1="20.2" y1="11.8" x2="11.8" y2="20.2" stroke="#00d4ff" stroke-width="0.7" opacity="0.4"/>
+
+  <!-- Central star core -->
+  <circle cx="16" cy="16" r="2.8" fill="#00d4ff" opacity="0.15"/>
+  <circle cx="16" cy="16" r="1.8" fill="#00d4ff" filter="url(#starGlow)" opacity="0.95"/>
+
+  <!-- Big Dipper hint: 7 stars of 北斗 -->
+  <circle cx="8" cy="7" r="1" fill="#00d4ff" opacity="0.7" filter="url(#glow)"/>
+  <circle cx="11.5" cy="6" r="0.8" fill="#00d4ff" opacity="0.6"/>
+  <circle cx="15" cy="7.5" r="0.7" fill="#00d4ff" opacity="0.5"/>
+  <circle cx="18.5" cy="9" r="0.7" fill="#00d4ff" opacity="0.5"/>
+  <!-- Dipper bowl -->
+  <circle cx="22" cy="8" r="0.6" fill="#00bbff" opacity="0.4"/>
+  <circle cx="24" cy="10.5" r="0.6" fill="#00bbff" opacity="0.4"/>
+  <circle cx="21.5" cy="12" r="0.6" fill="#00bbff" opacity="0.4"/>
+
+  <!-- Constellation lines -->
+  <polyline points="8,7 11.5,6 15,7.5 18.5,9" fill="none" stroke="#00d4ff" stroke-width="0.4" opacity="0.3"/>
+  <polyline points="18.5,9 22,8 24,10.5 21.5,12 18.5,9" fill="none" stroke="#00bbff" stroke-width="0.35" opacity="0.25"/>
+
+  <!-- Cardinal ticks on outer ring -->
+  <line x1="16" y1="1" x2="16" y2="3.5" stroke="#00d4ff" stroke-width="0.8" opacity="0.5"/>
+  <line x1="16" y1="28.5" x2="16" y2="31" stroke="#00d4ff" stroke-width="0.8" opacity="0.5"/>
+  <line x1="1" y1="16" x2="3.5" y2="16" stroke="#00d4ff" stroke-width="0.8" opacity="0.5"/>
+  <line x1="28.5" y1="16" x2="31" y2="16" stroke="#00d4ff" stroke-width="0.8" opacity="0.5"/>
+</svg>

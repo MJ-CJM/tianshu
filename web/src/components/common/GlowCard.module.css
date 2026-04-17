@@ -1,0 +1,24 @@
+.card {
+  border: 1px solid var(--ts-color-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  background: var(--ts-color-bg-container) !important;
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.card:hover {
+  border-color: var(--ts-color-border-hover);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.runningGlow {
+  animation: borderGlow 3s ease-in-out infinite;
+}
+
+@keyframes borderGlow {
+  0%, 100% {
+    border-color: var(--ts-color-border);
+  }
+  50% {
+    border-color: #1890ff;
+  }
+}
