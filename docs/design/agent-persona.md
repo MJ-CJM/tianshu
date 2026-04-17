@@ -359,6 +359,28 @@ Phase 3 引入"会商"机制——内阁召集多位官员并行提供视角，�
 
 ---
 
+## 8.4 运行时覆盖（feat_phase5）
+
+从 feat_phase5 起，人格身份文件采用**双层存储**：
+
+| 层 | 路径 | 语义 | 写入方 |
+|---|---|---|---|
+| **模板** | `personas/{department}/` | git 跟踪的部门级模板（seed source） | 代码仓库 |
+| **运行时** | `~/.tianshu/personas/{persona_id}/` | 单个 official 的私有副本，可独立演化 | UI / API |
+
+首次加载某 persona 时，`PersonaLoader.ensure_runtime_identity(persona_id, template_dir)` 从模板拷贝 `SOUL.md` + `ROLE.md` 到运行时目录（幂等，已存在不覆盖）。
+
+**效果**：
+- UI 修改人格不污染 git 仓库
+- 每个 official 可以从同一部门模板 seed，但独立演化（多个 bingbu 可以逐渐分化为"前线兵部"与"后勤兵部"）
+- 模板作为起点与 fallback；当运行时文件损坏或丢失，可从模板重新 seed
+
+此机制镜像了 `MEMORY.md` 的处理：模板在 `personas/{id}/MEMORY.md`，运行时在 `~/.tianshu/memory/{id}/MEMORY.md`。两者遵循同一模式：**git = 起点，`~/.tianshu/` = 真相源**。
+
+代码路径：`src/tianshu/persona/loader.py` `ensure_runtime_identity` / `_dict_to_persona`。详细实现见 `docs/impl/persona.md` §1。
+
+---
+
 ## 九、参考采纳矩阵
 
 | 参考项目 | 来源 | 采纳点 | 天枢落点 | 引入阶段 |
