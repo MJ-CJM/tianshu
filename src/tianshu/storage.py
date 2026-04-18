@@ -369,8 +369,9 @@ class Storage:
                 self._conn.execute(
                     f"ALTER TABLE persona_metrics ADD COLUMN {col} {ddl}"
                 )
-            except sqlite3.OperationalError:
-                pass  # column already exists
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e) and "no such column" not in str(e):
+                    raise
         self._conn.commit()
 
         # Seed departments from existing personas (one-time)
@@ -1739,6 +1740,7 @@ class Storage:
             return cur.rowcount > 0
 
     def release_synthesis_lock(self, persona_id: str) -> None:
+        """Release lock and reset throttle counter after synthesis cycle (success or degraded)."""
         with self._lock:
             self._conn.execute(
                 """
@@ -1752,6 +1754,7 @@ class Storage:
             self._conn.commit()
 
     def increment_persona_task_counter(self, persona_id: str) -> int:
+        """Increment tasks_since_last_synthesis by 1, create row if missing; return new value."""
         with self._lock:
             self._conn.execute(
                 "INSERT OR IGNORE INTO persona_metrics(persona_id) VALUES (?)",
