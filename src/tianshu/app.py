@@ -381,7 +381,7 @@ async def lifespan(app: FastAPI):
 
     # --- ProfileSynthesizer + ProfileTrigger ---
     profile_synthesizer = ProfileSynthesizer(
-        llm_client=provider_manager,
+        llm_client=provider_manager.get_client(),
         drawer_store=drawer_store,
         storage=storage,
         skill_metrics_store=metrics_store,
