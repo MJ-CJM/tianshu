@@ -3,7 +3,7 @@
 import json
 import sqlite3
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from ulid import ULID
@@ -271,6 +271,23 @@ class Storage:
                     source_edict_id TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS persona_metrics (
+                    persona_id TEXT PRIMARY KEY,
+                    total_executions INTEGER NOT NULL DEFAULT 0,
+                    completed INTEGER NOT NULL DEFAULT 0,
+                    failed INTEGER NOT NULL DEFAULT 0,
+                    cancelled INTEGER NOT NULL DEFAULT 0,
+                    success_rate REAL NOT NULL DEFAULT 0.0,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    avg_tokens_per_execution REAL NOT NULL DEFAULT 0.0,
+                    total_cost_cny REAL NOT NULL DEFAULT 0.0,
+                    avg_duration_seconds REAL NOT NULL DEFAULT 0.0,
+                    synthesis_in_progress INTEGER NOT NULL DEFAULT 0,
+                    synthesis_started_at TEXT,
+                    tasks_since_last_synthesis INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT
+                );
+
                 CREATE TABLE IF NOT EXISTS session_rules (
                     rule_id              TEXT PRIMARY KEY,
                     tool_name            TEXT NOT NULL,
@@ -341,6 +358,20 @@ class Storage:
             except sqlite3.OperationalError as e:
                 if "duplicate column name" not in str(e) and "no such column" not in str(e):
                     raise
+
+        # persona_metrics columns for PROFILE synthesis locking (2026-04-18)
+        for col, ddl in [
+            ("synthesis_in_progress", "INTEGER NOT NULL DEFAULT 0"),
+            ("synthesis_started_at", "TEXT"),
+            ("tasks_since_last_synthesis", "INTEGER NOT NULL DEFAULT 0"),
+        ]:
+            try:
+                self._conn.execute(
+                    f"ALTER TABLE persona_metrics ADD COLUMN {col} {ddl}"
+                )
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        self._conn.commit()
 
         # Seed departments from existing personas (one-time)
         self._seed_departments()
@@ -1662,6 +1693,85 @@ class Storage:
                 "DELETE FROM personas WHERE id = ?", (persona_id,)
             )
             return cursor.rowcount > 0
+
+    # --- Persona Metrics / Profile Synthesis ---
+
+    def try_acquire_synthesis_lock(
+        self, persona_id: str, stale_timeout_sec: int = 600
+    ) -> bool:
+        """Return True if lock acquired. Reclaims stale locks > stale_timeout_sec."""
+        now_iso = datetime.now(UTC).isoformat()
+        stale_cutoff = (
+            datetime.now(UTC) - timedelta(seconds=stale_timeout_sec)
+        ).isoformat()
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                UPDATE persona_metrics
+                SET synthesis_in_progress=1, synthesis_started_at=?
+                WHERE persona_id=?
+                  AND (synthesis_in_progress=0
+                       OR synthesis_started_at < ?)
+                """,
+                (now_iso, persona_id, stale_cutoff),
+            )
+            if cur.rowcount > 0:
+                self._conn.commit()
+                return True
+            # ensure row exists
+            self._conn.execute(
+                "INSERT OR IGNORE INTO persona_metrics(persona_id) VALUES (?)",
+                (persona_id,),
+            )
+            self._conn.commit()
+            # retry once
+            cur = self._conn.execute(
+                """
+                UPDATE persona_metrics
+                SET synthesis_in_progress=1, synthesis_started_at=?
+                WHERE persona_id=?
+                  AND (synthesis_in_progress=0
+                       OR synthesis_started_at < ?)
+                """,
+                (now_iso, persona_id, stale_cutoff),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def release_synthesis_lock(self, persona_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE persona_metrics
+                SET synthesis_in_progress=0, synthesis_started_at=NULL,
+                    tasks_since_last_synthesis=0
+                WHERE persona_id=?
+                """,
+                (persona_id,),
+            )
+            self._conn.commit()
+
+    def increment_persona_task_counter(self, persona_id: str) -> int:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO persona_metrics(persona_id) VALUES (?)",
+                (persona_id,),
+            )
+            self._conn.execute(
+                """
+                UPDATE persona_metrics
+                SET tasks_since_last_synthesis = tasks_since_last_synthesis + 1
+                WHERE persona_id=?
+                """,
+                (persona_id,),
+            )
+            cur = self._conn.execute(
+                "SELECT tasks_since_last_synthesis FROM persona_metrics WHERE persona_id=?",
+                (persona_id,),
+            )
+            row = cur.fetchone()
+            self._conn.commit()
+            return int(row[0]) if row else 0
 
     @staticmethod
     def _row_to_persona_dict(row: sqlite3.Row) -> dict:
