@@ -35,6 +35,8 @@ from tianshu.notifier.notifier import Notifier
 from tianshu.plugins.api import PluginApi
 from tianshu.plugins.loader import PluginLoader
 from tianshu.persona.loader import PersonaLoader
+from tianshu.persona.profile_synthesizer import ProfileSynthesizer
+from tianshu.persona.profile_trigger import ProfileTrigger
 from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.persona.selector import OfficialSelector
 from tianshu.planner.planner import Planner
@@ -376,6 +378,23 @@ async def lifespan(app: FastAPI):
     skill_validator = SkillValidator()
     skill_reviewer = SkillReviewHandler(skills, config_manager, skill_validator)
     hook_registry.register(HookType.AGENT_END, skill_reviewer.on_agent_end, priority=200)
+
+    # --- ProfileSynthesizer + ProfileTrigger ---
+    profile_synthesizer = ProfileSynthesizer(
+        llm_client=provider_manager,
+        drawer_store=drawer_store,
+        storage=storage,
+        skill_metrics_store=metrics_store,
+        personas_runtime_dir=runtime_personas_dir,
+        persona_loader=persona_loader,
+    )
+    profile_synthesizer.attach_event_bus(event_bus)
+    app.state.profile_synthesizer = profile_synthesizer
+
+    profile_trigger = ProfileTrigger(profile_synthesizer, storage)
+    app.state.profile_trigger = profile_trigger
+
+    hook_registry.register(HookType.AGENT_END, profile_trigger.handle_agent_end, priority=250)
 
     # --- DigestGenerator ---
     from tianshu.notifier.digest import DigestGenerator
