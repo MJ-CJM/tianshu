@@ -10,6 +10,7 @@ Pipeline (see spec §4.3):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -203,3 +204,92 @@ class ProfileSynthesizer:
                     }
                 )
         return candidates[:5]
+
+    _SPECIALTIES_SYSTEM = (
+        "你是 {{persona_name}} 的成长档案分析助手。"
+        "基于用户提供的记忆片段客观归纳,禁止编造。"
+        "数据不足时必须写「数据不足」,不要臆测。"
+        "输出严格 JSON,不带任何 markdown 代码块标记。"
+    )
+
+    _SPECIALTIES_USER = (
+        "以下是近 {{window}} 天 {{persona_name}} 的主观经验记忆"
+        "(drawer category=O, confidence>0.7):\n\n{{drawer_block}}\n\n"
+        "请归纳 3-8 条「擅长领域」,每条一句 title + 一句 detail。\n"
+        "输出 JSON:\n"
+        '{{"specialties": [{{"title": "...", "detail": "..."}}]}}'
+    )
+
+    _DEGRADATION_USER = (
+        "候选退化 skill 列表:\n{{cand_block}}\n\n"
+        "对每个候选,用 1-2 句说明可能的退化原因(基于 usage/失败比)。"
+        "不要编造具体案例。\n"
+        "输出 JSON:\n"
+        '{{"degradations": [{{"skill": "...", "reason": "..."}}]}}'
+    )
+
+    async def llm_specialties(
+        self, inputs: ProfileSynthesisInput
+    ) -> list[dict[str, str]]:
+        """Extract specialties from drawer opinions using LLM analysis."""
+        opinions = [
+            d for d in inputs.drawers
+            if getattr(d, "category", "") == "O"
+            and getattr(d, "confidence", 0.0) > 0.7
+        ][:30]
+        if len(opinions) < 5:
+            return []
+        drawer_block = "\n".join(
+            f"- [{d.room}] {d.content[:200]}" for d in opinions
+        )
+        system = self._SPECIALTIES_SYSTEM.format(persona_name=inputs.persona_name)
+        user = self._SPECIALTIES_USER.format(
+            window=inputs.data_window_days,
+            persona_name=inputs.persona_name,
+            drawer_block=drawer_block,
+        )
+        raw = await self._call_llm_json(system, user)
+        return raw.get("specialties", []) if isinstance(raw, dict) else []
+
+    async def llm_degradations(
+        self, inputs: ProfileSynthesisInput, candidates: list[dict[str, Any]]
+    ) -> list[dict[str, str]]:
+        """Analyze skill degradation reasons using LLM."""
+        if not candidates:
+            return []
+        cand_block = "\n".join(
+            f"- {c['skill']} usage={c['usage_count']} "
+            f"success={c['success_count']} fail={c['failure_count']} status={c['status']}"
+            for c in candidates
+        )
+        system = self._SPECIALTIES_SYSTEM.format(persona_name=inputs.persona_name)
+        user = self._DEGRADATION_USER.format(cand_block=cand_block)
+        raw = await self._call_llm_json(system, user)
+        return raw.get("degradations", []) if isinstance(raw, dict) else []
+
+    async def _call_llm_json(self, system: str, user: str) -> dict:
+        """Invoke LLM with 2 retries for non-JSON output. Returns {} on full failure."""
+        last_err: Exception | None = None
+        prompt_user = user
+        for attempt in range(3):
+            try:
+                resp = await self._llm.chat(
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": prompt_user},
+                    ],
+                )
+                text = (getattr(resp, "content", None) or "").strip()
+                if text.startswith("```"):
+                    text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+                return json.loads(text)
+            except (json.JSONDecodeError, ValueError) as e:
+                last_err = e
+                prompt_user = (
+                    user + "\n\n上次输出不是合法 JSON,严格只输出 JSON 对象,禁止其他字符。"
+                )
+            except Exception as e:
+                last_err = e
+                await asyncio.sleep(1)
+        logger.warning("LLM json call failed after retries: %s", last_err)
+        return {}
