@@ -357,3 +357,212 @@ class ProfileSynthesizer:
             auto_section_diff_ratio(prev_auto, new_auto_section)
             >= MANUAL_DIFF_CONFLICT_THRESHOLD
         )
+
+    PROFILE_EVENTS = (
+        "profile.synthesis.started",
+        "profile.synthesis.completed",
+        "profile.synthesis.failed",
+        "profile.synthesis.skipped",
+        "profile.synthesis.degraded",
+    )
+
+    async def _emit(
+        self, event_type: str, persona_id: str, payload: dict[str, Any]
+    ) -> None:
+        if not getattr(self, "_event_bus", None):
+            return
+        from tianshu.models.events import make_event
+        ev = make_event(
+            event_type=event_type,
+            edict_id=None,
+            memorial_id=None,
+            producer="profile_synthesizer",
+            payload={"persona_id": persona_id, **payload},
+        )
+        self._event_bus.fire(ev)
+
+    def attach_event_bus(self, bus: Any) -> None:
+        self._event_bus = bus
+
+    async def run(
+        self,
+        persona_id: str,
+        window_days: int = 14,
+        trigger_source: str = "manual",
+    ) -> ProfileSynthesisResult | None:
+        """Full synthesis pipeline. Returns None when skipped/failed."""
+        if not self._acquire_lock(persona_id):
+            await self._emit(
+                "profile.synthesis.skipped",
+                persona_id,
+                {"reason": "lock_held", "trigger_source": trigger_source},
+            )
+            return None
+        started_ms = datetime.now(timezone.utc)
+        await self._emit(
+            "profile.synthesis.started",
+            persona_id,
+            {"trigger_source": trigger_source, "window": f"{window_days}d"},
+        )
+        try:
+            inputs = await self.collect_inputs(persona_id, window_days)
+            task_dist = self.aggregate_task_distribution(
+                inputs.recent_events, window_days
+            )
+            health = self.aggregate_health(
+                inputs.drawers,
+                inputs.skill_metrics,
+                len(inputs.recent_events),
+                window_days,
+            )
+            candidates = self.pick_degradation_candidates(inputs.skill_metrics)
+
+            specialties_task = asyncio.create_task(self.llm_specialties(inputs))
+            degradations_task = asyncio.create_task(
+                self.llm_degradations(inputs, candidates)
+            )
+            specialties, degradations = await asyncio.gather(
+                specialties_task, degradations_task
+            )
+
+            degraded = self._is_degraded(inputs, specialties, degradations)
+
+            from tianshu.persona.profile_renderer import (
+                detect_manual_section,
+                render_auto_section,
+                render_markdown,
+            )
+            from tianshu.persona.profile_schema import (
+                ProfileFrontmatter,
+                ProfileSections,
+                parse_profile,
+            )
+
+            manual_section, manually_edited = detect_manual_section(
+                inputs.previous_profile_md or ""
+            )
+
+            sections = ProfileSections(
+                specialties_md=_format_specialties(specialties),
+                task_distribution_md=_format_task_distribution(task_dist),
+                health_md=_format_health(health),
+                degradations_md=_format_degradations(candidates, degradations),
+            )
+            now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            auto_section = render_auto_section(
+                persona_name=inputs.persona_name,
+                window_days=window_days,
+                last_synthesized=now_iso,
+                sections=sections,
+            )
+
+            conflict = self.detect_conflict(inputs.previous_profile_md, auto_section)
+
+            prev_fm, _, _ = parse_profile(inputs.previous_profile_md or "")
+            prev_version = prev_fm.version if prev_fm else 0
+            new_version = prev_version if conflict else prev_version + 1
+
+            fm = ProfileFrontmatter(
+                persona_id=persona_id,
+                persona_name=inputs.persona_name,
+                version=new_version,
+                last_synthesized=now_iso,
+                synthesizer_model="" if degraded else self._model,
+                data_window=f"{window_days}d",
+                data_sources={
+                    "drawers": len(inputs.drawers),
+                    "events": len(inputs.recent_events),
+                    "skill_metrics": len(inputs.skill_metrics),
+                },
+                manually_edited=manually_edited,
+                degraded=degraded,
+            )
+            markdown = render_markdown(fm, auto_section, manual_section)
+
+            result = ProfileSynthesisResult(
+                persona_id=persona_id,
+                markdown=markdown,
+                auto_section=auto_section,
+                manual_section=manual_section,
+                version=new_version,
+                data_sources=fm.data_sources,
+                degraded=degraded,
+            )
+
+            if not conflict:
+                self.persist(result)
+
+            await self._emit(
+                "profile.synthesis.degraded" if degraded
+                else "profile.synthesis.completed",
+                persona_id,
+                {
+                    "version": new_version,
+                    "data_sources": fm.data_sources,
+                    "conflict_skipped_write": conflict,
+                    "duration_ms": int(
+                        (datetime.now(timezone.utc) - started_ms).total_seconds() * 1000
+                    ),
+                },
+            )
+            return result
+
+        except Exception as e:
+            logger.exception("profile synthesis failed for %s", persona_id)
+            await self._emit(
+                "profile.synthesis.failed",
+                persona_id,
+                {"error_type": type(e).__name__, "error_message": str(e)},
+            )
+            return None
+        finally:
+            self._release_lock(persona_id)
+
+
+def _format_specialties(items: list[dict[str, str]]) -> str:
+    if not items:
+        return "(数据不足或 LLM 未返回,下次重试)"
+    return "\n".join(
+        f"- **{i.get('title', '').strip()}**:{i.get('detail', '').strip()}"
+        for i in items
+    )
+
+
+def _format_task_distribution(dist: dict[str, Any]) -> str:
+    lines = ["| 类型 | 次数 | 占比 |", "|---|---|---|"]
+    for b in dist["buckets"]:
+        lines.append(f"| {b['type']} | {b['count']} | {b['pct']}% |")
+    lines.append("")
+    lines.append("**关键事件**")
+    if not dist["key_events"]:
+        lines.append("- (无)")
+    else:
+        for e in dist["key_events"]:
+            lines.append(f"- {e.get('timestamp', '')} {e.get('event_type')}")
+    return "\n".join(lines)
+
+
+def _format_health(h: dict[str, Any]) -> str:
+    ss = h["skills_status"]
+    return (
+        f"- **Skills**:healthy × {ss['healthy']} | warning × {ss['warning']} | "
+        f"retire_suggested × {ss['retire_suggested']}\n"
+        f"- **记忆充实度**:{h['active_drawers']} 个活跃 drawer,"
+        f"近 {h['tasks_in_window']} 天新增 {h['drawers_added_window']} 个\n"
+        f"- **活跃度**:{h['tasks_in_window']} 次任务({h['activity_level']})"
+    )
+
+
+def _format_degradations(
+    candidates: list[dict], reasons: list[dict[str, str]]
+) -> str:
+    if not candidates:
+        return "(暂无)"
+    reason_map = {r.get("skill"): r.get("reason", "") for r in reasons}
+    return "\n".join(
+        f"- `{c['skill']}` {c['status']} "
+        f"(usage={c['usage_count']}, "
+        f"success_rate≈{c['success_count']}/{c['usage_count']}"
+        f"):{reason_map.get(c['skill'], '原因分析失败,下次重试')}"
+        for c in candidates
+    )
