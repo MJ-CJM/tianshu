@@ -206,22 +206,22 @@ class ProfileSynthesizer:
         return candidates[:5]
 
     _SPECIALTIES_SYSTEM = (
-        "你是 {{persona_name}} 的成长档案分析助手。"
+        "你是 {persona_name} 的成长档案分析助手。"
         "基于用户提供的记忆片段客观归纳,禁止编造。"
         "数据不足时必须写「数据不足」,不要臆测。"
         "输出严格 JSON,不带任何 markdown 代码块标记。"
     )
 
     _SPECIALTIES_USER = (
-        "以下是近 {{window}} 天 {{persona_name}} 的主观经验记忆"
-        "(drawer category=O, confidence>0.7):\n\n{{drawer_block}}\n\n"
+        "以下是近 {window} 天 {persona_name} 的主观经验记忆"
+        "(drawer category=O, confidence>0.7):\n\n{drawer_block}\n\n"
         "请归纳 3-8 条「擅长领域」,每条一句 title + 一句 detail。\n"
         "输出 JSON:\n"
         '{{"specialties": [{{"title": "...", "detail": "..."}}]}}'
     )
 
     _DEGRADATION_USER = (
-        "候选退化 skill 列表:\n{{cand_block}}\n\n"
+        "候选退化 skill 列表:\n{cand_block}\n\n"
         "对每个候选,用 1-2 句说明可能的退化原因(基于 usage/失败比)。"
         "不要编造具体案例。\n"
         "输出 JSON:\n"
