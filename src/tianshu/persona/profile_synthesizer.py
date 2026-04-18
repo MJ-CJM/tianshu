@@ -88,7 +88,18 @@ class ProfileSynthesizer:
             if getattr(d, "timestamp", "") >= since_iso
         )
         events = tuple(self._storage.list_persona_events(persona_id, since_iso))
-        metrics = tuple(self._skill_metrics.list_for_persona(persona_id))
+        raw_metrics = self._skill_metrics.list_for_persona(persona_id)
+        metrics = tuple(
+            ({
+                "skill_name": m.skill_name,
+                "usage_count": m.usage_count,
+                "success_count": m.success_count,
+                "failure_count": m.failure_count,
+                "status": m.status,
+                "last_used_at": m.last_used_at,
+            } if hasattr(m, "skill_name") else m)
+            for m in raw_metrics
+        )
 
         prev_path = self._profile_path(persona_id)
         prev_md = prev_path.read_text(encoding="utf-8") if prev_path.exists() else None
@@ -102,3 +113,93 @@ class ProfileSynthesizer:
             skill_metrics=metrics,
             previous_profile_md=prev_md,
         )
+
+    def aggregate_task_distribution(
+        self, events: tuple[dict[str, Any], ...], window_days: int
+    ) -> dict[str, Any]:
+        """Bucket events by event_type, return counts + pct + key samples."""
+        from collections import Counter
+
+        counter: Counter[str] = Counter()
+        key_events: list[dict] = []
+        for e in events:
+            counter[e["event_type"]] += 1
+            if e["event_type"] in {
+                "execution.failed",
+                "audit.completed",
+                "cost.budget_exceeded",
+            }:
+                key_events.append(e)
+        total = sum(counter.values()) or 1
+        buckets = [
+            {"type": t, "count": c, "pct": round(c * 100 / total, 1)}
+            for t, c in counter.most_common(6)
+        ]
+        return {
+            "buckets": buckets,
+            "total": total,
+            "window_days": window_days,
+            "key_events": key_events[:5],
+        }
+
+    def aggregate_health(
+        self,
+        drawers: tuple[Drawer, ...],
+        skill_metrics: tuple[dict[str, Any], ...],
+        events_total: int,
+        window_days: int,
+    ) -> dict[str, Any]:
+        """Rule-based health stats: skills status / drawer richness / activity."""
+        status_counts = {"healthy": 0, "warning": 0, "retire_suggested": 0}
+        for m in skill_metrics:
+            s = (m.get("status") or self._infer_skill_status(m)) or "healthy"
+            if s in status_counts:
+                status_counts[s] += 1
+        active_drawers = len(drawers)
+        since_iso = (
+            datetime.now(timezone.utc) - timedelta(days=window_days)
+        ).isoformat()
+        recent = sum(1 for d in drawers if d.timestamp >= since_iso)
+        activity_level = (
+            "active" if events_total >= 10 else ("low" if events_total < 3 else "normal")
+        )
+        return {
+            "skills_status": status_counts,
+            "active_drawers": active_drawers,
+            "drawers_added_window": recent,
+            "tasks_in_window": events_total,
+            "activity_level": activity_level,
+        }
+
+    @staticmethod
+    def _infer_skill_status(m: dict[str, Any]) -> str:
+        usage = int(m.get("usage_count") or 0)
+        success = int(m.get("success_count") or 0)
+        fail = int(m.get("failure_count") or 0)
+        if usage == 0:
+            return "healthy"
+        rate = success / max(1, success + fail)
+        if rate < 0.4 and usage >= 5:
+            return "retire_suggested"
+        if rate < 0.7 and usage >= 3:
+            return "warning"
+        return "healthy"
+
+    def pick_degradation_candidates(
+        self, skill_metrics: tuple[dict[str, Any], ...]
+    ) -> list[dict[str, Any]]:
+        """Find skills trending down. Returns dicts with name/usage/rate."""
+        candidates: list[dict] = []
+        for m in skill_metrics:
+            status = m.get("status") or self._infer_skill_status(m)
+            if status in {"warning", "retire_suggested"}:
+                candidates.append(
+                    {
+                        "skill": m.get("skill_name"),
+                        "usage_count": m.get("usage_count"),
+                        "success_count": m.get("success_count"),
+                        "failure_count": m.get("failure_count"),
+                        "status": status,
+                    }
+                )
+        return candidates[:5]
