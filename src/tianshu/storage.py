@@ -716,6 +716,42 @@ class Storage:
                 for row in cur.fetchall()
             ]
 
+    def list_persona_events(self, persona_id: str, since_iso: str) -> list[dict]:
+        """Events whose payload.persona_id = persona_id AND created_at >= since_iso.
+
+        Note: the project's events table uses columns `created_at` (not `timestamp`)
+        and `payload_json` (not `payload`); see CREATE TABLE near the top of this
+        file. Output dict normalises `payload_json` -> `payload` so callers see a
+        decoded dict, matching the convention used by `get_events` above.
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                SELECT id, event_type, edict_id, memorial_id, created_at, payload_json
+                FROM events
+                WHERE created_at >= ?
+                ORDER BY created_at DESC
+                LIMIT 500
+                """,
+                (since_iso,),
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+        out: list[dict] = []
+        for r in rows:
+            try:
+                payload = json.loads(r.get("payload_json") or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            if (
+                payload.get("persona_id") == persona_id
+                or payload.get("assigned_persona_id") == persona_id
+                or payload.get("assigned_official") == persona_id
+            ):
+                r["payload"] = payload
+                r.pop("payload_json", None)
+                out.append(r)
+        return out
+
     # --- Audit ---
 
     def get_audit_stats(self, top_n: int = 20) -> dict:

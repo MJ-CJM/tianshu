@@ -110,6 +110,16 @@ class SkillMetricsStore:
         self._conn.execute("DELETE FROM skill_metrics WHERE skill_name = ?", (skill_name,))
         self._conn.commit()
 
+    def list_for_persona(self, persona_id: str) -> list[SkillMetrics]:
+        """Return skill metrics filtered by persona's skills_allowed.
+
+        Stub impl: returns all skill metrics (caller can filter further).
+        Note: project convention uses `get_all()` here (see above) rather than
+        `list_all`; this method wraps it so growth-profile synthesis has a
+        persona-scoped entry point without changing existing callers.
+        """
+        return self.get_all()
+
     @staticmethod
     def _row_to_metrics(row: sqlite3.Row) -> SkillMetrics:
         return SkillMetrics(
