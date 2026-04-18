@@ -65,18 +65,27 @@ class ProfileSynthesizer:
     def _profile_path(self, persona_id: str) -> Path:
         return self._runtime_dir / persona_id / "PROFILE.md"
 
-    def collect_inputs(
+    async def collect_inputs(
         self, persona_id: str, window_days: int = 14
     ) -> ProfileSynthesisInput:
+        """Collect 14-day window data for synthesis.
+
+        Async because DrawerStore.get_drawers is async. Callers (run, API) are
+        already async, so this stays natural.
+        """
         persona = self._personas.get(persona_id)
         persona_name = persona.name if persona else persona_id
         since = datetime.now(timezone.utc) - timedelta(days=window_days)
         since_iso = since.isoformat()
 
-        drawers = tuple(
-            self._drawers.search(wing=persona_id, since_iso=since_iso, limit=200)
-            if hasattr(self._drawers, "search")
+        raw_drawers = (
+            await self._drawers.get_drawers(wing=persona_id, limit=200)
+            if hasattr(self._drawers, "get_drawers")
             else []
+        )
+        drawers = tuple(
+            d for d in raw_drawers
+            if getattr(d, "timestamp", "") >= since_iso
         )
         events = tuple(self._storage.list_persona_events(persona_id, since_iso))
         metrics = tuple(self._skill_metrics.list_for_persona(persona_id))
