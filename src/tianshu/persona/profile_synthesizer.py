@@ -217,6 +217,19 @@ class ProfileSynthesizer:
                 )
         return candidates[:5]
 
+    @staticmethod
+    def _is_degraded(
+        inputs: ProfileSynthesisInput,
+        specialties: list[dict],
+        degradations: list[dict],
+    ) -> bool:
+        """Degraded when data was sufficient but LLM returned nothing for both."""
+        opinion_count = sum(
+            1 for d in inputs.drawers if getattr(d, "category", "") == "O"
+        )
+        data_sufficient = opinion_count >= 5
+        return data_sufficient and not specialties and not degradations
+
     _SPECIALTIES_SYSTEM = (
         "你是 {persona_name} 的成长档案分析助手。"
         "基于用户提供的记忆片段客观归纳,禁止编造。"
