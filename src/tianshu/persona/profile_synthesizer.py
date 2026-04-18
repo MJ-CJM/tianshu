@@ -293,3 +293,42 @@ class ProfileSynthesizer:
                 await asyncio.sleep(1)
         logger.warning("LLM json call failed after retries: %s", last_err)
         return {}
+
+    def persist(self, result: ProfileSynthesisResult) -> Path:
+        """Atomic write to PROFILE.md; archive previous version; prune to 10.
+
+        Returns final path. Raises on write failures (caller must release lock).
+        """
+        from tianshu.persona.profile_io import (
+            archive_previous,
+            atomic_write,
+            prune_history,
+        )
+
+        path = self._profile_path(result.persona_id)
+        prev_version = max(0, result.version - 1)
+        if prev_version >= 1:
+            archive_previous(path, prev_version)
+        atomic_write(path, result.markdown)
+        prune_history(path.parent / "profile_history")
+        return path
+
+    def detect_conflict(
+        self, prev_markdown: str | None, new_auto_section: str
+    ) -> bool:
+        """True when user-edited auto section diverges >= 30% from previous."""
+        from tianshu.persona.profile_renderer import (
+            MANUAL_DIFF_CONFLICT_THRESHOLD,
+            auto_section_diff_ratio,
+        )
+        from tianshu.persona.profile_schema import parse_profile
+
+        if not prev_markdown:
+            return False
+        _, prev_auto, _ = parse_profile(prev_markdown)
+        if not prev_auto:
+            return False
+        return (
+            auto_section_diff_ratio(prev_auto, new_auto_section)
+            >= MANUAL_DIFF_CONFLICT_THRESHOLD
+        )
