@@ -268,7 +268,7 @@ class ProfileSynthesizer:
         return raw.get("degradations", []) if isinstance(raw, dict) else []
 
     async def _call_llm_json(self, system: str, user: str) -> dict:
-        """Invoke LLM with 2 retries for non-JSON output. Returns {} on full failure."""
+        """Invoke LLM with up to 3 attempts (2 retries) for non-JSON output. Returns {} on full failure."""
         last_err: Exception | None = None
         prompt_user = user
         for attempt in range(3):
@@ -280,7 +280,7 @@ class ProfileSynthesizer:
                     ],
                 )
                 text = (getattr(resp, "content", None) or "").strip()
-                if text.startswith("```"):
+                if text.startswith("```") and "\n" in text:
                     text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
                 return json.loads(text)
             except (json.JSONDecodeError, ValueError) as e:
