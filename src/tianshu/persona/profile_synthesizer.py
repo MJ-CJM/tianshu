@@ -63,6 +63,18 @@ class ProfileSynthesizer:
         self._personas = persona_loader
         self._model = model_name
 
+    class _SkippedError(RuntimeError):
+        """Sentinel: synthesis skipped due to lock contention."""
+        pass
+
+    def _acquire_lock(self, persona_id: str) -> bool:
+        """Try to acquire synthesis lock; returns True if acquired."""
+        return self._storage.try_acquire_synthesis_lock(persona_id)
+
+    def _release_lock(self, persona_id: str) -> None:
+        """Release synthesis lock for persona."""
+        self._storage.release_synthesis_lock(persona_id)
+
     def _profile_path(self, persona_id: str) -> Path:
         return self._runtime_dir / persona_id / "PROFILE.md"
 
