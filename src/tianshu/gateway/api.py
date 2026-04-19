@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager, LLMConfigState
@@ -1358,6 +1360,35 @@ async def trigger_profile_synthesis(persona_id: str, request: Request):
                 task.cancel()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+class _ProfileManualUpdate(BaseModel):
+    manual_section: str
+
+
+@gateway_router.put("/personas/{persona_id}/profile/manual", response_model=ApiResponse)
+async def update_profile_manual(
+    persona_id: str, body: _ProfileManualUpdate, request: Request
+):
+    persona_loader = request.app.state.persona_loader
+    if not persona_loader.get(persona_id):
+        raise HTTPException(404, f"Persona '{persona_id}' not found")
+    from tianshu.persona.profile_io import atomic_write
+    from tianshu.persona.profile_renderer import render_markdown
+    from tianshu.persona.profile_schema import parse_profile
+
+    runtime_personas_dir: Path = request.app.state.runtime_personas_dir
+    path = runtime_personas_dir / persona_id / "PROFILE.md"
+    if not path.exists():
+        raise HTTPException(404, "Profile not found; synthesize first")
+    text = path.read_text(encoding="utf-8")
+    fm, auto, _ = parse_profile(text)
+    if not fm:
+        raise HTTPException(500, "Corrupted frontmatter")
+    fm.manually_edited = bool(body.manual_section.strip())
+    new_md = render_markdown(fm, auto, body.manual_section)
+    atomic_write(path, new_md)
+    return ApiResponse(success=True, data={"persona_id": persona_id, "manual_updated": True})
 
 
 # --- Skills endpoints (藏兵阁) ---
