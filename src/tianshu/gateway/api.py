@@ -1248,6 +1248,49 @@ async def get_persona_metrics(persona_id: str, request: Request):
     return ApiResponse(success=True, data=metrics.model_dump())
 
 
+@gateway_router.get("/personas/{persona_id}/profile")
+async def get_persona_profile(persona_id: str, request: Request):
+    from pathlib import Path
+    from tianshu.persona.profile_schema import parse_profile
+
+    persona_loader = request.app.state.persona_loader
+    if not persona_loader.get(persona_id):
+        raise HTTPException(404, f"Persona '{persona_id}' not found")
+    runtime_personas_dir: Path = request.app.state.runtime_personas_dir
+    profile_path = runtime_personas_dir / persona_id / "PROFILE.md"
+    if not profile_path.exists():
+        return ApiResponse(
+            success=True,
+            data={
+                "persona_id": persona_id,
+                "exists": False,
+                "frontmatter": None,
+                "markdown": "",
+                "history": [],
+            },
+        )
+    text = profile_path.read_text(encoding="utf-8")
+    fm, auto, manual = parse_profile(text)
+    history_dir = profile_path.parent / "profile_history"
+    history: list[dict] = []
+    if history_dir.exists():
+        for f in sorted(history_dir.iterdir(), reverse=True):
+            if f.is_file() and f.suffix == ".md":
+                history.append({"name": f.name, "mtime": f.stat().st_mtime})
+    return ApiResponse(
+        success=True,
+        data={
+            "persona_id": persona_id,
+            "exists": True,
+            "frontmatter": fm.__dict__ if fm else None,
+            "markdown": text,
+            "auto_section": auto,
+            "manual_section": manual,
+            "history": history,
+        },
+    )
+
+
 # --- Skills endpoints (藏兵阁) ---
 
 
