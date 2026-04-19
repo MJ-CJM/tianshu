@@ -1,5 +1,7 @@
 # Tianshu Project Instructions
 
+> **项目定位**：天枢是一座会与你共同成长的宫殿。内有用户分身（emperor），外有辅佐的六部官员。任何重构 / 新特性都应服务"共生成长"这一核心叙事 —— 不是再造一个聊天工具，而是沉淀长期关系。
+
 ## gstack
 
 Use the `/browse` skill from gstack for all web browsing tasks. **Never use `mcp__claude-in-chrome__*` tools.**
