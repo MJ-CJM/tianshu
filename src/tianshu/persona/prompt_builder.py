@@ -37,6 +37,15 @@ _BASE_IDENTITY = (
 class PromptBuilder:
     """Builds system prompts with 8-layer injection."""
 
+    _SANITIZE_PATTERNS = (
+        "```",
+        "[INST]",
+        "[/INST]",
+        "<|system|>",
+        "<|user|>",
+        "<|assistant|>",
+    )
+
     def __init__(
         self,
         personas_dir: Path,
@@ -346,6 +355,62 @@ class PromptBuilder:
         if not fm:
             return ""
         return self._extract_peer_summary(fm, auto)
+
+    def _extract_peer_summary(
+        self, frontmatter, auto_section: str
+    ) -> str:
+        """Return ≤ peer_profile_max_chars summary, no degradation, sanitized."""
+        specialties = self._slice_section(auto_section, "## 擅长领域")
+        distribution = self._slice_section(
+            auto_section, "## 近期任务分布"
+        )
+        health = self._slice_section(auto_section, "## 健康度")
+        # NEVER include "## 退化迹象"
+        body = (
+            f"### {frontmatter.persona_name} "
+            f"(v{frontmatter.version}, {frontmatter.last_synthesized[:10]})\n"
+            f"**擅长**:{self._oneline(specialties, 240)}\n"
+            f"**近期**:{self._oneline(distribution, 160)}\n"
+            f"**健康度**:{self._oneline(health, 120)}"
+        )
+        body = self._sanitize(body)
+        if len(body) > self._peer_profile_max_chars:
+            body = self._clip(body, self._peer_profile_max_chars)
+        return body
+
+    @staticmethod
+    def _slice_section(text: str, header: str) -> str:
+        if header not in text:
+            return ""
+        start = text.index(header) + len(header)
+        rest = text[start:]
+        # stop at next top-level heading
+        for i, ch in enumerate(rest):
+            if ch == "#" and rest[i:i + 3] == "## " and i != 0:
+                return rest[:i].strip()
+        return rest.strip()
+
+    @staticmethod
+    def _oneline(text: str, limit: int) -> str:
+        t = " ".join(text.split())
+        return t[:limit]
+
+    @classmethod
+    def _sanitize(cls, text: str) -> str:
+        for pat in cls._SANITIZE_PATTERNS:
+            text = text.replace(pat, "")
+        return text
+
+    @staticmethod
+    def _clip(text: str, limit: int) -> str:
+        # strip table rows first, then trailing bullets
+        lines = text.split("\n")
+        while len(text) > limit and any(l.startswith("|") for l in lines):
+            lines = [l for l in lines if not l.startswith("|")]
+            text = "\n".join(lines)
+        if len(text) > limit:
+            text = text[: limit - 3].rstrip() + "..."
+        return text
 
     async def _get_l1(self, persona_id: str) -> str:
         """Fetch L1 critical facts from drawer store (no-op if store missing)."""
