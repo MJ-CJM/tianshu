@@ -156,6 +156,18 @@ class MemoryConfig:
 - DrawerStore `wing="court"` → L2 recall 的 `include_court=True` 会并入结果
 - ducha 的 audit insight（verdict ∈ {flag, block}）会以 `access_level="court"` 写入 court 可见区
 
+## 7.5 Emperor 分身 wing
+
+emperor 是用户画像的"主人翁" wing，与 6 部官员 wing + court wing 并列为第三类：
+
+| Wing 类型 | 数据归属 | 隐私边界 |
+|---|---|---|
+| 六部官员 | 各自执行记忆 | Drawer 私有；PROFILE 同僚可读（不泄漏退化迹象） |
+| court | 跨人格共识 | 所有 persona 可读可写 |
+| **emperor** | 用户个人画像 | 用户独享；agent 侧只读聚合（Phase 下一期实现） |
+
+emperor `MEMORY.md` / Drawer 的写入路径、UserProfile 合成方案见 Landscape #1 spec。
+
 ## 8. 演进路线
 
 Phase 1（已落地，feat_phase5）：

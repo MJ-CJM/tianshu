@@ -379,6 +379,21 @@ Phase 3 引入"会商"机制——内阁召集多位官员并行提供视角，�
 
 代码路径：`src/tianshu/persona/loader.py` `ensure_runtime_identity` / `_dict_to_persona`。详细实现见 `docs/impl/persona.md` §1。
 
+### 8.5 Emperor 分身（用户画像 wing）
+
+emperor 是用户的长期分身 wing，与 6 部官员 + court 并列。其 `~/.tianshu/memory/emperor/` 存放跨会话用户画像 Drawer。当前 `PROFILE.md` 为占位；用户画像合成交给后续 spec 实现（参见 Landscape #1）。
+
+### 8.6 官员成长档案
+
+每个官员运行时目录（`~/.tianshu/personas/{id}/`）下新增 `PROFILE.md`，由 `ProfileSynthesizer` 周期合成，覆盖：
+
+1. 擅长领域 —— 基于主观经验 Drawer（category=O, confidence>0.7）的 LLM 归纳
+2. 近期任务分布 —— 事件流统计
+3. 健康度 —— SkillMetrics + Drawer 活跃度
+4. 退化迹象 —— Skill 成功率下降候选 + LLM 原因
+
+实现细节：`docs/superpowers/specs/2026-04-18-persona-growth-profile-design.md`。
+
 ---
 
 ## 九、参考采纳矩阵

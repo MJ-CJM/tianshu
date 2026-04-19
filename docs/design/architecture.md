@@ -1,5 +1,11 @@
 # 天枢（Tianshu）全局架构设计
 
+> **天枢：一座会与你共同成长的宫殿。内有你的分身，外有辅佐你的六部。**
+
+**What** 一个可常驻、会成长的个人 agent 系统
+**Why** 把 agent 从"一次性工具"升级为"长期共生体" —— 不只完成当下任务，更沉淀对你的理解
+**How** "宫殿"隐喻组织记忆与角色：emperor wing（你的分身）+ 六部 wing（专业官员）+ court wing（共享记忆），各 wing 通过 Memory Palace + Skills 飞轮持续演进
+
 > 异步 AI 执行平台。白天下旨，夜间办差，早上递折子。
 >
 > 本文是 **WHY + WHAT**（架构意图与稳定契约）。**HOW + WHERE**（当前代码真相）见 `docs/impl/`。
@@ -228,6 +234,19 @@ execution.completed → MemoryManager.on_agent_end
 - **Persona runtime 分离**：`personas/{id}/` 为 git 模板，`~/.tianshu/personas/{id}/` 为运行时副本；UI 修改只落运行时，模板永不动（详见 `agent-persona.md` §运行时覆盖）
 - `/memory/search` + `/memory/l1` API
 - PromptBuilder Layer 5.1 接入 L1 关键事实
+
+## 宫殿共生成长（核心叙事）
+
+两条成长轴并行：
+
+- **emperor 轴（你的分身）** 跨会话持续沉淀的个人画像 —— 由 `~/.tianshu/memory/emperor/` 的 Drawer + 将来的 UserProfile 合成（Phase 下一期）负担
+- **六部官员轴** 每个官员形成自己的 `PROFILE.md` 成长档案（擅长 / 近期任务 / 健康度 / 退化迹象），由 `ProfileSynthesizer` 周期合成
+
+两轴共享 `court` wing 作为跨人格共识层。详见：
+
+- `docs/design/memory-palace.md` §7 Court 共享 + §7.5 Emperor 分身
+- `docs/design/agent-persona.md` §8.5–§8.6
+- `docs/impl/persona.md` `ProfileSynthesizer`
 
 ## 六、扩展点与演进路线
 
