@@ -31,3 +31,30 @@ export async function getPersonaProfile(
   );
   return data;
 }
+
+export interface ProfileHistoryItem {
+  persona_id: string;
+  version: number;
+  name: string;
+  markdown: string;
+}
+
+export async function getProfileHistory(
+  id: string,
+  version: number,
+): Promise<ApiResponse<ProfileHistoryItem>> {
+  const { data } = await apiClient.get<ApiResponse<ProfileHistoryItem>>(
+    `/personas/${id}/profile/history/${version}`,
+  );
+  return data;
+}
+
+export async function updateProfileManual(
+  id: string,
+  manualSection: string,
+): Promise<ApiResponse<{ persona_id: string; manual_updated: boolean }>> {
+  const { data } = await apiClient.put<
+    ApiResponse<{ persona_id: string; manual_updated: boolean }>
+  >(`/personas/${id}/profile/manual`, { manual_section: manualSection });
+  return data;
+}
