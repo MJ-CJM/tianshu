@@ -395,6 +395,7 @@ async def lifespan(app: FastAPI):
     app.state.profile_trigger = profile_trigger
 
     hook_registry.register(HookType.AGENT_END, profile_trigger.handle_agent_end, priority=250)
+    scheduler.register_system_jobs(profile_trigger)
 
     # --- DigestGenerator ---
     from tianshu.notifier.digest import DigestGenerator

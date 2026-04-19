@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
+from typing import Any, Callable, Coroutine
 
 from croniter import croniter
 from ulid import ULID
@@ -15,6 +16,8 @@ from tianshu.models.events import EventEnvelope, make_event
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
+
+_AsyncFn = Callable[[], Coroutine[Any, Any, None]]
 
 
 class _Job:
@@ -48,11 +51,30 @@ class Scheduler:
         self._jobs: dict[str, _Job] = {}
         self._running = False
         self._cron_task: asyncio.Task | None = None
+        self._system_jobs: list[dict] = []
+        self._system_cron_tasks: list[asyncio.Task] = []
+
+    def register_system_jobs(self, profile_trigger: Any) -> None:
+        """Register built-in system cron jobs (e.g. daily profile synthesis)."""
+        async def _fire() -> None:
+            asyncio.create_task(
+                profile_trigger.run_for_all_personas(trigger_source="cron")
+            )
+
+        self._system_jobs.append(
+            {"cron": "0 3 * * *", "name": "profile.daily_synthesis", "fn": _fire}
+        )
+        logger.info("Registered system job: profile.daily_synthesis (0 3 * * *)")
 
     async def start(self) -> None:
         self._running = True
         await self._restore_jobs()
         self._review_timeout_task = asyncio.create_task(self._review_timeout_loop())
+        for job in self._system_jobs:
+            task = asyncio.create_task(
+                self._system_cron_loop(job["cron"], job["name"], job["fn"])
+            )
+            self._system_cron_tasks.append(task)
         logger.info("Scheduler started")
 
     async def _restore_jobs(self) -> None:
@@ -130,6 +152,25 @@ class Scheduler:
         except asyncio.CancelledError:
             pass
 
+    async def _system_cron_loop(self, cron_expr: str, name: str, fn: _AsyncFn) -> None:
+        """Run a system cron job on the given expression until stopped."""
+        try:
+            while self._running:
+                cron = croniter(cron_expr, datetime.now(UTC))
+                next_run = cron.get_next(datetime)
+                delay = (next_run - datetime.now(UTC)).total_seconds()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                if not self._running:
+                    break
+                logger.info("Firing system job: %s", name)
+                try:
+                    await fn()
+                except Exception:
+                    logger.exception("System cron job %s failed", name)
+        except asyncio.CancelledError:
+            logger.info("System cron loop cancelled: %s", name)
+
     async def stop(self) -> None:
         self._running = False
         for job in list(self._jobs.values()):
@@ -137,6 +178,10 @@ class Scheduler:
                 job.task.cancel()
         if self._cron_task and not self._cron_task.done():
             self._cron_task.cancel()
+        for task in self._system_cron_tasks:
+            if not task.done():
+                task.cancel()
+        self._system_cron_tasks.clear()
         if hasattr(self, "_review_timeout_task") and not self._review_timeout_task.done():
             self._review_timeout_task.cancel()
         self._jobs.clear()
