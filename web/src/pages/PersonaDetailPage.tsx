@@ -36,6 +36,7 @@ import {
   UserOutlined,
   DeleteOutlined,
   SearchOutlined,
+  TrophyOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import PageContainer from "../components/common/PageContainer";
@@ -61,6 +62,7 @@ import {
   useRecallMemory,
 } from "../hooks/useMemory";
 import { useDepartments } from "../hooks/useDepartments";
+import ProfileTab from "../components/persona/ProfileTab";
 import { useConfigs } from "../hooks/useConfig";
 import type {
   PersonaInfo,
@@ -916,6 +918,16 @@ export default function PersonaDetailPage() {
               </Space>
             ),
             children: <MemoryTab personaId={persona.id} />,
+          },
+          {
+            key: "profile",
+            label: (
+              <Space>
+                <TrophyOutlined />
+                成长档案
+              </Space>
+            ),
+            children: <ProfileTab personaId={persona.id} />,
           },
         ]}
       />
