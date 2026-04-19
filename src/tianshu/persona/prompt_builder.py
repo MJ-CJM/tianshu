@@ -61,6 +61,9 @@ class PromptBuilder:
             personas_dir=self._personas_dir,
         )
 
+        self._include_peer_profiles = True
+        self._peer_profile_max_chars = 600
+
     async def build(
         self,
         edict: Edict,
@@ -123,6 +126,11 @@ class PromptBuilder:
             court_mem_text = self._md_backend.read_core_memory("court")
             if court_mem_text:
                 parts.append(f"# Court Memory\n\n{court_mem_text}")
+
+            # Layer 6.5: Peer Profiles (同僚近况)
+            peer_text = await self._build_peer_profiles(persona.id, edict)
+            if peer_text:
+                parts.append(peer_text)
 
         # Layer 7: Skills — index + always-on skills
         self._skills.set_char_budget(skills_char_budget)
@@ -240,6 +248,16 @@ class PromptBuilder:
                 "tokens_est": len(court_mem) // 4,
             })
 
+            # Layer 6.5: Peer Profiles (同僚近况)
+            peer_text = await self._build_peer_profiles(persona.id, edict)
+            layers.append({
+                "layer": 6.5,
+                "name": "Peer Profiles (同僚近况)",
+                "source": "~/.tianshu/personas/{peer}/PROFILE.md",
+                "chars": len(peer_text),
+                "tokens_est": len(peer_text) // 4,
+            })
+
         # Layer 7: Skills — index + always-on
         self._skills.set_char_budget(skills_char_budget)
         filter_names = persona.skills_allowed if persona and persona.skills_allowed else None
@@ -278,6 +296,56 @@ class PromptBuilder:
             "total_tokens_est": total_tokens,
             "layers": layers,
         }
+
+    async def _build_peer_profiles(
+        self, self_persona_id: str, edict
+    ) -> str:
+        """Layer 6.5: inject other in-session personas' PROFILE excerpts."""
+        if not self._include_peer_profiles:
+            return ""
+        peers = self._resolve_peers(edict, exclude=self_persona_id)
+        if not peers:
+            return ""
+        entries: list[str] = []
+        for pid in peers:
+            entry = self._read_peer_profile(pid)
+            if entry:
+                entries.append(entry)
+        if not entries:
+            return ""
+        return "## 同僚近况\n\n" + "\n\n".join(entries)
+
+    def _resolve_peers(self, edict, exclude: str) -> list[str]:
+        ids: set[str] = set()
+        if getattr(edict, "assigned_persona_id", None):
+            ids.add(edict.assigned_persona_id)
+        if getattr(edict, "planner_persona_id", None):
+            ids.add(edict.planner_persona_id)
+        dag = getattr(edict, "dag_assignments", None) or []
+        for a in dag:
+            pid = a.get("assigned_official") if isinstance(a, dict) else None
+            if pid:
+                ids.add(pid)
+        ids.discard(exclude)
+        return sorted(ids)
+
+    def _read_peer_profile(self, persona_id: str) -> str:
+        from tianshu.persona.profile_schema import parse_profile
+
+        path = (
+            self._memory_dir.parent / "personas" / persona_id / "PROFILE.md"
+        )
+        if not path.exists():
+            return ""
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as e:
+            logger.warning("read PROFILE failed %s: %s", path, e)
+            return ""
+        fm, auto, _ = parse_profile(text)
+        if not fm:
+            return ""
+        return self._extract_peer_summary(fm, auto)
 
     async def _get_l1(self, persona_id: str) -> str:
         """Fetch L1 critical facts from drawer store (no-op if store missing)."""
