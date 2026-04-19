@@ -1391,6 +1391,29 @@ async def update_profile_manual(
     return ApiResponse(success=True, data={"persona_id": persona_id, "manual_updated": True})
 
 
+@gateway_router.get("/personas/{persona_id}/profile/history/{version}")
+async def get_profile_history(persona_id: str, version: int, request: Request):
+    persona_loader = request.app.state.persona_loader
+    if not persona_loader.get(persona_id):
+        raise HTTPException(404, f"Persona '{persona_id}' not found")
+    runtime_personas_dir: Path = request.app.state.runtime_personas_dir
+    history_dir = runtime_personas_dir / persona_id / "profile_history"
+    if not history_dir.exists():
+        raise HTTPException(404, "No history")
+    for f in history_dir.iterdir():
+        if f.name.startswith(f"v{version}-") and f.suffix == ".md":
+            return ApiResponse(
+                success=True,
+                data={
+                    "persona_id": persona_id,
+                    "version": version,
+                    "name": f.name,
+                    "markdown": f.read_text(encoding="utf-8"),
+                },
+            )
+    raise HTTPException(404, f"Version v{version} not found")
+
+
 # --- Skills endpoints (藏兵阁) ---
 
 
