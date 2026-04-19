@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Button, Input, Select, Space } from "antd";
+import { Button, Input, Select, Space, Typography } from "antd";
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -98,6 +98,24 @@ export default function EdictListPage() {
         </Space>
       }
     >
+      <div
+        style={{
+          padding: "20px 24px",
+          marginBottom: 16,
+          borderRadius: 8,
+          background:
+            "linear-gradient(135deg, rgba(255,247,230,0.6) 0%, rgba(241,245,255,0.6) 100%)",
+          border: "1px solid rgba(217,178,136,0.25)",
+        }}
+      >
+        <Typography.Paragraph
+          style={{ margin: 0, fontSize: 15, lineHeight: 1.8 }}
+        >
+          天枢是一座会与你共同成长的宫殿。宫殿里有你的分身（emperor）——
+          跨会话、跨平台持续演进的个人画像；也有六部官员 ——
+          各自精进专业，共同辅佐你的目标。任务流转间，官员与分身一起成长。
+        </Typography.Paragraph>
+      </div>
       <EdictTable
         edicts={edicts}
         total={total}
