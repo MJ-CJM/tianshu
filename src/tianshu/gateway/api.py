@@ -1291,6 +1291,75 @@ async def get_persona_profile(persona_id: str, request: Request):
     )
 
 
+@gateway_router.post("/personas/{persona_id}/synthesize")
+async def trigger_profile_synthesis(persona_id: str, request: Request):
+    persona_loader = request.app.state.persona_loader
+    if not persona_loader.get(persona_id):
+        raise HTTPException(404, f"Persona '{persona_id}' not found")
+    syn = request.app.state.profile_synthesizer
+    event_bus = request.app.state.event_bus
+
+    from fastapi.responses import StreamingResponse
+
+    async def event_stream():
+        import asyncio
+        import json
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def _listener(ev):
+            pid = ev.payload.get("persona_id")
+            if pid == persona_id:
+                await queue.put(ev)
+
+        for et in [
+            "profile.synthesis.started",
+            "profile.synthesis.completed",
+            "profile.synthesis.degraded",
+            "profile.synthesis.failed",
+            "profile.synthesis.skipped",
+        ]:
+            event_bus.on(et, _listener, priority=10)
+
+        task = asyncio.create_task(
+            syn.run(persona_id, trigger_source="api_manual")
+        )
+        try:
+            while True:
+                done = {task}
+                try:
+                    ev = await asyncio.wait_for(queue.get(), timeout=60)
+                except asyncio.TimeoutError:
+                    yield f": keepalive\n\n"
+                    if task.done():
+                        break
+                    continue
+                data = {
+                    "event": ev.event_type,
+                    "payload": ev.payload,
+                }
+                yield f"event: {ev.event_type}\ndata: {json.dumps(data)}\n\n"
+                if ev.event_type in (
+                    "profile.synthesis.completed",
+                    "profile.synthesis.degraded",
+                    "profile.synthesis.failed",
+                    "profile.synthesis.skipped",
+                ):
+                    break
+        finally:
+            for et in [
+                "profile.synthesis.started",
+                "profile.synthesis.completed",
+                "profile.synthesis.degraded",
+                "profile.synthesis.failed",
+                "profile.synthesis.skipped",
+            ]:
+                event_bus.off(et, _listener)
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 # --- Skills endpoints (藏兵阁) ---
 
 
