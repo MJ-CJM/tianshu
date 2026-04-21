@@ -8,6 +8,9 @@
 
 **Tech Stack:** Python 3.12+, httpx, trafilatura, cachetools, pydantic, asyncio
 
+**Tier 决策:** ☑ 扩展方案（新增 T2_NETWORK=2，原 T2_WRITE→T3，原 T3_DANGEROUS→T4） / ☐ 保守方案
+— 2026-04-21 评估：src/ 下 `T2_WRITE|T3_DANGEROUS` 共 14 处引用（<15 阈值），采用扩展方案，语义更清晰。
+
 **User preference:** 功能优先，测试最后补 —— 本 plan 前 19 个任务只实现功能（不写测试），最后的 Task 20 统一补齐单元 / 集成 / 契约测试。
 
 **Spec:** `docs/superpowers/specs/2026-04-21-web-access-tools-design.md`
