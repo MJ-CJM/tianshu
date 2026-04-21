@@ -22,6 +22,14 @@ class EdictRuntimeRequest(BaseModel):
     retry_limit: int | None = Field(default=None, ge=0, le=10)
     token_budget: int | None = None
     cost_budget_cny: float | None = None
+    fetch_engine_override: str | None = Field(
+        default=None,
+        description="Pin web_fetch to specific engine: local | jina | firecrawl",
+    )
+    search_provider_override: str | None = Field(
+        default=None,
+        description="Pin web_search to specific provider: tavily | jina",
+    )
 
 
 class EdictCreateRequest(BaseModel):

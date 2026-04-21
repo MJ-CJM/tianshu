@@ -51,6 +51,9 @@ class EdictRuntime(BaseModel):
     # Spec Section 5: Policy Profile 预配权限
     policy_profile: PolicyProfilePayload | None = None
     tier_overrides: dict[str, int] = Field(default_factory=dict)
+    # 2026-04-21 web access: 钉死 engine / provider，存在则强制关闭 fallback
+    fetch_engine_override: str | None = None
+    search_provider_override: str | None = None
 
 
 class Edict(BaseModel):
