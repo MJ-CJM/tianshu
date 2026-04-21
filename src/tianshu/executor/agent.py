@@ -354,7 +354,7 @@ class Agent:
 
                     tool_defn = self._tools.get_definition(tc["name"])
                     tool_tier = (
-                        tool_defn.tier if tool_defn else ToolTier.T3_DANGEROUS.value
+                        tool_defn.tier if tool_defn else ToolTier.T4_DANGEROUS.value
                     )
                     is_fast_path = tool_tier == ToolTier.T0_READONLY.value
 

@@ -52,11 +52,11 @@ class PolicyHook:
 
         # 解析 tool tier（fail-secure → 缺失 = T3）
         defn = self._tool_registry.get_definition(tool_name) if self._tool_registry else None
-        tier_val = defn.tier if defn else ToolTier.T3_DANGEROUS.value
+        tier_val = defn.tier if defn else ToolTier.T4_DANGEROUS.value
         try:
             tool_tier = ToolTier(int(tier_val))
         except (TypeError, ValueError):
-            tool_tier = ToolTier.T3_DANGEROUS
+            tool_tier = ToolTier.T4_DANGEROUS
 
         ctx = PolicyContext(
             tool_name=str(tool_name),

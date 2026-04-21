@@ -70,7 +70,7 @@ def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
                 },
                 "required": ["command"],
             },
-            tier=ToolTier.T3_DANGEROUS.value,
+            tier=ToolTier.T4_DANGEROUS.value,
             max_result_chars=16000,
         ),
     )

@@ -71,14 +71,14 @@ class ToolRegistry:
 
         defn, func = self._tools[name]
 
-        # Spec Section 2: 未声明 tier 的工具 runtime 视为 T3_DANGEROUS
-        if defn.tier is None or defn.tier not in (0, 1, 2, 3):
+        # Spec Section 2: 未声明 tier 的工具 runtime 视为 T4_DANGEROUS
+        if defn.tier is None or defn.tier not in (0, 1, 2, 3, 4):
             logger.error(
-                "[TOOL] %s has invalid tier=%r, downgrading to T3_DANGEROUS",
+                "[TOOL] %s has invalid tier=%r, downgrading to T4_DANGEROUS",
                 name, defn.tier,
             )
             # 动态覆盖这一次调用的 tier（不改 registry 里的定义，避免副作用）
-            defn = defn.model_copy(update={"tier": ToolTier.T3_DANGEROUS.value})
+            defn = defn.model_copy(update={"tier": ToolTier.T4_DANGEROUS.value})
 
         try:
             if isinstance(args, str):

@@ -50,7 +50,7 @@ BUILTIN_TEMPLATES: dict[str, PolicyProfile] = {
     "trusted-automation": PolicyProfile(
         allowed_paths=("**/*",),
         allowed_bash_prefixes=("git ", "pytest", "ruff", "black", "mypy"),
-        auto_approve_max_tier=ToolTier.T2_WRITE.value,
+        auto_approve_max_tier=ToolTier.T3_WRITE.value,
         template_name="trusted-automation",
     ),
 }
