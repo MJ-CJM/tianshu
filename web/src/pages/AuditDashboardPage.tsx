@@ -6,6 +6,8 @@ import {
   NodeIndexOutlined,
   ApiOutlined,
   SafetyOutlined,
+  DownOutlined,
+  RightOutlined,
 } from "@ant-design/icons";
 import { fetchPolicyStats } from "../api/policy";
 import type { PolicyStats } from "../api/policy";
@@ -42,6 +44,7 @@ interface HookEvent {
 }
 
 function HookEventsCard() {
+  const [collapsed, setCollapsed] = useState(true);
   // Fetch recent hook events from the most recent edicts
   const { data: recentEdicts } = useQuery({
     queryKey: ["edicts", "recent"],
@@ -83,31 +86,51 @@ function HookEventsCard() {
   return (
     <Card
       title={
-        <span>
+        <span
+          style={{ cursor: "pointer", userSelect: "none" }}
+          onClick={() => setCollapsed((v) => !v)}
+        >
+          {collapsed ? (
+            <RightOutlined style={{ marginRight: 8, fontSize: 12 }} />
+          ) : (
+            <DownOutlined style={{ marginRight: 8, fontSize: 12 }} />
+          )}
           <ThunderboltOutlined style={{ marginRight: 8 }} />
           Hook 触发记录
+          <Tag style={{ marginLeft: 8 }}>{events.length}</Tag>
         </span>
+      }
+      extra={
+        <Button
+          type="text"
+          size="small"
+          onClick={() => setCollapsed((v) => !v)}
+        >
+          {collapsed ? "展开" : "折叠"}
+        </Button>
       }
       style={{ marginTop: 24 }}
       size="small"
       loading={isLoading}
     >
-      <Timeline
-        items={events.map((evt) => ({
-          color: evt.payload.error ? "red" : evt.payload.blocked ? "orange" : "green",
-          children: (
-            <div style={{ fontSize: 13 }}>
-              <Tag>{evt.event_type.replace("hook.", "")}</Tag>
-              <MonoText style={{ fontSize: 11 }}>{evt.payload.handler ?? "—"}</MonoText>
-              {evt.payload.blocked && <Tag color="orange" style={{ marginLeft: 4 }}>blocked</Tag>}
-              {evt.payload.error && <Tag color="red" style={{ marginLeft: 4 }}>{evt.payload.error}</Tag>}
-              <span style={{ color: "#888", marginLeft: 8, fontSize: 11 }}>
-                {formatTime(evt.created_at)}
-              </span>
-            </div>
-          ),
-        }))}
-      />
+      {!collapsed && (
+        <Timeline
+          items={events.map((evt) => ({
+            color: evt.payload.error ? "red" : evt.payload.blocked ? "orange" : "green",
+            children: (
+              <div style={{ fontSize: 13 }}>
+                <Tag>{evt.event_type.replace("hook.", "")}</Tag>
+                <MonoText style={{ fontSize: 11 }}>{evt.payload.handler ?? "—"}</MonoText>
+                {evt.payload.blocked && <Tag color="orange" style={{ marginLeft: 4 }}>blocked</Tag>}
+                {evt.payload.error && <Tag color="red" style={{ marginLeft: 4 }}>{evt.payload.error}</Tag>}
+                <span style={{ color: "#888", marginLeft: 8, fontSize: 11 }}>
+                  {formatTime(evt.created_at)}
+                </span>
+              </div>
+            ),
+          }))}
+        />
+      )}
     </Card>
   );
 }
