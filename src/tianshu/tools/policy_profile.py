@@ -11,10 +11,13 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from tianshu.tools.policy_store import (
-    assert_can_grant,
-    make_session_rule,
+from tianshu.tools.hongluisi.policy import (
+    NETWORK_DEFAULT,
+    NETWORK_OFFLINE,
+    NETWORK_RESEARCH,
+    NetworkPolicy,
 )
+from tianshu.tools.policy_store import assert_can_grant, make_session_rule
 from tianshu.tools.types import ToolTier
 
 if TYPE_CHECKING:
@@ -31,6 +34,7 @@ class PolicyProfile:
     auto_approve_max_tier: int = ToolTier.T1_WORKSPACE.value
     expires_after_seconds: int | None = None
     template_name: str | None = None
+    network: NetworkPolicy = field(default_factory=NetworkPolicy)
 
 
 # 3 个硬编码模板（Spec Section 5）
@@ -40,18 +44,21 @@ BUILTIN_TEMPLATES: dict[str, PolicyProfile] = {
         allowed_bash_prefixes=(),
         auto_approve_max_tier=ToolTier.T0_READONLY.value,
         template_name="safe-explore",
+        network=NETWORK_OFFLINE,
     ),
     "refactor-in-place": PolicyProfile(
         allowed_paths=("**/*",),
         allowed_bash_prefixes=("git status", "git diff"),
         auto_approve_max_tier=ToolTier.T1_WORKSPACE.value,
         template_name="refactor-in-place",
+        network=NETWORK_DEFAULT,
     ),
     "trusted-automation": PolicyProfile(
         allowed_paths=("**/*",),
         allowed_bash_prefixes=("git ", "pytest", "ruff", "black", "mypy"),
         auto_approve_max_tier=ToolTier.T3_WRITE.value,
         template_name="trusted-automation",
+        network=NETWORK_RESEARCH,
     ),
 }
 
