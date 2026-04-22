@@ -29,13 +29,10 @@ def _resolve_edict_context(
     edict = edict_getter()
     if edict is None:
         raise RuntimeError("no ambient edict; tool called outside executor")
-    # 解析 NetworkPolicy：优先 edict.runtime.policy_profile.template_name
-    from tianshu.tools.policy_profile import BUILTIN_TEMPLATES
+    # profile 解析走共享 helper（policy_profile.py），保证和 NetworkSafetyRule 同一套 fallback 语义
+    from tianshu.tools.policy_profile import resolve_network_for_edict
 
-    net = NetworkPolicy()
-    tmpl_name = getattr(edict.runtime.policy_profile, "template_name", None)
-    if tmpl_name and tmpl_name in BUILTIN_TEMPLATES:
-        net = BUILTIN_TEMPLATES[tmpl_name].network
+    net = resolve_network_for_edict(edict)
     fe_ov = getattr(edict.runtime, "fetch_engine_override", None)
     sp_ov = getattr(edict.runtime, "search_provider_override", None)
     return edict.id, net, fe_ov, sp_ov

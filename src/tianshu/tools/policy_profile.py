@@ -63,6 +63,26 @@ BUILTIN_TEMPLATES: dict[str, PolicyProfile] = {
 }
 
 
+def resolve_network_for_edict(edict: object) -> NetworkPolicy:
+    """根据 edict.runtime.policy_profile.template_name 找对应的 NetworkPolicy。
+
+    三种情况：
+    1. template_name 命中 BUILTIN_TEMPLATES → 用对应 NetworkPolicy
+    2. template_name 为 None / 缺失 / 无效 → fallback 到 refactor-in-place (DEFAULT)
+       这是合理的可用默认；想完全离线请显式选 safe-explore
+    3. BUILTIN_TEMPLATES 本身都缺（不该发生）→ 退回裸 NetworkPolicy()
+
+    给 NetworkSafetyRule 和 hongluisi/tools.py 共用，防止两处 fallback 不一致。
+    """
+    runtime = getattr(edict, "runtime", None)
+    profile = getattr(runtime, "policy_profile", None) if runtime else None
+    tmpl_name = getattr(profile, "template_name", None) if profile else None
+    if tmpl_name and tmpl_name in BUILTIN_TEMPLATES:
+        return BUILTIN_TEMPLATES[tmpl_name].network
+    default = BUILTIN_TEMPLATES.get("refactor-in-place")
+    return default.network if default else NetworkPolicy()
+
+
 async def expand_profile_to_rules(
     profile: PolicyProfile,
     edict: "Edict",
