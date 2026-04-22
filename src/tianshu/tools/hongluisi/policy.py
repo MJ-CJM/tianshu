@@ -26,6 +26,11 @@ class NetworkPolicy:
     max_fallback_depth: int = 3
     web_fetch_rate_per_min: int = 20
     web_search_rate_per_min: int = 10
+    # api_request (L1) + web_extract (L4) — Spec §7.1
+    allow_api_request: bool = False
+    api_request_methods: tuple[str, ...] = ("GET", "HEAD")
+    api_request_rate_per_min: int = 30
+    web_extract_rate_per_min: int = 10
 
 
 # 三档预设 —— 由 PolicyProfile 引用
