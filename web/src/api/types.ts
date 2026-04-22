@@ -724,3 +724,28 @@ export interface ReflectionResult {
   insights_generated?: number;
   insights?: string[];
 }
+
+// --- External Network Credentials (Spec 2026-04-22 §4) ---
+export interface Credential {
+  id: string;
+  name: string;
+  host_pattern: string;
+  header_template: string;
+  extra_headers: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
+export interface CredentialCreate {
+  name: string;
+  host_pattern: string;
+  header_template: string;
+  value: string;
+  extra_headers?: Record<string, string>;
+}
+
+export interface CredentialUpdate {
+  value?: string;
+  extra_headers?: Record<string, string>;
+}

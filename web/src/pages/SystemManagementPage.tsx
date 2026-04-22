@@ -65,7 +65,13 @@ import type {
   LLMConfigCreateRequest,
   LLMConfigUpdateRequest,
   AgentConfigUpdateRequest,
+  Credential,
 } from "../api/types";
+import {
+  listCredentials,
+  createCredential,
+  deleteCredential,
+} from "../api/credentials";
 
 const monoStyle: React.CSSProperties = {
   fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
@@ -1399,6 +1405,160 @@ function GlobalConfigTab() {
   );
 }
 
+// ==================== Tab: External Credentials ====================
+
+function ExternalCredentialsTab() {
+  const [items, setItems] = useState<Credential[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form] = Form.useForm();
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await listCredentials();
+      setItems(data);
+    } catch (e: any) {
+      notification.error({
+        message: "加载凭证失败",
+        description: String(e?.message ?? e),
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const onCreate = async (values: any) => {
+    try {
+      await createCredential({
+        name: values.name,
+        host_pattern: values.host_pattern,
+        header_template:
+          values.header_template || "Authorization: Bearer {value}",
+        value: values.value,
+      });
+      notification.success({ message: "凭证已创建" });
+      setModalOpen(false);
+      form.resetFields();
+      reload();
+    } catch (e: any) {
+      notification.error({
+        message: "创建失败",
+        description: String(e?.response?.data?.detail ?? e?.message ?? e),
+      });
+    }
+  };
+
+  const onDelete = async (id: string) => {
+    try {
+      await deleteCredential(id);
+      notification.success({ message: "凭证已删除" });
+      reload();
+    } catch (e: any) {
+      notification.error({
+        message: "删除失败",
+        description: String(e?.response?.data?.detail ?? e?.message ?? e),
+      });
+    }
+  };
+
+  const columns = [
+    { title: "名称", dataIndex: "name", key: "name" },
+    {
+      title: "匹配域",
+      dataIndex: "host_pattern",
+      key: "host_pattern",
+      render: (v: string) => <code style={monoStyle}>{v}</code>,
+    },
+    {
+      title: "Header 模板",
+      dataIndex: "header_template",
+      key: "header_template",
+      render: (v: string) => (
+        <code style={monoStyle}>{v.replace(/\{value\}/, "•••")}</code>
+      ),
+    },
+    {
+      title: "最近使用",
+      dataIndex: "last_used_at",
+      key: "last_used_at",
+      render: (v: string | null) => v ?? "—",
+    },
+    {
+      title: "操作",
+      key: "actions",
+      render: (_: unknown, row: Credential) => (
+        <Popconfirm
+          title="删除此凭证？引用它的 Edict 将无法再注入 header。"
+          onConfirm={() => onDelete(row.id)}
+        >
+          <Button size="small" danger icon={<DeleteOutlined />}>
+            删除
+          </Button>
+        </Popconfirm>
+      ),
+    },
+  ];
+
+  return (
+    <Space direction="vertical" style={{ width: "100%" }}>
+      <Space style={{ justifyContent: "flex-end", width: "100%" }}>
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => setModalOpen(true)}
+        >
+          新增凭证
+        </Button>
+      </Space>
+
+      <Table
+        rowKey="id"
+        columns={columns}
+        dataSource={items}
+        loading={loading}
+        pagination={false}
+      />
+
+      <Modal
+        open={modalOpen}
+        title="新增外部凭证"
+        onCancel={() => setModalOpen(false)}
+        onOk={() => form.submit()}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" onFinish={onCreate}>
+          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
+            <Input placeholder="github-prod-token" />
+          </Form.Item>
+          <Form.Item
+            name="host_pattern"
+            label="匹配域 (例: api.github.com 或 *.notion.com)"
+            rules={[{ required: true }]}
+          >
+            <Input placeholder="api.github.com" />
+          </Form.Item>
+          <Form.Item
+            name="header_template"
+            label="Header 模板"
+            initialValue="Authorization: Bearer {value}"
+            tooltip="用 {value} 做占位符"
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item name="value" label="Value" rules={[{ required: true }]}>
+            <Input.Password placeholder="不会回显" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </Space>
+  );
+}
+
 // ==================== Main Page ====================
 
 export default function SystemManagementPage() {
@@ -1436,6 +1596,11 @@ export default function SystemManagementPage() {
             key: "config",
             label: "全局配置",
             children: <GlobalConfigTab />,
+          },
+          {
+            key: "external-creds",
+            label: "外部凭证",
+            children: <ExternalCredentialsTab />,
           },
         ]}
       />
