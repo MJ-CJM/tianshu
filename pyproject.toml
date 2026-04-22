@@ -23,6 +23,7 @@ dependencies = [
     "croniter>=2.0",
     "trafilatura>=1.12",
     "cachetools>=5.3",
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]
