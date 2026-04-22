@@ -6,6 +6,7 @@ import {
   createSkill,
   deleteSkill,
   listTools,
+  setToolEnabled,
   listPromptFiles,
   getPromptFile,
   updatePromptFile,
@@ -70,6 +71,17 @@ export function useTools() {
     queryKey: ["tools"],
     queryFn: listTools,
     select: (data) => data.data ?? [],
+  });
+}
+
+export function useSetToolEnabled() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, enabled }: { name: string; enabled: boolean }) =>
+      setToolEnabled(name, enabled),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tools"] });
+    },
   });
 }
 

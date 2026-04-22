@@ -556,6 +556,7 @@ export interface ToolInfo {
   tier: number;
   parameters: Record<string, unknown>;
   personas: string[];
+  enabled: boolean;
 }
 
 export interface PromptFileInfo {

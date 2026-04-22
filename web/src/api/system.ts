@@ -60,6 +60,16 @@ export async function listTools(): Promise<ApiResponse<ToolInfo[]>> {
   return data;
 }
 
+export async function setToolEnabled(
+  name: string,
+  enabled: boolean,
+): Promise<ApiResponse<{ name: string; enabled: boolean }>> {
+  const { data } = await apiClient.patch<
+    ApiResponse<{ name: string; enabled: boolean }>
+  >(`/tools/${encodeURIComponent(name)}`, { enabled });
+  return data;
+}
+
 // --- System Prompt ---
 
 export async function listPromptFiles(): Promise<

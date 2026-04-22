@@ -43,6 +43,7 @@ import {
   useCreateSkill,
   useDeleteSkill,
   useTools,
+  useSetToolEnabled,
   usePromptFiles,
   usePromptFileContent,
   useUpdatePromptFile,
@@ -360,6 +361,26 @@ function SkillsTab() {
 function ToolsTab() {
   const { data: tools, isLoading } = useTools();
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  const setEnabledMutation = useSetToolEnabled();
+
+  const handleToggle = (name: string, enabled: boolean) => {
+    setEnabledMutation.mutate(
+      { name, enabled },
+      {
+        onSuccess: () => {
+          notification.success({
+            message: enabled ? `已启用 ${name}` : `已禁用 ${name}`,
+          });
+        },
+        onError: (err: any) => {
+          notification.error({
+            message: "操作失败",
+            description: String(err?.response?.data?.detail ?? err?.message ?? err),
+          });
+        },
+      },
+    );
+  };
 
   const tierConfig: Record<number, { color: string; label: string }> = {
     0: { color: "green", label: "T0" },
@@ -369,6 +390,20 @@ function ToolsTab() {
   };
 
   const columns = [
+    {
+      title: "启用",
+      dataIndex: "enabled",
+      key: "enabled",
+      width: 80,
+      render: (enabled: boolean, record: ToolInfo) => (
+        <Switch
+          size="small"
+          checked={enabled}
+          loading={setEnabledMutation.isPending}
+          onChange={(next) => handleToggle(record.name, next)}
+        />
+      ),
+    },
     {
       title: "名称",
       dataIndex: "name",
@@ -410,32 +445,39 @@ function ToolsTab() {
   ];
 
   return (
-    <Table
-      dataSource={tools}
-      columns={columns}
-      rowKey="name"
-      loading={isLoading}
-      size="small"
-      pagination={false}
-      expandable={{
-        expandedRowKeys: expandedKeys,
-        onExpandedRowsChange: (keys) => setExpandedKeys(keys as string[]),
-        expandedRowRender: (record: ToolInfo) => (
-          <pre
-            style={{
-              ...monoStyle,
-              margin: 0,
-              padding: 12,
-              maxHeight: 300,
-              overflow: "auto",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {JSON.stringify(record.parameters, null, 2)}
-          </pre>
-        ),
-      }}
-    />
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Alert
+        type="info"
+        showIcon
+        message="工具启用开关 live 生效 — 关闭后 LLM 在下一轮调用里看不到此工具；无需重启。"
+      />
+      <Table
+        dataSource={tools}
+        columns={columns}
+        rowKey="name"
+        loading={isLoading}
+        size="small"
+        pagination={false}
+        expandable={{
+          expandedRowKeys: expandedKeys,
+          onExpandedRowsChange: (keys) => setExpandedKeys(keys as string[]),
+          expandedRowRender: (record: ToolInfo) => (
+            <pre
+              style={{
+                ...monoStyle,
+                margin: 0,
+                padding: 12,
+                maxHeight: 300,
+                overflow: "auto",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {JSON.stringify(record.parameters, null, 2)}
+            </pre>
+          ),
+        }}
+      />
+    </Space>
   );
 }
 
