@@ -2146,3 +2146,73 @@ class Storage:
                 if host_pattern in hosts or host_pattern in write_hosts:
                     hits.append(row["id"])
             return hits
+
+    def list_network_events(
+        self,
+        *,
+        limit: int = 50,
+        tool: str | None = None,
+        host: str | None = None,
+        status: str | None = None,
+    ) -> list[dict]:
+        """返回带 details.network 的 tool.completed / tool.failed 事件，时间降序。
+
+        Python 侧过滤，避免 sqlite json_extract 版本兼容。
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT e.id, e.edict_id, e.memorial_id, e.event_type,
+                          e.payload_json, e.created_at, ed.title as edict_title
+                   FROM events e
+                   LEFT JOIN edicts ed ON ed.id = e.edict_id
+                   WHERE e.event_type IN ('tool.completed', 'tool.failed')
+                   ORDER BY e.created_at DESC
+                   LIMIT ?""",
+                (max(limit * 5, 200),),  # 预取多一些，留余量给 Python 过滤
+            ).fetchall()
+
+        out: list[dict] = []
+        for r in rows:
+            try:
+                payload = json.loads(r["payload_json"])
+            except Exception:
+                continue
+            details = payload.get("details") or {}
+            network = details.get("network") if isinstance(details, dict) else None
+            if not isinstance(network, dict):
+                continue
+
+            row_tool = network.get("tool") or payload.get("tool")
+            row_is_error = bool(payload.get("is_error"))
+
+            # 过滤
+            if tool and row_tool != tool:
+                continue
+            if host and network.get("host") != host:
+                continue
+            if status == "ok" and row_is_error:
+                continue
+            if status == "error" and not row_is_error:
+                continue
+
+            out.append({
+                "event_id": r["id"],
+                "created_at": r["created_at"],
+                "edict_id": r["edict_id"],
+                "edict_title": r["edict_title"],
+                "tool": row_tool,
+                "host": network.get("host"),
+                "method": network.get("method"),
+                "http_status": network.get("http_status"),
+                "bytes_out": network.get("bytes_out"),
+                "credential_name": network.get("credential_name"),
+                "cached": bool(network.get("cached", False)),
+                "is_error": row_is_error,
+                "reason": payload.get("result_preview") if row_is_error else None,
+                "provider": network.get("provider"),            # web_search
+                "result_count": network.get("result_count"),    # web_search
+                "truncated": bool(network.get("truncated", False)),  # api_request
+            })
+            if len(out) >= limit:
+                break
+        return out

@@ -432,6 +432,24 @@ async def get_audit_stats(request: Request):
     return ApiResponse(success=True, data=stats)
 
 
+@gateway_router.get("/audit/network-events")
+async def get_network_events(
+    request: Request,
+    limit: int = Query(50, ge=1, le=500),
+    tool: str | None = Query(None),
+    host: str | None = Query(None),
+    status: str | None = Query(None, pattern="^(ok|error)$"),
+):
+    """返回带 details.network 的工具事件，支持 tool/host/status 过滤。
+
+    Spec: 鸿胪寺独立化 plan §D.
+    """
+    storage: Storage = request.app.state.storage
+    return storage.list_network_events(
+        limit=limit, tool=tool, host=host, status=status,
+    )
+
+
 # --- Decree (approval) endpoints ---
 
 
