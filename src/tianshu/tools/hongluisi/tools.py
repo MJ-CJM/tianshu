@@ -17,6 +17,11 @@ from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 logger = logging.getLogger(__name__)
 
 
+def _host_of(url: str) -> str:
+    """Extract hostname from URL for audit metadata."""
+    return urlparse(url).hostname or ""
+
+
 def _resolve_edict_context(
     edict_getter: Callable,
 ) -> tuple[str, NetworkPolicy, str | None, str | None]:
@@ -48,10 +53,26 @@ def _register_web_fetch(registry, fetch_engines, edict_getter):
             return error_result(f"rate_limited:retry_after_{rc.retry_after_sec:.1f}s")
 
         router = FetchRouter(fetch_engines, net, override=fe_ov)
-        outcome, _attempts = await router.dispatch(url)
+        outcome, attempts = await router.dispatch(url)
+        network_detail = {
+            "tool": "web_fetch",
+            "host": _host_of(url),
+            "http_status": outcome.http_status,
+            "bytes_out": outcome.bytes_fetched,
+            "cached": outcome.cached,
+            "final_url": outcome.final_url,
+            "attempts": [
+                {"engine": a.engine, "status": a.status, "reason": a.reason}
+                for a in attempts
+            ],
+        }
         if outcome.status == "ok":
-            return ok_result(outcome.content)
-        return error_result(outcome.reason or "fetch_failed")
+            return ok_result(outcome.content, details={"network": network_detail})
+        return ToolResult(
+            content=outcome.reason or "fetch_failed",
+            details={"network": network_detail},
+            is_error=True,
+        )
 
     registry.register(
         "web_fetch",
@@ -93,10 +114,18 @@ def _register_web_search(registry, search_providers, edict_getter):
         try:
             outcome = await provider.search(query, max_results=max_results)
         except Exception as e:
-            return error_result(f"provider_error:{type(e).__name__}")
+            return ToolResult(
+                content=f"provider_error:{type(e).__name__}",
+                details={"network": {"tool": "web_search", "provider": provider_name}},
+                is_error=True,
+            )
 
         if not outcome.results:
-            return error_result("search_empty")
+            return ToolResult(
+                content="search_empty",
+                details={"network": {"tool": "web_search", "provider": provider_name, "result_count": 0}},
+                is_error=True,
+            )
 
         lines = []
         for i, r in enumerate(outcome.results, 1):
@@ -104,7 +133,12 @@ def _register_web_search(registry, search_providers, edict_getter):
             if r.snippet:
                 lines.append(r.snippet)
             lines.append("")
-        return ok_result("\n".join(lines))
+        network_detail = {
+            "tool": "web_search",
+            "provider": provider_name,
+            "result_count": len(outcome.results),
+        }
+        return ok_result("\n".join(lines), details={"network": network_detail})
 
     registry.register(
         "web_search",
@@ -175,8 +209,27 @@ def _register_api_request(registry, api_engine, edict_getter):
             json_body=json_body,
         )
         if resp.status != "ok":
-            return error_result(resp.reason or "api_request_failed")
+            return ToolResult(
+                content=resp.reason or "api_request_failed",
+                details={"network": {
+                    "tool": "api_request",
+                    "host": host,
+                    "method": method.upper(),
+                    "credential_name": resp.credential_name,
+                    "http_status": resp.http_status,
+                }},
+                is_error=True,
+            )
 
+        network_detail = {
+            "tool": "api_request",
+            "host": host,
+            "method": method.upper(),
+            "http_status": resp.http_status,
+            "bytes_out": resp.bytes_read,
+            "credential_name": resp.credential_name,
+            "truncated": resp.truncated,
+        }
         return ok_result(
             json.dumps(
                 {
@@ -186,7 +239,8 @@ def _register_api_request(registry, api_engine, edict_getter):
                     "truncated": resp.truncated,
                 },
                 ensure_ascii=False,
-            )
+            ),
+            details={"network": network_detail},
         )
 
     registry.register(
@@ -243,7 +297,15 @@ def _register_web_extract(registry, extract_engine, edict_getter):
         if outcome.status != "ok":
             return error_result(outcome.reason or "extract_failed")
 
-        return ok_result(json.dumps(outcome.data, ensure_ascii=False))
+        network_detail = {
+            "tool": "web_extract",
+            "host": _host_of(url),
+            "http_status": outcome.http_status,
+        }
+        return ok_result(
+            json.dumps(outcome.data, ensure_ascii=False),
+            details={"network": network_detail},
+        )
 
     registry.register(
         "web_extract",
