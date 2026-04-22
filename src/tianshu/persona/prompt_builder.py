@@ -33,6 +33,24 @@ _BASE_IDENTITY = (
     "If you cannot complete the task, explain why."
 )
 
+_NETWORK_CAPABILITY_HINT = """# 外部网络能力
+
+You may have the following network tools available (check the tool list for your current profile):
+
+- `web_fetch(url)` — read a public webpage, get Markdown
+- `web_search(query, max_results)` — web search
+- `api_request(url, method, headers?, query?, json_body?)` — call any whitelisted external API
+- `web_extract(url, schema, prompt?)` — structured extraction with Firecrawl
+
+Safety rules when using `api_request`:
+- **NEVER pass `Authorization`, `Cookie`, `X-Api-Key`, or similar auth headers in `headers`.** The system
+  auto-injects credentials based on target host; user-supplied auth headers are rejected.
+- You can only call hosts in the Edict's `api_request_hosts` whitelist — others return `host_not_whitelisted`.
+- Write methods (POST/PUT/DELETE/PATCH) additionally require the host to be in `api_request_write_hosts`
+  AND will trigger a human approval prompt.
+- Rate limits apply (per-Edict, per-tool sliding window).
+"""
+
 
 class PromptBuilder:
     """Builds system prompts with 8-layer injection."""
@@ -157,6 +175,9 @@ class PromptBuilder:
         always_text = self._skills.load_always(filter_names=filter_names)
         if always_text:
             parts.append(always_text)
+
+        # Layer 7c: Network capability orientation (if any network tool registered)
+        parts.append(_NETWORK_CAPABILITY_HINT)
 
         # Layer 8: Task Context
         parts.append(f"Current task ID: {edict.id}")
