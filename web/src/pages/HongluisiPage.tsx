@@ -76,7 +76,12 @@ export default function HongluisiPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const registered = new Set(tools.map((t: { name: string }) => t.name));
+  // 既要注册、又要没被藏兵阁里 toggle 关闭，才算"已启用"
+  const registered = new Set(
+    tools
+      .filter((t: { enabled?: boolean }) => t.enabled !== false)
+      .map((t: { name: string }) => t.name),
+  );
 
   // 权威的 provider → 启动时真正用的来源（"db" | "env" | "none"）
   const providerLiveSource: Record<string, ProviderSource> = {
