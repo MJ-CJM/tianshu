@@ -226,6 +226,49 @@ def _register_api_request(registry, api_engine, edict_getter):
     )
 
 
+def _register_web_extract(registry, extract_engine, edict_getter):
+    async def web_extract(
+        url: str, schema: dict, prompt: str | None = None
+    ) -> ToolResult:
+        edict_id, net, _, _ = _resolve_edict_context(edict_getter)
+        if "firecrawl" not in net.fetch_engines:
+            return error_result("web_extract_not_allowed_in_profile")
+
+        rl = get_rate_limiter()
+        rc = await rl.check(edict_id, "web_extract", net.web_extract_rate_per_min)
+        if not rc.allowed:
+            return error_result(f"rate_limited:retry_after_{rc.retry_after_sec:.1f}s")
+
+        outcome = await extract_engine.extract(url, schema, prompt=prompt)
+        if outcome.status != "ok":
+            return error_result(outcome.reason or "extract_failed")
+
+        return ok_result(json.dumps(outcome.data, ensure_ascii=False))
+
+    registry.register(
+        "web_extract",
+        web_extract,
+        ToolDefinition(
+            name="web_extract",
+            description=(
+                "Extract structured data from a public web page using an AI extractor. "
+                "Provide a JSON schema describing fields to extract."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "schema": {"type": "object"},
+                    "prompt": {"type": "string"},
+                },
+                "required": ["url", "schema"],
+            },
+            tier=ToolTier.T2_NETWORK.value,
+            max_result_chars=8000,
+        ),
+    )
+
+
 def register_hongluisi(
     registry: ToolRegistry,
     edict_getter: Callable,
@@ -241,6 +284,8 @@ def register_hongluisi(
         _register_web_search(registry, search_providers, edict_getter)
     if api_engine is not None:
         _register_api_request(registry, api_engine, edict_getter)
+    if extract_engine is not None:
+        _register_web_extract(registry, extract_engine, edict_getter)
 
     logger.info(
         "[hongluisi] registered: web_fetch, web_search (%s), api_request=%s, web_extract=%s",
