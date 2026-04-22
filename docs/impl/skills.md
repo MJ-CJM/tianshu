@@ -104,6 +104,24 @@ Skill 三层来源（查找优先级）：
 - `file-ops/` — 文件操作套件的 SKILL.md
 - `shell/` — Shell 执行能力
 
+## 8. 外部网络工具（鸿胪寺）
+
+> 启动期按 env 按需注册。`register_hongluisi` 在 `src/tianshu/tools/builtins.py` 挂接。
+
+### `web_fetch(url)`
+读公开网页，返回提取的 Markdown 正文。Fetch 链：local → jina → firecrawl（按 profile）。SSRF 防护、1MB body 上限、TTL 缓存。
+
+### `web_search(query, max_results=5)`
+关键词搜索。Provider：tavily 或 jina。返回 ranked 列表（标题 + URL + 摘要）。
+
+### `api_request(url, method, headers?, query?, json_body?)`
+通用 HTTP。GET/HEAD 放行（T2）；POST/PUT/DELETE/PATCH 走审批（T3）。
+LLM 禁止传 `Authorization`/`Cookie`/`X-Api-Key`；系统按 host 匹配自动注入（凭证在藏兵阁加密托管）。
+需 Edict 在 `api_request_hosts` 显式白名单目标 host。
+
+### `web_extract(url, schema, prompt?)`
+Firecrawl `/v1/extract`：按 JSON Schema 抽结构化数据。需 `TIANSHU_FIRECRAWL_API_KEY`。
+
 ## 代码路径索引
 
 - `src/tianshu/skills/loader.py`
