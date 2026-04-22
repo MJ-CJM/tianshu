@@ -120,6 +120,30 @@ export default function HongluisiPage() {
 
   const toolCards = NETWORK_TOOL_NAMES.map((name) => {
     const isOn = registered.has(name);
+
+    // api_request 架构不同：不依赖全局 provider key，每次调用从藏兵阁按 host 匹配 Edict 凭证动态注入
+    if (name === "api_request") {
+      return (
+        <Col key={name} xs={12} md={6}>
+          <Card size="small">
+            <Statistic
+              title={name}
+              value={isOn ? "已启用" : "未启用"}
+              valueStyle={{
+                color: isOn ? "#52c41a" : "#999",
+                fontSize: 18,
+              }}
+            />
+            <Tooltip title="每次调用按 URL host 从藏兵阁 Edict 凭证里查对应 token 动态注入 Authorization；不依赖全局 provider key。配置路径：藏兵阁 → 外部凭证 → Edict 凭证">
+              <Tag color="purple" style={{ marginTop: 4 }}>
+                凭证: 藏兵阁 (Edict 级)
+              </Tag>
+            </Tooltip>
+          </Card>
+        </Col>
+      );
+    }
+
     const { source, pendingRestart } = sourceFor(name);
     const srcLabel = source === "db" ? "DB" : source === "env" ? "env" : "—";
     const srcColor =
