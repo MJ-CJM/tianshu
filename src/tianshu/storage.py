@@ -325,6 +325,12 @@ class Storage:
                 CREATE INDEX IF NOT EXISTS idx_netcreds_host ON network_credentials(host_pattern);
                 CREATE INDEX IF NOT EXISTS idx_netcreds_name ON network_credentials(name);
                 -- 注意：idx_netcreds_provider 需要 provider_name 列；老库迁移在 _migrate() 后建
+
+                CREATE TABLE IF NOT EXISTS tool_switches (
+                    tool_name  TEXT PRIMARY KEY,
+                    enabled    INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT NOT NULL
+                );
             """)
 
     def _migrate(self) -> None:
@@ -2249,3 +2255,25 @@ class Storage:
             if len(out) >= limit:
                 break
         return out
+
+    # --- tool switches ---------------------------------------------------
+
+    def list_disabled_tools(self) -> set[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT tool_name FROM tool_switches WHERE enabled = 0"
+            ).fetchall()
+            return {r["tool_name"] for r in rows}
+
+    def set_tool_enabled(self, tool_name: str, enabled: bool) -> None:
+        from datetime import UTC, datetime
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT INTO tool_switches (tool_name, enabled, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(tool_name) DO UPDATE SET
+                     enabled = excluded.enabled,
+                     updated_at = excluded.updated_at""",
+                (tool_name, 1 if enabled else 0, now),
+            )

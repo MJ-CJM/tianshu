@@ -1523,6 +1523,7 @@ async def list_tools(request: Request):
     registry: ToolRegistry = request.app.state.tool_registry
     persona_loader = request.app.state.persona_loader
     definitions = registry.list_definitions()
+    disabled = registry.list_disabled()
 
     # Build tool -> personas mapping
     all_personas = list(persona_loader._personas.values())
@@ -1541,8 +1542,35 @@ async def list_tools(request: Request):
             "tier": defn.tier,
             "parameters": defn.parameters,
             "personas": personas,
+            "enabled": defn.name not in disabled,
         })
     return ApiResponse(success=True, data=result)
+
+
+class _ToolEnabledPatch(BaseModel):
+    enabled: bool
+
+
+@gateway_router.patch("/tools/{tool_name}")
+async def update_tool_enabled(
+    tool_name: str, body: _ToolEnabledPatch, request: Request
+):
+    from tianshu.tools.registry import ToolRegistry
+    registry: ToolRegistry = request.app.state.tool_registry
+    # 未注册直接 404
+    defn = registry.get_definition(tool_name)
+    if defn is None:
+        raise HTTPException(404, f"tool '{tool_name}' not registered")
+
+    storage: Storage = request.app.state.storage
+    storage.set_tool_enabled(tool_name, body.enabled)
+    if body.enabled:
+        registry.enable(tool_name)
+    else:
+        registry.disable(tool_name)
+    return ApiResponse(
+        success=True, data={"name": tool_name, "enabled": body.enabled}
+    )
 
 
 # --- System Prompt endpoints (藏兵阁) ---

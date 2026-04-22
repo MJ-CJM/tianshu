@@ -28,6 +28,7 @@ class ToolRegistry:
             str, tuple[ToolDefinition, Callable[..., Awaitable[ToolResult]]]
         ] = {}
         self._hooks: list[ToolHook] = []
+        self._disabled: set[str] = set()
 
     def register(
         self,
@@ -40,6 +41,22 @@ class ToolRegistry:
     def add_hook(self, hook: ToolHook) -> None:
         self._hooks.append(hook)
 
+    def disable(self, name: str) -> None:
+        self._disabled.add(name)
+
+    def enable(self, name: str) -> None:
+        self._disabled.discard(name)
+
+    def is_disabled(self, name: str) -> bool:
+        return name in self._disabled
+
+    def list_disabled(self) -> set[str]:
+        return set(self._disabled)
+
+    def apply_disabled(self, names: "set[str] | list[str]") -> None:
+        """批量应用禁用列表（startup 后从 DB 读回时调用）。"""
+        self._disabled = set(names)
+
     def get_openai_tools(self) -> list[dict]:
         return [
             {
@@ -51,6 +68,7 @@ class ToolRegistry:
                 },
             }
             for defn, _ in self._tools.values()
+            if defn.name not in self._disabled
         ]
 
     def list_definitions(self) -> list[ToolDefinition]:
@@ -68,6 +86,9 @@ class ToolRegistry:
 
         if name not in self._tools:
             return error_result(f"Error: tool '{name}' not found")
+
+        if name in self._disabled:
+            return error_result(f"Tool '{name}' is disabled by admin")
 
         defn, func = self._tools[name]
 

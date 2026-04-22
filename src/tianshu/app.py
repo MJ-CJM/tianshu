@@ -88,6 +88,15 @@ async def lifespan(app: FastAPI):
     tools = ToolRegistry()
     register_builtins(tools, settings.workspace_dir, storage=storage)
 
+    # 应用 DB 里持久化的禁用列表（live toggle 在运行时通过 PATCH /api/tools/{name} 更新）
+    try:
+        disabled = storage.list_disabled_tools()
+        tools.apply_disabled(disabled)
+        if disabled:
+            logger.info("[tools] disabled at startup: %s", sorted(disabled))
+    except Exception:
+        logger.exception("[tools] failed to load tool_switches; treating all as enabled")
+
     # --- Skills ---
     builtin_skills_dir = Path(__file__).parent / "skills" / "builtin"
     workspace_path = (
