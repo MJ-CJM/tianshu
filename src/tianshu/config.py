@@ -4,7 +4,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class TianshuSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="TIANSHU_", env_file=".env")
+    # extra=ignore：允许通过 os.getenv 读取的 TIANSHU_* 运行期密钥（secret_master_key /
+    # firecrawl_api_key / tavily_api_key / jina_api_key）不被 pydantic 拒绝启动
+    model_config = SettingsConfigDict(
+        env_prefix="TIANSHU_",
+        env_file=".env",
+        extra="ignore",
+    )
 
     llm_model: str = "gpt-4o-mini"
     llm_api_key: str = ""
