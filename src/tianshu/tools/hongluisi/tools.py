@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Callable
+from urllib.parse import urlparse
 
 from tianshu.tools.hongluisi.engine_registry import build_engines
 from tianshu.tools.hongluisi.policy import NetworkPolicy
@@ -130,15 +131,120 @@ def _register_web_search(registry, search_providers, edict_getter):
     )
 
 
-def register_hongluisi(registry: ToolRegistry, edict_getter: Callable) -> None:
+def _register_api_request(registry, api_engine, edict_getter):
+    WRITE_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
+
+    async def api_request(
+        url: str,
+        method: str = "GET",
+        headers: dict | None = None,
+        query: dict | None = None,
+        json_body: object | None = None,
+    ) -> ToolResult:
+        edict = edict_getter()
+        if edict is None:
+            return error_result("no_ambient_edict")
+        edict_id, net, _, _ = _resolve_edict_context(edict_getter)
+
+        if not net.allow_api_request:
+            return error_result("api_request_not_allowed_in_profile")
+
+        host = urlparse(url).hostname or ""
+        allow_hosts = tuple(getattr(edict.runtime, "api_request_hosts", ()) or ())
+        if host not in allow_hosts:
+            return error_result("host_not_whitelisted")
+
+        if method.upper() in WRITE_METHODS:
+            write_hosts = tuple(
+                getattr(edict.runtime, "api_request_write_hosts", ()) or ()
+            )
+            if host not in write_hosts:
+                return error_result("write_method_host_not_whitelisted")
+            # 写方法审批路径由 NetworkSafetyRule 拦截 (Task 13-14)，到达此处即已批
+
+        rl = get_rate_limiter()
+        rc = await rl.check(edict_id, "api_request", net.api_request_rate_per_min)
+        if not rc.allowed:
+            return error_result(f"rate_limited:retry_after_{rc.retry_after_sec:.1f}s")
+
+        resp = await api_engine.request(
+            url=url,
+            method=method,
+            headers=headers or {},
+            query=query or {},
+            json_body=json_body,
+        )
+        if resp.status != "ok":
+            return error_result(resp.reason or "api_request_failed")
+
+        return ok_result(
+            json.dumps(
+                {
+                    "status": resp.http_status,
+                    "headers": resp.headers,
+                    "body": resp.body,
+                    "truncated": resp.truncated,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    registry.register(
+        "api_request",
+        api_request,
+        ToolDefinition(
+            name="api_request",
+            description=(
+                "Make an HTTP request to a whitelisted external API. "
+                "Credentials are managed by the system — do not pass Authorization/Cookie/X-Api-Key "
+                "headers. Methods GET/HEAD are read-only; POST/PUT/DELETE/PATCH require approval."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "method": {
+                        "type": "string",
+                        "enum": ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH"],
+                        "default": "GET",
+                    },
+                    "headers": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "query": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "json_body": {"type": ["object", "array", "null"]},
+                },
+                "required": ["url"],
+            },
+            tier=ToolTier.T2_NETWORK.value,
+            max_result_chars=16000,
+        ),
+    )
+
+
+def register_hongluisi(
+    registry: ToolRegistry,
+    edict_getter: Callable,
+    *,
+    api_engine=None,
+    extract_engine=None,
+) -> None:
     """启动期调用一次。edict_getter 从 ambient.py 注入。"""
     fetch_engines, search_providers = build_engines()
 
     _register_web_fetch(registry, fetch_engines, edict_getter)
     if search_providers:
         _register_web_search(registry, search_providers, edict_getter)
+    if api_engine is not None:
+        _register_api_request(registry, api_engine, edict_getter)
 
     logger.info(
-        "[hongluisi] registered: web_fetch, web_search (providers: %s)",
+        "[hongluisi] registered: web_fetch, web_search (%s), api_request=%s, web_extract=%s",
         list(search_providers),
+        api_engine is not None,
+        extract_engine is not None,
     )
