@@ -26,6 +26,7 @@ import {
   Statistic,
   Alert,
   Empty,
+  Select,
 } from "antd";
 import {
   EditOutlined,
@@ -69,6 +70,7 @@ import type {
   LLMConfigUpdateRequest,
   AgentConfigUpdateRequest,
   Credential,
+  CredentialCreate,
 } from "../api/types";
 import {
   listCredentials,
@@ -1411,6 +1413,9 @@ function GlobalConfigTab() {
 // ==================== Tab: External Credentials ====================
 
 function ExternalCredentialsTab() {
+  const [kind, setKind] = useState<"edict_auth" | "engine_provider">(
+    "edict_auth",
+  );
   const [items, setItems] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -1420,7 +1425,7 @@ function ExternalCredentialsTab() {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await listCredentials();
+      const data = await listCredentials(kind);
       setItems(data);
       setVaultUnavailable(false);
     } catch (e: any) {
@@ -1440,7 +1445,7 @@ function ExternalCredentialsTab() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [kind]);
 
   useEffect(() => {
     reload();
@@ -1448,14 +1453,22 @@ function ExternalCredentialsTab() {
 
   const onCreate = async (values: any) => {
     try {
-      await createCredential({
+      const payload: CredentialCreate = {
         name: values.name,
-        host_pattern: values.host_pattern,
-        header_template:
-          values.header_template || "Authorization: Bearer {value}",
         value: values.value,
+        kind,
+      };
+      if (kind === "edict_auth") {
+        payload.host_pattern = values.host_pattern;
+        payload.header_template =
+          values.header_template || "Authorization: Bearer {value}";
+      } else {
+        payload.provider_name = values.provider_name;
+      }
+      await createCredential(payload);
+      notification.success({
+        message: kind === "edict_auth" ? "凭证已创建" : "已创建，重启后台生效",
       });
-      notification.success({ message: "凭证已创建" });
       setModalOpen(false);
       form.resetFields();
       reload();
@@ -1480,7 +1493,7 @@ function ExternalCredentialsTab() {
     }
   };
 
-  const columns = [
+  const edictColumns = [
     { title: "名称", dataIndex: "name", key: "name" },
     {
       title: "匹配域",
@@ -1508,6 +1521,37 @@ function ExternalCredentialsTab() {
       render: (_: unknown, row: Credential) => (
         <Popconfirm
           title="删除此凭证？引用它的 Edict 将无法再注入 header。"
+          onConfirm={() => onDelete(row.id)}
+        >
+          <Button size="small" danger icon={<DeleteOutlined />}>
+            删除
+          </Button>
+        </Popconfirm>
+      ),
+    },
+  ];
+
+  const providerColumns = [
+    { title: "名称", dataIndex: "name", key: "name" },
+    {
+      title: "Provider",
+      dataIndex: "provider_name",
+      key: "provider_name",
+      render: (v: string | null) =>
+        v ? <Tag color="geekblue">{v}</Tag> : "—",
+    },
+    {
+      title: "最近使用",
+      dataIndex: "last_used_at",
+      key: "last_used_at",
+      render: (v: string | null) => v ?? "—",
+    },
+    {
+      title: "操作",
+      key: "actions",
+      render: (_: unknown, row: Credential) => (
+        <Popconfirm
+          title="删除此 provider key？重启后对应引擎降级（回落 env 或关闭）。"
           onConfirm={() => onDelete(row.id)}
         >
           <Button size="small" danger icon={<DeleteOutlined />}>
@@ -1579,19 +1623,39 @@ function ExternalCredentialsTab() {
 
   return (
     <Space direction="vertical" style={{ width: "100%" }}>
-      <Space style={{ justifyContent: "flex-end", width: "100%" }}>
+      <Space style={{ justifyContent: "space-between", width: "100%" }}>
+        <Segmented
+          value={kind}
+          onChange={(v) =>
+            setKind(v as "edict_auth" | "engine_provider")
+          }
+          options={[
+            { value: "edict_auth", label: "Edict 凭证" },
+            { value: "engine_provider", label: "引擎配置" },
+          ]}
+        />
         <Button
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => setModalOpen(true)}
         >
-          新增凭证
+          新增
         </Button>
       </Space>
 
+      {kind === "engine_provider" && (
+        <Alert
+          type="info"
+          message="引擎配置用于给 web_fetch / web_search / web_extract 使用的 Jina / Tavily / Firecrawl 服务传入 API Key。"
+          description="DB 里配置后优先使用；没有则回落 .env；修改后需要重启后台生效。"
+          showIcon
+          style={{ marginBottom: 8 }}
+        />
+      )}
+
       <Table
         rowKey="id"
-        columns={columns}
+        columns={kind === "edict_auth" ? edictColumns : providerColumns}
         dataSource={items}
         loading={loading}
         pagination={false}
@@ -1601,7 +1665,9 @@ function ExternalCredentialsTab() {
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={
                 <Typography.Text type="secondary">
-                  还没添加任何外部凭证。点右上角「新增凭证」开始。
+                  {kind === "edict_auth"
+                    ? "还没添加任何外部凭证。点右上角「新增」开始。"
+                    : "还没配置任何引擎 Provider key。"}
                 </Typography.Text>
               }
             />
@@ -1611,30 +1677,58 @@ function ExternalCredentialsTab() {
 
       <Modal
         open={modalOpen}
-        title="新增外部凭证"
+        title={
+          kind === "edict_auth" ? "新增外部凭证" : "新增引擎 Provider Key"
+        }
         onCancel={() => setModalOpen(false)}
         onOk={() => form.submit()}
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={onCreate}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
-            <Input placeholder="github-prod-token" />
+            <Input
+              placeholder={
+                kind === "edict_auth" ? "github-prod-token" : "jina-prod"
+              }
+            />
           </Form.Item>
-          <Form.Item
-            name="host_pattern"
-            label="匹配域 (例: api.github.com 或 *.notion.com)"
-            rules={[{ required: true }]}
-          >
-            <Input placeholder="api.github.com" />
-          </Form.Item>
-          <Form.Item
-            name="header_template"
-            label="Header 模板"
-            initialValue="Authorization: Bearer {value}"
-            tooltip="用 {value} 做占位符"
-          >
-            <Input />
-          </Form.Item>
+          {kind === "edict_auth" ? (
+            <>
+              <Form.Item
+                name="host_pattern"
+                label="匹配域 (例: api.github.com 或 *.notion.com)"
+                rules={[{ required: true }]}
+              >
+                <Input placeholder="api.github.com" />
+              </Form.Item>
+              <Form.Item
+                name="header_template"
+                label="Header 模板"
+                initialValue="Authorization: Bearer {value}"
+                tooltip="用 {value} 做占位符"
+              >
+                <Input />
+              </Form.Item>
+            </>
+          ) : (
+            <Form.Item
+              name="provider_name"
+              label="Provider"
+              rules={[{ required: true }]}
+            >
+              <Select
+                placeholder="选择服务提供方"
+                options={[
+                  { value: "jina", label: "Jina (web_fetch / web_search)" },
+                  { value: "tavily", label: "Tavily (web_search)" },
+                  {
+                    value: "firecrawl",
+                    label: "Firecrawl (web_fetch / web_extract)",
+                  },
+                ]}
+              />
+            </Form.Item>
+          )}
           <Form.Item name="value" label="Value" rules={[{ required: true }]}>
             <Input.Password placeholder="不会回显" />
           </Form.Item>

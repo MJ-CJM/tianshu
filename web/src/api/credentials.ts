@@ -1,8 +1,11 @@
 import apiClient from "./client";
 import type { Credential, CredentialCreate, CredentialUpdate } from "./types";
 
-export async function listCredentials(): Promise<Credential[]> {
-  const { data } = await apiClient.get<Credential[]>("/credentials");
+export async function listCredentials(
+  kind?: "edict_auth" | "engine_provider",
+): Promise<Credential[]> {
+  const qs = kind ? `?kind=${kind}` : "";
+  const { data } = await apiClient.get<Credential[]>(`/credentials${qs}`);
   return data;
 }
 

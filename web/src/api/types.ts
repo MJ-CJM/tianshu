@@ -737,14 +737,18 @@ export interface Credential {
   created_at: string;
   updated_at: string;
   last_used_at: string | null;
+  kind: "edict_auth" | "engine_provider";
+  provider_name: string | null;
 }
 
 export interface CredentialCreate {
   name: string;
-  host_pattern: string;
-  header_template: string;
   value: string;
+  kind?: "edict_auth" | "engine_provider";
+  host_pattern?: string;
+  header_template?: string;
   extra_headers?: Record<string, string>;
+  provider_name?: "jina" | "tavily" | "firecrawl";
 }
 
 export interface CredentialUpdate {

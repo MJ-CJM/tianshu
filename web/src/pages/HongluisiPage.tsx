@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   Card,
   Space,
@@ -20,6 +21,7 @@ import {
 import PageContainer from "../components/common/PageContainer";
 import { useTools } from "../hooks/useSystem";
 import { listNetworkEvents } from "../api/network_events";
+import { listCredentials } from "../api/credentials";
 import type { NetworkEventRow } from "../api/types";
 import { formatTime } from "../utils/format";
 
@@ -37,9 +39,21 @@ const TOOL_COLORS: Record<string, string> = {
   web_extract: "purple",
 };
 
+const PROVIDERS_BY_TOOL: Record<string, string[]> = {
+  web_fetch: ["jina", "firecrawl"],
+  web_search: ["tavily", "jina"],
+  api_request: [], // 不走 provider key
+  web_extract: ["firecrawl"],
+};
+
 export default function HongluisiPage() {
   const navigate = useNavigate();
   const { data: tools = [] } = useTools();
+  const { data: providers = [] } = useQuery({
+    queryKey: ["credentials", "engine_provider"],
+    queryFn: () => listCredentials("engine_provider"),
+    staleTime: 30000,
+  });
   const [recent, setRecent] = useState<NetworkEventRow[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -53,8 +67,29 @@ export default function HongluisiPage() {
 
   const registered = new Set(tools.map((t: { name: string }) => t.name));
 
+  // provider_name → "db"（DB 有配置）
+  const providerHasDB: Record<string, boolean> = {
+    jina: false,
+    tavily: false,
+    firecrawl: false,
+  };
+  providers.forEach((p) => {
+    if (p.provider_name) providerHasDB[p.provider_name] = true;
+  });
+
+  const sourceFor = (tool: string): "db" | "env" | "none" => {
+    const relevant = PROVIDERS_BY_TOOL[tool] ?? [];
+    if (relevant.some((p) => providerHasDB[p])) return "db";
+    if (registered.has(tool)) return "env";
+    return "none";
+  };
+
   const toolCards = NETWORK_TOOL_NAMES.map((name) => {
     const isOn = registered.has(name);
+    const src = sourceFor(name);
+    const srcLabel = src === "db" ? "DB" : src === "env" ? "env" : "—";
+    const srcColor =
+      src === "db" ? "green" : src === "env" ? "blue" : "default";
     return (
       <Col key={name} xs={12} md={6}>
         <Card size="small">
@@ -66,6 +101,9 @@ export default function HongluisiPage() {
               fontSize: 18,
             }}
           />
+          <Tag color={srcColor} style={{ marginTop: 4 }}>
+            Key: {srcLabel}
+          </Tag>
         </Card>
       </Col>
     );
