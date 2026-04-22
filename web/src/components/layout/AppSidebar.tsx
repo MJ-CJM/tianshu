@@ -21,6 +21,7 @@ import {
   CrownOutlined,
   ToolOutlined,
   SafetyOutlined,
+  GlobalOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
@@ -86,6 +87,11 @@ export default function AppSidebar() {
       key: "/cabinet",
       icon: <CrownOutlined />,
       label: "内阁",
+    },
+    {
+      key: "/hongluisi",
+      icon: <GlobalOutlined />,
+      label: "鸿胪寺",
     },
     {
       key: "/personas",

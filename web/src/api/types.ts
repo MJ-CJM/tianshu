@@ -751,3 +751,23 @@ export interface CredentialUpdate {
   value?: string;
   extra_headers?: Record<string, string>;
 }
+
+// --- Network events (鸿胪寺 audit) ---
+export interface NetworkEventRow {
+  event_id: string;
+  created_at: string;
+  edict_id: string;
+  edict_title: string | null;
+  tool: "web_fetch" | "web_search" | "api_request" | "web_extract" | string;
+  host: string | null;
+  method: string | null;
+  http_status: number | null;
+  bytes_out: number | null;
+  credential_name: string | null;
+  cached: boolean;
+  is_error: boolean;
+  reason: string | null;
+  provider: string | null;
+  result_count: number | null;
+  truncated: boolean;
+}

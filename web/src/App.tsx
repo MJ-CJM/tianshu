@@ -16,6 +16,7 @@ import CostDashboardPage from "./pages/CostDashboardPage";
 import MemoryDashboardPage from "./pages/MemoryDashboardPage";
 import ConsultationPage from "./pages/ConsultationPage";
 import CabinetPage from "./pages/CabinetPage";
+import HongluisiPage from "./pages/HongluisiPage";
 import PersonaDashboardPage from "./pages/PersonaDashboardPage";
 import PersonaDetailPage from "./pages/PersonaDetailPage";
 import SystemManagementPage from "./pages/SystemManagementPage";
@@ -53,6 +54,7 @@ function ThemedApp() {
                 <Route path="/memory" element={<MemoryDashboardPage />} />
                 <Route path="/consultation" element={<ConsultationPage />} />
                 <Route path="/cabinet" element={<CabinetPage />} />
+                <Route path="/hongluisi" element={<HongluisiPage />} />
                 <Route path="/personas" element={<PersonaDashboardPage />} />
                 <Route path="/personas/:personaId" element={<PersonaDetailPage />} />
                 <Route path="/system" element={<SystemManagementPage />} />
