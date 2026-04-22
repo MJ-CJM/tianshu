@@ -33,6 +33,10 @@ def _row_to_credential(row) -> Credential:
         provider = row["provider_name"] if "provider_name" in row.keys() else None
     except (IndexError, KeyError):
         provider = None
+    try:
+        enabled_val = row["enabled"] if "enabled" in row.keys() else 1
+    except (IndexError, KeyError):
+        enabled_val = 1
     return Credential(
         id=row["id"],
         name=row["name"],
@@ -49,6 +53,7 @@ def _row_to_credential(row) -> Credential:
         ),
         kind=kind or "edict_auth",
         provider_name=provider,
+        enabled=bool(enabled_val),
     )
 
 
@@ -144,6 +149,7 @@ class CredentialStore:
             cred_id,
             encrypted_value=enc,
             extra_headers_json=extra,
+            enabled=req.enabled,
             now_iso=_now_iso(),
         )
         return self.get(cred_id)

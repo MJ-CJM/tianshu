@@ -319,7 +319,8 @@ class Storage:
                     last_used_at    TEXT,
                     deleted_at      TEXT,
                     kind            TEXT NOT NULL DEFAULT 'edict_auth',
-                    provider_name   TEXT
+                    provider_name   TEXT,
+                    enabled         INTEGER NOT NULL DEFAULT 1
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_netcreds_host ON network_credentials(host_pattern);
@@ -393,6 +394,8 @@ class Storage:
             "UPDATE network_credentials "
             "SET name = name || '__deleted_' || id "
             "WHERE deleted_at IS NOT NULL AND name NOT LIKE '%__deleted_%'",
+            # 2026-04-22: network_credentials 加 enabled 列（启停开关；disabled 视为未配置）
+            "ALTER TABLE network_credentials ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
         ]
         for sql in migrations:
             try:
@@ -2114,21 +2117,24 @@ class Storage:
     def find_credentials_by_host(self, host: str) -> list[sqlite3.Row]:
         """返回所有可能匹配此 host 的 edict_auth 凭证（literal + 通配）。
         强制 kind='edict_auth' 过滤 — engine_provider key 永不参与 host 匹配，
-        从根源隔离 LLM 可访问面。"""
+        从根源隔离 LLM 可访问面。enabled=0 视为未配置，跳过。"""
         with self._lock:
             cur = self._conn.execute(
                 "SELECT * FROM network_credentials "
                 "WHERE deleted_at IS NULL AND kind='edict_auth' "
+                "AND enabled = 1 "
                 "AND (host_pattern=? OR host_pattern LIKE '*.%')",
                 (host,),
             )
             return cur.fetchall()
 
     def find_credentials_by_provider(self, provider_name: str) -> sqlite3.Row | None:
+        """disabled 的 provider 凭证视为未配置，返回 None 让 resolve 回落 env。"""
         with self._lock:
             cur = self._conn.execute(
                 "SELECT * FROM network_credentials "
                 "WHERE deleted_at IS NULL AND kind='engine_provider' "
+                "AND enabled = 1 "
                 "AND provider_name=?",
                 (provider_name,),
             )
@@ -2140,6 +2146,7 @@ class Storage:
         *,
         encrypted_value: bytes | None = None,
         extra_headers_json: str | None = None,
+        enabled: bool | None = None,
         now_iso: str,
     ) -> None:
         sets = ["updated_at=?"]
@@ -2150,6 +2157,9 @@ class Storage:
         if extra_headers_json is not None:
             sets.append("extra_headers=?")
             params.append(extra_headers_json)
+        if enabled is not None:
+            sets.append("enabled=?")
+            params.append(1 if enabled else 0)
         params.append(cred_id)
         with self._lock, self._conn:
             self._conn.execute(

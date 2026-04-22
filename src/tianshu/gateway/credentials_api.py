@@ -52,6 +52,7 @@ def _to_view(c: Credential) -> CredentialView:
         last_used_at=c.last_used_at,
         kind=c.kind,
         provider_name=c.provider_name,
+        enabled=c.enabled,
     )
 
 

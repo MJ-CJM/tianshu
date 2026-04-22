@@ -20,6 +20,7 @@ class Credential(BaseModel):
     last_used_at: datetime | None = None
     kind: Literal["edict_auth", "engine_provider"] = "edict_auth"
     provider_name: str | None = None
+    enabled: bool = True
 
 
 class CredentialCreate(BaseModel):
@@ -37,6 +38,7 @@ class CredentialCreate(BaseModel):
 class CredentialUpdate(BaseModel):
     value: str | None = None
     extra_headers: dict[str, str] | None = None
+    enabled: bool | None = None
 
 
 class CredentialView(BaseModel):
@@ -51,3 +53,4 @@ class CredentialView(BaseModel):
     last_used_at: datetime | None
     kind: Literal["edict_auth", "engine_provider"] = "edict_auth"
     provider_name: str | None = None
+    enabled: bool = True
