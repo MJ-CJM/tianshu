@@ -740,6 +740,7 @@ export interface Credential {
   last_used_at: string | null;
   kind: "edict_auth" | "engine_provider";
   provider_name: string | null;
+  enabled: boolean;
 }
 
 export interface CredentialCreate {
@@ -755,6 +756,7 @@ export interface CredentialCreate {
 export interface CredentialUpdate {
   value?: string;
   extra_headers?: Record<string, string>;
+  enabled?: boolean;
 }
 
 // --- Network events (鸿胪寺 audit) ---

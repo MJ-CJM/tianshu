@@ -18,11 +18,11 @@ export async function createCredential(
 
 export async function updateCredential(
   id: string,
-  req: CredentialUpdate,
+  patch: CredentialUpdate,
 ): Promise<Credential> {
   const { data } = await apiClient.patch<Credential>(
     `/credentials/${encodeURIComponent(id)}`,
-    req,
+    patch,
   );
   return data;
 }

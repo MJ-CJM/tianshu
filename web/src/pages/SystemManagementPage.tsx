@@ -78,6 +78,7 @@ import {
   listCredentials,
   createCredential,
   deleteCredential,
+  updateCredential,
 } from "../api/credentials";
 
 const monoStyle: React.CSSProperties = {
@@ -1465,6 +1466,9 @@ function ExternalCredentialsTab() {
   const [modalOpen, setModalOpen] = useState(false);
   const [vaultUnavailable, setVaultUnavailable] = useState(false);
   const [form] = Form.useForm();
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRow, setEditRow] = useState<Credential | null>(null);
+  const [editForm] = Form.useForm();
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -1544,8 +1548,75 @@ function ExternalCredentialsTab() {
     }
   };
 
+  const openEdit = (row: Credential) => {
+    setEditRow(row);
+    editForm.setFieldsValue({
+      value: "",
+      extra_headers: JSON.stringify(row.extra_headers ?? {}, null, 2),
+    });
+    setEditOpen(true);
+  };
+
+  const onEditSubmit = async (values: any) => {
+    if (!editRow) return;
+    const patch: { value?: string; extra_headers?: Record<string, string>; enabled?: boolean } = {};
+    if (values.value) patch.value = values.value;
+    if (editRow.kind === "edict_auth" && values.extra_headers !== undefined) {
+      try {
+        patch.extra_headers = JSON.parse(values.extra_headers || "{}");
+      } catch {
+        notification.error({ message: "extra_headers 不是合法 JSON" });
+        return;
+      }
+    }
+    try {
+      await updateCredential(editRow.id, patch);
+      notification.success({ message: "已保存" });
+      setEditOpen(false);
+      editForm.resetFields();
+      reload();
+      if (editRow.kind === "engine_provider") {
+        qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
+      }
+    } catch (e: any) {
+      notification.error({
+        message: "保存失败",
+        description: String(e?.response?.data?.detail ?? e?.message ?? e),
+      });
+    }
+  };
+
+  const toggleEnabled = async (row: Credential, next: boolean) => {
+    try {
+      await updateCredential(row.id, { enabled: next });
+      notification.success({ message: next ? `已启用 ${row.name}` : `已禁用 ${row.name}` });
+      reload();
+      if (row.kind === "engine_provider") {
+        qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
+      }
+    } catch (e: any) {
+      notification.error({
+        message: "切换失败",
+        description: String(e?.response?.data?.detail ?? e?.message ?? e),
+      });
+    }
+  };
+
   const edictColumns = [
     { title: "名称", dataIndex: "name", key: "name" },
+    {
+      title: "启用",
+      dataIndex: "enabled",
+      key: "enabled",
+      width: 70,
+      render: (v: boolean, row: Credential) => (
+        <Switch
+          size="small"
+          checked={v}
+          onChange={(next) => toggleEnabled(row, next)}
+        />
+      ),
+    },
     {
       title: "匹配域",
       dataIndex: "host_pattern",
@@ -1569,21 +1640,44 @@ function ExternalCredentialsTab() {
     {
       title: "操作",
       key: "actions",
+      width: 160,
       render: (_: unknown, row: Credential) => (
-        <Popconfirm
-          title="删除此凭证？引用它的 Edict 将无法再注入 header。"
-          onConfirm={() => onDelete(row.id)}
-        >
-          <Button size="small" danger icon={<DeleteOutlined />}>
-            删除
+        <Space size={4}>
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => openEdit(row)}
+          >
+            修改
           </Button>
-        </Popconfirm>
+          <Popconfirm
+            title="删除此凭证？引用它的 Edict 将无法再注入 header。"
+            onConfirm={() => onDelete(row.id)}
+          >
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
 
   const providerColumns = [
     { title: "名称", dataIndex: "name", key: "name" },
+    {
+      title: "启用",
+      dataIndex: "enabled",
+      key: "enabled",
+      width: 70,
+      render: (v: boolean, row: Credential) => (
+        <Switch
+          size="small"
+          checked={v}
+          onChange={(next) => toggleEnabled(row, next)}
+        />
+      ),
+    },
     {
       title: "Provider",
       dataIndex: "provider_name",
@@ -1600,15 +1694,25 @@ function ExternalCredentialsTab() {
     {
       title: "操作",
       key: "actions",
+      width: 160,
       render: (_: unknown, row: Credential) => (
-        <Popconfirm
-          title="删除此 provider key？对应引擎立即降级（回落 env 或关闭）。"
-          onConfirm={() => onDelete(row.id)}
-        >
-          <Button size="small" danger icon={<DeleteOutlined />}>
-            删除
+        <Space size={4}>
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => openEdit(row)}
+          >
+            修改
           </Button>
-        </Popconfirm>
+          <Popconfirm
+            title="删除此 provider key？对应引擎立即降级（回落 env 或关闭）。"
+            onConfirm={() => onDelete(row.id)}
+          >
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -1783,6 +1887,61 @@ function ExternalCredentialsTab() {
           <Form.Item name="value" label="Value" rules={[{ required: true }]}>
             <Input.Password placeholder="不会回显" />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        open={editOpen}
+        title={
+          editRow?.kind === "engine_provider" ? "修改 Provider Key" : "修改凭证"
+        }
+        onCancel={() => setEditOpen(false)}
+        onOk={() => editForm.submit()}
+        destroyOnClose
+      >
+        <Form form={editForm} layout="vertical" onFinish={onEditSubmit}>
+          {editRow && (
+            <div style={{ marginBottom: 12, fontSize: 12, color: "#999" }}>
+              <div>
+                名称：<code style={monoStyle}>{editRow.name}</code>
+              </div>
+              {editRow.kind === "engine_provider" ? (
+                <div>
+                  Provider：
+                  <code style={monoStyle}>{editRow.provider_name}</code>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    匹配域：
+                    <code style={monoStyle}>{editRow.host_pattern}</code>
+                  </div>
+                  <div>
+                    Header 模板：
+                    <code style={monoStyle}>{editRow.header_template}</code>
+                  </div>
+                </>
+              )}
+              <div style={{ color: "#faad14", marginTop: 4 }}>
+                名称 / host / template / provider 不可修改（改动请删除重建）
+              </div>
+            </div>
+          )}
+          <Form.Item
+            name="value"
+            label="新 Value"
+            tooltip="留空 = 不修改 value"
+          >
+            <Input.Password placeholder="留空 = 保留原 value" />
+          </Form.Item>
+          {editRow?.kind === "edict_auth" && (
+            <Form.Item name="extra_headers" label="Extra Headers (JSON)">
+              <Input.TextArea
+                rows={3}
+                placeholder='例: {"Notion-Version": "2022-06-28"}'
+              />
+            </Form.Item>
+          )}
         </Form>
       </Modal>
     </Space>
