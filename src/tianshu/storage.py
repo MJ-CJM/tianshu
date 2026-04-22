@@ -317,11 +317,15 @@ class Storage:
                     created_at      TEXT NOT NULL,
                     updated_at      TEXT NOT NULL,
                     last_used_at    TEXT,
-                    deleted_at      TEXT
+                    deleted_at      TEXT,
+                    kind            TEXT NOT NULL DEFAULT 'edict_auth',
+                    provider_name   TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_netcreds_host ON network_credentials(host_pattern);
                 CREATE INDEX IF NOT EXISTS idx_netcreds_name ON network_credentials(name);
+                CREATE INDEX IF NOT EXISTS idx_netcreds_provider
+                    ON network_credentials(provider_name) WHERE provider_name IS NOT NULL;
             """)
 
     def _migrate(self) -> None:
@@ -366,6 +370,9 @@ class Storage:
             "ALTER TABLE edicts ADD COLUMN planner_persona_id TEXT",
             # Phase 2.2: plan review — require human approval before execution
             "ALTER TABLE edicts ADD COLUMN plan_review INTEGER DEFAULT 0",
+            # 2026-04-22: network_credentials 加 kind/provider_name 区分 edict_auth vs engine_provider
+            "ALTER TABLE network_credentials ADD COLUMN kind TEXT NOT NULL DEFAULT 'edict_auth'",
+            "ALTER TABLE network_credentials ADD COLUMN provider_name TEXT",
         ]
         for sql in migrations:
             try:
@@ -2045,23 +2052,35 @@ class Storage:
         extra_headers_json: str,
         encrypted_value: bytes,
         now_iso: str,
+        kind: str = "edict_auth",
+        provider_name: str | None = None,
     ) -> None:
         with self._lock, self._conn:
             self._conn.execute(
                 """INSERT INTO network_credentials
                    (id, name, host_pattern, header_template, extra_headers,
-                    encrypted_value, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    encrypted_value, created_at, updated_at, kind, provider_name)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (cred_id, name, host_pattern, header_template,
-                 extra_headers_json, encrypted_value, now_iso, now_iso),
+                 extra_headers_json, encrypted_value, now_iso, now_iso,
+                 kind, provider_name),
             )
 
-    def list_credentials(self) -> list[sqlite3.Row]:
+    def list_credentials(self, kind: str | None = None) -> list[sqlite3.Row]:
         with self._lock:
-            cur = self._conn.execute(
-                "SELECT * FROM network_credentials WHERE deleted_at IS NULL "
-                "ORDER BY name"
-            )
+            if kind:
+                cur = self._conn.execute(
+                    "SELECT * FROM network_credentials "
+                    "WHERE deleted_at IS NULL AND kind=? "
+                    "ORDER BY name",
+                    (kind,),
+                )
+            else:
+                cur = self._conn.execute(
+                    "SELECT * FROM network_credentials "
+                    "WHERE deleted_at IS NULL "
+                    "ORDER BY name"
+                )
             return cur.fetchall()
 
     def get_credential_by_id(self, cred_id: str) -> sqlite3.Row | None:
@@ -2073,15 +2092,27 @@ class Storage:
             return cur.fetchone()
 
     def find_credentials_by_host(self, host: str) -> list[sqlite3.Row]:
-        """返回所有可能匹配此 host 的凭证（literal + 通配）。匹配排序在上层做。"""
+        """返回所有可能匹配此 host 的 edict_auth 凭证（literal + 通配）。
+        强制 kind='edict_auth' 过滤 — engine_provider key 永不参与 host 匹配，
+        从根源隔离 LLM 可访问面。"""
         with self._lock:
             cur = self._conn.execute(
                 "SELECT * FROM network_credentials "
-                "WHERE deleted_at IS NULL "
+                "WHERE deleted_at IS NULL AND kind='edict_auth' "
                 "AND (host_pattern=? OR host_pattern LIKE '*.%')",
                 (host,),
             )
             return cur.fetchall()
+
+    def find_credentials_by_provider(self, provider_name: str) -> sqlite3.Row | None:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM network_credentials "
+                "WHERE deleted_at IS NULL AND kind='engine_provider' "
+                "AND provider_name=?",
+                (provider_name,),
+            )
+            return cur.fetchone()
 
     def update_credential(
         self,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from tianshu.secrets import (
     Credential,
@@ -38,21 +38,28 @@ def _to_view(c: Credential) -> CredentialView:
         created_at=c.created_at,
         updated_at=c.updated_at,
         last_used_at=c.last_used_at,
+        kind=c.kind,
+        provider_name=c.provider_name,
     )
 
 
 @credentials_router.get("")
-def list_credentials(request: Request) -> list[CredentialView]:
-    return [_to_view(c) for c in _store(request).list_all()]
+def list_credentials(
+    request: Request,
+    kind: str | None = Query(None, pattern="^(edict_auth|engine_provider)$"),
+) -> list[CredentialView]:
+    return [_to_view(c) for c in _store(request).list_by_kind(kind)]
 
 
 @credentials_router.post("", status_code=201)
 def create_credential(req: CredentialCreate, request: Request) -> CredentialView:
     try:
         c = _store(request).create(req)
+    except ValueError as e:
+        raise HTTPException(400, f"create_failed: {e}") from e
     except Exception as e:
         logger.exception("create_credential failed")
-        raise HTTPException(400, f"create_failed: {type(e).__name__}") from e
+        raise HTTPException(500, f"internal_error: {type(e).__name__}") from e
     return _to_view(c)
 
 

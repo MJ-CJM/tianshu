@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -17,14 +18,20 @@ class Credential(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_used_at: datetime | None = None
+    kind: Literal["edict_auth", "engine_provider"] = "edict_auth"
+    provider_name: str | None = None
 
 
 class CredentialCreate(BaseModel):
     name: str
-    host_pattern: str
-    header_template: str
     value: str                # plaintext，加密后丢
+    kind: Literal["edict_auth", "engine_provider"] = "edict_auth"
+    # edict_auth required fields（engine_provider 忽略）
+    host_pattern: str = ""
+    header_template: str = ""
     extra_headers: dict[str, str] = Field(default_factory=dict)
+    # engine_provider required field
+    provider_name: str | None = None
 
 
 class CredentialUpdate(BaseModel):
@@ -42,3 +49,5 @@ class CredentialView(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_used_at: datetime | None
+    kind: Literal["edict_auth", "engine_provider"] = "edict_auth"
+    provider_name: str | None = None

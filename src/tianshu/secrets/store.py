@@ -24,6 +24,15 @@ def _now_iso() -> str:
 
 
 def _row_to_credential(row) -> Credential:
+    # Handle old schema rows pre-migration defensively.
+    try:
+        kind = row["kind"] if "kind" in row.keys() else "edict_auth"
+    except (IndexError, KeyError):
+        kind = "edict_auth"
+    try:
+        provider = row["provider_name"] if "provider_name" in row.keys() else None
+    except (IndexError, KeyError):
+        provider = None
     return Credential(
         id=row["id"],
         name=row["name"],
@@ -38,6 +47,8 @@ def _row_to_credential(row) -> Credential:
             if row["last_used_at"]
             else None
         ),
+        kind=kind or "edict_auth",
+        provider_name=provider,
     )
 
 
@@ -49,14 +60,42 @@ class CredentialStore:
     def create(self, req: CredentialCreate) -> Credential:
         cred_id = str(ULID())
         encrypted = self._vault.encrypt(req.value)
+
+        if req.kind == "engine_provider":
+            if not req.provider_name:
+                raise ValueError(
+                    "engine_provider credential requires provider_name"
+                )
+            if req.provider_name not in {"jina", "tavily", "firecrawl"}:
+                raise ValueError(
+                    f"unsupported provider_name: {req.provider_name}"
+                )
+            existing = self._storage.find_credentials_by_provider(req.provider_name)
+            if existing is not None:
+                raise ValueError(
+                    f"provider '{req.provider_name}' already configured; "
+                    "update existing credential instead"
+                )
+            host_pattern = ""
+            header_template = ""
+        else:  # edict_auth
+            if not req.host_pattern or not req.header_template:
+                raise ValueError(
+                    "edict_auth credential requires host_pattern and header_template"
+                )
+            host_pattern = req.host_pattern
+            header_template = req.header_template
+
         self._storage.insert_credential(
             cred_id=cred_id,
             name=req.name,
-            host_pattern=req.host_pattern,
-            header_template=req.header_template,
+            host_pattern=host_pattern,
+            header_template=header_template,
             extra_headers_json=json.dumps(req.extra_headers),
             encrypted_value=encrypted,
             now_iso=_now_iso(),
+            kind=req.kind,
+            provider_name=req.provider_name,
         )
         row = self._storage.get_credential_by_id(cred_id)
         return _row_to_credential(row)
@@ -64,9 +103,23 @@ class CredentialStore:
     def list_all(self) -> list[Credential]:
         return [_row_to_credential(r) for r in self._storage.list_credentials()]
 
+    def list_by_kind(self, kind: str | None = None) -> list[Credential]:
+        return [
+            _row_to_credential(r)
+            for r in self._storage.list_credentials(kind=kind)
+        ]
+
     def get(self, cred_id: str) -> Credential | None:
         row = self._storage.get_credential_by_id(cred_id)
         return _row_to_credential(row) if row else None
+
+    def find_for_provider(self, provider_name: str) -> Credential | None:
+        row = self._storage.find_credentials_by_provider(provider_name)
+        return _row_to_credential(row) if row else None
+
+    def decrypt_value(self, cred: Credential) -> str:
+        """公开解密接口，给 engine 工厂用。"""
+        return self._vault.decrypt(cred.encrypted_value)
 
     def find_for_host(self, host: str) -> Credential | None:
         """最具体匹配：字面 > 通配 > None。"""
