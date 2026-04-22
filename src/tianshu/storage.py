@@ -324,8 +324,7 @@ class Storage:
 
                 CREATE INDEX IF NOT EXISTS idx_netcreds_host ON network_credentials(host_pattern);
                 CREATE INDEX IF NOT EXISTS idx_netcreds_name ON network_credentials(name);
-                CREATE INDEX IF NOT EXISTS idx_netcreds_provider
-                    ON network_credentials(provider_name) WHERE provider_name IS NOT NULL;
+                -- 注意：idx_netcreds_provider 需要 provider_name 列；老库迁移在 _migrate() 后建
             """)
 
     def _migrate(self) -> None:
@@ -373,6 +372,9 @@ class Storage:
             # 2026-04-22: network_credentials 加 kind/provider_name 区分 edict_auth vs engine_provider
             "ALTER TABLE network_credentials ADD COLUMN kind TEXT NOT NULL DEFAULT 'edict_auth'",
             "ALTER TABLE network_credentials ADD COLUMN provider_name TEXT",
+            # 2026-04-22: provider_name 列就绪后建 partial index（必须放在 ALTER 之后）
+            "CREATE INDEX IF NOT EXISTS idx_netcreds_provider "
+            "ON network_credentials(provider_name) WHERE provider_name IS NOT NULL",
         ]
         for sql in migrations:
             try:
