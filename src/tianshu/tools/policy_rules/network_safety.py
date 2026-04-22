@@ -53,6 +53,11 @@ class NetworkSafetyRule:
         tmpl_name = getattr(profile, "template_name", None) if profile else None
         if tmpl_name and tmpl_name in BUILTIN_TEMPLATES:
             return BUILTIN_TEMPLATES[tmpl_name].network
+        # 未指定 profile 的 Edict → 使用 refactor-in-place (DEFAULT) 作为可用默认；
+        # 不 fallback 到 OFFLINE，否则新建 Edict 默认连 web_fetch/web_search 都用不了。
+        default = BUILTIN_TEMPLATES.get("refactor-in-place")
+        if default is not None:
+            return default.network
         return NetworkPolicy()
 
     def _evaluate_api_request(
