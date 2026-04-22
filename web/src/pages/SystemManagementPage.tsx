@@ -24,12 +24,15 @@ import {
   Row,
   Col,
   Statistic,
+  Alert,
+  Empty,
 } from "antd";
 import {
   EditOutlined,
   DeleteOutlined,
   PlusOutlined,
   EyeOutlined,
+  LockOutlined,
 } from "@ant-design/icons";
 import PageContainer from "../components/common/PageContainer";
 import {
@@ -1411,6 +1414,7 @@ function ExternalCredentialsTab() {
   const [items, setItems] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [vaultUnavailable, setVaultUnavailable] = useState(false);
   const [form] = Form.useForm();
 
   const reload = useCallback(async () => {
@@ -1418,11 +1422,21 @@ function ExternalCredentialsTab() {
     try {
       const data = await listCredentials();
       setItems(data);
+      setVaultUnavailable(false);
     } catch (e: any) {
-      notification.error({
-        message: "加载凭证失败",
-        description: String(e?.message ?? e),
-      });
+      const status = e?.response?.status;
+      const detail: string = String(
+        e?.response?.data?.detail ?? e?.message ?? e,
+      );
+      // 503 + vault unavailable → 引导页（非错误提示）
+      if (status === 503 && /vault.*unavailable|MASTER_KEY/i.test(detail)) {
+        setVaultUnavailable(true);
+      } else {
+        notification.error({
+          message: "加载凭证失败",
+          description: detail,
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -1504,6 +1518,65 @@ function ExternalCredentialsTab() {
     },
   ];
 
+  if (vaultUnavailable) {
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        icon={<LockOutlined />}
+        message="尚未配置主密钥 TIANSHU_SECRET_MASTER_KEY"
+        description={
+          <Space direction="vertical" style={{ width: "100%", marginTop: 4 }}>
+            <Typography.Paragraph style={{ marginBottom: 4 }}>
+              外部凭证用 Fernet 对称加密存储，需要先给系统配置一把主密钥才能启用。
+              密钥丢失等于所有已存凭证不可恢复，请妥善备份。
+            </Typography.Paragraph>
+            <Typography.Text strong>配置步骤</Typography.Text>
+            <Typography.Paragraph style={{ marginBottom: 4 }}>
+              1) 生成一把 Fernet 密钥：
+            </Typography.Paragraph>
+            <pre
+              style={{
+                ...monoStyle,
+                background: "rgba(0,0,0,0.2)",
+                padding: "8px 12px",
+                borderRadius: 4,
+                margin: 0,
+                whiteSpace: "pre-wrap",
+              }}
+            >
+{`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`}
+            </pre>
+            <Typography.Paragraph style={{ marginBottom: 4, marginTop: 8 }}>
+              2) 把输出写进项目根目录的 <code style={monoStyle}>.env</code>：
+            </Typography.Paragraph>
+            <pre
+              style={{
+                ...monoStyle,
+                background: "rgba(0,0,0,0.2)",
+                padding: "8px 12px",
+                borderRadius: 4,
+                margin: 0,
+              }}
+            >
+{`TIANSHU_SECRET_MASTER_KEY=<上一步生成的 key>`}
+            </pre>
+            <Typography.Paragraph style={{ marginBottom: 0, marginTop: 8 }}>
+              3) 重启天枢后台进程 → 刷新本页。其它已注册的网络工具
+              (<code style={monoStyle}>web_fetch</code> / <code style={monoStyle}>web_search</code>
+              / <code style={monoStyle}>web_extract</code>) 不受影响。
+            </Typography.Paragraph>
+            <Space style={{ marginTop: 12 }}>
+              <Button type="primary" onClick={reload}>
+                我已配置，重新检测
+              </Button>
+            </Space>
+          </Space>
+        }
+      />
+    );
+  }
+
   return (
     <Space direction="vertical" style={{ width: "100%" }}>
       <Space style={{ justifyContent: "flex-end", width: "100%" }}>
@@ -1522,6 +1595,18 @@ function ExternalCredentialsTab() {
         dataSource={items}
         loading={loading}
         pagination={false}
+        locale={{
+          emptyText: (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                <Typography.Text type="secondary">
+                  还没添加任何外部凭证。点右上角「新增凭证」开始。
+                </Typography.Text>
+              }
+            />
+          ),
+        }}
       />
 
       <Modal
