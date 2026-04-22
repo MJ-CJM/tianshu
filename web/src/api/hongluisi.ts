@@ -12,3 +12,26 @@ export async function getEngineStatus(): Promise<EngineStatus> {
   const { data } = await apiClient.get<EngineStatus>("/hongluisi/engine-status");
   return data;
 }
+
+export interface EnginePreferences {
+  fetch_chain: string[];
+  search_provider: string | null;
+  fallback_mode: string | null;
+}
+
+export async function getEnginePreferences(): Promise<EnginePreferences> {
+  const { data } = await apiClient.get<EnginePreferences>(
+    "/hongluisi/engine-preferences",
+  );
+  return data;
+}
+
+export async function updateEnginePreferences(
+  prefs: EnginePreferences,
+): Promise<EnginePreferences> {
+  const { data } = await apiClient.patch<EnginePreferences>(
+    "/hongluisi/engine-preferences",
+    prefs,
+  );
+  return data;
+}

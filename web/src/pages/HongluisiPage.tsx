@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   Space,
@@ -13,6 +13,10 @@ import {
   Table,
   Empty,
   Tooltip,
+  Select,
+  Radio,
+  Form,
+  notification,
 } from "antd";
 import {
   GlobalOutlined,
@@ -24,7 +28,11 @@ import PageContainer from "../components/common/PageContainer";
 import { useTools } from "../hooks/useSystem";
 import { listNetworkEvents } from "../api/network_events";
 import { listCredentials } from "../api/credentials";
-import { getEngineStatus } from "../api/hongluisi";
+import {
+  getEngineStatus,
+  getEnginePreferences,
+  updateEnginePreferences,
+} from "../api/hongluisi";
 import type { ProviderSource } from "../api/hongluisi";
 import type { NetworkEventRow } from "../api/types";
 import { formatTime } from "../utils/format";
@@ -67,6 +75,40 @@ export default function HongluisiPage() {
   });
   const [recent, setRecent] = useState<NetworkEventRow[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // 系统级引擎偏好（live 生效）
+  const qc = useQueryClient();
+  const { data: prefs } = useQuery({
+    queryKey: ["hongluisi", "engine-preferences"],
+    queryFn: getEnginePreferences,
+    staleTime: 30000,
+  });
+  const [fetchChain, setFetchChain] = useState<string[]>([]);
+  const [searchProvider, setSearchProvider] = useState<string | null>(null);
+  const [fallbackMode, setFallbackMode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (prefs) {
+      setFetchChain(prefs.fetch_chain);
+      setSearchProvider(prefs.search_provider);
+      setFallbackMode(prefs.fallback_mode);
+    }
+  }, [prefs]);
+
+  const saveMutation = useMutation({
+    mutationFn: updateEnginePreferences,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hongluisi", "engine-preferences"] });
+      notification.success({ message: "已保存，立即生效" });
+    },
+    onError: (e: unknown) => {
+      const err = e as { response?: { data?: { detail?: string } }; message?: string };
+      notification.error({
+        message: "保存失败",
+        description: String(err?.response?.data?.detail ?? err?.message ?? e),
+      });
+    },
+  });
 
   useEffect(() => {
     setLoading(true);
@@ -251,6 +293,82 @@ export default function HongluisiPage() {
             <code>TIANSHU_SECRET_MASTER_KEY</code> 控制 api_request；
             <code>TIANSHU_FIRECRAWL_API_KEY</code> 控制 web_extract）。
           </Typography.Paragraph>
+        </Card>
+
+        <Card
+          title={
+            <Space>
+              <span>引擎偏好（系统默认）</span>
+            </Space>
+          }
+          size="small"
+          extra={
+            <Button
+              type="primary"
+              loading={saveMutation.isPending}
+              onClick={() =>
+                saveMutation.mutate({
+                  fetch_chain: fetchChain,
+                  search_provider: searchProvider,
+                  fallback_mode: fallbackMode,
+                })
+              }
+            >
+              保存
+            </Button>
+          }
+        >
+          <Space direction="vertical" style={{ width: "100%" }} size="middle">
+            <Typography.Paragraph
+              type="secondary"
+              style={{ marginBottom: 0, fontSize: 12 }}
+            >
+              覆盖 profile 预设的引擎选择；Edict 创建时的 override 优先级最高。留空 = 沿用 profile 默认。改动立即生效，无需重启。
+            </Typography.Paragraph>
+
+            <Form.Item
+              label="web_fetch 引擎链（按顺序尝试，第一个 ok 即返回）"
+              style={{ marginBottom: 0 }}
+            >
+              <Select
+                mode="multiple"
+                placeholder="留空 = 沿用 profile（如 DEFAULT=local+jina）"
+                value={fetchChain}
+                onChange={setFetchChain}
+                options={[
+                  { value: "local", label: "local (trafilatura)" },
+                  { value: "jina", label: "jina (r.jina.ai)" },
+                  { value: "firecrawl", label: "firecrawl" },
+                ]}
+                style={{ width: "100%" }}
+              />
+            </Form.Item>
+
+            <Form.Item
+              label="fallback_mode（引擎失败/空时是否切下一个）"
+              style={{ marginBottom: 0 }}
+            >
+              <Radio.Group
+                value={fallbackMode ?? ""}
+                onChange={(e) => setFallbackMode(e.target.value || null)}
+              >
+                <Radio value="">沿用 profile</Radio>
+                <Radio value="on_error_or_empty">失败/空即切</Radio>
+                <Radio value="none">只用首个引擎</Radio>
+              </Radio.Group>
+            </Form.Item>
+
+            <Form.Item label="web_search provider" style={{ marginBottom: 0 }}>
+              <Radio.Group
+                value={searchProvider ?? ""}
+                onChange={(e) => setSearchProvider(e.target.value || null)}
+              >
+                <Radio value="">沿用 profile</Radio>
+                <Radio value="tavily">Tavily</Radio>
+                <Radio value="jina">Jina Search</Radio>
+              </Radio.Group>
+            </Form.Item>
+          </Space>
         </Card>
 
         <Card
