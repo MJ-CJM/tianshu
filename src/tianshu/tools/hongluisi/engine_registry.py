@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 
+from tianshu.secrets import resolve_provider_key
 from tianshu.tools.hongluisi.engines import FetchEngine, SearchEngine
 from tianshu.tools.hongluisi.engines.firecrawl import build_firecrawl
 from tianshu.tools.hongluisi.engines.jina_reader import build_jina_reader
@@ -19,6 +20,18 @@ logger = logging.getLogger(__name__)
 
 _fetch_engines: dict[str, FetchEngine] = {}
 _search_engines: dict[str, SearchEngine] = {}
+# provider → 启动时真正用的 key 来源 ("db" | "env" | "none")；UI 用它做权威 badge
+_provider_sources: dict[str, str] = {
+    "jina": "none",
+    "tavily": "none",
+    "firecrawl": "none",
+}
+
+PROVIDER_ENV_VARS: dict[str, str] = {
+    "jina": "TIANSHU_JINA_API_KEY",
+    "tavily": "TIANSHU_TAVILY_API_KEY",
+    "firecrawl": "TIANSHU_FIRECRAWL_API_KEY",
+}
 
 
 def build_engines(
@@ -28,7 +41,13 @@ def build_engines(
 
     store: 可选 CredentialStore，提供则 DB-first 读 provider key，否则走 env。
     """
-    global _fetch_engines, _search_engines
+    global _fetch_engines, _search_engines, _provider_sources
+
+    # 先捕获每个 provider 当前实际用的 key 来源（权威数据给 UI）
+    _provider_sources = {
+        name: resolve_provider_key(store, name, env)[1]
+        for name, env in PROVIDER_ENV_VARS.items()
+    }
 
     fetch: dict[str, FetchEngine] = {"local": LocalFetchEngine()}
     jina_r = build_jina_reader(store)
@@ -49,11 +68,17 @@ def build_engines(
     _fetch_engines = fetch
     _search_engines = search
     logger.info(
-        "[hongluisi] fetch engines: %s; search providers: %s",
+        "[hongluisi] fetch engines: %s; search providers: %s; provider sources: %s",
         list(fetch),
         list(search),
+        _provider_sources,
     )
     return fetch, search
+
+
+def get_provider_sources() -> dict[str, str]:
+    """返回启动时真正绑定的 key 来源快照（UI 用）。"""
+    return dict(_provider_sources)
 
 
 def get_registered_fetch_engines() -> set[str]:

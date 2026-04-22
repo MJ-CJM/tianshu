@@ -28,6 +28,7 @@ from tianshu.executor.policy_hook import PolicyHook
 from tianshu.persona.evaluator import PerformanceEvaluator
 from tianshu.gateway import gateway_router
 from tianshu.gateway.credentials_api import credentials_router
+from tianshu.gateway.hongluisi_api import hongluisi_router
 from tianshu.memory.config import MemoryConfig
 from tianshu.memory.drawer_store import DrawerStore
 from tianshu.memory.manager import MemoryManager
@@ -462,6 +463,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(gateway_router, prefix="/api")
     app.include_router(credentials_router, prefix="/api")
+    app.include_router(hongluisi_router, prefix="/api")
 
     @app.get("/health")
     async def health():

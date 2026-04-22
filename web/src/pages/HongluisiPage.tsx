@@ -12,16 +12,20 @@ import {
   Tag,
   Table,
   Empty,
+  Tooltip,
 } from "antd";
 import {
   GlobalOutlined,
   KeyOutlined,
   RightOutlined,
+  ExclamationCircleOutlined,
 } from "@ant-design/icons";
 import PageContainer from "../components/common/PageContainer";
 import { useTools } from "../hooks/useSystem";
 import { listNetworkEvents } from "../api/network_events";
 import { listCredentials } from "../api/credentials";
+import { getEngineStatus } from "../api/hongluisi";
+import type { ProviderSource } from "../api/hongluisi";
 import type { NetworkEventRow } from "../api/types";
 import { formatTime } from "../utils/format";
 
@@ -49,6 +53,13 @@ const PROVIDERS_BY_TOOL: Record<string, string[]> = {
 export default function HongluisiPage() {
   const navigate = useNavigate();
   const { data: tools = [] } = useTools();
+  // 权威数据：后端启动时真正绑到的 provider key 来源
+  const { data: engineStatus } = useQuery({
+    queryKey: ["hongluisi", "engine-status"],
+    queryFn: getEngineStatus,
+    staleTime: 30000,
+  });
+  // DB 当前记录：用于检测"已改但未重启"
   const { data: providers = [] } = useQuery({
     queryKey: ["credentials", "engine_provider"],
     queryFn: () => listCredentials("engine_provider"),
@@ -67,7 +78,13 @@ export default function HongluisiPage() {
 
   const registered = new Set(tools.map((t: { name: string }) => t.name));
 
-  // provider_name → "db"（DB 有配置）
+  // 权威的 provider → 启动时真正用的来源（"db" | "env" | "none"）
+  const providerLiveSource: Record<string, ProviderSource> = {
+    jina: engineStatus?.providers.jina ?? "none",
+    tavily: engineStatus?.providers.tavily ?? "none",
+    firecrawl: engineStatus?.providers.firecrawl ?? "none",
+  };
+  // DB 当前是否有对应 provider 记录（可能已改但未重启）
   const providerHasDB: Record<string, boolean> = {
     jina: false,
     tavily: false,
@@ -77,19 +94,36 @@ export default function HongluisiPage() {
     if (p.provider_name) providerHasDB[p.provider_name] = true;
   });
 
-  const sourceFor = (tool: string): "db" | "env" | "none" => {
+  // 返回工具卡片显示的来源：按 db > env > none 优先级合并该工具相关 provider
+  const sourceFor = (
+    tool: string,
+  ): { source: "db" | "env" | "none"; pendingRestart: boolean } => {
     const relevant = PROVIDERS_BY_TOOL[tool] ?? [];
-    if (relevant.some((p) => providerHasDB[p])) return "db";
-    if (registered.has(tool)) return "env";
-    return "none";
+    if (relevant.length === 0) {
+      // api_request 不依赖 provider key，依 tool 注册状态判断
+      return {
+        source: registered.has(tool) ? "env" : "none",
+        pendingRestart: false,
+      };
+    }
+    const liveSources = relevant.map((p) => providerLiveSource[p]);
+    let source: "db" | "env" | "none" = "none";
+    if (liveSources.includes("db")) source = "db";
+    else if (liveSources.includes("env")) source = "env";
+
+    // 待重启：DB 已有记录但后端尚未用 "db"
+    const pendingRestart = relevant.some(
+      (p) => providerHasDB[p] && providerLiveSource[p] !== "db",
+    );
+    return { source, pendingRestart };
   };
 
   const toolCards = NETWORK_TOOL_NAMES.map((name) => {
     const isOn = registered.has(name);
-    const src = sourceFor(name);
-    const srcLabel = src === "db" ? "DB" : src === "env" ? "env" : "—";
+    const { source, pendingRestart } = sourceFor(name);
+    const srcLabel = source === "db" ? "DB" : source === "env" ? "env" : "—";
     const srcColor =
-      src === "db" ? "green" : src === "env" ? "blue" : "default";
+      source === "db" ? "green" : source === "env" ? "blue" : "default";
     return (
       <Col key={name} xs={12} md={6}>
         <Card size="small">
@@ -101,9 +135,16 @@ export default function HongluisiPage() {
               fontSize: 18,
             }}
           />
-          <Tag color={srcColor} style={{ marginTop: 4 }}>
-            Key: {srcLabel}
-          </Tag>
+          <Space size={4} style={{ marginTop: 4 }} wrap>
+            <Tag color={srcColor}>Key: {srcLabel}</Tag>
+            {pendingRestart && (
+              <Tooltip title="藏兵阁里已配置新 provider key，但后端 engine 仍用旧来源，需要重启后台生效">
+                <Tag color="orange" icon={<ExclamationCircleOutlined />}>
+                  待重启
+                </Tag>
+              </Tooltip>
+            )}
+          </Space>
         </Card>
       </Col>
     );
