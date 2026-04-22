@@ -6,10 +6,8 @@ import asyncio
 from pathlib import Path
 
 from tianshu.executor.ambient import get_current_edict
-from tianshu.secrets import CredentialInjector, CredentialStore, get_vault
 from tianshu.storage import Storage
-from tianshu.tools.hongluisi.api_request import ApiRequestEngine
-from tianshu.tools.hongluisi.engines.firecrawl_extract import build_firecrawl_extract
+from tianshu.tools.hongluisi.engine_registry import build_engines
 from tianshu.tools.hongluisi.tools import register_hongluisi
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
@@ -162,18 +160,7 @@ def register_builtins(
     register_find_files(registry, workspace)
 
     # === hongluisi: 对外网络工具 ===
-    vault = get_vault()
-    cred_store = None
-    api_engine = None
-    if vault is not None and storage is not None:
-        cred_store = CredentialStore(storage, vault)
-        api_engine = ApiRequestEngine(CredentialInjector(cred_store))
-    # extract engine 也能从 DB 读 firecrawl key
-    extract_engine = build_firecrawl_extract(cred_store)
-    register_hongluisi(
-        registry,
-        edict_getter=get_current_edict,
-        api_engine=api_engine,
-        extract_engine=extract_engine,
-        credential_store=cred_store,
-    )
+    # 所有 engine 构造（fetch / search / api / extract）+ vault/store 初始化都收敛到 engine_registry；
+    # 启动期 build_engines(storage) 把 storage 引用存进 registry，供后续 rebuild_engines() 热更凭证。
+    build_engines(storage=storage)
+    register_hongluisi(registry, edict_getter=get_current_edict)

@@ -15,10 +15,21 @@ from tianshu.secrets import (
     CredentialView,
     get_vault,
 )
+from tianshu.tools.hongluisi.engine_registry import rebuild_engines
 
 logger = logging.getLogger(__name__)
 
 credentials_router = APIRouter(prefix="/credentials", tags=["credentials"])
+
+
+def _trigger_engine_rebuild() -> None:
+    """凭证 CRUD 完成后 live 重建 engine；失败仅 log，不影响 API 成功返回。"""
+    try:
+        rebuild_engines()
+    except Exception:
+        logger.exception(
+            "rebuild_engines failed; restart required for new key to take effect"
+        )
 
 
 def _store(request: Request) -> CredentialStore:
@@ -70,6 +81,8 @@ def create_credential(req: CredentialCreate, request: Request) -> CredentialView
     except Exception as e:
         logger.exception("create_credential failed")
         raise HTTPException(500, f"internal_error: {type(e).__name__}") from e
+    if c.kind == "engine_provider":
+        _trigger_engine_rebuild()
     return _to_view(c)
 
 
@@ -80,6 +93,8 @@ def update_credential(
     c = _store(request).update(cred_id, req)
     if c is None:
         raise HTTPException(404, "credential_not_found")
+    if c.kind == "engine_provider":
+        _trigger_engine_rebuild()
     return _to_view(c)
 
 
@@ -102,4 +117,6 @@ def delete_credential(cred_id: str, request: Request) -> dict:
             )
 
     store.delete(cred_id)
+    if cred.kind == "engine_provider":
+        _trigger_engine_rebuild()
     return {"ok": True}

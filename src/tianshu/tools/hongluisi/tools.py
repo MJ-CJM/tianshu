@@ -1,4 +1,7 @@
-"""鸿胪寺工具注册入口。Spec Section 5-6。"""
+"""鸿胪寺工具注册入口。Spec Section 5-6。
+
+Handler call-time 从 engine_registry 取最新 engine 实例，以便热更。
+"""
 
 from __future__ import annotations
 
@@ -7,7 +10,12 @@ import logging
 from typing import Callable
 from urllib.parse import urlparse
 
-from tianshu.tools.hongluisi.engine_registry import build_engines
+from tianshu.tools.hongluisi.engine_registry import (
+    get_api_engine,
+    get_extract_engine,
+    get_fetch_engines_map,
+    get_search_providers_map,
+)
 from tianshu.tools.hongluisi.policy import NetworkPolicy
 from tianshu.tools.hongluisi.rate_limiter import get_rate_limiter
 from tianshu.tools.hongluisi.router import FetchRouter
@@ -38,7 +46,7 @@ def _resolve_edict_context(
     return edict.id, net, fe_ov, sp_ov
 
 
-def _register_web_fetch(registry, fetch_engines, edict_getter):
+def _register_web_fetch(registry, edict_getter):
     async def web_fetch(url: str) -> ToolResult:
         edict_id, net, fe_ov, _ = _resolve_edict_context(edict_getter)
         if not net.fetch_engines and fe_ov is None:
@@ -49,6 +57,7 @@ def _register_web_fetch(registry, fetch_engines, edict_getter):
         if not rc.allowed:
             return error_result(f"rate_limited:retry_after_{rc.retry_after_sec:.1f}s")
 
+        fetch_engines = get_fetch_engines_map()
         router = FetchRouter(fetch_engines, net, override=fe_ov)
         outcome, attempts = await router.dispatch(url)
         network_detail = {
@@ -93,12 +102,15 @@ def _register_web_fetch(registry, fetch_engines, edict_getter):
     )
 
 
-def _register_web_search(registry, search_providers, edict_getter):
+def _register_web_search(registry, edict_getter):
     async def web_search(query: str, max_results: int = 5) -> ToolResult:
         edict_id, net, _, sp_ov = _resolve_edict_context(edict_getter)
         provider_name = sp_ov or net.search_provider
         if provider_name is None:
             return error_result("search_not_allowed_in_profile")
+        search_providers = get_search_providers_map()
+        if not search_providers:
+            return error_result("search_no_providers_available")
         provider = search_providers.get(provider_name)
         if provider is None:
             return error_result(f"provider_not_registered:{provider_name}")
@@ -162,7 +174,7 @@ def _register_web_search(registry, search_providers, edict_getter):
     )
 
 
-def _register_api_request(registry, api_engine, edict_getter):
+def _register_api_request(registry, edict_getter):
     WRITE_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
 
     async def api_request(
@@ -179,6 +191,10 @@ def _register_api_request(registry, api_engine, edict_getter):
 
         if not net.allow_api_request:
             return error_result("api_request_not_allowed_in_profile")
+
+        api_engine = get_api_engine()
+        if api_engine is None:
+            return error_result("api_engine_unavailable")
 
         host = urlparse(url).hostname or ""
         allow_hosts = tuple(getattr(edict.runtime, "api_request_hosts", ()) or ())
@@ -277,13 +293,17 @@ def _register_api_request(registry, api_engine, edict_getter):
     )
 
 
-def _register_web_extract(registry, extract_engine, edict_getter):
+def _register_web_extract(registry, edict_getter):
     async def web_extract(
         url: str, schema: dict, prompt: str | None = None
     ) -> ToolResult:
         edict_id, net, _, _ = _resolve_edict_context(edict_getter)
         if "firecrawl" not in net.fetch_engines:
             return error_result("web_extract_not_allowed_in_profile")
+
+        extract_engine = get_extract_engine()
+        if extract_engine is None:
+            return error_result("extract_engine_unavailable")
 
         rl = get_rate_limiter()
         rc = await rl.check(edict_id, "web_extract", net.web_extract_rate_per_min)
@@ -328,29 +348,18 @@ def _register_web_extract(registry, extract_engine, edict_getter):
     )
 
 
-def register_hongluisi(
-    registry: ToolRegistry,
-    edict_getter: Callable,
-    *,
-    api_engine=None,
-    extract_engine=None,
-    credential_store=None,
-) -> None:
-    """启动期调用一次。edict_getter 从 ambient.py 注入。
-    credential_store 可选，传入后 engine 工厂会 DB-first 读 provider key。"""
-    fetch_engines, search_providers = build_engines(credential_store)
+def register_hongluisi(registry: ToolRegistry, edict_getter: Callable) -> None:
+    """启动期调用一次。build_engines 必须已被调过。
 
-    _register_web_fetch(registry, fetch_engines, edict_getter)
-    if search_providers:
-        _register_web_search(registry, search_providers, edict_getter)
-    if api_engine is not None:
-        _register_api_request(registry, api_engine, edict_getter)
-    if extract_engine is not None:
-        _register_web_extract(registry, extract_engine, edict_getter)
+    所有 4 个 handler 都始终注册——engine 可用性在 handler 内 call-time check，
+    以支持运行时 rebuild_engines() 热更凭证。
+    """
+    _register_web_fetch(registry, edict_getter)
+    _register_web_search(registry, edict_getter)
+    _register_api_request(registry, edict_getter)
+    _register_web_extract(registry, edict_getter)
 
     logger.info(
-        "[hongluisi] registered: web_fetch, web_search (%s), api_request=%s, web_extract=%s",
-        list(search_providers),
-        api_engine is not None,
-        extract_engine is not None,
+        "[hongluisi] tools registered: web_fetch, web_search, api_request, web_extract "
+        "(engines resolved at call time)"
     )
