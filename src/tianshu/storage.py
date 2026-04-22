@@ -381,6 +381,10 @@ class Storage:
             # 2026-04-22: provider_name 列就绪后建 partial index（必须放在 ALTER 之后）
             "CREATE INDEX IF NOT EXISTS idx_netcreds_provider "
             "ON network_credentials(provider_name) WHERE provider_name IS NOT NULL",
+            # 2026-04-22: 为存量软删除记录让出 name（防止新建同名凭证时 IntegrityError）
+            "UPDATE network_credentials "
+            "SET name = name || '__deleted_' || id "
+            "WHERE deleted_at IS NOT NULL AND name NOT LIKE '%__deleted_%'",
         ]
         for sql in migrations:
             try:
@@ -2153,9 +2157,12 @@ class Storage:
             )
 
     def soft_delete_credential(self, cred_id: str, now_iso: str) -> None:
+        # 同时 append 后缀让出 name（UNIQUE）位置，防止用户重建同名凭证时 IntegrityError
         with self._lock, self._conn:
             self._conn.execute(
-                "UPDATE network_credentials SET deleted_at=? WHERE id=?",
+                "UPDATE network_credentials "
+                "SET deleted_at=?, name = name || '__deleted_' || id "
+                "WHERE id=? AND deleted_at IS NULL",
                 (now_iso, cred_id),
             )
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -57,6 +58,15 @@ def create_credential(req: CredentialCreate, request: Request) -> CredentialView
         c = _store(request).create(req)
     except ValueError as e:
         raise HTTPException(400, f"create_failed: {e}") from e
+    except sqlite3.IntegrityError as e:
+        # 通常是 UNIQUE (name) 冲突 —— 给用户可操作的提示
+        msg = str(e).lower()
+        if "name" in msg or "unique" in msg:
+            raise HTTPException(
+                409,
+                f"凭证名称已存在：{req.name}（请换一个名字，或先删除旧记录）",
+            ) from e
+        raise HTTPException(409, f"integrity_error: {e}") from e
     except Exception as e:
         logger.exception("create_credential failed")
         raise HTTPException(500, f"internal_error: {type(e).__name__}") from e
