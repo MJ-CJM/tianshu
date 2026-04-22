@@ -63,10 +63,10 @@ class SharedHttpClient:
                 await validate_url(loc)
 
     async def get_cached(
-        self, url: str, engine: str
+        self, url: str, *, engine: str, credential_name: str | None = None
     ) -> tuple[str, dict[str, Any], bool]:
         """返回 (body_text, meta, cached_flag)。未命中时做真实 GET。"""
-        key = (url, engine)
+        key = (url, engine, credential_name)
         if key in self._cache:
             body, meta = self._cache[key]
             return body, meta, True
