@@ -2119,3 +2119,30 @@ class Storage:
                 "UPDATE network_credentials SET deleted_at=? WHERE id=?",
                 (now_iso, cred_id),
             )
+
+    def find_edicts_referencing_host(self, host_pattern: str) -> list[str]:
+        """返回引用此 host 的未结束 Edict id 列表。仅匹配精确 host，通配模式统一视为精确。
+
+        用于凭证删除前置检查 — 有引用即阻止删除。
+        """
+        with self._lock:
+            # edicts 表的 runtime 字段存 JSON；在 JSON 里 grep host
+            # 约束：只搜 runtime_json LIKE 包含 host 的，Python 侧再确认
+            cur = self._conn.execute(
+                """SELECT id, runtime_json FROM edicts
+                   WHERE status = 'open'
+                   AND runtime_json LIKE ?""",
+                (f"%{host_pattern}%",),
+            )
+            hits: list[str] = []
+            for row in cur.fetchall():
+                rjson = row["runtime_json"] or "{}"
+                try:
+                    runtime = json.loads(rjson)
+                except Exception:
+                    continue
+                hosts = runtime.get("api_request_hosts") or []
+                write_hosts = runtime.get("api_request_write_hosts") or []
+                if host_pattern in hosts or host_pattern in write_hosts:
+                    hits.append(row["id"])
+            return hits

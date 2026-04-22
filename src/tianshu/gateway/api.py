@@ -70,6 +70,18 @@ def _build_history(edict: Edict, memorials: list[Memorial]) -> list[dict]:
 # --- Edict endpoints ---
 
 
+def _validate_network_runtime(runtime: object) -> None:
+    """api_request_write_hosts 必须是 api_request_hosts 的子集。"""
+    allow = set(getattr(runtime, "api_request_hosts", None) or [])
+    write = set(getattr(runtime, "api_request_write_hosts", None) or [])
+    extra = write - allow
+    if extra:
+        raise HTTPException(
+            400,
+            f"api_request_write_hosts must be ⊆ api_request_hosts; extra: {sorted(extra)}",
+        )
+
+
 @gateway_router.post("/edicts", response_model=ApiResponse, status_code=202)
 async def create_edict(body: EdictCreateRequest, request: Request):
     storage: Storage = request.app.state.storage
@@ -104,6 +116,8 @@ async def create_edict(body: EdictCreateRequest, request: Request):
         edict_kwargs["constraints"] = body.constraints
     if body.output_format:
         edict_kwargs["output_format"] = body.output_format
+    if body.runtime is not None:
+        _validate_network_runtime(body.runtime)
     if body.runtime:
         from tianshu.models.edict import EdictRuntime
         rt_data = {k: v for k, v in body.runtime.model_dump().items() if v is not None}
