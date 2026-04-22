@@ -5,12 +5,22 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from tianshu.executor.ambient import get_current_edict
+from tianshu.secrets import CredentialInjector, CredentialStore, get_vault
+from tianshu.storage import Storage
+from tianshu.tools.hongluisi.api_request import ApiRequestEngine
+from tianshu.tools.hongluisi.engines.firecrawl_extract import build_firecrawl_extract
+from tianshu.tools.hongluisi.tools import register_hongluisi
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
 
-def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
+def register_builtins(
+    registry: ToolRegistry,
+    workspace_dir: str,
+    storage: "Storage | None" = None,
+) -> None:
     workspace = Path(workspace_dir).resolve()
 
     async def shell_exec(command: str, cwd: str | None = None) -> ToolResult:
@@ -150,3 +160,17 @@ def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
     register_list_dir(registry, workspace)
     register_grep(registry, workspace)
     register_find_files(registry, workspace)
+
+    # === hongluisi: 对外网络工具 ===
+    api_engine = None
+    extract_engine = build_firecrawl_extract()
+    vault = get_vault()
+    if vault is not None and storage is not None:
+        cred_store = CredentialStore(storage, vault)
+        api_engine = ApiRequestEngine(CredentialInjector(cred_store))
+    register_hongluisi(
+        registry,
+        edict_getter=get_current_edict,
+        api_engine=api_engine,
+        extract_engine=extract_engine,
+    )

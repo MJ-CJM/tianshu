@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
 
     # --- Tools ---
     tools = ToolRegistry()
-    register_builtins(tools, settings.workspace_dir)
+    register_builtins(tools, settings.workspace_dir, storage=storage)
 
     # --- Skills ---
     builtin_skills_dir = Path(__file__).parent / "skills" / "builtin"
