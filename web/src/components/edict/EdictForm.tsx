@@ -5,6 +5,7 @@ import { usePersonas } from "../../hooks/usePersonas";
 import type { EdictCreateRequest, EdictRuntime } from "../../api/types";
 import PolicyProfilePanel from "../policy/PolicyProfilePanel";
 import type { PolicyProfileValue } from "../policy/PolicyProfilePanel";
+import NetworkCapabilitySection from "./NetworkCapabilitySection";
 
 interface EdictFormProps {
   onSubmit: (values: EdictCreateRequest) => void;
@@ -17,6 +18,10 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
   const [assignMode, setAssignMode] = useState<"auto" | "direct">("auto");
   const [policyProfile, setPolicyProfile] =
     useState<PolicyProfileValue | null>(null);
+  const [netState, setNetState] = useState<{
+    api_request_hosts: string[];
+    api_request_write_hosts: string[];
+  }>({ api_request_hosts: [], api_request_write_hosts: [] });
   const { data: personas } = usePersonas();
 
   const personaOptions = (personas ?? []).map((p) => ({
@@ -98,6 +103,12 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
         policyProfile.allowed_bash_prefixes.length > 0)
     ) {
       runtime.policy_profile = policyProfile;
+    }
+    if (netState.api_request_hosts.length > 0) {
+      runtime.api_request_hosts = netState.api_request_hosts;
+    }
+    if (netState.api_request_write_hosts.length > 0) {
+      runtime.api_request_write_hosts = netState.api_request_write_hosts;
     }
     if (Object.keys(runtime).length > 0) {
       req.runtime = runtime;
@@ -336,6 +347,15 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                 <PolicyProfilePanel
                   value={policyProfile ?? undefined}
                   onChange={setPolicyProfile}
+                />
+
+                <NetworkCapabilitySection
+                  profileTemplate={policyProfile?.template_name ?? null}
+                  apiRequestHosts={netState.api_request_hosts}
+                  apiRequestWriteHosts={netState.api_request_write_hosts}
+                  onChange={(patch) =>
+                    setNetState((prev) => ({ ...prev, ...patch }))
+                  }
                 />
               </>
             ),

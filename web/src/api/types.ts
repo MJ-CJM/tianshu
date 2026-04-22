@@ -42,6 +42,8 @@ export interface EdictRuntime {
   cost_budget_cny: number | null;
   approval_required_tools: string[];
   policy_profile?: EdictPolicyProfile | null;
+  api_request_hosts?: string[];
+  api_request_write_hosts?: string[];
 }
 
 export interface ArtifactRef {
