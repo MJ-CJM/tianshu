@@ -1,16 +1,22 @@
 """鸿胪寺相关 API — 权威的运行时状态查询。
 
-当前提供：engine provider key 的真实绑定快照（启动期捕获）。
+当前提供：engine provider key 的真实绑定快照（启动期捕获）
++ 系统级引擎偏好 (fetch_chain / search_provider / fallback_mode)。
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from tianshu.tools.hongluisi.engine_registry import (
     get_provider_sources,
     get_registered_fetch_engines,
     get_registered_search_providers,
+)
+from tianshu.tools.policy_profile import (
+    get_system_engine_overrides,
+    set_system_engine_overrides,
 )
 
 hongluisi_router = APIRouter(prefix="/hongluisi", tags=["hongluisi"])
@@ -28,3 +34,46 @@ def engine_status() -> dict:
         "fetch_engines": sorted(get_registered_fetch_engines()),
         "search_providers": sorted(get_registered_search_providers()),
     }
+
+
+class EnginePreferencesPayload(BaseModel):
+    fetch_chain: list[str] = Field(default_factory=list)
+    search_provider: str | None = None  # "tavily" | "jina" | null
+    fallback_mode: str | None = None  # "none" | "on_error_or_empty" | null
+
+
+@hongluisi_router.get("/engine-preferences")
+def get_engine_preferences() -> dict:
+    """返回当前系统级引擎覆盖。空字段表示沿用 profile 预设。"""
+    return get_system_engine_overrides()
+
+
+@hongluisi_router.patch("/engine-preferences")
+def update_engine_preferences(
+    body: EnginePreferencesPayload, request: Request
+) -> dict:
+    """live 更新：写 DB + 刷缓存。无需重启。"""
+    storage = request.app.state.storage
+    # validate: fetch_chain 元素必须是已知 engine
+    ALLOWED_FETCH = {"local", "jina", "firecrawl"}
+    ALLOWED_SEARCH = {"tavily", "jina", None, ""}
+    ALLOWED_FALLBACK = {"none", "on_error_or_empty", None, ""}
+    bad_fetch = [e for e in body.fetch_chain if e not in ALLOWED_FETCH]
+    if bad_fetch:
+        raise HTTPException(400, f"unknown fetch engine(s): {bad_fetch}")
+    if body.search_provider not in ALLOWED_SEARCH:
+        raise HTTPException(400, f"unknown search provider: {body.search_provider}")
+    if body.fallback_mode not in ALLOWED_FALLBACK:
+        raise HTTPException(400, f"unknown fallback mode: {body.fallback_mode}")
+
+    storage.set_engine_preferences(
+        fetch_chain=body.fetch_chain,
+        search_provider=body.search_provider or None,
+        fallback_mode=body.fallback_mode or None,
+    )
+    set_system_engine_overrides(
+        fetch_chain=body.fetch_chain,
+        search_provider=body.search_provider or "",
+        fallback_mode=body.fallback_mode or "",
+    )
+    return get_system_engine_overrides()

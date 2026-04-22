@@ -97,6 +97,20 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("[tools] failed to load tool_switches; treating all as enabled")
 
+    # 系统默认引擎覆盖（可以在鸿胪寺页动态改，启动时从 DB 加载一次）
+    try:
+        from tianshu.tools.policy_profile import set_system_engine_overrides
+        prefs = storage.get_engine_preferences()
+        set_system_engine_overrides(
+            fetch_chain=prefs["fetch_chain"],
+            search_provider=prefs["search_provider"] or "",
+            fallback_mode=prefs["fallback_mode"] or "",
+        )
+        if any([prefs["fetch_chain"], prefs["search_provider"], prefs["fallback_mode"]]):
+            logger.info("[hongluisi] system engine overrides loaded: %s", prefs)
+    except Exception:
+        logger.exception("[hongluisi] failed to load engine_preferences; using profile defaults")
+
     # --- Skills ---
     builtin_skills_dir = Path(__file__).parent / "skills" / "builtin"
     workspace_path = (

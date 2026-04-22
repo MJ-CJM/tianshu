@@ -331,6 +331,14 @@ class Storage:
                     enabled    INTEGER NOT NULL DEFAULT 1,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS engine_preferences (
+                    id              TEXT PRIMARY KEY DEFAULT 'default',
+                    fetch_chain     TEXT NOT NULL DEFAULT '[]',   -- JSON array, 空数组 = 不覆盖
+                    search_provider TEXT,                          -- nullable, 空 = 不覆盖
+                    fallback_mode   TEXT,                          -- nullable ("none" / "on_error_or_empty"), 空 = 不覆盖
+                    updated_at      TEXT NOT NULL
+                );
             """)
 
     def _migrate(self) -> None:
@@ -2283,4 +2291,48 @@ class Storage:
                      enabled = excluded.enabled,
                      updated_at = excluded.updated_at""",
                 (tool_name, 1 if enabled else 0, now),
+            )
+
+    # --- engine preferences ---------------------------------------------
+
+    def get_engine_preferences(self) -> dict:
+        """返回 {fetch_chain: list, search_provider: str|None, fallback_mode: str|None};
+        无记录返回全空 (不覆盖 profile)。"""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT fetch_chain, search_provider, fallback_mode "
+                "FROM engine_preferences WHERE id='default'"
+            ).fetchone()
+        if row is None:
+            return {"fetch_chain": [], "search_provider": None, "fallback_mode": None}
+        try:
+            chain = json.loads(row["fetch_chain"] or "[]")
+        except Exception:
+            chain = []
+        return {
+            "fetch_chain": chain if isinstance(chain, list) else [],
+            "search_provider": row["search_provider"] or None,
+            "fallback_mode": row["fallback_mode"] or None,
+        }
+
+    def set_engine_preferences(
+        self,
+        *,
+        fetch_chain: list[str],
+        search_provider: str | None,
+        fallback_mode: str | None,
+    ) -> None:
+        from datetime import UTC, datetime
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT INTO engine_preferences
+                   (id, fetch_chain, search_provider, fallback_mode, updated_at)
+                   VALUES ('default', ?, ?, ?, ?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     fetch_chain = excluded.fetch_chain,
+                     search_provider = excluded.search_provider,
+                     fallback_mode = excluded.fallback_mode,
+                     updated_at = excluded.updated_at""",
+                (json.dumps(fetch_chain), search_provider, fallback_mode, now),
             )
