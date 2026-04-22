@@ -30,6 +30,14 @@ class EdictRuntimeRequest(BaseModel):
         default=None,
         description="Pin web_search to specific provider: tavily | jina",
     )
+    api_request_hosts: list[str] = Field(
+        default_factory=list,
+        description="允许 api_request 调用的 host 列表（读方法）",
+    )
+    api_request_write_hosts: list[str] = Field(
+        default_factory=list,
+        description="允许 api_request 写方法 (POST/PUT/DELETE/PATCH) 的 host；必须是 api_request_hosts 的子集",
+    )
 
 
 class EdictCreateRequest(BaseModel):

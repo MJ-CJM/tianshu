@@ -54,6 +54,14 @@ class EdictRuntime(BaseModel):
     # 2026-04-21 web access: 钉死 engine / provider，存在则强制关闭 fallback
     fetch_engine_override: str | None = None
     search_provider_override: str | None = None
+    api_request_hosts: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="允许 api_request 调用的 host 列表（读方法）",
+    )
+    api_request_write_hosts: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="允许 api_request 写方法 (POST/PUT/DELETE/PATCH) 的 host；必须 ⊆ api_request_hosts",
+    )
 
 
 class Edict(BaseModel):
