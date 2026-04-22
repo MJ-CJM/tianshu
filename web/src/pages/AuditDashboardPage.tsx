@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Button, Card, Row, Col, Statistic, Table, Tag, Tooltip, Timeline, Tabs, Space, Descriptions } from "antd";
+import { useCallback, useEffect, useState } from "react";
+import { Button, Card, Row, Col, Statistic, Table, Tag, Tooltip, Timeline, Tabs, Space, Descriptions, Select, Input } from "antd";
 import {
   ReloadOutlined,
   ThunderboltOutlined,
@@ -29,6 +29,8 @@ import {
 } from "../utils/constants";
 import type { EdictUsageRow, RecentAuditRow, ReviewPolicyInfo } from "../api/types";
 import apiClient from "../api/client";
+import { listNetworkEvents } from "../api/network_events";
+import type { NetworkEventRow } from "../api/types";
 
 interface HookEvent {
   id: string;
@@ -193,6 +195,153 @@ function PolicyDecisionsTab() {
         </Card>
       </Col>
     </Row>
+  );
+}
+
+function NetworkEventsTab() {
+  const [rows, setRows] = useState<NetworkEventRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [tool, setTool] = useState<string | undefined>(undefined);
+  const [host, setHost] = useState<string>("");
+  const [status, setStatus] = useState<"ok" | "error" | undefined>(undefined);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await listNetworkEvents({
+        limit: 200,
+        tool,
+        host: host.trim() || undefined,
+        status,
+      });
+      setRows(data);
+    } finally {
+      setLoading(false);
+    }
+  }, [tool, host, status]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const toolColors: Record<string, string> = {
+    web_fetch: "blue",
+    web_search: "cyan",
+    api_request: "geekblue",
+    web_extract: "purple",
+  };
+
+  const columns: ColumnsType<NetworkEventRow> = [
+    {
+      title: "时间",
+      dataIndex: "created_at",
+      width: 170,
+      render: (v: string) => formatTime(v),
+    },
+    {
+      title: "敕令",
+      dataIndex: "edict_title",
+      width: 180,
+      ellipsis: true,
+      render: (v: string | null, r) => (
+        <a onClick={() => (window.location.href = `/edicts/${r.edict_id}`)}>
+          {v || truncateId(r.edict_id)}
+        </a>
+      ),
+    },
+    {
+      title: "工具",
+      dataIndex: "tool",
+      width: 110,
+      render: (v: string) => <Tag color={toolColors[v] ?? "default"}>{v}</Tag>,
+    },
+    {
+      title: "Host",
+      dataIndex: "host",
+      ellipsis: true,
+      render: (v: string | null) => v ?? "—",
+    },
+    { title: "方法", dataIndex: "method", width: 80, render: (v) => v ?? "—" },
+    {
+      title: "HTTP",
+      dataIndex: "http_status",
+      width: 90,
+      render: (v: number | null, r: NetworkEventRow) => {
+        if (v == null) return r.is_error ? <Tag color="red">error</Tag> : "—";
+        return <Tag color={v < 400 ? "green" : "red"}>{v}</Tag>;
+      },
+    },
+    {
+      title: "字节",
+      dataIndex: "bytes_out",
+      width: 90,
+      render: (v: number | null) => (v == null ? "—" : v.toLocaleString()),
+    },
+    {
+      title: "凭证",
+      dataIndex: "credential_name",
+      width: 140,
+      render: (v: string | null) => v ?? "—",
+    },
+    {
+      title: "缓存",
+      dataIndex: "cached",
+      width: 70,
+      render: (v: boolean) => (v ? <Tag color="green">yes</Tag> : "—"),
+    },
+  ];
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+      <Card size="small">
+        <Space wrap>
+          <Select
+            placeholder="工具"
+            allowClear
+            style={{ width: 160 }}
+            value={tool}
+            onChange={setTool}
+            options={[
+              { value: "web_fetch", label: "web_fetch" },
+              { value: "web_search", label: "web_search" },
+              { value: "api_request", label: "api_request" },
+              { value: "web_extract", label: "web_extract" },
+            ]}
+          />
+          <Input
+            placeholder="host (精确匹配)"
+            style={{ width: 220 }}
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+            onPressEnter={reload}
+            allowClear
+          />
+          <Select
+            placeholder="状态"
+            allowClear
+            style={{ width: 120 }}
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: "ok", label: "成功" },
+              { value: "error", label: "失败" },
+            ]}
+          />
+          <Button onClick={reload} loading={loading}>
+            刷新
+          </Button>
+        </Space>
+      </Card>
+
+      <Table<NetworkEventRow>
+        rowKey="event_id"
+        columns={columns}
+        dataSource={rows}
+        loading={loading}
+        size="small"
+        pagination={{ pageSize: 50, showSizeChanger: false }}
+      />
+    </Space>
   );
 }
 
@@ -443,6 +592,11 @@ export default function AuditDashboardPage() {
               </Space>
             ),
             children: <HooksTab />,
+          },
+          {
+            key: "network",
+            label: "鸿胪寺访问",
+            children: <NetworkEventsTab />,
           },
           {
             key: "rules",

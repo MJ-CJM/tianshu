@@ -124,28 +124,6 @@ export default function CabinetPage() {
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <CabinetOverview cabinetPersonas={cabinetPersonas} />
 
-        <Card title="外部感知（鸿胪寺）" size="small">
-          <Space direction="vertical" style={{ width: "100%" }}>
-            <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-              读网页 / 关键词搜索 / 调第三方 API / 结构化抽取；凭证由藏兵阁加密托管，LLM 全程不可见。
-            </Typography.Paragraph>
-            <Space wrap>
-              <Tag color="blue">web_fetch</Tag>
-              <Tag color="blue">web_search</Tag>
-              <Tag color="geekblue">api_request</Tag>
-              <Tag color="purple">web_extract</Tag>
-            </Space>
-            <Space style={{ marginTop: 4 }}>
-              <Typography.Link href="/system?tab=external-creds">
-                管理外部凭证 →
-              </Typography.Link>
-              <Typography.Link href="/edicts" style={{ marginLeft: 12 }}>
-                在 Edict 中启用 →
-              </Typography.Link>
-            </Space>
-          </Space>
-        </Card>
-
         {/* 规划统计 */}
         <Card title="规划统计" size="small" loading={statsLoading}>
           {plannerStats && (
