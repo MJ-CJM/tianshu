@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import httpx
 
@@ -108,7 +107,9 @@ class JinaReaderEngine:
         )
 
 
-def build_jina_reader() -> JinaReaderEngine | None:
-    """按 env 构造；key 可选，无 key 也能用（20 req/min）。"""
-    key = os.getenv("TIANSHU_JINA_API_KEY")
+def build_jina_reader(store=None) -> JinaReaderEngine | None:
+    """DB-first / env fallback；key 可选，无 key 也能用（20 req/min）。"""
+    from tianshu.secrets import resolve_provider_key
+
+    key, _source = resolve_provider_key(store, "jina", "TIANSHU_JINA_API_KEY")
     return JinaReaderEngine(api_key=key)

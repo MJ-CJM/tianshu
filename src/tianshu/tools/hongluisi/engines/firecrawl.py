@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import httpx
 
@@ -91,8 +90,13 @@ class FirecrawlEngine:
         )
 
 
-def build_firecrawl() -> FirecrawlEngine | None:
-    key = os.getenv("TIANSHU_FIRECRAWL_API_KEY")
+def build_firecrawl(store=None) -> FirecrawlEngine | None:
+    """DB-first / env fallback；无 key 时返回 None，上层不注册该引擎。"""
+    from tianshu.secrets import resolve_provider_key
+
+    key, _source = resolve_provider_key(
+        store, "firecrawl", "TIANSHU_FIRECRAWL_API_KEY"
+    )
     if not key:
         return None
     return FirecrawlEngine(api_key=key)

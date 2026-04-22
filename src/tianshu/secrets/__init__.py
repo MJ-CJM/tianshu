@@ -14,7 +14,7 @@ from tianshu.secrets.models import (
     CredentialUpdate,
     CredentialView,
 )
-from tianshu.secrets.store import CredentialStore
+from tianshu.secrets.store import CredentialStore, resolve_provider_key
 from tianshu.secrets.vault import SecretVault, get_vault
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "CredentialUpdate",
     "CredentialView",
     "CredentialStore",
+    "resolve_provider_key",
     "SecretVault",
     "get_vault",
     "CredentialConflict",

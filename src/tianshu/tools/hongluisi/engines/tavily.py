@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 import httpx
 
@@ -57,8 +56,11 @@ class TavilySearchEngine:
         return SearchOutcome(results=tuple(results), raw_api_meta=meta)
 
 
-def build_tavily() -> TavilySearchEngine | None:
-    key = os.getenv("TIANSHU_TAVILY_API_KEY")
+def build_tavily(store=None) -> TavilySearchEngine | None:
+    """DB-first / env fallback；无 key 时返回 None，上层不注册该 provider。"""
+    from tianshu.secrets import resolve_provider_key
+
+    key, _source = resolve_provider_key(store, "tavily", "TIANSHU_TAVILY_API_KEY")
     if not key:
         return None
     return TavilySearchEngine(api_key=key)

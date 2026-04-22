@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -67,8 +66,13 @@ class FirecrawlExtractEngine:
         return ExtractOutcome(body.get("data"), "ok", None, resp.status_code)
 
 
-def build_firecrawl_extract() -> FirecrawlExtractEngine | None:
-    key = os.getenv("TIANSHU_FIRECRAWL_API_KEY")
+def build_firecrawl_extract(store=None) -> FirecrawlExtractEngine | None:
+    """DB-first / env fallback；与 firecrawl fetch 共用一把 key。"""
+    from tianshu.secrets import resolve_provider_key
+
+    key, _source = resolve_provider_key(
+        store, "firecrawl", "TIANSHU_FIRECRAWL_API_KEY"
+    )
     if not key:
         return None
     return FirecrawlExtractEngine(api_key=key)

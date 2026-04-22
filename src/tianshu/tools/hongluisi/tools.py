@@ -337,9 +337,11 @@ def register_hongluisi(
     *,
     api_engine=None,
     extract_engine=None,
+    credential_store=None,
 ) -> None:
-    """启动期调用一次。edict_getter 从 ambient.py 注入。"""
-    fetch_engines, search_providers = build_engines()
+    """启动期调用一次。edict_getter 从 ambient.py 注入。
+    credential_store 可选，传入后 engine 工厂会 DB-first 读 provider key。"""
+    fetch_engines, search_providers = build_engines(credential_store)
 
     _register_web_fetch(registry, fetch_engines, edict_getter)
     if search_providers:

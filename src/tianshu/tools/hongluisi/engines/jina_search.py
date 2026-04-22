@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from urllib.parse import quote_plus
 
 import httpx
@@ -53,6 +52,9 @@ class JinaSearchEngine:
         )
 
 
-def build_jina_search() -> JinaSearchEngine | None:
-    key = os.getenv("TIANSHU_JINA_API_KEY")
+def build_jina_search(store=None) -> JinaSearchEngine | None:
+    """DB-first / env fallback；key 可选，无 key 也能用（unauthed 模式）。"""
+    from tianshu.secrets import resolve_provider_key
+
+    key, _source = resolve_provider_key(store, "jina", "TIANSHU_JINA_API_KEY")
     return JinaSearchEngine(api_key=key)

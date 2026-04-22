@@ -21,23 +21,28 @@ _fetch_engines: dict[str, FetchEngine] = {}
 _search_engines: dict[str, SearchEngine] = {}
 
 
-def build_engines() -> tuple[dict[str, FetchEngine], dict[str, SearchEngine]]:
-    """启动期构造；之后 get_registered_* 只读。"""
+def build_engines(
+    store=None,
+) -> tuple[dict[str, FetchEngine], dict[str, SearchEngine]]:
+    """启动期构造；之后 get_registered_* 只读。
+
+    store: 可选 CredentialStore，提供则 DB-first 读 provider key，否则走 env。
+    """
     global _fetch_engines, _search_engines
 
     fetch: dict[str, FetchEngine] = {"local": LocalFetchEngine()}
-    jina_r = build_jina_reader()
+    jina_r = build_jina_reader(store)
     if jina_r:
         fetch["jina"] = jina_r
-    fc = build_firecrawl()
+    fc = build_firecrawl(store)
     if fc:
         fetch["firecrawl"] = fc
 
     search: dict[str, SearchEngine] = {}
-    tv = build_tavily()
+    tv = build_tavily(store)
     if tv:
         search["tavily"] = tv
-    js = build_jina_search()
+    js = build_jina_search(store)
     if js:
         search["jina"] = js
 

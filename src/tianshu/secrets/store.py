@@ -156,3 +156,30 @@ class CredentialStore:
 
     def mark_used(self, cred_id: str) -> None:
         self._storage.mark_credential_used(cred_id, _now_iso())
+
+
+def resolve_provider_key(
+    store: "CredentialStore | None",
+    provider_name: str,
+    env_var: str,
+) -> tuple[str | None, str]:
+    """返回 (api_key, source)；source ∈ {'db','env','none'}。
+
+    DB 配置优先 → env 回落 → None。解密失败不抛，记日志回落 env。
+    """
+    import os
+
+    if store is not None:
+        cred = store.find_for_provider(provider_name)
+        if cred is not None:
+            try:
+                return store.decrypt_value(cred), "db"
+            except Exception:
+                logger.exception(
+                    "decrypt provider '%s' failed, falling back to env",
+                    provider_name,
+                )
+    key = os.getenv(env_var)
+    if key:
+        return key, "env"
+    return None, "none"
