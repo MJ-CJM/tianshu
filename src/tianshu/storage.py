@@ -306,6 +306,22 @@ class Storage:
 
                 CREATE INDEX IF NOT EXISTS idx_session_rules_edict
                     ON session_rules(edict_id);
+
+                CREATE TABLE IF NOT EXISTS network_credentials (
+                    id              TEXT PRIMARY KEY,
+                    name            TEXT NOT NULL UNIQUE,
+                    host_pattern    TEXT NOT NULL,
+                    header_template TEXT NOT NULL,
+                    extra_headers   TEXT NOT NULL DEFAULT '{}',
+                    encrypted_value BLOB NOT NULL,
+                    created_at      TEXT NOT NULL,
+                    updated_at      TEXT NOT NULL,
+                    last_used_at    TEXT,
+                    deleted_at      TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_netcreds_host ON network_credentials(host_pattern);
+                CREATE INDEX IF NOT EXISTS idx_netcreds_name ON network_credentials(name);
             """)
 
     def _migrate(self) -> None:
@@ -2018,3 +2034,88 @@ class Storage:
             m.dag_node_id,
             m.persona_id,
         )
+
+    def insert_credential(
+        self,
+        *,
+        cred_id: str,
+        name: str,
+        host_pattern: str,
+        header_template: str,
+        extra_headers_json: str,
+        encrypted_value: bytes,
+        now_iso: str,
+    ) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT INTO network_credentials
+                   (id, name, host_pattern, header_template, extra_headers,
+                    encrypted_value, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (cred_id, name, host_pattern, header_template,
+                 extra_headers_json, encrypted_value, now_iso, now_iso),
+            )
+
+    def list_credentials(self) -> list[sqlite3.Row]:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM network_credentials WHERE deleted_at IS NULL "
+                "ORDER BY name"
+            )
+            return cur.fetchall()
+
+    def get_credential_by_id(self, cred_id: str) -> sqlite3.Row | None:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM network_credentials WHERE id=? AND deleted_at IS NULL",
+                (cred_id,),
+            )
+            return cur.fetchone()
+
+    def find_credentials_by_host(self, host: str) -> list[sqlite3.Row]:
+        """返回所有可能匹配此 host 的凭证（literal + 通配）。匹配排序在上层做。"""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM network_credentials "
+                "WHERE deleted_at IS NULL "
+                "AND (host_pattern=? OR host_pattern LIKE '*.%')",
+                (host,),
+            )
+            return cur.fetchall()
+
+    def update_credential(
+        self,
+        cred_id: str,
+        *,
+        encrypted_value: bytes | None = None,
+        extra_headers_json: str | None = None,
+        now_iso: str,
+    ) -> None:
+        sets = ["updated_at=?"]
+        params: list[object] = [now_iso]
+        if encrypted_value is not None:
+            sets.append("encrypted_value=?")
+            params.append(encrypted_value)
+        if extra_headers_json is not None:
+            sets.append("extra_headers=?")
+            params.append(extra_headers_json)
+        params.append(cred_id)
+        with self._lock, self._conn:
+            self._conn.execute(
+                f"UPDATE network_credentials SET {', '.join(sets)} WHERE id=?",
+                params,
+            )
+
+    def mark_credential_used(self, cred_id: str, now_iso: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE network_credentials SET last_used_at=? WHERE id=?",
+                (now_iso, cred_id),
+            )
+
+    def soft_delete_credential(self, cred_id: str, now_iso: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE network_credentials SET deleted_at=? WHERE id=?",
+                (now_iso, cred_id),
+            )
