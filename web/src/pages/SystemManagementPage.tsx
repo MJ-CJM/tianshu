@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Tabs,
   Table,
@@ -1455,6 +1456,7 @@ function GlobalConfigTab() {
 // ==================== Tab: External Credentials ====================
 
 function ExternalCredentialsTab() {
+  const qc = useQueryClient();
   const [kind, setKind] = useState<"edict_auth" | "engine_provider">(
     "edict_auth",
   );
@@ -1509,11 +1511,15 @@ function ExternalCredentialsTab() {
       }
       await createCredential(payload);
       notification.success({
-        message: kind === "edict_auth" ? "凭证已创建" : "已创建，重启后台生效",
+        message:
+          kind === "edict_auth" ? "凭证已创建" : "已创建，立即生效",
       });
       setModalOpen(false);
       form.resetFields();
       reload();
+      if (kind === "engine_provider") {
+        qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
+      }
     } catch (e: any) {
       notification.error({
         message: "创建失败",
@@ -1527,6 +1533,9 @@ function ExternalCredentialsTab() {
       await deleteCredential(id);
       notification.success({ message: "凭证已删除" });
       reload();
+      if (kind === "engine_provider") {
+        qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
+      }
     } catch (e: any) {
       notification.error({
         message: "删除失败",
@@ -1593,7 +1602,7 @@ function ExternalCredentialsTab() {
       key: "actions",
       render: (_: unknown, row: Credential) => (
         <Popconfirm
-          title="删除此 provider key？重启后对应引擎降级（回落 env 或关闭）。"
+          title="删除此 provider key？对应引擎立即降级（回落 env 或关闭）。"
           onConfirm={() => onDelete(row.id)}
         >
           <Button size="small" danger icon={<DeleteOutlined />}>
@@ -1689,7 +1698,7 @@ function ExternalCredentialsTab() {
         <Alert
           type="info"
           message="引擎配置用于给 web_fetch / web_search / web_extract 使用的 Jina / Tavily / Firecrawl 服务传入 API Key。"
-          description="DB 里配置后优先使用；没有则回落 .env；修改后需要重启后台生效。"
+          description="DB 里配置后优先使用；没有则回落 .env；修改后立即生效（后端 live rebuild）。"
           showIcon
           style={{ marginBottom: 8 }}
         />
