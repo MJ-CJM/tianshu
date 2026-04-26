@@ -239,6 +239,21 @@ async def run(
                 "outer_loop.escalated",
                 {"to": decision, "iteration": state.iteration},
             )
+            if decision == "L2" and ctx.consultation_session is not None:
+                try:
+                    advice = await _run_consultation(
+                        edict, state, ctx, memorial,
+                    )
+                    if advice:
+                        state = state.with_consultation_advice(advice)
+                except Exception as e:
+                    logger.exception("consultation 调用失败，跳过 L2 直接升 L3")
+                    await emit_audit(
+                        ctx.bus, ctx.storage, edict.id, memorial.id,
+                        "outer_loop.escalated",
+                        {"from": "L2", "to": "L3", "reason": f"consultation failed: {e}"},
+                    )
+                    state = state.with_level("L3")
 
     return await _handle_exhaustion(state, edict, ctx, memorial)
 
@@ -283,3 +298,50 @@ async def _handle_exhaustion(
         state=state,
         error="exhausted, escalation not yet wired (Task 12)",
     )
+
+
+async def _run_consultation(
+    edict: Edict,
+    state: OuterLoopState,
+    ctx: OrchestratorContext,
+    memorial: Memorial,
+) -> str | None:
+    """触发跨部协商 —— 复用现有 ConsultationSession，仅返回建议文本。"""
+    if ctx.consultation_session is None:
+        return None
+    acceptance = edict.acceptance
+    assert acceptance is not None
+
+    last = state.history[-1] if state.history else None
+    last_output = last.actor_output[:2000] if last else "(no history)"
+    last_feedback = (
+        last.critic_result.feedback
+        if last and last.critic_result else "(no critic feedback)"
+    )
+
+    topic = (
+        f"长任务 outer loop 升级到 L2，请协助审视：\n\n"
+        f"# Edict goal\n{edict.goal}\n\n"
+        f"# 上一轮 actor 输出\n{last_output}\n\n"
+        f"# critic 反馈\n{last_feedback}\n\n"
+        f"# 同类问题已连续打回 {state.same_issue_streak} 轮"
+    )
+
+    from tianshu.consultation.models import ConsultationRequest
+    req = ConsultationRequest(
+        topic=topic,
+        edict_id=edict.id,
+        persona_ids=acceptance.escalation.l2_consultation_personas,
+    )
+    resp = await ctx.consultation_session.start(req)
+
+    if resp is None:
+        return None
+    if getattr(resp, "synthesis", None):
+        return resp.synthesis
+    opinions = getattr(resp, "opinions", None)
+    if opinions:
+        return "\n\n".join(
+            f"- {op.persona_id}: {op.opinion}" for op in opinions
+        )
+    return None
