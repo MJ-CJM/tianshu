@@ -46,6 +46,7 @@ class Executor:
         self._lane_manager = None  # set via set_lane_manager()
         self._persona_loader = None  # set via set_persona_loader()
         self._running_tasks: set[asyncio.Task] = set()
+        self._orchestrator_ctx = None  # set via set_orchestrator_context()
 
     def set_agent(self, agent: object) -> None:
         self._agent = agent
@@ -58,6 +59,10 @@ class Executor:
 
     def set_persona_loader(self, persona_loader: object) -> None:
         self._persona_loader = persona_loader
+
+    def set_orchestrator_context(self, orch_ctx: object) -> None:
+        """注入 orchestrator 依赖（agent/storage/bus/llms/...）。"""
+        self._orchestrator_ctx = orch_ctx
 
     @property
     def running_tasks(self) -> set[asyncio.Task]:
@@ -80,6 +85,17 @@ class Executor:
         # Recover memorial created at submission time
         memorial_id = event.memorial_id
         memorial = self._storage.get_memorial(memorial_id) if memorial_id else None
+
+        # 长任务 outer loop 路径（仅当 edict.acceptance 不为 None 且 ctx 已注入）
+        if edict.acceptance is not None and self._orchestrator_ctx is not None:
+            logger.info(
+                "[EXEC] Edict %s: 走 orchestrator outer loop 路径（profile=%s）",
+                edict.id, edict.execution_profile,
+            )
+            task = asyncio.create_task(self._execute_outer_loop(edict, memorial))
+            self._running_tasks.add(task)
+            task.add_done_callback(self._running_tasks.discard)
+            return
 
         # Multi-task plan → DAG execution
         if plan and len(plan.tasks) > 1 and self._dag_scheduler:
@@ -136,6 +152,45 @@ class Executor:
         finally:
             if self._lane_manager:
                 self._lane_manager.remove_session(edict.id)
+
+    async def _execute_outer_loop(
+        self, edict: Edict, memorial: Memorial | None,
+    ) -> None:
+        """通过 orchestrator 跑长任务 outer loop。"""
+        from tianshu.executor.orchestrator import run as orch_run
+
+        if memorial is None:
+            memorial = Memorial(
+                edict_id=edict.id,
+                instruction=edict.goal,
+                status=TaskStatus.RUNNING,
+                started_at=datetime.now(UTC),
+            )
+            self._storage.save_memorial(memorial)
+        else:
+            memorial.status = TaskStatus.RUNNING
+            memorial.started_at = datetime.now(UTC)
+            self._storage.update_memorial(memorial)
+
+        try:
+            result = await orch_run(edict, memorial, self._orchestrator_ctx)
+            memorial.status = result.status
+            memorial.result = result.final_output
+            memorial.error = result.error
+        except Exception as e:
+            logger.exception("orchestrator failed for edict %s", edict.id)
+            memorial.status = TaskStatus.FAILED
+            memorial.error = f"orchestrator error: {e}"
+        finally:
+            memorial.completed_at = datetime.now(UTC)
+            self._storage.update_memorial(memorial)
+            await self._bus.emit(make_event(
+                "execution.completed" if memorial.status == TaskStatus.COMPLETED else "execution.failed",
+                edict_id=edict.id,
+                memorial_id=memorial.id,
+                producer="executor",
+                payload={"status": memorial.status.value, "error": memorial.error},
+            ))
 
     async def execute_edict(
         self,
