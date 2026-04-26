@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
@@ -22,6 +23,49 @@ from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ActorOverride:
+    """L1 升级时给 actor 的配置覆盖（v1 仅用 extra_system_msg；thinking_budget/model 是 TODO）。"""
+
+    thinking_budget: int | None = None
+    model: str | None = None
+    extra_system_msg: str | None = None  # critic feedback / consultation advice 注入
+
+
+def derive_actor_override(
+    state: OuterLoopState,
+    edict: Edict,
+) -> ActorOverride:
+    """根据当前 level 计算 actor 配置覆盖。"""
+    acceptance = edict.acceptance
+    assert acceptance is not None
+    esc = acceptance.escalation
+
+    # 拼 critic feedback 注入消息
+    extra_msg_parts: list[str] = []
+    if state.history:
+        last_record = state.history[-1]
+        if last_record.critic_result and last_record.critic_result.verdict == "fail":
+            extra_msg_parts.append(
+                f"上一轮 critic 反馈（issue_class={last_record.critic_result.issue_class}）：\n"
+                f"{last_record.critic_result.feedback}"
+            )
+            if last_record.critic_result.suggested_fix:
+                extra_msg_parts.append(f"建议修复：{last_record.critic_result.suggested_fix}")
+    if state.consultation_advice:
+        extra_msg_parts.append(f"九卿会议建议：\n{state.consultation_advice}")
+
+    extra = "\n\n".join(extra_msg_parts) if extra_msg_parts else None
+
+    if state.current_level == "L1":
+        return ActorOverride(
+            thinking_budget=esc.l1_thinking_budget,
+            model=esc.l1_model_upgrade,
+            extra_system_msg=extra,
+        )
+    return ActorOverride(extra_system_msg=extra)
 
 
 class OrchestratorContext:
@@ -90,7 +134,20 @@ async def run(
         )
 
         # 1. actor
-        actor_result = await ctx.agent.execute(edict, memorial=memorial)
+        override = derive_actor_override(state, edict)
+        # 把 critic feedback / consultation advice 注入到下一轮 user_content
+        augmented_content = edict.goal
+        if edict.context:
+            augmented_content += f"\n\nAdditional context: {edict.context}"
+        if override.extra_system_msg:
+            augmented_content += f"\n\n## 上一轮反馈与建议\n{override.extra_system_msg}"
+
+        # v1：thinking_budget / model 不传给 Agent（Agent 层暂不支持）
+        actor_result = await ctx.agent.execute(
+            edict,
+            memorial=memorial,
+            user_content=augmented_content,
+        )
         actor_output = actor_result.result or actor_result.summary or ""
         actor_cost = float(getattr(actor_result.usage, "cost_cny", 0.0) or 0.0)
 
