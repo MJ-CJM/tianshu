@@ -1,6 +1,7 @@
 """SQLite storage layer - system truth source."""
 
 import json
+import logging
 import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
@@ -23,6 +24,9 @@ from tianshu.models import (
     TaskStatus,
     UsageSummary,
 )
+from tianshu.models.acceptance import AcceptanceCriteria
+
+logger = logging.getLogger(__name__)
 
 # Deferred import to avoid circular deps
 _MemoryEntry = None
@@ -1991,10 +1995,12 @@ class Storage:
         acceptance = None
         if "acceptance_json" in keys and row["acceptance_json"]:
             try:
-                from tianshu.models.acceptance import AcceptanceCriteria
                 acceptance = AcceptanceCriteria.model_validate_json(row["acceptance_json"])
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Failed to deserialize acceptance_json for edict %s: %s",
+                    row["id"], exc,
+                )
 
         return Edict(
             id=row["id"],
