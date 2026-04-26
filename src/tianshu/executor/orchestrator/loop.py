@@ -254,6 +254,24 @@ async def run(
                         {"from": "L2", "to": "L3", "reason": f"consultation failed: {e}"},
                     )
                     state = state.with_level("L3")
+                    decision = "L3"  # 让下面的 L3 分支接到
+
+            if decision == "L3":
+                human_decision = await _escalate_to_human(state, edict, ctx, memorial)
+                state, edict, terminal = _apply_human_decision(state, human_decision, edict)
+                if terminal == "abort":
+                    return OrchestratorResult(
+                        status=TaskStatus.FAILED, final_output=None, state=state,
+                        error="aborted by human",
+                    )
+                if terminal == "accept_as_is":
+                    last = state.history[-1] if state.history else None
+                    return OrchestratorResult(
+                        status=TaskStatus.COMPLETED,
+                        final_output=last.actor_output if last else None,
+                        state=state,
+                    )
+                # else continue / modify_acceptance → 继续循环
 
     return await _handle_exhaustion(state, edict, ctx, memorial)
 
@@ -291,12 +309,25 @@ async def _handle_exhaustion(
             state=state,
             error="outer loop exhausted",
         )
-    # escalate → Task 12 加；当前 fallback 到 fail
+    if acceptance.on_exhaustion == "escalate":
+        state = state.with_level("L3")
+        decision = await _escalate_to_human(state, edict, ctx, memorial)
+        state, edict, terminal = _apply_human_decision(state, decision, edict)
+        if terminal == "abort":
+            return OrchestratorResult(
+                status=TaskStatus.FAILED, final_output=None, state=state,
+                error="exhausted + aborted",
+            )
+        # accept_as_is or None（continue/modify 在 exhausted 后无意义，按 accept 处理）
+        return OrchestratorResult(
+            status=TaskStatus.COMPLETED,
+            final_output=last_output,
+            state=state,
+        )
+    # 不应到达（其他 on_exhaustion 已在前面 return）
     return OrchestratorResult(
-        status=TaskStatus.FAILED,
-        final_output=last_output,
-        state=state,
-        error="exhausted, escalation not yet wired (Task 12)",
+        status=TaskStatus.FAILED, final_output=last_output, state=state,
+        error="unhandled on_exhaustion",
     )
 
 
@@ -345,3 +376,107 @@ async def _run_consultation(
             f"- {op.persona_id}: {op.opinion}" for op in opinions
         )
     return None
+
+
+from tianshu.executor.orchestrator.human_decision import HumanDecision  # noqa: E402
+
+
+async def _escalate_to_human(
+    state: OuterLoopState,
+    edict: Edict,
+    ctx: OrchestratorContext,
+    memorial: Memorial,
+) -> HumanDecision:
+    """发推送 + 等审批 —— duck-typed notifier + approvals 接口。"""
+    last = state.history[-1] if state.history else None
+    payload = {
+        "edict_id": edict.id,
+        "iteration": state.iteration,
+        "level": "L3",
+        "best_output": last.actor_output if last else None,
+        "critic_feedback": last.critic_result.feedback if last and last.critic_result else None,
+        "history_length": len(state.history),
+    }
+    await emit_audit(
+        ctx.bus, ctx.storage, edict.id, memorial.id,
+        "outer_loop.approval.requested", payload,
+    )
+
+    # 推送通知（如可用）
+    if ctx.notifier is not None:
+        try:
+            await ctx.notifier.notify(
+                channel="default",
+                title=f"长任务待审批 — Edict {edict.id[:8]}",
+                body=f"已迭代 {state.iteration} 轮仍未通过 critic，请审阅。",
+            )
+        except Exception:
+            logger.exception("notifier 推送失败，继续等审批")
+
+    # 等审批
+    if ctx.approvals is None:
+        # 无 approvals → 视为超时 → best_effort or abort（看 on_approval_timeout）
+        on_timeout = (
+            edict.acceptance.on_approval_timeout
+            if edict.acceptance else "best_effort"
+        )
+        return HumanDecision(action="accept_as_is" if on_timeout == "best_effort" else "abort")
+
+    timeout = (
+        edict.acceptance.deadline_seconds
+        if edict.acceptance and edict.acceptance.deadline_seconds
+        else 86400  # 默认 24h
+    )
+    try:
+        raw = await ctx.approvals.wait(
+            edict_id=edict.id,
+            timeout_seconds=timeout,
+        )
+        if isinstance(raw, dict):
+            decision = HumanDecision.model_validate(raw)
+        elif isinstance(raw, HumanDecision):
+            decision = raw
+        else:
+            # 其他可被 pydantic 接受的类（包括 mock 测试时直接返回的 HumanDecision）
+            decision = HumanDecision.model_validate(raw if isinstance(raw, dict) else raw.__dict__)
+    except Exception as e:
+        logger.warning("approval 超时 / 失败: %s", e)
+        on_timeout = (
+            edict.acceptance.on_approval_timeout
+            if edict.acceptance else "best_effort"
+        )
+        return HumanDecision(action="accept_as_is" if on_timeout == "best_effort" else "abort")
+
+    await emit_audit(
+        ctx.bus, ctx.storage, edict.id, memorial.id,
+        "outer_loop.approval.received", {"action": decision.action},
+    )
+    return decision
+
+
+def _apply_human_decision(
+    state: OuterLoopState,
+    decision: HumanDecision,
+    edict: Edict,
+) -> tuple[OuterLoopState, Edict, str | None]:
+    """根据 human decision 更新 state / edict，返回 (new_state, new_edict, terminal_action).
+    terminal_action: 'accept_as_is' | 'abort' | None（None=继续）。
+    """
+    from dataclasses import replace as dc_replace
+    if decision.action == "abort":
+        return state, edict, "abort"
+    if decision.action == "accept_as_is":
+        return state, edict, "accept_as_is"
+    if decision.action == "modify_acceptance":
+        new_edict = edict.model_copy(update={"acceptance": decision.new_acceptance})
+        new_state = state.with_level("L0")
+        new_state = dc_replace(new_state, same_issue_streak=0, last_critic_issue_class=None)
+        return new_state, new_edict, None
+    # continue: 把 feedback 注入下一轮（通过 consultation_advice 字段复用）
+    new_state = state.with_level("L0")
+    if decision.feedback:
+        new_state = new_state.with_consultation_advice(
+            f"用户审批反馈：{decision.feedback}"
+        )
+    new_state = dc_replace(new_state, same_issue_streak=0)
+    return new_state, edict, None
