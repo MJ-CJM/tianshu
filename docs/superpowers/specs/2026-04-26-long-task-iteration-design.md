@@ -522,11 +522,11 @@ test_outer_loop_modify_acceptance
 
 ## 8. 验收标准（本设计落地的）
 
-- [ ] 不带 `acceptance` 的 edict 行为与回归前完全一致（现有测试套全绿）
-- [ ] 带 `acceptance` 的 edict 能跑通 §7.3 列出的所有集成测试
-- [ ] 单元测试覆盖率 ≥ 80%（项目硬指标）
-- [ ] `outer_loop_iterations` 表有 30 天归档任务且能回放
-- [ ] L3 推送能到达通知通道，approval 四路径（continue / accept_as_is / abort / modify_acceptance）均可触达
+- [x] 不带 `acceptance` 的 edict 行为与回归前完全一致（现有测试套全绿）
+- [x] 带 `acceptance` 的 edict 能跑通 §7.3 列出的所有集成测试
+- [x] 单元测试覆盖率 ≥ 80%（项目硬指标）
+- [x] `outer_loop_iterations` 表有 30 天归档任务且能回放
+- [x] L3 推送能到达通知通道，approval 四路径（continue / accept_as_is / abort / modify_acceptance）均可触达
 
 ## 9. 显式不做（v1 范围外）
 
