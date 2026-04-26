@@ -76,3 +76,31 @@ class CheckpointManager:
         self._storage.update_dag_node_checkpoint(
             dag_execution_id, node_id, None,
         )
+
+
+class OuterLoopCheckpoint:
+    """outer loop 状态快照 —— per-edict（区别于 DAG node 的 Checkpoint）。"""
+
+    KIND = "outer_loop"
+
+    def __init__(self, edict_id: str, state_dict: dict, saved_at: str) -> None:
+        self.edict_id = edict_id
+        self.state_dict = state_dict
+        self.saved_at = saved_at
+
+    def to_json(self) -> str:
+        return json.dumps({
+            "kind": self.KIND,
+            "edict_id": self.edict_id,
+            "state": self.state_dict,
+            "saved_at": self.saved_at,
+        })
+
+    @classmethod
+    def from_json(cls, data: str) -> "OuterLoopCheckpoint":
+        d = json.loads(data)
+        return cls(
+            edict_id=d["edict_id"],
+            state_dict=d["state"],
+            saved_at=d["saved_at"],
+        )

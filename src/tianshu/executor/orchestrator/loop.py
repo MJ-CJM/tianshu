@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
+from tianshu.executor.checkpoint import OuterLoopCheckpoint
 from tianshu.executor.orchestrator.checks import ChecksConfigError, run_checks
 from tianshu.executor.orchestrator.critic import CriticUnavailable, review
 from tianshu.executor.orchestrator.escalation import decide_escalation
@@ -110,6 +111,55 @@ class OrchestratorResult:
         self.error = error
 
 
+def _state_to_dict(state: OuterLoopState) -> dict:
+    """frozen dataclass → JSON 友好的 dict。注意 history 不存（已通过 outer_loop_iterations 表持久化）。"""
+    return {
+        "edict_id": state.edict_id,
+        "iteration": state.iteration,
+        "current_level": state.current_level,
+        "same_issue_streak": state.same_issue_streak,
+        "last_critic_issue_class": state.last_critic_issue_class,
+        "l1_rounds_used": state.l1_rounds_used,
+        "l2_rounds_used": state.l2_rounds_used,
+        "consultation_advice": state.consultation_advice,
+        "total_cost_cny": state.total_cost_cny,
+    }
+
+
+def _state_from_dict(d: dict) -> OuterLoopState:
+    return OuterLoopState(
+        edict_id=d["edict_id"],
+        iteration=d["iteration"],
+        current_level=d["current_level"],
+        same_issue_streak=d["same_issue_streak"],
+        last_critic_issue_class=d.get("last_critic_issue_class"),
+        l1_rounds_used=d["l1_rounds_used"],
+        l2_rounds_used=d["l2_rounds_used"],
+        consultation_advice=d.get("consultation_advice"),
+        total_cost_cny=d["total_cost_cny"],
+        history=(),  # resume 时不重建 history
+    )
+
+
+def _save_checkpoint(ctx: "OrchestratorContext", state: OuterLoopState) -> None:
+    cp = OuterLoopCheckpoint(
+        edict_id=state.edict_id,
+        state_dict=_state_to_dict(state),
+        saved_at=datetime.now(UTC).isoformat(),
+    )
+    ctx.storage.save_outer_loop_checkpoint(
+        state.edict_id, cp.to_json(), cp.saved_at,
+    )
+
+
+def _load_checkpoint(ctx: "OrchestratorContext", edict_id: str) -> OuterLoopState | None:
+    raw = ctx.storage.get_outer_loop_checkpoint(edict_id)
+    if not raw:
+        return None
+    cp = OuterLoopCheckpoint.from_json(raw)
+    return _state_from_dict(cp.state_dict)
+
+
 async def run(
     edict: Edict,
     memorial: Memorial,
@@ -118,7 +168,19 @@ async def run(
     """outer loop 主入口。要求 edict.acceptance is not None。"""
     assert edict.acceptance is not None, "orchestrator.run 要求 acceptance 不为 None"
     acceptance = edict.acceptance
-    state = OuterLoopState(edict_id=edict.id)
+
+    # Resume：仅 checkpointed/background profile 启用
+    if edict.execution_profile in ("checkpointed", "background"):
+        resumed = _load_checkpoint(ctx, edict.id)
+        state = resumed if resumed else OuterLoopState(edict_id=edict.id)
+        if resumed:
+            await emit_audit(
+                ctx.bus, ctx.storage, edict.id, memorial.id,
+                "outer_loop.resumed",
+                {"iteration": state.iteration, "level": state.current_level},
+            )
+    else:
+        state = OuterLoopState(edict_id=edict.id)
 
     await emit_audit(
         ctx.bus, ctx.storage, edict.id, memorial.id,
@@ -157,6 +219,7 @@ async def run(
                 acceptance.checks, actor_output, ctx.actor_llm,
             )
         except ChecksConfigError as e:
+            ctx.storage.clear_outer_loop_checkpoint(edict.id)
             return OrchestratorResult(
                 status=TaskStatus.FAILED,
                 final_output=None,
@@ -219,6 +282,7 @@ async def run(
                 "outer_loop.completed",
                 {"iterations": state.iteration, "total_cost": state.total_cost_cny},
             )
+            ctx.storage.clear_outer_loop_checkpoint(edict.id)
             return OrchestratorResult(
                 status=TaskStatus.COMPLETED,
                 final_output=actor_output,
@@ -260,18 +324,24 @@ async def run(
                 human_decision = await _escalate_to_human(state, edict, ctx, memorial)
                 state, edict, terminal = _apply_human_decision(state, human_decision, edict)
                 if terminal == "abort":
+                    ctx.storage.clear_outer_loop_checkpoint(edict.id)
                     return OrchestratorResult(
                         status=TaskStatus.FAILED, final_output=None, state=state,
                         error="aborted by human",
                     )
                 if terminal == "accept_as_is":
                     last = state.history[-1] if state.history else None
+                    ctx.storage.clear_outer_loop_checkpoint(edict.id)
                     return OrchestratorResult(
                         status=TaskStatus.COMPLETED,
                         final_output=last.actor_output if last else None,
                         state=state,
                     )
                 # else continue / modify_acceptance → 继续循环
+
+        # checkpoint（仅 checkpointed/background）
+        if edict.execution_profile in ("checkpointed", "background"):
+            _save_checkpoint(ctx, state)
 
     return await _handle_exhaustion(state, edict, ctx, memorial)
 
@@ -296,6 +366,7 @@ async def _handle_exhaustion(
     )
     last_output = state.history[-1].actor_output if state.history else None
     if acceptance.on_exhaustion == "best_effort":
+        ctx.storage.clear_outer_loop_checkpoint(edict.id)
         return OrchestratorResult(
             status=TaskStatus.COMPLETED,
             final_output=last_output,
@@ -303,6 +374,7 @@ async def _handle_exhaustion(
             error="exhausted, returning best effort",
         )
     if acceptance.on_exhaustion == "fail":
+        ctx.storage.clear_outer_loop_checkpoint(edict.id)
         return OrchestratorResult(
             status=TaskStatus.FAILED,
             final_output=None,
@@ -314,17 +386,20 @@ async def _handle_exhaustion(
         decision = await _escalate_to_human(state, edict, ctx, memorial)
         state, edict, terminal = _apply_human_decision(state, decision, edict)
         if terminal == "abort":
+            ctx.storage.clear_outer_loop_checkpoint(edict.id)
             return OrchestratorResult(
                 status=TaskStatus.FAILED, final_output=None, state=state,
                 error="exhausted + aborted",
             )
         # accept_as_is or None（continue/modify 在 exhausted 后无意义，按 accept 处理）
+        ctx.storage.clear_outer_loop_checkpoint(edict.id)
         return OrchestratorResult(
             status=TaskStatus.COMPLETED,
             final_output=last_output,
             state=state,
         )
     # 不应到达（其他 on_exhaustion 已在前面 return）
+    ctx.storage.clear_outer_loop_checkpoint(edict.id)
     return OrchestratorResult(
         status=TaskStatus.FAILED, final_output=last_output, state=state,
         error="unhandled on_exhaustion",

@@ -362,6 +362,12 @@ class Storage:
 
                 CREATE INDEX IF NOT EXISTS idx_outer_loop_archive
                     ON outer_loop_iterations(finished_at) WHERE archived_at IS NULL;
+
+                CREATE TABLE IF NOT EXISTS outer_loop_checkpoints (
+                    edict_id    TEXT PRIMARY KEY,
+                    data_json   TEXT NOT NULL,
+                    saved_at    TEXT NOT NULL
+                );
             """)
 
     def _migrate(self) -> None:
@@ -2434,3 +2440,26 @@ class Storage:
                 SET actor_output = NULL, archived_at = ?
                 WHERE id = ?
             """, (archived_at, iteration_id))
+
+    # --- outer loop checkpoints ------------------------------------------
+
+    def save_outer_loop_checkpoint(self, edict_id: str, data_json: str, saved_at: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("""
+                INSERT INTO outer_loop_checkpoints (edict_id, data_json, saved_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(edict_id) DO UPDATE SET data_json=excluded.data_json, saved_at=excluded.saved_at
+            """, (edict_id, data_json, saved_at))
+
+    def get_outer_loop_checkpoint(self, edict_id: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT data_json FROM outer_loop_checkpoints WHERE edict_id = ?",
+            (edict_id,),
+        ).fetchone()
+        return row["data_json"] if row else None
+
+    def clear_outer_loop_checkpoint(self, edict_id: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "DELETE FROM outer_loop_checkpoints WHERE edict_id = ?", (edict_id,),
+            )
