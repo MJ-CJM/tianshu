@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from ulid import ULID
 
+from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import EdictStatus
 
 
@@ -85,4 +86,6 @@ class Edict(BaseModel):
     assigned_persona_id: str | None = None  # None = 内阁决策; 具体 ID = 直接指派
     planner_persona_id: str | None = None  # None = 全局配置规划; 具体 ID = 指定内阁 persona 的 LLM 配置
     plan_review: bool = False  # True = 规划需人工审批后再执行
+    acceptance: AcceptanceCriteria | None = None
+    execution_profile: Literal["foreground", "checkpointed", "background"] = "foreground"
     metadata: dict[str, Any] = Field(default_factory=dict)

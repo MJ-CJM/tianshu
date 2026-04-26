@@ -396,6 +396,9 @@ class Storage:
             "WHERE deleted_at IS NOT NULL AND name NOT LIKE '%__deleted_%'",
             # 2026-04-22: network_credentials 加 enabled 列（启停开关；disabled 视为未配置）
             "ALTER TABLE network_credentials ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
+            # 2026-04-26: 长任务 outer loop 字段
+            "ALTER TABLE edicts ADD COLUMN acceptance_json TEXT",
+            "ALTER TABLE edicts ADD COLUMN execution_profile TEXT NOT NULL DEFAULT 'foreground'",
         ]
         for sql in migrations:
             try:
@@ -463,6 +466,9 @@ class Storage:
     # --- Edict ---
 
     def save_edict(self, edict: Edict) -> None:
+        acceptance_json = (
+            edict.acceptance.model_dump_json() if edict.acceptance else None
+        )
         with self._lock, self._conn:
             self._conn.execute(
                 """INSERT INTO edicts
@@ -470,8 +476,8 @@ class Storage:
                     idempotency_key, source, submitter, priority, review_policy,
                     output_format, constraints_json, schedule_json, dispatch_json,
                     runtime_json, metadata_json, assigned_persona_id,
-                    planner_persona_id, plan_review)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    planner_persona_id, plan_review, acceptance_json, execution_profile)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     edict.id,
                     edict.title,
@@ -493,6 +499,8 @@ class Storage:
                     edict.assigned_persona_id,
                     edict.planner_persona_id,
                     int(edict.plan_review),
+                    acceptance_json,
+                    edict.execution_profile,
                 ),
             )
 
@@ -1980,6 +1988,14 @@ class Storage:
             except Exception:
                 pass
 
+        acceptance = None
+        if "acceptance_json" in keys and row["acceptance_json"]:
+            try:
+                from tianshu.models.acceptance import AcceptanceCriteria
+                acceptance = AcceptanceCriteria.model_validate_json(row["acceptance_json"])
+            except Exception:
+                pass
+
         return Edict(
             id=row["id"],
             title=row["title"] if "title" in keys else "",
@@ -1996,6 +2012,8 @@ class Storage:
             assigned_persona_id=row["assigned_persona_id"] if "assigned_persona_id" in keys else None,
             planner_persona_id=row["planner_persona_id"] if "planner_persona_id" in keys else None,
             plan_review=bool(row["plan_review"]) if "plan_review" in keys else False,
+            acceptance=acceptance,
+            execution_profile=row["execution_profile"] if "execution_profile" in keys else "foreground",
             constraints=constraints,
             schedule=schedule,
             dispatch=dispatch,
