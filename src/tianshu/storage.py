@@ -344,31 +344,25 @@ class Storage:
                     fallback_mode   TEXT,                          -- nullable ("none" / "on_error_or_empty"), 空 = 不覆盖
                     updated_at      TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS outer_loop_iterations (
+                    id              TEXT PRIMARY KEY,
+                    edict_id        TEXT NOT NULL,
+                    iteration       INTEGER NOT NULL,
+                    level           TEXT NOT NULL,
+                    actor_output    TEXT,
+                    checks_result   TEXT,
+                    critic_result   TEXT,
+                    cost_cny        REAL DEFAULT 0,
+                    started_at      TEXT NOT NULL,
+                    finished_at     TEXT NOT NULL,
+                    archived_at     TEXT,
+                    UNIQUE (edict_id, iteration)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_outer_loop_archive
+                    ON outer_loop_iterations(finished_at) WHERE archived_at IS NULL;
             """)
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS outer_loop_iterations (
-                id              TEXT PRIMARY KEY,
-                edict_id        TEXT NOT NULL,
-                iteration       INTEGER NOT NULL,
-                level           TEXT NOT NULL,
-                actor_output    TEXT,
-                checks_result   TEXT,
-                critic_result   TEXT,
-                cost_cny        REAL DEFAULT 0,
-                started_at      TEXT NOT NULL,
-                finished_at     TEXT NOT NULL,
-                archived_at     TEXT,
-                UNIQUE (edict_id, iteration)
-            )
-        """)
-        self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_outer_loop_edict
-                ON outer_loop_iterations(edict_id, iteration)
-        """)
-        self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_outer_loop_archive
-                ON outer_loop_iterations(finished_at) WHERE archived_at IS NULL
-        """)
 
     def _migrate(self) -> None:
         migrations = [
@@ -2399,19 +2393,19 @@ class Storage:
 
     def save_outer_loop_iteration(self, record: dict) -> None:
         """写入一条 outer loop iteration（dict 形式以避免循环 import）。"""
-        self._conn.execute("""
-            INSERT INTO outer_loop_iterations
-            (id, edict_id, iteration, level, actor_output, checks_result,
-             critic_result, cost_cny, started_at, finished_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(edict_id, iteration) DO NOTHING
-        """, (
-            record["id"], record["edict_id"], record["iteration"],
-            record["level"], record["actor_output"],
-            record["checks_result"], record["critic_result"],
-            record["cost_cny"], record["started_at"], record["finished_at"],
-        ))
-        self._conn.commit()
+        with self._lock, self._conn:
+            self._conn.execute("""
+                INSERT INTO outer_loop_iterations
+                (id, edict_id, iteration, level, actor_output, checks_result,
+                 critic_result, cost_cny, started_at, finished_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(edict_id, iteration) DO NOTHING
+            """, (
+                record["id"], record["edict_id"], record["iteration"],
+                record["level"], record["actor_output"],
+                record["checks_result"], record["critic_result"],
+                record["cost_cny"], record["started_at"], record["finished_at"],
+            ))
 
     def get_outer_loop_iterations(self, edict_id: str) -> list[dict]:
         """按 iteration 升序返回所有迭代记录。"""
@@ -2434,9 +2428,9 @@ class Storage:
 
     def archive_iteration(self, iteration_id: str, archived_at: str) -> None:
         """归档：actor_output 置 NULL，archived_at 写时间戳。"""
-        self._conn.execute("""
-            UPDATE outer_loop_iterations
-            SET actor_output = NULL, archived_at = ?
-            WHERE id = ?
-        """, (archived_at, iteration_id))
-        self._conn.commit()
+        with self._lock, self._conn:
+            self._conn.execute("""
+                UPDATE outer_loop_iterations
+                SET actor_output = NULL, archived_at = ?
+                WHERE id = ?
+            """, (archived_at, iteration_id))
