@@ -332,6 +332,22 @@ async def lifespan(app: FastAPI):
     )
     app.state.consultation = consultation
 
+    # --- OrchestratorContext for long-task outer loop ---
+    from tianshu.executor.orchestrator import OrchestratorContext
+    orch_ctx = OrchestratorContext(
+        agent=agent,
+        storage=storage,
+        bus=event_bus,
+        actor_llm=provider_manager.get_client(),
+        critic_llm=provider_manager.get_client(),
+        critic_fallback_llm=None,
+        consultation_session=consultation,
+        notifier=notifier,
+        approvals=None,  # v1：暂不接 ApprovalManager；no-acceptance 路径 / on_approval_timeout=best_effort 兜底
+    )
+    executor.set_orchestrator_context(orch_ctx)
+    app.state.orchestrator_ctx = orch_ctx
+
     # --- PerformanceEvaluator ---
     evaluator = PerformanceEvaluator(storage=storage)
     app.state.evaluator = evaluator
