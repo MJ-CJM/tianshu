@@ -282,6 +282,13 @@ async def run(
             user_content=augmented_content,
         )
         actor_output = actor_result.result or actor_result.summary or ""
+        # Actor 错误时把 error 信息暴露出来，让 critic + 监督报告能正确诊断（而非误判为 actor 偷懒）
+        if not actor_output and getattr(actor_result, "error", None):
+            actor_output = f"[ACTOR ERROR] {actor_result.error}"
+            logger.warning(
+                "[ORCH] edict %s iter %d: actor returned empty output with error: %s",
+                edict.id, state.iteration, actor_result.error,
+            )
         actor_cost = actor_result.usage.cost_cny if actor_result.usage else 0.0
 
         # 2. checks

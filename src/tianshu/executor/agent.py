@@ -297,6 +297,10 @@ class Agent:
                             error=str(e),
                         )
                 else:
+                    logger.exception(
+                        "[AGENT] Edict %s: iter %d LLM call failed (no fallback configured): %s",
+                        edict.id, state.iteration, e,
+                    )
                     return self._build_result(
                         state, ExitReason.LLM_ERROR,
                         usage=usage, events=events, recovery=recovery_attempts,
