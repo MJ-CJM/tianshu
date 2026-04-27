@@ -322,6 +322,61 @@ export default function EdictDetailPage() {
           ]}
         />
 
+        {edict.acceptance && (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: "10px 12px",
+              border: `1px solid ${token.colorPrimaryBorder}`,
+              background: token.colorPrimaryBg,
+              borderRadius: 6,
+            }}
+          >
+            <Space size="small" wrap>
+              <Tag color="purple" style={{ fontWeight: 600 }}>长任务模式</Tag>
+              <Tag color="blue">
+                profile: {edict.execution_profile ?? "foreground"}
+              </Tag>
+              <Tag>
+                最多 {edict.acceptance.max_outer_iterations ?? 5} 轮
+              </Tag>
+              {edict.acceptance.deadline_seconds && (
+                <Tag>
+                  截止 {Math.round(edict.acceptance.deadline_seconds / 60)}分钟
+                </Tag>
+              )}
+              <Tag color="orange">
+                耗尽 → {{
+                  escalate: "上报人工",
+                  best_effort: "取最近一轮",
+                  fail: "直接失败",
+                }[edict.acceptance.on_exhaustion ?? "escalate"]}
+              </Tag>
+              {edict.acceptance.checks && edict.acceptance.checks.length > 0 && (
+                <Tag color="cyan">
+                  {edict.acceptance.checks.length} 项 checks
+                </Tag>
+              )}
+              {(() => {
+                const ids = edict.acceptance.critic?.persona_ids ?? (edict.acceptance.critic?.persona_id ? [edict.acceptance.critic.persona_id] : []);
+                if (ids.length === 0) return null;
+                return (
+                  <span>
+                    <Typography.Text type="secondary" style={{ fontSize: 12, marginRight: 4 }}>
+                      监督官:
+                    </Typography.Text>
+                    {ids.map((pid) => (
+                      <Tag key={pid} color="magenta" style={{ marginRight: 4 }}>
+                        {pid}
+                      </Tag>
+                    ))}
+                  </span>
+                );
+              })()}
+            </Space>
+          </div>
+        )}
+
         {edict.constraints && edict.constraints.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12, marginRight: 8 }}>
