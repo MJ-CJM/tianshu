@@ -161,18 +161,29 @@ async def _review_single(
     for attempt in range(max_retries):
         try:
             resp = await llm.chat(messages=messages)
-            return _parse(resp.content or "")
+            result = _parse(resp.content or "")
+            raw_cost = getattr(resp.usage, "cost_cny", 0.0) if resp.usage else 0.0
+            cost = float(raw_cost) if isinstance(raw_cost, (int, float)) else 0.0
+            return _replace_cost(result, cost)
         except Exception as e:
             logger.warning("critic LLM attempt %d failed: %s", attempt, e)
             last_err = e
     if fallback_llm is not None:
         try:
             resp = await fallback_llm.chat(messages=messages)
-            return _parse(resp.content or "")
+            result = _parse(resp.content or "")
+            raw_cost = getattr(resp.usage, "cost_cny", 0.0) if resp.usage else 0.0
+            cost = float(raw_cost) if isinstance(raw_cost, (int, float)) else 0.0
+            return _replace_cost(result, cost)
         except Exception as e:
             logger.error("critic fallback also failed: %s", e)
             last_err = e
     raise CriticUnavailable(f"critic 全部尝试失败: {last_err}")
+
+
+def _replace_cost(r: CriticResult, cost: float) -> CriticResult:
+    from dataclasses import replace
+    return replace(r, cost_cny=cost)
 
 
 def _aggregate_results_all_must_pass(
@@ -186,13 +197,18 @@ def _aggregate_results_all_must_pass(
         # 没 critic（caller 应避免；保险返通过）
         return CriticResult(verdict="pass", feedback="(no critics)")
 
+    total_cost = sum(r.cost_cny for _, r in results)
     fails = [(pid, r) for pid, r in results if r.verdict == "fail"]
     if not fails:
         # 全过
         feedback = "\n".join(
             f"[{pid}] pass: {r.feedback}" for pid, r in results if r.feedback
         )
-        return CriticResult(verdict="pass", feedback=feedback or "all critics passed")
+        return CriticResult(
+            verdict="pass",
+            feedback=feedback or "all critics passed",
+            cost_cny=total_cost,
+        )
 
     # 任一 fail → 整体 fail
     issue_class = fails[0][1].issue_class or "other"
@@ -209,6 +225,7 @@ def _aggregate_results_all_must_pass(
         issue_class=issue_class,
         feedback="\n".join(feedback_parts),
         suggested_fix="\n".join(suggested_parts) if suggested_parts else None,
+        cost_cny=total_cost,
     )
 
 

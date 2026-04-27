@@ -289,7 +289,9 @@ async def run(
                 "[ORCH] edict %s iter %d: actor returned empty output with error: %s",
                 edict.id, state.iteration, actor_result.error,
             )
-        actor_cost = actor_result.usage.cost_cny if actor_result.usage else 0.0
+        raw_actor_cost = getattr(actor_result.usage, "cost_cny", 0.0) if actor_result.usage else 0.0
+        actor_cost = float(raw_actor_cost) if isinstance(raw_actor_cost, (int, float)) else 0.0
+        # 注：critic 调用的 cost 在下面 critic_result.cost_cny 上，会一并加入 record.cost_cny
 
         # 2. checks
         try:
@@ -336,7 +338,7 @@ async def run(
             critic_result=critic_result,
             started_at=iter_started,
             finished_at=datetime.now(UTC),
-            cost_cny=actor_cost,
+            cost_cny=actor_cost + (critic_result.cost_cny if critic_result else 0.0),
         )
         persist_iteration(ctx.storage, edict.id, record)
 

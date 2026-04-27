@@ -549,6 +549,8 @@ class Agent:
             prompt_tokens=total.prompt_tokens + delta.prompt_tokens,
             completion_tokens=total.completion_tokens + delta.completion_tokens,
             total_tokens=total.total_tokens + delta.total_tokens,
+            cache_read_tokens=total.cache_read_tokens + delta.cache_read_tokens,
+            cost_cny=total.cost_cny + delta.cost_cny,
         )
 
 

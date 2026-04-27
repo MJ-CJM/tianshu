@@ -30,6 +30,7 @@ class CriticResult:
     issue_class: str | None = None         # FAIL 时必填
     feedback: str = ""
     suggested_fix: str | None = None
+    cost_cny: float = 0.0                  # 多 critic 时为聚合后总成本
 
 
 @dataclass(frozen=True)
