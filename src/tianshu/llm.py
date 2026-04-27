@@ -89,6 +89,45 @@ def _add_cache_control(content: str | list | dict, marker: dict) -> list[dict]:
     return blocks
 
 
+def _extract_cache_read_tokens(usage_obj: object, model: str) -> int:
+    """从不同 provider 的 usage 对象提取 cache hit token 数。
+
+    多 provider 字段差异（litellm 没统一）：
+    - claude/anthropic: usage.cache_read_input_tokens
+    - deepseek:         usage.prompt_cache_hit_tokens
+    - openai/兼容:      usage.prompt_tokens_details.cached_tokens
+    - 其它:             0（保守）
+
+    用 getattr + dict.get 双路径访问（litellm Usage 对象有时是 pydantic、有时是 dict）。
+    """
+    if usage_obj is None:
+        return 0
+    model_lower = (model or "").lower()
+    base = model_lower.split("/")[-1] if "/" in model_lower else model_lower
+
+    def _get(obj: object, key: str, default: int = 0) -> int:
+        if obj is None:
+            return default
+        v = getattr(obj, key, None)
+        if v is None and isinstance(obj, dict):
+            v = obj.get(key)
+        return int(v) if v else default
+
+    # claude/anthropic 系列
+    if "claude" in base or "anthropic" in base:
+        return _get(usage_obj, "cache_read_input_tokens")
+    # deepseek 系列
+    if "deepseek" in base:
+        return _get(usage_obj, "prompt_cache_hit_tokens")
+    # openai/兼容（gpt、qwen-openai-compat 等）
+    details = getattr(usage_obj, "prompt_tokens_details", None)
+    if details is None and isinstance(usage_obj, dict):
+        details = usage_obj.get("prompt_tokens_details")
+    if details:
+        return _get(details, "cached_tokens")
+    return 0
+
+
 class LLMClient:
     def __init__(
         self,
@@ -100,6 +139,8 @@ class LLMClient:
         top_p: float = 1.0,
         max_tokens: int = 4096,
         timeout: int = 300,
+        provider_name: str | None = None,
+        pricing_override: tuple[float, float, float] | None = None,
     ) -> None:
         self._model = model
         self._api_key = api_key
@@ -109,6 +150,12 @@ class LLMClient:
         self._top_p = top_p
         self._max_tokens = max_tokens
         self._timeout = timeout
+        self._provider_name = provider_name
+        self._pricing_override = pricing_override
+
+    @property
+    def provider_name(self) -> str | None:
+        return self._provider_name
 
     @retry(
         wait=wait_exponential(min=1, max=4),
@@ -154,11 +201,17 @@ class LLMClient:
         if response.usage:
             pt = response.usage.prompt_tokens or 0
             ct = response.usage.completion_tokens or 0
+            cr = _extract_cache_read_tokens(response.usage, model)
             usage = UsageSummary(
                 prompt_tokens=pt,
                 completion_tokens=ct,
                 total_tokens=response.usage.total_tokens or 0,
-                cost_cny=estimate_cost(model, pt, ct),
+                cache_read_tokens=cr,
+                cost_cny=estimate_cost(
+                    model, pt, ct,
+                    cache_read_tokens=cr,
+                    provider_pricing=self._pricing_override,
+                ),
             )
 
         tool_calls = None
@@ -251,11 +304,17 @@ class LLMClient:
             if chunk.usage:
                 pt = chunk.usage.prompt_tokens or 0
                 ct = chunk.usage.completion_tokens or 0
+                cr = _extract_cache_read_tokens(chunk.usage, model)
                 usage = UsageSummary(
                     prompt_tokens=pt,
                     completion_tokens=ct,
                     total_tokens=chunk.usage.total_tokens or 0,
-                    cost_cny=estimate_cost(model, pt, ct),
+                    cache_read_tokens=cr,
+                    cost_cny=estimate_cost(
+                        model, pt, ct,
+                        cache_read_tokens=cr,
+                        provider_pricing=self._pricing_override,
+                    ),
                 )
 
         final_tool_calls = None

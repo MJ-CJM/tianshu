@@ -161,6 +161,10 @@ class ProviderManager:
         if config_name_override:
             cfg = self._config_manager.get_config(config_name_override)
             if cfg and cfg.enabled:
+                pricing = (
+                    self.get_effective_pricing(cfg.name)
+                    if self.get_provider(cfg.name) else None
+                )
                 return create_llm_client(
                     model=cfg.model,
                     api_key=cfg.api_key,
@@ -169,6 +173,8 @@ class ProviderManager:
                     temperature=cfg.temperature,
                     top_p=cfg.top_p,
                     max_tokens=cfg.max_tokens,
+                    provider_name=cfg.name,
+                    pricing_override=pricing,
                 )
             logger.warning(
                 "Persona LLM config '%s' not found or disabled, falling back",
@@ -215,11 +221,18 @@ class ProviderManager:
             temperature=state.temperature,
             top_p=state.top_p,
             max_tokens=state.max_tokens,
+            provider_name=selected.name,
+            pricing_override=self.get_effective_pricing(selected.name),
         )
 
     def _fallback_client(self) -> LLMClient:
         """Create LLMClient from ConfigManager's active config."""
         state = self._config_manager.state
+        # active config 通常也对应一个同名 provider；若有则注入 effective pricing
+        pricing = (
+            self.get_effective_pricing(state.name)
+            if self.get_provider(state.name) else None
+        )
         return LLMClient(
             model=state.model,
             api_key=state.api_key,
@@ -228,6 +241,8 @@ class ProviderManager:
             temperature=state.temperature,
             top_p=state.top_p,
             max_tokens=state.max_tokens,
+            provider_name=state.name,
+            pricing_override=pricing,
         )
 
     def record_usage(self, name: str, tokens: int = 0) -> None:
