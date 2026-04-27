@@ -84,6 +84,8 @@ export interface Edict {
   assigned_persona_id?: string | null;
   planner_persona_id?: string | null;
   plan_review?: boolean;
+  acceptance?: AcceptanceCriteria | null;
+  execution_profile?: ExecutionProfile;
 }
 
 export interface AuditResult {
@@ -124,6 +126,44 @@ export interface EdictEvent {
   payload: Record<string, unknown>;
 }
 
+export interface CheckSpec {
+  kind: "bash" | "lint" | "rubric";
+  name: string;
+  command?: string;
+  rubric?: string;
+  weight?: number;
+  pass_threshold?: number;
+  timeout_seconds?: number;
+}
+
+export interface CriticSpec {
+  persona_id?: string | null;
+  model?: string | null;
+  same_issue_threshold?: number;
+}
+
+export interface EscalationSpec {
+  enabled_levels?: ("L1" | "L2" | "L3")[];
+  l1_max_rounds?: number;
+  l2_max_rounds?: number;
+  l1_thinking_budget?: number;
+  l1_model_upgrade?: string | null;
+  l2_consultation_personas?: string[];
+}
+
+export interface AcceptanceCriteria {
+  checks?: CheckSpec[];
+  critic?: CriticSpec;
+  escalation?: EscalationSpec;
+  max_outer_iterations?: number;
+  deadline_seconds?: number | null;
+  on_exhaustion?: "escalate" | "best_effort" | "fail";
+  on_critic_unavailable?: "escalate" | "skip";
+  on_approval_timeout?: "fail" | "best_effort";
+}
+
+export type ExecutionProfile = "foreground" | "checkpointed" | "background";
+
 export interface EdictCreateRequest {
   goal: string;
   title?: string;
@@ -139,6 +179,22 @@ export interface EdictCreateRequest {
   assigned_persona_id?: string | null;
   planner_persona_id?: string | null;
   plan_review?: boolean;
+  acceptance?: AcceptanceCriteria | null;
+  execution_profile?: ExecutionProfile;
+}
+
+export interface OuterLoopIteration {
+  id: string;
+  edict_id: string;
+  iteration: number;
+  level: "L0" | "L1" | "L2" | "L3";
+  actor_output: string | null;
+  checks_result: string | null;  // JSON string
+  critic_result: string | null;  // JSON string
+  cost_cny: number;
+  started_at: string;
+  finished_at: string;
+  archived_at: string | null;
 }
 
 export interface EdictUpdateRequest {

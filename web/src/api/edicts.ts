@@ -1,5 +1,12 @@
 import apiClient from "./client";
-import type { ApiResponse, Edict, EdictCreateRequest, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent } from "./types";
+import type { ApiResponse, Edict, EdictCreateRequest, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent, OuterLoopIteration } from "./types";
+
+export async function getOuterLoopIterations(edictId: string): Promise<ApiResponse<OuterLoopIteration[]>> {
+  const { data } = await apiClient.get<ApiResponse<OuterLoopIteration[]>>(
+    `/edicts/${edictId}/iterations`,
+  );
+  return data;
+}
 
 export async function createEdict(body: EdictCreateRequest): Promise<ApiResponse<Edict>> {
   const { data } = await apiClient.post<ApiResponse<Edict>>(

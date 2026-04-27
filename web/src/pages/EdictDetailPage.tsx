@@ -10,6 +10,7 @@ import MonoText from "../components/common/MonoText";
 import MemorialCard from "../components/memorial/MemorialCard";
 import UsageDisplay from "../components/memorial/UsageDisplay";
 import EventTimeline from "../components/memorial/EventTimeline";
+import OuterLoopTimeline from "../components/edict/OuterLoopTimeline";
 import DecreeModal from "../components/decree/DecreeModal";
 import { PolicyTimeline } from "../components/policy/PolicyTimeline";
 import { useDagByEdict } from "../hooks/useDag";
@@ -590,6 +591,8 @@ export default function EdictDetailPage() {
       )}
 
       {events.length > 0 && <EventTimeline events={events} />}
+
+      {edictId && edict?.acceptance && <OuterLoopTimeline edictId={edictId} />}
 
       {edictId && <PolicyTimeline edictId={edictId} />}
 

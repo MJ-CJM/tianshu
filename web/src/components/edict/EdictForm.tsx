@@ -1,8 +1,14 @@
 import { useState } from "react";
-import { Form, Input, InputNumber, Button, Collapse, Select, Divider, Radio, Switch } from "antd";
-import { SendOutlined } from "@ant-design/icons";
+import { Form, Input, InputNumber, Button, Collapse, Select, Divider, Radio, Switch, Space, Card } from "antd";
+import { SendOutlined, MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { usePersonas } from "../../hooks/usePersonas";
-import type { EdictCreateRequest, EdictRuntime } from "../../api/types";
+import type {
+  AcceptanceCriteria,
+  CheckSpec,
+  EdictCreateRequest,
+  EdictRuntime,
+  ExecutionProfile,
+} from "../../api/types";
 import PolicyProfilePanel from "../policy/PolicyProfilePanel";
 import type { PolicyProfileValue } from "../policy/PolicyProfilePanel";
 import NetworkCapabilitySection from "./NetworkCapabilitySection";
@@ -18,6 +24,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
   const [assignMode, setAssignMode] = useState<"auto" | "direct">("auto");
   const [policyProfile, setPolicyProfile] =
     useState<PolicyProfileValue | null>(null);
+  const [longTaskEnabled, setLongTaskEnabled] = useState(false);
   const [netState, setNetState] = useState<{
     api_request_hosts: string[];
     api_request_write_hosts: string[];
@@ -124,6 +131,61 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
 
     if (assignMode === "auto" && values.plan_review) {
       req.plan_review = true;
+    }
+
+    // 长任务 outer loop 字段
+    if (longTaskEnabled) {
+      const acceptance: AcceptanceCriteria = {};
+      const maxOuter = values.max_outer_iterations as number | undefined;
+      if (maxOuter !== undefined && maxOuter !== 5) {
+        acceptance.max_outer_iterations = maxOuter;
+      }
+      const deadline = values.deadline_seconds as number | undefined;
+      if (deadline) {
+        acceptance.deadline_seconds = deadline;
+      }
+      const onExhaustion = values.on_exhaustion as
+        | "escalate"
+        | "best_effort"
+        | "fail"
+        | undefined;
+      if (onExhaustion && onExhaustion !== "escalate") {
+        acceptance.on_exhaustion = onExhaustion;
+      }
+      const onCriticUnavail = values.on_critic_unavailable as
+        | "escalate"
+        | "skip"
+        | undefined;
+      if (onCriticUnavail && onCriticUnavail !== "skip") {
+        acceptance.on_critic_unavailable = onCriticUnavail;
+      }
+      const sameIssueThreshold = values.same_issue_threshold as
+        | number
+        | undefined;
+      if (sameIssueThreshold !== undefined && sameIssueThreshold !== 2) {
+        acceptance.critic = { same_issue_threshold: sameIssueThreshold };
+      }
+      const checksRaw = values.checks as CheckSpec[] | undefined;
+      if (checksRaw && checksRaw.length > 0) {
+        acceptance.checks = checksRaw.filter((c) => c?.name);
+      }
+      const l1Max = values.l1_max_rounds as number | undefined;
+      const l2Max = values.l2_max_rounds as number | undefined;
+      if (
+        (l1Max !== undefined && l1Max !== 2) ||
+        (l2Max !== undefined && l2Max !== 1)
+      ) {
+        acceptance.escalation = {
+          ...(l1Max !== undefined && l1Max !== 2 ? { l1_max_rounds: l1Max } : {}),
+          ...(l2Max !== undefined && l2Max !== 1 ? { l2_max_rounds: l2Max } : {}),
+        };
+      }
+      req.acceptance = acceptance;
+
+      const profile = values.execution_profile as ExecutionProfile | undefined;
+      if (profile && profile !== "foreground") {
+        req.execution_profile = profile;
+      }
     }
 
     onSubmit(req);
@@ -357,6 +419,217 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                     setNetState((prev) => ({ ...prev, ...patch }))
                   }
                 />
+              </>
+            ),
+          },
+          {
+            key: "long-task",
+            label: "长任务模式 (Outer Loop)",
+            children: (
+              <>
+                <Form.Item label="启用长任务模式" tooltip="启用后 edict 走 actor → checks → critic 的多轮迭代路径，可自驱收敛；不启用则走单回合 agent loop（默认）">
+                  <Switch
+                    checked={longTaskEnabled}
+                    onChange={setLongTaskEnabled}
+                    checkedChildren="启用"
+                    unCheckedChildren="关闭"
+                  />
+                </Form.Item>
+
+                {longTaskEnabled && (
+                  <>
+                    <Form.Item
+                      name="execution_profile"
+                      label="执行模型"
+                      tooltip="foreground=同进程；checkpointed=每轮 checkpoint 可续跑；background=后台跑（用户可关页面）"
+                      initialValue="foreground"
+                    >
+                      <Radio.Group>
+                        <Radio value="foreground">前台</Radio>
+                        <Radio value="checkpointed">可续跑</Radio>
+                        <Radio value="background">后台</Radio>
+                      </Radio.Group>
+                    </Form.Item>
+
+                    <Form.Item
+                      name="max_outer_iterations"
+                      label="最多迭代轮数"
+                      tooltip="actor → critic 一回合算一轮；超过此数走 on_exhaustion 决策"
+                    >
+                      <InputNumber min={1} max={50} style={{ width: "100%" }} placeholder="默认 5" />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="deadline_seconds"
+                      label="截止时间 (秒，可选)"
+                      tooltip="超过则触发 EXHAUSTED；空=无硬截止"
+                    >
+                      <InputNumber min={60} style={{ width: "100%" }} placeholder="不限" />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="on_exhaustion"
+                      label="耗尽时"
+                      tooltip="超过 max_outer_iterations / deadline / cost_budget 时的处理"
+                      initialValue="escalate"
+                    >
+                      <Radio.Group>
+                        <Radio value="escalate">上报人工 (L3)</Radio>
+                        <Radio value="best_effort">取最近一轮当成果</Radio>
+                        <Radio value="fail">直接失败</Radio>
+                      </Radio.Group>
+                    </Form.Item>
+
+                    <Form.Item
+                      name="on_critic_unavailable"
+                      label="Critic 故障时"
+                      tooltip="critic LLM 调用全部失败的兜底"
+                      initialValue="skip"
+                    >
+                      <Radio.Group>
+                        <Radio value="skip">跳过当作通过</Radio>
+                        <Radio value="escalate">上报人工</Radio>
+                      </Radio.Group>
+                    </Form.Item>
+
+                    <Form.Item
+                      name="same_issue_threshold"
+                      label="同类问题升级阈值"
+                      tooltip="critic 连续 N 轮报同类问题（issue_class）则升 L1"
+                    >
+                      <InputNumber min={1} max={10} style={{ width: "100%" }} placeholder="默认 2" />
+                    </Form.Item>
+
+                    <Form.Item name="l1_max_rounds" label="L1 最多重试轮数">
+                      <InputNumber min={1} max={5} style={{ width: "100%" }} placeholder="默认 2" />
+                    </Form.Item>
+
+                    <Form.Item name="l2_max_rounds" label="L2 最多重试轮数">
+                      <InputNumber min={1} max={5} style={{ width: "100%" }} placeholder="默认 1" />
+                    </Form.Item>
+
+                    <Divider style={{ margin: "12px 0" }} />
+                    <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 12 }}>
+                      可验收指标 Checks（可选，零或多条）
+                    </div>
+
+                    <Form.List name="checks">
+                      {(fields, { add, remove }) => (
+                        <>
+                          {fields.map(({ key, name }) => (
+                            <Card
+                              key={key}
+                              size="small"
+                              style={{ marginBottom: 12 }}
+                              extra={
+                                <Button
+                                  type="text"
+                                  danger
+                                  size="small"
+                                  icon={<MinusCircleOutlined />}
+                                  onClick={() => remove(name)}
+                                />
+                              }
+                            >
+                              <Form.Item
+                                name={[name, "name"]}
+                                label="名称"
+                                rules={[{ required: true, message: "必填" }]}
+                              >
+                                <Input placeholder="例如 pytest / tone-check" />
+                              </Form.Item>
+                              <Form.Item
+                                name={[name, "kind"]}
+                                label="类型"
+                                initialValue="bash"
+                              >
+                                <Radio.Group>
+                                  <Radio value="bash">Bash</Radio>
+                                  <Radio value="lint">Lint</Radio>
+                                  <Radio value="rubric">Rubric (LLM 评分)</Radio>
+                                </Radio.Group>
+                              </Form.Item>
+                              <Form.Item
+                                noStyle
+                                shouldUpdate={(prev, cur) =>
+                                  prev?.checks?.[name]?.kind !== cur?.checks?.[name]?.kind
+                                }
+                              >
+                                {({ getFieldValue }) => {
+                                  const kind = getFieldValue(["checks", name, "kind"]);
+                                  if (kind === "rubric") {
+                                    return (
+                                      <>
+                                        <Form.Item
+                                          name={[name, "rubric"]}
+                                          label="Rubric 提示词"
+                                          rules={[{ required: true, message: "rubric 必填" }]}
+                                        >
+                                          <Input.TextArea
+                                            rows={3}
+                                            placeholder="评估标准描述，要求 LLM 回 0~1 分"
+                                          />
+                                        </Form.Item>
+                                        <Form.Item
+                                          name={[name, "pass_threshold"]}
+                                          label="通过阈值"
+                                          initialValue={0.8}
+                                        >
+                                          <InputNumber
+                                            min={0}
+                                            max={1}
+                                            step={0.05}
+                                            style={{ width: "100%" }}
+                                          />
+                                        </Form.Item>
+                                      </>
+                                    );
+                                  }
+                                  return (
+                                    <Form.Item
+                                      name={[name, "command"]}
+                                      label="Shell 命令"
+                                      rules={[{ required: true, message: "command 必填" }]}
+                                    >
+                                      <Input placeholder="例如 pytest tests/ -q" />
+                                    </Form.Item>
+                                  );
+                                }}
+                              </Form.Item>
+                              <Form.Item
+                                name={[name, "timeout_seconds"]}
+                                label="超时 (秒)"
+                                initialValue={60}
+                              >
+                                <InputNumber min={1} max={3600} style={{ width: "100%" }} />
+                              </Form.Item>
+                            </Card>
+                          ))}
+                          <Space>
+                            <Button
+                              type="dashed"
+                              icon={<PlusOutlined />}
+                              onClick={() =>
+                                add({ kind: "bash", name: "", timeout_seconds: 60 })
+                              }
+                            >
+                              添加 Bash/Lint Check
+                            </Button>
+                            <Button
+                              type="dashed"
+                              icon={<PlusOutlined />}
+                              onClick={() =>
+                                add({ kind: "rubric", name: "", pass_threshold: 0.8 })
+                              }
+                            >
+                              添加 Rubric Check
+                            </Button>
+                          </Space>
+                        </>
+                      )}
+                    </Form.List>
+                  </>
+                )}
               </>
             ),
           },

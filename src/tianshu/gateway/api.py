@@ -377,6 +377,14 @@ async def get_events(edict_id: str, request: Request):
     return ApiResponse(success=True, data=events)
 
 
+@gateway_router.get("/edicts/{edict_id}/iterations")
+async def get_outer_loop_iterations(edict_id: str, request: Request):
+    """长任务 outer loop 的迭代记录（仅 acceptance != None 的 edict 有数据）。"""
+    storage: Storage = request.app.state.storage
+    rows = storage.get_outer_loop_iterations(edict_id)
+    return ApiResponse(success=True, data=rows)
+
+
 # --- Memorial endpoints ---
 
 
