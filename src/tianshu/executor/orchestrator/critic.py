@@ -134,36 +134,17 @@ def _resolve_critic_llm(persona: object | None, ctx: object | None, fallback: LL
         return fallback
 
 
-async def review(
+async def _review_single(
     actor_output: str,
     edict: Edict,
     acceptance: AcceptanceCriteria,
+    persona: object | None,
     llm: LLMClient,
     *,
     fallback_llm: LLMClient | None = None,
     max_retries: int = 2,
-    ctx: object | None = None,
 ) -> CriticResult:
-    """独立调用 critic LLM。
-
-    监督官（persona）解析：
-    - 若 acceptance.critic.persona_id 填了且 ctx 提供了 persona_loader → 用该 persona 拼 prompt + 用 persona.llm_config_name 绑定的 LLM
-    - 否则降级到 generic critic prompt + 传入的 llm
-
-    重试 max_retries 次；仍失败时尝试 fallback_llm；都不行抛 CriticUnavailable。
-    """
-    persona = None
-    actual_llm = llm
-    if ctx is not None and acceptance.critic.persona_id:
-        persona_loader = getattr(ctx, "persona_loader", None)
-        if persona_loader is not None:
-            persona = persona_loader.get(acceptance.critic.persona_id)
-            if persona is None:
-                raise CriticUnavailable(
-                    f"critic persona '{acceptance.critic.persona_id}' not found"
-                )
-            actual_llm = _resolve_critic_llm(persona, ctx, llm)
-
+    """单 persona 独立调一次 critic LLM。"""
     system_prompt = build_critic_prompt(persona)
     user_msg = (
         f"# Edict goal\n{edict.goal}\n\n"
@@ -176,16 +157,14 @@ async def review(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_msg},
     ]
-
     last_err: Exception | None = None
     for attempt in range(max_retries):
         try:
-            resp = await actual_llm.chat(messages=messages)
+            resp = await llm.chat(messages=messages)
             return _parse(resp.content or "")
         except Exception as e:
             logger.warning("critic LLM attempt %d failed: %s", attempt, e)
             last_err = e
-
     if fallback_llm is not None:
         try:
             resp = await fallback_llm.chat(messages=messages)
@@ -193,5 +172,105 @@ async def review(
         except Exception as e:
             logger.error("critic fallback also failed: %s", e)
             last_err = e
-
     raise CriticUnavailable(f"critic 全部尝试失败: {last_err}")
+
+
+def _aggregate_results_all_must_pass(
+    results: list[tuple[str, CriticResult]],
+) -> CriticResult:
+    """聚合规则：全过则过。
+    - 全部 pass → verdict=pass, feedback 简要拼接（每位监督官的 feedback）
+    - 任一 fail → verdict=fail, issue_class 取首个 fail 的, feedback 拼接所有反馈
+    """
+    if not results:
+        # 没 critic（caller 应避免；保险返通过）
+        return CriticResult(verdict="pass", feedback="(no critics)")
+
+    fails = [(pid, r) for pid, r in results if r.verdict == "fail"]
+    if not fails:
+        # 全过
+        feedback = "\n".join(
+            f"[{pid}] pass: {r.feedback}" for pid, r in results if r.feedback
+        )
+        return CriticResult(verdict="pass", feedback=feedback or "all critics passed")
+
+    # 任一 fail → 整体 fail
+    issue_class = fails[0][1].issue_class or "other"
+    feedback_parts: list[str] = []
+    suggested_parts: list[str] = []
+    for pid, r in results:
+        verdict = r.verdict
+        line = f"[{pid}] {verdict}: {r.feedback}"
+        feedback_parts.append(line)
+        if r.suggested_fix:
+            suggested_parts.append(f"[{pid}] {r.suggested_fix}")
+    return CriticResult(
+        verdict="fail",
+        issue_class=issue_class,
+        feedback="\n".join(feedback_parts),
+        suggested_fix="\n".join(suggested_parts) if suggested_parts else None,
+    )
+
+
+async def review(
+    actor_output: str,
+    edict: Edict,
+    acceptance: AcceptanceCriteria,
+    llm: LLMClient,
+    *,
+    fallback_llm: LLMClient | None = None,
+    max_retries: int = 2,
+    ctx: object | None = None,
+) -> CriticResult:
+    """监督评审入口。多监督官时并发调用，按"全过则过"聚合。
+
+    解析 acceptance.critic.effective_persona_ids():
+    - 列表非空 → 多 persona 并发，返聚合结果
+    - 列表空 → 降级到通用 critic prompt + 传入的 llm（兼容老调用）
+
+    persona 不存在 → 立即抛 CriticUnavailable（不容忍幽灵 persona）
+    """
+    import asyncio
+
+    persona_ids = acceptance.critic.effective_persona_ids()
+
+    # 无 persona 配置：降级到通用 critic
+    if not persona_ids or ctx is None:
+        return await _review_single(
+            actor_output, edict, acceptance, None, llm,
+            fallback_llm=fallback_llm, max_retries=max_retries,
+        )
+
+    persona_loader = getattr(ctx, "persona_loader", None)
+    if persona_loader is None:
+        return await _review_single(
+            actor_output, edict, acceptance, None, llm,
+            fallback_llm=fallback_llm, max_retries=max_retries,
+        )
+
+    # 多 persona：并发调用
+    personas: list[tuple[str, object]] = []
+    for pid in persona_ids:
+        p = persona_loader.get(pid)
+        if p is None:
+            raise CriticUnavailable(f"critic persona '{pid}' not found")
+        personas.append((pid, p))
+
+    async def _one(pid: str, persona: object) -> tuple[str, CriticResult]:
+        actual_llm = _resolve_critic_llm(persona, ctx, llm)
+        try:
+            r = await _review_single(
+                actor_output, edict, acceptance, persona, actual_llm,
+                fallback_llm=fallback_llm, max_retries=max_retries,
+            )
+            return (pid, r)
+        except CriticUnavailable as e:
+            logger.warning("critic '%s' unavailable: %s", pid, e)
+            # 单个 critic 失败 → 视为 fail（不让一个挂掉就整体 skip）
+            return (pid, CriticResult(
+                verdict="fail", issue_class="other",
+                feedback=f"critic '{pid}' 不可用: {e}",
+            ))
+
+    results = await asyncio.gather(*[_one(pid, p) for pid, p in personas])
+    return _aggregate_results_all_must_pass(results)
