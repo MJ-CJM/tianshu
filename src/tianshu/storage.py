@@ -369,6 +369,17 @@ class Storage:
                     data_json   TEXT NOT NULL,
                     saved_at    TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS supervision_reports (
+                    edict_id          TEXT PRIMARY KEY,
+                    persona_id        TEXT NOT NULL,
+                    persona_name      TEXT NOT NULL,
+                    final_status      TEXT NOT NULL,
+                    iterations_count  INTEGER NOT NULL,
+                    total_cost_cny    REAL NOT NULL,
+                    report_json       TEXT NOT NULL,
+                    created_at        TEXT NOT NULL
+                );
             """)
 
     def _migrate(self) -> None:
@@ -2469,3 +2480,27 @@ class Storage:
             self._conn.execute(
                 "DELETE FROM outer_loop_checkpoints WHERE edict_id = ?", (edict_id,),
             )
+
+    # --- Supervision report (long task 终态总评) ---
+
+    def save_supervision_report(self, record: dict) -> None:
+        """写一行监督报告（INSERT OR REPLACE — 一对一关联 edict）。"""
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO supervision_reports
+                   (edict_id, persona_id, persona_name, final_status,
+                    iterations_count, total_cost_cny, report_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    record["edict_id"], record["persona_id"], record["persona_name"],
+                    record["final_status"], record["iterations_count"],
+                    record["total_cost_cny"], record["report_json"],
+                    record["created_at"],
+                ),
+            )
+
+    def get_supervision_report(self, edict_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM supervision_reports WHERE edict_id = ?", (edict_id,),
+        ).fetchone()
+        return dict(row) if row else None
