@@ -18,6 +18,7 @@ class CostRecord(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cache_read_tokens: int = 0
     cost_cny: float = 0.0
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

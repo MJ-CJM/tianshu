@@ -27,6 +27,7 @@ class ProviderInfo(BaseModel):
     tpm_limit: int | None = None
     cost_per_1k_prompt: float | None = None
     cost_per_1k_completion: float | None = None
+    cost_per_1k_cache_read: float | None = None
 
 
 class TaskRequirements(BaseModel):
