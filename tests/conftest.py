@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
 from tianshu.storage import Storage
+
+
+@pytest.fixture(autouse=True)
+def _isolate_db(tmp_path, monkeypatch):
+    """所有测试自动隔离：将 TIANSHU_DB_PATH 指向 tmp_path，杜绝漏入 prod DB。
+
+    背景：tests/test_gateway*.py 调 `create_app() + lifespan()` 会触发 Settings 读
+    `TIANSHU_DB_PATH` 默认 `~/.tianshu/tianshu.db`。autouse fixture 强制覆盖。
+    """
+    db = tmp_path / "tianshu_isolated.db"
+    monkeypatch.setenv("TIANSHU_DB_PATH", str(db))
+    # 也禁用真实 logs 目录写入
+    monkeypatch.setenv("TIANSHU_LOGS_DIR", str(tmp_path / "logs"))
+    yield
 
 
 @pytest.fixture
