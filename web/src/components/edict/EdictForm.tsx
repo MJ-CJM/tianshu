@@ -469,6 +469,73 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
 
                 {longTaskEnabled && (
                   <>
+                    <Form.Item label="模板预设" tooltip="一键填入常用配置；填完仍可在下方继续微调">
+                      <Space wrap>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            form.setFieldsValue({
+                              execution_profile: "foreground",
+                              max_outer_iterations: 5,
+                              on_exhaustion: "escalate",
+                              on_critic_unavailable: "skip",
+                              same_issue_threshold: 2,
+                              critic_persona_ids: defaultCriticPersonaIds,
+                            });
+                          }}
+                        >
+                          📊 数据分析型
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            form.setFieldsValue({
+                              execution_profile: "foreground",
+                              max_outer_iterations: 10,
+                              on_exhaustion: "best_effort",
+                              on_critic_unavailable: "skip",
+                              same_issue_threshold: 3,
+                              critic_persona_ids: defaultCriticPersonaIds,
+                            });
+                          }}
+                        >
+                          ✍️ 内容创作型
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            form.setFieldsValue({
+                              execution_profile: "checkpointed",
+                              max_outer_iterations: 8,
+                              deadline_seconds: 3600,
+                              on_exhaustion: "escalate",
+                              on_critic_unavailable: "escalate",
+                              same_issue_threshold: 2,
+                              critic_persona_ids: defaultCriticPersonaIds,
+                            });
+                          }}
+                        >
+                          🛠 代码实现型
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            form.setFieldsValue({
+                              execution_profile: "background",
+                              max_outer_iterations: 15,
+                              deadline_seconds: 7200,
+                              on_exhaustion: "best_effort",
+                              on_critic_unavailable: "skip",
+                              same_issue_threshold: 3,
+                              critic_persona_ids: defaultCriticPersonaIds,
+                            });
+                          }}
+                        >
+                          🔬 深度研究型
+                        </Button>
+                      </Space>
+                    </Form.Item>
+
                     <Form.Item
                       name="execution_profile"
                       label="执行模型"
