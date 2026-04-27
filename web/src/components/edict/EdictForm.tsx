@@ -42,6 +42,18 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     label: `${p.name}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
   }));
 
+  // critic 监督官候选：都察院 + 内阁（推荐都察院系列）
+  const criticPersonas = (personas ?? []).filter(
+    (p) => p.department === "ducha" || p.department === "neige",
+  );
+  const criticPersonaOptions = criticPersonas.map((p) => ({
+    value: p.id,
+    label: `${p.name} · ${p.department === "ducha" ? "都察院" : "内阁"}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
+  }));
+  const defaultCriticPersonaId =
+    criticPersonas.find((p) => p.department === "ducha")?.id
+    ?? criticPersonas[0]?.id;
+
   const handleFinish = (values: Record<string, unknown>) => {
     const req: EdictCreateRequest = {
       goal: values.goal as string,
@@ -162,8 +174,14 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       const sameIssueThreshold = values.same_issue_threshold as
         | number
         | undefined;
-      if (sameIssueThreshold !== undefined && sameIssueThreshold !== 2) {
-        acceptance.critic = { same_issue_threshold: sameIssueThreshold };
+      const criticPersonaId = values.critic_persona_id as string | undefined;
+      if (sameIssueThreshold !== undefined || criticPersonaId) {
+        acceptance.critic = {
+          ...(criticPersonaId ? { persona_id: criticPersonaId } : {}),
+          ...(sameIssueThreshold !== undefined && sameIssueThreshold !== 2
+            ? { same_issue_threshold: sameIssueThreshold }
+            : {}),
+        };
       }
       const checksRaw = values.checks as CheckSpec[] | undefined;
       if (checksRaw && checksRaw.length > 0) {
@@ -490,6 +508,21 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                         <Radio value="skip">跳过当作通过</Radio>
                         <Radio value="escalate">上报人工</Radio>
                       </Radio.Group>
+                    </Form.Item>
+
+                    <Form.Item
+                      name="critic_persona_id"
+                      label="监督官 (Critic Persona)"
+                      tooltip="谁来监督任务质量。任务终态后由该 persona 产出监督报告（4 章节：问题/做得好/做得不够/建议）"
+                      rules={[{ required: true, message: "启用长任务时必选监督官" }]}
+                      initialValue={defaultCriticPersonaId}
+                    >
+                      <Select
+                        options={criticPersonaOptions}
+                        showSearch
+                        optionFilterProp="label"
+                        placeholder="选择都察院或内阁 persona"
+                      />
                     </Form.Item>
 
                     <Form.Item
