@@ -182,18 +182,24 @@ async def _finalize_with_supervision(
     ctx.storage.clear_outer_loop_checkpoint(edict.id)
 
     acceptance = edict.acceptance
-    persona_id = (
-        acceptance.critic.persona_id
-        if acceptance and acceptance.critic and acceptance.critic.persona_id
-        else None
+    persona_ids: list[str] = (
+        acceptance.critic.effective_persona_ids()
+        if acceptance and acceptance.critic
+        else []
     )
     persona_loader = getattr(ctx, "persona_loader", None)
-    if persona_id and persona_loader is not None:
-        persona = persona_loader.get(persona_id)
-        if persona is not None:
+    if persona_ids and persona_loader is not None:
+        from tianshu.executor.orchestrator.critic import _resolve_critic_llm
+
+        for pid in persona_ids:
+            persona = persona_loader.get(pid)
+            if persona is None:
+                logger.warning(
+                    "supervision skipped for persona '%s' (not found) edict %s",
+                    pid, edict.id,
+                )
+                continue
             try:
-                # 用 persona 绑定的 LLM 跑监督报告（fallback 到 critic_llm）
-                from tianshu.executor.orchestrator.critic import _resolve_critic_llm
                 llm = _resolve_critic_llm(persona, ctx, ctx.critic_llm)
                 report = await generate_supervision_report(
                     edict, state, status, persona, llm, ctx.storage,
@@ -215,14 +221,9 @@ async def _finalize_with_supervision(
                 )
             except Exception as e:
                 logger.exception(
-                    "supervision report failed for edict %s (non-fatal): %s",
-                    edict.id, e,
+                    "supervision report failed for persona '%s' edict %s (non-fatal): %s",
+                    pid, edict.id, e,
                 )
-        else:
-            logger.warning(
-                "supervision skipped: persona '%s' not found for edict %s",
-                persona_id, edict.id,
-            )
 
     return OrchestratorResult(
         status=status, final_output=final_output, state=state, error=error,
