@@ -28,6 +28,7 @@ import {
   Alert,
   Empty,
   Select,
+  Tooltip,
 } from "antd";
 import {
   EditOutlined,
@@ -1129,9 +1130,27 @@ function ProvidersTab() {
       render: (v: number | null) => v ?? "—",
     },
     {
-      title: "Prompt ¥/1K", dataIndex: "cost_per_1k_prompt", key: "cost",
-      width: 110, align: "right",
-      render: (v: number | null) => (v != null ? `¥${v.toFixed(4)}` : "—"),
+      title: "三维价 ¥/1K", key: "cost", width: 200, align: "right",
+      render: (_, r) => {
+        const miss = r.cost_per_1k_prompt;
+        const hit = r.cost_per_1k_cache_read;
+        const out = r.cost_per_1k_completion;
+        const customCount = [miss, hit, out].filter((v) => v != null).length;
+        const tooltip =
+          customCount === 0
+            ? "未配置自定义价 — 落 _DEFAULT_PRICING 默认表"
+            : customCount === 3
+            ? "全部自定义"
+            : "部分自定义（其余字段落默认价表）";
+        const fmt = (v: number | null) => (v != null ? v.toFixed(5).replace(/0+$/, "").replace(/\.$/, "") : "—");
+        return (
+          <Tooltip title={tooltip}>
+            <span style={{ fontSize: 12, fontFamily: "monospace" }}>
+              {fmt(miss)} / {fmt(hit)} / {fmt(out)}
+            </span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: "", key: "actions", width: 50,
