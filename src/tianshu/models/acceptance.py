@@ -18,9 +18,20 @@ class CheckSpec(BaseModel):
 
 
 class CriticSpec(BaseModel):
+    # 监督官 IDs（多个并发监督，按 acceptance 配置的聚合规则汇总）
+    persona_ids: list[str] = Field(default_factory=list)
+    # 兼容旧版单 persona 字段；resolve 时若 persona_ids 为空则回退为 [persona_id]
     persona_id: str | None = None
     model: str | None = None
     same_issue_threshold: int = 2
+
+    def effective_persona_ids(self) -> list[str]:
+        """返回实际生效的 persona_ids 列表（兼容旧版单 persona_id）。"""
+        if self.persona_ids:
+            return self.persona_ids
+        if self.persona_id:
+            return [self.persona_id]
+        return []
 
 
 class EscalationSpec(BaseModel):
