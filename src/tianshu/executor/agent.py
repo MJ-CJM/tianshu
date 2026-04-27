@@ -349,6 +349,10 @@ class Agent:
                         for tc in response.tool_calls
                     ],
                 }
+                # DeepSeek thinking 模式要求 reasoning_content 必须随 tool_calls 一起回传
+                # （否则下一轮请求会报 "reasoning_content in the thinking mode must be passed back"）
+                if response.reasoning_content:
+                    assistant_msg["reasoning_content"] = response.reasoning_content
                 new_messages = list(state.messages) + [assistant_msg]
 
                 # Execute each tool call sequentially
