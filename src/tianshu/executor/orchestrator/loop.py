@@ -211,7 +211,7 @@ async def run(
             user_content=augmented_content,
         )
         actor_output = actor_result.result or actor_result.summary or ""
-        actor_cost = float(getattr(actor_result.usage, "cost_cny", 0.0) or 0.0)
+        actor_cost = actor_result.usage.cost_cny if actor_result.usage else 0.0
 
         # 2. checks
         try:
