@@ -12,6 +12,7 @@ from tianshu.executor.orchestrator.checks import ChecksConfigError, run_checks
 from tianshu.executor.orchestrator.critic import CriticUnavailable, review
 from tianshu.executor.orchestrator.escalation import decide_escalation
 from tianshu.executor.orchestrator.persistence import emit_audit, persist_iteration
+from tianshu.executor.orchestrator.supervision import generate_supervision_report
 from tianshu.executor.orchestrator.state import (
     CriticResult,
     IterationRecord,
@@ -164,6 +165,70 @@ def _load_checkpoint(ctx: "OrchestratorContext", edict_id: str) -> OuterLoopStat
     return _state_from_dict(cp.state_dict)
 
 
+async def _finalize_with_supervision(
+    state: OuterLoopState,
+    edict: Edict,
+    ctx: "OrchestratorContext",
+    memorial: Memorial,
+    status: TaskStatus,
+    final_output: str | None,
+    error: str | None = None,
+) -> "OrchestratorResult":
+    """终态包装：清 checkpoint + (可选) 生成监督报告 + 返回 OrchestratorResult。
+
+    监督报告仅在 edict.acceptance.critic.persona_id 配了且 ctx.persona_loader 可用时生成。
+    LLM 失败时吞异常不阻塞终态返回。
+    """
+    ctx.storage.clear_outer_loop_checkpoint(edict.id)
+
+    acceptance = edict.acceptance
+    persona_id = (
+        acceptance.critic.persona_id
+        if acceptance and acceptance.critic and acceptance.critic.persona_id
+        else None
+    )
+    persona_loader = getattr(ctx, "persona_loader", None)
+    if persona_id and persona_loader is not None:
+        persona = persona_loader.get(persona_id)
+        if persona is not None:
+            try:
+                # 用 persona 绑定的 LLM 跑监督报告（fallback 到 critic_llm）
+                from tianshu.executor.orchestrator.critic import _resolve_critic_llm
+                llm = _resolve_critic_llm(persona, ctx, ctx.critic_llm)
+                report = await generate_supervision_report(
+                    edict, state, status, persona, llm, ctx.storage,
+                )
+                ctx.storage.save_supervision_report({
+                    "edict_id": report.edict_id,
+                    "persona_id": report.persona_id,
+                    "persona_name": report.persona_name,
+                    "final_status": report.final_status.value,
+                    "iterations_count": report.iterations_count,
+                    "total_cost_cny": report.total_cost_cny,
+                    "report_json": report.model_dump_json(),
+                    "created_at": report.created_at.isoformat(),
+                })
+                await emit_audit(
+                    ctx.bus, ctx.storage, edict.id, memorial.id,
+                    "outer_loop.supervision_completed",
+                    {"persona_id": report.persona_id, "final_status": status.value},
+                )
+            except Exception as e:
+                logger.exception(
+                    "supervision report failed for edict %s (non-fatal): %s",
+                    edict.id, e,
+                )
+        else:
+            logger.warning(
+                "supervision skipped: persona '%s' not found for edict %s",
+                persona_id, edict.id,
+            )
+
+    return OrchestratorResult(
+        status=status, final_output=final_output, state=state, error=error,
+    )
+
+
 async def run(
     edict: Edict,
     memorial: Memorial,
@@ -223,11 +288,9 @@ async def run(
                 acceptance.checks, actor_output, ctx.actor_llm,
             )
         except ChecksConfigError as e:
-            ctx.storage.clear_outer_loop_checkpoint(edict.id)
-            return OrchestratorResult(
-                status=TaskStatus.FAILED,
-                final_output=None,
-                state=state,
+            return await _finalize_with_supervision(
+                state, edict, ctx, memorial,
+                TaskStatus.FAILED, None,
                 error=f"checks 配置错: {e}",
             )
 
@@ -287,11 +350,9 @@ async def run(
                 "outer_loop.completed",
                 {"iterations": state.iteration, "total_cost": state.total_cost_cny},
             )
-            ctx.storage.clear_outer_loop_checkpoint(edict.id)
-            return OrchestratorResult(
-                status=TaskStatus.COMPLETED,
-                final_output=actor_output,
-                state=state,
+            return await _finalize_with_supervision(
+                state, edict, ctx, memorial,
+                TaskStatus.COMPLETED, actor_output,
             )
 
         # 5. FAIL → advance + 升级（暂不实现 L1/L2/L3 的实际 escalate 动作，Task 10-12 加）
@@ -329,18 +390,17 @@ async def run(
                 human_decision = await _escalate_to_human(state, edict, ctx, memorial)
                 state, edict, terminal = _apply_human_decision(state, human_decision, edict)
                 if terminal == "abort":
-                    ctx.storage.clear_outer_loop_checkpoint(edict.id)
-                    return OrchestratorResult(
-                        status=TaskStatus.FAILED, final_output=None, state=state,
+                    return await _finalize_with_supervision(
+                        state, edict, ctx, memorial,
+                        TaskStatus.FAILED, None,
                         error="aborted by human",
                     )
                 if terminal == "accept_as_is":
                     last = state.history[-1] if state.history else None
-                    ctx.storage.clear_outer_loop_checkpoint(edict.id)
-                    return OrchestratorResult(
-                        status=TaskStatus.COMPLETED,
-                        final_output=last.actor_output if last else None,
-                        state=state,
+                    return await _finalize_with_supervision(
+                        state, edict, ctx, memorial,
+                        TaskStatus.COMPLETED,
+                        last.actor_output if last else None,
                     )
                 # else continue / modify_acceptance → 继续循环
 
@@ -371,19 +431,15 @@ async def _handle_exhaustion(
     )
     last_output = state.history[-1].actor_output if state.history else None
     if acceptance.on_exhaustion == "best_effort":
-        ctx.storage.clear_outer_loop_checkpoint(edict.id)
-        return OrchestratorResult(
-            status=TaskStatus.COMPLETED,
-            final_output=last_output,
-            state=state,
+        return await _finalize_with_supervision(
+            state, edict, ctx, memorial,
+            TaskStatus.COMPLETED, last_output,
             error="exhausted, returning best effort",
         )
     if acceptance.on_exhaustion == "fail":
-        ctx.storage.clear_outer_loop_checkpoint(edict.id)
-        return OrchestratorResult(
-            status=TaskStatus.FAILED,
-            final_output=None,
-            state=state,
+        return await _finalize_with_supervision(
+            state, edict, ctx, memorial,
+            TaskStatus.FAILED, None,
             error="outer loop exhausted",
         )
     if acceptance.on_exhaustion == "escalate":
@@ -391,22 +447,20 @@ async def _handle_exhaustion(
         decision = await _escalate_to_human(state, edict, ctx, memorial)
         state, edict, terminal = _apply_human_decision(state, decision, edict)
         if terminal == "abort":
-            ctx.storage.clear_outer_loop_checkpoint(edict.id)
-            return OrchestratorResult(
-                status=TaskStatus.FAILED, final_output=None, state=state,
+            return await _finalize_with_supervision(
+                state, edict, ctx, memorial,
+                TaskStatus.FAILED, None,
                 error="exhausted + aborted",
             )
         # accept_as_is or None（continue/modify 在 exhausted 后无意义，按 accept 处理）
-        ctx.storage.clear_outer_loop_checkpoint(edict.id)
-        return OrchestratorResult(
-            status=TaskStatus.COMPLETED,
-            final_output=last_output,
-            state=state,
+        return await _finalize_with_supervision(
+            state, edict, ctx, memorial,
+            TaskStatus.COMPLETED, last_output,
         )
     # 不应到达（其他 on_exhaustion 已在前面 return）
-    ctx.storage.clear_outer_loop_checkpoint(edict.id)
-    return OrchestratorResult(
-        status=TaskStatus.FAILED, final_output=last_output, state=state,
+    return await _finalize_with_supervision(
+        state, edict, ctx, memorial,
+        TaskStatus.FAILED, last_output,
         error="unhandled on_exhaustion",
     )
 
