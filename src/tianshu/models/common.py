@@ -32,6 +32,7 @@ class UsageSummary(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cost_cny: float = 0.0
 
 
 class AuditResult(BaseModel):
