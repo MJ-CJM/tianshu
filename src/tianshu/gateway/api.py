@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager, LLMConfigState
@@ -754,6 +754,59 @@ async def get_provider_status(name: str, request: Request):
     if not provider:
         raise HTTPException(status_code=404, detail=f"Provider '{name}' not found")
     return ApiResponse(success=True, data=provider)
+
+
+# --- Provider pricing endpoints (3 维：input miss / input hit / output) ---
+
+
+class ProviderPricingUpdateRequest(BaseModel):
+    cost_per_1k_prompt: float | None = Field(None, ge=0)
+    cost_per_1k_cache_read: float | None = Field(None, ge=0)
+    cost_per_1k_completion: float | None = Field(None, ge=0)
+
+
+@gateway_router.put("/providers/{name}/pricing", response_model=ApiResponse)
+async def update_provider_pricing(
+    name: str, body: ProviderPricingUpdateRequest, request: Request,
+):
+    """部分更新 provider 三维价格。body 里的 None 字段保持不变（不清零）。"""
+    storage: Storage = request.app.state.storage
+    provider = storage.get_provider(name)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider '{name}' not found")
+    updates = {
+        k: v for k, v in body.model_dump().items() if v is not None
+    }
+    if updates:
+        storage.update_provider(name, updates)
+    pm = request.app.state.provider_manager
+    return ApiResponse(success=True, data=pm.get_pricing_with_source(name))
+
+
+@gateway_router.delete("/providers/{name}/pricing", response_model=ApiResponse)
+async def reset_provider_pricing(name: str, request: Request):
+    """重置 provider 三维价格为 NULL（落 _DEFAULT_PRICING）。"""
+    storage: Storage = request.app.state.storage
+    provider = storage.get_provider(name)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider '{name}' not found")
+    storage.update_provider(name, {
+        "cost_per_1k_prompt": None,
+        "cost_per_1k_cache_read": None,
+        "cost_per_1k_completion": None,
+    })
+    pm = request.app.state.provider_manager
+    return ApiResponse(success=True, data=pm.get_pricing_with_source(name))
+
+
+@gateway_router.get("/providers/{name}/pricing/effective", response_model=ApiResponse)
+async def get_effective_pricing(name: str, request: Request):
+    """返回当前生效价 + 来源（custom / default / mixed）。"""
+    storage: Storage = request.app.state.storage
+    if not storage.get_provider(name):
+        raise HTTPException(status_code=404, detail=f"Provider '{name}' not found")
+    pm = request.app.state.provider_manager
+    return ApiResponse(success=True, data=pm.get_pricing_with_source(name))
 
 
 # --- Plugin endpoints ---
