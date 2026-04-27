@@ -4,6 +4,7 @@ import CostSummaryCards from "../components/cost/CostSummaryCards";
 import CostTrendChart from "../components/cost/CostTrendChart";
 import CostRecordTable from "../components/cost/CostRecordTable";
 import BudgetProgressBar from "../components/cost/BudgetProgressBar";
+import ProviderPricingCard from "../components/cost/ProviderPricingCard";
 import { useCostSummary, useCostRecords, useCostBudget } from "../hooks/useCost";
 
 const { Title } = Typography;
@@ -42,6 +43,8 @@ export default function CostDashboardPage() {
         <CostSummaryCards summary={summary} loading={summaryLoading} />
 
         <BudgetProgressBar budget={budget} loading={budgetLoading} />
+
+        <ProviderPricingCard />
 
         <CostTrendChart
           records={recordsData?.records ?? []}
