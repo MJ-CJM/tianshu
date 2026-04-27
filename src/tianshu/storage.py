@@ -171,6 +171,7 @@ class Storage:
                     priority INTEGER NOT NULL DEFAULT 100,
                     cost_per_1k_prompt REAL,
                     cost_per_1k_completion REAL,
+                    cost_per_1k_cache_read REAL,
                     created_at TEXT NOT NULL
                 );
 
@@ -427,6 +428,8 @@ class Storage:
             # 2026-04-26: 长任务 outer loop 字段
             "ALTER TABLE edicts ADD COLUMN acceptance_json TEXT",
             "ALTER TABLE edicts ADD COLUMN execution_profile TEXT NOT NULL DEFAULT 'foreground'",
+            # 2026-04-27: providers 加 cache 命中价（NULL = fallback 到 cost_per_1k_prompt）
+            "ALTER TABLE providers ADD COLUMN cost_per_1k_cache_read REAL",
         ]
         for sql in migrations:
             try:
@@ -1245,8 +1248,9 @@ class Storage:
                 """INSERT OR REPLACE INTO providers
                    (name, model, api_base, capabilities_json, rpm_limit, tpm_limit,
                     rpm_current, tpm_current, rpm_window_start, status, priority,
-                    cost_per_1k_prompt, cost_per_1k_completion, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    cost_per_1k_prompt, cost_per_1k_completion, cost_per_1k_cache_read,
+                    created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     provider["name"],
                     provider["model"],
@@ -1261,6 +1265,7 @@ class Storage:
                     provider.get("priority", 100),
                     provider.get("cost_per_1k_prompt"),
                     provider.get("cost_per_1k_completion"),
+                    provider.get("cost_per_1k_cache_read"),
                     provider.get("created_at", datetime.now(UTC).isoformat()),
                 ),
             )
@@ -1303,7 +1308,8 @@ class Storage:
                 sets.append("capabilities_json = ?")
                 params.append(json.dumps(value))
             elif key in ("model", "api_base", "status", "rpm_limit", "tpm_limit",
-                         "priority", "cost_per_1k_prompt", "cost_per_1k_completion"):
+                         "priority", "cost_per_1k_prompt", "cost_per_1k_completion",
+                         "cost_per_1k_cache_read"):
                 sets.append(f"{key} = ?")
                 params.append(value)
         if not sets:
