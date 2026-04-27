@@ -88,13 +88,19 @@ class CostManager:
 
         prompt_tokens = getattr(usage, "prompt_tokens", 0)
         completion_tokens = getattr(usage, "completion_tokens", 0)
+        cache_read_tokens = getattr(usage, "cache_read_tokens", 0)
+        provider_name = context.get("provider_name") or None
         model = ""
         # Try to get model from config_manager if available
         state = context.get("config_state")
         if state:
             model = getattr(state, "model", "")
 
-        tracker.accumulate(model, prompt_tokens, completion_tokens)
+        tracker.accumulate(
+            model, prompt_tokens, completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            provider_name=provider_name,
+        )
 
     async def on_before_iteration(self, **context: object) -> object:
         """BEFORE_ITERATION hook — circuit breaker for budget enforcement."""
@@ -160,11 +166,12 @@ class CostManager:
         record = CostRecord(
             edict_id=edict_id,
             memorial_id=event.memorial_id,
-            provider_name="default",
+            provider_name=tracker.last_provider_name or "default",
             model="",
             prompt_tokens=tracker.prompt_tokens,
             completion_tokens=tracker.completion_tokens,
             total_tokens=tracker.total_tokens,
+            cache_read_tokens=tracker.cache_read_tokens,
             cost_cny=tracker.cost_cny,
         )
         self.record(record)

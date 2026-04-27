@@ -319,6 +319,7 @@ class Agent:
                     usage=response.usage,
                     edict=edict,
                     config_state=config_state,
+                    provider_name=getattr(llm, "provider_name", None),
                 )
 
             logger.debug(
