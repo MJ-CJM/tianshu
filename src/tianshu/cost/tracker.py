@@ -33,8 +33,8 @@ _DEFAULT_PRICING: dict[str, tuple[float, float, float]] = {
     # DeepSeek（cache hit ≈ 1/50；v3 系列；v4-flash/pro 待官方价新鲜度更新）
     "deepseek-chat":      (0.001,  0.00002, 0.002),   # 注：旧 output 价 0.008 已纠正为 v4 实际 0.002
     "deepseek-reasoner":  (0.004,  0.00008, 0.016),
-    "deepseek-v4-flash":  (0.001,  0.00002, 0.002),   # 截图官方价
-    "deepseek-v4-pro":    (0.012,  0.00024, 0.024),   # 原价；限时 2.5 折期间用户可在户部账房手动覆盖
+    "deepseek-v4-flash":  (0.001,  0.00002, 0.002),   # 官方原价
+    "deepseek-v4-pro":    (0.012,  0.0001,  0.024),   # 官方原价 (12/0.1/24 元每百万)；限时 2.5 折期间可在户部账房手动覆盖为 (0.003, 0.000025, 0.006)
     # 国产其他（cache 比例未公开则 hit=miss 无折扣）
     "qwen-max":         (0.04,   0.04,     0.12),
     "qwen-plus":        (0.004,  0.004,    0.012),
