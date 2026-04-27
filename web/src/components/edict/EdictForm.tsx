@@ -188,7 +188,16 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
         | number
         | undefined;
       const criticPersonaIds = values.critic_persona_ids as string[] | undefined;
-      if (sameIssueThreshold !== undefined || (criticPersonaIds && criticPersonaIds.length > 0)) {
+      const strictness = values.critic_strictness as
+        | "lenient"
+        | "balanced"
+        | "strict"
+        | undefined;
+      if (
+        sameIssueThreshold !== undefined ||
+        (criticPersonaIds && criticPersonaIds.length > 0) ||
+        (strictness && strictness !== "lenient")
+      ) {
         acceptance.critic = {
           ...(criticPersonaIds && criticPersonaIds.length > 0
             ? { persona_ids: criticPersonaIds }
@@ -196,7 +205,12 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
           ...(sameIssueThreshold !== undefined && sameIssueThreshold !== 2
             ? { same_issue_threshold: sameIssueThreshold }
             : {}),
+          ...(strictness && strictness !== "lenient" ? { strictness } : {}),
         };
+      }
+      const minOuter = values.min_outer_iterations as number | undefined;
+      if (minOuter !== undefined && minOuter > 1) {
+        acceptance.min_outer_iterations = minOuter;
       }
       const checksRaw = values.checks as CheckSpec[] | undefined;
       if (checksRaw && checksRaw.length > 0) {
@@ -494,6 +508,8 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                             form.setFieldsValue({
                               execution_profile: "foreground",
                               max_outer_iterations: 10,
+                              min_outer_iterations: 3,
+                              critic_strictness: "balanced",
                               on_exhaustion: "best_effort",
                               on_critic_unavailable: "skip",
                               same_issue_threshold: 3,
@@ -526,6 +542,8 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                             form.setFieldsValue({
                               execution_profile: "background",
                               max_outer_iterations: 15,
+                              min_outer_iterations: 4,
+                              critic_strictness: "strict",
                               deadline_hours: 2,
                               deadline_minutes: 0,
                               on_exhaustion: "best_effort",
@@ -559,6 +577,27 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                       tooltip="actor → critic 一回合算一轮；超过此数走 on_exhaustion 决策"
                     >
                       <InputNumber min={1} max={50} style={{ width: "100%" }} placeholder="默认 5" />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="min_outer_iterations"
+                      label="最少迭代轮数 (持续优化模式)"
+                      tooltip="≥2 时即使 critic 第一轮就 PASS 也强制继续；critic 的'可优化方向'会注入下一轮 actor。让监督官真正持续推动优化。"
+                    >
+                      <InputNumber min={1} max={20} style={{ width: "100%" }} placeholder="默认 1（不持续优化）" />
+                    </Form.Item>
+
+                    <Form.Item
+                      name="critic_strictness"
+                      label="Critic 严苛度"
+                      tooltip="lenient=合格即 PASS（默认） / balanced=高标准倾向 fail / strict=优秀才 PASS"
+                      initialValue="lenient"
+                    >
+                      <Radio.Group>
+                        <Radio value="lenient">宽松</Radio>
+                        <Radio value="balanced">高标准</Radio>
+                        <Radio value="strict">严苛</Radio>
+                      </Radio.Group>
                     </Form.Item>
 
                     <Form.Item

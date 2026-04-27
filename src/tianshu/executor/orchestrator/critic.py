@@ -25,22 +25,51 @@ ISSUE_CLASSES: tuple[str, ...] = (
     "other",                 # 未分类
 )
 
-_BASE_CRITIC_RULES = """你正在以监督官身份审议 actor 产出，请基于 edict 的 acceptance criteria，
-判定 actor 的输出是否合格。
-
-输出严格 JSON（不要前后加任何解释文字）:
-{
-  "verdict": "pass" | "fail",
-  "issue_class": <one of: %s>,
-  "feedback": "...",
-  "suggested_fix": "..." (optional)
+_STRICTNESS_GUIDANCE = {
+    "lenient": (
+        "判定标准：只要 actor 输出基本满足 edict 要求（不漏关键点、格式大致对），"
+        "即可 verdict=pass。"
+    ),
+    "balanced": (
+        "判定标准：除了基本合格，还要看是否**深入**——是否有具体证据支撑、"
+        "是否覆盖关键边角、是否结构清晰。**倾向于先 fail**，给具体改进建议；"
+        "确实没有改进空间才 pass。"
+    ),
+    "strict": (
+        "判定标准：只有当 actor 输出达到**优秀水平**才 pass —— 即"
+        "（1）覆盖完整不漏关键点；（2）有具体证据/引用支撑；"
+        "（3）结构清晰可直接交付；（4）经得起专业审视。"
+        "稍有不足即 verdict=fail，并给具体改进路径。"
+    ),
 }
 
+
+def _base_critic_rules(strictness: str = "lenient") -> str:
+    guidance = _STRICTNESS_GUIDANCE.get(strictness, _STRICTNESS_GUIDANCE["lenient"])
+    return f"""你正在以监督官身份审议 actor 产出，请基于 edict 的 acceptance criteria，
+判定 actor 的输出是否合格。
+
+{guidance}
+
+输出严格 JSON（不要前后加任何解释文字）:
+{{
+  "verdict": "pass" | "fail",
+  "issue_class": <one of: {", ".join(ISSUE_CLASSES)}>,
+  "feedback": "...",
+  "suggested_fix": "..." (optional),
+  "improvement_hints": "..." (optional, **PASS 时也可填**, 给下一轮 actor 的可优化方向)
+}}
+
 规则:
-- 如果合格 → verdict=pass, issue_class 可留空
+- 如果合格 → verdict=pass, issue_class 可留空。**但仍可在 improvement_hints 写'可优化方向'，让 actor 下一轮继续打磨。**
 - 如果不合格 → verdict=fail, issue_class 必填且必须从给定集合选
 - feedback 给 actor 看，要具体可执行
-""" % ", ".join(ISSUE_CLASSES)
+- improvement_hints 用于"持续优化"模式 — 即使 pass 了，如果你看到能让产出更好的方向，请写出来
+"""
+
+
+# 兼容老变量名（外部可能 import）
+_BASE_CRITIC_RULES = _base_critic_rules("lenient")
 
 
 def _read_persona_text(persona: object) -> str:
@@ -59,13 +88,14 @@ def _read_persona_text(persona: object) -> str:
     return "\n\n".join(parts)
 
 
-def build_critic_prompt(persona: object | None) -> str:
-    """拼 critic 的 system prompt = persona 上下文 + ISSUE_CLASSES 强约束。
+def build_critic_prompt(persona: object | None, strictness: str = "lenient") -> str:
+    """拼 critic 的 system prompt = persona 上下文 + ISSUE_CLASSES 强约束 + 严苛度指引。
 
     persona=None 时降级到通用 critic（保留旧行为做兼容）。
     """
+    base = _base_critic_rules(strictness)
     if persona is None:
-        return _BASE_CRITIC_RULES
+        return base
     persona_name = getattr(persona, "name", "未知监督官")
     persona_dept = getattr(persona, "department", "")
     persona_text = _read_persona_text(persona)
@@ -73,7 +103,7 @@ def build_critic_prompt(persona: object | None) -> str:
     parts = [header]
     if persona_text:
         parts.append(persona_text)
-    parts.append(_BASE_CRITIC_RULES)
+    parts.append(base)
     return "\n\n".join(parts)
 
 
@@ -109,11 +139,13 @@ def _parse(raw: str) -> CriticResult:
             issue_class = "other"
     else:
         issue_class = None
+    hints = data.get("improvement_hints")
     return CriticResult(
         verdict=verdict,
         issue_class=issue_class,
         feedback=str(data.get("feedback", "")),
         suggested_fix=data.get("suggested_fix"),
+        improvement_hints=str(hints) if hints else None,
     )
 
 
@@ -145,7 +177,8 @@ async def _review_single(
     max_retries: int = 2,
 ) -> CriticResult:
     """单 persona 独立调一次 critic LLM。"""
-    system_prompt = build_critic_prompt(persona)
+    strictness = getattr(acceptance.critic, "strictness", "lenient")
+    system_prompt = build_critic_prompt(persona, strictness=strictness)
     user_msg = (
         f"# Edict goal\n{edict.goal}\n\n"
         f"# Acceptance criteria summary\n"
@@ -198,6 +231,13 @@ def _aggregate_results_all_must_pass(
         return CriticResult(verdict="pass", feedback="(no critics)")
 
     total_cost = sum(r.cost_cny for _, r in results)
+    # 聚合 improvement_hints（持续优化模式 — 即使全 pass 也注入下一轮 actor）
+    hints_parts = [
+        f"[{pid}] {r.improvement_hints}"
+        for pid, r in results if r.improvement_hints
+    ]
+    aggregated_hints = "\n".join(hints_parts) if hints_parts else None
+
     fails = [(pid, r) for pid, r in results if r.verdict == "fail"]
     if not fails:
         # 全过
@@ -208,6 +248,7 @@ def _aggregate_results_all_must_pass(
             verdict="pass",
             feedback=feedback or "all critics passed",
             cost_cny=total_cost,
+            improvement_hints=aggregated_hints,
         )
 
     # 任一 fail → 整体 fail
@@ -226,6 +267,7 @@ def _aggregate_results_all_must_pass(
         feedback="\n".join(feedback_parts),
         suggested_fix="\n".join(suggested_parts) if suggested_parts else None,
         cost_cny=total_cost,
+        improvement_hints=aggregated_hints,
     )
 
 

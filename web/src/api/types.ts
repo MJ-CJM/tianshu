@@ -139,9 +139,12 @@ export interface CheckSpec {
 }
 
 export interface CriticSpec {
+  persona_ids?: string[];
   persona_id?: string | null;
   model?: string | null;
   same_issue_threshold?: number;
+  /** lenient=合格即 pass / balanced=高标准 / strict=优秀才 pass */
+  strictness?: "lenient" | "balanced" | "strict";
 }
 
 export interface EscalationSpec {
@@ -157,6 +160,8 @@ export interface AcceptanceCriteria {
   checks?: CheckSpec[];
   critic?: CriticSpec;
   escalation?: EscalationSpec;
+  /** 最少迭代轮数（≥2 = 持续优化模式，即使 critic pass 也强制继续） */
+  min_outer_iterations?: number;
   max_outer_iterations?: number;
   deadline_seconds?: number | null;
   on_exhaustion?: "escalate" | "best_effort" | "fail";

@@ -353,9 +353,29 @@ async def run(
             },
         )
 
-        # 4. PASS → 收工
+        # 4. PASS → 收工（除非 min_outer_iterations 未满，进入"持续优化"模式）
         if critic_result and critic_result.verdict == "pass":
             state = state.advance(record)
+            min_iter = getattr(acceptance, "min_outer_iterations", 1) or 1
+            if state.iteration < min_iter:
+                # 持续优化：把 critic 的 improvement_hints 注入下一轮 actor
+                hint = critic_result.improvement_hints
+                if hint:
+                    state = state.with_consultation_advice(
+                        f"[持续优化模式] 上一轮已合格，但仍可优化：\n{hint}"
+                    )
+                await emit_audit(
+                    ctx.bus, ctx.storage, edict.id, memorial.id,
+                    "outer_loop.continued_for_optimization",
+                    {
+                        "iteration": state.iteration,
+                        "min_iterations": min_iter,
+                        "has_hints": bool(hint),
+                    },
+                )
+                if edict.execution_profile in ("checkpointed", "background"):
+                    _save_checkpoint(ctx, state)
+                continue  # 进入下一轮 outer iter
             await emit_audit(
                 ctx.bus, ctx.storage, edict.id, memorial.id,
                 "outer_loop.completed",

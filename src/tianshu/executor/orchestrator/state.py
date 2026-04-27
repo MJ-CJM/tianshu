@@ -31,6 +31,7 @@ class CriticResult:
     feedback: str = ""
     suggested_fix: str | None = None
     cost_cny: float = 0.0                  # 多 critic 时为聚合后总成本
+    improvement_hints: str | None = None   # PASS 时也可给改进建议（持续优化模式注入下一轮 actor）
 
 
 @dataclass(frozen=True)

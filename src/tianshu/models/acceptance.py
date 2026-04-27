@@ -24,6 +24,8 @@ class CriticSpec(BaseModel):
     persona_id: str | None = None
     model: str | None = None
     same_issue_threshold: int = 2
+    # 严苛度：lenient=合格即 pass / balanced=高标准 / strict=优秀才 pass
+    strictness: Literal["lenient", "balanced", "strict"] = "lenient"
 
     def effective_persona_ids(self) -> list[str]:
         """返回实际生效的 persona_ids 列表（兼容旧版单 persona_id）。"""
@@ -49,6 +51,8 @@ class AcceptanceCriteria(BaseModel):
     checks: list[CheckSpec] = Field(default_factory=list)
     critic: CriticSpec = Field(default_factory=CriticSpec)
     escalation: EscalationSpec = Field(default_factory=EscalationSpec)
+    # 最少迭代轮数（≥2 时强制持续优化模式 — 即使 critic pass 也继续，把 critic 改进建议反哺 actor）
+    min_outer_iterations: int = 1
     max_outer_iterations: int = 5
     deadline_seconds: int | None = None
     on_exhaustion: Literal["escalate", "best_effort", "fail"] = "escalate"
