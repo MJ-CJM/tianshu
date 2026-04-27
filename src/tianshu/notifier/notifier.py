@@ -108,6 +108,15 @@ class Notifier:
         # Dispatch to external channels
         await self._dispatch_external(event, memorial, message)
 
+    async def handle_outer_loop_event(self, event: EventEnvelope) -> None:
+        """长任务 outer loop 事件透传到 WebSocket（不走 debounce，实时推送给前端）。"""
+        await self.broadcast_ws({
+            "type": event.event_type,
+            "edict_id": event.edict_id,
+            "memorial_id": event.memorial_id,
+            "payload": event.payload,
+        })
+
     async def _dispatch_external(self, event, memorial, message: dict) -> None:
         """Dispatch to external notification channels based on edict dispatch config."""
         if not self._channel_registry:

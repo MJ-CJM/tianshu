@@ -1,9 +1,10 @@
 /** Outer loop iterations 可视化 —— 仅当 edict.acceptance != null 时使用。 */
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { Card, Tag, Collapse, Typography, Space, Empty, Spin } from "antd";
 import { ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined } from "@ant-design/icons";
 import { getOuterLoopIterations } from "../../api/edicts";
+import { useWebSocket } from "../../hooks/useWebSocket";
 import type { OuterLoopIteration } from "../../api/types";
 
 interface ParsedChecksResult {
@@ -54,10 +55,10 @@ interface Props {
 export default function OuterLoopTimeline({ edictId }: Props) {
   const [rows, setRows] = useState<OuterLoopIteration[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const { lastMessage } = useWebSocket();
 
-  useEffect(() => {
+  const fetchRows = useCallback(() => {
     let cancelled = false;
-    setLoading(true);
     getOuterLoopIterations(edictId)
       .then((res) => {
         if (cancelled) return;
@@ -75,6 +76,24 @@ export default function OuterLoopTimeline({ edictId }: Props) {
       cancelled = true;
     };
   }, [edictId]);
+
+  useEffect(() => {
+    setLoading(true);
+    return fetchRows();
+  }, [fetchRows]);
+
+  // 实时刷新：收到 outer_loop.* 事件且 edict_id 匹配则重 fetch
+  useEffect(() => {
+    if (!lastMessage) return;
+    const msg = lastMessage as { type?: string; edict_id?: string };
+    if (
+      msg.edict_id === edictId &&
+      typeof msg.type === "string" &&
+      msg.type.startsWith("outer_loop.")
+    ) {
+      fetchRows();
+    }
+  }, [lastMessage, edictId, fetchRows]);
 
   const totalCost = useMemo(
     () => (rows ?? []).reduce((sum, r) => sum + (r.cost_cny || 0), 0),

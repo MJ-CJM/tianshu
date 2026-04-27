@@ -3,7 +3,7 @@
  * 多监督官时用 Tabs 切换不同 persona 的报告。
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Card,
   Empty,
@@ -21,6 +21,7 @@ import {
   BulbOutlined,
 } from "@ant-design/icons";
 import { getSupervisionReports } from "../../api/edicts";
+import { useWebSocket } from "../../hooks/useWebSocket";
 import type { SupervisionReport } from "../../api/types";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -150,10 +151,10 @@ function ReportContent({ report }: { report: SupervisionReport }) {
 export default function SupervisionReportCard({ edictId }: Props) {
   const [reports, setReports] = useState<SupervisionReport[]>([]);
   const [loading, setLoading] = useState(true);
+  const { lastMessage } = useWebSocket();
 
-  useEffect(() => {
+  const fetchReports = useCallback(() => {
     let cancelled = false;
-    setLoading(true);
     getSupervisionReports(edictId)
       .then((rs) => {
         if (cancelled) return;
@@ -167,6 +168,23 @@ export default function SupervisionReportCard({ edictId }: Props) {
       cancelled = true;
     };
   }, [edictId]);
+
+  useEffect(() => {
+    setLoading(true);
+    return fetchReports();
+  }, [fetchReports]);
+
+  // 实时刷新：监督报告生成事件触发重 fetch
+  useEffect(() => {
+    if (!lastMessage) return;
+    const msg = lastMessage as { type?: string; edict_id?: string };
+    if (
+      msg.edict_id === edictId &&
+      msg.type === "outer_loop.supervision_completed"
+    ) {
+      fetchReports();
+    }
+  }, [lastMessage, edictId, fetchReports]);
 
   if (loading) {
     return (

@@ -389,6 +389,21 @@ async def lifespan(app: FastAPI):
     event_bus.on("audit.completed", notifier.handle_audit_completed)
     event_bus.on("audit.completed", memory_manager.handle_audit_completed, priority=200)
     event_bus.on("cost.budget_exceeded", notifier.handle_execution_failed)
+    # 长任务 outer loop 事件实时广播到 WebSocket
+    for outer_loop_event in (
+        "outer_loop.started",
+        "outer_loop.iteration.started",
+        "outer_loop.iteration.finished",
+        "outer_loop.checks.failed",
+        "outer_loop.escalated",
+        "outer_loop.completed",
+        "outer_loop.exhausted",
+        "outer_loop.approval.requested",
+        "outer_loop.approval.received",
+        "outer_loop.supervision_completed",
+        "outer_loop.resumed",
+    ):
+        event_bus.on(outer_loop_event, notifier.handle_outer_loop_event)
 
     # --- PluginApi ---
     plugin_api = PluginApi(
