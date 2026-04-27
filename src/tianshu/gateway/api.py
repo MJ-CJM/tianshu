@@ -385,6 +385,18 @@ async def get_outer_loop_iterations(edict_id: str, request: Request):
     return ApiResponse(success=True, data=rows)
 
 
+@gateway_router.get("/edicts/{edict_id}/supervision-report")
+async def get_supervision_report(edict_id: str, request: Request):
+    """长任务终态后由 critic persona 生成的监督报告（4 章节）。"""
+    storage: Storage = request.app.state.storage
+    row = storage.get_supervision_report(edict_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="supervision report not found")
+    import json
+    report = json.loads(row["report_json"])
+    return ApiResponse(success=True, data=report)
+
+
 # --- Memorial endpoints ---
 
 
