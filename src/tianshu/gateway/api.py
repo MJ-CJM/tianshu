@@ -799,6 +799,20 @@ async def reset_provider_pricing(name: str, request: Request):
     return ApiResponse(success=True, data=pm.get_pricing_with_source(name))
 
 
+@gateway_router.get("/providers/pricing/defaults", response_model=ApiResponse)
+async def get_default_pricing_table(request: Request):
+    """返回 _DEFAULT_PRICING 全部条目（用于户部账房"查看默认价表"展示）。"""
+    from tianshu.cost.tracker import _DEFAULT_PRICING, _FALLBACK_PRICING
+    rows = [
+        {"model": model, "miss": p[0], "hit": p[1], "out": p[2]}
+        for model, p in _DEFAULT_PRICING.items()
+    ]
+    return ApiResponse(success=True, data={
+        "entries": rows,
+        "fallback": {"miss": _FALLBACK_PRICING[0], "hit": _FALLBACK_PRICING[1], "out": _FALLBACK_PRICING[2]},
+    })
+
+
 @gateway_router.get("/providers/{name}/pricing/effective", response_model=ApiResponse)
 async def get_effective_pricing(name: str, request: Request):
     """返回当前生效价 + 来源（custom / default / mixed）。"""

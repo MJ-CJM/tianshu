@@ -427,6 +427,19 @@ export interface ProviderPricingUpdate {
   cost_per_1k_completion?: number | null;
 }
 
+/** 默认价表条目（GET /providers/pricing/defaults） */
+export interface DefaultPricingEntry {
+  model: string;
+  miss: number;
+  hit: number;
+  out: number;
+}
+
+export interface DefaultPricingTable {
+  entries: DefaultPricingEntry[];
+  fallback: { miss: number; hit: number; out: number };
+}
+
 // --- Plugin types ---
 
 export interface PluginInfo {

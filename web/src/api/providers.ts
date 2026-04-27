@@ -1,5 +1,6 @@
 import type {
   ApiResponse,
+  DefaultPricingTable,
   EffectivePricing,
   PluginInfo,
   ProviderInfo,
@@ -77,6 +78,13 @@ export async function resetProviderPricing(name: string): Promise<EffectivePrici
   const resp = await fetchJson<ApiResponse<EffectivePricing>>(
     `/api/providers/${encodeURIComponent(name)}/pricing`,
     { method: "DELETE" },
+  );
+  return resp.data!;
+}
+
+export async function getDefaultPricingTable(): Promise<DefaultPricingTable> {
+  const resp = await fetchJson<ApiResponse<DefaultPricingTable>>(
+    "/api/providers/pricing/defaults",
   );
   return resp.data!;
 }

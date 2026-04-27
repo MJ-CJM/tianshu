@@ -22,12 +22,14 @@ import {
 } from "antd";
 import { EditOutlined, ReloadOutlined } from "@ant-design/icons";
 import {
+  getDefaultPricingTable,
   getEffectivePricing,
   getProviders,
   resetProviderPricing,
   updateProviderPricing,
 } from "../../api/providers";
 import type {
+  DefaultPricingTable,
   EffectivePricing,
   ProviderInfo,
   ProviderPricingUpdate,
@@ -54,6 +56,8 @@ export default function ProviderPricingCard() {
   const [editing, setEditing] = useState<RowData | null>(null);
   const [form, setForm] = useState<ProviderPricingUpdate>({});
   const [saving, setSaving] = useState(false);
+  const [defaultTableOpen, setDefaultTableOpen] = useState(false);
+  const [defaultTable, setDefaultTable] = useState<DefaultPricingTable | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -166,14 +170,30 @@ export default function ProviderPricingCard() {
     },
   ];
 
+  const openDefaultTable = async () => {
+    if (!defaultTable) {
+      try {
+        const t = await getDefaultPricingTable();
+        setDefaultTable(t);
+      } catch (e) {
+        message.error("加载默认价表失败：" + String(e));
+        return;
+      }
+    }
+    setDefaultTableOpen(true);
+  };
+
   return (
     <Card
       size="small"
       title="提供方计价"
       extra={
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          每千 token CNY；空白字段落 _DEFAULT_PRICING 默认价表
-        </Typography.Text>
+        <Space size="small">
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            每千 token CNY；空白字段落默认价表
+          </Typography.Text>
+          <Button size="small" onClick={openDefaultTable}>查看默认价表</Button>
+        </Space>
       }
       style={{ marginTop: 16 }}
     >
@@ -244,6 +264,59 @@ export default function ProviderPricingCard() {
             提示：留空字段会落回 _DEFAULT_PRICING。修改立即生效，下次 LLM 调用按新价计费。
           </Typography.Text>
         </Space>
+      </Modal>
+
+      <Modal
+        title="默认价表 (_DEFAULT_PRICING)"
+        open={defaultTableOpen}
+        onCancel={() => setDefaultTableOpen(false)}
+        footer={null}
+        width={720}
+      >
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+          provider 自定义价格未填字段时，按 model 名匹配此表。匹配不到则用兜底价。
+        </Typography.Paragraph>
+        <Table
+          dataSource={defaultTable?.entries ?? []}
+          rowKey="model"
+          size="small"
+          pagination={false}
+          columns={[
+            { title: "Model", dataIndex: "model", key: "model" },
+            {
+              title: "Input miss ¥/1K",
+              dataIndex: "miss",
+              key: "miss",
+              render: (v: number) => formatPrice(v),
+              align: "right" as const,
+            },
+            {
+              title: "Input hit ¥/1K",
+              dataIndex: "hit",
+              key: "hit",
+              render: (v: number) => formatPrice(v),
+              align: "right" as const,
+            },
+            {
+              title: "Output ¥/1K",
+              dataIndex: "out",
+              key: "out",
+              render: (v: number) => formatPrice(v),
+              align: "right" as const,
+            },
+          ]}
+        />
+        {defaultTable?.fallback && (
+          <Typography.Paragraph
+            type="secondary"
+            style={{ fontSize: 12, marginTop: 12 }}
+          >
+            兜底价（未命中表时）：
+            miss <code>{formatPrice(defaultTable.fallback.miss)}</code>，
+            hit <code>{formatPrice(defaultTable.fallback.hit)}</code>，
+            out <code>{formatPrice(defaultTable.fallback.out)}</code>
+          </Typography.Paragraph>
+        )}
       </Modal>
     </Card>
   );
