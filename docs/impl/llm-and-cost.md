@@ -185,3 +185,92 @@ per-edict 累加器，避免频繁 DB 写：
 - `src/tianshu/cost/tracker.py`
 - `src/tianshu/cost/budget.py`
 - `src/tianshu/cost/models.py`
+
+## 多维度计费 (2026-04-27)
+
+### 三维定价模型
+
+每个 provider 的价格由 3 个维度构成（CNY/1K tokens）：
+
+| 维度 | 含义 |
+|------|------|
+| `input_miss` | 输入未命中缓存价（普通输入） |
+| `input_hit`  | 输入命中缓存价（折扣价） |
+| `output`     | 输出价 |
+
+成本公式：
+
+```
+input_miss_tokens = max(0, prompt_tokens - cache_read_tokens)
+cost = input_miss_tokens / 1000 × miss_price
+     + cache_read_tokens / 1000 × hit_price
+     + completion_tokens / 1000 × output_price
+```
+
+### Cache 字段提取（多 provider 适配）
+
+`litellm` 没统一各 provider 的 cache 字段，`_extract_cache_read_tokens(usage, model)` 按 model 名前缀路由：
+
+| Provider | 字段路径 |
+|----------|---------|
+| `claude*` / `anthropic/*` | `usage.cache_read_input_tokens` |
+| `deepseek*` | `usage.prompt_cache_hit_tokens` |
+| `gpt*` / OpenAI 兼容 | `usage.prompt_tokens_details.cached_tokens` |
+| 其他 | 0（保守） |
+
+注：Anthropic 的 `cache_creation_input_tokens`（写入缓存费）当前不单独建模，按 `input_miss` 价计入。
+
+### 配置粒度与 fallback 链
+
+按 **provider name** 配价（`providers.cost_per_1k_*` 三列），每维独立 fallback：
+
+```
+provider 自定义字段 (非 NULL) →
+  _DEFAULT_PRICING[model] (3-tuple) →
+    (0.0072, 0.0072, 0.0144) 兜底
+```
+
+`cost_per_1k_cache_read` 特殊：NULL 时
+- 若 `cost_per_1k_prompt` 已自定义 → hit = miss（无折扣）
+- 否则 → 默认表的 hit 价
+
+### 户部账房可视化配置
+
+`CostDashboardPage` 含 "提供方计价" 卡片：每行展示 provider 三维生效价 + 来源 badge（`custom` / `mixed` / `default`）。点击编辑弹 Modal 三个 InputNumber，留空字段落 `_DEFAULT_PRICING`。
+
+### API endpoints
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/providers/{name}/pricing/effective` | 当前生效价 + 来源 |
+| `PUT` | `/api/providers/{name}/pricing` | 部分更新（None 字段不动） |
+| `DELETE` | `/api/providers/{name}/pricing` | 重置三维为 NULL |
+
+### 数据流
+
+```
+LLM 调用结束 → litellm 返 response.usage
+   ↓
+_extract_cache_read_tokens(usage, model) 提取 cache_read
+   ↓
+estimate_cost(model, pt, ct, cache_read, provider_pricing=override)
+   ↓
+UsageSummary { ..., cache_read_tokens, cost_cny }
+   ↓
+LLM_OUTPUT hook (含 provider_name) → CostManager.on_llm_output
+   ↓
+CostTracker.accumulate (持久 last_provider_name)
+   ↓
+execution.completed → CostManager._finalize_cost
+   ↓
+cost_ledger 记录 (provider_name = tracker.last_provider_name 而非硬编码 default)
+```
+
+### 显式不做（v2 议题）
+
+- Anthropic `cache_creation_input_tokens` 单独 4 维建模
+- 多币种支持（仅 CNY）
+- model 级配价（仅 provider 级）
+- 价格历史 / 审计日志
+- 跨 provider edict 时的精确成本归属（用 last_provider_name 简化）
+- `cost_ledger` 表加 `cache_read_tokens` 列（当前 cache 维度数据存于 `outer_loop_iterations.cost_cny`，跨 edict 聚合不需要细化）
