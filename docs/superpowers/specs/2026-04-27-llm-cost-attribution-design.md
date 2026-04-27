@@ -193,12 +193,12 @@ pytest tests/ -k "cost" -v
 
 ## 6. 验收标准
 
-- [ ] `estimate_cost()` module-level 函数存在，单测覆盖 known / unknown / provider_override 三分支
-- [ ] `UsageSummary.cost_cny` 字段存在，默认 0.0，pydantic 向后兼容
-- [ ] `LLMClient.chat()` 实际调用后 `usage.cost_cny > 0`（命中价格表的 model）
-- [ ] `_DEFAULT_PRICING` 含 deepseek-chat 条目
-- [ ] outer loop 跑 e2e 后 `result.state.total_cost_cny > 0`
-- [ ] 老路径回归全绿（22 个）
+- [x] `estimate_cost()` module-level 函数存在，单测覆盖 known / unknown / provider_override 三分支
+- [x] `UsageSummary.cost_cny` 字段存在，默认 0.0，pydantic 向后兼容
+- [x] `LLMClient.chat()` 实际调用后 `usage.cost_cny > 0`（命中价格表的 model）
+- [x] `_DEFAULT_PRICING` 含 deepseek-chat 条目
+- [x] outer loop 跑 e2e 后 `result.state.total_cost_cny > 0`（实测 0.000479）
+- [x] 老路径回归全绿（22 个）
 
 ## 7. 显式不做（v2+）
 
