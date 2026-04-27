@@ -11,6 +11,7 @@ import MemorialCard from "../components/memorial/MemorialCard";
 import UsageDisplay from "../components/memorial/UsageDisplay";
 import EventTimeline from "../components/memorial/EventTimeline";
 import OuterLoopTimeline from "../components/edict/OuterLoopTimeline";
+import SupervisionReportCard from "../components/edict/SupervisionReportCard";
 import DecreeModal from "../components/decree/DecreeModal";
 import { PolicyTimeline } from "../components/policy/PolicyTimeline";
 import { useDagByEdict } from "../hooks/useDag";
@@ -591,6 +592,8 @@ export default function EdictDetailPage() {
       )}
 
       {events.length > 0 && <EventTimeline events={events} />}
+
+      {edictId && edict?.acceptance && <SupervisionReportCard edictId={edictId} />}
 
       {edictId && edict?.acceptance && <OuterLoopTimeline edictId={edictId} />}
 

@@ -199,6 +199,22 @@ export interface OuterLoopIteration {
   archived_at: string | null;
 }
 
+/** 长任务终态后由监督官 (critic persona) 产出的总评报告 */
+export interface SupervisionReport {
+  edict_id: string;
+  persona_id: string;
+  persona_name: string;
+  final_status: "completed" | "failed" | "cancelled" | "running" | "submitted";
+  iterations_count: number;
+  total_cost_cny: number;
+  issues_observed: string[];
+  well_done: string[];
+  poorly_done: string[];
+  recommendation: string | null;
+  raw_feedback: string;
+  created_at: string;
+}
+
 export interface EdictUpdateRequest {
   title?: string;
   goal?: string;

@@ -1,11 +1,23 @@
 import apiClient from "./client";
-import type { ApiResponse, Edict, EdictCreateRequest, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent, OuterLoopIteration } from "./types";
+import type { ApiResponse, Edict, EdictCreateRequest, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent, OuterLoopIteration, SupervisionReport } from "./types";
 
 export async function getOuterLoopIterations(edictId: string): Promise<ApiResponse<OuterLoopIteration[]>> {
   const { data } = await apiClient.get<ApiResponse<OuterLoopIteration[]>>(
     `/edicts/${edictId}/iterations`,
   );
   return data;
+}
+
+export async function getSupervisionReport(edictId: string): Promise<SupervisionReport | null> {
+  try {
+    const { data } = await apiClient.get<ApiResponse<SupervisionReport>>(
+      `/edicts/${edictId}/supervision-report`,
+    );
+    return data.data ?? null;
+  } catch (e) {
+    // 404 = 没生成报告（短任务 / 未启用 critic）
+    return null;
+  }
 }
 
 export async function createEdict(body: EdictCreateRequest): Promise<ApiResponse<Edict>> {
