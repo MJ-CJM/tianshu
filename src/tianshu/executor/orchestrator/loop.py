@@ -238,6 +238,7 @@ async def run(
                 critic_result = await review(
                     actor_output, edict, acceptance, ctx.critic_llm,
                     fallback_llm=ctx.critic_fallback_llm,
+                    ctx=ctx,
                 )
             except CriticUnavailable as e:
                 if acceptance.on_critic_unavailable == "skip":

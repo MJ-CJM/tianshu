@@ -25,7 +25,7 @@ ISSUE_CLASSES: tuple[str, ...] = (
     "other",                 # 未分类
 )
 
-_SYSTEM_PROMPT = """你是天枢的 critic agent。基于 edict 的 acceptance criteria，
+_BASE_CRITIC_RULES = """你正在以监督官身份审议 actor 产出，请基于 edict 的 acceptance criteria，
 判定 actor 的输出是否合格。
 
 输出严格 JSON（不要前后加任何解释文字）:
@@ -41,6 +41,40 @@ _SYSTEM_PROMPT = """你是天枢的 critic agent。基于 edict 的 acceptance c
 - 如果不合格 → verdict=fail, issue_class 必填且必须从给定集合选
 - feedback 给 actor 看，要具体可执行
 """ % ", ".join(ISSUE_CLASSES)
+
+
+def _read_persona_text(persona: object) -> str:
+    """读 persona 的 soul + role 两个 .md 文件拼成 system prompt 上下文。"""
+    parts: list[str] = []
+    for attr in ("soul_path", "role_path"):
+        path = getattr(persona, attr, None)
+        if path is None:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            if text.strip():
+                parts.append(text.strip())
+        except OSError as e:
+            logger.warning("read persona %s failed: %s", attr, e)
+    return "\n\n".join(parts)
+
+
+def build_critic_prompt(persona: object | None) -> str:
+    """拼 critic 的 system prompt = persona 上下文 + ISSUE_CLASSES 强约束。
+
+    persona=None 时降级到通用 critic（保留旧行为做兼容）。
+    """
+    if persona is None:
+        return _BASE_CRITIC_RULES
+    persona_name = getattr(persona, "name", "未知监督官")
+    persona_dept = getattr(persona, "department", "")
+    persona_text = _read_persona_text(persona)
+    header = f"# 你的角色：{persona_name}（{persona_dept}）"
+    parts = [header]
+    if persona_text:
+        parts.append(persona_text)
+    parts.append(_BASE_CRITIC_RULES)
+    return "\n\n".join(parts)
 
 
 class CriticUnavailable(Exception):
@@ -83,6 +117,23 @@ def _parse(raw: str) -> CriticResult:
     )
 
 
+def _resolve_critic_llm(persona: object | None, ctx: object | None, fallback: LLMClient) -> LLMClient:
+    """按 persona.llm_config_name 拿 critic 专用 LLM；找不到落 fallback。"""
+    if persona is None or ctx is None:
+        return fallback
+    pm = getattr(ctx, "provider_manager", None)
+    if pm is None:
+        return fallback
+    config_name = getattr(persona, "llm_config_name", None)
+    if not config_name:
+        return fallback
+    try:
+        return pm.get_client(config_name_override=config_name)
+    except Exception as e:
+        logger.warning("resolve persona LLM '%s' failed: %s", config_name, e)
+        return fallback
+
+
 async def review(
     actor_output: str,
     edict: Edict,
@@ -91,11 +142,29 @@ async def review(
     *,
     fallback_llm: LLMClient | None = None,
     max_retries: int = 2,
+    ctx: object | None = None,
 ) -> CriticResult:
     """独立调用 critic LLM。
 
-    重试 max_retries 次；仍失败时尝试 fallback_llm；都不行则抛 CriticUnavailable。
+    监督官（persona）解析：
+    - 若 acceptance.critic.persona_id 填了且 ctx 提供了 persona_loader → 用该 persona 拼 prompt + 用 persona.llm_config_name 绑定的 LLM
+    - 否则降级到 generic critic prompt + 传入的 llm
+
+    重试 max_retries 次；仍失败时尝试 fallback_llm；都不行抛 CriticUnavailable。
     """
+    persona = None
+    actual_llm = llm
+    if ctx is not None and acceptance.critic.persona_id:
+        persona_loader = getattr(ctx, "persona_loader", None)
+        if persona_loader is not None:
+            persona = persona_loader.get(acceptance.critic.persona_id)
+            if persona is None:
+                raise CriticUnavailable(
+                    f"critic persona '{acceptance.critic.persona_id}' not found"
+                )
+            actual_llm = _resolve_critic_llm(persona, ctx, llm)
+
+    system_prompt = build_critic_prompt(persona)
     user_msg = (
         f"# Edict goal\n{edict.goal}\n\n"
         f"# Acceptance criteria summary\n"
@@ -104,14 +173,14 @@ async def review(
         f"# Actor output\n{actor_output}"
     )
     messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_msg},
     ]
 
     last_err: Exception | None = None
     for attempt in range(max_retries):
         try:
-            resp = await llm.chat(messages=messages)
+            resp = await actual_llm.chat(messages=messages)
             return _parse(resp.content or "")
         except Exception as e:
             logger.warning("critic LLM attempt %d failed: %s", attempt, e)
