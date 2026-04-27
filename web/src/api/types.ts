@@ -13,6 +13,8 @@ export interface UsageSummary {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cache_read_tokens?: number;
+  cost_cny?: number;
 }
 
 export type EdictStatus = "open" | "completed" | "cancelled";
@@ -369,6 +371,7 @@ export interface CostRecord {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cache_read_tokens?: number;
   cost_cny: number;
   created_at: string;
 }
@@ -405,7 +408,23 @@ export interface ProviderInfo {
   tpm_current: number;
   cost_per_1k_prompt: number | null;
   cost_per_1k_completion: number | null;
+  cost_per_1k_cache_read: number | null;
   created_at: string;
+}
+
+/** Provider 当前生效的 3 维价（来自 GET /providers/:name/pricing/effective） */
+export interface EffectivePricing {
+  miss: number | null;
+  hit: number | null;
+  out: number | null;
+  /** custom = 三维都自定义；default = 三维都未自定义；mixed = 部分自定义 */
+  source: "custom" | "default" | "mixed";
+}
+
+export interface ProviderPricingUpdate {
+  cost_per_1k_prompt?: number | null;
+  cost_per_1k_cache_read?: number | null;
+  cost_per_1k_completion?: number | null;
 }
 
 // --- Plugin types ---
