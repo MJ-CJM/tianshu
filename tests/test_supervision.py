@@ -113,6 +113,114 @@ async def test_generate_supervision_report_invalid_json_falls_back():
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_multi_critic_aggregate_all_must_pass():
+    """多监督官并发评审：任一 FAIL → 整体 FAIL。"""
+    from tianshu.executor.orchestrator.critic import review
+    from tianshu.models.acceptance import AcceptanceCriteria, CriticSpec
+    from tianshu.models.edict import Edict
+
+    # mock 2 个 persona
+    p1 = _make_persona("p1", "御史一", "ducha")
+    p2 = _make_persona("p2", "御史二", "ducha")
+    persona_loader = MagicMock()
+    persona_loader.get = lambda pid: {"p1": p1, "p2": p2}.get(pid)
+
+    # mock provider_manager
+    pm = MagicMock()
+    llm_p1 = MagicMock()
+    llm_p1.chat = AsyncMock(return_value=MagicMock(
+        content='{"verdict":"pass","feedback":"p1 OK"}',
+    ))
+    llm_p2 = MagicMock()
+    llm_p2.chat = AsyncMock(return_value=MagicMock(
+        content='{"verdict":"fail","issue_class":"factual_error","feedback":"p2 reject"}',
+    ))
+    pm.get_client = lambda config_name_override=None: (
+        llm_p2 if config_name_override == "cfg-p2" else llm_p1
+    )
+    p1.llm_config_name = "cfg-p1"
+    p2.llm_config_name = "cfg-p2"
+
+    ctx = MagicMock()
+    ctx.persona_loader = persona_loader
+    ctx.provider_manager = pm
+
+    edict = Edict(id="e1", goal="g")
+    acceptance = AcceptanceCriteria(critic=CriticSpec(persona_ids=["p1", "p2"]))
+
+    result = await review("output", edict, acceptance, llm_p1, ctx=ctx)
+    # p1 pass + p2 fail → 整体 fail
+    assert result.verdict == "fail"
+    assert result.issue_class == "factual_error"
+    # feedback 应包含两位监督官的输出
+    assert "p1" in result.feedback
+    assert "p2" in result.feedback
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_multi_critic_all_pass():
+    """全部 pass → 整体 pass。"""
+    from tianshu.executor.orchestrator.critic import review
+    from tianshu.models.acceptance import AcceptanceCriteria, CriticSpec
+    from tianshu.models.edict import Edict
+
+    p1 = _make_persona("p1", "御史一", "ducha")
+    p2 = _make_persona("p2", "御史二", "ducha")
+    persona_loader = MagicMock()
+    persona_loader.get = lambda pid: {"p1": p1, "p2": p2}.get(pid)
+
+    llm = MagicMock()
+    llm.chat = AsyncMock(return_value=MagicMock(
+        content='{"verdict":"pass","feedback":"OK"}',
+    ))
+    pm = MagicMock()
+    pm.get_client = lambda **kw: llm
+
+    ctx = MagicMock()
+    ctx.persona_loader = persona_loader
+    ctx.provider_manager = pm
+
+    edict = Edict(id="e1", goal="g")
+    acceptance = AcceptanceCriteria(critic=CriticSpec(persona_ids=["p1", "p2"]))
+
+    result = await review("output", edict, acceptance, llm, ctx=ctx)
+    assert result.verdict == "pass"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_legacy_persona_id_compat():
+    """旧版单 persona_id 字段仍生效（视作 [persona_id]）。"""
+    from tianshu.executor.orchestrator.critic import review
+    from tianshu.models.acceptance import AcceptanceCriteria, CriticSpec
+    from tianshu.models.edict import Edict
+
+    p = _make_persona()
+    persona_loader = MagicMock()
+    persona_loader.get = lambda pid: p if pid == p.id else None
+
+    llm = MagicMock()
+    llm.chat = AsyncMock(return_value=MagicMock(
+        content='{"verdict":"pass","feedback":"OK"}',
+    ))
+    pm = MagicMock()
+    pm.get_client = lambda **kw: llm
+
+    ctx = MagicMock()
+    ctx.persona_loader = persona_loader
+    ctx.provider_manager = pm
+
+    edict = Edict(id="e1", goal="g")
+    # 用旧字段
+    acceptance = AcceptanceCriteria(critic=CriticSpec(persona_id=p.id))
+
+    result = await review("output", edict, acceptance, llm, ctx=ctx)
+    assert result.verdict == "pass"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_generate_supervision_report_resume_history_empty(tmp_path):
     """resume 后 state.history=()，回查 outer_loop_iterations 表。"""
     storage = Storage(str(tmp_path / "t.db"))
