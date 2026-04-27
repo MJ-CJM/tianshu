@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from tianshu.cost.tracker import lookup_pricing
 from tianshu.llm import LLMClient
 from tianshu.providers.litellm_provider import create_llm_client
 from tianshu.providers.protocol import ProviderCapability, ProviderInfo, TaskRequirements
@@ -78,7 +79,62 @@ class ProviderManager:
             "priority": info.priority,
             "cost_per_1k_prompt": info.cost_per_1k_prompt,
             "cost_per_1k_completion": info.cost_per_1k_completion,
+            "cost_per_1k_cache_read": info.cost_per_1k_cache_read,
         })
+
+    def get_effective_pricing(self, name: str) -> tuple[float, float, float]:
+        """计算 provider 当前生效的 3 维价格 (input_miss, input_hit, output)。
+
+        - 自定义字段非 NULL → 用自定义
+        - 自定义字段 NULL → 落到 _DEFAULT_PRICING[model]
+        - 部分自定义：未填的字段单独走默认表（每维独立 fallback）
+        - cost_per_1k_cache_read NULL 时特殊：默认表的 hit 价生效；
+          若默认表也无（fallback hit=miss），则等同于 cost_per_1k_prompt
+        """
+        info = self.get_provider(name)
+        if not info:
+            return lookup_pricing("")  # 兜底
+        default_miss, default_hit, default_out = lookup_pricing(info.model)
+        miss = info.cost_per_1k_prompt if info.cost_per_1k_prompt is not None else default_miss
+        out = info.cost_per_1k_completion if info.cost_per_1k_completion is not None else default_out
+        if info.cost_per_1k_cache_read is not None:
+            hit = info.cost_per_1k_cache_read
+        elif info.cost_per_1k_prompt is not None:
+            # 用户自定义了 miss 但没填 hit → 默认无折扣（hit = miss）
+            hit = miss
+        else:
+            # 完全没自定义 → 用默认表的 hit
+            hit = default_hit
+        return (miss, hit, out)
+
+    def get_pricing_with_source(self, name: str) -> dict:
+        """带"来源"标记的生效价（前端展示用）。
+
+        source 取值：
+        - "custom"：三维都自定义
+        - "default"：三维都未自定义
+        - "mixed"：部分自定义
+        """
+        info = self.get_provider(name)
+        if not info:
+            return {"miss": None, "hit": None, "out": None, "source": "default"}
+        miss, hit, out = self.get_effective_pricing(name)
+        custom_count = sum(
+            1
+            for v in (
+                info.cost_per_1k_prompt,
+                info.cost_per_1k_cache_read,
+                info.cost_per_1k_completion,
+            )
+            if v is not None
+        )
+        if custom_count == 0:
+            source = "default"
+        elif custom_count == 3:
+            source = "custom"
+        else:
+            source = "mixed"
+        return {"miss": miss, "hit": hit, "out": out, "source": source}
 
     def unregister(self, name: str) -> bool:
         return self._storage.delete_provider(name)
@@ -265,4 +321,5 @@ class ProviderManager:
             tpm_limit=row.get("tpm_limit"),
             cost_per_1k_prompt=row.get("cost_per_1k_prompt"),
             cost_per_1k_completion=row.get("cost_per_1k_completion"),
+            cost_per_1k_cache_read=row.get("cost_per_1k_cache_read"),
         )
