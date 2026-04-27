@@ -163,9 +163,11 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       if (maxOuter !== undefined && maxOuter !== 5) {
         acceptance.max_outer_iterations = maxOuter;
       }
-      const deadline = values.deadline_seconds as number | undefined;
-      if (deadline) {
-        acceptance.deadline_seconds = deadline;
+      const deadlineHours = (values.deadline_hours as number | undefined) ?? 0;
+      const deadlineMinutes = (values.deadline_minutes as number | undefined) ?? 0;
+      const deadlineSeconds = deadlineHours * 3600 + deadlineMinutes * 60;
+      if (deadlineSeconds > 0) {
+        acceptance.deadline_seconds = deadlineSeconds;
       }
       const onExhaustion = values.on_exhaustion as
         | "escalate"
@@ -507,7 +509,8 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                             form.setFieldsValue({
                               execution_profile: "checkpointed",
                               max_outer_iterations: 8,
-                              deadline_seconds: 3600,
+                              deadline_hours: 1,
+                              deadline_minutes: 0,
                               on_exhaustion: "escalate",
                               on_critic_unavailable: "escalate",
                               same_issue_threshold: 2,
@@ -523,7 +526,8 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                             form.setFieldsValue({
                               execution_profile: "background",
                               max_outer_iterations: 15,
-                              deadline_seconds: 7200,
+                              deadline_hours: 2,
+                              deadline_minutes: 0,
                               on_exhaustion: "best_effort",
                               on_critic_unavailable: "skip",
                               same_issue_threshold: 3,
@@ -558,11 +562,29 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                     </Form.Item>
 
                     <Form.Item
-                      name="deadline_seconds"
-                      label="截止时间 (秒，可选)"
-                      tooltip="超过则触发 EXHAUSTED；空=无硬截止"
+                      label="截止时间 (可选)"
+                      tooltip="超过则触发 EXHAUSTED；全留空 = 无硬截止"
                     >
-                      <InputNumber min={60} style={{ width: "100%" }} placeholder="不限" />
+                      <Space>
+                        <Form.Item name="deadline_hours" noStyle>
+                          <InputNumber
+                            min={0}
+                            max={48}
+                            placeholder="时"
+                            addonAfter="小时"
+                            style={{ width: 130 }}
+                          />
+                        </Form.Item>
+                        <Form.Item name="deadline_minutes" noStyle>
+                          <InputNumber
+                            min={0}
+                            max={59}
+                            placeholder="分"
+                            addonAfter="分钟"
+                            style={{ width: 130 }}
+                          />
+                        </Form.Item>
+                      </Space>
                     </Form.Item>
 
                     <Form.Item
