@@ -42,17 +42,28 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     label: `${p.name}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
   }));
 
-  // critic 监督官候选：都察院 + 内阁（推荐都察院系列）
-  const criticPersonas = (personas ?? []).filter(
-    (p) => p.department === "ducha" || p.department === "neige",
-  );
+  // critic 监督官候选：所有 personas（推荐都察院/内阁系列）
+  const DEPT_LABEL: Record<string, string> = {
+    ducha: "都察院",
+    neige: "内阁",
+    bingbu: "兵部",
+    hubu: "户部",
+    wenyuan: "文渊阁",
+    tongzheng: "通政司",
+  };
+  const criticPersonas = personas ?? [];
   const criticPersonaOptions = criticPersonas.map((p) => ({
     value: p.id,
-    label: `${p.name} · ${p.department === "ducha" ? "都察院" : "内阁"}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
+    label: `${p.name} · ${DEPT_LABEL[p.department] ?? p.department}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
   }));
-  const defaultCriticPersonaId =
-    criticPersonas.find((p) => p.department === "ducha")?.id
-    ?? criticPersonas[0]?.id;
+  // 默认值：优先 ducha → neige → 第一个
+  const defaultCriticPersonaIds = (() => {
+    const ducha = criticPersonas.find((p) => p.department === "ducha")?.id;
+    if (ducha) return [ducha];
+    const neige = criticPersonas.find((p) => p.department === "neige")?.id;
+    if (neige) return [neige];
+    return criticPersonas[0] ? [criticPersonas[0].id] : [];
+  })();
 
   const handleFinish = (values: Record<string, unknown>) => {
     const req: EdictCreateRequest = {
@@ -174,10 +185,12 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       const sameIssueThreshold = values.same_issue_threshold as
         | number
         | undefined;
-      const criticPersonaId = values.critic_persona_id as string | undefined;
-      if (sameIssueThreshold !== undefined || criticPersonaId) {
+      const criticPersonaIds = values.critic_persona_ids as string[] | undefined;
+      if (sameIssueThreshold !== undefined || (criticPersonaIds && criticPersonaIds.length > 0)) {
         acceptance.critic = {
-          ...(criticPersonaId ? { persona_id: criticPersonaId } : {}),
+          ...(criticPersonaIds && criticPersonaIds.length > 0
+            ? { persona_ids: criticPersonaIds }
+            : {}),
           ...(sameIssueThreshold !== undefined && sameIssueThreshold !== 2
             ? { same_issue_threshold: sameIssueThreshold }
             : {}),
@@ -511,17 +524,23 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                     </Form.Item>
 
                     <Form.Item
-                      name="critic_persona_id"
-                      label="监督官 (Critic Persona)"
-                      tooltip="谁来监督任务质量。任务终态后由该 persona 产出监督报告（4 章节：问题/做得好/做得不够/建议）"
-                      rules={[{ required: true, message: "启用长任务时必选监督官" }]}
-                      initialValue={defaultCriticPersonaId}
+                      name="critic_persona_ids"
+                      label="监督官 (Critic Personas，可多选)"
+                      tooltip="谁来监督任务质量。多选时每轮并发评审，按'全过则过'聚合；任意一位 FAIL 即不过。终态后每位监督官独立产出监督报告。"
+                      rules={[{
+                        required: true,
+                        type: "array",
+                        min: 1,
+                        message: "启用长任务时至少选择一位监督官",
+                      }]}
+                      initialValue={defaultCriticPersonaIds}
                     >
                       <Select
+                        mode="multiple"
                         options={criticPersonaOptions}
                         showSearch
                         optionFilterProp="label"
-                        placeholder="选择都察院或内阁 persona"
+                        placeholder="可选多位 persona（都察院/内阁推荐）"
                       />
                     </Form.Item>
 
