@@ -371,14 +371,15 @@ class Storage:
                 );
 
                 CREATE TABLE IF NOT EXISTS supervision_reports (
-                    edict_id          TEXT PRIMARY KEY,
+                    edict_id          TEXT NOT NULL,
                     persona_id        TEXT NOT NULL,
                     persona_name      TEXT NOT NULL,
                     final_status      TEXT NOT NULL,
                     iterations_count  INTEGER NOT NULL,
                     total_cost_cny    REAL NOT NULL,
                     report_json       TEXT NOT NULL,
-                    created_at        TEXT NOT NULL
+                    created_at        TEXT NOT NULL,
+                    PRIMARY KEY (edict_id, persona_id)
                 );
             """)
 
@@ -441,6 +442,19 @@ class Storage:
             "ALTER TABLE edicts ADD COLUMN execution_profile TEXT NOT NULL DEFAULT 'foreground'",
             # 2026-04-27: providers 加 cache 命中价（NULL = fallback 到 cost_per_1k_prompt）
             "ALTER TABLE providers ADD COLUMN cost_per_1k_cache_read REAL",
+            # 2026-04-27: supervision_reports PK 从 (edict_id) 改为 (edict_id, persona_id) 支持多监督官
+            "DROP TABLE IF EXISTS supervision_reports",
+            """CREATE TABLE supervision_reports (
+                edict_id          TEXT NOT NULL,
+                persona_id        TEXT NOT NULL,
+                persona_name      TEXT NOT NULL,
+                final_status      TEXT NOT NULL,
+                iterations_count  INTEGER NOT NULL,
+                total_cost_cny    REAL NOT NULL,
+                report_json       TEXT NOT NULL,
+                created_at        TEXT NOT NULL,
+                PRIMARY KEY (edict_id, persona_id)
+            )""",
         ]
         for sql in migrations:
             try:
@@ -2500,7 +2514,17 @@ class Storage:
             )
 
     def get_supervision_report(self, edict_id: str) -> dict | None:
+        """单监督官兼容入口；返回 (edict_id, persona_id) 第一行。"""
         row = self._conn.execute(
-            "SELECT * FROM supervision_reports WHERE edict_id = ?", (edict_id,),
+            "SELECT * FROM supervision_reports WHERE edict_id = ? LIMIT 1",
+            (edict_id,),
         ).fetchone()
         return dict(row) if row else None
+
+    def get_supervision_reports(self, edict_id: str) -> list[dict]:
+        """多监督官：返同 edict 全部报告，按 persona_id 排序。"""
+        rows = self._conn.execute(
+            "SELECT * FROM supervision_reports WHERE edict_id = ? ORDER BY persona_id ASC",
+            (edict_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
