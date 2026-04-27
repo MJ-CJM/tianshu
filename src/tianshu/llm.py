@@ -13,6 +13,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tianshu.cost.tracker import estimate_cost
 from tianshu.models import UsageSummary
 
 logger = logging.getLogger(__name__)
@@ -151,10 +152,13 @@ class LLMClient:
 
         usage = UsageSummary()
         if response.usage:
+            pt = response.usage.prompt_tokens or 0
+            ct = response.usage.completion_tokens or 0
             usage = UsageSummary(
-                prompt_tokens=response.usage.prompt_tokens or 0,
-                completion_tokens=response.usage.completion_tokens or 0,
+                prompt_tokens=pt,
+                completion_tokens=ct,
                 total_tokens=response.usage.total_tokens or 0,
+                cost_cny=estimate_cost(model, pt, ct),
             )
 
         tool_calls = None
@@ -245,10 +249,13 @@ class LLMClient:
                             tc["args"] += tc_delta.function.arguments
 
             if chunk.usage:
+                pt = chunk.usage.prompt_tokens or 0
+                ct = chunk.usage.completion_tokens or 0
                 usage = UsageSummary(
-                    prompt_tokens=chunk.usage.prompt_tokens or 0,
-                    completion_tokens=chunk.usage.completion_tokens or 0,
+                    prompt_tokens=pt,
+                    completion_tokens=ct,
                     total_tokens=chunk.usage.total_tokens or 0,
+                    cost_cny=estimate_cost(model, pt, ct),
                 )
 
         final_tool_calls = None
