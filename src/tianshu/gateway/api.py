@@ -385,9 +385,21 @@ async def get_outer_loop_iterations(edict_id: str, request: Request):
     return ApiResponse(success=True, data=rows)
 
 
+@gateway_router.get("/edicts/{edict_id}/supervision-reports")
+async def get_supervision_reports(edict_id: str, request: Request):
+    """长任务终态后由所有 critic persona 生成的监督报告列表（4 章节 × N 监督官）。"""
+    storage: Storage = request.app.state.storage
+    rows = storage.get_supervision_reports(edict_id)
+    if not rows:
+        return ApiResponse(success=True, data=[])
+    import json
+    reports = [json.loads(r["report_json"]) for r in rows]
+    return ApiResponse(success=True, data=reports)
+
+
 @gateway_router.get("/edicts/{edict_id}/supervision-report")
-async def get_supervision_report(edict_id: str, request: Request):
-    """长任务终态后由 critic persona 生成的监督报告（4 章节）。"""
+async def get_supervision_report_legacy(edict_id: str, request: Request):
+    """兼容旧 endpoint —— 返第一个监督报告（已废弃，建议用 /supervision-reports）。"""
     storage: Storage = request.app.state.storage
     row = storage.get_supervision_report(edict_id)
     if not row:

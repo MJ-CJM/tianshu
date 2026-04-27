@@ -8,16 +8,21 @@ export async function getOuterLoopIterations(edictId: string): Promise<ApiRespon
   return data;
 }
 
-export async function getSupervisionReport(edictId: string): Promise<SupervisionReport | null> {
+export async function getSupervisionReports(edictId: string): Promise<SupervisionReport[]> {
   try {
-    const { data } = await apiClient.get<ApiResponse<SupervisionReport>>(
-      `/edicts/${edictId}/supervision-report`,
+    const { data } = await apiClient.get<ApiResponse<SupervisionReport[]>>(
+      `/edicts/${edictId}/supervision-reports`,
     );
-    return data.data ?? null;
-  } catch (e) {
-    // 404 = 没生成报告（短任务 / 未启用 critic）
-    return null;
+    return data.data ?? [];
+  } catch {
+    return [];
   }
+}
+
+/** @deprecated 用 getSupervisionReports 复数版（多监督官） */
+export async function getSupervisionReport(edictId: string): Promise<SupervisionReport | null> {
+  const list = await getSupervisionReports(edictId);
+  return list.length > 0 ? list[0]! : null;
 }
 
 export async function createEdict(body: EdictCreateRequest): Promise<ApiResponse<Edict>> {
