@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import EdictStatus
 
 
@@ -55,6 +56,9 @@ class EdictCreateRequest(BaseModel):
     assigned_persona_id: str | None = None
     planner_persona_id: str | None = None
     plan_review: bool = False
+    # 长任务 outer loop（None = 走老路径单回合 agent）
+    acceptance: AcceptanceCriteria | None = None
+    execution_profile: Literal["foreground", "checkpointed", "background"] = "foreground"
 
 
 class FollowUpRequest(BaseModel):

@@ -135,6 +135,10 @@ async def create_edict(body: EdictCreateRequest, request: Request):
         edict_kwargs["planner_persona_id"] = body.planner_persona_id
     if body.plan_review:
         edict_kwargs["plan_review"] = True
+    if body.acceptance is not None:
+        edict_kwargs["acceptance"] = body.acceptance
+    if body.execution_profile != "foreground":
+        edict_kwargs["execution_profile"] = body.execution_profile
     edict = Edict(**edict_kwargs)
     storage.save_edict(edict)
     logger.debug(
