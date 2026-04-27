@@ -344,6 +344,8 @@ async def lifespan(app: FastAPI):
         consultation_session=consultation,
         notifier=notifier,
         approvals=None,  # v1：暂不接 ApprovalManager；no-acceptance 路径 / on_approval_timeout=best_effort 兜底
+        persona_loader=persona_loader,
+        provider_manager=provider_manager,
     )
     executor.set_orchestrator_context(orch_ctx)
     app.state.orchestrator_ctx = orch_ctx

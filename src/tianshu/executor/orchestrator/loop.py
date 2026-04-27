@@ -83,6 +83,8 @@ class OrchestratorContext:
         consultation_session: object | None = None,
         notifier: object | None = None,
         approvals: object | None = None,
+        persona_loader: object | None = None,    # PersonaLoader (rsv 循环 import)
+        provider_manager: object | None = None,  # ProviderManager
     ) -> None:
         self.agent = agent
         self.storage = storage
@@ -93,6 +95,8 @@ class OrchestratorContext:
         self.consultation_session = consultation_session
         self.notifier = notifier
         self.approvals = approvals
+        self.persona_loader = persona_loader
+        self.provider_manager = provider_manager
 
 
 class OrchestratorResult:
