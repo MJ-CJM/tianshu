@@ -385,6 +385,44 @@ async def get_outer_loop_iterations(edict_id: str, request: Request):
     return ApiResponse(success=True, data=rows)
 
 
+class OuterLoopDecisionRequest(BaseModel):
+    action: Literal["continue", "accept_as_is", "abort", "modify_acceptance"]
+    feedback: str | None = None
+    new_acceptance: dict | None = None
+
+
+@gateway_router.get("/edicts/outer-loop/pending")
+async def list_outer_loop_pending(request: Request):
+    """所有 L3 待审批的长任务列表（含 best_output / critic_feedback / 轮数等）。"""
+    am = request.app.state.approval_manager
+    items = am.list_pending_outer_loop()
+    return ApiResponse(success=True, data=items)
+
+
+@gateway_router.post("/edicts/{edict_id}/outer-loop/decide")
+async def submit_outer_loop_decision_api(
+    edict_id: str, body: OuterLoopDecisionRequest, request: Request,
+):
+    """前端 L3 审批 Modal 提交决策入口。"""
+    from tianshu.executor.orchestrator.human_decision import HumanDecision
+    from tianshu.models.acceptance import AcceptanceCriteria
+    am = request.app.state.approval_manager
+    new_acceptance = (
+        AcceptanceCriteria.model_validate(body.new_acceptance)
+        if body.new_acceptance else None
+    )
+    decision = HumanDecision(
+        action=body.action, feedback=body.feedback, new_acceptance=new_acceptance,
+    )
+    triggered = am.submit_outer_loop_decision(edict_id, decision)
+    if not triggered:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Edict '{edict_id}' is not awaiting an outer-loop decision",
+        )
+    return ApiResponse(success=True, data={"edict_id": edict_id, "action": body.action})
+
+
 @gateway_router.get("/edicts/{edict_id}/supervision-reports")
 async def get_supervision_reports(edict_id: str, request: Request):
     """长任务终态后由所有 critic persona 生成的监督报告列表（4 章节 × N 监督官）。"""

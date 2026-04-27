@@ -170,7 +170,7 @@ async def test_l3_approval_accept_as_is(storage, bus):
         {"verdict": "fail", "issue_class": "other", "feedback": "f"},
     ])
     approvals = MagicMock()
-    approvals.wait = AsyncMock(return_value=HumanDecision(action="accept_as_is"))
+    approvals.wait_for_outer_loop_decision = AsyncMock(return_value=HumanDecision(action="accept_as_is"))
     ctx.approvals = approvals
 
     e = _edict(
@@ -193,7 +193,7 @@ async def test_l3_approval_abort(storage, bus):
         {"verdict": "fail", "issue_class": "other", "feedback": "f"},
     ])
     approvals = MagicMock()
-    approvals.wait = AsyncMock(return_value=HumanDecision(action="abort"))
+    approvals.wait_for_outer_loop_decision = AsyncMock(return_value=HumanDecision(action="abort"))
     ctx.approvals = approvals
 
     e = _edict(
@@ -221,7 +221,7 @@ async def test_l3_modify_acceptance_resets_streak(storage, bus):
         critic=CriticSpec(same_issue_threshold=5),
     )
     approvals = MagicMock()
-    approvals.wait = AsyncMock(return_value=HumanDecision(
+    approvals.wait_for_outer_loop_decision = AsyncMock(return_value=HumanDecision(
         action="modify_acceptance",
         new_acceptance=new_acceptance,
     ))

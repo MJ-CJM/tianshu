@@ -36,6 +36,10 @@ class ApprovalManager:
         self._results: dict[str, Decree] = {}
         # Spec Section 4: 记录 wait_for_approval 时的 tool_name，方便 _handle_approve 生成 session rule
         self._pending_tool: dict[str, str] = {}
+        # 长任务 outer loop L3 审批（独立队列，与 tool-call 审批并存）
+        self._outer_loop_pending: dict[str, asyncio.Event] = {}
+        self._outer_loop_results: dict[str, object] = {}  # HumanDecision
+        self._outer_loop_payload: dict[str, dict] = {}    # 等审批时附带的展示数据（for UI）
 
     async def on_before_tool_call(self, **context: object) -> object:
         """Deprecated pre-Step-2 entry point.
@@ -76,6 +80,55 @@ class ApprovalManager:
         finally:
             self._pending.pop(memorial_id, None)
             self._pending_tool.pop(memorial_id, None)
+
+    # --- 长任务 outer loop L3 审批接口（独立于 tool-call 审批）---
+
+    async def wait_for_outer_loop_decision(
+        self,
+        edict_id: str,
+        payload: dict | None = None,
+        timeout_seconds: float = 86400.0,
+    ) -> object | None:
+        """阻塞直到某 edict 的 outer-loop L3 审批被提交，或超时。
+
+        payload：当前最佳产出 / critic feedback / 迭代轮数等，存供 UI 列表查询。
+        返回 HumanDecision pydantic 对象；超时返 None（caller 按 on_approval_timeout 处理）。
+        """
+        evt = asyncio.Event()
+        self._outer_loop_pending[edict_id] = evt
+        if payload is not None:
+            self._outer_loop_payload[edict_id] = payload
+        logger.info("Waiting for outer-loop approval on edict %s (timeout=%ds)", edict_id, int(timeout_seconds))
+        try:
+            await asyncio.wait_for(evt.wait(), timeout=timeout_seconds)
+            return self._outer_loop_results.pop(edict_id, None)
+        except asyncio.TimeoutError:
+            logger.warning("Outer-loop approval timeout for edict %s", edict_id)
+            return None
+        finally:
+            self._outer_loop_pending.pop(edict_id, None)
+            self._outer_loop_payload.pop(edict_id, None)
+
+    def submit_outer_loop_decision(self, edict_id: str, decision: object) -> bool:
+        """前端 POST 决策时调；返 True 表示真触发了等待中的 wait_for_outer_loop_decision。"""
+        if edict_id not in self._outer_loop_pending:
+            logger.warning(
+                "submit_outer_loop_decision: no edict '%s' is awaiting decision", edict_id,
+            )
+            return False
+        self._outer_loop_results[edict_id] = decision
+        self._outer_loop_pending[edict_id].set()
+        return True
+
+    def list_pending_outer_loop(self) -> list[dict]:
+        """列出所有等审批的 outer-loop edict 及附带 payload。前端批红台用。"""
+        out: list[dict] = []
+        for edict_id, payload in self._outer_loop_payload.items():
+            out.append({
+                "edict_id": edict_id,
+                **payload,
+            })
+        return out
 
     def list_pending_tool_calls(self) -> list[dict]:
         """List in-memory pending tool approvals enriched with metadata.

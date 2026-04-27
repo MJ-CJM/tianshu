@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -563,16 +564,26 @@ async def _escalate_to_human(
         else 86400  # 默认 24h
     )
     try:
-        raw = await ctx.approvals.wait(
-            edict_id=edict.id,
-            timeout_seconds=timeout,
-        )
+        # 优先用 ApprovalManager 的 outer-loop 接口（真审批等待）；
+        # 测试 mock 仍可走 .wait() 老接口
+        if hasattr(ctx.approvals, "wait_for_outer_loop_decision"):
+            raw = await ctx.approvals.wait_for_outer_loop_decision(
+                edict_id=edict.id,
+                payload=payload,
+                timeout_seconds=float(timeout),
+            )
+        else:
+            raw = await ctx.approvals.wait(
+                edict_id=edict.id,
+                timeout_seconds=timeout,
+            )
+        if raw is None:
+            raise asyncio.TimeoutError("approval timeout / no decision")
         if isinstance(raw, dict):
             decision = HumanDecision.model_validate(raw)
         elif isinstance(raw, HumanDecision):
             decision = raw
         else:
-            # 其他可被 pydantic 接受的类（包括 mock 测试时直接返回的 HumanDecision）
             decision = HumanDecision.model_validate(raw if isinstance(raw, dict) else raw.__dict__)
     except Exception as e:
         logger.warning("approval 超时 / 失败: %s", e)
