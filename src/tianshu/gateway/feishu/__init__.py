@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tianshu.gateway.feishu.approval_card import ApprovalCardHandler
-from tianshu.gateway.feishu.connection import WebhookConnection
+from tianshu.gateway.feishu.connection import WebhookConnection, WebSocketConnection
 from tianshu.gateway.feishu.dispatcher import Dispatcher, FeishuCardAction, FeishuMessage
 from tianshu.gateway.feishu.edict_bridge import EdictBridge, EdictBusyError
 from tianshu.gateway.feishu.outbound import FeishuOutbound
@@ -48,7 +50,7 @@ class FeishuBot:
         self._notifier = notifier
         self._settings = settings
         self._inbound: asyncio.Queue = asyncio.Queue()
-        self._connection: WebhookConnection | None = None
+        self._connection: WebhookConnection | WebSocketConnection | None = None
         self._dispatcher: Dispatcher | None = None
         self._anchor = SessionAnchor(storage)
         self._edict_bridge = EdictBridge(
@@ -76,14 +78,21 @@ class FeishuBot:
             self._settings.connection_mode,
             self._settings.app_id,
         )
-        if self._settings.connection_mode == "webhook":
+        self._acquire_app_lock()
+        if self._settings.connection_mode == "websocket":
+            loop = asyncio.get_running_loop()
+            self._connection = WebSocketConnection(
+                settings=self._settings,
+                storage=self._storage,
+                inbound_queue=self._inbound,
+                loop=loop,
+            )
+        else:
             self._connection = WebhookConnection(
                 settings=self._settings,
                 storage=self._storage,
                 inbound_queue=self._inbound,
             )
-        else:
-            raise NotImplementedError("websocket mode 待 Step 6 实现")
         await self._connection.start()
 
         self._dispatcher = Dispatcher(
@@ -102,6 +111,41 @@ class FeishuBot:
             await self._dispatcher.stop()
         if self._connection:
             await self._connection.stop()
+        self._release_app_lock()
+
+    def _acquire_app_lock(self) -> None:
+        """启动时占进程锁，避免双开同一 app_id。"""
+        lock_path = Path.home() / ".tianshu" / f"feishu_app_lock.{self._settings.app_id}"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        if lock_path.exists():
+            try:
+                pid = int(lock_path.read_text().strip())
+            except (ValueError, OSError):
+                pid = 0
+            if pid > 0:
+                try:
+                    os.kill(pid, 0)  # 检查进程是否存活
+                    raise RuntimeError(
+                        f"Another tianshu process (pid={pid}) is using "
+                        f"feishu app {self._settings.app_id}; "
+                        f"lock file: {lock_path}"
+                    )
+                except ProcessLookupError:
+                    # 锁文件残留，清理
+                    logger.warning(
+                        "[feishu] stale lock file detected (pid=%d not alive), cleaning up",
+                        pid,
+                    )
+        lock_path.write_text(str(os.getpid()))
+        self._lock_path = lock_path
+
+    def _release_app_lock(self) -> None:
+        lock_path = getattr(self, "_lock_path", None)
+        if lock_path is not None and lock_path.exists():
+            try:
+                lock_path.unlink()
+            except OSError:
+                logger.exception("[feishu] failed to remove app lock file")
 
     def attach_webhook_router(self, app: "FastAPI") -> None:
         """Webhook 模式：把路由挂到 FastAPI app。"""
