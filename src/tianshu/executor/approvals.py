@@ -199,6 +199,24 @@ class ApprovalManager:
         if not memorial:
             raise ValueError(f"Memorial '{memorial_id}' not found")
 
+        # 安全降级：bash 类工具禁止 always scope（policy_store.assert_can_grant 硬约束）。
+        # 前置检测，把 grant_scope 改为 once，并通过事件 payload 透出 downgraded 标记，
+        # 让前端能给出"已降级为本次"的提示，避免用户误以为永久放行了。
+        tool_name = self._pending_tool.get(memorial_id) or ""
+        original_grant_scope = grant_scope
+        downgrade_reason: str | None = None
+        if action == "approve" and grant_scope == "always":
+            try:
+                from tianshu.tools.policy_store import assert_can_grant
+                assert_can_grant(tool_name, "always")
+            except ValueError as e:
+                downgrade_reason = str(e)
+                grant_scope = "once"
+                logger.info(
+                    "submit_tool_decision: downgrading grant_scope always→once for %r — %s",
+                    tool_name, e,
+                )
+
         decree = Decree(
             memorial_id=memorial_id,
             action=action,
@@ -220,8 +238,11 @@ class ApprovalManager:
                     "decree_id": decree.id,
                     "comment": decree.comment,
                     "mid_execution": True,
-                    "tool_name": self._pending_tool.get(memorial_id),
+                    "tool_name": tool_name,
                     "grant_scope": grant_scope,
+                    "requested_grant_scope": original_grant_scope,
+                    "grant_downgraded": downgrade_reason is not None,
+                    "grant_downgrade_reason": downgrade_reason,
                 },
             )
         )
