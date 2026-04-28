@@ -114,6 +114,69 @@ class FeishuBot:
             await self._connection.stop()
         self._release_app_lock()
 
+    async def reload(self, new_settings: FeishuSettings) -> None:
+        """热加载新 settings：重建 connection；保持 dispatcher / outbound / approval_card 实例。
+
+        - connection_mode 变化（websocket ↔ webhook）→ 重新构造 connection。
+        - app_id 变化 → 释放老锁并占新锁。
+        - outbound 重建 lark client。
+        - dispatcher / approval_card 切换 settings 引用（用于 allowlist / home_channel 等）。
+        """
+        logger.info(
+            "[feishu] reloading (old_mode=%s old_app=%s -> new_mode=%s new_app=%s)",
+            self._settings.connection_mode, self._settings.app_id,
+            new_settings.connection_mode, new_settings.app_id,
+        )
+
+        # 1. 停掉 connection（dispatcher / outbound 保持，避免丢入站队列消息）
+        if self._connection:
+            await self._connection.stop()
+            self._connection = None
+
+        # 2. 释放老锁（如果 app_id 变了）
+        old_app_id = self._settings.app_id
+        if old_app_id != new_settings.app_id:
+            self._release_app_lock()
+
+        # 3. 切换 settings + 占新锁
+        self._settings = new_settings
+        if old_app_id != new_settings.app_id:
+            self._acquire_app_lock()
+
+        # 4. 重建 connection
+        if self._settings.connection_mode == "websocket":
+            loop = asyncio.get_running_loop()
+            self._connection = WebSocketConnection(
+                settings=self._settings,
+                storage=self._storage,
+                inbound_queue=self._inbound,
+                loop=loop,
+            )
+        else:
+            self._connection = WebhookConnection(
+                settings=self._settings,
+                storage=self._storage,
+                inbound_queue=self._inbound,
+            )
+        await self._connection.start()
+
+        # 5. 更新各组件持有的 settings 引用 + 重建 outbound 的 lark client
+        self._outbound._settings = new_settings  # type: ignore[attr-defined]
+        self._outbound._client = None  # type: ignore[attr-defined]
+        self._outbound.start()  # 重新构造 lark client + 重新订阅事件
+
+        # approval_card 持有 settings 引用（用于 home_channel 兜底）
+        self._approval_card._settings = new_settings  # type: ignore[attr-defined]
+
+        # dispatcher 切换 settings（allowed_users / bot_open_id 等）
+        if self._dispatcher:
+            self._dispatcher._settings = new_settings  # type: ignore[attr-defined]
+
+        logger.info(
+            "[feishu] reload complete (mode=%s, app=%s)",
+            new_settings.connection_mode, new_settings.app_id,
+        )
+
     def _acquire_app_lock(self) -> None:
         """启动时占进程锁，避免双开同一 app_id。"""
         lock_path = Path.home() / ".tianshu" / f"feishu_app_lock.{self._settings.app_id}"
