@@ -286,6 +286,25 @@ async def lifespan(app: FastAPI):
     )
     app.state.approval_manager = approval_manager
 
+    # --- Feishu Bot ---
+    from tianshu.gateway.feishu import FeishuBot
+    from tianshu.gateway.feishu.settings import from_global_settings as build_feishu_settings
+
+    feishu_settings = build_feishu_settings(settings)
+    feishu_settings.validate_or_raise()
+
+    feishu_bot: FeishuBot | None = None
+    if feishu_settings.enabled:
+        feishu_bot = FeishuBot(
+            storage=storage,
+            event_bus=event_bus,
+            approval_manager=approval_manager,
+            notifier=notifier,
+            settings=feishu_settings,
+        )
+        await feishu_bot.start()
+        app.state.feishu_bot = feishu_bot
+
     # --- PolicyEngine + PolicyHook ---
     policy_engine = PolicyEngine(rules=build_default_rules())
     app.state.policy_engine = policy_engine
@@ -505,6 +524,8 @@ async def lifespan(app: FastAPI):
     await scheduler.stop()
     await worker_pool.shutdown()
     await executor.shutdown()
+    if feishu_bot is not None:
+        await feishu_bot.stop()
     storage.close()
     logger.info("Tianshu shutdown complete")
 
