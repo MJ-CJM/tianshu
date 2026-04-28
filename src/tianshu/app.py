@@ -222,7 +222,11 @@ async def lifespan(app: FastAPI):
     app.state.channel_registry = channel_registry
 
     # Register channels from environment
-    if settings.feishu_webhook:
+    if settings.feishu_app_id:
+        # app bot 模式：FeishuOutbound 在 FeishuBot.start() 内部直接订阅 EventBus，
+        # 不通过 ChannelRegistry。互斥：旧 incoming webhook URL 完全跳过。
+        pass
+    elif settings.feishu_webhook:
         from tianshu.notifier.channels.feishu import FeishuChannel
         channel_registry.register(FeishuChannel(settings.feishu_webhook))
     if settings.dingtalk_webhook:
