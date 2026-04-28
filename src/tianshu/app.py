@@ -304,6 +304,8 @@ async def lifespan(app: FastAPI):
         )
         await feishu_bot.start()
         app.state.feishu_bot = feishu_bot
+        if feishu_settings.connection_mode == "webhook":
+            feishu_bot.attach_webhook_router(app)
 
     # --- PolicyEngine + PolicyHook ---
     policy_engine = PolicyEngine(rules=build_default_rules())

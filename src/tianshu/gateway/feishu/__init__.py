@@ -4,12 +4,17 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from tianshu.gateway.feishu.connection import WebhookConnection
+from tianshu.gateway.feishu.dispatcher import Dispatcher, FeishuCardAction, FeishuMessage
 from tianshu.gateway.feishu.settings import FeishuSettings
 
 if TYPE_CHECKING:
+    from fastapi import FastAPI
+
     from tianshu.bus.event_bus import EventBus
     from tianshu.executor.approvals import ApprovalManager
     from tianshu.notifier.notifier import Notifier
@@ -35,20 +40,56 @@ class FeishuBot:
         self._approval_manager = approval_manager
         self._notifier = notifier
         self._settings = settings
-        # 后续 step 会在这里挂 connection / dispatcher / outbound
+        self._inbound: asyncio.Queue = asyncio.Queue()
+        self._connection: WebhookConnection | None = None
+        self._dispatcher: Dispatcher | None = None
 
     async def start(self) -> None:
-        """生命周期启动：启动连接 + 注册事件订阅 + 初始化 anchor 表。"""
         logger.info(
-            "[feishu] starting bot (mode=%s, app=%s)",
+            "[feishu] starting (mode=%s, app=%s)",
             self._settings.connection_mode,
             self._settings.app_id,
         )
-        # Step 2 起补全
+        if self._settings.connection_mode == "webhook":
+            self._connection = WebhookConnection(
+                settings=self._settings,
+                storage=self._storage,
+                inbound_queue=self._inbound,
+            )
+        else:
+            raise NotImplementedError("websocket mode 待 Step 6 实现")
+        await self._connection.start()
+
+        self._dispatcher = Dispatcher(
+            settings=self._settings,
+            inbound_queue=self._inbound,
+            message_handler=self._on_message,
+            card_handler=self._on_card,
+        )
+        await self._dispatcher.start()
 
     async def stop(self) -> None:
-        logger.info("[feishu] stopping bot")
-        # Step 6 起补全
+        logger.info("[feishu] stopping")
+        if self._dispatcher:
+            await self._dispatcher.stop()
+        if self._connection:
+            await self._connection.stop()
+
+    def attach_webhook_router(self, app: "FastAPI") -> None:
+        """Webhook 模式：把路由挂到 FastAPI app。"""
+        if self._connection and isinstance(self._connection, WebhookConnection):
+            app.include_router(self._connection.router)
+
+    async def _on_message(self, msg: FeishuMessage) -> None:
+        logger.info(
+            "[feishu/inbound] chat=%s sender=%s text=%.80s",
+            msg.chat_id,
+            msg.sender_open_id,
+            msg.text,
+        )
+
+    async def _on_card(self, action: FeishuCardAction) -> None:
+        logger.info("[feishu/card] chat=%s value=%s", action.chat_id, action.value)
 
 
 __all__ = ["FeishuBot"]
