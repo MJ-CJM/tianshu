@@ -406,6 +406,14 @@ class Storage:
                     created_at  TIMESTAMP NOT NULL
                 );
             """)
+            self._conn.executescript("""
+                CREATE TABLE IF NOT EXISTS channel_configs (
+                    channel_type     TEXT PRIMARY KEY,
+                    config_json      TEXT NOT NULL,
+                    encrypted_secret BLOB,
+                    updated_at       TIMESTAMP NOT NULL
+                );
+            """)
 
     def _migrate(self) -> None:
         migrations = [
@@ -2716,3 +2724,102 @@ class Storage:
         )
         self._conn.commit()
         return {"chat_id": row[0], "message_id": row[1], "kind": row[2]}
+
+    # --- Channel configs (通政司) ---
+
+    def get_channel_config(self, channel_type: str) -> dict | None:
+        """返回非敏感配置 dict + secret 是否已配（不返明文）。None 表示未配置。"""
+        row = self._conn.execute(
+            "SELECT config_json, encrypted_secret, updated_at "
+            "FROM channel_configs WHERE channel_type = ?",
+            (channel_type,),
+        ).fetchone()
+        if not row:
+            return None
+        import json as _json
+        cfg = _json.loads(row[0])
+        cfg["_has_secret"] = row[1] is not None
+        cfg["_updated_at"] = row[2]
+        return cfg
+
+    def save_channel_config(
+        self,
+        channel_type: str,
+        config: dict,
+        secret_plaintext: str | None = None,
+    ) -> None:
+        """保存配置；secret_plaintext=None 时不动 encrypted_secret，空串清空。"""
+        import json as _json
+        from datetime import UTC, datetime
+
+        from tianshu.secrets.vault import get_vault
+
+        # 排除内部字段
+        clean_config = {k: v for k, v in config.items() if not k.startswith("_")}
+        config_json_str = _json.dumps(clean_config, ensure_ascii=False)
+        now = datetime.now(UTC).isoformat()
+
+        encrypted: bytes | None = None
+        update_secret = False
+        if secret_plaintext is not None:
+            update_secret = True
+            if secret_plaintext == "":
+                encrypted = None  # 清空
+            else:
+                vault = get_vault()
+                if vault is None:
+                    raise RuntimeError(
+                        "TIANSHU_SECRET_MASTER_KEY 未设置，无法保存敏感凭证。"
+                        "请先配置主密钥后重启服务。"
+                    )
+                encrypted = vault.encrypt(secret_plaintext)
+
+        existing = self._conn.execute(
+            "SELECT 1 FROM channel_configs WHERE channel_type = ?",
+            (channel_type,),
+        ).fetchone()
+
+        if existing:
+            if update_secret:
+                self._conn.execute(
+                    "UPDATE channel_configs SET config_json=?, encrypted_secret=?, updated_at=? "
+                    "WHERE channel_type=?",
+                    (config_json_str, encrypted, now, channel_type),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE channel_configs SET config_json=?, updated_at=? "
+                    "WHERE channel_type=?",
+                    (config_json_str, now, channel_type),
+                )
+        else:
+            self._conn.execute(
+                "INSERT INTO channel_configs (channel_type, config_json, encrypted_secret, updated_at) "
+                "VALUES (?, ?, ?, ?)",
+                (channel_type, config_json_str, encrypted, now),
+            )
+        self._conn.commit()
+
+    def load_channel_runtime_config(self, channel_type: str) -> dict | None:
+        """返回**含明文 secret** 的运行时配置；启动加载/reload 用，不暴露给 API。"""
+        row = self._conn.execute(
+            "SELECT config_json, encrypted_secret FROM channel_configs WHERE channel_type = ?",
+            (channel_type,),
+        ).fetchone()
+        if not row:
+            return None
+        import json as _json
+
+        from tianshu.secrets.vault import get_vault
+        cfg = _json.loads(row[0])
+        if row[1]:
+            vault = get_vault()
+            if vault is None:
+                return None  # 配了 secret 但 vault 缺失 → 视为不可用
+            try:
+                cfg["app_secret"] = vault.decrypt(row[1])
+            except ValueError:
+                return None
+        else:
+            cfg["app_secret"] = ""
+        return cfg
