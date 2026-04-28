@@ -15,6 +15,7 @@ from tianshu.models.common import TaskStatus
 
 class SupervisionReport(BaseModel):
     edict_id: str
+    memorial_id: str
     persona_id: str
     persona_name: str
     final_status: TaskStatus

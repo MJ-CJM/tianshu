@@ -20,7 +20,7 @@ from tianshu.executor.orchestrator.state import (
     OuterLoopState,
 )
 from tianshu.llm import LLMClient
-from tianshu.models.common import TaskStatus
+from tianshu.models.common import TaskStatus, UsageSummary
 from tianshu.models.edict import Edict
 from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
@@ -166,6 +166,32 @@ def _load_checkpoint(ctx: "OrchestratorContext", edict_id: str) -> OuterLoopStat
     return _state_from_dict(cp.state_dict)
 
 
+def _add_usage_to_memorial(
+    storage: Storage, memorial: Memorial, delta: UsageSummary
+) -> None:
+    """累加 delta usage 到 memorial.usage 并持久化。
+
+    memorial 是同一个对象引用（外环全程复用），就地刷新它的 usage 字段，
+    避免后续读取到过期值；持久化只更新 usage_json 列。
+    """
+    cur = memorial.usage
+    new_usage = UsageSummary(
+        prompt_tokens=cur.prompt_tokens + delta.prompt_tokens,
+        completion_tokens=cur.completion_tokens + delta.completion_tokens,
+        total_tokens=cur.total_tokens + delta.total_tokens,
+        cache_read_tokens=cur.cache_read_tokens + delta.cache_read_tokens,
+        cost_cny=cur.cost_cny + delta.cost_cny,
+    )
+    memorial.usage = new_usage
+    try:
+        storage.update_memorial_usage(memorial.id, new_usage)
+    except Exception as e:
+        # 持久化失败不阻塞 outer loop —— 只是奏折页统计不准
+        logger.warning(
+            "update memorial usage failed for %s: %s", memorial.id, e,
+        )
+
+
 async def _finalize_with_supervision(
     state: OuterLoopState,
     edict: Edict,
@@ -204,9 +230,11 @@ async def _finalize_with_supervision(
                 llm = _resolve_critic_llm(persona, ctx, ctx.critic_llm)
                 report = await generate_supervision_report(
                     edict, state, status, persona, llm, ctx.storage,
+                    memorial_id=memorial.id,
                 )
                 ctx.storage.save_supervision_report({
                     "edict_id": report.edict_id,
+                    "memorial_id": report.memorial_id,
                     "persona_id": report.persona_id,
                     "persona_name": report.persona_name,
                     "final_status": report.final_status.value,
@@ -341,6 +369,11 @@ async def run(
             cost_cny=actor_cost + (critic_result.cost_cny if critic_result else 0.0),
         )
         persist_iteration(ctx.storage, edict.id, record)
+
+        # critic 用量回写 memorial.usage —— actor 部分已由 agent._accumulate_usage 累加，
+        # 此处只补 critic LLM 的 cost / token，让单条奏折"花费"反映真实总成本。
+        if critic_result and critic_result.usage is not None:
+            _add_usage_to_memorial(ctx.storage, memorial, critic_result.usage)
 
         await emit_audit(
             ctx.bus, ctx.storage, edict.id, memorial.id,

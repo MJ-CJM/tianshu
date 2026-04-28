@@ -55,6 +55,26 @@ export default function UsageDisplay({ usage }: UsageDisplayProps) {
           {formatTokens(usage.total_tokens)}
         </Typography.Text>
       </Space>
+      {typeof usage.cost_cny === "number" && usage.cost_cny > 0 && (
+        <>
+          <span style={{ color: token.colorBorder }}>|</span>
+          <Space size={6}>
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
+              花费
+            </Typography.Text>
+            <Typography.Text
+              style={{
+                color: token.colorWarning,
+                fontSize: 13,
+                fontWeight: 600,
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
+            >
+              ¥{usage.cost_cny.toFixed(4)}
+            </Typography.Text>
+          </Space>
+        </>
+      )}
     </div>
   );
 }

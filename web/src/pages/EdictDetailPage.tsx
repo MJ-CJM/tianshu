@@ -112,8 +112,17 @@ export default function EdictDetailPage() {
         prompt_tokens: acc.prompt_tokens + (m.usage?.prompt_tokens ?? 0),
         completion_tokens: acc.completion_tokens + (m.usage?.completion_tokens ?? 0),
         total_tokens: acc.total_tokens + (m.usage?.total_tokens ?? 0),
+        cache_read_tokens:
+          (acc.cache_read_tokens ?? 0) + (m.usage?.cache_read_tokens ?? 0),
+        cost_cny: (acc.cost_cny ?? 0) + (m.usage?.cost_cny ?? 0),
       }),
-      { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        cache_read_tokens: 0,
+        cost_cny: 0,
+      },
     );
   }, [memorials]);
 
@@ -517,7 +526,12 @@ export default function EdictDetailPage() {
       )}
 
       {memorials.map((memorial, index) => (
-        <MemorialCard key={memorial.id} memorial={memorial} index={index} />
+        <div key={memorial.id}>
+          <MemorialCard memorial={memorial} index={index} />
+          {edictId && edict?.acceptance && (
+            <SupervisionReportCard edictId={edictId} memorialId={memorial.id} />
+          )}
+        </div>
       ))}
 
       {hasUsage && <UsageDisplay usage={aggregatedUsage} />}
@@ -647,8 +661,6 @@ export default function EdictDetailPage() {
       )}
 
       {events.length > 0 && <EventTimeline events={events} />}
-
-      {edictId && edict?.acceptance && <SupervisionReportCard edictId={edictId} />}
 
       {edictId && edict?.acceptance && <OuterLoopTimeline edictId={edictId} />}
 

@@ -107,6 +107,8 @@ async def generate_supervision_report(
     persona: object,
     llm: LLMClient,
     storage: Storage | None = None,
+    *,
+    memorial_id: str = "",
 ) -> SupervisionReport:
     """调监督官 LLM 生成结构化报告。失败时仍返回 SupervisionReport（章节空 + raw_feedback 兜底）。"""
     iter_summary = _format_iterations_from_state(state)
@@ -171,6 +173,7 @@ async def generate_supervision_report(
 
     return SupervisionReport(
         edict_id=edict.id,
+        memorial_id=memorial_id,
         persona_id=persona_id,
         persona_name=persona_name,
         final_status=final_status,

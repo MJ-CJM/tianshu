@@ -41,6 +41,8 @@ const STATUS_LABELS: Record<string, string> = {
 
 interface Props {
   edictId: string;
+  /** 按 memorial 过滤；不传则展示该 edict 全部（含历次 follow-up）。 */
+  memorialId?: string;
 }
 
 function ReportContent({ report }: { report: SupervisionReport }) {
@@ -148,7 +150,7 @@ function ReportContent({ report }: { report: SupervisionReport }) {
   );
 }
 
-export default function SupervisionReportCard({ edictId }: Props) {
+export default function SupervisionReportCard({ edictId, memorialId }: Props) {
   const [reports, setReports] = useState<SupervisionReport[]>([]);
   const [loading, setLoading] = useState(true);
   const { lastMessage } = useWebSocket();
@@ -158,7 +160,10 @@ export default function SupervisionReportCard({ edictId }: Props) {
     getSupervisionReports(edictId)
       .then((rs) => {
         if (cancelled) return;
-        setReports(rs);
+        const filtered = memorialId
+          ? rs.filter((r) => r.memorial_id === memorialId)
+          : rs;
+        setReports(filtered);
       })
       .finally(() => {
         if (cancelled) return;
@@ -167,7 +172,7 @@ export default function SupervisionReportCard({ edictId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [edictId]);
+  }, [edictId, memorialId]);
 
   useEffect(() => {
     setLoading(true);

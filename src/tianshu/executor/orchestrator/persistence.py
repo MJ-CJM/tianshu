@@ -35,7 +35,7 @@ def persist_iteration(
             "outcomes": [asdict(o) for o in record.checks_result.outcomes],
         }),
         "critic_result": (
-            json.dumps(asdict(record.critic_result))
+            json.dumps(_critic_result_to_dict(record.critic_result))
             if record.critic_result else None
         ),
         "cost_cny": record.cost_cny,
@@ -43,6 +43,16 @@ def persist_iteration(
         "finished_at": record.finished_at.isoformat(),
     })
     return row_id
+
+
+def _critic_result_to_dict(cr: object) -> dict:
+    """asdict 不能展开 pydantic UsageSummary，手动序列化 critic_result。"""
+    d = asdict(cr)
+    usage = d.get("usage")
+    if usage is not None and hasattr(cr, "usage") and cr.usage is not None:
+        # asdict 把 pydantic model 当作单值 attribute；这里替换为 dump 后的 dict
+        d["usage"] = cr.usage.model_dump() if hasattr(cr.usage, "model_dump") else None
+    return d
 
 
 async def emit_audit(

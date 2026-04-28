@@ -10,6 +10,7 @@ from typing import Literal
 from tianshu.executor.orchestrator.state import CriticResult
 from tianshu.llm import LLMClient
 from tianshu.models.acceptance import AcceptanceCriteria
+from tianshu.models.common import UsageSummary
 from tianshu.models.edict import Edict
 
 logger = logging.getLogger(__name__)
@@ -195,9 +196,7 @@ async def _review_single(
         try:
             resp = await llm.chat(messages=messages)
             result = _parse(resp.content or "")
-            raw_cost = getattr(resp.usage, "cost_cny", 0.0) if resp.usage else 0.0
-            cost = float(raw_cost) if isinstance(raw_cost, (int, float)) else 0.0
-            return _replace_cost(result, cost)
+            return _replace_usage(result, resp.usage)
         except Exception as e:
             logger.warning("critic LLM attempt %d failed: %s", attempt, e)
             last_err = e
@@ -205,17 +204,25 @@ async def _review_single(
         try:
             resp = await fallback_llm.chat(messages=messages)
             result = _parse(resp.content or "")
-            raw_cost = getattr(resp.usage, "cost_cny", 0.0) if resp.usage else 0.0
-            cost = float(raw_cost) if isinstance(raw_cost, (int, float)) else 0.0
-            return _replace_cost(result, cost)
+            return _replace_usage(result, resp.usage)
         except Exception as e:
             logger.error("critic fallback also failed: %s", e)
             last_err = e
     raise CriticUnavailable(f"critic 全部尝试失败: {last_err}")
 
 
-def _replace_cost(r: CriticResult, cost: float) -> CriticResult:
+def _replace_usage(r: CriticResult, usage: object) -> CriticResult:
+    """把 critic LLM 单次响应的 usage 写回 CriticResult。cost_cny 字段同步更新以兼容旧用法。
+
+    仅接受真正的 UsageSummary 实例；测试里 mock 对象不写入 usage 字段（避免下游序列化失败）。
+    """
     from dataclasses import replace
+    if usage is None:
+        return r
+    raw_cost = getattr(usage, "cost_cny", 0.0)
+    cost = float(raw_cost) if isinstance(raw_cost, (int, float)) else 0.0
+    if isinstance(usage, UsageSummary):
+        return replace(r, cost_cny=cost, usage=usage)
     return replace(r, cost_cny=cost)
 
 
@@ -231,6 +238,7 @@ def _aggregate_results_all_must_pass(
         return CriticResult(verdict="pass", feedback="(no critics)")
 
     total_cost = sum(r.cost_cny for _, r in results)
+    aggregated_usage = _sum_usages([r.usage for _, r in results if r.usage is not None])
     # 聚合 improvement_hints（持续优化模式 — 即使全 pass 也注入下一轮 actor）
     hints_parts = [
         f"[{pid}] {r.improvement_hints}"
@@ -249,6 +257,7 @@ def _aggregate_results_all_must_pass(
             feedback=feedback or "all critics passed",
             cost_cny=total_cost,
             improvement_hints=aggregated_hints,
+            usage=aggregated_usage,
         )
 
     # 任一 fail → 整体 fail
@@ -268,6 +277,19 @@ def _aggregate_results_all_must_pass(
         suggested_fix="\n".join(suggested_parts) if suggested_parts else None,
         cost_cny=total_cost,
         improvement_hints=aggregated_hints,
+        usage=aggregated_usage,
+    )
+
+
+def _sum_usages(usages: list[UsageSummary]) -> UsageSummary | None:
+    if not usages:
+        return None
+    return UsageSummary(
+        prompt_tokens=sum(u.prompt_tokens for u in usages),
+        completion_tokens=sum(u.completion_tokens for u in usages),
+        total_tokens=sum(u.total_tokens for u in usages),
+        cache_read_tokens=sum(u.cache_read_tokens for u in usages),
+        cost_cny=sum(u.cost_cny for u in usages),
     )
 
 

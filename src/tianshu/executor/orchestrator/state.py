@@ -6,6 +6,8 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal
 
+from tianshu.models.common import UsageSummary
+
 Level = Literal["L0", "L1", "L2", "L3"]
 
 
@@ -32,6 +34,7 @@ class CriticResult:
     suggested_fix: str | None = None
     cost_cny: float = 0.0                  # 多 critic 时为聚合后总成本
     improvement_hints: str | None = None   # PASS 时也可给改进建议（持续优化模式注入下一轮 actor）
+    usage: UsageSummary | None = None      # critic LLM 完整用量；多 critic 时为聚合值；用于回写 memorial.usage
 
 
 @dataclass(frozen=True)

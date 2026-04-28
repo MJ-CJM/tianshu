@@ -207,6 +207,7 @@ export interface OuterLoopIteration {
 /** 长任务终态后由监督官 (critic persona) 产出的总评报告 */
 export interface SupervisionReport {
   edict_id: string;
+  memorial_id: string;
   persona_id: string;
   persona_name: string;
   final_status: "completed" | "failed" | "cancelled" | "running" | "submitted";

@@ -372,6 +372,7 @@ class Storage:
 
                 CREATE TABLE IF NOT EXISTS supervision_reports (
                     edict_id          TEXT NOT NULL,
+                    memorial_id       TEXT NOT NULL,
                     persona_id        TEXT NOT NULL,
                     persona_name      TEXT NOT NULL,
                     final_status      TEXT NOT NULL,
@@ -379,8 +380,10 @@ class Storage:
                     total_cost_cny    REAL NOT NULL,
                     report_json       TEXT NOT NULL,
                     created_at        TEXT NOT NULL,
-                    PRIMARY KEY (edict_id, persona_id)
+                    PRIMARY KEY (memorial_id, persona_id)
                 );
+                CREATE INDEX IF NOT EXISTS idx_supervision_edict
+                    ON supervision_reports(edict_id);
             """)
 
     def _migrate(self) -> None:
@@ -455,6 +458,41 @@ class Storage:
                 created_at        TEXT NOT NULL,
                 PRIMARY KEY (edict_id, persona_id)
             )""",
+            # 2026-04-28: supervision_reports 加 memorial_id 列；
+            # PK 改为 (memorial_id, persona_id)，让 follow-up 多条奏折各有独立报告。
+            "ALTER TABLE supervision_reports ADD COLUMN memorial_id TEXT",
+            # 老行回填：取该 edict 最新 memorial 的 id
+            """UPDATE supervision_reports
+                  SET memorial_id = (
+                      SELECT id FROM memorials
+                       WHERE memorials.edict_id = supervision_reports.edict_id
+                       ORDER BY created_at DESC LIMIT 1
+                  )
+                  WHERE memorial_id IS NULL""",
+            # 重建表 (SQLite 不支持改 PK) — 拷贝 + drop + rename
+            """CREATE TABLE IF NOT EXISTS _supervision_reports_new (
+                edict_id          TEXT NOT NULL,
+                memorial_id       TEXT NOT NULL,
+                persona_id        TEXT NOT NULL,
+                persona_name      TEXT NOT NULL,
+                final_status      TEXT NOT NULL,
+                iterations_count  INTEGER NOT NULL,
+                total_cost_cny    REAL NOT NULL,
+                report_json       TEXT NOT NULL,
+                created_at        TEXT NOT NULL,
+                PRIMARY KEY (memorial_id, persona_id)
+            )""",
+            """INSERT OR IGNORE INTO _supervision_reports_new
+                   (edict_id, memorial_id, persona_id, persona_name, final_status,
+                    iterations_count, total_cost_cny, report_json, created_at)
+                   SELECT edict_id, memorial_id, persona_id, persona_name, final_status,
+                          iterations_count, total_cost_cny, report_json, created_at
+                     FROM supervision_reports
+                    WHERE memorial_id IS NOT NULL""",
+            "DROP TABLE supervision_reports",
+            "ALTER TABLE _supervision_reports_new RENAME TO supervision_reports",
+            "CREATE INDEX IF NOT EXISTS idx_supervision_edict "
+            "ON supervision_reports(edict_id)",
         ]
         for sql in migrations:
             try:
@@ -672,6 +710,17 @@ class Storage:
                     memorial.persona_id,
                     memorial.id,
                 ),
+            )
+
+    def update_memorial_usage(self, memorial_id: str, usage: UsageSummary) -> None:
+        """只更新 memorial.usage_json 字段。
+
+        与 update_memorial 的差别：避免回写整个 memorial（外环 critic 回写 cost 时只关心 usage）。
+        """
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE memorials SET usage_json = ? WHERE id = ?",
+                (usage.model_dump_json(), memorial_id),
             )
 
     def get_memorial(self, memorial_id: str) -> Memorial | None:
@@ -2498,15 +2547,19 @@ class Storage:
     # --- Supervision report (long task 终态总评) ---
 
     def save_supervision_report(self, record: dict) -> None:
-        """写一行监督报告（INSERT OR REPLACE — 一对一关联 edict）。"""
+        """写一行监督报告（PK = (memorial_id, persona_id)）。
+
+        record 必带 memorial_id；旧调用方未传时会落 KeyError，强制升级到新 schema。
+        """
         with self._lock, self._conn:
             self._conn.execute(
                 """INSERT OR REPLACE INTO supervision_reports
-                   (edict_id, persona_id, persona_name, final_status,
+                   (edict_id, memorial_id, persona_id, persona_name, final_status,
                     iterations_count, total_cost_cny, report_json, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    record["edict_id"], record["persona_id"], record["persona_name"],
+                    record["edict_id"], record["memorial_id"],
+                    record["persona_id"], record["persona_name"],
                     record["final_status"], record["iterations_count"],
                     record["total_cost_cny"], record["report_json"],
                     record["created_at"],
@@ -2514,17 +2567,28 @@ class Storage:
             )
 
     def get_supervision_report(self, edict_id: str) -> dict | None:
-        """单监督官兼容入口；返回 (edict_id, persona_id) 第一行。"""
+        """单监督官兼容入口；返同 edict 最新一行。"""
         row = self._conn.execute(
-            "SELECT * FROM supervision_reports WHERE edict_id = ? LIMIT 1",
+            "SELECT * FROM supervision_reports WHERE edict_id = ? "
+            "ORDER BY created_at DESC LIMIT 1",
             (edict_id,),
         ).fetchone()
         return dict(row) if row else None
 
     def get_supervision_reports(self, edict_id: str) -> list[dict]:
-        """多监督官：返同 edict 全部报告，按 persona_id 排序。"""
+        """同 edict 全部报告，按 created_at DESC + persona_id 排序。"""
         rows = self._conn.execute(
-            "SELECT * FROM supervision_reports WHERE edict_id = ? ORDER BY persona_id ASC",
+            "SELECT * FROM supervision_reports WHERE edict_id = ? "
+            "ORDER BY created_at DESC, persona_id ASC",
             (edict_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_supervision_reports_by_memorial(self, memorial_id: str) -> list[dict]:
+        """按 memorial 维度返回报告（每条奏折独立的监督报告）。"""
+        rows = self._conn.execute(
+            "SELECT * FROM supervision_reports WHERE memorial_id = ? "
+            "ORDER BY persona_id ASC",
+            (memorial_id,),
         ).fetchall()
         return [dict(r) for r in rows]

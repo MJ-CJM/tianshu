@@ -34,11 +34,6 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
         >
           天枢
         </span>
-        <span
-          style={{ color: token.colorTextSecondary, fontSize: 12, letterSpacing: 1, lineHeight: 1 }}
-        >
-          共生成长的宫殿
-        </span>
       </div>
       <div
         style={{
