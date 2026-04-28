@@ -5,6 +5,8 @@ import asyncio
 import json
 import logging
 import threading
+import time
+from collections import OrderedDict, deque
 from typing import Protocol
 
 import lark_oapi as lark
@@ -44,8 +46,17 @@ class WebhookConnection:
         self._dedup = DedupChecker(storage, max_entries=settings.dedup_cache_size)
         self.router = APIRouter()
         self.router.post(settings.webhook_path)(self._handle_request)
+        self._rate_state: OrderedDict[str, deque[float]] = OrderedDict()
+        self._RATE_WINDOW = 60.0
+        self._RATE_LIMIT = 120
+        self._RATE_MAX_KEYS = 4096
 
     async def _handle_request(self, request: Request) -> Response:
+        client_ip = request.client.host if request.client else "unknown"
+        rate_key = f"{self._settings.app_id}:{self._settings.webhook_path}:{client_ip}"
+        if not self._allow_rate(rate_key):
+            return Response("rate limited", status_code=429)
+
         body_bytes = await request.body()
         if len(body_bytes) > 1024 * 1024:
             return Response("body too large", status_code=413)
@@ -74,6 +85,23 @@ class WebhookConnection:
 
         await self.inbound_queue.put(payload)
         return Response("ok", status_code=200)
+
+    def _allow_rate(self, key: str) -> bool:
+        """60s 滑窗 / 120 req per (app_id, path, IP)。"""
+        now = time.monotonic()
+        bucket = self._rate_state.get(key)
+        if bucket is None:
+            if len(self._rate_state) >= self._RATE_MAX_KEYS:
+                self._rate_state.popitem(last=False)
+            bucket = deque()
+            self._rate_state[key] = bucket
+        self._rate_state.move_to_end(key)
+        while bucket and now - bucket[0] > self._RATE_WINDOW:
+            bucket.popleft()
+        if len(bucket) >= self._RATE_LIMIT:
+            return False
+        bucket.append(now)
+        return True
 
     async def start(self) -> None:
         logger.info("[feishu/webhook] route registered at %s", self._settings.webhook_path)
