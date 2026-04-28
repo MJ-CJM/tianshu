@@ -39,7 +39,7 @@ class FeishuOutbound:
         self._client: lark.Client | None = None
 
     def start(self) -> None:
-        """构造 lark client + 注册 EventBus 订阅。"""
+        """构造 lark client + 注册 EventBus 订阅。仅在 FeishuBot.start 时调用一次。"""
         self._client = self._build_client()
         # 注意：事件名是 execution.completed（不是 memorial.completed）
         self._event_bus.on(
@@ -48,6 +48,10 @@ class FeishuOutbound:
         self._event_bus.on(
             "execution.failed", self._on_execution_failed, priority=200
         )
+
+    def rebuild_client(self) -> None:
+        """仅重建 lark client（用于热加载切换 app_id/secret）；**不重订阅 EventBus**。"""
+        self._client = self._build_client()
 
     def _build_client(self) -> lark.Client:
         builder = (

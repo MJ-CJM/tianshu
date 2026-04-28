@@ -166,10 +166,10 @@ class FeishuBot:
             )
         await self._connection.start()
 
-        # 5. 更新各组件持有的 settings 引用 + 重建 outbound 的 lark client
+        # 5. 更新各组件持有的 settings 引用 + 仅重建 outbound 的 lark client
+        # 关键：不调 outbound.start()，避免 EventBus 订阅重复（reload N 次 → 触发 N+1 次回调）
         self._outbound._settings = new_settings  # type: ignore[attr-defined]
-        self._outbound._client = None  # type: ignore[attr-defined]
-        self._outbound.start()  # 重新构造 lark client + 重新订阅事件
+        self._outbound.rebuild_client()
 
         # approval_card 持有 settings 引用（用于 home_channel 兜底）
         self._approval_card._settings = new_settings  # type: ignore[attr-defined]
