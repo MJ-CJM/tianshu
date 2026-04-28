@@ -243,6 +243,7 @@ class ApprovalManager:
                     "requested_grant_scope": original_grant_scope,
                     "grant_downgraded": downgrade_reason is not None,
                     "grant_downgrade_reason": downgrade_reason,
+                    "actor": actor,
                 },
             )
         )

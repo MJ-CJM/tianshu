@@ -31,6 +31,7 @@ class PolicyHook:
         session_rule_store: object | None = None,
         approval_manager: object | None = None,
         notifier: object | None = None,
+        event_bus: object | None = None,
     ) -> None:
         self._engine = engine
         self._workspace_root = workspace_root.resolve()
@@ -39,6 +40,7 @@ class PolicyHook:
         self._session_rule_store = session_rule_store
         self._approval_manager = approval_manager
         self._notifier = notifier
+        self._event_bus = event_bus
 
     async def on_before_tool_call(self, **context: object) -> HookResult | None:
         tool_name = context.get("tool_name")
@@ -135,6 +137,22 @@ class PolicyHook:
             )
         except Exception:
             logger.exception("policy_hook: failed to append tool.approval_required event")
+
+        # 同步把 tool.approval_required 推送到 EventBus，便于飞书机器人等订阅者
+        if self._event_bus is not None:
+            try:
+                from tianshu.models.events import make_event
+                self._event_bus.fire(  # type: ignore[attr-defined]
+                    make_event(
+                        "tool.approval_required",
+                        edict_id=edict_id,
+                        memorial_id=memorial_id,
+                        producer="policy_hook",
+                        payload=approval_payload,
+                    )
+                )
+            except Exception:
+                logger.exception("policy_hook: failed to fire tool.approval_required to EventBus")
 
         # Broadcast to WS so frontend can show toast
         if self._notifier is not None:
