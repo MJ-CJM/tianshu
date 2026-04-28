@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Form, Input, InputNumber, Button, Collapse, Select, Divider, Radio, Switch, Space, Card } from "antd";
+import { Alert, Form, Input, InputNumber, Button, Collapse, Select, Divider, Radio, Switch, Space, Card } from "antd";
 import { SendOutlined, MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { usePersonas } from "../../hooks/usePersonas";
 import type {
@@ -670,6 +670,30 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                         optionFilterProp="label"
                         placeholder="可选多位 persona（都察院/内阁推荐）"
                       />
+                    </Form.Item>
+
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(p, c) =>
+                        p.assigned_persona_id !== c.assigned_persona_id ||
+                        p.critic_persona_ids !== c.critic_persona_ids
+                      }
+                    >
+                      {({ getFieldValue }) => {
+                        if (assignMode !== "direct") return null;
+                        const exec = getFieldValue("assigned_persona_id") as string | undefined;
+                        const critics = (getFieldValue("critic_persona_ids") as string[] | undefined) ?? [];
+                        if (!exec || !critics.includes(exec)) return null;
+                        return (
+                          <Alert
+                            type="warning"
+                            showIcon
+                            style={{ marginBottom: 16 }}
+                            message="执行官与监督官重合"
+                            description="同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议监督官选用都察院 / 文渊阁等不参与执行的 persona。"
+                          />
+                        );
+                      }}
                     </Form.Item>
 
                     <Form.Item
