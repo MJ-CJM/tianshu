@@ -342,9 +342,28 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
         raise HTTPException(status_code=409, detail="尚有奏折正在执行，请等待完成后再下达指令")
     history = _build_history(edict, prev_memorials)
 
-    memorial = Memorial(edict_id=edict_id, instruction=body.instruction, status=TaskStatus.SUBMITTED)
+    runtime_override_dict: dict | None = None
+    if body.runtime_override is not None:
+        _validate_network_runtime(body.runtime_override)
+        rt_data = {k: v for k, v in body.runtime_override.model_dump().items() if v is not None}
+        runtime_override_dict = rt_data or None
+
+    memorial = Memorial(
+        edict_id=edict_id,
+        instruction=body.instruction,
+        status=TaskStatus.SUBMITTED,
+        runtime_override=runtime_override_dict,
+        acceptance_override=body.acceptance_override,
+    )
     storage.save_memorial(memorial)
-    storage.append_event(edict.id, memorial.id, "followup.submitted", {"instruction": body.instruction})
+    storage.append_event(
+        edict.id, memorial.id, "followup.submitted",
+        {
+            "instruction": body.instruction,
+            "has_runtime_override": runtime_override_dict is not None,
+            "has_acceptance_override": body.acceptance_override is not None,
+        },
+    )
 
     import asyncio
     task = asyncio.create_task(

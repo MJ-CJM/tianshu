@@ -86,6 +86,9 @@ class Executor:
         memorial_id = event.memorial_id
         memorial = self._storage.get_memorial(memorial_id) if memorial_id else None
 
+        # follow-up 时 memorial 可能携带 override，合并到 edict 副本（不持久化）
+        edict = self._apply_memorial_override(edict, memorial)
+
         # 长任务 outer loop 路径（仅当 edict.acceptance 不为 None 且 ctx 已注入）
         if edict.acceptance is not None and self._orchestrator_ctx is not None:
             logger.info(
@@ -153,6 +156,40 @@ class Executor:
             if self._lane_manager:
                 self._lane_manager.remove_session(edict.id)
 
+    def _apply_memorial_override(
+        self, edict: Edict, memorial: Memorial | None,
+    ) -> Edict:
+        """合并 memorial 的 runtime_override / acceptance_override 到 edict 副本。
+
+        - runtime_override：dict 字段级浅合并（用户未填字段保留 edict 原值）
+        - acceptance_override：整体替换 edict.acceptance（None = 沿用）
+        - 不修改原 edict 行，仅本次执行内生效。
+        """
+        if memorial is None:
+            return edict
+        update_kwargs: dict = {}
+        if memorial.runtime_override:
+            try:
+                update_kwargs["runtime"] = edict.runtime.model_copy(
+                    update=memorial.runtime_override,
+                )
+            except Exception as e:
+                logger.warning(
+                    "apply runtime_override failed for memorial %s: %s; falling back to edict.runtime",
+                    memorial.id, e,
+                )
+        if memorial.acceptance_override is not None:
+            update_kwargs["acceptance"] = memorial.acceptance_override
+        if not update_kwargs:
+            return edict
+        logger.info(
+            "[EXEC] Edict %s memorial %s: applied override(runtime=%s, acceptance=%s)",
+            edict.id, memorial.id,
+            "runtime" in update_kwargs,
+            "acceptance" in update_kwargs,
+        )
+        return edict.model_copy(update=update_kwargs)
+
     async def _execute_outer_loop(
         self, edict: Edict, memorial: Memorial | None,
     ) -> None:
@@ -215,6 +252,19 @@ class Executor:
                 status=TaskStatus.SUBMITTED,
             )
             self._storage.save_memorial(memorial)
+
+        # follow-up 时本次 memorial 可能携带 runtime/acceptance override，
+        # 合并到 edict 副本上（不写回 edict 行）。
+        edict = self._apply_memorial_override(edict, memorial)
+
+        # 合并后若有 acceptance（情况 2：follow-up 升级到长任务）→ 切到 outer loop。
+        if edict.acceptance is not None and self._orchestrator_ctx is not None:
+            logger.info(
+                "[EXEC] Edict %s memorial %s: 走 orchestrator outer loop 路径（profile=%s）",
+                edict.id, memorial.id, edict.execution_profile,
+            )
+            await self._execute_outer_loop(edict, memorial)
+            return
 
         # Set persona_id: plan assignment > edict assignment > default
         if not memorial.persona_id:

@@ -12,6 +12,8 @@ import UsageDisplay from "../components/memorial/UsageDisplay";
 import EventTimeline from "../components/memorial/EventTimeline";
 import OuterLoopTimeline from "../components/edict/OuterLoopTimeline";
 import SupervisionReportCard from "../components/edict/SupervisionReportCard";
+import FollowUpOverridePanel from "../components/edict/FollowUpOverridePanel";
+import type { FollowUpOverrideValue } from "../components/edict/FollowUpOverridePanel";
 import DecreeModal from "../components/decree/DecreeModal";
 import { PolicyTimeline } from "../components/policy/PolicyTimeline";
 import { useDagByEdict } from "../hooks/useDag";
@@ -32,6 +34,7 @@ export default function EdictDetailPage() {
   const { token } = theme.useToken();
   const { edict, memorials, events, isLoading, refetch } = useEdictDetail(edictId ?? "");
   const [instruction, setInstruction] = useState("");
+  const [followUpOverride, setFollowUpOverride] = useState<FollowUpOverrideValue>({});
   const [submitting, setSubmitting] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -132,8 +135,17 @@ export default function EdictDetailPage() {
     if (!edictId || !instruction.trim()) return;
     setSubmitting(true);
     try {
-      await followUpEdict(edictId, { instruction: instruction.trim() });
+      await followUpEdict(edictId, {
+        instruction: instruction.trim(),
+        ...(followUpOverride.runtime_override
+          ? { runtime_override: followUpOverride.runtime_override }
+          : {}),
+        ...(followUpOverride.acceptance_override
+          ? { acceptance_override: followUpOverride.acceptance_override }
+          : {}),
+      });
       setInstruction("");
+      setFollowUpOverride({});
       refetch();
     } catch {
       message.error("提交后续指令失败");
@@ -591,6 +603,10 @@ export default function EdictDetailPage() {
               style={{ flex: 1 }}
             />
           </div>
+          <FollowUpOverridePanel
+            onChange={setFollowUpOverride}
+            assignedPersonaId={edict?.assigned_persona_id ?? null}
+          />
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
             <div style={{ flex: 1, textAlign: "center" }}>
               <Button

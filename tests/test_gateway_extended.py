@@ -218,3 +218,4 @@ class TestFollowUp:
     async def test_memorial_by_edict_not_found(self, client):
         resp = await client.get("/api/edicts/nonexistent/memorial")
         assert resp.status_code == 404
+

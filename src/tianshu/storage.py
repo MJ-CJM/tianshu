@@ -82,7 +82,9 @@ class Storage:
                     error TEXT,
                     created_at TEXT NOT NULL,
                     started_at TEXT,
-                    completed_at TEXT
+                    completed_at TEXT,
+                    runtime_override_json TEXT,
+                    acceptance_override_json TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS events (
@@ -493,6 +495,9 @@ class Storage:
             "ALTER TABLE _supervision_reports_new RENAME TO supervision_reports",
             "CREATE INDEX IF NOT EXISTS idx_supervision_edict "
             "ON supervision_reports(edict_id)",
+            # 2026-04-28: follow-up 时本次 memorial 单独覆盖 edict.runtime / acceptance
+            "ALTER TABLE memorials ADD COLUMN runtime_override_json TEXT",
+            "ALTER TABLE memorials ADD COLUMN acceptance_override_json TEXT",
         ]
         for sql in migrations:
             try:
@@ -678,8 +683,9 @@ class Storage:
                    (id, edict_id, instruction, status, summary, result, usage_json,
                     error, created_at, started_at, completed_at,
                     attempt, parent_memorial_id, review_status, audit_json,
-                    artifacts_json, timeline_json, dag_node_id, persona_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    artifacts_json, timeline_json, dag_node_id, persona_id,
+                    runtime_override_json, acceptance_override_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 self._memorial_to_params(memorial),
             )
 
@@ -691,7 +697,8 @@ class Storage:
                    started_at=?, completed_at=?,
                    attempt=?, review_status=?, audit_json=?,
                    artifacts_json=?, timeline_json=?,
-                   dag_node_id=?, persona_id=?
+                   dag_node_id=?, persona_id=?,
+                   runtime_override_json=?, acceptance_override_json=?
                    WHERE id=?""",
                 (
                     memorial.status.value,
@@ -708,6 +715,8 @@ class Storage:
                     json.dumps([t.model_dump() for t in memorial.timeline], default=str),
                     memorial.dag_node_id,
                     memorial.persona_id,
+                    json.dumps(memorial.runtime_override) if memorial.runtime_override else None,
+                    memorial.acceptance_override.model_dump_json() if memorial.acceptance_override else None,
                     memorial.id,
                 ),
             )
@@ -2167,7 +2176,30 @@ class Storage:
             audit=audit,
             dag_node_id=row["dag_node_id"] if "dag_node_id" in keys else None,
             persona_id=row["persona_id"] if "persona_id" in keys else None,
+            runtime_override=Storage._parse_runtime_override(row, keys),
+            acceptance_override=Storage._parse_acceptance_override(row, keys),
         )
+
+    @staticmethod
+    def _parse_runtime_override(row: sqlite3.Row, keys) -> dict | None:
+        if "runtime_override_json" not in keys or not row["runtime_override_json"]:
+            return None
+        try:
+            data = json.loads(row["runtime_override_json"])
+            return data if isinstance(data, dict) else None
+        except Exception:
+            logger.warning("invalid runtime_override_json for memorial %s", row["id"])
+            return None
+
+    @staticmethod
+    def _parse_acceptance_override(row: sqlite3.Row, keys) -> "AcceptanceCriteria | None":
+        if "acceptance_override_json" not in keys or not row["acceptance_override_json"]:
+            return None
+        try:
+            return AcceptanceCriteria.model_validate_json(row["acceptance_override_json"])
+        except Exception:
+            logger.warning("invalid acceptance_override_json for memorial %s", row["id"])
+            return None
 
     @staticmethod
     def _memorial_to_params(m: Memorial) -> tuple:
@@ -2191,6 +2223,8 @@ class Storage:
             json.dumps([t.model_dump() for t in m.timeline], default=str),
             m.dag_node_id,
             m.persona_id,
+            json.dumps(m.runtime_override) if m.runtime_override else None,
+            m.acceptance_override.model_dump_json() if m.acceptance_override else None,
         )
 
     def insert_credential(

@@ -1,5 +1,5 @@
 import apiClient from "./client";
-import type { ApiResponse, Edict, EdictCreateRequest, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent, OuterLoopIteration, SupervisionReport } from "./types";
+import type { AcceptanceCriteria, ApiResponse, Edict, EdictCreateRequest, EdictRuntime, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent, OuterLoopIteration, SupervisionReport } from "./types";
 
 export async function getOuterLoopIterations(edictId: string): Promise<ApiResponse<OuterLoopIteration[]>> {
   const { data } = await apiClient.get<ApiResponse<OuterLoopIteration[]>>(
@@ -79,9 +79,18 @@ export async function getEdictEvents(
   return data;
 }
 
+export interface FollowUpRequest {
+  instruction: string;
+  context?: string;
+  /** 本次 follow-up 单独覆盖 edict.runtime（仅含填写字段） */
+  runtime_override?: Partial<EdictRuntime>;
+  /** 本次 follow-up 单独覆盖 edict.acceptance（整体替换） */
+  acceptance_override?: AcceptanceCriteria;
+}
+
 export async function followUpEdict(
   edictId: string,
-  body: { instruction: string; context?: string },
+  body: FollowUpRequest,
 ): Promise<ApiResponse<Memorial>> {
   const { data } = await apiClient.post<ApiResponse<Memorial>>(
     `/edicts/${edictId}/follow-up`,

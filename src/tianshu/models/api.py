@@ -64,6 +64,10 @@ class EdictCreateRequest(BaseModel):
 class FollowUpRequest(BaseModel):
     instruction: str = Field(min_length=1)
     context: str | None = None
+    # 2026-04-28: 本次 follow-up 单独覆盖 edict.runtime / acceptance；
+    # 留 None = 沿用 edict 原配置；填写即本次覆盖（不影响后续 follow-up）。
+    runtime_override: EdictRuntimeRequest | None = None
+    acceptance_override: AcceptanceCriteria | None = None
 
 
 class EdictUpdateRequest(BaseModel):

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from ulid import ULID
 
+from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import (
     ArtifactRef,
     AuditResult,
@@ -41,3 +42,8 @@ class Memorial(BaseModel):
     # Phase 3 fields
     dag_node_id: str | None = None
     persona_id: str | None = None
+    # 2026-04-28: follow-up 时本次 memorial 单独覆盖 edict 配置（不持久化到 edict）。
+    # runtime_override：dict，仅含用户实际填写的字段，executor 合并时 edict.runtime.model_copy(update=...)
+    # acceptance_override：完整 AcceptanceCriteria，整体替换 edict.acceptance（None = 沿用）
+    runtime_override: dict[str, Any] | None = None
+    acceptance_override: AcceptanceCriteria | None = None
