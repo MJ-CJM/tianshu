@@ -299,6 +299,7 @@ async def lifespan(app: FastAPI):
             storage=storage,
             event_bus=event_bus,
             approval_manager=approval_manager,
+            executor=executor,
             notifier=notifier,
             settings=feishu_settings,
         )

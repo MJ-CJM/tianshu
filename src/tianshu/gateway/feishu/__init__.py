@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 
 from tianshu.gateway.feishu.connection import WebhookConnection
 from tianshu.gateway.feishu.dispatcher import Dispatcher, FeishuCardAction, FeishuMessage
+from tianshu.gateway.feishu.edict_bridge import EdictBridge, EdictBusyError
+from tianshu.gateway.feishu.session_anchor import SessionAnchor
 from tianshu.gateway.feishu.settings import FeishuSettings
 
 if TYPE_CHECKING:
@@ -17,6 +19,7 @@ if TYPE_CHECKING:
 
     from tianshu.bus.event_bus import EventBus
     from tianshu.executor.approvals import ApprovalManager
+    from tianshu.executor.executor import Executor
     from tianshu.notifier.notifier import Notifier
     from tianshu.storage import Storage
 
@@ -32,17 +35,26 @@ class FeishuBot:
         storage: "Storage",
         event_bus: "EventBus",
         approval_manager: "ApprovalManager",
+        executor: "Executor",
         notifier: "Notifier",
         settings: FeishuSettings,
     ) -> None:
         self._storage = storage
         self._event_bus = event_bus
         self._approval_manager = approval_manager
+        self._executor = executor
         self._notifier = notifier
         self._settings = settings
         self._inbound: asyncio.Queue = asyncio.Queue()
         self._connection: WebhookConnection | None = None
         self._dispatcher: Dispatcher | None = None
+        self._anchor = SessionAnchor(storage)
+        self._edict_bridge = EdictBridge(
+            storage=storage,
+            event_bus=event_bus,
+            executor=executor,
+            anchor=self._anchor,
+        )
 
     async def start(self) -> None:
         logger.info(
@@ -87,9 +99,39 @@ class FeishuBot:
             msg.sender_open_id,
             msg.text,
         )
+        text = msg.text.strip()
+        if text.startswith("/new "):
+            goal = text[len("/new "):].strip()
+            if not goal:
+                await self._reply(msg.chat_id, "用法：/new <目标描述>")
+                return
+            edict_id = await self._edict_bridge.create_new(
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
+                goal=goal,
+            )
+            await self._reply(msg.chat_id, f"✅ 新敕令 #{edict_id[:8]} 已创建")
+            return
+        if text.startswith("/"):
+            await self._reply(msg.chat_id, "可用命令：/new <目标>（其它命令开发中）")
+            return
+        try:
+            edict_id = await self._edict_bridge.continue_or_create(
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
+                text=text,
+            )
+        except EdictBusyError as exc:
+            await self._reply(msg.chat_id, str(exc))
+            return
+        await self._reply(msg.chat_id, f"✅ 已收到（敕令 #{edict_id[:8]}）")
 
     async def _on_card(self, action: FeishuCardAction) -> None:
         logger.info("[feishu/card] chat=%s value=%s", action.chat_id, action.value)
+
+    async def _reply(self, chat_id: str, text: str) -> None:
+        """临时占位，Step 4 替换为真实出站。"""
+        logger.info("[feishu/outbound:stub] chat=%s text=%s", chat_id, text)
 
 
 __all__ = ["FeishuBot"]
