@@ -79,6 +79,12 @@ class FeishuBot:
             self._settings.connection_mode,
             self._settings.app_id,
         )
+        if not self._settings.allowed_users:
+            logger.warning(
+                "[feishu] allowlist is empty — bot will respond to ANY user "
+                "who can reach it. For production, set TIANSHU_FEISHU_ALLOWED_USERS "
+                "or fill 「允许用户」 on the 通政司 page.",
+            )
         self._acquire_app_lock()
         if self._settings.connection_mode == "websocket":
             loop = asyncio.get_running_loop()

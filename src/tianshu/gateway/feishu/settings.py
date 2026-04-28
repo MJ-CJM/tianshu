@@ -32,10 +32,7 @@ class FeishuSettings:
             return
         if not self.app_secret:
             raise RuntimeError("TIANSHU_FEISHU_APP_SECRET is required when app_id is set")
-        if not self.allowed_users:
-            raise RuntimeError(
-                "TIANSHU_FEISHU_ALLOWED_USERS is required (avoid accidentally exposing the bot)"
-            )
+        # allowlist 空 = 放行任意人（与 hermes 行为一致）；启动时由 FeishuBot 打 warning 提示
         if self.connection_mode not in ("websocket", "webhook"):
             raise RuntimeError(f"invalid connection_mode: {self.connection_mode}")
         if self.domain not in ("feishu", "lark"):

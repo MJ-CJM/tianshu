@@ -71,6 +71,12 @@ def test_is_allowed_user():
     assert is_allowed_user("ou_c", ["ou_a", "ou_b"]) is False
 
 
+def test_is_allowed_user_empty_list_allows_all():
+    """空 allowlist 表示放行任意人（hermes 一致行为）。"""
+    assert is_allowed_user("ou_anybody", []) is True
+    assert is_allowed_user("", ()) is True
+
+
 @pytest.mark.asyncio
 async def test_dedup_checker_first_seen_then_duplicate(storage):
     d = DedupChecker(storage, max_entries=10)

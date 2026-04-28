@@ -198,10 +198,9 @@ export default function TongzhengPage() {
           <Form.Item
             label="允许用户（Allowlist）"
             name="allowed_users"
-            extra="逗号分隔的 open_id 列表；v1 单人模式只放本人 open_id"
-            rules={[{ required: true, message: "至少配置一个 open_id" }]}
+            extra="逗号分隔的 open_id；留空 = 任何人都放行（与 hermes 一致）。生产环境建议填写以避免误开放。"
           >
-            <Input placeholder="ou_a,ou_b" />
+            <Input placeholder="留空 = 放行任意；或填 ou_a,ou_b 限制" />
           </Form.Item>
 
           <Row gutter={16}>

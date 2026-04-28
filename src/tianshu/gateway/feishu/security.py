@@ -44,7 +44,11 @@ def verify_token(payload: dict, expected_token: str) -> bool:
 
 
 def is_allowed_user(open_id: str, allowed: Iterable[str]) -> bool:
-    return open_id in set(allowed)
+    """空 allowlist = 任意人都放行（与 hermes 一致）；非空时严格检查。"""
+    allowed_set = set(allowed)
+    if not allowed_set:
+        return True
+    return open_id in allowed_set
 
 
 class DedupChecker:

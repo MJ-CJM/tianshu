@@ -38,13 +38,17 @@ def test_disabled_when_app_id_empty():
     s.validate_or_raise()
 
 
-def test_validate_requires_secret_and_allowlist():
-    # missing app_secret
+def test_validate_requires_secret():
+    # missing app_secret 仍然要 raise
     with pytest.raises(RuntimeError, match="APP_SECRET"):
         _make(app_secret="").validate_or_raise()
-    # missing allowlist
-    with pytest.raises(RuntimeError, match="ALLOWED_USERS"):
-        _make(allowed_users=()).validate_or_raise()
+
+
+def test_validate_allows_empty_allowlist():
+    """空 allowlist 不再硬性拒绝（hermes 一致：空 = 任意人放行）。"""
+    s = _make(allowed_users=())
+    s.validate_or_raise()  # 不抛
+    assert s.allowed_users == ()
 
 
 def test_validate_rejects_invalid_modes():
