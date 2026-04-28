@@ -294,7 +294,14 @@ async def lifespan(app: FastAPI):
     from tianshu.gateway.feishu import FeishuBot
     from tianshu.gateway.feishu.settings import from_global_settings as build_feishu_settings
 
-    feishu_settings = build_feishu_settings(settings)
+    # 加载优先级：DB > env
+    db_runtime_cfg = storage.load_channel_runtime_config("feishu")
+    if db_runtime_cfg and db_runtime_cfg.get("app_id"):
+        from tianshu.gateway.tongzheng_api import _build_feishu_settings_from_runtime
+        feishu_settings = _build_feishu_settings_from_runtime(db_runtime_cfg)
+        logger.info("[feishu] settings loaded from DB (channel_configs)")
+    else:
+        feishu_settings = build_feishu_settings(settings)
     feishu_settings.validate_or_raise()
 
     feishu_bot: FeishuBot | None = None
@@ -549,6 +556,8 @@ def create_app() -> FastAPI:
     app.include_router(gateway_router, prefix="/api")
     app.include_router(credentials_router, prefix="/api")
     app.include_router(hongluisi_router, prefix="/api")
+    from tianshu.gateway.tongzheng_api import tongzheng_router
+    app.include_router(tongzheng_router, prefix="/api")
 
     @app.get("/health")
     async def health():
