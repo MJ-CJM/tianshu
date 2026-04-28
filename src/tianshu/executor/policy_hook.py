@@ -128,17 +128,9 @@ class PolicyHook:
             "args_summary": self._summarize_args(ctx.args),
         }
         edict_id = getattr(ctx.edict, "id", "")
-        try:
-            self._storage.append_event(  # type: ignore[attr-defined]
-                edict_id,
-                memorial_id,
-                "tool.approval_required",
-                approval_payload,
-            )
-        except Exception:
-            logger.exception("policy_hook: failed to append tool.approval_required event")
 
-        # 同步把 tool.approval_required 推送到 EventBus，便于飞书机器人等订阅者
+        # tool.approval_required 通过 EventBus.fire 单点持久化（_persist 自动写入 events 表）
+        # + 派发给订阅者（飞书机器人等）。避免双写导致 PolicyTimeline/EventTimeline 重复显示。
         if self._event_bus is not None:
             try:
                 from tianshu.models.events import make_event

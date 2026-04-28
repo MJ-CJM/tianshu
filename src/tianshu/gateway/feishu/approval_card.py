@@ -113,7 +113,11 @@ class ApprovalCardHandler:
             return
         chat_id = (edict.metadata or {}).get("chat_id") or self._settings.home_channel
         if not chat_id:
-            logger.debug("[feishu/approval] no chat_id for edict %s, skip card", edict_id)
+            logger.warning(
+                "[feishu/approval] no chat_id for edict %s and FEISHU_HOME_CHANNEL not set; "
+                "approval card not delivered to feishu (web 端仍可处理)",
+                edict_id,
+            )
             return
         payload = event.payload or {}
         card = build_approval_card(
