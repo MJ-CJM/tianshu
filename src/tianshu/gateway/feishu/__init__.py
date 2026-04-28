@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from tianshu.gateway.feishu.connection import WebhookConnection
 from tianshu.gateway.feishu.dispatcher import Dispatcher, FeishuCardAction, FeishuMessage
 from tianshu.gateway.feishu.edict_bridge import EdictBridge, EdictBusyError
+from tianshu.gateway.feishu.outbound import FeishuOutbound
 from tianshu.gateway.feishu.session_anchor import SessionAnchor
 from tianshu.gateway.feishu.settings import FeishuSettings
 
@@ -55,6 +56,11 @@ class FeishuBot:
             executor=executor,
             anchor=self._anchor,
         )
+        self._outbound = FeishuOutbound(
+            settings=settings,
+            storage=storage,
+            event_bus=event_bus,
+        )
 
     async def start(self) -> None:
         logger.info(
@@ -79,6 +85,7 @@ class FeishuBot:
             card_handler=self._on_card,
         )
         await self._dispatcher.start()
+        self._outbound.start()
 
     async def stop(self) -> None:
         logger.info("[feishu] stopping")
@@ -130,8 +137,7 @@ class FeishuBot:
         logger.info("[feishu/card] chat=%s value=%s", action.chat_id, action.value)
 
     async def _reply(self, chat_id: str, text: str) -> None:
-        """临时占位，Step 4 替换为真实出站。"""
-        logger.info("[feishu/outbound:stub] chat=%s text=%s", chat_id, text)
+        await self._outbound.send_text(chat_id, text)
 
 
 __all__ = ["FeishuBot"]
