@@ -17,6 +17,7 @@ from tianshu.gateway.feishu.edict_bridge import EdictBridge, EdictBusyError
 from tianshu.gateway.feishu.outbound import FeishuOutbound
 from tianshu.gateway.feishu.session_anchor import SessionAnchor
 from tianshu.gateway.feishu.settings import FeishuSettings
+from tianshu.models.common import EdictStatus
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -153,33 +154,81 @@ class FeishuBot:
             app.include_router(self._connection.router)
 
     async def _on_message(self, msg: FeishuMessage) -> None:
-        logger.info(
-            "[feishu/inbound] chat=%s sender=%s text=%.80s",
-            msg.chat_id,
-            msg.sender_open_id,
-            msg.text,
-        )
+        logger.info("[feishu/inbound] chat=%s sender=%s text=%.80s",
+                    msg.chat_id, msg.sender_open_id, msg.text)
         text = msg.text.strip()
-        if text.startswith("/new "):
-            goal = text[len("/new "):].strip()
+        parts = text.split(maxsplit=1)
+        cmd = parts[0] if parts else ""
+
+        if cmd == "/new":
+            goal = parts[1].strip() if len(parts) > 1 else ""
             if not goal:
                 await self._reply(msg.chat_id, "用法：/new <目标描述>")
                 return
             edict_id = await self._edict_bridge.create_new(
-                chat_id=msg.chat_id,
-                sender_open_id=msg.sender_open_id,
-                goal=goal,
+                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, goal=goal,
             )
             await self._reply(msg.chat_id, f"✅ 新敕令 #{edict_id[:8]} 已创建")
             return
-        if text.startswith("/"):
-            await self._reply(msg.chat_id, "可用命令：/new <目标>（其它命令开发中）")
+
+        if cmd == "/status":
+            target = parts[1].strip() if len(parts) > 1 else (self._anchor.get(msg.chat_id) or "")
+            if not target:
+                await self._reply(msg.chat_id, "当前会话无活跃敕令。用 /new 创建一个。")
+                return
+            edict = self._storage.get_edict(target)
+            if not edict:
+                await self._reply(msg.chat_id, f"敕令 #{target[:8]} 不存在")
+                return
+            await self._reply(
+                msg.chat_id,
+                f"敕令 #{edict.id[:8]}\n标题：{edict.title}\n状态：{edict.status}",
+            )
             return
+
+        if cmd == "/cancel":
+            target = parts[1].strip() if len(parts) > 1 else (self._anchor.get(msg.chat_id) or "")
+            if not target:
+                await self._reply(msg.chat_id, "用法：/cancel [edict_id]")
+                return
+            edict = self._storage.get_edict(target)
+            if not edict:
+                await self._reply(msg.chat_id, f"敕令 #{target[:8]} 不存在")
+                return
+            edict.status = EdictStatus.CANCELLED
+            self._storage.save_edict(edict)
+            await self._reply(msg.chat_id, f"✅ 敕令 #{edict.id[:8]} 已取消")
+            return
+
+        if cmd == "/set-home":
+            await self._reply(
+                msg.chat_id,
+                f"当前 chat_id = `{msg.chat_id}`\n"
+                f"请将其设置到 `TIANSHU_FEISHU_HOME_CHANNEL` 环境变量后重启服务。",
+            )
+            return
+
+        if cmd == "/help":
+            await self._reply(
+                msg.chat_id,
+                "可用命令：\n"
+                "- `/new <目标>` 显式新建敕令\n"
+                "- `/status [敕令id]` 查看当前/指定敕令状态\n"
+                "- `/cancel [敕令id]` 取消敕令\n"
+                "- `/set-home` 显示当前 chat_id（用于配置 home channel）\n"
+                "- `/help` 显示帮助\n\n"
+                "默认行为：纯文本消息会续接当前会话锚定的敕令。",
+            )
+            return
+
+        if cmd.startswith("/"):
+            await self._reply(msg.chat_id, f"未知命令：{cmd}。输入 /help 查看帮助。")
+            return
+
+        # 默认：续接或自动新建
         try:
             edict_id = await self._edict_bridge.continue_or_create(
-                chat_id=msg.chat_id,
-                sender_open_id=msg.sender_open_id,
-                text=text,
+                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, text=text,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))
