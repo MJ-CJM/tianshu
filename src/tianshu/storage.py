@@ -387,6 +387,25 @@ class Storage:
                 CREATE INDEX IF NOT EXISTS idx_supervision_edict
                     ON supervision_reports(edict_id);
             """)
+            self._conn.executescript("""
+                CREATE TABLE IF NOT EXISTS feishu_session_anchor (
+                    chat_id          TEXT PRIMARY KEY,
+                    current_edict_id TEXT,
+                    updated_at       TIMESTAMP NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS feishu_seen_messages (
+                    message_id  TEXT PRIMARY KEY,
+                    seen_at     TIMESTAMP NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_feishu_seen_at ON feishu_seen_messages(seen_at);
+                CREATE TABLE IF NOT EXISTS feishu_pending_cards (
+                    approval_id TEXT PRIMARY KEY,
+                    chat_id     TEXT NOT NULL,
+                    message_id  TEXT NOT NULL,
+                    kind        TEXT NOT NULL,
+                    created_at  TIMESTAMP NOT NULL
+                );
+            """)
 
     def _migrate(self) -> None:
         migrations = [
@@ -2626,3 +2645,74 @@ class Storage:
             (memorial_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # --- Feishu session anchor ---
+
+    def get_feishu_anchor(self, chat_id: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT current_edict_id FROM feishu_session_anchor WHERE chat_id = ?",
+            (chat_id,),
+        ).fetchone()
+        return row[0] if row else None
+
+    def set_feishu_anchor(self, chat_id: str, edict_id: str) -> None:
+        from datetime import UTC, datetime
+        self._conn.execute(
+            "INSERT INTO feishu_session_anchor (chat_id, current_edict_id, updated_at) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(chat_id) DO UPDATE SET current_edict_id = excluded.current_edict_id, "
+            "    updated_at = excluded.updated_at",
+            (chat_id, edict_id, datetime.now(UTC).isoformat()),
+        )
+        self._conn.commit()
+
+    # --- Feishu dedup ---
+
+    def is_feishu_message_seen(self, message_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM feishu_seen_messages WHERE message_id = ?",
+            (message_id,),
+        ).fetchone()
+        return row is not None
+
+    def mark_feishu_message_seen(self, message_id: str, max_entries: int = 2048) -> None:
+        from datetime import UTC, datetime
+        now = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            "INSERT OR IGNORE INTO feishu_seen_messages (message_id, seen_at) VALUES (?, ?)",
+            (message_id, now),
+        )
+        self._conn.execute(
+            "DELETE FROM feishu_seen_messages WHERE message_id IN ("
+            "  SELECT message_id FROM feishu_seen_messages ORDER BY seen_at ASC "
+            "  LIMIT MAX(0, (SELECT COUNT(*) FROM feishu_seen_messages) - ?))",
+            (max_entries,),
+        )
+        self._conn.commit()
+
+    # --- Feishu pending cards (Step 5 用) ---
+
+    def save_feishu_pending_card(
+        self, approval_id: str, chat_id: str, message_id: str, kind: str
+    ) -> None:
+        from datetime import UTC, datetime
+        self._conn.execute(
+            "INSERT OR REPLACE INTO feishu_pending_cards "
+            "(approval_id, chat_id, message_id, kind, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (approval_id, chat_id, message_id, kind, datetime.now(UTC).isoformat()),
+        )
+        self._conn.commit()
+
+    def pop_feishu_pending_card(self, approval_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT chat_id, message_id, kind FROM feishu_pending_cards WHERE approval_id = ?",
+            (approval_id,),
+        ).fetchone()
+        if not row:
+            return None
+        self._conn.execute(
+            "DELETE FROM feishu_pending_cards WHERE approval_id = ?", (approval_id,),
+        )
+        self._conn.commit()
+        return {"chat_id": row[0], "message_id": row[1], "kind": row[2]}
