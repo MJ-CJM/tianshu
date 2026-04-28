@@ -131,6 +131,8 @@ class WebSocketConnection:
         self._loop = loop
         self._client: object | None = None
         self._thread: threading.Thread | None = None
+        self._last_event_at = time.monotonic()
+        self._watchdog_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         # domain 是 string URL（不是 lark.Client 那种 builder 风格）
@@ -164,13 +166,33 @@ class WebSocketConnection:
             "[feishu/ws] started (app=%s, domain=%s)",
             self._settings.app_id, self._settings.domain,
         )
+        self._last_event_at = time.monotonic()
+        self._watchdog_task = asyncio.create_task(self._watchdog())
 
     async def stop(self) -> None:
         # lark.ws.Client 无公开 stop API；daemon thread 随主进程退出而终止
+        if self._watchdog_task and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
         logger.info("[feishu/ws] stop requested (daemon thread will exit on process termination)")
+
+    async def _watchdog(self) -> None:
+        """心跳 watchdog：长时间无事件时 logger.warning。"""
+        threshold = self._settings.ws_reconnect_interval * 5
+        while True:
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                return
+            idle = time.monotonic() - self._last_event_at
+            if idle > threshold:
+                logger.warning(
+                    "[feishu/ws] no events for %ds (>%ds threshold), possible disconnection",
+                    int(idle), threshold,
+                )
 
     def _on_message(self, event: P2ImMessageReceiveV1) -> None:
         """SDK 在独立线程触发，需要 thread-safe schedule 到主 loop。"""
+        self._last_event_at = time.monotonic()
         try:
             payload = self._sdk_message_to_payload(event)
             asyncio.run_coroutine_threadsafe(
@@ -181,6 +203,7 @@ class WebSocketConnection:
 
     def _on_card(self, event: P2CardActionTrigger) -> P2CardActionTriggerResponse:
         """SDK 卡片回调：必须返回 P2CardActionTriggerResponse。"""
+        self._last_event_at = time.monotonic()
         try:
             payload = self._sdk_card_to_payload(event)
             asyncio.run_coroutine_threadsafe(
