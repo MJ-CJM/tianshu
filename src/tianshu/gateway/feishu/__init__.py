@@ -8,6 +8,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from tianshu.gateway.feishu.approval_card import ApprovalCardHandler
 from tianshu.gateway.feishu.connection import WebhookConnection
 from tianshu.gateway.feishu.dispatcher import Dispatcher, FeishuCardAction, FeishuMessage
 from tianshu.gateway.feishu.edict_bridge import EdictBridge, EdictBusyError
@@ -61,6 +62,13 @@ class FeishuBot:
             storage=storage,
             event_bus=event_bus,
         )
+        self._approval_card = ApprovalCardHandler(
+            settings=settings,
+            storage=storage,
+            event_bus=event_bus,
+            approval_manager=approval_manager,
+            outbound=self._outbound,
+        )
 
     async def start(self) -> None:
         logger.info(
@@ -86,6 +94,7 @@ class FeishuBot:
         )
         await self._dispatcher.start()
         self._outbound.start()
+        self._approval_card.start()
 
     async def stop(self) -> None:
         logger.info("[feishu] stopping")
@@ -135,6 +144,7 @@ class FeishuBot:
 
     async def _on_card(self, action: FeishuCardAction) -> None:
         logger.info("[feishu/card] chat=%s value=%s", action.chat_id, action.value)
+        await self._approval_card.handle_button_click(action)
 
     async def _reply(self, chat_id: str, text: str) -> None:
         await self._outbound.send_text(chat_id, text)
