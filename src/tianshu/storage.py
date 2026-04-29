@@ -643,7 +643,13 @@ class Storage:
         search: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        exclude_assistant_chat: bool = False,
     ) -> tuple[list[Edict], int]:
+        """列敕令。
+
+        exclude_assistant_chat=True 时过滤掉 metadata.assistant_chat=true 的聊天敕令。
+        SQL 用 json_extract(metadata_json, '$.assistant_chat') 实现（SQLite 中 JSON true → 整数 1）。
+        """
         conditions: list[str] = []
         params: list[str | int] = []
         if status:
@@ -653,6 +659,11 @@ class Storage:
             conditions.append("(title LIKE ? OR goal LIKE ?)")
             params.append(f"%{search}%")
             params.append(f"%{search}%")
+        if exclude_assistant_chat:
+            conditions.append(
+                "(json_extract(metadata_json, '$.assistant_chat') IS NULL "
+                "OR json_extract(metadata_json, '$.assistant_chat') != 1)"
+            )
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         with self._lock:
             rows = self._conn.execute(
