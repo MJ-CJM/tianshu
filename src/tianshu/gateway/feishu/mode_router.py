@@ -14,7 +14,9 @@ if TYPE_CHECKING:
     from tianshu.gateway.feishu.assistant_branch import AssistantBranch
     from tianshu.gateway.feishu.dispatcher import FeishuMessage
     from tianshu.gateway.feishu.edict_branch import EdictBranch
+    from tianshu.gateway.feishu.edict_bridge import EdictBridge
     from tianshu.gateway.feishu.session_anchor import SessionAnchor
+    from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -39,26 +41,43 @@ class ModeRouter:
         anchor: "SessionAnchor",
         assistant_branch: "AssistantBranch",
         edict_branch: "EdictBranch",
+        edict_bridge: "EdictBridge",
+        storage: "Storage",
     ) -> None:
         self._anchor = anchor
         self._assistant = assistant_branch
         self._edict = edict_branch
+        self._edict_bridge = edict_bridge
+        self._storage = storage
 
     def resolve_mode(self, chat_id: str) -> ModeContext:
-        """根据当前 anchor 状态构造 ModeContext。"""
+        """根据当前 anchor 状态构造 ModeContext。
+
+        v2: anchor 永远存在（dispatch 中由 ensure_chat_edict 保证）。
+        - anchor 指向 metadata.assistant_chat=true 敕令 → assistant 模式
+        - anchor 指向其它（业务敕令）→ edict 模式
+        """
         edict_id = self._anchor.get(chat_id)
-        if edict_id:
+        if not edict_id:
+            # 防御性：理论上 dispatch 已 ensure，这里返回 assistant
             return ModeContext(
-                mode="edict", chat_id=chat_id,
-                sender_open_id="", edict_id=edict_id,
+                mode="assistant", chat_id=chat_id,
+                sender_open_id="", edict_id=None,
             )
+        edict = self._storage.get_edict(edict_id)
+        is_chat = bool(edict and edict.metadata and edict.metadata.get("assistant_chat"))
         return ModeContext(
-            mode="assistant", chat_id=chat_id,
-            sender_open_id="", edict_id=None,
+            mode="assistant" if is_chat else "edict",
+            chat_id=chat_id,
+            sender_open_id="", edict_id=edict_id,
         )
 
     async def dispatch(self, msg: "FeishuMessage") -> None:
-        """主入口：消息进来 → 判断模式 → 转给对应分支。"""
+        """主入口：保证 anchor 存在 → 判断模式 → 转给对应分支。"""
+        # v2: 首次接入自动建 chat 敕令
+        await self._edict_bridge.ensure_chat_edict(
+            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+        )
         ctx = self.resolve_mode(msg.chat_id)
         ctx = ModeContext(
             mode=ctx.mode, chat_id=ctx.chat_id,

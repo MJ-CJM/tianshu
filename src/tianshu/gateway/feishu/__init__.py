@@ -121,6 +121,8 @@ class FeishuBot:
             anchor=self._anchor,
             assistant_branch=self._assistant_branch,
             edict_branch=self._edict_branch,
+            edict_bridge=self._edict_bridge,
+            storage=storage,
         )
         self._card_action_dispatcher = CardActionDispatcher(
             mode_router=self._mode_router,
