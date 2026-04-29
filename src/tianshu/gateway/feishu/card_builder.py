@@ -122,26 +122,58 @@ class CardBuilder:
             return self._budget_unavailable_card()
 
     async def _build_budget_card_real(self) -> dict:
-        """Step 6 占位：仅显示当前 budget；Step 7 加近 7 天 + Top 5。"""
-        budget = self._cost_manager.get_budget("global") if self._cost_manager else None
-        if budget is None:
+        """近 7 天总消费 + 当前预算 + Top 5 高消费敕令。"""
+        if self._cost_manager is None:
             return self._budget_unavailable_card()
+        budget = self._cost_manager.get_budget("global")
+
+        # 近 7 天总消费 + Top 5 敕令（直接查 cost_ledger 表）
+        recent_total = 0.0
+        top_edicts: list[tuple[str, str, float]] = []
+        try:
+            rows = self._storage._conn.execute(
+                "SELECT edict_id, SUM(cost_cny) as total FROM cost_ledger "
+                "WHERE created_at >= datetime('now', '-7 days') AND edict_id IS NOT NULL "
+                "GROUP BY edict_id ORDER BY total DESC LIMIT 5"
+            ).fetchall()
+            for row in rows:
+                edict_id = row[0]
+                total = float(row[1] or 0.0)
+                edict = self._storage.get_edict(edict_id)
+                title = (edict.title if edict else "(已删)") or "(无标题)"
+                top_edicts.append((edict_id, title[:20], total))
+            # 整体 7 天累计（含未在 top5 的）
+            full_total_row = self._storage._conn.execute(
+                "SELECT SUM(cost_cny) FROM cost_ledger "
+                "WHERE created_at >= datetime('now', '-7 days')"
+            ).fetchone()
+            if full_total_row and full_total_row[0]:
+                recent_total = float(full_total_row[0])
+        except Exception:
+            logger.exception("[feishu/card] cost ledger query failed")
+
+        lines = [f"**近 7 天消费**：¥{recent_total:.2f}"]
+        if budget is not None:
+            lines.append(f"**当前预算**：¥{budget.budget_cny:.2f}")
+            lines.append(f"**剩余**：¥{(budget.budget_cny - budget.spent_cny):.2f}")
+
+        elements: list[dict] = [
+            {"tag": "markdown", "content": "\n".join(lines)},
+        ]
+        if top_edicts:
+            elements.append({"tag": "hr"})
+            top_lines = ["**Top 5 敕令成本（近 7 天）**："]
+            for eid, title, cost in top_edicts:
+                top_lines.append(f"- #{eid[:8]} ¥{cost:.2f}（{title}）")
+            elements.append({"tag": "markdown", "content": "\n".join(top_lines)})
+
         return {
             "config": {"wide_screen_mode": True},
             "header": {
                 "template": "orange",
-                "title": {"tag": "plain_text", "content": "💰 预算概览"},
+                "title": {"tag": "plain_text", "content": "💰 成本概览（近 7 天）"},
             },
-            "elements": [
-                {
-                    "tag": "markdown",
-                    "content": (
-                        f"**当前预算**：¥{budget.budget_cny:.2f}\n"
-                        f"**已花费**：¥{budget.spent_cny:.2f}\n"
-                        f"**剩余**：¥{budget.budget_cny - budget.spent_cny:.2f}"
-                    ),
-                }
-            ],
+            "elements": elements,
         }
 
     @staticmethod
