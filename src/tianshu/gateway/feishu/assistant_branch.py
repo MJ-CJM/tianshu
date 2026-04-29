@@ -1,12 +1,11 @@
 """助手模式（anchor=NULL）命令路由。
 
-支持命令：/new /list /select /budget /menu /help /status /cancel
-不支持的纯文本：先 IntentParser 解析（若启用），失败则回 silent_reply。
+支持命令：/new /list /select /budget /menu /help /status /cancel /clear
+不支持的纯文本：续接当前 anchor 敕令（让 executor + persona LLM 自然处理）。
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from tianshu.gateway.feishu.card_builder import format_status_label
@@ -16,7 +15,6 @@ if TYPE_CHECKING:
     from tianshu.gateway.feishu.card_builder import CardBuilder
     from tianshu.gateway.feishu.dispatcher import FeishuMessage
     from tianshu.gateway.feishu.edict_bridge import EdictBridge
-    from tianshu.gateway.feishu.intent_parser import IntentParser
     from tianshu.gateway.feishu.mode_router import ModeContext
     from tianshu.gateway.feishu.outbound import FeishuOutbound
     from tianshu.gateway.feishu.persona_renderer import PersonaRenderer
@@ -39,7 +37,6 @@ class AssistantBranch:
         outbound: "FeishuOutbound",
         renderer: "PersonaRenderer",
         card_builder: "CardBuilder",
-        intent_parser: "IntentParser | None",
     ) -> None:
         self._storage = storage
         self._anchor = anchor
@@ -47,7 +44,6 @@ class AssistantBranch:
         self._outbound = outbound
         self._renderer = renderer
         self._card_builder = card_builder
-        self._intent_parser = intent_parser  # None = LLM fallback 禁用
 
     def set_renderer(self, renderer: "PersonaRenderer") -> None:
         """支持 reload 时切换 persona。"""
@@ -191,47 +187,20 @@ class AssistantBranch:
     async def _handle_natural_language(
         self, msg: "FeishuMessage", ctx: "ModeContext", text: str,
     ) -> None:
-        if self._intent_parser is None:
-            await self._reply(msg.chat_id, self._renderer.assistant_silent_reply())
-            return
-        intent_result = await self._intent_parser.parse(text)
-        intent = intent_result.get("intent", "unknown")
-        args = intent_result.get("args", {}) or {}
-        if intent == "unknown":
-            await self._reply(msg.chat_id, self._renderer.assistant_silent_reply())
-            return
-        # 把意图映射回命令调用
-        synthesized = self._synthesize_command(intent, args)
-        if synthesized is None:
-            await self._reply(msg.chat_id, self._renderer.assistant_silent_reply())
-            return
-        # 提示用户我们理解的意图，然后执行
-        await self._reply(msg.chat_id, self._renderer.llm_intent_hint(synthesized))
-        # 重写 msg.text 后递归调 handle
-        new_msg = replace(msg, text=synthesized)
-        await self.handle(new_msg, ctx)
+        """纯文本（无 / 前缀）→ 续接当前 anchor 敕令，让 executor + persona LLM 自然处理。
 
-    @staticmethod
-    def _synthesize_command(intent: str, args: dict) -> str | None:
-        if intent == "list":
-            f = args.get("filter") or "open"
-            return f"/list {f}"
-        if intent == "new":
-            goal = args.get("goal") or ""
-            if not goal:
-                return None
-            return f"/new {goal}"
-        if intent == "status":
-            tid = args.get("target") or args.get("edict_id") or ""
-            return f"/status {tid}".strip()
-        if intent == "cancel":
-            tid = args.get("target") or args.get("edict_id") or ""
-            return f"/cancel {tid}".strip()
-        if intent == "budget":
-            return "/budget"
-        if intent == "help":
-            return "/help"
-        return None
+        v2：anchor 必为 chat 敕令（首次接入由 _ensure_chat_anchor 保证），
+        所以等价于 EdictBridge.continue_or_create 行为。
+        """
+        from tianshu.gateway.feishu.edict_bridge import EdictBusyError
+        try:
+            edict_id = await self._edict_bridge.continue_or_create(
+                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, text=text,
+            )
+        except EdictBusyError as exc:
+            await self._reply(msg.chat_id, str(exc))
+            return
+        await self._reply(msg.chat_id, self._renderer.edict_received_reply(edict_id))
 
     # --- 工具方法 ---
 
