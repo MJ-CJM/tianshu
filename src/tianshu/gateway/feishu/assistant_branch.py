@@ -101,6 +101,7 @@ class AssistantBranch:
         status_value = status_filter.value if status_filter is not None else None
         edicts, _total = self._storage.list_edicts(
             status=status_value, limit=10, offset=0,
+            exclude_assistant_chat=True,   # v2: 隐藏聊天敕令
         )
         if not edicts:
             await self._reply(
@@ -120,7 +121,9 @@ class AssistantBranch:
         if len(target) < 6:
             await self._reply(msg.chat_id, "ID 前缀至少 6 字符以避免歧义")
             return
-        edicts, _total = self._storage.list_edicts(limit=200, offset=0)
+        edicts, _total = self._storage.list_edicts(
+            limit=200, offset=0, exclude_assistant_chat=True,
+        )
         matches = [e for e in edicts if e.id.startswith(target)]
         if not matches:
             await self._reply(msg.chat_id, f"未找到敕令 #{target}，输入 /list 查看")
@@ -220,7 +223,9 @@ class AssistantBranch:
     def _find_by_prefix(self, prefix: str) -> "Edict | None":
         if len(prefix) < 6:
             return None
-        edicts, _total = self._storage.list_edicts(limit=200, offset=0)
+        edicts, _total = self._storage.list_edicts(
+            limit=200, offset=0, exclude_assistant_chat=True,
+        )
         for e in edicts:
             if e.id.startswith(prefix):
                 return e
