@@ -251,6 +251,113 @@ async def test_natural_language_intent_synthesizes_command():
     assert any("暂无敕令" in t for t in sent_texts)
 
 
+@pytest.mark.asyncio
+async def test_status_with_id_finds_edict(branch):
+    b, storage, _, outbound, _, _ = branch
+    e = MagicMock()
+    e.id = "ed_abcdef1"
+    e.title = "目标"
+    e.status = "open"
+    storage.list_edicts.return_value = ([e], 1)
+    await b.handle(_msg("/status ed_abcdef"), _ctx())
+    assert "ed_abcde" in outbound.send_text.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_status_with_id_not_found(branch):
+    b, storage, _, outbound, _, _ = branch
+    storage.list_edicts.return_value = ([], 0)
+    await b.handle(_msg("/status ed_nono1"), _ctx())
+    assert "未找到" in outbound.send_text.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_cancel_with_id_open_status(branch):
+    b, storage, _, outbound, _, _ = branch
+    e = MagicMock()
+    e.id = "ed_abcdef1"
+    e.title = "目标"
+    e.status = "open"
+    storage.list_edicts.return_value = ([e], 1)
+    await b.handle(_msg("/cancel ed_abcdef"), _ctx())
+    storage.update_edict_status.assert_called_once_with("ed_abcdef1", "cancelled")
+
+
+@pytest.mark.asyncio
+async def test_cancel_with_id_already_completed(branch):
+    b, storage, _, outbound, _, _ = branch
+    e = MagicMock()
+    e.id = "ed_abcdef1"
+    e.title = "目标"
+    e.status = "completed"
+    storage.list_edicts.return_value = ([e], 1)
+    await b.handle(_msg("/cancel ed_abcdef"), _ctx())
+    storage.update_edict_status.assert_not_called()
+    assert "无需取消" in outbound.send_text.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_cancel_with_id_not_found(branch):
+    b, storage, _, outbound, _, _ = branch
+    storage.list_edicts.return_value = ([], 0)
+    await b.handle(_msg("/cancel ed_nono1"), _ctx())
+    assert "未找到" in outbound.send_text.await_args.args[1]
+
+
+def test_synthesize_command_all_intents():
+    """覆盖 _synthesize_command 各分支。"""
+    syn = AssistantBranch._synthesize_command
+    assert syn("list", {}) == "/list open"
+    assert syn("list", {"filter": "all"}) == "/list all"
+    assert syn("new", {"goal": "x"}) == "/new x"
+    assert syn("new", {}) is None
+    assert syn("status", {"target": "ed_x"}) == "/status ed_x"
+    assert syn("status", {"edict_id": "ed_y"}) == "/status ed_y"
+    assert syn("cancel", {"target": "ed_z"}) == "/cancel ed_z"
+    assert syn("budget", {}) == "/budget"
+    assert syn("help", {}) == "/help"
+    assert syn("unknown", {}) is None
+
+
+def test_parse_filter_all_branches():
+    """覆盖 _parse_filter 全部分支。"""
+    from tianshu.models.common import EdictStatus
+    pf = AssistantBranch._parse_filter
+    assert pf("open") == EdictStatus.OPEN
+    assert pf("active") == EdictStatus.OPEN
+    assert pf("") == EdictStatus.OPEN
+    assert pf("completed") == EdictStatus.COMPLETED
+    assert pf("cancelled") == EdictStatus.CANCELLED
+    assert pf("all") is None
+    assert pf("garbage") == EdictStatus.OPEN
+
+
+@pytest.mark.asyncio
+async def test_natural_language_synthesize_returns_none_falls_silent():
+    """intent=new but goal 为空 → synthesize 返回 None → silent。"""
+    parser = MagicMock()
+    parser.parse = AsyncMock(return_value={"intent": "new", "args": {}})
+    storage = MagicMock()
+    anchor = MagicMock()
+    bridge = MagicMock()
+    outbound = MagicMock()
+    outbound.send_text = AsyncMock()
+    outbound.send_card = AsyncMock()
+    cb = MagicMock()
+    b = AssistantBranch(
+        storage=storage,
+        anchor=anchor,
+        edict_bridge=bridge,
+        outbound=outbound,
+        renderer=_renderer(),
+        card_builder=cb,
+        intent_parser=parser,
+    )
+    await b.handle(_msg("新建"), _ctx())
+    sent_texts = [c.args[1] for c in outbound.send_text.await_args_list]
+    assert any("待命" in t for t in sent_texts)
+
+
 def test_set_renderer_replaces_renderer():
     """Reload 时切换 renderer 不应丢其他依赖。"""
     b = AssistantBranch(
