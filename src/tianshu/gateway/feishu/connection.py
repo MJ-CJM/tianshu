@@ -23,6 +23,87 @@ from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------
+# Monkey patch: lark-oapi 1.5.5 ws.Client 不分派 CARD 消息类型 bug
+# ---------------------------------------------------------------------
+# 原 _handle_data_frame 在 elif message_type == MessageType.CARD: 直接 return，
+# 导致卡片按钮点击事件不会走 EventDispatcher → _on_card 永远不触发 → 飞书 200340 超时。
+# 修复：CARD 也走 do_without_validation（dispatcher_handler 已通过 _callback_processor_map
+# 支持卡片回调）。
+# 等 lark-oapi 升级修复后可移除此 patch。
+import http as _http  # noqa: E402
+import time as _time  # noqa: E402
+import base64 as _base64  # noqa: E402
+from lark_oapi.core.const import UTF_8 as _LARK_UTF_8  # noqa: E402
+from lark_oapi.core.json import JSON as _LarkJSON  # noqa: E402
+from lark_oapi.ws.client import _get_by_key as _lark_get_by_key  # noqa: E402
+from lark_oapi.ws.const import (  # noqa: E402
+    HEADER_BIZ_RT as _LARK_HEADER_BIZ_RT,
+    HEADER_MESSAGE_ID as _LARK_HEADER_MESSAGE_ID,
+    HEADER_SEQ as _LARK_HEADER_SEQ,
+    HEADER_SUM as _LARK_HEADER_SUM,
+    HEADER_TRACE_ID as _LARK_HEADER_TRACE_ID,
+    HEADER_TYPE as _LARK_HEADER_TYPE,
+)
+from lark_oapi.ws.enum import MessageType as _LarkMessageType  # noqa: E402
+from lark_oapi.ws.model import Response as _LarkResponse  # noqa: E402
+
+
+async def _patched_handle_data_frame(self, frame):  # type: ignore[no-untyped-def]
+    """替换 lark.ws.Client._handle_data_frame：让 CARD 也走 dispatcher。"""
+    hs = frame.headers
+    msg_id = _lark_get_by_key(hs, _LARK_HEADER_MESSAGE_ID)
+    trace_id = _lark_get_by_key(hs, _LARK_HEADER_TRACE_ID)
+    sum_ = _lark_get_by_key(hs, _LARK_HEADER_SUM)
+    seq = _lark_get_by_key(hs, _LARK_HEADER_SEQ)
+    type_ = _lark_get_by_key(hs, _LARK_HEADER_TYPE)
+
+    pl = frame.payload
+    if int(sum_) > 1:
+        pl = self._combine(msg_id, int(sum_), int(seq), pl)
+        if pl is None:
+            return
+
+    message_type = _LarkMessageType(type_)
+    logger.debug(
+        "[feishu/ws] data frame message_type=%s msg_id=%s",
+        message_type.value, msg_id,
+    )
+
+    resp = _LarkResponse(code=_http.HTTPStatus.OK)
+    try:
+        start = int(round(_time.time() * 1000))
+        if message_type in (_LarkMessageType.EVENT, _LarkMessageType.CARD):
+            # PATCH：CARD 类型也走 dispatcher（原 SDK 直接 return 是 bug）
+            result = self._event_handler.do_without_validation(pl)
+        else:
+            return
+        end = int(round(_time.time() * 1000))
+        header = hs.add()
+        header.key = _LARK_HEADER_BIZ_RT
+        header.value = str(end - start)
+        if result is not None:
+            resp.data = _base64.b64encode(
+                _LarkJSON.marshal(result).encode(_LARK_UTF_8),
+            )
+    except Exception as exc:
+        logger.exception(
+            "[feishu/ws] _handle_data_frame failed msg_id=%s trace=%s err=%s",
+            msg_id, trace_id, exc,
+        )
+        resp = _LarkResponse(code=_http.HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    frame.payload = _LarkJSON.marshal(resp).encode(_LARK_UTF_8)
+    await self._write_message(frame.SerializeToString())
+
+
+# 应用 monkey patch（模块 import 时执行一次）
+lark.ws.Client._handle_data_frame = _patched_handle_data_frame
+logger.info(
+    "[feishu/ws] monkey-patched lark.ws.Client._handle_data_frame "
+    "to support CARD message dispatch (lark-oapi 1.5.5 bug)",
+)
+
 
 class FeishuConnection(Protocol):
     inbound_queue: asyncio.Queue
