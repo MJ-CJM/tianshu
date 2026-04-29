@@ -11,17 +11,20 @@ import pytest
 from tianshu.bus.event_bus import EventBus
 from tianshu.gateway.feishu import FeishuBot
 from tianshu.gateway.feishu.dispatcher import FeishuCardAction, FeishuMessage
-from tianshu.gateway.feishu.edict_bridge import EdictBusyError
 from tianshu.gateway.feishu.settings import FeishuSettings
 
 
-def _settings() -> FeishuSettings:
+def _settings(disable_assistant_mode: bool = True) -> FeishuSettings:
+    """v1 legacy fallback：disable_assistant_mode=True，保留 v1 命令路由测试。"""
     return FeishuSettings(
         app_id="x", app_secret="y", domain="feishu", connection_mode="webhook",
         allowed_users=("ou_test",), home_channel="",
         encrypt_key="", verification_token="", bot_open_id="", bot_name="",
         webhook_path="/feishu/webhook", ws_reconnect_interval=120,
         text_batch_delay=0.0, dedup_cache_size=2048,
+        assistant_persona_id="tongzheng",
+        intent_llm_enabled=False,
+        disable_assistant_mode=disable_assistant_mode,
     )
 
 
@@ -34,9 +37,14 @@ def bot(storage):
     executor.execute_edict = AsyncMock()
     executor.running_tasks = set()
     notifier = MagicMock()
+    persona_loader = MagicMock()
+    persona_loader.get = MagicMock(return_value=None)
     fb = FeishuBot(
         storage=storage, event_bus=bus, approval_manager=approval,
         executor=executor, notifier=notifier, settings=_settings(),
+        persona_loader=persona_loader,
+        provider_manager=None,
+        cost_manager=None,
     )
     # 把 outbound.send_text 替换成 mock，避免 lark client 调用
     fb._outbound.send_text = AsyncMock(return_value="m1")

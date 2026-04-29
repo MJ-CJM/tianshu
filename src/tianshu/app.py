@@ -290,6 +290,10 @@ async def lifespan(app: FastAPI):
     )
     app.state.approval_manager = approval_manager
 
+    # --- CostManager（提前创建：FeishuBot /budget 卡片需要）---
+    cost_manager = CostManager(storage=storage, event_bus=event_bus)
+    app.state.cost_manager = cost_manager
+
     # --- Feishu Bot ---
     from tianshu.gateway.feishu import FeishuBot
     from tianshu.gateway.feishu.settings import from_global_settings as build_feishu_settings
@@ -313,6 +317,9 @@ async def lifespan(app: FastAPI):
             executor=executor,
             notifier=notifier,
             settings=feishu_settings,
+            persona_loader=persona_loader,
+            provider_manager=provider_manager,
+            cost_manager=cost_manager,
         )
         await feishu_bot.start()
         app.state.feishu_bot = feishu_bot
@@ -353,9 +360,7 @@ async def lifespan(app: FastAPI):
     memory_manager.ensure_memory_dirs()
     app.state.memory_manager = memory_manager
 
-    # --- CostManager ---
-    cost_manager = CostManager(storage=storage, event_bus=event_bus)
-    app.state.cost_manager = cost_manager
+    # CostManager 已在 FeishuBot 之前创建（双模式 /budget 卡片需要）
 
     # --- ConsultationSession ---
     consultation = ConsultationSession(

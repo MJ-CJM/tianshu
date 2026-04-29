@@ -20,6 +20,9 @@ class FeishuSettings:
     ws_reconnect_interval: int
     text_batch_delay: float
     dedup_cache_size: int
+    assistant_persona_id: str = "tongzheng"   # 默认通政司
+    intent_llm_enabled: bool = True
+    disable_assistant_mode: bool = False       # 紧急逃生开关
 
     @property
     def enabled(self) -> bool:
@@ -57,4 +60,7 @@ def from_global_settings(s) -> FeishuSettings:
         ws_reconnect_interval=s.feishu_ws_reconnect_interval,
         text_batch_delay=s.feishu_text_batch_delay,
         dedup_cache_size=s.feishu_dedup_cache_size,
+        assistant_persona_id=getattr(s, "feishu_assistant_persona_id", "tongzheng"),
+        intent_llm_enabled=getattr(s, "feishu_intent_llm_enabled", True),
+        disable_assistant_mode=getattr(s, "feishu_disable_assistant_mode", False),
     )

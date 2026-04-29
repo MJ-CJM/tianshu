@@ -16,6 +16,10 @@ def app_with_feishu(monkeypatch):
     monkeypatch.setenv("TIANSHU_FEISHU_CONNECTION_MODE", "webhook")
     # 关闭文本批处理，让事件立即派发
     monkeypatch.setenv("TIANSHU_FEISHU_TEXT_BATCH_DELAY", "0.0")
+    # 关掉 LLM 意图，让纯文本 → assistant silent reply（不自动建 edict）
+    monkeypatch.setenv("TIANSHU_FEISHU_INTENT_LLM_ENABLED", "false")
+    # 紧急逃生：保留 v1 行为（纯文本自动建 edict / 续接），便于现有 e2e 用例
+    monkeypatch.setenv("TIANSHU_FEISHU_DISABLE_ASSISTANT_MODE", "true")
     # LLM 占位（执行器需要）
     monkeypatch.setenv("TIANSHU_LLM_API_KEY", "fake")
     monkeypatch.setenv("TIANSHU_LLM_API_BASE", "http://localhost:9999")

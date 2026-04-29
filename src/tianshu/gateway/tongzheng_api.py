@@ -39,6 +39,8 @@ class FeishuChannelConfig(BaseModel):
     ws_reconnect_interval: int = 120
     text_batch_delay: float = 0.6
     dedup_cache_size: int = 2048
+    assistant_persona_id: str = "tongzheng"
+    intent_llm_enabled: bool = True
 
 
 def _build_feishu_settings_from_runtime(runtime_cfg: dict):
@@ -64,6 +66,9 @@ def _build_feishu_settings_from_runtime(runtime_cfg: dict):
         ws_reconnect_interval=int(runtime_cfg.get("ws_reconnect_interval", 120)),
         text_batch_delay=float(runtime_cfg.get("text_batch_delay", 0.6)),
         dedup_cache_size=int(runtime_cfg.get("dedup_cache_size", 2048)),
+        assistant_persona_id=runtime_cfg.get("assistant_persona_id", "tongzheng"),
+        intent_llm_enabled=bool(runtime_cfg.get("intent_llm_enabled", True)),
+        disable_assistant_mode=bool(runtime_cfg.get("disable_assistant_mode", False)),
     )
 
 
@@ -95,12 +100,17 @@ async def get_feishu_channel(request: Request) -> ApiResponse:
                 "ws_reconnect_interval": s.ws_reconnect_interval,
                 "text_batch_delay": s.text_batch_delay,
                 "dedup_cache_size": s.dedup_cache_size,
+                "assistant_persona_id": s.assistant_persona_id,
+                "intent_llm_enabled": s.intent_llm_enabled,
                 "_source": "env",
                 "_has_secret": bool(s.app_secret),
             },
         )
     cfg["app_secret"] = "***" if cfg.get("_has_secret") else ""
     cfg["_source"] = "db"
+    # 兼容老的 channel_configs 行（无新字段时回填默认）
+    cfg.setdefault("assistant_persona_id", "tongzheng")
+    cfg.setdefault("intent_llm_enabled", True)
     return ApiResponse(success=True, data=cfg)
 
 
@@ -156,6 +166,27 @@ async def put_feishu_channel(
         success=True,
         data={"reloaded": reload_ok, "reason": reload_msg or "ok"},
     )
+
+
+@tongzheng_router.get("/personas")
+async def list_personas(request: Request) -> ApiResponse:
+    """供前端下拉框使用：列所有可用 cabinet personas。"""
+    loader = request.app.state.persona_loader
+    items: list = []
+    if hasattr(loader, "list"):
+        items = list(loader.list())
+    elif hasattr(loader, "personas"):
+        items = list(loader.personas.values())
+    else:
+        items = list(getattr(loader, "_personas", {}).values())
+    personas = []
+    for p in items:
+        personas.append({
+            "id": getattr(p, "id", ""),
+            "name": getattr(p, "name", ""),
+            "department": getattr(p, "department", ""),
+        })
+    return ApiResponse(success=True, data={"personas": personas})
 
 
 @tongzheng_router.get("/channels/feishu/status")

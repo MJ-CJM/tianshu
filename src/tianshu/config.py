@@ -50,6 +50,9 @@ class TianshuSettings(BaseSettings):
     feishu_ws_reconnect_interval: int = 120
     feishu_text_batch_delay: float = 0.6
     feishu_dedup_cache_size: int = 2048
+    feishu_assistant_persona_id: str = "tongzheng"
+    feishu_intent_llm_enabled: bool = True
+    feishu_disable_assistant_mode: bool = False
     dingtalk_webhook: str = ""
     dingtalk_secret: str = ""
     smtp_host: str = ""
