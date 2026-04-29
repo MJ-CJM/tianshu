@@ -18,7 +18,6 @@ from tianshu.gateway.feishu.connection import WebhookConnection, WebSocketConnec
 from tianshu.gateway.feishu.dispatcher import Dispatcher, FeishuCardAction, FeishuMessage
 from tianshu.gateway.feishu.edict_branch import EdictBranch
 from tianshu.gateway.feishu.edict_bridge import EdictBridge, EdictBusyError
-from tianshu.gateway.feishu.intent_parser import IntentParser
 from tianshu.gateway.feishu.mode_router import ModeRouter
 from tianshu.gateway.feishu.outbound import FeishuOutbound
 from tianshu.gateway.feishu.persona_renderer import PersonaRenderer
@@ -101,19 +100,6 @@ class FeishuBot:
             storage=storage, cost_manager=cost_manager,
         )
 
-        # IntentParser：LLM 启用且依赖完整时才构造
-        self._intent_parser: IntentParser | None = None
-        if (
-            settings.intent_llm_enabled
-            and provider_manager is not None
-            and persona_loader is not None
-        ):
-            self._intent_parser = IntentParser(
-                persona_loader=persona_loader,
-                provider_manager=provider_manager,
-                persona_id=settings.assistant_persona_id,
-            )
-
         # 分支
         self._assistant_branch = AssistantBranch(
             storage=storage,
@@ -122,7 +108,6 @@ class FeishuBot:
             outbound=self._outbound,
             renderer=self._renderer,
             card_builder=self._card_builder,
-            intent_parser=self._intent_parser,
         )
         self._edict_branch = EdictBranch(
             storage=storage,
@@ -203,8 +188,7 @@ class FeishuBot:
         - app_id 变化 → 释放老锁并占新锁。
         - outbound 重建 lark client。
         - dispatcher / approval_card 切换 settings 引用（用于 allowlist / home_channel 等）。
-        - assistant_persona_id 变化 → 切换 PersonaRenderer + IntentParser persona。
-        - intent_llm_enabled 切换 → 创建 / 释放 IntentParser。
+        - assistant_persona_id 变化 → 切换 PersonaRenderer。
         """
         logger.info(
             "[feishu] reloading (old_mode=%s old_app=%s -> new_mode=%s new_app=%s)",
@@ -265,29 +249,10 @@ class FeishuBot:
         self._assistant_branch.set_renderer(new_renderer)
         self._edict_branch.set_renderer(new_renderer)
 
-        # 7. 切换 IntentParser（按新设置启停）
-        if (
-            new_settings.intent_llm_enabled
-            and self._provider_manager is not None
-            and self._persona_loader is not None
-        ):
-            if self._intent_parser is None:
-                self._intent_parser = IntentParser(
-                    persona_loader=self._persona_loader,
-                    provider_manager=self._provider_manager,
-                    persona_id=new_settings.assistant_persona_id,
-                )
-            else:
-                self._intent_parser.set_persona(new_settings.assistant_persona_id)
-            self._assistant_branch._intent_parser = self._intent_parser  # type: ignore[attr-defined]
-        else:
-            self._intent_parser = None
-            self._assistant_branch._intent_parser = None  # type: ignore[attr-defined]
-
         logger.info(
-            "[feishu] reload complete (mode=%s, app=%s, persona=%s, intent_llm=%s, disable_assistant=%s)",
+            "[feishu] reload complete (mode=%s, app=%s, persona=%s, disable_assistant=%s)",
             new_settings.connection_mode, new_settings.app_id,
-            new_settings.assistant_persona_id, new_settings.intent_llm_enabled,
+            new_settings.assistant_persona_id,
             new_settings.disable_assistant_mode,
         )
 
@@ -398,7 +363,7 @@ class FeishuBot:
     # --- v1 legacy fallback（仅 disable_assistant_mode=True 时启用）---
 
     async def _on_message_v1_legacy(self, msg: FeishuMessage) -> None:
-        """紧急逃生路径：复刻 v1 行为（无 ModeRouter / AssistantBranch / IntentParser）。"""
+        """紧急逃生路径：复刻 v1 行为（无 ModeRouter / AssistantBranch）。"""
         text = msg.text.strip()
         parts = text.split(maxsplit=1)
         cmd = parts[0] if parts else ""
