@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from tianshu.gateway.feishu.edict_branch import EdictBranch
     from tianshu.gateway.feishu.edict_bridge import EdictBridge
     from tianshu.gateway.feishu.session_anchor import SessionAnchor
+    from tianshu.gateway.feishu.settings import FeishuSettings
     from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -43,12 +44,14 @@ class ModeRouter:
         edict_branch: "EdictBranch",
         edict_bridge: "EdictBridge",
         storage: "Storage",
+        settings: "FeishuSettings",
     ) -> None:
         self._anchor = anchor
         self._assistant = assistant_branch
         self._edict = edict_branch
         self._edict_bridge = edict_bridge
         self._storage = storage
+        self._settings = settings
 
     def resolve_mode(self, chat_id: str) -> ModeContext:
         """根据当前 anchor 状态构造 ModeContext。
@@ -74,9 +77,10 @@ class ModeRouter:
 
     async def dispatch(self, msg: "FeishuMessage") -> None:
         """主入口：保证 anchor 存在 → 判断模式 → 转给对应分支。"""
-        # v2: 首次接入自动建 chat 敕令
+        # v2: 首次接入自动建 chat 敕令（用通政司配置的 assistant_persona_id）
         await self._edict_bridge.ensure_chat_edict(
             chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+            assistant_persona_id=self._settings.assistant_persona_id,
         )
         ctx = self.resolve_mode(msg.chat_id)
         ctx = ModeContext(

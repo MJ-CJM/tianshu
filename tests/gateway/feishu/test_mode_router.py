@@ -45,12 +45,15 @@ def _make_router(
     assistant.handle = AsyncMock()
     edict_branch = MagicMock()
     edict_branch.handle = AsyncMock()
+    settings = MagicMock()
+    settings.assistant_persona_id = "tongzheng"
     router = ModeRouter(
         anchor=anchor,
         assistant_branch=assistant,
         edict_branch=edict_branch,
         edict_bridge=bridge,
         storage=storage,
+        settings=settings,
     )
     return router, anchor, storage, bridge, assistant, edict_branch
 

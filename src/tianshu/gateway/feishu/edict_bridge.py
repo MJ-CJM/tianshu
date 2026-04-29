@@ -128,10 +128,18 @@ class EdictBridge:
 
     async def ensure_chat_edict(
         self, *, chat_id: str, sender_open_id: str,
+        assistant_persona_id: str | None = None,
     ) -> str:
         """确保该 chat 有一个聊天敕令（assistant_chat=true）作为 anchor。
 
         v2 极简模型：飞书首次接入时自动建 chat 敕令，让纯文本消息能续接。
+
+        Args:
+            chat_id: 飞书会话 ID。
+            sender_open_id: 发起方 open_id（写入 metadata，便于审计）。
+            assistant_persona_id: 通政司配置的助手 persona id；新建敕令时用作
+                ``assigned_persona_id``，让 executor 跑用户配的人格。复用旧敕令时
+                **不**强制更新 persona（保留旧敕令建立时的 persona，保证对话一致性）。
 
         优先级：
         1. anchor 已存在 → 直接返回（无论是 chat 还是业务敕令）
@@ -160,12 +168,13 @@ class EdictBridge:
                 )
                 return e.id
 
-        # 新建
+        # 新建（v2 fix: 用 assistant_persona_id 指派 persona，让 executor 用配置的人格）
         edict = Edict(
             title=f"飞书助手对话 - {chat_id[:12]}",
             goal="持续对话上下文",
             source="channel",
             submitter="emperor",
+            assigned_persona_id=assistant_persona_id,
             metadata={
                 "channel": "feishu",
                 "chat_id": chat_id,
@@ -178,8 +187,8 @@ class EdictBridge:
         # —— chat 敕令不需要被 scheduler/executor 拉起；memorial 由 continue_or_create 按需建
         self._anchor.set(chat_id, edict.id)
         logger.info(
-            "[feishu/edict] auto-created chat edict %s for chat=%s",
-            edict.id, chat_id,
+            "[feishu/edict] auto-created chat edict %s for chat=%s persona=%s",
+            edict.id, chat_id, assistant_persona_id or "default",
         )
         return edict.id
 

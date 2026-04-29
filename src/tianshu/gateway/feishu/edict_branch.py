@@ -43,6 +43,7 @@ class EdictBranch:
         outbound: "FeishuOutbound",
         renderer: "PersonaRenderer",
         assistant_branch: "AssistantBranch",
+        assistant_persona_id: str = "tongzheng",
     ) -> None:
         self._storage = storage
         self._anchor = anchor
@@ -50,9 +51,14 @@ class EdictBranch:
         self._outbound = outbound
         self._renderer = renderer
         self._assistant = assistant_branch  # 用于查询类命令复用
+        self._assistant_persona_id = assistant_persona_id
 
     def set_renderer(self, renderer: "PersonaRenderer") -> None:
         self._renderer = renderer
+
+    def set_assistant_persona_id(self, persona_id: str) -> None:
+        """支持 reload 时切换 persona id（用于 /exit 切回 chat 敕令时指派 persona）。"""
+        self._assistant_persona_id = persona_id
 
     async def handle(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
         text = msg.text.strip()
@@ -93,6 +99,7 @@ class EdictBranch:
         self._storage.delete_feishu_anchor(msg.chat_id)
         new_eid = await self._edict_bridge.ensure_chat_edict(
             chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+            assistant_persona_id=self._assistant_persona_id,
         )
         await self._reply(
             msg.chat_id,

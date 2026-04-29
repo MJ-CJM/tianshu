@@ -108,6 +108,7 @@ class FeishuBot:
             outbound=self._outbound,
             renderer=self._renderer,
             card_builder=self._card_builder,
+            assistant_persona_id=settings.assistant_persona_id,
         )
         self._edict_branch = EdictBranch(
             storage=storage,
@@ -116,6 +117,7 @@ class FeishuBot:
             outbound=self._outbound,
             renderer=self._renderer,
             assistant_branch=self._assistant_branch,
+            assistant_persona_id=settings.assistant_persona_id,
         )
         self._mode_router = ModeRouter(
             anchor=self._anchor,
@@ -123,6 +125,7 @@ class FeishuBot:
             edict_branch=self._edict_branch,
             edict_bridge=self._edict_bridge,
             storage=storage,
+            settings=settings,
         )
         self._card_action_dispatcher = CardActionDispatcher(
             mode_router=self._mode_router,
@@ -250,6 +253,12 @@ class FeishuBot:
         self._renderer = new_renderer
         self._assistant_branch.set_renderer(new_renderer)
         self._edict_branch.set_renderer(new_renderer)
+
+        # 7. 同步 assistant_persona_id 到分支 + ModeRouter
+        # 让后续新建的 chat 敕令使用新 persona（ensure_chat_edict 创建路径）
+        self._assistant_branch.set_assistant_persona_id(new_settings.assistant_persona_id)
+        self._edict_branch.set_assistant_persona_id(new_settings.assistant_persona_id)
+        self._mode_router._settings = new_settings  # type: ignore[attr-defined]
 
         logger.info(
             "[feishu] reload complete (mode=%s, app=%s, persona=%s, disable_assistant=%s)",

@@ -37,6 +37,7 @@ class AssistantBranch:
         outbound: "FeishuOutbound",
         renderer: "PersonaRenderer",
         card_builder: "CardBuilder",
+        assistant_persona_id: str = "tongzheng",
     ) -> None:
         self._storage = storage
         self._anchor = anchor
@@ -44,10 +45,15 @@ class AssistantBranch:
         self._outbound = outbound
         self._renderer = renderer
         self._card_builder = card_builder
+        self._assistant_persona_id = assistant_persona_id
 
     def set_renderer(self, renderer: "PersonaRenderer") -> None:
         """支持 reload 时切换 persona。"""
         self._renderer = renderer
+
+    def set_assistant_persona_id(self, persona_id: str) -> None:
+        """支持 reload 时切换 persona id（用于 /clear 后新建 chat 敕令时指派 persona）。"""
+        self._assistant_persona_id = persona_id
 
     async def handle(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
         """主入口：解析命令 → 调对应实现。"""
@@ -78,6 +84,13 @@ class AssistantBranch:
             await self._cmd_cancel(msg, ctx, target)
         elif cmd == "/clear":
             await self._cmd_clear(msg, ctx)
+        elif cmd == "/exit":
+            # v2 修复：助手模式下 /exit 无意义，给友好提示而非"未识此令"
+            await self._reply(
+                msg.chat_id,
+                f"{self._renderer.assistant_tag()} 您已在助手模式。开新对话用 `/clear`，"
+                f"创建任务用 `/new <目标>`",
+            )
         elif cmd.startswith("/"):
             await self._reply(
                 msg.chat_id,
@@ -211,6 +224,7 @@ class AssistantBranch:
         self._storage.delete_feishu_anchor(msg.chat_id)
         new_eid = await self._edict_bridge.ensure_chat_edict(
             chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+            assistant_persona_id=self._assistant_persona_id,
         )
         await self._reply(
             msg.chat_id,
