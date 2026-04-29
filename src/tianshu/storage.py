@@ -2674,6 +2674,13 @@ class Storage:
         )
         self._conn.commit()
 
+    def delete_feishu_anchor(self, chat_id: str) -> None:
+        """`/exit` 用：清除该 chat 的 anchor，回到助手模式。"""
+        self._conn.execute(
+            "DELETE FROM feishu_session_anchor WHERE chat_id = ?", (chat_id,),
+        )
+        self._conn.commit()
+
     # --- Feishu dedup ---
 
     def is_feishu_message_seen(self, message_id: str) -> bool:
