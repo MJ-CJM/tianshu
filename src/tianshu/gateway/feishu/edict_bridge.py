@@ -133,12 +133,34 @@ class EdictBridge:
 
         v2 极简模型：飞书首次接入时自动建 chat 敕令，让纯文本消息能续接。
 
-        若 anchor 已存在 → 直接返回 anchor edict_id（无论 chat 还是业务敕令）
-        若 anchor 不存在 → 创建一个 metadata.assistant_chat=true 敕令并设 anchor
+        优先级：
+        1. anchor 已存在 → 直接返回（无论是 chat 还是业务敕令）
+        2. anchor 不存在 + 该 chat_id 有 open 状态的 chat 敕令 → 复用 + 设 anchor
+        3. 都不存在 → 新建一个 chat 敕令并设 anchor
+
+        **不**创建 SUBMITTED memorial（避免 has_active=True 让 follow_up 抛 EdictBusyError）；
+        memorial 由后续用户消息进 continue_or_create 时按需创建。
         """
         existing = self._anchor.get(chat_id)
         if existing:
             return existing
+
+        # 查找该 chat_id 是否有可复用的 open chat 敕令
+        # 注意：list_edicts 不带 metadata 过滤，需 Python 端遍历筛
+        open_edicts, _total = self._storage.list_edicts(
+            status="open", limit=200, offset=0,
+        )
+        for e in open_edicts:
+            meta = e.metadata or {}
+            if meta.get("assistant_chat") and meta.get("chat_id") == chat_id:
+                self._anchor.set(chat_id, e.id)
+                logger.info(
+                    "[feishu/edict] reusing existing chat edict %s for chat=%s",
+                    e.id, chat_id,
+                )
+                return e.id
+
+        # 新建
         edict = Edict(
             title=f"飞书助手对话 - {chat_id[:12]}",
             goal="持续对话上下文",
@@ -152,18 +174,9 @@ class EdictBridge:
             },
         )
         self._storage.save_edict(edict)
-        memorial = Memorial(
-            edict_id=edict.id, instruction=edict.goal, status=TaskStatus.SUBMITTED,
-        )
-        self._storage.save_memorial(memorial)
+        # ⚠️ 不创建 SUBMITTED memorial，不 fire edict.submitted
+        # —— chat 敕令不需要被 scheduler/executor 拉起；memorial 由 continue_or_create 按需建
         self._anchor.set(chat_id, edict.id)
-        self._event_bus.fire(make_event(
-            "edict.submitted",
-            edict_id=edict.id, memorial_id=memorial.id,
-            producer="feishu_bot",
-            payload={"goal": edict.goal, "channel": "feishu", "chat_id": chat_id,
-                     "assistant_chat": True},
-        ))
         logger.info(
             "[feishu/edict] auto-created chat edict %s for chat=%s",
             edict.id, chat_id,
