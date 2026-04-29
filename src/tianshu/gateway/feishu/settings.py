@@ -21,7 +21,7 @@ class FeishuSettings:
     text_batch_delay: float
     dedup_cache_size: int
     assistant_persona_id: str = "tongzheng"   # 默认通政司
-    intent_llm_enabled: bool = True
+    intent_llm_enabled: bool = True   # DEPRECATED v2: 极简模型不再使用 IntentParser；保留为向后兼容
     disable_assistant_mode: bool = False       # 紧急逃生开关
 
     @property
