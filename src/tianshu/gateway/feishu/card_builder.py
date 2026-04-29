@@ -21,6 +21,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_STATUS_LABEL_MAP = {
+    "open": "进行中",
+    "completed": "已完成",
+    "cancelled": "已取消",
+}
+
+
+def format_status_label(status) -> str:
+    """统一把 EdictStatus enum / str 渲染成中文友好标签。"""
+    value = status.value if hasattr(status, "value") else str(status)
+    return _STATUS_LABEL_MAP.get(value, value)
+
+
 class CardBuilder:
     """构造各类卡片 payload（dict）。"""
 
@@ -45,9 +58,10 @@ class CardBuilder:
         for i, e in enumerate(edicts):
             star = "★ " if e.id == current_anchor else ""
             title_short = (e.title or "(无标题)")[:30]
+            status_label = format_status_label(e.status)
             elements.append({
                 "tag": "markdown",
-                "content": f"{star}**#{e.id[:8]}** · {e.status} · {title_short}",
+                "content": f"{star}**#{e.id[:8]}** · {status_label} · {title_short}",
             })
             elements.append({
                 "tag": "action",

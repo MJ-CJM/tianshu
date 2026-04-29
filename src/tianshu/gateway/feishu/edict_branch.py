@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from tianshu.gateway.feishu.card_builder import format_status_label
 from tianshu.gateway.feishu.edict_bridge import EdictBusyError
 from tianshu.models.common import EdictStatus
 
@@ -117,7 +118,7 @@ class EdictBranch:
             return
         await self._reply(
             msg.chat_id,
-            f"{self._renderer.edict_tag(edict.id)} 标题：{edict.title or '(无)'}\n状态：{edict.status}",
+            f"{self._renderer.edict_tag(edict.id)} 标题：{edict.title or '(无)'}\n状态：{format_status_label(edict.status)}",
         )
 
     async def _cmd_cancel(self, msg, target: str) -> None:
@@ -130,7 +131,7 @@ class EdictBranch:
             return
         # edict.status 是 str（数据库列）；EdictStatus enum 用 .value 比对
         if edict.status in (EdictStatus.COMPLETED.value, EdictStatus.CANCELLED.value):
-            await self._reply(msg.chat_id, f"敕令 #{edict.id[:8]} 已 {edict.status}，无需取消")
+            await self._reply(msg.chat_id, f"敕令 #{edict.id[:8]} 已 {format_status_label(edict.status)}，无需取消")
             return
         self._storage.update_edict_status(edict.id, EdictStatus.CANCELLED.value)
         # 如果取消的是当前 anchor 敕令，清 anchor

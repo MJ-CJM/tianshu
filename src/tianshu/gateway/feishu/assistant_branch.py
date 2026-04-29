@@ -9,6 +9,7 @@ import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from tianshu.gateway.feishu.card_builder import format_status_label
 from tianshu.models.common import EdictStatus
 
 if TYPE_CHECKING:
@@ -163,7 +164,7 @@ class AssistantBranch:
             return
         await self._reply(
             msg.chat_id,
-            f"📋 #{edict.id[:8]} 标题：{edict.title or '(无)'}\n状态：{edict.status}",
+            f"📋 #{edict.id[:8]} 标题：{edict.title or '(无)'}\n状态：{format_status_label(edict.status)}",
         )
 
     async def _cmd_cancel(self, msg: "FeishuMessage", ctx: "ModeContext", target: str) -> None:
@@ -179,7 +180,7 @@ class AssistantBranch:
             return
         if edict.status in (EdictStatus.COMPLETED.value, EdictStatus.CANCELLED.value):
             await self._reply(
-                msg.chat_id, f"敕令 #{edict.id[:8]} 已 {edict.status}，无需取消",
+                msg.chat_id, f"敕令 #{edict.id[:8]} 已 {format_status_label(edict.status)}，无需取消",
             )
             return
         self._storage.update_edict_status(edict.id, EdictStatus.CANCELLED.value)
