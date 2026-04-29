@@ -126,6 +126,50 @@ class EdictBridge:
         )
         return edict.id
 
+    async def ensure_chat_edict(
+        self, *, chat_id: str, sender_open_id: str,
+    ) -> str:
+        """确保该 chat 有一个聊天敕令（assistant_chat=true）作为 anchor。
+
+        v2 极简模型：飞书首次接入时自动建 chat 敕令，让纯文本消息能续接。
+
+        若 anchor 已存在 → 直接返回 anchor edict_id（无论 chat 还是业务敕令）
+        若 anchor 不存在 → 创建一个 metadata.assistant_chat=true 敕令并设 anchor
+        """
+        existing = self._anchor.get(chat_id)
+        if existing:
+            return existing
+        edict = Edict(
+            title=f"飞书助手对话 - {chat_id[:12]}",
+            goal="持续对话上下文",
+            source="channel",
+            submitter="emperor",
+            metadata={
+                "channel": "feishu",
+                "chat_id": chat_id,
+                "feishu_user": sender_open_id,
+                "assistant_chat": True,
+            },
+        )
+        self._storage.save_edict(edict)
+        memorial = Memorial(
+            edict_id=edict.id, instruction=edict.goal, status=TaskStatus.SUBMITTED,
+        )
+        self._storage.save_memorial(memorial)
+        self._anchor.set(chat_id, edict.id)
+        self._event_bus.fire(make_event(
+            "edict.submitted",
+            edict_id=edict.id, memorial_id=memorial.id,
+            producer="feishu_bot",
+            payload={"goal": edict.goal, "channel": "feishu", "chat_id": chat_id,
+                     "assistant_chat": True},
+        ))
+        logger.info(
+            "[feishu/edict] auto-created chat edict %s for chat=%s",
+            edict.id, chat_id,
+        )
+        return edict.id
+
     async def _follow_up(
         self,
         edict: Edict,
