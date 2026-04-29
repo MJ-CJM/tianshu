@@ -1,101 +1,89 @@
-# 飞书助手模式（v1.1）
+# 飞书助手模式（v2 极简模型）
 
 ## 概述
 
-v1.1 引入双模式架构：
+飞书助手与敕令模式**底层统一为同一种敕令**，仅以 `metadata.assistant_chat=true` 标记区分：
 
-- **助手模式**（无 anchor）：通过命令操作（/new /list /select /budget /menu /help /status /cancel）
-- **敕令模式**（有 anchor）：纯文本即续接当前敕令
+- **聊天敕令**（💼 助手）：用于持续对话，工具/技能/LLM 等行为完全等同于普通敕令
+- **业务敕令**（📋 敕令 #xxx）：用户显式 `/new` 创建的任务
+
+助手能否"做事"由绑定的 cabinet persona 决定（通政司配置）。选「兵部尚书」做助手 → 兵部尚书的 tools_allowed 全部可用（含 shell_exec / web_fetch 等）。选「户部尚书」 → 用其工具集。
 
 ## 模式切换
 
-| 操作 | 触发模式切换 |
-|------|------------|
-| 飞书首次接入 | 助手模式（默认）|
-| `/new <goal>` | 助手 → 敕令 |
-| `/select <id>` | 助手 → 敕令 |
-| `/exit` | 敕令 → 助手 |
-| `/cancel` 当前 anchor 敕令 | 自动退回助手模式 |
+| 操作 | 当前 anchor | 新 anchor | UI |
+|------|-----------|-----------|-----|
+| 飞书首次接入 | （无）| 自动建 chat 敕令（assistant_chat=true）| 💼 助手 |
+| `/new <goal>` | chat 敕令 | 新建业务敕令 | 📋 敕令 |
+| `/select <id>` | * | 指定业务敕令 | 📋 敕令 |
+| `/exit` | 业务敕令 | 切回 chat 敕令（复用已存在的或新建）| 💼 助手 |
+| `/clear` | chat 敕令 | 归档 + 新建 chat 敕令 | 💼 助手（新对话）|
 
 ## 命令清单
 
-### 助手模式
-
-- `/new <goal>` 新建敕令并进入敕令模式
-- `/list [open|completed|cancelled|all]` 列敕令（默认 open）
-- `/select <id>` 切到指定敕令（id 前缀 ≥6 字符）
-- `/budget` 成本概览（近 7 天 + 当前预算 + Top 5 高消费敕令）
-- `/menu` 主菜单卡片
+### 助手模式（chat 敕令上下文）
+- 纯文本 = **continue_or_create** → executor 用 persona LLM 自然回应（含工具调用）
+- `/new <目标>` 新建业务敕令
+- `/list [filter]` 查业务敕令列表（自动隐藏 chat 敕令）
+- `/select <id>` 切到业务敕令
+- `/budget` 成本概览
+- `/menu` 主菜单
+- `/clear` 归档当前对话 + 新建 chat 敕令
 - `/help` 帮助
-- `/status <id>` 查敕令状态（需指定 id）
-- `/cancel <id>` 取消敕令（需指定 id）
 
-### 敕令模式
-
-- 纯文本 = 续接当前敕令
+### 敕令模式（业务敕令上下文）
+- 纯文本 = 续接当前业务敕令
 - `/status` 查当前敕令状态
-- `/cancel` 取消当前敕令（如取消的是 anchor，自动退回助手模式）
-- `/exit` 退出敕令模式
-- `/new <goal>` 自动 /exit + /new
+- `/cancel` 取消当前敕令
+- `/exit` 切回 chat 敕令（v2: 不再清 anchor）
+- `/new <目标>` 自动 /exit + /new
 - `/list /budget /menu /help` 查询类（不动 anchor）
 
 ## 助手 Persona 配置
 
 通政司页面 → 飞书助手分卡 → 选 cabinet persona 兼任助手 → 保存。
 
-LLM 意图增强：开启后纯文本（如"显示我的列表"）会通过 persona 的 LLM 解析为命令。
+**v1.1 的「LLM 意图增强」开关 v2 已废弃** —— v2 不再有"自然语言 → 命令"的转换层；所有纯文本直接走 executor，由 persona LLM 决定回应方式（含工具调用）。
 
-- 持久化：`channel_configs` 表存 `assistant_persona_id` + `enable_llm_intent`
-- LLM 配置：取决于所选 persona 的 `llm_config_name`，未配置则降级为静默回复
-- 容错：JSON 解析失败 / intent 不在白名单 / 调用超时 → 回到 silent reply（"待命中"）
+## 与 v1.1 的关键差异
 
-## 升级通告
-
-v1.0 → v1.1 升级后，第一次收到 anchor 敕令的纯文本时，会自动推送一张「v1.1 助手模式上线」卡片，仅推送一次（写 `feishu_announcements` 表幂等）。
-
-## 卡片按钮协议
-
-`/list /menu` 卡片中的按钮 value 走统一协议：
-
-```json
-{
-  "command": "select" | "list" | "budget" | "help" | "new" | "cancel",
-  "edict_id"?: "ed_xxx",
-  "filter"?: "open|completed|all",
-  "goal"?: "新目标"
-}
-```
-
-`CardActionDispatcher` 把 value 合成等价文本命令，再走 `ModeRouter`。审批卡片（含 `decision`/`request_id` 字段）由 `ApprovalCardHandler` 优先处理，不会进入通用分发器。
+| 场景 | v1.1 | v2 |
+|------|------|------|
+| 飞书首次发"你好" | silent reply | 自动建 chat 敕令 + LLM 回应 |
+| "你是谁?" | silent reply | LLM 自然回应 |
+| "显示我的列表" | IntentParser → /list | LLM 调 list_edicts 工具回应 |
+| "每天爬这个网页" | silent reply | LLM 触发 cron + 长任务 plan |
+| `/exit` | 删 anchor → 助手模式 | 切回 chat 敕令 |
+| `/clear`（新）| - | 归档 + 新建 chat 敕令 |
 
 ## 紧急逃生
 
-如双模式有严重问题，临时回退到 v1 行为：
+如 v2 有严重问题，临时回退到 v1 行为：
 
 ```bash
 TIANSHU_FEISHU_DISABLE_ASSISTANT_MODE=1
 ```
 
-设置后纯文本一律走 v1 续接逻辑（`EdictBridge.continue_or_create`），命令如 `/new /list` 不再被识别。
-
 ## 故障排查
 
 | 问题 | 排查 |
 |------|------|
-| 飞书发"你好"无响应 | 默认助手模式不自动新建。请用 `/new` 或 `/list` |
-| `/select` 报"短 ID 多个匹配" | 用更长前缀（至少 6 字符；可从 `/list` 卡片复制完整 ID） |
-| 自然语言不被识别 | 确认通政司「启用 LLM 意图增强」已开 + 助手 persona 有 `llm_config_name` |
-| `/budget` 显示"暂时无法获取" | `cost_manager` 未正确接入或 `cost_ledger` 表查询失败；查日志 `[feishu/card] cost ledger query failed` |
-| `/exit` 无效 | 检查 `feishu_anchors` 表是否真的写入了 anchor；`SessionAnchor.delete` 同时清内存缓存和 DB |
-| 升级通告反复推送 | 检查 `feishu_announcements` 表是否被错误清空；唯一键是 `(chat_id, version)` |
+| 助手不响应纯文本 | 看 server 日志是否有 [feishu/edict] follow_up；检查 persona 的 LLM 配置可达 |
+| `/list` 不显示我的聊天 | v2 设计如此 —— 聊天敕令默认隐藏；如需查看用 SQL 直接查 metadata.assistant_chat=true 的敕令 |
+| `/clear` 报"业务敕令请用 /exit" | 当前 anchor 是业务敕令而非 chat 敕令；先 /exit 再 /clear |
+| 自然语言不被识别为命令 | v2 设计：所有纯文本由 LLM 自主决定回应（不再做命令意图映射）|
+| `/exit` 后产生新 chat 敕令 | 同 chat_id 已有 open chat 敕令时会自动复用，不会产生孤儿 |
 
-## 相关文件
+## 实现原理
 
-- 入口：`src/tianshu/gateway/feishu/__init__.py`（FeishuBot 整合）
-- 状态机：`src/tianshu/gateway/feishu/mode_router.py`
-- 助手分支：`src/tianshu/gateway/feishu/assistant_branch.py`
-- 敕令分支：`src/tianshu/gateway/feishu/edict_branch.py`
-- 卡片：`src/tianshu/gateway/feishu/card_builder.py`
-- 意图解析：`src/tianshu/gateway/feishu/intent_parser.py`
-- 按钮分发：`src/tianshu/gateway/feishu/card_action_dispatcher.py`
-- 渲染：`src/tianshu/gateway/feishu/persona_renderer.py`
+```
+飞书消息 → ModeRouter.dispatch
+  ├── ensure_chat_edict（保证 anchor 存在）
+  │   - anchor 已有 → 直接返回
+  │   - 同 chat_id 有 open chat 敕令 → 复用
+  │   - 都没有 → 新建（不创建 SUBMITTED memorial 避免 EdictBusyError）
+  ├── resolve_mode（基于 anchor 敕令的 metadata.assistant_chat）
+  └── 命令路由 → AssistantBranch / EdictBranch
+       └── 纯文本 → continue_or_create → executor.execute_edict
+                                        → persona LLM + 工具
+```
