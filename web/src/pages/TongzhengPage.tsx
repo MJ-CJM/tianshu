@@ -5,7 +5,6 @@ import {
   Input,
   Select,
   InputNumber,
-  Switch,
   Button,
   Space,
   Tag,
@@ -293,14 +292,14 @@ export default function TongzhengPage() {
           <Alert
             type="info"
             showIcon
-            message="助手是飞书侧的命令路由 + 自然语言意图层"
+            message="助手是飞书侧的命令路由 + 自然语言对话层"
             description={
               <ul style={{ margin: 0, paddingLeft: 20 }}>
                 <li>
                   选一个 cabinet persona 兼任飞书助手，借用其名字 + emoji 作为回信人格
                 </li>
                 <li>
-                  启用 LLM 意图增强后，纯文本（如"显示列表"）可解析为命令；每条非命令消息会调一次 persona 的 LLM
+                  非命令消息默认进入 chat 敕令，与该 persona 进行多轮对话
                 </li>
               </ul>
             }
@@ -319,15 +318,6 @@ export default function TongzhengPage() {
                 label: `${p.name}（${p.department}）`,
               }))}
             />
-          </Form.Item>
-
-          <Form.Item
-            label="启用 LLM 意图增强"
-            name="intent_llm_enabled"
-            valuePropName="checked"
-            extra='开启后，自然语言（如"显示我的列表"）会过 persona 的 LLM 解析为命令'
-          >
-            <Switch />
           </Form.Item>
 
           <Form.Item style={{ marginBottom: 0, marginTop: 16 }}>
