@@ -5,6 +5,7 @@ import {
   Input,
   Select,
   InputNumber,
+  Switch,
   Button,
   Space,
   Tag,
@@ -20,6 +21,7 @@ import {
   getFeishuChannel,
   putFeishuChannel,
   getFeishuStatus,
+  listPersonas,
   type FeishuChannelConfig,
 } from "../api/tongzheng";
 
@@ -37,6 +39,11 @@ export default function TongzhengPage() {
     queryKey: ["tongzheng", "feishu-status"],
     queryFn: getFeishuStatus,
     refetchInterval: 15_000,
+  });
+
+  const { data: personas } = useQuery({
+    queryKey: ["tongzheng", "personas"],
+    queryFn: listPersonas,
   });
 
   useEffect(() => {
@@ -83,59 +90,60 @@ export default function TongzhengPage() {
 
   return (
     <PageContainer title="通政司">
-      <Card
-        title={
-          <Space>
-            <span>飞书机器人</span>
-            {status?.running ? (
-              <Tag color="green">运行中（{status.mode}）</Tag>
-            ) : (
-              <Tag>未启用</Tag>
-            )}
-            {channel?._source === "env" && (
-              <Tag color="orange">来自环境变量（保存后切换为 DB）</Tag>
-            )}
-            {channel?._source === "db" && <Tag color="blue">来自 DB</Tag>}
-          </Space>
-        }
-        loading={isLoading}
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={onFinish}
+        initialValues={{
+          domain: "feishu",
+          connection_mode: "websocket",
+          webhook_path: "/feishu/webhook",
+          ws_reconnect_interval: 120,
+          text_batch_delay: 0.6,
+          dedup_cache_size: 2048,
+          assistant_persona_id: "tongzheng",
+          intent_llm_enabled: true,
+        }}
       >
-        <Alert
-          type="info"
-          showIcon
-          message="提示"
-          description={
-            <ul style={{ margin: 0, paddingLeft: 20 }}>
-              <li>
-                保存配置需要先设置环境变量 <code>TIANSHU_SECRET_MASTER_KEY</code>
-                （用 cryptography.fernet 生成）
-              </li>
-              <li>
-                修改 <code>app_secret</code> 后保存才会写入 DB；空着保存 = 不修改
-              </li>
-              <li>保存后自动热加载，无需重启服务</li>
-              <li>
-                需先在飞书开发者后台开启「机器人」「事件订阅」「卡片回调」等能力，详见{" "}
-                <code>docs/ops/feishu-setup.md</code>
-              </li>
-            </ul>
+        <Card
+          title={
+            <Space>
+              <span>飞书机器人</span>
+              {status?.running ? (
+                <Tag color="green">运行中（{status.mode}）</Tag>
+              ) : (
+                <Tag>未启用</Tag>
+              )}
+              {channel?._source === "env" && (
+                <Tag color="orange">来自环境变量（保存后切换为 DB）</Tag>
+              )}
+              {channel?._source === "db" && <Tag color="blue">来自 DB</Tag>}
+            </Space>
           }
-          style={{ marginBottom: 16 }}
-        />
-
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={onFinish}
-          initialValues={{
-            domain: "feishu",
-            connection_mode: "websocket",
-            webhook_path: "/feishu/webhook",
-            ws_reconnect_interval: 120,
-            text_batch_delay: 0.6,
-            dedup_cache_size: 2048,
-          }}
+          loading={isLoading}
         >
+          <Alert
+            type="info"
+            showIcon
+            message="提示"
+            description={
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                <li>
+                  保存配置需要先设置环境变量 <code>TIANSHU_SECRET_MASTER_KEY</code>
+                  （用 cryptography.fernet 生成）
+                </li>
+                <li>
+                  修改 <code>app_secret</code> 后保存才会写入 DB；空着保存 = 不修改
+                </li>
+                <li>保存后自动热加载，无需重启服务</li>
+                <li>
+                  需先在飞书开发者后台开启「机器人」「事件订阅」「卡片回调」等能力，详见{" "}
+                  <code>docs/ops/feishu-setup.md</code>
+                </li>
+              </ul>
+            }
+            style={{ marginBottom: 16 }}
+          />
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
@@ -272,7 +280,57 @@ export default function TongzhengPage() {
             </Col>
           </Row>
 
-          <Form.Item style={{ marginBottom: 0 }}>
+        </Card>
+
+        <Card
+          title={
+            <Space>
+              <span>飞书助手</span>
+            </Space>
+          }
+          style={{ marginTop: 16 }}
+        >
+          <Alert
+            type="info"
+            showIcon
+            message="助手是飞书侧的命令路由 + 自然语言意图层"
+            description={
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                <li>
+                  选一个 cabinet persona 兼任飞书助手，借用其名字 + emoji 作为回信人格
+                </li>
+                <li>
+                  启用 LLM 意图增强后，纯文本（如"显示列表"）可解析为命令；每条非命令消息会调一次 persona 的 LLM
+                </li>
+              </ul>
+            }
+            style={{ marginBottom: 16 }}
+          />
+
+          <Form.Item
+            label="助手 Persona"
+            name="assistant_persona_id"
+            extra="助手用此 persona 的人格渲染回信；不影响该 persona 原本的敕令任务"
+          >
+            <Select
+              placeholder="选择一个 persona"
+              options={(personas ?? []).map((p) => ({
+                value: p.id,
+                label: `${p.name}（${p.department}）`,
+              }))}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="启用 LLM 意图增强"
+            name="intent_llm_enabled"
+            valuePropName="checked"
+            extra='开启后，自然语言（如"显示我的列表"）会过 persona 的 LLM 解析为命令'
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item style={{ marginBottom: 0, marginTop: 16 }}>
             <Space>
               <Button
                 type="primary"
@@ -285,8 +343,8 @@ export default function TongzhengPage() {
               <Button onClick={() => form.resetFields()}>重置</Button>
             </Space>
           </Form.Item>
-        </Form>
-      </Card>
+        </Card>
+      </Form>
     </PageContainer>
   );
 }

@@ -15,6 +15,8 @@ export interface FeishuChannelConfig {
   ws_reconnect_interval: number;
   text_batch_delay: number;
   dedup_cache_size: number;
+  assistant_persona_id: string;
+  intent_llm_enabled: boolean;
 }
 
 export interface FeishuChannelView extends Omit<FeishuChannelConfig, "app_secret"> {
@@ -45,4 +47,15 @@ export async function putFeishuChannel(
 export async function getFeishuStatus(): Promise<FeishuStatus> {
   const { data } = await apiClient.get("/tongzheng/channels/feishu/status");
   return data.data;
+}
+
+export interface PersonaSummary {
+  id: string;
+  name: string;
+  department: string;
+}
+
+export async function listPersonas(): Promise<PersonaSummary[]> {
+  const { data } = await apiClient.get("/tongzheng/personas");
+  return data.data?.personas ?? [];
 }
