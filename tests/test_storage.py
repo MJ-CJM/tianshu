@@ -49,6 +49,20 @@ class TestEdictStorage:
         edicts, total = storage.list_edicts(search="needle")
         assert total == 1
 
+    def test_list_edicts_exclude_assistant_chat(self, storage):
+        """v2: list_edicts(exclude_assistant_chat=True) 排除 chat 敕令。"""
+        e1 = Edict(title="业务", goal="干活")
+        e2 = Edict(title="聊天", goal="对话", metadata={"assistant_chat": True})
+        storage.save_edict(e1)
+        storage.save_edict(e2)
+
+        all_edicts, all_total = storage.list_edicts()
+        assert all_total == 2
+
+        filtered, ftotal = storage.list_edicts(exclude_assistant_chat=True)
+        assert ftotal == 1
+        assert filtered[0].title == "业务"
+
     def test_update_edict(self, storage):
         edict = Edict(goal="original", title="orig")
         storage.save_edict(edict)

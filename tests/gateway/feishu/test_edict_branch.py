@@ -45,6 +45,7 @@ def branch():
     bridge = MagicMock()
     bridge.create_new = AsyncMock(return_value="ed_new5678")
     bridge.continue_or_create = AsyncMock(return_value="ed_anchor1")
+    bridge.ensure_chat_edict = AsyncMock(return_value="ed_chat_xyz")
     outbound = MagicMock()
     outbound.send_text = AsyncMock()
     assistant = MagicMock()
@@ -61,11 +62,16 @@ def branch():
 
 
 @pytest.mark.asyncio
-async def test_exit_clears_anchor(branch):
-    b, storage, _, outbound, _, _ = branch
+async def test_exit_switches_to_chat_edict(branch):
+    """v2: /exit 切回 chat 敕令（而非清 anchor 后丢失上下文）。"""
+    b, storage, _, outbound, _, bridge = branch
+    bridge.ensure_chat_edict = AsyncMock(return_value="ed_chat_xyz")
+
     await b.handle(_msg("/exit"), _ctx())
+
     storage.delete_feishu_anchor.assert_called_with("oc_x")
-    assert "已退出" in outbound.send_text.await_args.args[1]
+    bridge.ensure_chat_edict.assert_awaited_once()
+    assert "ed_chat_" in outbound.send_text.await_args.args[1]
 
 
 @pytest.mark.asyncio
