@@ -89,8 +89,15 @@ class EdictBranch:
     # --- 命令实现 ---
 
     async def _cmd_exit(self, msg, ctx) -> None:
+        """v2: 退出业务敕令模式 → 切回 chat 敕令（自动 ensure）。"""
         self._storage.delete_feishu_anchor(msg.chat_id)
-        await self._reply(msg.chat_id, self._renderer.edict_exit_reply())
+        new_eid = await self._edict_bridge.ensure_chat_edict(
+            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+        )
+        await self._reply(
+            msg.chat_id,
+            f"{self._renderer.edict_exit_reply()}（已切回助手 #{new_eid[:8]}）",
+        )
 
     async def _cmd_new_with_exit(self, msg, ctx, goal: str) -> None:
         if not goal:

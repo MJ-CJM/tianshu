@@ -91,6 +91,7 @@ class PersonaRenderer:
             "- `/select <id>` 切换到指定敕令\n"
             "- `/budget` 成本概览\n"
             "- `/menu` 主菜单\n"
+            "- `/clear` 归档当前对话 + 开新会话\n"
             "- `/help` 显示帮助"
         )
 

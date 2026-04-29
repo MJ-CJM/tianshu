@@ -76,6 +76,8 @@ class AssistantBranch:
         elif cmd == "/cancel":
             target = parts[1].strip() if len(parts) > 1 else ""
             await self._cmd_cancel(msg, ctx, target)
+        elif cmd == "/clear":
+            await self._cmd_clear(msg, ctx)
         elif cmd.startswith("/"):
             await self._reply(
                 msg.chat_id,
@@ -184,6 +186,36 @@ class AssistantBranch:
             return
         self._storage.update_edict_status(edict.id, EdictStatus.CANCELLED.value)
         await self._reply(msg.chat_id, self._renderer.edict_cancel_reply(edict.id))
+
+    async def _cmd_clear(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
+        """归档当前聊天敕令 + 新建 + 切 anchor。
+
+        仅在 anchor 指向聊天敕令（metadata.assistant_chat=true）时可用。
+        """
+        if not ctx.edict_id:
+            await self._reply(
+                msg.chat_id,
+                f"{self._renderer.assistant_tag()} 当前无活跃聊天会话",
+            )
+            return
+        edict = self._storage.get_edict(ctx.edict_id)
+        if not edict or not (edict.metadata and edict.metadata.get("assistant_chat")):
+            await self._reply(
+                msg.chat_id,
+                "/clear 仅在聊天会话中可用。当前是业务敕令，请用 /exit 退出后再 /clear。",
+            )
+            return
+        # 归档当前聊天敕令
+        self._storage.update_edict_status(edict.id, EdictStatus.COMPLETED.value)
+        # 清 anchor 让 ensure_chat_edict 自然新建
+        self._storage.delete_feishu_anchor(msg.chat_id)
+        new_eid = await self._edict_bridge.ensure_chat_edict(
+            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+        )
+        await self._reply(
+            msg.chat_id,
+            f"{self._renderer.assistant_tag()} 已归档上轮对话 #{edict.id[:8]}，开启新会话 #{new_eid[:8]}",
+        )
 
     # --- 纯文本（自然语言）---
 
