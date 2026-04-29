@@ -137,8 +137,16 @@ class ApprovalCardHandler:
                         edict_id, memorial_id, chat_id, message_id)
 
     async def handle_button_click(self, action: FeishuCardAction) -> None:
-        """入站按钮点击 → submit_tool_decision。"""
+        """入站按钮点击 → submit_tool_decision。
+
+        v1.1：仅处理审批专属 value（含 memorial_id + action）；
+              含 'command' 字段的按钮由 CardActionDispatcher 处理。
+        """
         value = action.value or {}
+        if "command" in value:
+            # 这是 v1.1 通用协议按钮，本 handler 不处理
+            # （FeishuBot._on_card 会路由到 CardActionDispatcher）
+            return
         memorial_id = value.get("memorial_id")
         act = value.get("action")
         scope = value.get("scope")
