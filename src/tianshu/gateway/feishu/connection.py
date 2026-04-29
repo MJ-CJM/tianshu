@@ -158,8 +158,10 @@ class WebSocketConnection:
             auto_reconnect=True,
         )
         # client.start() 是阻塞同步方法 → daemon thread
+        # ⚠️ 必须在线程内新建独立 event loop，否则 lark.ws.Client 会拿到主线程
+        # uvloop（已在 running）导致 RuntimeError: this event loop is already running
         self._thread = threading.Thread(
-            target=self._client.start, daemon=True, name="feishu-ws-client",
+            target=self._run_client_in_thread, daemon=True, name="feishu-ws-client",
         )
         self._thread.start()
         logger.info(
@@ -168,6 +170,35 @@ class WebSocketConnection:
         )
         self._last_event_at = time.monotonic()
         self._watchdog_task = asyncio.create_task(self._watchdog())
+
+    def _run_client_in_thread(self) -> None:
+        """在独立线程中以独立 event loop 跑 lark.ws.Client.start()。
+
+        修复 Python 3.14 + uvloop 下的兼容性：
+        lark_oapi.ws.client 模块用全局 `loop` 变量（import 时创建），它会抓住
+        主线程的 uvloop。daemon thread 里调 client.start() 时，内部 `loop.run_until_complete`
+        会发现该 loop 正在主线程 running → RuntimeError: this event loop is already running.
+
+        修法：thread 内新建独立 loop + monkey-patch lark.ws.client 模块的 `loop`
+        全局变量为本线程 loop。
+        """
+        import asyncio as _asyncio
+        new_loop = _asyncio.new_event_loop()
+        _asyncio.set_event_loop(new_loop)
+        try:
+            import lark_oapi.ws.client as _lark_ws_client
+            _lark_ws_client.loop = new_loop  # 关键：替换模块全局 loop
+        except Exception:
+            logger.exception("[feishu/ws] failed to patch lark client loop")
+        try:
+            self._client.start()
+        except Exception:
+            logger.exception("[feishu/ws] client.start() crashed in thread")
+        finally:
+            try:
+                new_loop.close()
+            except Exception:
+                pass
 
     async def stop(self) -> None:
         # lark.ws.Client 无公开 stop API；daemon thread 随主进程退出而终止
