@@ -14,20 +14,33 @@ class _E:
 
 
 def test_menu_card():
+    """v2: /menu 卡片不再含 callback button（飞书 ws 不支持卡片回调）；改为命令列表 markdown。"""
     cb = CardBuilder(storage=MagicMock(), cost_manager=None)
     card = cb.build_menu_card()
     assert card["header"]["template"] == "purple"
-    actions = card["elements"][1]["actions"]
-    assert {a["value"]["command"] for a in actions} == {"list", "budget", "help"}
+    # 不应有 action 元素（callback button）
+    has_action = any(el.get("tag") == "action" for el in card["elements"])
+    assert not has_action
+    # markdown 内含命令清单
+    md = card["elements"][0]["content"]
+    for cmd in ("/list", "/new", "/select", "/budget", "/clear", "/help"):
+        assert cmd in md
 
 
 def test_list_card_marks_anchor_with_star():
+    """v2: /list 不再含 button，所有敕令在单 markdown 块内。当前 anchor 加 ★ 标记。"""
     cb = CardBuilder(storage=MagicMock(), cost_manager=None)
     edicts = [_E("ed_a", "写代码", "open"), _E("ed_b", "总结", "open")]
     card = cb.build_list_card(edicts, current_anchor="ed_a")
-    assert "★" in card["elements"][0]["content"]
-    assert card["elements"][1]["actions"][0]["type"] == "primary"
-    assert "★" not in card["elements"][3]["content"]
+    has_action = any(el.get("tag") == "action" for el in card["elements"])
+    assert not has_action
+    md = card["elements"][0]["content"]
+    assert "★" in md
+    assert "/select" in md
+    # ed_b 不应有 ★ —— 验证仅 anchor 行带 ★
+    lines = md.split("\n")
+    star_lines = [line for line in lines if "★" in line]
+    assert len(star_lines) == 1
 
 
 def test_list_card_truncates_long_title():
@@ -35,24 +48,20 @@ def test_list_card_truncates_long_title():
     long_title = "x" * 100
     edicts = [_E("ed_a", long_title, "open")]
     card = cb.build_list_card(edicts)
-    # Title 截到 30 字符内，加 prefix 也远小于 100
-    assert len(card["elements"][0]["content"]) < 100
+    # Title 截到 30 字符内
+    md = card["elements"][0]["content"]
+    # 单个敕令的 title 部分应 ≤ 30 字符
+    assert "x" * 31 not in md
 
 
-def test_list_card_no_hr_for_single_edict():
-    """单条敕令不应有 hr 分割线。"""
+def test_list_card_contains_select_hint():
+    """v2: /list 提示用户用 /select <ID> 切换。"""
     cb = CardBuilder(storage=MagicMock(), cost_manager=None)
     edicts = [_E("ed_a", "x", "open")]
     card = cb.build_list_card(edicts)
-    tags = [el["tag"] for el in card["elements"]]
-    assert "hr" not in tags
-
-
-def test_list_card_default_button_when_not_anchor():
-    cb = CardBuilder(storage=MagicMock(), cost_manager=None)
-    edicts = [_E("ed_a", "x", "open")]
-    card = cb.build_list_card(edicts, current_anchor="ed_other")
-    assert card["elements"][1]["actions"][0]["type"] == "default"
+    md = card["elements"][0]["content"]
+    assert "/select" in md
+    assert "复制" in md or "短 ID" in md
 
 
 @pytest.mark.asyncio

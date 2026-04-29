@@ -53,29 +53,22 @@ class CardBuilder:
         edicts: list["Edict"],
         current_anchor: str | None = None,
     ) -> dict:
-        """每条敕令一行 markdown + 一个主按钮"切换到此敕令"。"""
-        elements: list[dict] = []
-        for i, e in enumerate(edicts):
+        """每条敕令一行 markdown，含可复制的短 ID。
+
+        注意：v2 不用 callback button —— 飞书 ws 不支持卡片回调（仅 HTTPS webhook 支持）。
+        让用户手敲 `/select <短 ID>` 切换。
+        """
+        rows: list[str] = []
+        for e in edicts:
             star = "★ " if e.id == current_anchor else ""
             title_short = (e.title or "(无标题)")[:30]
             status_label = format_status_label(e.status)
-            elements.append({
-                "tag": "markdown",
-                "content": f"{star}**#{e.id[:8]}** · {status_label} · {title_short}",
-            })
-            elements.append({
-                "tag": "action",
-                "actions": [
-                    {
-                        "tag": "button",
-                        "text": {"tag": "plain_text", "content": "切换到此敕令"},
-                        "type": "primary" if e.id == current_anchor else "default",
-                        "value": {"command": "select", "edict_id": e.id},
-                    }
-                ],
-            })
-            if i < len(edicts) - 1:
-                elements.append({"tag": "hr"})
+            short_id = e.id[:8]
+            rows.append(
+                f"{star}**#{short_id}** · {status_label} · {title_short}"
+            )
+        body = "\n\n".join(rows)
+        hint = "\n\n---\n💡 复制短 ID 后输入 `/select <ID>` 切换敕令"
 
         return {
             "config": {"wide_screen_mode": True},
@@ -86,7 +79,9 @@ class CardBuilder:
                     "content": f"📋 最近敕令（{len(edicts)} 条）",
                 },
             },
-            "elements": elements,
+            "elements": [
+                {"tag": "markdown", "content": body + hint},
+            ],
         }
 
     # --- /menu 卡片 ---
@@ -99,26 +94,18 @@ class CardBuilder:
                 "title": {"tag": "plain_text", "content": "🏛️ 主菜单"},
             },
             "elements": [
-                {"tag": "markdown", "content": "_请选择操作 ↓_"},
                 {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "📋 查看列表"},
-                            "value": {"command": "list", "filter": "open"},
-                        },
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "💰 成本概览"},
-                            "value": {"command": "budget"},
-                        },
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "❓ 帮助"},
-                            "value": {"command": "help"},
-                        },
-                    ],
+                    "tag": "markdown",
+                    "content": (
+                        "**助手模式可用命令**：\n\n"
+                        "📋 `/list [open|completed|all]` 查敕令列表\n"
+                        "✏️ `/new <目标>` 新建敕令\n"
+                        "🔀 `/select <ID 前缀>` 切到指定敕令\n"
+                        "💰 `/budget` 成本概览\n"
+                        "🧹 `/clear` 归档对话 + 开新会话\n"
+                        "❓ `/help` 完整帮助\n\n"
+                        "_直接输入命令即可。纯文本会进入助手对话。_"
+                    ),
                 },
             ],
         }
