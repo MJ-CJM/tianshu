@@ -185,6 +185,9 @@ class FeishuBot:
         self._outbound.start()
         self._approval_card.start()
 
+        # v1.1 升级通告（幂等）
+        await self._send_upgrade_notice_once()
+
     async def stop(self) -> None:
         logger.info("[feishu] stopping")
         if self._dispatcher:
@@ -287,6 +290,50 @@ class FeishuBot:
             new_settings.assistant_persona_id, new_settings.intent_llm_enabled,
             new_settings.disable_assistant_mode,
         )
+
+    async def _send_upgrade_notice_once(self) -> None:
+        """v1.1 升级通告：对所有现有 anchor 的 chat 发一次。幂等（重复启动不重发）。"""
+        version_tag = "v1_1"
+        chats = self._storage.list_active_anchor_chats()
+        for chat_id in chats:
+            if self._storage.has_sent_upgrade_notice(chat_id, version_tag):
+                continue
+            try:
+                card = {
+                    "config": {"wide_screen_mode": True},
+                    "header": {
+                        "template": "indigo",
+                        "title": {
+                            "tag": "plain_text",
+                            "content": "🆙 飞书助手升级 v1.1",
+                        },
+                    },
+                    "elements": [
+                        {
+                            "tag": "markdown",
+                            "content": (
+                                "**新功能**：\n"
+                                "- 助手模式（无敕令时输入 `/menu` `/list` `/budget`）\n"
+                                "- 自然语言识别（如 \"显示我的列表\"）\n\n"
+                                "**现有敕令绑定保持不变**\n"
+                                "输入 `/help` 查看完整命令列表"
+                            ),
+                        },
+                    ],
+                }
+                msg_id = await self._outbound.send_card(chat_id, card)
+                if msg_id:
+                    self._storage.mark_upgrade_notice_sent(chat_id, version_tag)
+                else:
+                    logger.warning(
+                        "[feishu] upgrade notice send returned no msg_id for "
+                        "chat=%s; will retry on next startup",
+                        chat_id,
+                    )
+            except Exception:
+                logger.exception(
+                    "[feishu] upgrade notice send failed for chat=%s", chat_id
+                )
 
     def _acquire_app_lock(self) -> None:
         """启动时占进程锁，避免双开同一 app_id。"""

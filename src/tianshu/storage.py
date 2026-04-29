@@ -2681,6 +2681,35 @@ class Storage:
         )
         self._conn.commit()
 
+    def has_sent_upgrade_notice(self, chat_id: str, version_tag: str) -> bool:
+        """幂等检查：是否已对此 chat 发过该版本的升级通告。"""
+        row = self._conn.execute(
+            "SELECT 1 FROM feishu_pending_cards "
+            "WHERE approval_id = ? AND kind = ?",
+            (chat_id, f"upgrade_notice_{version_tag}"),
+        ).fetchone()
+        return row is not None
+
+    def mark_upgrade_notice_sent(self, chat_id: str, version_tag: str) -> None:
+        """标记已发送升级通告（用于幂等）。"""
+        from datetime import UTC, datetime
+        self._conn.execute(
+            "INSERT OR IGNORE INTO feishu_pending_cards "
+            "(approval_id, chat_id, message_id, kind, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (chat_id, chat_id, "", f"upgrade_notice_{version_tag}",
+             datetime.now(UTC).isoformat()),
+        )
+        self._conn.commit()
+
+    def list_active_anchor_chats(self) -> list[str]:
+        """列出所有有活跃 anchor 的 chat（用于升级通告下发）。"""
+        rows = self._conn.execute(
+            "SELECT chat_id FROM feishu_session_anchor "
+            "WHERE current_edict_id IS NOT NULL"
+        ).fetchall()
+        return [row[0] for row in rows]
+
     # --- Feishu dedup ---
 
     def is_feishu_message_seen(self, message_id: str) -> bool:
