@@ -11,7 +11,7 @@ import litellm
 from pydantic import BaseModel, Field
 
 from tianshu.config_manager import ConfigManager
-from tianshu.executor.ambient import bind_edict
+from tianshu.executor.ambient import bind_edict, bind_persona
 from tianshu.executor.compaction.auto import auto_compact, should_auto_compact
 from tianshu.executor.compaction.micro import micro_compact
 from tianshu.executor.compaction.reactive import reactive_compact
@@ -401,7 +401,7 @@ class Agent:
                     if stream_callback:
                         await stream_callback.on_tool_call_start(tc["name"])
                     try:
-                        with bind_edict(edict):
+                        with bind_edict(edict), bind_persona(persona):
                             tool_result = await self._tools.execute(tc["name"], tc["args"])
                     except Exception as tool_err:
                         tool_result = ToolResult(content=f"Tool error: {tool_err}", is_error=True)

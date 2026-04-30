@@ -1,9 +1,17 @@
-"""Memory search tool — cross-session recall for agent long-term experience."""
+"""Memory tools — cross-session recall (memory_search) + section-anchored
+write (memory_write) for agent long-term experience.
+
+memory_write 借鉴 hermes-agent (`tools/memory_tool.py`) 的设计：
+  - 单一工具 + 路径完全在工具内决定（agent 不能传路径）
+  - 内容扫描 + 字符上限 + 去重 + 原子写
+  - caller_persona_id 通过 ambient ContextVar 取，避免 agent 走串
+"""
 
 from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 
 from tianshu.storage import Storage
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
@@ -64,8 +72,116 @@ async def _memory_search(
         return error_result(f"Memory search failed: {e}")
 
 
-def register_memory_tools(registry: ToolRegistry, storage: Storage) -> None:
-    """Register memory_search tool."""
+async def _memory_write(
+    md_backend,
+    event_bus,
+    *,
+    action: str,
+    scope: str,
+    section: str,
+    content: str | None = None,
+    old_text: str | None = None,
+) -> ToolResult:
+    """memory_write 实现：把内容按 H2 section 锚定写入调用方私有/朝廷共享池。
+
+    路径完全由 scope + caller_persona 决定，agent 不能干预。
+    """
+    from tianshu.executor.ambient import get_current_persona
+    from tianshu.memory.safety import (
+        MemorySafetyError,
+        check_file_size,
+        normalize_section,
+        validate_content,
+    )
+
+    if scope not in ("self", "court"):
+        return error_result(f"unsupported scope: {scope!r}; allowed: self, court")
+    if action not in ("add", "replace", "remove"):
+        return error_result(f"unsupported action: {action!r}; allowed: add, replace, remove")
+
+    # 解析 caller persona
+    if scope == "self":
+        persona = get_current_persona()
+        if persona is None or not getattr(persona, "id", None):
+            return error_result(
+                "scope='self' 需要在 agent 执行上下文内调用（拿不到 caller_persona）。"
+                "如需写入朝廷共享池，请用 scope='court'。",
+            )
+        persona_id = persona.id
+    else:
+        persona_id = "court"
+
+    # 校验输入
+    try:
+        section_norm = normalize_section(section)
+        if action in ("add", "replace"):
+            if not content:
+                return error_result(f"action={action!r} 必须提供 content")
+            validate_content(content)
+        if action in ("replace", "remove") and not old_text:
+            return error_result(f"action={action!r} 必须提供 old_text 用于定位")
+    except MemorySafetyError as e:
+        return error_result(str(e))
+
+    # 写入
+    mode_map = {"add": "append", "replace": "replace", "remove": "remove"}
+    try:
+        path, total_chars = md_backend.write_section(
+            persona_id,
+            section_norm,
+            mode=mode_map[action],
+            content=content,
+            old_text=old_text,
+        )
+        check_file_size(total_chars)
+    except FileNotFoundError as e:
+        return error_result(f"未找到目标 section/old_text：{e}")
+    except ValueError as e:
+        return error_result(str(e))
+    except MemorySafetyError as e:
+        return error_result(str(e))
+    except Exception as e:
+        logger.exception("memory_write failed")
+        return error_result(f"memory_write 失败: {e}")
+
+    # 审计事件
+    if event_bus is not None:
+        try:
+            from tianshu.models import make_event
+
+            await event_bus.emit(make_event(
+                "memory.write",
+                {
+                    "caller_persona_id": persona_id,
+                    "scope": scope,
+                    "section": section_norm,
+                    "action": action,
+                    "total_chars": total_chars,
+                    "path": str(path),
+                },
+            ))
+        except Exception:
+            logger.debug("memory.write event emit failed (non-fatal)")
+
+    return ok_result(json.dumps({
+        "ok": True,
+        "scope": scope,
+        "persona_id": persona_id,
+        "section": section_norm,
+        "action": action,
+        "total_chars": total_chars,
+    }, ensure_ascii=False))
+
+
+def register_memory_tools(
+    registry: ToolRegistry,
+    storage: Storage,
+    *,
+    memory_dir: Path | None = None,
+    personas_dir: Path | None = None,
+    event_bus=None,
+) -> None:
+    """Register memory_search (always) + memory_write (when md deps provided)."""
 
     registry.register(
         "memory_search",
@@ -98,5 +214,74 @@ def register_memory_tools(registry: ToolRegistry, storage: Storage) -> None:
                 "required": ["query"],
             },
             tier=ToolTier.T0_READONLY.value,
+        ),
+    )
+
+    # memory_write 需要 markdown backend（有路径才能写）
+    if memory_dir is None or personas_dir is None:
+        logger.info(
+            "memory_write 未注册：缺少 memory_dir / personas_dir; 仅注册 memory_search",
+        )
+        return
+
+    from tianshu.memory.markdown_backend import MarkdownMemoryBackend
+
+    md_backend = MarkdownMemoryBackend(
+        memory_dir=memory_dir, personas_dir=personas_dir,
+    )
+
+    registry.register(
+        "memory_write",
+        lambda **kwargs: _memory_write(md_backend, event_bus, **kwargs),
+        ToolDefinition(
+            name="memory_write",
+            description=(
+                "Write into your long-term MEMORY.md. Path is auto-determined: "
+                "scope='self' writes to your own private MEMORY.md; "
+                "scope='court' writes to the shared court memory (visible to all officials). "
+                "Use this INSTEAD of write_file/edit_file to remember things — "
+                "general file tools don't know your real memory path. "
+                "See COURT.md '自学守则' for when to save what."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["add", "replace", "remove"],
+                        "description": (
+                            "add: append into the section (creates section if missing); "
+                            "replace: substitute old_text within the section; "
+                            "remove: delete old_text from the section."
+                        ),
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["self", "court"],
+                        "description": (
+                            "self = your private MEMORY.md (only you load it); "
+                            "court = shared MEMORY.md loaded by all officials."
+                        ),
+                    },
+                    "section": {
+                        "type": "string",
+                        "description": (
+                            "H2 section title (e.g. '## 心学要旨' or just '心学要旨'). "
+                            "Acts as anchor; same title = same section."
+                        ),
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Required for add/replace. Max 4000 chars per call.",
+                    },
+                    "old_text": {
+                        "type": "string",
+                        "description": "Required for replace/remove. Substring to locate within section.",
+                    },
+                },
+                "required": ["action", "scope", "section"],
+            },
+            tier=ToolTier.T1_WORKSPACE.value,
+            max_result_chars=2000,
         ),
     )

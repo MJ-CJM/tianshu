@@ -131,13 +131,22 @@ async def lifespan(app: FastAPI):
     )
     metrics_store = SkillMetricsStore(storage._conn)
     register_skill_tools(tools, skills, metrics_store=metrics_store)
-    register_memory_tools(tools, storage)
 
     # --- Memory dir ---
     memory_dir = Path(settings.memory_dir).expanduser()
 
     # --- Persona ---
     personas_dir = Path(__file__).parent.parent.parent / "personas"
+
+    # memory_search 一直注册；memory_write 需要 memory_dir + personas_dir + event_bus
+    register_memory_tools(
+        tools,
+        storage,
+        memory_dir=memory_dir,
+        personas_dir=personas_dir,
+        event_bus=event_bus,
+    )
+
     runtime_personas_dir = Path(settings.runtime_personas_dir).expanduser()
     persona_loader = PersonaLoader(
         personas_dir,
@@ -183,6 +192,7 @@ async def lifespan(app: FastAPI):
         metrics_store=metrics_store,
         drawer_store=drawer_store,
         memory_config=memory_config,
+        storage=storage,
     )
 
     # --- LLM Config Manager ---

@@ -115,6 +115,153 @@ class MarkdownMemoryBackend:
         return path
 
     # ------------------------------------------------------------------
+    # Section-anchored writes (memory_write tool 后端)
+    # ------------------------------------------------------------------
+
+    def write_section(
+        self,
+        persona_id: str,
+        section: str,
+        *,
+        mode: str = "append",
+        content: str | None = None,
+        old_text: str | None = None,
+    ) -> "tuple[Path, int]":
+        """以 H2 section 为锚定的安全写入。
+
+        参数
+        ----
+        persona_id: 写到 ~/.tianshu/memory/{persona_id}/MEMORY.md
+        section:    完整的 H2 锚（如 "## 心学要旨"）；调用方应已通过
+                    safety.normalize_section 归一化
+        mode:       "append" | "replace" | "remove"
+        content:    append/replace 必填
+        old_text:   replace/remove 必填
+
+        返回
+        ----
+        (写入后的文件路径, 写入后的总字符数)
+
+        副作用
+        ----
+        - 写前 cp 一份到 MEMORY.md.bak（覆盖式，仅保留最近一份）
+        - 原子写：写到 .tmp 然后 os.replace
+        - macOS/Linux 上加 fcntl.flock 排他锁
+
+        异常
+        ----
+        - FileNotFoundError: replace/remove 时 section 或 old_text 不存在
+        - ValueError: 参数缺失（如 append/replace 缺 content）
+        - 调用方应在调用前用 safety.validate_content / check_file_size 做内容校验
+        """
+        if mode not in ("append", "replace", "remove"):
+            raise ValueError(f"unsupported write_section mode: {mode}")
+        if mode in ("append", "replace") and not content:
+            raise ValueError(f"mode={mode} requires non-empty content")
+        if mode in ("replace", "remove") and not old_text:
+            raise ValueError(f"mode={mode} requires old_text")
+        if not section.startswith("## "):
+            raise ValueError("section must be normalized to '## xxx' form")
+
+        persona_dir = self._memory_dir / persona_id
+        persona_dir.mkdir(parents=True, exist_ok=True)
+        path = persona_dir / "MEMORY.md"
+
+        # 锁 + 读现有内容 + 计算新内容 + 原子写
+        import fcntl
+        import os
+
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        new_text = self._mutate_section(
+            existing, section, mode=mode, content=content, old_text=old_text,
+        )
+
+        # 备份（仅当文件已存在时）
+        if path.exists():
+            try:
+                shutil.copy2(path, path.with_suffix(".md.bak"))
+            except OSError:
+                logger.warning("backup MEMORY.md.bak failed for %s", persona_id)
+
+        tmp_path = path.with_suffix(".md.tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            try:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            except (OSError, AttributeError):
+                pass  # Windows 或不支持 flock 的 fs
+            f.write(new_text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+
+        return path, len(new_text)
+
+    @staticmethod
+    def _mutate_section(
+        existing: str,
+        section: str,
+        *,
+        mode: str,
+        content: str | None,
+        old_text: str | None,
+    ) -> str:
+        """纯函数：在文本中按 H2 section 锚点执行 append/replace/remove。
+
+        section 不存在时：append 创建新段；replace/remove 抛 FileNotFoundError。
+        """
+        # 切片：找到 section 的起止行
+        lines = existing.splitlines(keepends=True)
+        start = -1
+        end = len(lines)
+        for i, line in enumerate(lines):
+            if start < 0 and line.rstrip("\n") == section:
+                start = i
+                continue
+            if start >= 0 and line.startswith("## "):
+                end = i
+                break
+
+        if start < 0:
+            # section 不存在
+            if mode in ("replace", "remove"):
+                raise FileNotFoundError(f"section {section!r} not found in MEMORY.md")
+            # append：创建新段，追加到文件末尾
+            base = existing.rstrip()
+            sep = "\n\n" if base else ""
+            return f"{base}{sep}{section}\n\n{content.rstrip()}\n"
+
+        section_body = "".join(lines[start + 1:end])
+        before = "".join(lines[:start])
+        # 保留 section header 与 body
+        if mode == "append":
+            # 去重：内容若完全包含在已有 body 中则拒绝
+            if content.strip() in section_body:
+                raise ValueError("content already present in this section (dedupe)")
+            new_body = section_body.rstrip() + "\n\n" + content.rstrip() + "\n"
+            new_section = f"{section}\n{new_body}"
+        elif mode == "replace":
+            if old_text not in section_body:
+                raise FileNotFoundError(f"old_text not found in section {section!r}")
+            new_body = section_body.replace(old_text, content, 1)
+            new_section = f"{section}\n{new_body}"
+        else:  # remove
+            if old_text not in section_body:
+                raise FileNotFoundError(f"old_text not found in section {section!r}")
+            new_body = section_body.replace(old_text, "", 1)
+            # 若移除后 section body 全空，则把整个 section 也移掉
+            if not new_body.strip():
+                new_section = ""
+            else:
+                new_section = f"{section}\n{new_body}"
+
+        after = "".join(lines[end:])
+        result = before + new_section + after
+        # 规整连续空行
+        while "\n\n\n\n" in result:
+            result = result.replace("\n\n\n\n", "\n\n\n")
+        return result
+
+    # ------------------------------------------------------------------
     # Search & retrieval
     # ------------------------------------------------------------------
 
