@@ -239,6 +239,7 @@ class Storage:
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     department TEXT NOT NULL,
+                    title TEXT,
                     tools_allowed TEXT DEFAULT '[]',
                     tools_denied TEXT DEFAULT '[]',
                     tool_tier_max INTEGER DEFAULT 0,
@@ -537,6 +538,8 @@ class Storage:
             "ALTER TABLE memorials ADD COLUMN reasoning_content TEXT",
             # 2026-04-30: 飞书 typing reaction 替代 thinking 卡片
             "ALTER TABLE feishu_thinking_messages ADD COLUMN source_message_id TEXT NOT NULL DEFAULT ''",
+            # 2026-04-30: persona 加 title（部门内职务，例：大学士、协理通政）
+            "ALTER TABLE personas ADD COLUMN title TEXT",
         ]
         for sql in migrations:
             try:
@@ -1881,14 +1884,15 @@ class Storage:
         with self._lock, self._conn:
             self._conn.execute(
                 """INSERT OR REPLACE INTO personas
-                   (id, name, department, tools_allowed, tools_denied,
+                   (id, name, department, title, tools_allowed, tools_denied,
                     skills_allowed, tool_tier_max, can_delegate, delegates_to,
                     soul_path, role_path, llm_config_name, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     persona["id"],
                     persona["name"],
                     persona["department"],
+                    persona.get("title"),
                     json.dumps(persona.get("tools_allowed", [])),
                     json.dumps(persona.get("tools_denied", [])),
                     json.dumps(persona.get("skills_allowed", [])),
@@ -1919,7 +1923,7 @@ class Storage:
 
     def update_persona(self, persona_id: str, **fields) -> None:
         allowed = {
-            "name", "department", "tools_allowed", "tools_denied",
+            "name", "department", "title", "tools_allowed", "tools_denied",
             "skills_allowed", "tool_tier_max", "can_delegate", "delegates_to",
             "soul_path", "role_path", "llm_config_name",
         }
@@ -2043,6 +2047,7 @@ class Storage:
             "id": row["id"],
             "name": row["name"],
             "department": row["department"],
+            "title": row["title"] if "title" in keys else None,
             "tools_allowed": json.loads(row["tools_allowed"]),
             "tools_denied": json.loads(row["tools_denied"]),
             "skills_allowed": json.loads(row["skills_allowed"]) if "skills_allowed" in keys else [],

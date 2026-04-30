@@ -15,6 +15,7 @@ class AgentPersona(BaseModel):
     id: str  # "neige" | "bingbu" | "ducha" | "tongzheng"
     name: str
     department: str
+    title: str | None = None  # 部门内职务（如 大学士、协理通政、参谋）；None 表示未指派
     soul_path: Path
     role_path: Path
     memory_path: Path

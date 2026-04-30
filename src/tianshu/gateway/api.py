@@ -1261,6 +1261,100 @@ async def delete_department(dept_id: str, request: Request):
 # --- Persona endpoints (Phase 3) ---
 
 
+_TITLE_MAX_LEN = 32
+
+
+def _render_persona_identity_files(
+    runtime_dir: Path,
+    persona_id: str,
+    name: str,
+    department: str,
+    title: str | None,
+    dept_label: str,
+    department_template_dir: Path | None,
+    *,
+    overwrite: bool,
+) -> tuple[Path, Path]:
+    """渲染个性化 SOUL.md / ROLE.md 到 runtime_dir。
+
+    - 不再无脑拷贝部门 SOUL.md。
+    - 基于 name/department/title 渲染独立身份段；部门 SOUL.md/ROLE.md（若存在）作为"风格指引"附在末尾。
+    - overwrite=False 时若文件已存在则跳过（用于 create）；True 时强制重写（用于 regenerate）。
+    """
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    soul_path = runtime_dir / "SOUL.md"
+    role_path = runtime_dir / "ROLE.md"
+
+    title_norm = (title or "").strip()
+    title_clause = f"，担任 **{title_norm}** 一职" if title_norm else ""
+    dept_soul_text = ""
+    dept_role_text = ""
+    if department_template_dir is not None:
+        dept_soul = department_template_dir / "SOUL.md"
+        dept_role = department_template_dir / "ROLE.md"
+        if dept_soul.exists():
+            try:
+                raw = dept_soul.read_text(encoding="utf-8")
+                # 去掉 YAML frontmatter，避免与新 frontmatter 冲突
+                if raw.startswith("---"):
+                    try:
+                        end = raw.index("---", 3)
+                        raw = raw[end + 3:].strip()
+                    except ValueError:
+                        pass
+                dept_soul_text = raw.strip()
+            except OSError:
+                pass
+        if dept_role.exists():
+            try:
+                raw = dept_role.read_text(encoding="utf-8")
+                if raw.startswith("---"):
+                    try:
+                        end = raw.index("---", 3)
+                        raw = raw[end + 3:].strip()
+                    except ValueError:
+                        pass
+                dept_role_text = raw.strip()
+            except OSError:
+                pass
+
+    soul_content = (
+        f"---\n"
+        f"name: {name}\n"
+        f"department: {department}\n"
+        + (f"title: {title_norm}\n" if title_norm else "")
+        + f"---\n\n"
+        f"# {name}\n\n"
+        f"你是 **{name}**，隶属 **{dept_label}**{title_clause}。"
+        f"你的行事风格与能力借鉴本部门一贯传统，但你拥有独立的人格与判断。\n"
+    )
+    if dept_soul_text:
+        soul_content += (
+            "\n## 风格指引（参考本部门传统）\n\n"
+            "> 以下为本部门通用风格描述，仅作参考——你在此基础上保留个性，"
+            "**不要把下文中的部门主官身份套用到自己身上**。\n\n"
+            f"{dept_soul_text}\n"
+        )
+
+    role_content = (
+        f"# {name} — 职责\n\n"
+        f"作为 {dept_label} 的 {title_norm or '官员'}，你负责执行交办的任务，"
+        f"并参考本部门职责描述行事。\n"
+    )
+    if dept_role_text:
+        role_content += (
+            "\n## 部门职责参考\n\n"
+            f"{dept_role_text}\n"
+        )
+
+    if overwrite or not soul_path.exists():
+        soul_path.write_text(soul_content, encoding="utf-8")
+    if overwrite or not role_path.exists():
+        role_path.write_text(role_content, encoding="utf-8")
+
+    return soul_path, role_path
+
+
 @gateway_router.get("/personas")
 async def list_personas(request: Request):
     selector: OfficialSelector = request.app.state.official_selector
@@ -1275,6 +1369,7 @@ async def list_personas(request: Request):
             "name": p.name,
             "department": p.department,
             "department_name": dept_name_map.get(p.department),
+            "title": p.title,
             "tools_allowed": p.tools_allowed,
             "tools_denied": p.tools_denied,
             "skills_allowed": p.skills_allowed,
@@ -1303,7 +1398,8 @@ async def create_persona(request: Request):
 
     # Validate department exists
     storage: Storage = request.app.state.storage
-    if not storage.get_department(body["department"]):
+    dept = storage.get_department(body["department"])
+    if not dept:
         raise HTTPException(status_code=400, detail=f"Department '{body['department']}' does not exist")
 
     # Validate llm_config_name FK if provided
@@ -1317,35 +1413,32 @@ async def create_persona(request: Request):
                 detail=f"LLM config '{llm_config_name}' does not exist",
             )
 
-    # Runtime identity: write SOUL.md/ROLE.md to ~/.tianshu/personas/{id}/
-    # and leave personas/ (git-tracked) untouched. If a department template
-    # directory exists, seed from it; otherwise write minimal defaults.
+    # 校验 title（可选；若提供，长度限制以避免长文本注入到 prompt）
+    title = body.get("title")
+    if title is not None:
+        title = str(title).strip() or None
+    if title and len(title) > _TITLE_MAX_LEN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"title 过长（最多 {_TITLE_MAX_LEN} 字）",
+        )
+
+    # Runtime identity: 统一渲染个性化骨架 SOUL.md / ROLE.md 到 ~/.tianshu/personas/{id}/
+    # 不再无脑拷贝部门 SOUL.md（避免新建官员错认为部门主官）。
+    # 部门 SOUL/ROLE.md 作为风格指引附在末尾。
     runtime_personas_dir: Path = request.app.state.runtime_personas_dir
     runtime_dir = runtime_personas_dir / body["id"]
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-
     template_dir = loader._dir / body["department"]
-    if template_dir.is_dir():
-        soul_path, role_path = loader.ensure_runtime_identity(
-            body["id"], template_dir,
-        )
-    else:
-        soul_path = runtime_dir / "SOUL.md"
-        role_path = runtime_dir / "ROLE.md"
-        if not soul_path.exists():
-            dept_label = body["department"]
-            soul_path.write_text(
-                f"---\nname: {body['name']}\ndepartment: {dept_label}\n---\n\n"
-                f"# {body['name']}\n\n"
-                f"你是{body['name']}，隶属{dept_label}。\n",
-                encoding="utf-8",
-            )
-        if not role_path.exists():
-            role_path.write_text(
-                f"# {body['name']} — 职责\n\n"
-                f"作为{body['department']}的官员，你负责执行交办的任务。\n",
-                encoding="utf-8",
-            )
+    soul_path, role_path = _render_persona_identity_files(
+        runtime_dir=runtime_dir,
+        persona_id=body["id"],
+        name=body["name"],
+        department=body["department"],
+        title=title,
+        dept_label=dept.get("name") or body["department"],
+        department_template_dir=template_dir if template_dir.is_dir() else None,
+        overwrite=False,
+    )
 
     memory_manager = request.app.state.memory_manager
     memory_path = memory_manager.memory_dir / body["id"] / "MEMORY.md"
@@ -1354,6 +1447,7 @@ async def create_persona(request: Request):
         id=body["id"],
         name=body["name"],
         department=body["department"],
+        title=title,
         soul_path=soul_path,
         role_path=role_path,
         memory_path=memory_path,
@@ -1370,6 +1464,7 @@ async def create_persona(request: Request):
         "id": persona.id,
         "name": persona.name,
         "department": persona.department,
+        "title": persona.title,
         "tools_allowed": persona.tools_allowed,
         "tools_denied": persona.tools_denied,
         "skills_allowed": persona.skills_allowed,
@@ -1404,6 +1499,17 @@ async def update_persona(persona_id: str, request: Request):
                 status_code=400,
                 detail=f"LLM config '{body['llm_config_name']}' does not exist",
             )
+    # Normalize & validate title
+    if "title" in body:
+        t = body["title"]
+        if t is not None:
+            t = str(t).strip() or None
+        if t and len(t) > _TITLE_MAX_LEN:
+            raise HTTPException(
+                status_code=400,
+                detail=f"title 过长（最多 {_TITLE_MAX_LEN} 字）",
+            )
+        body["title"] = t
     storage.update_persona(persona_id, **body)
     # Reload from DB to refresh in-memory cache
     loader.load_all()
@@ -1413,6 +1519,7 @@ async def update_persona(persona_id: str, request: Request):
         "id": updated.id,
         "name": updated.name,
         "department": updated.department,
+        "title": updated.title,
         "tools_allowed": updated.tools_allowed,
         "tools_denied": updated.tools_denied,
         "skills_allowed": updated.skills_allowed,
@@ -1420,6 +1527,49 @@ async def update_persona(persona_id: str, request: Request):
         "can_delegate": updated.can_delegate,
         "delegates_to": updated.delegates_to,
         "llm_config_name": updated.llm_config_name,
+    })
+
+
+@gateway_router.post(
+    "/personas/{persona_id}/regenerate-identity",
+    response_model=ApiResponse,
+)
+async def regenerate_persona_identity(persona_id: str, request: Request):
+    """基于当前 name/department/title 重新生成 SOUL.md/ROLE.md（覆盖现有文件）。
+
+    用于：
+    - 老的用户自建官员（SOUL.md 还是从部门模板拷过来的）想刷新为个性化身份。
+    - 修改 title 之后想让文件层也同步。
+    """
+    from tianshu.persona.loader import PersonaLoader
+
+    loader: PersonaLoader = request.app.state.persona_loader
+    storage: Storage = request.app.state.storage
+
+    persona = loader.get(persona_id)
+    if not persona:
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
+
+    dept = storage.get_department(persona.department)
+    dept_label = dept.get("name") if dept else persona.department
+
+    runtime_personas_dir: Path = request.app.state.runtime_personas_dir
+    runtime_dir = runtime_personas_dir / persona_id
+    template_dir = loader._dir / persona.department
+    soul_path, role_path = _render_persona_identity_files(
+        runtime_dir=runtime_dir,
+        persona_id=persona_id,
+        name=persona.name,
+        department=persona.department,
+        title=persona.title,
+        dept_label=dept_label,
+        department_template_dir=template_dir if template_dir.is_dir() else None,
+        overwrite=True,
+    )
+    return ApiResponse(success=True, data={
+        "id": persona_id,
+        "soul_path": str(soul_path),
+        "role_path": str(role_path),
     })
 
 

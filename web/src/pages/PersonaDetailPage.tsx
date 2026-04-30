@@ -37,12 +37,14 @@ import {
   DeleteOutlined,
   SearchOutlined,
   TrophyOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
 import {
   usePersonas,
+  useRegeneratePersonaIdentity,
   usePersonaMetrics,
   useUpdatePersona,
 } from "../hooks/usePersonas";
@@ -131,6 +133,13 @@ function OverviewTab({
           <Descriptions.Item label="名称">{persona.name}</Descriptions.Item>
           <Descriptions.Item label="部门">
             <Tag color="blue">{persona.department_name ?? persona.department}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="职务">
+            {persona.title ? (
+              <Tag color="purple">{persona.title}</Tag>
+            ) : (
+              <Text type="secondary">未指派</Text>
+            )}
           </Descriptions.Item>
           <Descriptions.Item label="LLM 配置">
             {persona.llm_config_name ? (
@@ -795,12 +804,14 @@ export default function PersonaDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [form] = Form.useForm();
   const updateMutation = useUpdatePersona();
+  const regenerateMutation = useRegeneratePersonaIdentity();
 
   const openEdit = () => {
     if (!persona) return;
     form.setFieldsValue({
       name: persona.name,
       department: persona.department,
+      title: persona.title ?? "",
       tools_allowed: persona.tools_allowed,
       tools_denied: persona.tools_denied,
       skills_allowed: persona.skills_allowed,
@@ -810,6 +821,21 @@ export default function PersonaDetailPage() {
       llm_config_name: persona.llm_config_name ?? "",
     });
     setEditOpen(true);
+  };
+
+  const handleRegenerate = () => {
+    if (!personaId) return;
+    regenerateMutation.mutate(personaId, {
+      onSuccess: () => {
+        notification.success({
+          message: "身份文件已重新生成",
+          description: "SOUL.md / ROLE.md 已基于姓名、部门、职务重写。",
+        });
+      },
+      onError: (err: Error) => {
+        notification.error({ message: err.message ?? "重新生成失败" });
+      },
+    });
   };
 
   const handleSave = (values: PersonaUpdateRequest) => {
@@ -864,12 +890,26 @@ export default function PersonaDetailPage() {
 
   return (
     <PageContainer
-      title={`${persona.name}: ${persona.department_name ?? persona.department}`}
+      title={`${persona.name}${persona.title ? `（${persona.title}）` : ""}: ${persona.department_name ?? persona.department}`}
       extra={
         <Space>
           <Button icon={<EditOutlined />} onClick={openEdit}>
             编辑
           </Button>
+          <Popconfirm
+            title="重新生成身份文件？"
+            description="将基于当前姓名/部门/职务覆盖 SOUL.md 与 ROLE.md，原文件内容会丢失。"
+            onConfirm={handleRegenerate}
+            okText="覆盖重写"
+            cancelText="取消"
+          >
+            <Button
+              icon={<ReloadOutlined />}
+              loading={regenerateMutation.isPending}
+            >
+              重新生成身份文件
+            </Button>
+          </Popconfirm>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/personas")}>
             返回百官阁
           </Button>
@@ -944,6 +984,14 @@ export default function PersonaDetailPage() {
         <Form form={form} layout="vertical" onFinish={handleSave}>
           <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入名称" }]}>
             <Input />
+          </Form.Item>
+          <Form.Item
+            name="title"
+            label="职务（部门内岗位）"
+            rules={[{ max: 32, message: "最多 32 字" }]}
+            tooltip="如：大学士、协理通政、参谋。改完后建议点击「重新生成身份文件」让 SOUL/ROLE 同步。"
+          >
+            <Input placeholder="如 大学士、协理通政（可选）" maxLength={32} allowClear />
           </Form.Item>
           <Form.Item name="department" label="部门" rules={[{ required: true, message: "请选择部门" }]}>
             <Select options={deptOptions} showSearch optionFilterProp="label" />

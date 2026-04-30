@@ -528,6 +528,7 @@ export interface PersonaInfo {
   name: string;
   department: string;
   department_name?: string;
+  title?: string | null;
   tools_allowed: string[];
   tools_denied: string[];
   skills_allowed: string[];
@@ -541,6 +542,7 @@ export interface PersonaCreateRequest {
   id: string;
   name: string;
   department: string;
+  title?: string | null;
   tools_allowed?: string[];
   tools_denied?: string[];
   skills_allowed?: string[];
@@ -553,6 +555,7 @@ export interface PersonaCreateRequest {
 export interface PersonaUpdateRequest {
   name?: string;
   department?: string;
+  title?: string | null;
   tools_allowed?: string[];
   tools_denied?: string[];
   skills_allowed?: string[];

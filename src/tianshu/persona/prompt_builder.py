@@ -72,12 +72,14 @@ class PromptBuilder:
         metrics_store: object | None = None,
         drawer_store: object | None = None,
         memory_config: MemoryConfig | None = None,
+        storage: object | None = None,
     ) -> None:
         self._personas_dir = personas_dir
         self._skills = skills_loader
         self._metrics_store = metrics_store
         self._drawer_store = drawer_store
         self._memory_config = memory_config or MemoryConfig()
+        self._storage = storage  # 用于 Layer 2.5 身份卡查部门中文名（可选）
 
         if memory_dir is None:
             memory_dir = Path("~/.tianshu/memory").expanduser()
@@ -109,6 +111,9 @@ class PromptBuilder:
             court_text = self._read_file(court_path)
             if court_text:
                 parts.append(f"# Court Protocol\n\n{court_text}")
+
+            # Layer 2.5: Identity Card — 权威身份卡，覆盖任何下文中可能的旧身份描述
+            parts.append(self._build_identity_card(persona))
 
             # Layer 3: SOUL.md (persona identity) — from personas/
             soul_text = self._read_file(persona.soul_path)
@@ -212,6 +217,16 @@ class PromptBuilder:
                 "source": str(court_path),
                 "chars": len(court_text),
                 "tokens_est": len(court_text) // 4,
+            })
+
+            # Layer 2.5: Identity Card
+            id_card = self._build_identity_card(persona)
+            layers.append({
+                "layer": 2.5,
+                "name": "Identity Card",
+                "source": "(persona name + department + title)",
+                "chars": len(id_card),
+                "tokens_est": len(id_card) // 4,
             })
 
             # Layer 3: SOUL.md
@@ -443,6 +458,43 @@ class PromptBuilder:
         except Exception:
             logger.debug("L1 injection skipped for %s", persona_id)
             return ""
+
+    def _build_identity_card(self, persona: AgentPersona) -> str:
+        """Layer 2.5：渲染权威身份卡，明确 name / department / title 并要求自报。
+
+        无条件注入，优先级高于 SOUL.md。这是为了解决"新建官员（如王阳明）的 SOUL.md
+        从部门模板拷贝过来后仍自称'内阁首辅'"的问题——身份卡里的强指令会让 LLM
+        采信这里给出的真实身份。
+        """
+        dept_label = self._resolve_dept_name(persona.department)
+        title = (persona.title or "").strip()
+        title_clause = f"，担任**{title}**一职" if title else ""
+        # "如何自报"句的拼写
+        if title:
+            self_intro = f"{persona.name}（{dept_label}·{title}）"
+        else:
+            self_intro = f"{persona.name}（{dept_label}）"
+        return (
+            "# 身份卡 (Identity Card)\n\n"
+            f"- 姓名：**{persona.name}**\n"
+            f"- 部门：**{dept_label}**（{persona.department}）\n"
+            f"- 职务：**{title or '（未指派）'}**\n\n"
+            f"你是 **{persona.name}**，隶属 **{dept_label}**{title_clause}。"
+            f"当圣上或他人问起你的身份时，必须自报为「{self_intro}」。"
+            "下文 SOUL/ROLE 中描述的是你的性格、行事风格与能力边界——它们服务于这个身份，不可改写或覆盖此身份。"
+        )
+
+    def _resolve_dept_name(self, department_id: str) -> str:
+        """Resolve department's display name (中文名). Falls back to department_id."""
+        storage = self._storage
+        if storage is not None:
+            try:
+                dept = storage.get_department(department_id)
+                if dept and dept.get("name"):
+                    return str(dept["name"])
+            except Exception:
+                logger.debug("get_department failed for %s", department_id)
+        return department_id
 
     @staticmethod
     def _read_file(path: Path) -> str:

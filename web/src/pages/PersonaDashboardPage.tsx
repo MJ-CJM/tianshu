@@ -86,6 +86,14 @@ function PersonaCard({
       title={
         <Space>
           <span>{persona.name}</span>
+          {persona.title && (
+            <Typography.Text
+              type="secondary"
+              style={{ fontSize: 12, fontWeight: "normal" }}
+            >
+              · {persona.title}
+            </Typography.Text>
+          )}
           <Tag color="blue">{persona.department_name ?? persona.department}</Tag>
           {persona.can_delegate && (
             <Tag icon={<CheckCircleOutlined />} color="green">
@@ -424,7 +432,15 @@ function PersonaFormModal({
           label="名称"
           rules={[{ required: true, message: "请输入名称" }]}
         >
-          <Input placeholder="如 兵部尚书" />
+          <Input placeholder="如 王阳明、兵部尚书" />
+        </Form.Item>
+        <Form.Item
+          name="title"
+          label="职务（部门内岗位）"
+          rules={[{ max: 32, message: "最多 32 字" }]}
+          tooltip="如：大学士、协理通政、参谋。可选；填了之后会写入官员的身份卡，自报家门更准确。"
+        >
+          <Input placeholder="如 大学士、协理通政（可选）" maxLength={32} />
         </Form.Item>
         <Form.Item
           name="department"
