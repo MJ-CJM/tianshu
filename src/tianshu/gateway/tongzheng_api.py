@@ -41,6 +41,7 @@ class FeishuChannelConfig(BaseModel):
     dedup_cache_size: int = 2048
     assistant_persona_id: str = "tongzheng"
     intent_llm_enabled: bool = True
+    enable_edict_submission: bool = False
 
 
 def _build_feishu_settings_from_runtime(runtime_cfg: dict):
@@ -69,6 +70,7 @@ def _build_feishu_settings_from_runtime(runtime_cfg: dict):
         assistant_persona_id=runtime_cfg.get("assistant_persona_id", "tongzheng"),
         intent_llm_enabled=bool(runtime_cfg.get("intent_llm_enabled", True)),
         disable_assistant_mode=bool(runtime_cfg.get("disable_assistant_mode", False)),
+        enable_edict_submission=bool(runtime_cfg.get("enable_edict_submission", False)),
     )
 
 
@@ -102,6 +104,7 @@ async def get_feishu_channel(request: Request) -> ApiResponse:
                 "dedup_cache_size": s.dedup_cache_size,
                 "assistant_persona_id": s.assistant_persona_id,
                 "intent_llm_enabled": s.intent_llm_enabled,
+                "enable_edict_submission": s.enable_edict_submission,
                 "_source": "env",
                 "_has_secret": bool(s.app_secret),
             },
@@ -111,6 +114,7 @@ async def get_feishu_channel(request: Request) -> ApiResponse:
     # 兼容老的 channel_configs 行（无新字段时回填默认）
     cfg.setdefault("assistant_persona_id", "tongzheng")
     cfg.setdefault("intent_llm_enabled", True)
+    cfg.setdefault("enable_edict_submission", False)
     return ApiResponse(success=True, data=cfg)
 
 
@@ -161,6 +165,14 @@ async def put_feishu_channel(
     else:
         # 之前未启用机器人 → 现在启用：v1 不支持运行时新建 bot 实例（需要重启）
         reload_msg = "feishu bot 未运行，配置已保存，下次重启生效"
+
+    # 同步 submit_edict tool 启用状态（颁敕权限 toggle）
+    tool_registry = getattr(request.app.state, "tool_registry", None)
+    if tool_registry is not None:
+        if new_settings.enable_edict_submission:
+            tool_registry.enable("submit_edict")
+        else:
+            tool_registry.disable("submit_edict")
 
     return ApiResponse(
         success=True,

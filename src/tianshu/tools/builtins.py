@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tianshu.executor.ambient import get_current_edict
 from tianshu.storage import Storage
@@ -13,11 +14,17 @@ from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
+if TYPE_CHECKING:
+    from tianshu.bus.event_bus import EventBus
+    from tianshu.persona.loader import PersonaLoader
+
 
 def register_builtins(
     registry: ToolRegistry,
     workspace_dir: str,
     storage: "Storage | None" = None,
+    event_bus: "EventBus | None" = None,
+    persona_loader: "PersonaLoader | None" = None,
 ) -> None:
     workspace = Path(workspace_dir).resolve()
 
@@ -164,3 +171,15 @@ def register_builtins(
     # 启动期 build_engines(storage) 把 storage 引用存进 registry，供后续 rebuild_engines() 热更凭证。
     build_engines(storage=storage)
     register_hongluisi(registry, edict_getter=get_current_edict)
+
+    # === 颁敕工具：让助手 LLM 在对话中创建独立敕令 ===
+    # 默认注册到 registry，但 persona.tools_allowed 不含则不可见；
+    # 通政司 enable_edict_submission toggle 控制是否注入到助手 persona。
+    if storage is not None and event_bus is not None:
+        from tianshu.tools.submit_edict import register_submit_edict
+        register_submit_edict(
+            registry,
+            storage=storage,
+            event_bus=event_bus,
+            persona_loader=persona_loader,
+        )

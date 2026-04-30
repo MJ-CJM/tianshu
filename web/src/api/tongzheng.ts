@@ -17,6 +17,7 @@ export interface FeishuChannelConfig {
   dedup_cache_size: number;
   assistant_persona_id: string;
   intent_llm_enabled: boolean;
+  enable_edict_submission: boolean;
 }
 
 export interface FeishuChannelView extends Omit<FeishuChannelConfig, "app_secret"> {

@@ -7,6 +7,7 @@ import {
   InputNumber,
   Button,
   Space,
+  Switch,
   Tag,
   Alert,
   Row,
@@ -102,6 +103,7 @@ export default function TongzhengPage() {
           dedup_cache_size: 2048,
           assistant_persona_id: "tongzheng",
           intent_llm_enabled: true,
+          enable_edict_submission: false,
         }}
       >
         <Card
@@ -318,6 +320,15 @@ export default function TongzhengPage() {
                 label: `${p.name}（${p.department}）`,
               }))}
             />
+          </Form.Item>
+
+          <Form.Item
+            label="允许助手下发敕令"
+            name="enable_edict_submission"
+            valuePropName="checked"
+            extra="开启后助手可在对话中调用 submit_edict 工具新建敕令（与 cli `tianshu edict submit` 同路径）。关闭则只回答不下发。"
+          >
+            <Switch />
           </Form.Item>
 
           <Form.Item style={{ marginBottom: 0, marginTop: 16 }}>

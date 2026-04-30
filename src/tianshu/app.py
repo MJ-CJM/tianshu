@@ -86,7 +86,10 @@ async def lifespan(app: FastAPI):
 
     # --- Tools ---
     tools = ToolRegistry()
-    register_builtins(tools, settings.workspace_dir, storage=storage)
+    register_builtins(
+        tools, settings.workspace_dir,
+        storage=storage, event_bus=event_bus,
+    )
 
     # 应用 DB 里持久化的禁用列表（live toggle 在运行时通过 PATCH /api/tools/{name} 更新）
     try:
@@ -144,6 +147,26 @@ async def lifespan(app: FastAPI):
     persona_loader.load_all()
     app.state.persona_loader = persona_loader
     app.state.runtime_personas_dir = runtime_personas_dir
+
+    # Re-register submit_edict tool now that persona_loader is available
+    # （register_builtins 阶段 persona_loader 还未构造，此处覆盖以启用 persona 校验）
+    from tianshu.tools.submit_edict import register_submit_edict
+    register_submit_edict(
+        tools,
+        storage=storage,
+        event_bus=event_bus,
+        persona_loader=persona_loader,
+    )
+
+    # 默认禁用 submit_edict；通政司 toggle 打开后启用（reload 时同步）
+    feishu_channel_cfg = storage.get_channel_config("feishu")
+    if not (feishu_channel_cfg and feishu_channel_cfg.get("enable_edict_submission")):
+        tools.disable("submit_edict")
+        logger.info(
+            "[tools] submit_edict disabled at startup (toggle 通政司「允许助手下发敕令」可启用)",
+        )
+    else:
+        logger.info("[tools] submit_edict enabled at startup")
 
     # --- Memory Palace (Drawer Store) ---
     memory_config = MemoryConfig()
