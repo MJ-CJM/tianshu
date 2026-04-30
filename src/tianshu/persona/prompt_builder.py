@@ -154,6 +154,14 @@ class PromptBuilder:
             if recent_logs:
                 parts.append(f"# Recent Activity\n\n{recent_logs}")
 
+            # Layer 5.6: Department MEMORY.md — 部门内同侪共享池
+            dept_mem_text = self._md_backend.read_core_memory(
+                f"_dept/{persona.department}",
+            )
+            if dept_mem_text:
+                dept_label = self._resolve_dept_name(persona.department)
+                parts.append(f"# Department Memory ({dept_label})\n\n{dept_mem_text}")
+
             # Layer 6: Court MEMORY.md — from ~/.tianshu/memory/court/
             court_mem_text = self._md_backend.read_core_memory("court")
             if court_mem_text:
@@ -281,6 +289,18 @@ class PromptBuilder:
                 "source": f"~/.tianshu/memory/{persona.id}/logs/",
                 "chars": len(recent_logs),
                 "tokens_est": len(recent_logs) // 4,
+            })
+
+            # Layer 5.6: Department MEMORY.md
+            dept_mem = self._md_backend.read_core_memory(
+                f"_dept/{persona.department}",
+            )
+            layers.append({
+                "layer": 5.6,
+                "name": "Department MEMORY.md",
+                "source": f"~/.tianshu/memory/_dept/{persona.department}/MEMORY.md",
+                "chars": len(dept_mem),
+                "tokens_est": len(dept_mem) // 4,
             })
 
             # Layer 6: Court MEMORY.md

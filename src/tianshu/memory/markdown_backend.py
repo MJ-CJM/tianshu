@@ -118,6 +118,36 @@ class MarkdownMemoryBackend:
     # Section-anchored writes (memory_write tool 后端)
     # ------------------------------------------------------------------
 
+    def list_sections_by_size(self, persona_id: str) -> list[tuple[str, int]]:
+        """返回 [(section_header, body_chars), ...]，按 body_chars 倒序，便于 trim 提示。
+
+        section_header 形如 '## xxx'；body_chars 不含 header 行本身。
+        文件不存在或无 H2 段时返回空列表。
+        """
+        path = self._memory_dir / persona_id / "MEMORY.md"
+        if not path.exists():
+            return []
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return []
+        lines = text.splitlines(keepends=True)
+        sections: list[tuple[str, int]] = []
+        cur_header: str | None = None
+        cur_chars = 0
+        for line in lines:
+            if line.startswith("## "):
+                if cur_header is not None:
+                    sections.append((cur_header, cur_chars))
+                cur_header = line.rstrip("\n")
+                cur_chars = 0
+            elif cur_header is not None:
+                cur_chars += len(line)
+        if cur_header is not None:
+            sections.append((cur_header, cur_chars))
+        sections.sort(key=lambda x: x[1], reverse=True)
+        return sections
+
     def write_section(
         self,
         persona_id: str,
@@ -175,6 +205,25 @@ class MarkdownMemoryBackend:
         new_text = self._mutate_section(
             existing, section, mode=mode, content=content, old_text=old_text,
         )
+
+        # 整文件上限：前置检查并附 trim 建议
+        from tianshu.memory.safety import MAX_FILE_CHARS, MemorySafetyError
+
+        if len(new_text) > MAX_FILE_CHARS:
+            top = self.list_sections_by_size(persona_id)[:3]
+            if top:
+                hint_lines = ["最大的 3 个 section（建议先 remove 旧条目腾位）："]
+                for h, c in top:
+                    hint_lines.append(f"  - {h}：{c} 字")
+                hint_lines.append(
+                    f"示例：memory_write(action=\"remove\", scope=…, section=\"{top[0][0]}\", old_text=\"…要删的旧文本…\")",
+                )
+                hint = "\n".join(hint_lines)
+            else:
+                hint = "（暂无可清理 section，请用 replace 缩短现有 content）"
+            raise MemorySafetyError(
+                f"MEMORY.md 写入后将达 {len(new_text)} 字，超出 {MAX_FILE_CHARS} 字上限。\n{hint}",
+            )
 
         # 备份（仅当文件已存在时）
         if path.exists():

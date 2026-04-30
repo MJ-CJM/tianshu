@@ -50,10 +50,26 @@ def fts_search(
     query: str,
     persona_id: str | None = None,
     limit: int = 20,
+    persona_ids: "list[str] | None" = None,
 ) -> list[str]:
-    """Search memory via FTS5. Returns list of matching entry IDs."""
+    """Search memory via FTS5. Returns list of matching entry IDs.
+
+    persona_ids 优先级高于 persona_id：
+      - persona_ids = ["wym", "court", "_dept_neige"] → 限定多 ID 集合
+      - persona_id = "wym"（旧用法）→ 单 ID
+      - 都未提供 → 跨 persona 检索（原行为）
+    """
     try:
-        if persona_id:
+        if persona_ids:
+            placeholders = ",".join("?" for _ in persona_ids)
+            rows = conn.execute(
+                f"""SELECT id FROM memory_fts
+                    WHERE memory_fts MATCH ? AND persona_id IN ({placeholders})
+                    ORDER BY rank
+                    LIMIT ?""",
+                (query, *persona_ids, limit),
+            ).fetchall()
+        elif persona_id:
             rows = conn.execute(
                 """SELECT id FROM memory_fts
                    WHERE memory_fts MATCH ? AND persona_id = ?
