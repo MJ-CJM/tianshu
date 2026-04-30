@@ -194,41 +194,126 @@ async def test_send_returns_none_when_acreate_raises(storage):
 
 
 @pytest.mark.asyncio
-async def test_on_execution_completed_sends_summary(storage):
-    """订阅 execution.completed → 拉取 memorial.result → 发文本。"""
+async def test_on_execution_completed_sends_post_with_table_converted(storage):
+    """订阅 execution.completed → 拉 memorial.result → 发 post（v2：完整 + 表格转列表）。"""
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
-    # 替 send_text 让我们能验证调用
-    out.send_text = AsyncMock(return_value="m1")
+    out._send_post = AsyncMock(return_value="m1")
 
     edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
     storage.save_edict(edict)
-    memorial = Memorial(edict_id=edict.id, instruction="i", result="任务输出")
+    result_md = (
+        "概况：\n\n"
+        "| 项目 | 值 |\n"
+        "|------|-----|\n"
+        "| 标题 | demo |\n"
+        "| 总页数 | 26 页 |\n\n"
+        "结尾内容。"
+    )
+    memorial = Memorial(edict_id=edict.id, instruction="i", result=result_md)
     storage.save_memorial(memorial)
-
     event = EventEnvelope(
         event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
         payload={"title": "完成"},
     )
     await out._on_execution_completed(event)
+    out._send_post.assert_awaited_once()
+    chat_arg, body_arg = out._send_post.await_args.args
+    assert chat_arg == "oc_x"
+    # 单段直接发原文（不再加 "✅ 完成" 头）；表格已转列表
+    assert "**标题**：demo" in body_arg
+    assert "**总页数**：26 页" in body_arg
+    assert "结尾内容" in body_arg
+
+
+@pytest.mark.asyncio
+async def test_on_execution_completed_long_content_split(storage):
+    """超长 result 拆多段连续下发。"""
+    from tianshu.models.edict import Edict
+    from tianshu.models.memorial import Memorial
+    from tianshu.gateway.feishu.markdown_compat import DEFAULT_CHUNK_SIZE
+    bus = EventBus(storage=storage)
+    out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
+    out._send_post = AsyncMock(return_value="m1")
+    edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    long_result = "x" * (DEFAULT_CHUNK_SIZE * 2 + 100)
+    memorial = Memorial(edict_id=edict.id, instruction="i", result=long_result)
+    storage.save_memorial(memorial)
+    event = EventEnvelope(
+        event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
+    )
+    await out._on_execution_completed(event)
+    assert out._send_post.await_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_on_execution_completed_removes_typing_then_posts(storage):
+    """有 typing reaction → 移除 + 紧接 post 完整内容。"""
+    from tianshu.models.edict import Edict
+    from tianshu.models.memorial import Memorial
+    bus = EventBus(storage=storage)
+    out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
+    out.remove_reaction = AsyncMock(return_value=True)
+    out._send_post = AsyncMock(return_value="m_post")
+
+    edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    memorial = Memorial(edict_id=edict.id, instruction="i", result="正文内容")
+    storage.save_memorial(memorial)
+    storage.save_feishu_thinking(
+        memorial_id=memorial.id, chat_id="oc_x",
+        reaction_id="rx_X", source_message_id="om_u_orig",
+    )
+    event = EventEnvelope(
+        event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
+    )
+    await out._on_execution_completed(event)
+    out.remove_reaction.assert_awaited_once_with("om_u_orig", "rx_X")
+    out._send_post.assert_awaited_once()
+    body_arg = out._send_post.await_args.args[1]
+    assert "正文内容" in body_arg
+    assert storage.pop_feishu_thinking(memorial.id) is None
+
+
+@pytest.mark.asyncio
+async def test_on_execution_failed_swaps_typing_to_crossmark(storage):
+    """失败 → 移除 typing + 加 CrossMark + 发失败提示。"""
+    from tianshu.models.edict import Edict
+    bus = EventBus(storage=storage)
+    out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
+    out.remove_reaction = AsyncMock(return_value=True)
+    out.add_reaction = AsyncMock(return_value="rx_fail")
+    out.send_text = AsyncMock()
+    edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    storage.save_feishu_thinking(
+        memorial_id="mem_fail", chat_id="oc_x",
+        reaction_id="rx_typing", source_message_id="om_u_fail",
+    )
+    event = EventEnvelope(
+        event_type="execution.failed", edict_id=edict.id, memorial_id="mem_fail",
+        payload={"error": "boom"},
+    )
+    await out._on_execution_failed(event)
+    out.remove_reaction.assert_awaited_once_with("om_u_fail", "rx_typing")
+    out.add_reaction.assert_awaited_once_with("om_u_fail", "CrossMark")
     out.send_text.assert_awaited_once()
-    args = out.send_text.await_args.args
-    assert args[0] == "oc_x"
-    assert "任务输出" in args[1]
+    assert "boom" in out.send_text.await_args.args[1]
 
 
 @pytest.mark.asyncio
 async def test_on_execution_completed_skips_when_no_chat(storage):
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(home=""), storage=storage, event_bus=bus)
-    out.send_text = AsyncMock()
+    out._send_post = AsyncMock()
     event = EventEnvelope(
         event_type="execution.completed", edict_id="missing", memorial_id="m",
     )
     await out._on_execution_completed(event)
-    out.send_text.assert_not_awaited()
+    out._send_post.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -264,8 +349,9 @@ async def test_on_execution_completed_skips_no_memorial_result(storage):
     event = EventEnvelope(
         event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
     )
+    out._send_post = AsyncMock()
     await out._on_execution_completed(event)
-    out.send_text.assert_not_awaited()
+    out._send_post.assert_not_awaited()
 
 
 def test_start_subscribes_event_handlers(storage):

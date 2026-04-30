@@ -25,38 +25,37 @@ def build_approval_card(
     args_summary: dict | None,
     reason: str,
 ) -> dict:
-    """构造审批卡片 payload。按钮 value 包含 memorial_id（v1 用 memorial_id 作 approval 标识）。"""
+    """构造审批卡片 payload（v2 极简模型：纯 markdown，飞书 ws 不支持卡片回调）。
+
+    用户用文本命令响应：/approve /reject 或中文 /准 /驳。
+    chat 内多 pending 时，命令需附带 memorial_id 前缀。
+    """
     summary_lines = []
     if args_summary:
         for k, v in list(args_summary.items())[:5]:
             summary_lines.append(f"- **{k}**：`{v}`")
     summary_md = "\n".join(summary_lines) or "_(无参数摘要)_"
 
+    short_mid = memorial_id[:8]
+    body = (
+        f"**敕令** `#{edict_id[:8]}` · **memorial** `#{short_mid}`\n"
+        f"**原因**：{reason}\n\n{summary_md}\n\n"
+        f"---\n"
+        f"**请回复**（中英任选）：\n"
+        f"- `/approve` 或 `/准` — 单次允许\n"
+        f"- `/approve edict` 或 `/准敕` — 本敕令允许\n"
+        f"- `/approve always` 或 `/准永` — 总是允许\n"
+        f"- `/reject` 或 `/驳` — 拒绝\n\n"
+        f"_chat 内多个待审批时，请附短 ID：_ `/approve {short_mid}`"
+    )
     return {
         "config": {"wide_screen_mode": True},
         "header": {
             "template": "orange",
-            "title": {"tag": "plain_text", "content": f"🛡️ 审批：{tool_name}"},
+            "title": {"tag": "plain_text", "content": f"🛡️ 待审批：{tool_name}"},
         },
         "elements": [
-            {"tag": "markdown",
-             "content": f"**敕令** `#{edict_id[:8]}`\n**原因**：{reason}\n\n{summary_md}"},
-            {"tag": "action", "actions": [
-                {"tag": "button",
-                 "text": {"tag": "plain_text", "content": "✅ 单次允许"},
-                 "type": "primary",
-                 "value": {"memorial_id": memorial_id, "action": "approve", "scope": "once"}},
-                {"tag": "button",
-                 "text": {"tag": "plain_text", "content": "🔄 本敕令允许"},
-                 "value": {"memorial_id": memorial_id, "action": "approve", "scope": "edict"}},
-                {"tag": "button",
-                 "text": {"tag": "plain_text", "content": "♾️ 总是允许"},
-                 "value": {"memorial_id": memorial_id, "action": "approve", "scope": "always"}},
-                {"tag": "button",
-                 "text": {"tag": "plain_text", "content": "❌ 拒绝"},
-                 "type": "danger",
-                 "value": {"memorial_id": memorial_id, "action": "reject"}},
-            ]},
+            {"tag": "markdown", "content": body},
         ],
     }
 
@@ -103,7 +102,13 @@ class ApprovalCardHandler:
         self._event_bus.on("decree.rejected", self._on_decree_resolved, priority=200)
 
     async def _on_approval_required(self, event: EventEnvelope) -> None:
-        """tool.approval_required → 找 chat_id → 下发卡片 → 记录 pending_card。"""
+        """tool.approval_required → 找 chat_id → 下发卡片 → 记录 pending_card。
+
+        chat_id fallback 链：
+          1. edict.metadata.chat_id（飞书发起的敕令）
+          2. settings.home_channel（用户配置）
+          3. storage.list_active_anchor_chats() 首个（兜底：让 web 创建的敕令也能审批）
+        """
         edict_id = event.edict_id
         memorial_id = event.memorial_id
         if not (edict_id and memorial_id):
@@ -113,9 +118,18 @@ class ApprovalCardHandler:
             return
         chat_id = (edict.metadata or {}).get("chat_id") or self._settings.home_channel
         if not chat_id:
+            # 精准反查：哪个 chat 当前 anchor 指向这个 edict（web 创建 + 飞书 /select 场景）
+            anchored = self._storage.list_chats_anchored_to(edict_id)
+            if anchored:
+                chat_id = anchored[0]
+                logger.info(
+                    "[feishu/approval] edict %s has no chat_id, fallback to anchored chat=%s",
+                    edict_id, chat_id,
+                )
+        if not chat_id:
             logger.warning(
-                "[feishu/approval] no chat_id for edict %s and FEISHU_HOME_CHANNEL not set; "
-                "approval card not delivered to feishu (web 端仍可处理)",
+                "[feishu/approval] no chat_id for edict %s (no metadata, no home_channel, "
+                "no active anchor); approval card not delivered to feishu (web 端仍可处理)",
                 edict_id,
             )
             return

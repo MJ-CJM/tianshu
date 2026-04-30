@@ -47,6 +47,9 @@ class AgentResult(BaseModel):
     iteration_count: int = 0
     compact_count: int = 0
     recovery_attempts: dict = Field(default_factory=dict)
+    # 2026-04-30: DeepSeek reasoner / 新版 thinking-mode 模型 follow_up 时
+    # 必须把上一轮 reasoning_content 一起回传；executor 写入 memorial 持久化。
+    reasoning_content: str | None = None
 
 
 class Agent:
@@ -468,10 +471,12 @@ class Agent:
                     if response.finish_reason == "length"
                     else ExitReason.COMPLETED
                 )
+                rc = response.reasoning_content
                 return self._build_result(
                     state, exit_reason,
                     summary=response.content,
                     usage=usage, events=events, recovery=recovery_attempts,
+                    reasoning_content=rc if isinstance(rc, str) and rc else None,
                 )
 
         # Loop exhausted
@@ -491,6 +496,7 @@ class Agent:
         summary: str | None = None,
         error: str | None = None,
         recovery: dict | None = None,
+        reasoning_content: str | None = None,
     ) -> AgentResult:
         if exit_reason == ExitReason.COMPLETED:
             status = TaskStatus.COMPLETED
@@ -524,6 +530,7 @@ class Agent:
             iteration_count=state.iteration,
             compact_count=state.total_compact_count,
             recovery_attempts=recovery or {},
+            reasoning_content=reasoning_content,
         )
 
     def _build_system_prompt(self, edict: Edict, skills_char_budget: int) -> str:

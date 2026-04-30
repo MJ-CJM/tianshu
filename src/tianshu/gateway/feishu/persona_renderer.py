@@ -92,6 +92,8 @@ class PersonaRenderer:
             "- `/budget` 成本概览\n"
             "- `/menu` 主菜单\n"
             "- `/clear` 归档当前对话 + 开新会话\n"
+            "- `/approve` 或 `/准` 批准待审批工具调用（`edict`/`敕`、`always`/`永` 可加在后面）\n"
+            "- `/reject` 或 `/驳` 拒绝待审批工具调用\n"
             "- `/help` 显示帮助"
         )
 
@@ -103,7 +105,8 @@ class PersonaRenderer:
             "- `/cancel` 取消敕令\n"
             "- `/exit` 退出回到助手模式\n"
             "- `/new <目标>` 自动退出 + 新建\n"
-            "- `/list /budget /menu` 查询（不切换）"
+            "- `/list /budget /menu` 查询（不切换）\n"
+            "- `/approve`/`/准` 批准待审批；`/reject`/`/驳` 拒绝"
         )
 
     def edict_created_reply(self, edict_id: str, title: str) -> str:

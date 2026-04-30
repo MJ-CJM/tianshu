@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.executor import Executor
@@ -24,6 +25,13 @@ from tianshu.models.edict import Edict
 from tianshu.models.events import make_event
 from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
+
+
+@dataclass(frozen=True)
+class EdictBridgeResult:
+    """`continue_or_create` / `create_new` 的统一返回，便于 caller 同时拿 memorial_id。"""
+    edict_id: str
+    memorial_id: str
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +47,13 @@ def _build_history(edict: Edict, memorials: list[Memorial]) -> list[dict]:
     """与 gateway.api._build_history 等价的本地实现。
 
     避免反向依赖 gateway.api（router 层不应被 gateway/feishu 直接引用）。
+
+    DeepSeek reasoner / 新版 thinking-mode 模型在 multi-turn follow_up 时
+    要求 history 中 **每一条** assistant 消息都带 reasoning_content，否则
+    返回 400 invalid_request_error（"must be passed back to the API"）。
+
+    后向兼容：reasoning_content 字段是 2026-04-30 才加的，更早的 memorial 没存。
+    对那些 assistant 整条跳过（仅保留 user 消息维持上下文），避免 DeepSeek 报错。
     """
     history: list[dict] = []
     for m in memorials:
@@ -46,8 +61,16 @@ def _build_history(edict: Edict, memorials: list[Memorial]) -> list[dict]:
             continue
         instruction = m.instruction or edict.goal
         history.append({"role": "user", "content": instruction})
-        if m.result:
-            history.append({"role": "assistant", "content": m.result})
+        if not m.result:
+            continue
+        if not m.reasoning_content:
+            # 老 memorial：assistant 整条跳过，避免触发 thinking-mode 校验
+            continue
+        history.append({
+            "role": "assistant",
+            "content": m.result,
+            "reasoning_content": m.reasoning_content,
+        })
     return history
 
 
@@ -65,8 +88,10 @@ class EdictBridge:
         self._executor = executor
         self._anchor = anchor
 
-    async def continue_or_create(self, *, chat_id: str, sender_open_id: str, text: str) -> str:
-        """主入口。返回最终绑定的 edict_id。
+    async def continue_or_create(
+        self, *, chat_id: str, sender_open_id: str, text: str,
+    ) -> EdictBridgeResult:
+        """主入口。返回 (edict_id, memorial_id)。
 
         Raises:
             EdictBusyError: 当锚定的活跃 Edict 仍有 active memorial 时。
@@ -84,8 +109,8 @@ class EdictBridge:
                     raise EdictBusyError(
                         f"敕令 #{edict.id[:8]} 仍在处理中，请等待完成后再继续"
                     )
-                await self._follow_up(edict, text, sender_open_id, memorials)
-                return edict.id
+                memorial_id = await self._follow_up(edict, text, sender_open_id, memorials)
+                return EdictBridgeResult(edict_id=edict.id, memorial_id=memorial_id)
             # X1：已结案 → 自动新建（无感）
             logger.info(
                 "[feishu/edict] anchor edict %s closed (status=%s), auto-new",
@@ -95,7 +120,9 @@ class EdictBridge:
             chat_id=chat_id, sender_open_id=sender_open_id, goal=text,
         )
 
-    async def create_new(self, *, chat_id: str, sender_open_id: str, goal: str) -> str:
+    async def create_new(
+        self, *, chat_id: str, sender_open_id: str, goal: str,
+    ) -> EdictBridgeResult:
         """显式新建（来自 /new 或 anchor 已结案后的自动新建）。"""
         title = goal[:20] + ("…" if len(goal) > 20 else "")
         edict = Edict(
@@ -124,7 +151,7 @@ class EdictBridge:
             "[feishu/edict] created edict=%s chat=%s sender=%s",
             edict.id, chat_id, sender_open_id,
         )
-        return edict.id
+        return EdictBridgeResult(edict_id=edict.id, memorial_id=memorial.id)
 
     async def ensure_chat_edict(
         self, *, chat_id: str, sender_open_id: str,
@@ -198,8 +225,8 @@ class EdictBridge:
         text: str,
         sender_open_id: str,
         prev_memorials: list[Memorial],
-    ) -> None:
-        """对应 gateway.api.follow_up_edict 的核心逻辑（无 HTTP 层）。"""
+    ) -> str:
+        """对应 gateway.api.follow_up_edict 的核心逻辑（无 HTTP 层）。返回 memorial_id。"""
         history = _build_history(edict, prev_memorials)
         memorial = Memorial(
             edict_id=edict.id, instruction=text, status=TaskStatus.SUBMITTED,
@@ -224,3 +251,4 @@ class EdictBridge:
             "[feishu/edict] follow_up edict=%s memorial=%s",
             edict.id, memorial.id,
         )
+        return memorial.id

@@ -388,6 +388,7 @@ class Executor:
             memorial.result = result.result
             memorial.usage = result.usage
             memorial.error = result.error
+            memorial.reasoning_content = result.reasoning_content
             event_type = {
                 TaskStatus.COMPLETED: "execution.completed",
                 TaskStatus.FAILED: "execution.failed",

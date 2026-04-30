@@ -27,19 +27,24 @@ def _settings(home_channel: str = "") -> FeishuSettings:
     )
 
 
-def test_build_approval_card_contains_all_buttons():
+def test_build_approval_card_is_markdown_with_bilingual_hints():
+    """v2: 卡片改为纯 markdown（飞书 ws 不支持卡片回调）；提示同时含中英命令。"""
     card = build_approval_card(
-        memorial_id="m1", edict_id="e1234567890",
+        memorial_id="m1abc234", edict_id="e1234567890",
         tool_name="shell_exec",
         args_summary={"cmd": "ls", "cwd": "/tmp"},
         reason="auto_block",
     )
     assert card["header"]["template"] == "orange"
-    # 4 个按钮
-    actions = card["elements"][1]["actions"]
-    assert len(actions) == 4
-    scopes = [a.get("value", {}).get("scope") for a in actions if a.get("value", {}).get("action") == "approve"]
-    assert set(scopes) == {"once", "edict", "always"}
+    # 不应有 action / button 元素
+    has_action = any(el.get("tag") == "action" for el in card["elements"])
+    assert not has_action
+    md = card["elements"][0]["content"]
+    # 中英命令双向提示
+    for token in ("/approve", "/准", "/reject", "/驳", "edict", "always", "敕", "永"):
+        assert token in md
+    # 含 memorial 短 ID 引导（多 pending 时使用）
+    assert "m1abc234"[:8] in md
 
 
 def test_build_resolved_card():

@@ -8,10 +8,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from tianshu.gateway.feishu.approval_commands import parse_approval_command
 from tianshu.gateway.feishu.card_builder import format_status_label
 from tianshu.models.common import EdictStatus
 
 if TYPE_CHECKING:
+    from tianshu.gateway.feishu.approval_commands import ApprovalCommandHandler
     from tianshu.gateway.feishu.card_builder import CardBuilder
     from tianshu.gateway.feishu.dispatcher import FeishuMessage
     from tianshu.gateway.feishu.edict_bridge import EdictBridge
@@ -37,6 +39,7 @@ class AssistantBranch:
         outbound: "FeishuOutbound",
         renderer: "PersonaRenderer",
         card_builder: "CardBuilder",
+        approval_commands: "ApprovalCommandHandler | None" = None,
         assistant_persona_id: str = "tongzheng",
     ) -> None:
         self._storage = storage
@@ -45,6 +48,7 @@ class AssistantBranch:
         self._outbound = outbound
         self._renderer = renderer
         self._card_builder = card_builder
+        self._approval_commands = approval_commands
         self._assistant_persona_id = assistant_persona_id
 
     def set_renderer(self, renderer: "PersonaRenderer") -> None:
@@ -58,6 +62,18 @@ class AssistantBranch:
     async def handle(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
         """主入口：解析命令 → 调对应实现。"""
         text = msg.text.strip()
+
+        # 审批双语命令优先级最高（不影响 anchor，跨模式可用）
+        approval_cmd = parse_approval_command(text)
+        if approval_cmd is not None and self._approval_commands is not None:
+            reply = await self._approval_commands.handle(
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
+                command=approval_cmd,
+            )
+            await self._reply(msg.chat_id, reply)
+            return
+
         parts = text.split(maxsplit=1)
         cmd = parts[0].lower() if parts else ""
 
@@ -105,11 +121,10 @@ class AssistantBranch:
         if not goal:
             await self._reply(msg.chat_id, "用法：/new <目标描述>")
             return
-        edict_id = await self._edict_bridge.create_new(
+        result = await self._edict_bridge.create_new(
             chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, goal=goal,
         )
-        title = goal[:20] + ("…" if len(goal) > 20 else "")
-        await self._reply(msg.chat_id, self._renderer.edict_created_reply(edict_id, title))
+        await self._send_thinking(msg, result.edict_id, result.memorial_id, goal)
 
     async def _cmd_list(self, msg: "FeishuMessage", ctx: "ModeContext", filter_arg: str) -> None:
         status_filter = self._parse_filter(filter_arg)
@@ -243,13 +258,13 @@ class AssistantBranch:
         """
         from tianshu.gateway.feishu.edict_bridge import EdictBusyError
         try:
-            edict_id = await self._edict_bridge.continue_or_create(
+            result = await self._edict_bridge.continue_or_create(
                 chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, text=text,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))
             return
-        await self._reply(msg.chat_id, self._renderer.edict_received_reply(edict_id))
+        await self._send_thinking(msg, result.edict_id, result.memorial_id, text)
 
     # --- 工具方法 ---
 
@@ -279,6 +294,23 @@ class AssistantBranch:
 
     async def _reply(self, chat_id: str, text: str) -> None:
         await self._outbound.send_text(chat_id, text)
+
+    async def _send_thinking(
+        self, msg: "FeishuMessage", edict_id: str, memorial_id: str, instruction: str,
+    ) -> None:
+        """给用户原消息加 typing reaction 表示"正在思考"，登记到 db。
+
+        execution 完成时 outbound 反查 + remove reaction + 发完整 post 富文本。
+        若用户消息无 message_id（rare），降级跳过 reaction。
+        """
+        if not msg.message_id:
+            return
+        reaction_id = await self._outbound.add_reaction(msg.message_id, "Typing")
+        if reaction_id:
+            self._storage.save_feishu_thinking(
+                memorial_id=memorial_id, chat_id=msg.chat_id,
+                reaction_id=reaction_id, source_message_id=msg.message_id,
+            )
 
 
 __all__ = ["AssistantBranch"]

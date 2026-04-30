@@ -9,7 +9,10 @@ from tianshu.gateway.feishu.dispatcher import FeishuMessage
 from tianshu.gateway.feishu.mode_router import ModeContext
 
 
-def _msg(text: str = "hi", chat: str = "oc_x", sender: str = "ou_a") -> FeishuMessage:
+def _msg(
+    text: str = "hi", chat: str = "oc_x", sender: str = "ou_a",
+    message_id: str = "om_user_1",
+) -> FeishuMessage:
     return FeishuMessage(
         event_id="e",
         chat_id=chat,
@@ -17,6 +20,7 @@ def _msg(text: str = "hi", chat: str = "oc_x", sender: str = "ou_a") -> FeishuMe
         sender_open_id=sender,
         text=text,
         raw={},
+        message_id=message_id,
     )
 
 
@@ -39,15 +43,22 @@ def _renderer():
 
 @pytest.fixture
 def branch():
+    from tianshu.gateway.feishu.edict_bridge import EdictBridgeResult
     storage = MagicMock()
     anchor = MagicMock()
     bridge = MagicMock()
-    bridge.create_new = AsyncMock(return_value="ed_new1234")
-    bridge.continue_or_create = AsyncMock(return_value="ed_chat_xx")
+    bridge.create_new = AsyncMock(
+        return_value=EdictBridgeResult(edict_id="ed_new1234", memorial_id="m_new1234"),
+    )
+    bridge.continue_or_create = AsyncMock(
+        return_value=EdictBridgeResult(edict_id="ed_chat_xx", memorial_id="m_chat_xx"),
+    )
     bridge.ensure_chat_edict = AsyncMock(return_value="ed_chat_new")
     outbound = MagicMock()
     outbound.send_text = AsyncMock()
     outbound.send_card = AsyncMock()
+    outbound.add_reaction = AsyncMock(return_value="reaction_1")
+    outbound.remove_reaction = AsyncMock(return_value=True)
     cb = MagicMock()
     cb.build_menu_card.return_value = {"header": {}}
     cb.build_list_card.return_value = {"header": {}}
@@ -72,10 +83,14 @@ async def test_help_command(branch):
 
 @pytest.mark.asyncio
 async def test_new_command_creates_edict(branch):
+    """v2: /new 创建后给用户原消息加 typing reaction，等执行完毕由 outbound 移除 + 发完整内容。"""
     b, _, _, outbound, _, bridge = branch
     await b.handle(_msg("/new 写代码"), _ctx())
     bridge.create_new.assert_awaited_once()
-    assert "ed_new12" in outbound.send_text.await_args.args[1]
+    outbound.add_reaction.assert_awaited_once()
+    args = outbound.add_reaction.await_args.args
+    assert args[0] == "om_user_1"
+    assert args[1] == "Typing"
 
 
 @pytest.mark.asyncio
@@ -202,7 +217,6 @@ async def test_unknown_slash_command(branch):
 async def test_natural_language_calls_continue_or_create(branch):
     """v2: 纯文本应调 continue_or_create 而非 silent reply。"""
     b, _, _, _, _, bridge = branch
-    bridge.continue_or_create = AsyncMock(return_value="ed_chat_x")
     await b.handle(_msg("你是谁?"), _ctx())
     bridge.continue_or_create.assert_awaited_once_with(
         chat_id="oc_x", sender_open_id="ou_a", text="你是谁?",
@@ -210,12 +224,16 @@ async def test_natural_language_calls_continue_or_create(branch):
 
 
 @pytest.mark.asyncio
-async def test_natural_language_replies_received(branch):
-    """v2: 纯文本调 continue_or_create 后回 edict_received_reply。"""
-    b, _, _, outbound, _, bridge = branch
-    bridge.continue_or_create = AsyncMock(return_value="ed_chat_xx")
+async def test_natural_language_adds_typing_reaction(branch):
+    """v2: 纯文本续接后给用户原消息加 Typing reaction，登记到 db。"""
+    b, storage, _, outbound, _, _ = branch
     await b.handle(_msg("你好"), _ctx())
-    assert "已收到" in outbound.send_text.await_args.args[1]
+    outbound.add_reaction.assert_awaited_once_with("om_user_1", "Typing")
+    storage.save_feishu_thinking.assert_called_once()
+    save_kwargs = storage.save_feishu_thinking.call_args.kwargs
+    assert save_kwargs["memorial_id"] == "m_chat_xx"
+    assert save_kwargs["reaction_id"] == "reaction_1"
+    assert save_kwargs["source_message_id"] == "om_user_1"
 
 
 @pytest.mark.asyncio

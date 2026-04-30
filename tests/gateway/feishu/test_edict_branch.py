@@ -10,7 +10,7 @@ from tianshu.gateway.feishu.edict_bridge import EdictBusyError
 from tianshu.gateway.feishu.mode_router import ModeContext
 
 
-def _msg(text: str = "hi", chat: str = "oc_x") -> FeishuMessage:
+def _msg(text: str = "hi", chat: str = "oc_x", message_id: str = "om_u_2") -> FeishuMessage:
     return FeishuMessage(
         event_id="e",
         chat_id=chat,
@@ -18,6 +18,7 @@ def _msg(text: str = "hi", chat: str = "oc_x") -> FeishuMessage:
         sender_open_id="ou_a",
         text=text,
         raw={},
+        message_id=message_id,
     )
 
 
@@ -39,15 +40,22 @@ def _renderer():
 
 @pytest.fixture
 def branch():
+    from tianshu.gateway.feishu.edict_bridge import EdictBridgeResult
     storage = MagicMock()
     anchor = MagicMock()
     anchor.get.return_value = None
     bridge = MagicMock()
-    bridge.create_new = AsyncMock(return_value="ed_new5678")
-    bridge.continue_or_create = AsyncMock(return_value="ed_anchor1")
+    bridge.create_new = AsyncMock(
+        return_value=EdictBridgeResult(edict_id="ed_new5678", memorial_id="m_new5678"),
+    )
+    bridge.continue_or_create = AsyncMock(
+        return_value=EdictBridgeResult(edict_id="ed_anchor1", memorial_id="m_anchor1"),
+    )
     bridge.ensure_chat_edict = AsyncMock(return_value="ed_chat_xyz")
     outbound = MagicMock()
     outbound.send_text = AsyncMock()
+    outbound.add_reaction = AsyncMock(return_value="reaction_2")
+    outbound.remove_reaction = AsyncMock(return_value=True)
     assistant = MagicMock()
     assistant.handle = AsyncMock()
     b = EdictBranch(
@@ -134,10 +142,12 @@ async def test_menu_delegates_to_assistant(branch):
 
 @pytest.mark.asyncio
 async def test_plain_text_continues(branch):
-    b, _, _, outbound, _, bridge = branch
+    """v2: 续接后给用户原消息加 typing reaction，由 outbound 在 execution.completed 时移除。"""
+    b, storage, _, outbound, _, bridge = branch
     await b.handle(_msg("补一句"), _ctx())
     bridge.continue_or_create.assert_awaited_once()
-    assert "已收到" in outbound.send_text.await_args.args[1]
+    outbound.add_reaction.assert_awaited_once_with("om_u_2", "Typing")
+    storage.save_feishu_thinking.assert_called_once()
 
 
 @pytest.mark.asyncio

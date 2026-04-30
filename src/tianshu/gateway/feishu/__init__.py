@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tianshu.gateway.feishu.approval_card import ApprovalCardHandler
+from tianshu.gateway.feishu.approval_commands import ApprovalCommandHandler
 from tianshu.gateway.feishu.assistant_branch import AssistantBranch
 from tianshu.gateway.feishu.card_action_dispatcher import CardActionDispatcher
 from tianshu.gateway.feishu.card_builder import CardBuilder, format_status_label
@@ -87,6 +88,10 @@ class FeishuBot:
             approval_manager=approval_manager,
             outbound=self._outbound,
         )
+        self._approval_commands = ApprovalCommandHandler(
+            storage=storage,
+            approval_manager=approval_manager,
+        )
 
         # --- v1.1 双模式整合 ---
         # PersonaRenderer：persona_loader 不存在或 persona_id 找不到时使用 default
@@ -108,6 +113,7 @@ class FeishuBot:
             outbound=self._outbound,
             renderer=self._renderer,
             card_builder=self._card_builder,
+            approval_commands=self._approval_commands,
             assistant_persona_id=settings.assistant_persona_id,
         )
         self._edict_branch = EdictBranch(
@@ -117,6 +123,7 @@ class FeishuBot:
             outbound=self._outbound,
             renderer=self._renderer,
             assistant_branch=self._assistant_branch,
+            approval_commands=self._approval_commands,
             assistant_persona_id=settings.assistant_persona_id,
         )
         self._mode_router = ModeRouter(
@@ -384,10 +391,10 @@ class FeishuBot:
             if not goal:
                 await self._reply(msg.chat_id, "用法：/new <目标描述>")
                 return
-            edict_id = await self._edict_bridge.create_new(
+            result = await self._edict_bridge.create_new(
                 chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, goal=goal,
             )
-            await self._reply(msg.chat_id, f"✅ 新敕令 #{edict_id[:8]} 已创建")
+            await self._reply(msg.chat_id, f"✅ 新敕令 #{result.edict_id[:8]} 已创建")
             return
 
         if cmd == "/status":
@@ -445,13 +452,13 @@ class FeishuBot:
 
         # 默认：续接或自动新建
         try:
-            edict_id = await self._edict_bridge.continue_or_create(
+            result = await self._edict_bridge.continue_or_create(
                 chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, text=text,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))
             return
-        await self._reply(msg.chat_id, f"✅ 已收到（敕令 #{edict_id[:8]}）")
+        await self._reply(msg.chat_id, f"✅ 已收到（敕令 #{result.edict_id[:8]}）")
 
     async def _reply(self, chat_id: str, text: str) -> None:
         await self._outbound.send_text(chat_id, text)

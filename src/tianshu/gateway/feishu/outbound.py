@@ -14,6 +14,7 @@ from lark_oapi.api.im.v1 import (
 )
 
 from tianshu.bus.event_bus import EventBus
+from tianshu.gateway.feishu.markdown_compat import convert_tables_to_lists, split_long
 from tianshu.gateway.feishu.settings import FeishuSettings
 from tianshu.models.events import EventEnvelope
 from tianshu.storage import Storage
@@ -74,6 +75,57 @@ class FeishuOutbound:
         if _MD_HINT_RE.search(content):
             return await self._send_post(chat_id, content)
         return await self._send_plain_text(chat_id, content)
+
+    async def add_reaction(self, message_id: str, emoji_type: str) -> str | None:
+        """给指定消息加 emoji reaction（飞书原生 typing 气泡的实现方式）。
+
+        emoji_type 走飞书内置常量名："Typing" / "CrossMark" / "Heart" 等。
+        返回 reaction_id（删除时需要），失败返 None。
+        """
+        if self._client is None or not message_id or not emoji_type:
+            return None
+        try:
+            from lark_oapi.api.im.v1 import (
+                CreateMessageReactionRequest,
+                CreateMessageReactionRequestBody,
+            )
+            req = (
+                CreateMessageReactionRequest.builder()
+                .message_id(message_id)
+                .request_body(
+                    CreateMessageReactionRequestBody.builder()
+                    .reaction_type({"emoji_type": emoji_type})
+                    .build()
+                )
+                .build()
+            )
+            resp = await self._client.im.v1.message_reaction.acreate(req)
+            if resp.success() and resp.data and resp.data.reaction_id:
+                return resp.data.reaction_id
+            logger.debug(
+                "[feishu/outbound] add_reaction rejected emoji=%s msg=%s code=%s msg_text=%s",
+                emoji_type, message_id, getattr(resp, "code", None), getattr(resp, "msg", None),
+            )
+        except Exception:
+            logger.exception("[feishu/outbound] add_reaction crashed")
+        return None
+
+    async def remove_reaction(self, message_id: str, reaction_id: str) -> bool:
+        if self._client is None or not message_id or not reaction_id:
+            return False
+        try:
+            from lark_oapi.api.im.v1 import DeleteMessageReactionRequest
+            req = (
+                DeleteMessageReactionRequest.builder()
+                .message_id(message_id)
+                .reaction_id(reaction_id)
+                .build()
+            )
+            resp = await self._client.im.v1.message_reaction.adelete(req)
+            return bool(resp.success())
+        except Exception:
+            logger.exception("[feishu/outbound] remove_reaction crashed")
+            return False
 
     async def send_card(self, chat_id: str, card_payload: dict) -> str | None:
         req = (
@@ -180,6 +232,11 @@ class FeishuOutbound:
     # --- 事件订阅 handlers ---
 
     async def _on_execution_completed(self, event: EventEnvelope) -> None:
+        """执行完成 → 移除 typing reaction + post 富文本下发完整内容。
+
+        post tag=md 支持嵌套列表 / 标题 / 加粗 / 行内代码；表格转列表；
+        超长按段落拆段连续下发。
+        """
         chat_id = self._lookup_chat_id(event)
         if not chat_id:
             return
@@ -189,24 +246,69 @@ class FeishuOutbound:
             else None
         )
         if not memorial or not memorial.result:
+            # 没结果也移除 typing 反应，免得用户原消息上一直挂着
+            if event.memorial_id:
+                pending = self._storage.pop_feishu_thinking(event.memorial_id)
+                if pending and pending.get("source_message_id"):
+                    await self.remove_reaction(
+                        pending["source_message_id"], pending["reaction_id"],
+                    )
             return
-        title = (event.payload or {}).get("title", "")
-        snippet = memorial.result[:500] + ("…" if len(memorial.result) > 500 else "")
-        await self.send_text(chat_id, f"✅ **{title or '完成'}**\n\n{snippet}")
+
+        pending = (
+            self._storage.pop_feishu_thinking(event.memorial_id)
+            if event.memorial_id
+            else None
+        )
+        if pending and pending.get("source_message_id"):
+            await self.remove_reaction(
+                pending["source_message_id"], pending["reaction_id"],
+            )
+
+        body = convert_tables_to_lists(memorial.result)
+        chunks = split_long(body)
+        for idx, chunk in enumerate(chunks):
+            if len(chunks) == 1:
+                await self._send_post(chat_id, chunk)
+            else:
+                head = f"## 续 {idx + 1}/{len(chunks)}" if idx > 0 else ""
+                await self._send_post(chat_id, f"{head}\n\n{chunk}".strip())
 
     async def _on_execution_failed(self, event: EventEnvelope) -> None:
         chat_id = self._lookup_chat_id(event)
         if not chat_id:
             return
         reason = (event.payload or {}).get("error", "未知错误")
+        pending = (
+            self._storage.pop_feishu_thinking(event.memorial_id)
+            if event.memorial_id
+            else None
+        )
+        # typing → CrossMark：先去掉 typing，再加红叉
+        if pending and pending.get("source_message_id"):
+            await self.remove_reaction(
+                pending["source_message_id"], pending["reaction_id"],
+            )
+            await self.add_reaction(pending["source_message_id"], "CrossMark")
         await self.send_text(chat_id, f"❌ 执行失败：{reason}")
 
     def _lookup_chat_id(self, event: EventEnvelope) -> str | None:
-        """根据 edict.metadata.chat_id 反查；没有 → 兜底 home_channel。"""
+        """反查回执目标 chat_id。
+
+        Fallback 链：
+          1. edict.metadata.chat_id（飞书原生发起的敕令）
+          2. anchor 反查（web 创建敕令 + 飞书 /select 切过去的场景）
+          3. settings.home_channel（用户配置的兜底）
+        """
         if not event.edict_id:
             return self._settings.home_channel or None
         edict = self._storage.get_edict(event.edict_id)
         if not edict:
             return self._settings.home_channel or None
         chat_id = (edict.metadata or {}).get("chat_id")
-        return chat_id or (self._settings.home_channel or None)
+        if chat_id:
+            return chat_id
+        anchored = self._storage.list_chats_anchored_to(event.edict_id)
+        if anchored:
+            return anchored[0]
+        return self._settings.home_channel or None

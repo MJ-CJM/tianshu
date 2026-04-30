@@ -14,11 +14,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from tianshu.gateway.feishu.approval_commands import parse_approval_command
 from tianshu.gateway.feishu.card_builder import format_status_label
 from tianshu.gateway.feishu.edict_bridge import EdictBusyError
 from tianshu.models.common import EdictStatus
 
 if TYPE_CHECKING:
+    from tianshu.gateway.feishu.approval_commands import ApprovalCommandHandler
     from tianshu.gateway.feishu.assistant_branch import AssistantBranch
     from tianshu.gateway.feishu.dispatcher import FeishuMessage
     from tianshu.gateway.feishu.edict_bridge import EdictBridge
@@ -43,6 +45,7 @@ class EdictBranch:
         outbound: "FeishuOutbound",
         renderer: "PersonaRenderer",
         assistant_branch: "AssistantBranch",
+        approval_commands: "ApprovalCommandHandler | None" = None,
         assistant_persona_id: str = "tongzheng",
     ) -> None:
         self._storage = storage
@@ -51,6 +54,7 @@ class EdictBranch:
         self._outbound = outbound
         self._renderer = renderer
         self._assistant = assistant_branch  # 用于查询类命令复用
+        self._approval_commands = approval_commands
         self._assistant_persona_id = assistant_persona_id
 
     def set_renderer(self, renderer: "PersonaRenderer") -> None:
@@ -62,6 +66,18 @@ class EdictBranch:
 
     async def handle(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
         text = msg.text.strip()
+
+        # 审批双语命令优先级最高（不影响 anchor，跨模式可用）
+        approval_cmd = parse_approval_command(text)
+        if approval_cmd is not None and self._approval_commands is not None:
+            reply = await self._approval_commands.handle(
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
+                command=approval_cmd,
+            )
+            await self._reply(msg.chat_id, reply)
+            return
+
         parts = text.split(maxsplit=1)
         cmd = parts[0].lower() if parts else ""
         edict_id = ctx.edict_id or ""
@@ -113,14 +129,10 @@ class EdictBranch:
         # 先退出当前敕令模式
         self._storage.delete_feishu_anchor(msg.chat_id)
         # 再新建
-        edict_id = await self._edict_bridge.create_new(
+        result = await self._edict_bridge.create_new(
             chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, goal=goal,
         )
-        title = goal[:20] + ("…" if len(goal) > 20 else "")
-        await self._reply(
-            msg.chat_id,
-            f"{self._renderer.edict_tag(ctx.edict_id or '')} → {self._renderer.edict_created_reply(edict_id, title)}",
-        )
+        await self._send_thinking(msg, result.edict_id, result.memorial_id, goal)
 
     async def _cmd_status(self, msg, target: str) -> None:
         if not target:
@@ -161,16 +173,29 @@ class EdictBranch:
     async def _continue_edict(self, msg, ctx, text: str) -> None:
         """v1 续接行为：依赖 EdictBridge.continue_or_create。"""
         try:
-            edict_id = await self._edict_bridge.continue_or_create(
+            result = await self._edict_bridge.continue_or_create(
                 chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, text=text,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))
             return
-        await self._reply(msg.chat_id, self._renderer.edict_received_reply(edict_id))
+        await self._send_thinking(msg, result.edict_id, result.memorial_id, text)
 
     async def _reply(self, chat_id: str, text: str) -> None:
         await self._outbound.send_text(chat_id, text)
+
+    async def _send_thinking(
+        self, msg: "FeishuMessage", edict_id: str, memorial_id: str, instruction: str,
+    ) -> None:
+        """给用户原消息加 typing reaction，由 outbound 在 execution 完成时移除。"""
+        if not msg.message_id:
+            return
+        reaction_id = await self._outbound.add_reaction(msg.message_id, "Typing")
+        if reaction_id:
+            self._storage.save_feishu_thinking(
+                memorial_id=memorial_id, chat_id=msg.chat_id,
+                reaction_id=reaction_id, source_message_id=msg.message_id,
+            )
 
 
 __all__ = ["EdictBranch"]

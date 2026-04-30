@@ -405,6 +405,13 @@ class Storage:
                     kind        TEXT NOT NULL,
                     created_at  TIMESTAMP NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS feishu_thinking_messages (
+                    memorial_id        TEXT PRIMARY KEY,
+                    chat_id            TEXT NOT NULL,
+                    message_id         TEXT NOT NULL,
+                    source_message_id  TEXT NOT NULL DEFAULT '',
+                    created_at         TIMESTAMP NOT NULL
+                );
             """)
             self._conn.executescript("""
                 CREATE TABLE IF NOT EXISTS channel_configs (
@@ -525,6 +532,11 @@ class Storage:
             # 2026-04-28: follow-up 时本次 memorial 单独覆盖 edict.runtime / acceptance
             "ALTER TABLE memorials ADD COLUMN runtime_override_json TEXT",
             "ALTER TABLE memorials ADD COLUMN acceptance_override_json TEXT",
+            # 2026-04-30: DeepSeek reasoner / 新版 thinking-mode 模型 follow_up 时
+            # 必须把上一轮 reasoning_content 一起回传，否则 400 invalid_request_error
+            "ALTER TABLE memorials ADD COLUMN reasoning_content TEXT",
+            # 2026-04-30: 飞书 typing reaction 替代 thinking 卡片
+            "ALTER TABLE feishu_thinking_messages ADD COLUMN source_message_id TEXT NOT NULL DEFAULT ''",
         ]
         for sql in migrations:
             try:
@@ -722,8 +734,9 @@ class Storage:
                     error, created_at, started_at, completed_at,
                     attempt, parent_memorial_id, review_status, audit_json,
                     artifacts_json, timeline_json, dag_node_id, persona_id,
-                    runtime_override_json, acceptance_override_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    runtime_override_json, acceptance_override_json,
+                    reasoning_content)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 self._memorial_to_params(memorial),
             )
 
@@ -736,7 +749,8 @@ class Storage:
                    attempt=?, review_status=?, audit_json=?,
                    artifacts_json=?, timeline_json=?,
                    dag_node_id=?, persona_id=?,
-                   runtime_override_json=?, acceptance_override_json=?
+                   runtime_override_json=?, acceptance_override_json=?,
+                   reasoning_content=?
                    WHERE id=?""",
                 (
                     memorial.status.value,
@@ -755,6 +769,7 @@ class Storage:
                     memorial.persona_id,
                     json.dumps(memorial.runtime_override) if memorial.runtime_override else None,
                     memorial.acceptance_override.model_dump_json() if memorial.acceptance_override else None,
+                    memorial.reasoning_content,
                     memorial.id,
                 ),
             )
@@ -2216,6 +2231,11 @@ class Storage:
             persona_id=row["persona_id"] if "persona_id" in keys else None,
             runtime_override=Storage._parse_runtime_override(row, keys),
             acceptance_override=Storage._parse_acceptance_override(row, keys),
+            reasoning_content=(
+                row["reasoning_content"]
+                if "reasoning_content" in keys
+                else None
+            ),
         )
 
     @staticmethod
@@ -2263,6 +2283,7 @@ class Storage:
             m.persona_id,
             json.dumps(m.runtime_override) if m.runtime_override else None,
             m.acceptance_override.model_dump_json() if m.acceptance_override else None,
+            m.reasoning_content,
         )
 
     def insert_credential(
@@ -2718,6 +2739,58 @@ class Storage:
         rows = self._conn.execute(
             "SELECT chat_id FROM feishu_session_anchor "
             "WHERE current_edict_id IS NOT NULL"
+        ).fetchall()
+        return [row[0] for row in rows]
+
+    # --- Feishu typing reaction（替代 v1 的 "🤔 思考中" 卡片）---
+    #
+    # 沿用旧表 feishu_thinking_messages：`message_id` 列存 reaction_id，
+    # `source_message_id` 列存用户原消息 id（reaction API 必需）。
+
+    def save_feishu_thinking(
+        self, *, memorial_id: str, chat_id: str, reaction_id: str,
+        source_message_id: str,
+    ) -> None:
+        """登记一条 typing reaction，等 execution 完成时 remove。"""
+        from datetime import UTC, datetime
+        self._conn.execute(
+            "INSERT OR REPLACE INTO feishu_thinking_messages "
+            "(memorial_id, chat_id, message_id, source_message_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (memorial_id, chat_id, reaction_id, source_message_id,
+             datetime.now(UTC).isoformat()),
+        )
+        self._conn.commit()
+
+    def pop_feishu_thinking(self, memorial_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT chat_id, message_id, source_message_id "
+            "FROM feishu_thinking_messages WHERE memorial_id = ?",
+            (memorial_id,),
+        ).fetchone()
+        if not row:
+            return None
+        self._conn.execute(
+            "DELETE FROM feishu_thinking_messages WHERE memorial_id = ?",
+            (memorial_id,),
+        )
+        self._conn.commit()
+        return {
+            "chat_id": row[0],
+            "reaction_id": row[1],
+            "source_message_id": row[2],
+        }
+
+    def list_chats_anchored_to(self, edict_id: str) -> list[str]:
+        """反查：哪些飞书 chat 的 anchor 当前指向该 edict。
+
+        用于飞书 outbound 在 edict.metadata.chat_id 缺失（web 创建敕令）时
+        定位回执目标 —— 精准送回到 /select 切过来的那个 chat。
+        """
+        rows = self._conn.execute(
+            "SELECT chat_id FROM feishu_session_anchor "
+            "WHERE current_edict_id = ?",
+            (edict_id,),
         ).fetchall()
         return [row[0] for row in rows]
 

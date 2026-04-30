@@ -22,6 +22,7 @@ class FeishuMessage:
     sender_open_id: str
     text: str
     raw: dict
+    message_id: str = ""    # 原 user 消息 id（用于 emoji reaction api）
 
 
 @dataclass
@@ -113,6 +114,7 @@ class Dispatcher:
         fmsg = FeishuMessage(
             event_id=event_id, chat_id=chat_id, chat_type=chat_type,
             sender_open_id=sender_open_id, text=text, raw=event,
+            message_id=msg.get("message_id", ""),
         )
 
         # 命令（以 / 开头）跳过批处理直接派发；纯文本走批处理
@@ -143,6 +145,7 @@ class Dispatcher:
             merged_msg = FeishuMessage(
                 event_id=fmsg.event_id, chat_id=fmsg.chat_id, chat_type=fmsg.chat_type,
                 sender_open_id=fmsg.sender_open_id, text=merged, raw=fmsg.raw,
+                message_id=fmsg.message_id,  # 用最后一条触发合并的 msg id 加 reaction
             )
             lock = self._chat_locks.setdefault(fmsg.chat_id, asyncio.Lock())
             async with lock:
