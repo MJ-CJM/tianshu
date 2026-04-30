@@ -54,6 +54,8 @@ class ProfileSynthesizer:
         personas_runtime_dir: Path,
         persona_loader: Any,
         model_name: str = "claude-sonnet-4-6",
+        memory_dir: Path | None = None,
+        personas_dir: Path | None = None,
     ) -> None:
         self._llm = llm_client
         self._drawers = drawer_store
@@ -62,6 +64,12 @@ class ProfileSynthesizer:
         self._runtime_dir = Path(personas_runtime_dir).expanduser()
         self._personas = persona_loader
         self._model = model_name
+        # 用于 piggyback memory review：在 PROFILE 合成同周期把"值得长期记住的事"写入私有 MEMORY.md
+        # 任一为 None 则跳过 review，不影响主合成流程
+        self._memory_dir = (
+            Path(memory_dir).expanduser() if memory_dir else None
+        )
+        self._personas_dir = personas_dir
 
     class _SkippedError(RuntimeError):
         """Sentinel: synthesis skipped due to lock contention."""
@@ -253,6 +261,123 @@ class ProfileSynthesizer:
         '{{"degradations": [{{"skill": "...", "reason": "..."}}]}}'
     )
 
+    # 后台 memory review：从近期 events 中提炼"值得长期记住的事"，自动写入私有 MEMORY.md
+    _MEMORY_REVIEW_USER = (
+        "你正在反思 {persona_name} 最近 {window} 天的工作。下面是该 agent 的近期任务事件摘要:\n\n"
+        "{events_block}\n\n"
+        "请从中提取最多 5 条 **值得长期记住** 的洞见或事实。"
+        "只输出以下两类:\n"
+        "1) 用户透露的稳定偏好/约定（如\"用户偏好功能优先，测试最后补\"）\n"
+        "2) 你发现的环境稳定事实（如\"X 部门用 Y 工具\"、\"特定 API 行为\"）\n\n"
+        "**绝对不要输出**:\n"
+        "- 任务进度/已完成的工作日志\n"
+        "- 临时 TODO 状态\n"
+        "- 不确定的猜测\n"
+        "- 与上次反思重复的内容（语义重复也算）\n\n"
+        "section 用简短 H2 标题（如\"用户偏好\"、\"环境约定\"）。content ≤ 200 字，简短可检索。\n"
+        "若没有合适条目，items 留空数组。\n"
+        "输出 JSON:\n"
+        '{{"items": [{{"section": "...", "content": "..."}}]}}'
+    )
+
+    async def llm_memory_review(
+        self, inputs: ProfileSynthesisInput
+    ) -> list[dict[str, str]]:
+        """从近期 events 提炼可写入 MEMORY.md 的长期洞见。无可摘录条目时返回空列表。"""
+        if not inputs.recent_events:
+            return []
+        # 取近期 events 的简要摘要（避免 token 爆炸）
+        sample = inputs.recent_events[:50]
+        lines: list[str] = []
+        for ev in sample:
+            kind = ev.get("kind") or ev.get("type") or "?"
+            payload = ev.get("payload") or {}
+            summary = (
+                payload.get("summary") or payload.get("goal") or payload.get("title")
+                or payload.get("instruction") or ""
+            )
+            lines.append(f"- [{kind}] {str(summary)[:120]}")
+        events_block = "\n".join(lines) if lines else "(no events)"
+
+        system = self._SPECIALTIES_SYSTEM.format(persona_name=inputs.persona_name)
+        user = self._MEMORY_REVIEW_USER.format(
+            persona_name=inputs.persona_name,
+            window=inputs.data_window_days,
+            events_block=events_block,
+        )
+        try:
+            raw = await self._call_llm_json(system, user)
+        except Exception as e:
+            logger.warning("memory_review LLM call failed: %s", e)
+            return []
+        items = raw.get("items", []) if isinstance(raw, dict) else []
+        if not isinstance(items, list):
+            return []
+        # 基本结构校验
+        cleaned: list[dict[str, str]] = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            sec = it.get("section")
+            con = it.get("content")
+            if isinstance(sec, str) and isinstance(con, str) and sec.strip() and con.strip():
+                cleaned.append({"section": sec.strip(), "content": con.strip()})
+        return cleaned[:5]
+
+    async def _persist_memory_review(
+        self, persona_id: str, items: list[dict[str, str]]
+    ) -> int:
+        """把 review items 写入 ~/.tianshu/memory/{persona_id}/MEMORY.md + FTS 索引。
+
+        返回成功写入的条数。单条失败 continue，不影响其他。
+        """
+        if not items or not self._memory_dir or not self._personas_dir:
+            return 0
+
+        from tianshu.memory.markdown_backend import MarkdownMemoryBackend
+        from tianshu.memory.models import MemoryEntry
+        from tianshu.memory.safety import (
+            MemorySafetyError,
+            normalize_section,
+            validate_content,
+        )
+
+        backend = MarkdownMemoryBackend(
+            memory_dir=self._memory_dir, personas_dir=self._personas_dir,
+        )
+        written = 0
+        for item in items:
+            try:
+                section = normalize_section(item["section"])
+                validate_content(item["content"])
+                backend.write_section(
+                    persona_id, section,
+                    mode="append", content=item["content"],
+                )
+            except (MemorySafetyError, ValueError, FileNotFoundError) as e:
+                logger.info(
+                    "memory_review skip item for %s: %s", persona_id, e,
+                )
+                continue
+            except Exception:
+                logger.warning(
+                    "memory_review write_section failed for %s", persona_id,
+                    exc_info=True,
+                )
+                continue
+            # 同步索引
+            try:
+                self._storage.save_memory_entry(MemoryEntry(
+                    persona_id=persona_id,
+                    category="insight",
+                    content=item["content"],
+                    source="reflection",
+                ))
+            except Exception:
+                logger.debug("save_memory_entry failed (non-fatal)")
+            written += 1
+        return written
+
     async def llm_specialties(
         self, inputs: ProfileSynthesisInput
     ) -> list[dict[str, str]]:
@@ -421,9 +546,25 @@ class ProfileSynthesizer:
             degradations_task = asyncio.create_task(
                 self.llm_degradations(inputs, candidates)
             )
-            specialties, degradations = await asyncio.gather(
-                specialties_task, degradations_task
+            # piggyback memory review：与主合成并发跑，失败不影响 PROFILE 主流程
+            memory_review_task = asyncio.create_task(self.llm_memory_review(inputs))
+            specialties, degradations, review_raw = await asyncio.gather(
+                specialties_task,
+                degradations_task,
+                memory_review_task,
+                return_exceptions=True,
             )
+            if isinstance(specialties, Exception):
+                logger.warning("llm_specialties raised: %s", specialties)
+                specialties = []
+            if isinstance(degradations, Exception):
+                logger.warning("llm_degradations raised: %s", degradations)
+                degradations = []
+            review_items: list[dict[str, str]] = (
+                review_raw if isinstance(review_raw, list) else []
+            )
+            if isinstance(review_raw, Exception):
+                logger.warning("llm_memory_review raised: %s", review_raw)
 
             degraded = self._is_degraded(inputs, specialties, degradations)
 
@@ -492,6 +633,26 @@ class ProfileSynthesizer:
             if not conflict:
                 self.persist(result)
 
+            # piggyback：把 review_items 写入私有 MEMORY.md + 索引
+            review_written = 0
+            if review_items:
+                try:
+                    review_written = await self._persist_memory_review(
+                        persona_id, review_items,
+                    )
+                except Exception:
+                    logger.exception("memory_review persist failed for %s", persona_id)
+            if self._memory_dir and self._personas_dir:
+                # 仅在 review 真正可执行时 emit（缺失依赖则不发事件，避免误导）
+                await self._emit(
+                    "profile.memory_review.completed",
+                    persona_id,
+                    {
+                        "items_proposed": len(review_items),
+                        "items_written": review_written,
+                    },
+                )
+
             await self._emit(
                 "profile.synthesis.degraded" if degraded
                 else "profile.synthesis.completed",
@@ -500,6 +661,7 @@ class ProfileSynthesizer:
                     "version": new_version,
                     "data_sources": fm.data_sources,
                     "conflict_skipped_write": conflict,
+                    "memory_review_written": review_written,
                     "duration_ms": int(
                         (datetime.now(timezone.utc) - started_ms).total_seconds() * 1000
                     ),

@@ -517,6 +517,8 @@ async def lifespan(app: FastAPI):
         skill_metrics_store=metrics_store,
         personas_runtime_dir=runtime_personas_dir,
         persona_loader=persona_loader,
+        memory_dir=memory_dir,
+        personas_dir=personas_dir,
     )
     profile_synthesizer.attach_event_bus(event_bus)
     app.state.profile_synthesizer = profile_synthesizer
