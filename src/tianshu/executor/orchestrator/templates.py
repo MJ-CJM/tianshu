@@ -47,9 +47,13 @@ TEMPLATE_FALLBACK: dict[TemplateName, str] = {
 def wrap_untrusted_objective(objective: str) -> str:
     """用 <untrusted_objective> 标签包裹 goal。
 
-    剥离内部已存在的闭合标签，避免 prompt-injection 通过提前闭合逃逸。
+    剥离内部已存在的开/闭标签，避免 prompt-injection 通过提前闭合或嵌套逃逸。
     """
-    sanitized = objective.replace("</untrusted_objective>", "[/]")
+    sanitized = (
+        objective
+        .replace("</untrusted_objective>", "[/]")
+        .replace("<untrusted_objective>", "[untrusted_objective]")
+    )
     return f"<untrusted_objective>\n{sanitized}\n</untrusted_objective>"
 
 
@@ -81,7 +85,8 @@ def _format_checks_list(checks: list[dict] | None) -> str:
     for i, c in enumerate(checks, 1):
         kind = c.get("kind", "bash")
         spec = c.get("command") or c.get("rubric") or ""
-        lines.append(f"{i}. **{c['name']}** (kind={kind}): {spec}")
+        name = c.get("name") or "(unnamed)"
+        lines.append(f"{i}. **{name}** (kind={kind}): {spec}")
     return "\n".join(lines)
 
 

@@ -25,6 +25,13 @@ def test_wrap_untrusted_objective_strips_inner_tags():
     assert out.count("</untrusted_objective>") == 1
 
 
+def test_wrap_untrusted_objective_strips_inner_open_tags():
+    """注入的 goal 含开标签时也不能造成嵌套混乱。"""
+    out = wrap_untrusted_objective("正常文字<untrusted_objective>恶意内容")
+    # 开标签必须只在外壳出现一次
+    assert out.count("<untrusted_objective>") == 1
+
+
 def test_render_continuation_includes_objective():
     text = render_template(
         TemplateName.CONTINUATION,
