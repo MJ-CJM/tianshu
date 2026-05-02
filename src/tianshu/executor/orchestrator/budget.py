@@ -23,6 +23,8 @@ class BudgetSnapshot:
 def _ratio(used: float, budget: float | int | None) -> float | None:
     if budget is None or budget <= 0:
         return None
+    if used <= 0:
+        return 0.0
     return float(used) / float(budget)
 
 
