@@ -63,6 +63,8 @@ class EdictRuntime(BaseModel):
         default_factory=tuple,
         description="允许 api_request 写方法 (POST/PUT/DELETE/PATCH) 的 host；必须 ⊆ api_request_hosts",
     )
+    # 新增：纯运行时 lifecycle 状态（独立于 EdictStatus）
+    lifecycle_phase: Literal["active", "paused", "winding_down", "complete"] = "active"
 
 
 class Edict(BaseModel):

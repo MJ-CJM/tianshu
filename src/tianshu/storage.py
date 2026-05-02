@@ -727,6 +727,23 @@ class Storage:
                 (status, edict_id),
             )
 
+    def update_edict_lifecycle_phase(self, edict_id: str, phase: str) -> None:
+        """部分更新 runtime_json 的 lifecycle_phase 字段，保留其他字段。"""
+        if phase not in ("active", "paused", "winding_down", "complete"):
+            raise ValueError(f"unknown lifecycle_phase: {phase}")
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT runtime_json FROM edicts WHERE id = ?", (edict_id,),
+            ).fetchone()
+            if not row:
+                return
+            runtime = json.loads(row["runtime_json"] or "{}")
+            runtime["lifecycle_phase"] = phase
+            self._conn.execute(
+                "UPDATE edicts SET runtime_json = ? WHERE id = ?",
+                (json.dumps(runtime), edict_id),
+            )
+
     # --- Memorial ---
 
     def save_memorial(self, memorial: Memorial) -> None:
