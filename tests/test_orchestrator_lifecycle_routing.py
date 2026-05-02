@@ -49,11 +49,8 @@ def test_unknown_phase_rejected():
 # ------- audit 嵌入 orchestrator 的高层契约 -------
 
 @pytest.mark.asyncio
-async def test_orchestrator_audit_pass_finalizes_complete(monkeypatch):
-    """critic pass + audit pass → orchestrator 走 finalize 完成路径。
-
-    完整 e2e 在 Task 14；此处先验证 audit.run_completion_audit 在 orchestrator 调用流可被 monkeypatch。
-    """
+async def test_audit_module_is_monkeypatchable(monkeypatch):
+    """验证 audit.run_completion_audit 可被 monkeypatch（为 Task 14 e2e 测试奠基）。"""
     from tianshu.executor.orchestrator import audit as audit_mod
     called = {}
 

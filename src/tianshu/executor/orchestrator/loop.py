@@ -9,11 +9,11 @@ from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.checkpoint import OuterLoopCheckpoint
-from tianshu.executor.orchestrator.audit import (  # noqa: F401
+from tianshu.executor.orchestrator.audit import (
     format_gaps_for_continuation,
     run_completion_audit,
 )
-from tianshu.executor.orchestrator.budget import (  # noqa: F401
+from tianshu.executor.orchestrator.budget import (  # noqa: F401  # Task 10
     BudgetSnapshot,
     HARD_LIMIT,
     SOFT_LANDING_THRESHOLD,
@@ -22,7 +22,7 @@ from tianshu.executor.orchestrator.budget import (  # noqa: F401
 from tianshu.executor.orchestrator.checks import ChecksConfigError, run_checks
 from tianshu.executor.orchestrator.critic import CriticUnavailable, review
 from tianshu.executor.orchestrator.escalation import decide_escalation
-from tianshu.executor.orchestrator.lifecycle import apply_transition  # noqa: F401
+from tianshu.executor.orchestrator.lifecycle import apply_transition  # noqa: F401  # Task 10/11/13
 from tianshu.executor.orchestrator.persistence import emit_audit, persist_iteration
 from tianshu.executor.orchestrator.supervision import generate_supervision_report
 from tianshu.executor.orchestrator.state import (
@@ -30,7 +30,7 @@ from tianshu.executor.orchestrator.state import (
     IterationRecord,
     OuterLoopState,
 )
-from tianshu.executor.orchestrator.templates import (  # noqa: F401
+from tianshu.executor.orchestrator.templates import (
     TemplateName,
     render_template,
 )
@@ -350,6 +350,7 @@ async def run(
 
         # 3. critic（仅当 checks 全过才跑）
         critic_result: CriticResult | None = None
+        critic_skipped = False
         if checks_result.all_passed:
             try:
                 critic_result = await review(
@@ -360,6 +361,7 @@ async def run(
             except CriticUnavailable as e:
                 if acceptance.on_critic_unavailable == "skip":
                     critic_result = CriticResult(verdict="pass", feedback=f"critic 不可用，skip: {e}")
+                    critic_skipped = True
                 else:
                     # 升级到人 —— Task 12 实现；当前先返回 fail
                     critic_result = CriticResult(
@@ -406,11 +408,14 @@ async def run(
             state = state.advance(record)
 
             # ---- completion audit 门 ----
+            # spec §7：critic-skip 时 audit 退化为 actor 自审
+            audit_llm = ctx.actor_llm if critic_skipped else ctx.critic_llm
+            audit_executor = "actor_self_audit" if critic_skipped else "critic_llm"
             audit_result = await run_completion_audit(
                 actor_output=actor_output,
                 objective=edict.goal,
                 acceptance=acceptance,
-                llm=ctx.critic_llm,
+                llm=audit_llm,
             )
             await emit_audit(
                 ctx.bus, ctx.storage, edict.id, memorial.id,
@@ -419,6 +424,7 @@ async def run(
                     "passed": audit_result.passed,
                     "gaps_count": len(audit_result.gaps),
                     "iteration": state.iteration,
+                    "executor_persona": audit_executor,  # "critic_llm" or "actor_self_audit"
                 },
             )
             if not audit_result.passed:

@@ -158,16 +158,18 @@ async def test_checks_failed_skips_critic(storage, bus):
 
 @pytest.mark.integration
 async def test_critic_unavailable_skip(storage, bus):
+    """critic 不可用 + skip → audit 退化为 actor_llm 自审（spec §7）。"""
     actor = _agent(["v1"])
     actor_llm = MagicMock()
     critic_llm = MagicMock()
     # critic._review_single 会重试 max_retries=2 次，全部 RuntimeError → CriticUnavailable → skip → verdict=pass
-    # 再往后 audit 门复用同一 critic_llm，需要合法 audit-pass JSON
+    # audit 门因 critic_skipped=True，改用 actor_llm，所以 critic_llm 不再需要 audit 响应
     critic_llm.chat = AsyncMock(side_effect=[
         RuntimeError("critic down"),  # critic attempt 0
         RuntimeError("critic down"),  # critic attempt 1 (max_retries=2)
-        MagicMock(content=_AUDIT_PASS_JSON),  # audit call
     ])
+    # actor_llm 处理 audit 调用（critic-skip 退化路径）
+    actor_llm.chat = AsyncMock(return_value=MagicMock(content=_AUDIT_PASS_JSON))
     ctx = OrchestratorContext(
         agent=actor, storage=storage, bus=bus,
         actor_llm=actor_llm, critic_llm=critic_llm,
@@ -177,6 +179,9 @@ async def test_critic_unavailable_skip(storage, bus):
     r = await run(e, _memorial(e.id), ctx)
     assert r.status == TaskStatus.COMPLETED
     assert r.final_output == "v1"
+    # 验证 audit 确实用了 actor_llm（非 critic_llm）
+    assert actor_llm.chat.call_count >= 1, "audit 应通过 actor_llm 执行"
+    assert critic_llm.chat.call_count == 2, "critic_llm 只调用 2 次（重试），不含 audit"
 
 
 @pytest.mark.integration
