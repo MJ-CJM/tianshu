@@ -13,7 +13,7 @@ from tianshu.executor.orchestrator.audit import (
     format_gaps_for_continuation,
     run_completion_audit,
 )
-from tianshu.executor.orchestrator.budget import (  # noqa: F401  # Task 10
+from tianshu.executor.orchestrator.budget import (
     BudgetSnapshot,
     HARD_LIMIT,
     SOFT_LANDING_THRESHOLD,
@@ -22,7 +22,7 @@ from tianshu.executor.orchestrator.budget import (  # noqa: F401  # Task 10
 from tianshu.executor.orchestrator.checks import ChecksConfigError, run_checks
 from tianshu.executor.orchestrator.critic import CriticUnavailable, review
 from tianshu.executor.orchestrator.escalation import decide_escalation
-from tianshu.executor.orchestrator.lifecycle import apply_transition  # noqa: F401  # Task 10/11/13
+from tianshu.executor.orchestrator.lifecycle import apply_transition
 from tianshu.executor.orchestrator.persistence import emit_audit, persist_iteration
 from tianshu.executor.orchestrator.supervision import generate_supervision_report
 from tianshu.executor.orchestrator.state import (
@@ -308,6 +308,88 @@ async def run(
             "outer_loop.iteration.started",
             {"iteration": state.iteration, "level": state.current_level},
         )
+
+        # ---- NEW: 检查用户是否手动 pause ----
+        latest_edict = ctx.storage.get_edict(edict.id)
+        if latest_edict and latest_edict.runtime.lifecycle_phase == "paused":
+            await emit_audit(
+                ctx.bus, ctx.storage, edict.id, memorial.id,
+                "outer_loop.paused",
+                {"iteration": state.iteration},
+            )
+            if edict.execution_profile in ("checkpointed", "background"):
+                _save_checkpoint(ctx, state)
+            return OrchestratorResult(
+                status=TaskStatus.NEEDS_REVIEW,
+                final_output=None,
+                state=state,
+                error=None,
+            )
+        # ---- pause 检查结束 ----
+
+        # ---- NEW: 预算检查（usage_ratio）+ 软着陆触发 ----
+        budget_snap = BudgetSnapshot(
+            tokens_used=memorial.usage.total_tokens if memorial.usage else 0,
+            token_budget=edict.runtime.token_budget,
+            cost_used_cny=float(memorial.usage.cost_cny) if memorial.usage else 0.0,
+            cost_budget_cny=edict.runtime.cost_budget_cny,
+            time_used_seconds=int(
+                (datetime.now(UTC) - memorial.created_at).total_seconds()
+            ) if getattr(memorial, "created_at", None) else 0,
+            deadline_seconds=acceptance.deadline_seconds,
+        )
+        usage_ratio = compute_usage_ratio(budget_snap)
+        cur_phase = edict.runtime.lifecycle_phase
+
+        if usage_ratio >= HARD_LIMIT:
+            if cur_phase != "winding_down":
+                apply_transition(
+                    ctx.storage, ctx.bus, edict.id, memorial.id,
+                    cur_phase, "winding_down",
+                    reason=f"hard_limit_reached usage_ratio={usage_ratio:.2f}",
+                )
+                edict = edict.model_copy(update={
+                    "runtime": edict.runtime.model_copy(update={"lifecycle_phase": "winding_down"})
+                })
+                wind_down_prompt = render_template(
+                    TemplateName.WIND_DOWN, objective=edict.goal,
+                )
+                state = state.with_consultation_advice(wind_down_prompt)
+                await emit_audit(
+                    ctx.bus, ctx.storage, edict.id, memorial.id,
+                    "edict.wind_down.entered",
+                    {"usage_ratio": usage_ratio, "trigger": "hard_limit"},
+                )
+            else:
+                # 已经 wind_down 过一次仍超额，强制 finalize
+                apply_transition(
+                    ctx.storage, ctx.bus, edict.id, memorial.id,
+                    "winding_down", "complete",
+                    reason="budget_exhausted",
+                )
+                return await _finalize_with_supervision(
+                    state, edict, ctx, memorial,
+                    TaskStatus.FAILED, None, error="budget_exhausted",
+                )
+        elif usage_ratio >= SOFT_LANDING_THRESHOLD and cur_phase == "active":
+            apply_transition(
+                ctx.storage, ctx.bus, edict.id, memorial.id,
+                cur_phase, "winding_down",
+                reason=f"soft_landing_threshold usage_ratio={usage_ratio:.2f}",
+            )
+            edict = edict.model_copy(update={
+                "runtime": edict.runtime.model_copy(update={"lifecycle_phase": "winding_down"})
+            })
+            wind_down_prompt = render_template(
+                TemplateName.WIND_DOWN, objective=edict.goal,
+            )
+            state = state.with_consultation_advice(wind_down_prompt)
+            await emit_audit(
+                ctx.bus, ctx.storage, edict.id, memorial.id,
+                "edict.wind_down.entered",
+                {"usage_ratio": usage_ratio, "trigger": "soft_landing"},
+            )
+        # ---- 预算检查结束 ----
 
         # 1. actor
         override = derive_actor_override(state, edict)
