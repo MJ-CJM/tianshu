@@ -14,6 +14,7 @@ from tianshu.executor.orchestrator.templates import (
     TemplateName,
     render_template,
 )
+from tianshu.llm import LLMClient
 from tianshu.models.acceptance import AcceptanceCriteria
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,8 @@ class AuditResult:
     gaps: tuple[AuditGap, ...]
 
 
+# 非贪婪：在最近的 } 加 ``` 处停下；如 LLM 在 JSON 内部夹了 ``` 导致截断，
+# 后续 json.loads 会抛、走 _meta retry 兜底。
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 _JSON_LOOSE = re.compile(r"\{[\s\S]*\}")
 
@@ -116,7 +119,7 @@ async def run_completion_audit(
     actor_output: str,
     objective: str,
     acceptance: AcceptanceCriteria,
-    llm,  # LLMClient-like; 调用 chat(messages) -> response.content
+    llm: LLMClient,
 ) -> AuditResult:
     """跑一次完成审计；JSON 解析失败时重试 1 次。"""
     audit_prompt = render_template(
