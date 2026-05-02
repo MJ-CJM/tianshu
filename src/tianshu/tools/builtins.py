@@ -87,6 +87,7 @@ def register_builtins(
             },
             tier=ToolTier.T4_DANGEROUS.value,
             max_result_chars=16000,
+            side_effect=True,
         ),
     )
 
@@ -152,6 +153,7 @@ def register_builtins(
                 "required": ["path", "content"],
             },
             tier=ToolTier.T1_WORKSPACE.value,
+            side_effect=True,
         ),
     )
 
@@ -172,9 +174,9 @@ def register_builtins(
     build_engines(storage=storage)
     register_hongluisi(registry, edict_getter=get_current_edict)
 
-    # === 颁敕工具：让助手 LLM 在对话中创建独立敕令 ===
-    # 默认注册到 registry，但 persona.tools_allowed 不含则不可见；
-    # 通政司 enable_edict_submission toggle 控制是否注入到助手 persona。
+    # === 敕令管理工具集：让助手 LLM 在对话中颁敕、查阅、追踪 ===
+    # 默认注册到 registry，但通政司 enable_edict_submission toggle 控制启用；
+    # submit_edict（写）、list_edicts / get_edict_status（读）作为同一捆绑能力。
     if storage is not None and event_bus is not None:
         from tianshu.tools.submit_edict import register_submit_edict
         register_submit_edict(
@@ -183,3 +185,6 @@ def register_builtins(
             event_bus=event_bus,
             persona_loader=persona_loader,
         )
+    if storage is not None:
+        from tianshu.tools.edict_query import register_edict_query
+        register_edict_query(registry, storage=storage)

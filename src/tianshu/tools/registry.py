@@ -20,6 +20,7 @@ class ToolDefinition(BaseModel):
     parameters: dict
     tier: int = 0  # T0-T3, Phase 0: label only, no runtime interception
     max_result_chars: int = 8000  # Per-tool result truncation limit
+    side_effect: bool = False  # True = modifies state; intercepted in winding_down phase
 
 
 class ToolRegistry:
@@ -80,7 +81,9 @@ class ToolRegistry:
         entry = self._tools.get(name)
         return entry[0] if entry else None
 
-    async def execute(self, name: str, args: str | dict) -> ToolResult:
+    async def execute(
+        self, name: str, args: str | dict, lifecycle_phase: str = "active"
+    ) -> ToolResult:
         # Spec Section 2: function-local import to avoid top-level circular dependency
         from tianshu.tools.types import ToolTier
 
@@ -100,6 +103,16 @@ class ToolRegistry:
             )
             # 动态覆盖这一次调用的 tier（不改 registry 里的定义，避免副作用）
             defn = defn.model_copy(update={"tier": ToolTier.T4_DANGEROUS.value})
+
+        # winding_down gate: block side-effect tools when lifecycle is winding down
+        if lifecycle_phase == "winding_down" and defn.side_effect:
+            return ToolResult(
+                content=(
+                    f"工具 '{name}' 被 winding_down 阶段拦截：本任务已进入收尾阶段，"
+                    f"不允许副作用工具调用。请改用只读工具完成总结/交接。"
+                ),
+                is_error=True,
+            )
 
         try:
             if isinstance(args, str):

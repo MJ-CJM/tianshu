@@ -176,6 +176,7 @@ def register_submit_edict(
             },
             tier=ToolTier.T2_NETWORK.value,
             max_result_chars=1024,
+            side_effect=True,
         ),
     )
 

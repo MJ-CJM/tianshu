@@ -402,7 +402,11 @@ class Agent:
                         await stream_callback.on_tool_call_start(tc["name"])
                     try:
                         with bind_edict(edict), bind_persona(persona):
-                            tool_result = await self._tools.execute(tc["name"], tc["args"])
+                            tool_result = await self._tools.execute(
+                                tc["name"],
+                                tc["args"],
+                                lifecycle_phase=edict.runtime.lifecycle_phase,
+                            )
                     except Exception as tool_err:
                         tool_result = ToolResult(content=f"Tool error: {tool_err}", is_error=True)
                     if stream_callback:
@@ -552,12 +556,16 @@ class Agent:
 
     @staticmethod
     def _accumulate_usage(total: UsageSummary, delta: UsageSummary) -> UsageSummary:
+        # actual_model / upstream_provider 取最新非空值：
+        # 多轮 tool round-trip 通常一致；fallback 切换模型时保留切后值更能反映实际消耗。
         return UsageSummary(
             prompt_tokens=total.prompt_tokens + delta.prompt_tokens,
             completion_tokens=total.completion_tokens + delta.completion_tokens,
             total_tokens=total.total_tokens + delta.total_tokens,
             cache_read_tokens=total.cache_read_tokens + delta.cache_read_tokens,
             cost_cny=total.cost_cny + delta.cost_cny,
+            actual_model=delta.actual_model or total.actual_model,
+            upstream_provider=delta.upstream_provider or total.upstream_provider,
         )
 
 

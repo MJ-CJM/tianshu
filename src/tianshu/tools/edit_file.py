@@ -100,5 +100,6 @@ def register_edit_file(registry: ToolRegistry, workspace: Path) -> None:
                 "required": ["path", "old_text", "new_text"],
             },
             tier=ToolTier.T1_WORKSPACE.value,
+            side_effect=True,
         ),
     )

@@ -344,5 +344,6 @@ def register_memory_tools(
             },
             tier=ToolTier.T1_WORKSPACE.value,
             max_result_chars=2000,
+            side_effect=True,
         ),
     )

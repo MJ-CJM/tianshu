@@ -289,6 +289,7 @@ def _register_api_request(registry, edict_getter):
             },
             tier=ToolTier.T2_NETWORK.value,
             max_result_chars=16000,
+            side_effect=True,
         ),
     )
 

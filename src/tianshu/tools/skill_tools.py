@@ -311,5 +311,6 @@ def register_skill_tools(
                 "required": ["action", "name"],
             },
             tier=ToolTier.T1_WORKSPACE.value,
+            side_effect=True,
         ),
     )
