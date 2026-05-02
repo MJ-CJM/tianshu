@@ -9,15 +9,30 @@ from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.checkpoint import OuterLoopCheckpoint
+from tianshu.executor.orchestrator.audit import (  # noqa: F401
+    format_gaps_for_continuation,
+    run_completion_audit,
+)
+from tianshu.executor.orchestrator.budget import (  # noqa: F401
+    BudgetSnapshot,
+    HARD_LIMIT,
+    SOFT_LANDING_THRESHOLD,
+    compute_usage_ratio,
+)
 from tianshu.executor.orchestrator.checks import ChecksConfigError, run_checks
 from tianshu.executor.orchestrator.critic import CriticUnavailable, review
 from tianshu.executor.orchestrator.escalation import decide_escalation
+from tianshu.executor.orchestrator.lifecycle import apply_transition  # noqa: F401
 from tianshu.executor.orchestrator.persistence import emit_audit, persist_iteration
 from tianshu.executor.orchestrator.supervision import generate_supervision_report
 from tianshu.executor.orchestrator.state import (
     CriticResult,
     IterationRecord,
     OuterLoopState,
+)
+from tianshu.executor.orchestrator.templates import (  # noqa: F401
+    TemplateName,
+    render_template,
 )
 from tianshu.llm import LLMClient
 from tianshu.models.common import TaskStatus, UsageSummary
@@ -386,9 +401,50 @@ async def run(
             },
         )
 
-        # 4. PASS → 收工（除非 min_outer_iterations 未满，进入"持续优化"模式）
+        # 4. PASS → completion audit 门 → 收工（除非 min_outer_iterations 未满，进入"持续优化"模式）
         if critic_result and critic_result.verdict == "pass":
             state = state.advance(record)
+
+            # ---- completion audit 门 ----
+            audit_result = await run_completion_audit(
+                actor_output=actor_output,
+                objective=edict.goal,
+                acceptance=acceptance,
+                llm=ctx.critic_llm,
+            )
+            await emit_audit(
+                ctx.bus, ctx.storage, edict.id, memorial.id,
+                "edict.audit.executed",
+                {
+                    "passed": audit_result.passed,
+                    "gaps_count": len(audit_result.gaps),
+                    "iteration": state.iteration,
+                },
+            )
+            if not audit_result.passed:
+                # 把 gaps 反哺为下一轮 actor 的续转 prompt
+                gaps_text = format_gaps_for_continuation(audit_result.gaps)
+                continuation = render_template(
+                    TemplateName.CONTINUATION,
+                    objective=edict.goal,
+                    critic_feedback=None,
+                    audit_gaps=gaps_text,
+                )
+                state = state.with_consultation_advice(continuation)
+                await emit_audit(
+                    ctx.bus, ctx.storage, edict.id, memorial.id,
+                    "edict.continuation.injected",
+                    {
+                        "iteration": state.iteration,
+                        "has_critic_feedback": False,
+                        "has_audit_gaps": True,
+                    },
+                )
+                if edict.execution_profile in ("checkpointed", "background"):
+                    _save_checkpoint(ctx, state)
+                continue  # 进入下一轮 outer iter
+            # ---- audit 通过：保留原有"持续优化模式" + finalize 逻辑不变 ----
+
             min_iter = getattr(acceptance, "min_outer_iterations", 1) or 1
             if state.iteration < min_iter:
                 # 持续优化：把 critic 的 improvement_hints 注入下一轮 actor

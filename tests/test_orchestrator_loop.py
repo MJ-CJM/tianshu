@@ -37,13 +37,24 @@ def bus():
     return b
 
 
+_AUDIT_PASS_JSON = json.dumps({"passed": True, "gaps": []})
+
+
 def _make_ctx(storage, bus, agent, critic_responses):
-    """critic_responses = list[dict] 按调用次序返回 verdict/issue_class/feedback。"""
+    """critic_responses = list[dict] 按调用次序返回 verdict/issue_class/feedback。
+
+    critic pass 后 orchestrator 会调用同一 critic_llm 跑 completion audit；
+    此处在每个 pass 响应之后自动插入一个合法的 audit-pass JSON，保证 mock 顺序正确。
+    """
     actor_llm = MagicMock()
     critic_llm = MagicMock()
-    critic_llm.chat = AsyncMock(side_effect=[
-        MagicMock(content=json.dumps(r)) for r in critic_responses
-    ])
+    side_effects = []
+    for r in critic_responses:
+        side_effects.append(MagicMock(content=json.dumps(r)))
+        if r.get("verdict") == "pass":
+            # audit 门：复用 critic_llm，需要额外一次返回合法 audit JSON
+            side_effects.append(MagicMock(content=_AUDIT_PASS_JSON))
+    critic_llm.chat = AsyncMock(side_effect=side_effects)
     return OrchestratorContext(
         agent=agent, storage=storage, bus=bus,
         actor_llm=actor_llm, critic_llm=critic_llm,
@@ -150,7 +161,13 @@ async def test_critic_unavailable_skip(storage, bus):
     actor = _agent(["v1"])
     actor_llm = MagicMock()
     critic_llm = MagicMock()
-    critic_llm.chat = AsyncMock(side_effect=RuntimeError("critic down"))
+    # critic._review_single 会重试 max_retries=2 次，全部 RuntimeError → CriticUnavailable → skip → verdict=pass
+    # 再往后 audit 门复用同一 critic_llm，需要合法 audit-pass JSON
+    critic_llm.chat = AsyncMock(side_effect=[
+        RuntimeError("critic down"),  # critic attempt 0
+        RuntimeError("critic down"),  # critic attempt 1 (max_retries=2)
+        MagicMock(content=_AUDIT_PASS_JSON),  # audit call
+    ])
     ctx = OrchestratorContext(
         agent=actor, storage=storage, bus=bus,
         actor_llm=actor_llm, critic_llm=critic_llm,
