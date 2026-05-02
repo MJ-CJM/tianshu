@@ -89,3 +89,21 @@ async def test_resume_complete_edict_returns_409(client):
 
     resp = await client.post(f"/api/edicts/{eid}/resume")
     assert resp.status_code == 409
+
+
+async def test_pause_winding_down_edict_returns_409(client):
+    """winding_down edict 不能 pause（保护预算约束）。"""
+    eid = await _create_edict(client)
+    storage = client._transport.app.state.storage
+    storage.update_edict_lifecycle_phase(eid, "winding_down")
+    resp = await client.post(f"/api/edicts/{eid}/pause")
+    assert resp.status_code == 409
+
+
+async def test_resume_winding_down_edict_returns_409(client):
+    """winding_down edict 不能 resume（必须等收尾完）。"""
+    eid = await _create_edict(client)
+    storage = client._transport.app.state.storage
+    storage.update_edict_lifecycle_phase(eid, "winding_down")
+    resp = await client.post(f"/api/edicts/{eid}/resume")
+    assert resp.status_code == 409

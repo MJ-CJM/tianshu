@@ -248,7 +248,7 @@ async def delete_edict(edict_id: str, request: Request):
 
 @gateway_router.post("/edicts/{edict_id}/pause", response_model=ApiResponse)
 async def pause_edict(edict_id: str, request: Request):
-    """暂停一个 active/winding_down 状态的 edict。complete 状态返回 409。幂等：已 paused 直接返回 200。"""
+    """暂停一个 active 状态的 edict。complete/winding_down 状态返回 409。幂等：已 paused 直接返回 200。"""
     storage: Storage = request.app.state.storage
     edict = storage.get_edict(edict_id)
     if not edict:
@@ -256,6 +256,11 @@ async def pause_edict(edict_id: str, request: Request):
     phase = edict.runtime.lifecycle_phase
     if phase == "complete":
         raise HTTPException(status_code=409, detail="cannot pause a completed edict")
+    if phase == "winding_down":
+        raise HTTPException(
+            status_code=409,
+            detail="cannot pause a winding_down edict; let it finish or wait for completion",
+        )
     if phase == "paused":
         return ApiResponse(success=True, data={"id": edict_id, "lifecycle_phase": "paused"})
     storage.update_edict_lifecycle_phase(edict_id, "paused")
@@ -269,7 +274,7 @@ async def pause_edict(edict_id: str, request: Request):
 
 @gateway_router.post("/edicts/{edict_id}/resume", response_model=ApiResponse)
 async def resume_edict(edict_id: str, request: Request):
-    """恢复一个 paused 状态的 edict 为 active。complete 状态返回 409。幂等：已 active 直接返回 200。"""
+    """恢复一个 paused 状态的 edict 为 active。complete/winding_down 状态返回 409。幂等：已 active 直接返回 200。"""
     storage: Storage = request.app.state.storage
     edict = storage.get_edict(edict_id)
     if not edict:
@@ -277,6 +282,11 @@ async def resume_edict(edict_id: str, request: Request):
     phase = edict.runtime.lifecycle_phase
     if phase == "complete":
         raise HTTPException(status_code=409, detail="cannot resume a completed edict")
+    if phase == "winding_down":
+        raise HTTPException(
+            status_code=409,
+            detail="cannot resume a winding_down edict; it must finish first",
+        )
     if phase == "active":
         return ApiResponse(success=True, data={"id": edict_id, "lifecycle_phase": "active"})
     storage.update_edict_lifecycle_phase(edict_id, "active")
