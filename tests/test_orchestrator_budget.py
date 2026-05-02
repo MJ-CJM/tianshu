@@ -6,6 +6,7 @@ import pytest
 from tianshu.executor.orchestrator.budget import (
     BudgetSnapshot,
     compute_usage_ratio,
+    dominant_dimension,
     HARD_LIMIT,
     SOFT_LANDING_THRESHOLD,
 )
@@ -73,3 +74,24 @@ def test_negative_used_returns_zero_not_negative():
         time_used_seconds=0, deadline_seconds=None,
     )
     assert compute_usage_ratio(snap) == 0.0
+
+
+# --- dominant_dimension tests ---
+
+def test_dominant_dimension_returns_none_when_no_budgets():
+    snap = BudgetSnapshot(0, None, 0, None, 0, None)
+    assert dominant_dimension(snap) is None
+
+
+def test_dominant_dimension_picks_tokens_when_only_tokens_set():
+    snap = BudgetSnapshot(900, 1000, 0, None, 0, None)
+    assert dominant_dimension(snap) == "tokens"
+
+
+def test_dominant_dimension_picks_max_dimension():
+    snap = BudgetSnapshot(
+        tokens_used=100, token_budget=1000,           # 0.1
+        cost_used_cny=0.95, cost_budget_cny=1.0,       # 0.95
+        time_used_seconds=10, deadline_seconds=300,    # 0.033
+    )
+    assert dominant_dimension(snap) == "cost"

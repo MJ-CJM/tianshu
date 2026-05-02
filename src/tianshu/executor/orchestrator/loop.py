@@ -18,6 +18,7 @@ from tianshu.executor.orchestrator.budget import (
     HARD_LIMIT,
     SOFT_LANDING_THRESHOLD,
     compute_usage_ratio,
+    dominant_dimension,
 )
 from tianshu.executor.orchestrator.checks import ChecksConfigError, run_checks
 from tianshu.executor.orchestrator.critic import CriticUnavailable, review
@@ -359,7 +360,11 @@ async def run(
                     await emit_audit(
                         ctx.bus, ctx.storage, edict.id, memorial.id,
                         "edict.wind_down.entered",
-                        {"usage_ratio": usage_ratio, "trigger": "hard_limit"},
+                        {
+                            "usage_ratio": usage_ratio,
+                            "trigger_field": dominant_dimension(budget_snap) or "unknown",
+                            "threshold_type": "hard_limit",
+                        },
                     )
                 # else: 转移被拒（如 phase=paused），保持现状继续 actor turn
             else:
@@ -391,7 +396,11 @@ async def run(
                 await emit_audit(
                     ctx.bus, ctx.storage, edict.id, memorial.id,
                     "edict.wind_down.entered",
-                    {"usage_ratio": usage_ratio, "trigger": "soft_landing"},
+                    {
+                        "usage_ratio": usage_ratio,
+                        "trigger_field": dominant_dimension(budget_snap) or "unknown",
+                        "threshold_type": "soft_landing",
+                    },
                 )
         # ---- 预算检查结束 ----
 

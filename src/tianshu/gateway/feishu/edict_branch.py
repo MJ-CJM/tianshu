@@ -160,6 +160,7 @@ class EdictBranch:
             await self._reply(msg.chat_id, f"敕令 #{edict.id[:8]} 已 {format_status_label(edict.status)}，无需取消")
             return
         self._storage.update_edict_status(edict.id, EdictStatus.CANCELLED.value)
+        self._storage.update_edict_lifecycle_phase(edict.id, "complete")
         # 如果取消的是当前 anchor 敕令，清 anchor
         if edict.id == self._anchor.get(msg.chat_id):
             self._storage.delete_feishu_anchor(msg.chat_id)

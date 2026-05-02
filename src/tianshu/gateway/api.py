@@ -453,6 +453,8 @@ async def update_edict_status(edict_id: str, body: EdictStatusUpdateRequest, req
     if not edict:
         raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
     storage.update_edict_status(edict_id, body.status.value)
+    if body.status.value == "cancelled":
+        storage.update_edict_lifecycle_phase(edict_id, "complete")
     storage.append_event(edict_id, None, "edict.closed", {"status": body.status.value})
     edict.status = body.status
     return ApiResponse(success=True, data=edict.model_dump(mode="json"))

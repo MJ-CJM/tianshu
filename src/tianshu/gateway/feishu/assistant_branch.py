@@ -213,6 +213,7 @@ class AssistantBranch:
             )
             return
         self._storage.update_edict_status(edict.id, EdictStatus.CANCELLED.value)
+        self._storage.update_edict_lifecycle_phase(edict.id, "complete")
         await self._reply(msg.chat_id, self._renderer.edict_cancel_reply(edict.id))
 
     async def _cmd_clear(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:

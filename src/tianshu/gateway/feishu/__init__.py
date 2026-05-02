@@ -422,6 +422,7 @@ class FeishuBot:
                 await self._reply(msg.chat_id, f"敕令 #{target[:8]} 不存在")
                 return
             self._storage.update_edict_status(edict.id, EdictStatus.CANCELLED.value)
+            self._storage.update_edict_lifecycle_phase(edict.id, "complete")
             await self._reply(msg.chat_id, f"✅ 敕令 #{edict.id[:8]} 已取消")
             return
 

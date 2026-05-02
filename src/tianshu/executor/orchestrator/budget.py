@@ -39,3 +39,16 @@ def compute_usage_ratio(snap: BudgetSnapshot) -> float:
     if not set_values:
         return 0.0
     return max(set_values)
+
+
+def dominant_dimension(snap: BudgetSnapshot) -> str | None:
+    """返回 ratio 最大的维度名（tokens/cost/time），全部缺省返 None。"""
+    candidates = [
+        ("tokens", _ratio(snap.tokens_used, snap.token_budget)),
+        ("cost", _ratio(snap.cost_used_cny, snap.cost_budget_cny)),
+        ("time", _ratio(snap.time_used_seconds, snap.deadline_seconds)),
+    ]
+    set_values = [(name, r) for name, r in candidates if r is not None]
+    if not set_values:
+        return None
+    return max(set_values, key=lambda nr: nr[1])[0]
