@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,6 +16,8 @@ from tianshu.models.common import TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
+
+_AUDIT_PASS_JSON = json.dumps({"passed": True, "gaps": []})
 
 
 @pytest.mark.integration
@@ -47,9 +50,12 @@ async def test_resume_from_checkpoint(tmp_path):
     ))
     actor_llm = MagicMock()
     critic_llm = MagicMock()
-    critic_llm.chat = AsyncMock(return_value=MagicMock(
-        content='{"verdict": "pass", "feedback": "good"}',
-    ))
+    # Task 9 加了 completion audit 门，critic pass 后会再调一次 critic_llm 跑 audit；
+    # 需要在 critic-pass 响应后追加 audit-pass JSON，否则 audit 解析失败导致无限续转。
+    critic_llm.chat = AsyncMock(side_effect=[
+        MagicMock(content='{"verdict": "pass", "feedback": "good"}'),
+        MagicMock(content=_AUDIT_PASS_JSON),
+    ])
     ctx = OrchestratorContext(
         agent=actor, storage=storage, bus=bus,
         actor_llm=actor_llm, critic_llm=critic_llm,

@@ -343,11 +343,44 @@ async def run(
 
         if usage_ratio >= HARD_LIMIT:
             if cur_phase != "winding_down":
-                apply_transition(
+                result = apply_transition(
                     ctx.storage, ctx.bus, edict.id, memorial.id,
                     cur_phase, "winding_down",
                     reason=f"hard_limit_reached usage_ratio={usage_ratio:.2f}",
                 )
+                if result is not None:
+                    edict = edict.model_copy(update={
+                        "runtime": edict.runtime.model_copy(update={"lifecycle_phase": "winding_down"})
+                    })
+                    wind_down_prompt = render_template(
+                        TemplateName.WIND_DOWN, objective=edict.goal,
+                    )
+                    state = state.with_consultation_advice(wind_down_prompt)
+                    await emit_audit(
+                        ctx.bus, ctx.storage, edict.id, memorial.id,
+                        "edict.wind_down.entered",
+                        {"usage_ratio": usage_ratio, "trigger": "hard_limit"},
+                    )
+                # else: 转移被拒（如 phase=paused），保持现状继续 actor turn
+            else:
+                # 已经 wind_down 过一次仍超额，强制 finalize
+                result = apply_transition(
+                    ctx.storage, ctx.bus, edict.id, memorial.id,
+                    "winding_down", "complete",
+                    reason="budget_exhausted",
+                )
+                if result is not None:
+                    return await _finalize_with_supervision(
+                        state, edict, ctx, memorial,
+                        TaskStatus.FAILED, None, error="budget_exhausted",
+                    )
+        elif usage_ratio >= SOFT_LANDING_THRESHOLD and cur_phase == "active":
+            result = apply_transition(
+                ctx.storage, ctx.bus, edict.id, memorial.id,
+                cur_phase, "winding_down",
+                reason=f"soft_landing_threshold usage_ratio={usage_ratio:.2f}",
+            )
+            if result is not None:
                 edict = edict.model_copy(update={
                     "runtime": edict.runtime.model_copy(update={"lifecycle_phase": "winding_down"})
                 })
@@ -358,37 +391,8 @@ async def run(
                 await emit_audit(
                     ctx.bus, ctx.storage, edict.id, memorial.id,
                     "edict.wind_down.entered",
-                    {"usage_ratio": usage_ratio, "trigger": "hard_limit"},
+                    {"usage_ratio": usage_ratio, "trigger": "soft_landing"},
                 )
-            else:
-                # 已经 wind_down 过一次仍超额，强制 finalize
-                apply_transition(
-                    ctx.storage, ctx.bus, edict.id, memorial.id,
-                    "winding_down", "complete",
-                    reason="budget_exhausted",
-                )
-                return await _finalize_with_supervision(
-                    state, edict, ctx, memorial,
-                    TaskStatus.FAILED, None, error="budget_exhausted",
-                )
-        elif usage_ratio >= SOFT_LANDING_THRESHOLD and cur_phase == "active":
-            apply_transition(
-                ctx.storage, ctx.bus, edict.id, memorial.id,
-                cur_phase, "winding_down",
-                reason=f"soft_landing_threshold usage_ratio={usage_ratio:.2f}",
-            )
-            edict = edict.model_copy(update={
-                "runtime": edict.runtime.model_copy(update={"lifecycle_phase": "winding_down"})
-            })
-            wind_down_prompt = render_template(
-                TemplateName.WIND_DOWN, objective=edict.goal,
-            )
-            state = state.with_consultation_advice(wind_down_prompt)
-            await emit_audit(
-                ctx.bus, ctx.storage, edict.id, memorial.id,
-                "edict.wind_down.entered",
-                {"usage_ratio": usage_ratio, "trigger": "soft_landing"},
-            )
         # ---- 预算检查结束 ----
 
         # 1. actor
