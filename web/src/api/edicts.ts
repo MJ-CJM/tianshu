@@ -143,3 +143,21 @@ export async function updateEdictStatus(
   );
   return data;
 }
+
+export async function pauseEdict(
+  edictId: string,
+): Promise<ApiResponse<{ id: string; lifecycle_phase: string }>> {
+  const { data } = await apiClient.post<ApiResponse<{ id: string; lifecycle_phase: string }>>(
+    `/edicts/${edictId}/pause`,
+  );
+  return data;
+}
+
+export async function resumeEdict(
+  edictId: string,
+): Promise<ApiResponse<{ id: string; lifecycle_phase: string }>> {
+  const { data } = await apiClient.post<ApiResponse<{ id: string; lifecycle_phase: string }>>(
+    `/edicts/${edictId}/resume`,
+  );
+  return data;
+}

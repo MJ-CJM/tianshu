@@ -15,6 +15,8 @@ export interface UsageSummary {
   total_tokens: number;
   cache_read_tokens?: number;
   cost_cny?: number;
+  actual_model?: string | null;
+  upstream_provider?: string | null;
 }
 
 export type EdictStatus = "open" | "completed" | "cancelled";
@@ -46,6 +48,7 @@ export interface EdictRuntime {
   policy_profile?: EdictPolicyProfile | null;
   api_request_hosts?: string[];
   api_request_write_hosts?: string[];
+  lifecycle_phase: "active" | "paused" | "winding_down" | "complete";
 }
 
 export interface ArtifactRef {

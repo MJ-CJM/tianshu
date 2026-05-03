@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button, Input, Modal, Spin, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme } from "antd";
-import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined } from "@ant-design/icons";
 import { useEdictDetail } from "../hooks/useEdictDetail";
-import { followUpEdict, updateEdictStatus, updateEdict, approvePlan, rejectPlan } from "../api/edicts";
+import { followUpEdict, updateEdictStatus, updateEdict, approvePlan, rejectPlan, pauseEdict, resumeEdict } from "../api/edicts";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
 import MonoText from "../components/common/MonoText";
@@ -110,7 +110,7 @@ export default function EdictDetailPage() {
   const canFollowUp = edict?.status === "open" && !hasActiveMemorial && !hasPendingReview;
 
   const aggregatedUsage = useMemo<UsageSummary>(() => {
-    return memorials.reduce(
+    return memorials.reduce<UsageSummary>(
       (acc, m) => ({
         prompt_tokens: acc.prompt_tokens + (m.usage?.prompt_tokens ?? 0),
         completion_tokens: acc.completion_tokens + (m.usage?.completion_tokens ?? 0),
@@ -118,6 +118,11 @@ export default function EdictDetailPage() {
         cache_read_tokens:
           (acc.cache_read_tokens ?? 0) + (m.usage?.cache_read_tokens ?? 0),
         cost_cny: (acc.cost_cny ?? 0) + (m.usage?.cost_cny ?? 0),
+        // 取最近一条 memorial 的非空回显，跟后端 _accumulate_usage 语义一致
+        // （多轮一致；fallback 切了模型时保留切后值）
+        actual_model: m.usage?.actual_model ?? acc.actual_model ?? null,
+        upstream_provider:
+          m.usage?.upstream_provider ?? acc.upstream_provider ?? null,
       }),
       {
         prompt_tokens: 0,
@@ -125,6 +130,8 @@ export default function EdictDetailPage() {
         total_tokens: 0,
         cache_read_tokens: 0,
         cost_cny: 0,
+        actual_model: null,
+        upstream_provider: null,
       },
     );
   }, [memorials]);
@@ -173,6 +180,30 @@ export default function EdictDetailPage() {
       message.success("敕令已废除");
     } catch {
       message.error("废除失败");
+    }
+  };
+
+  const handlePause = async () => {
+    if (!edictId) return;
+    try {
+      await pauseEdict(edictId);
+      refetch();
+      message.success("敕令已暂停");
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(detail ? `暂停失败：${detail}` : "暂停失败");
+    }
+  };
+
+  const handleResume = async () => {
+    if (!edictId) return;
+    try {
+      await resumeEdict(edictId);
+      refetch();
+      message.success("敕令已恢复");
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      message.error(detail ? `恢复失败：${detail}` : "恢复失败");
     }
   };
 
@@ -255,6 +286,21 @@ export default function EdictDetailPage() {
             <Tag color={EDICT_STATUS_COLORS[edict.status]}>
               {EDICT_STATUS_LABELS[edict.status]}
             </Tag>
+            {edict.runtime.lifecycle_phase !== "active" && (
+              <Tag
+                color={
+                  edict.runtime.lifecycle_phase === "paused"
+                    ? "warning"
+                    : edict.runtime.lifecycle_phase === "winding_down"
+                    ? "orange"
+                    : "default"
+                }
+              >
+                {edict.runtime.lifecycle_phase === "paused" && "已暂停"}
+                {edict.runtime.lifecycle_phase === "winding_down" && "收尾中"}
+                {edict.runtime.lifecycle_phase === "complete" && "已终结"}
+              </Tag>
+            )}
             {edict.status === "open" && (
               <Button
                 type="text"
@@ -621,6 +667,25 @@ export default function EdictDetailPage() {
             </div>
             {edict.status === "open" && (
               <Space size="small">
+                {edict.runtime.lifecycle_phase === "active" && (
+                  <Button
+                    size="small"
+                    icon={<PauseCircleOutlined />}
+                    onClick={handlePause}
+                  >
+                    暂停
+                  </Button>
+                )}
+                {edict.runtime.lifecycle_phase === "paused" && (
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<PlayCircleOutlined />}
+                    onClick={handleResume}
+                  >
+                    恢复
+                  </Button>
+                )}
                 <Popconfirm
                   title="确认结案？"
                   description="结案后将无法继续下达指令"
@@ -651,6 +716,16 @@ export default function EdictDetailPage() {
 
       {!canFollowUp && edict.status === "open" && (
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginBottom: 24 }}>
+          {edict.runtime.lifecycle_phase === "active" && (
+            <Button icon={<PauseCircleOutlined />} onClick={handlePause}>
+              暂停
+            </Button>
+          )}
+          {edict.runtime.lifecycle_phase === "paused" && (
+            <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleResume}>
+              恢复
+            </Button>
+          )}
           <Popconfirm
             title="确认结案？"
             description="结案后将无法继续下达指令"
