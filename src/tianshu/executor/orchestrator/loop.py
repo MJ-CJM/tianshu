@@ -404,9 +404,12 @@ async def run(
                     reason="budget_exhausted",
                 )
                 if result is not None:
+                    trigger = dominant_dimension(budget_snap) or "unknown"
+                    last_output = state.history[-1].actor_output if state.history else None
                     return await _finalize_with_supervision(
                         state, edict, ctx, memorial,
-                        TaskStatus.FAILED, None, error="budget_exhausted",
+                        TaskStatus.FAILED, last_output,
+                        error=f"budget_exhausted: {trigger} (usage_ratio={usage_ratio:.2f})",
                     )
         elif usage_ratio >= SOFT_LANDING_THRESHOLD and cur_phase == "active":
             result = apply_transition(
@@ -466,9 +469,10 @@ async def run(
                 acceptance.checks, actor_output, ctx.actor_llm,
             )
         except ChecksConfigError as e:
+            last_output = state.history[-1].actor_output if state.history else actor_output
             return await _finalize_with_supervision(
                 state, edict, ctx, memorial,
-                TaskStatus.FAILED, None,
+                TaskStatus.FAILED, last_output,
                 error=f"checks 配置错: {e}",
             )
 
@@ -640,9 +644,10 @@ async def run(
                 human_decision = await _escalate_to_human(state, edict, ctx, memorial)
                 state, edict, terminal = _apply_human_decision(state, human_decision, edict)
                 if terminal == "abort":
+                    last_output = state.history[-1].actor_output if state.history else None
                     return await _finalize_with_supervision(
                         state, edict, ctx, memorial,
-                        TaskStatus.FAILED, None,
+                        TaskStatus.FAILED, last_output,
                         error="aborted by human",
                     )
                 if terminal == "accept_as_is":
@@ -689,7 +694,7 @@ async def _handle_exhaustion(
     if acceptance.on_exhaustion == "fail":
         return await _finalize_with_supervision(
             state, edict, ctx, memorial,
-            TaskStatus.FAILED, None,
+            TaskStatus.FAILED, last_output,
             error="outer loop exhausted",
         )
     if acceptance.on_exhaustion == "escalate":
@@ -699,7 +704,7 @@ async def _handle_exhaustion(
         if terminal == "abort":
             return await _finalize_with_supervision(
                 state, edict, ctx, memorial,
-                TaskStatus.FAILED, None,
+                TaskStatus.FAILED, last_output,
                 error="exhausted + aborted",
             )
         # accept_as_is or None（continue/modify 在 exhausted 后无意义，按 accept 处理）

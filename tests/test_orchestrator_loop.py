@@ -157,6 +157,24 @@ async def test_checks_failed_skips_critic(storage, bus):
 
 
 @pytest.mark.integration
+async def test_failed_keeps_last_actor_output_for_postmortem(storage, bus):
+    """on_exhaustion=fail 时 final_output 应保留最后一轮 actor_output 供尸检。"""
+    ctx = _make_ctx(storage, bus, _agent(["draft v1", "draft v2", "draft v3"]), [
+        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+    ])
+    e = _edict(max_outer_iterations=3, on_exhaustion="fail",
+               escalation=EscalationSpec(enabled_levels=[]))
+    storage.save_edict(e)
+    r = await run(e, _memorial(e.id), ctx)
+    assert r.status == TaskStatus.FAILED
+    # 即使 FAILED，也要把最后一轮 actor_output 留下来（C 修复）
+    assert r.final_output == "draft v3"
+    assert r.error == "outer loop exhausted"
+
+
+@pytest.mark.integration
 async def test_critic_unavailable_skip(storage, bus):
     """critic 不可用 + skip → audit 退化为 actor_llm 自审（spec §7）。"""
     actor = _agent(["v1"])
