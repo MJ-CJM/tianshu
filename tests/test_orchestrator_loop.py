@@ -260,3 +260,105 @@ async def test_l3_modify_acceptance_resets_streak(storage, bus):
     # modify_acceptance 后回 L0 重跑，最终通过
     assert r.status == TaskStatus.COMPLETED
     assert r.final_output == "v4"
+
+
+# ---- pause 等待循环：paused → resume 续跑、paused → 终结干净退出 ----
+
+@pytest.mark.integration
+async def test_pause_then_resume_continues_loop(storage, bus, monkeypatch):
+    """paused 状态下 outer loop 应等待，resume 后续跑并最终 COMPLETED。"""
+    import asyncio
+
+    monkeypatch.setattr(
+        "tianshu.executor.orchestrator.loop.PAUSE_POLL_INTERVAL_SECONDS",
+        0.01,
+    )
+
+    ctx = _make_ctx(storage, bus, _agent(["draft v1"]), [
+        {"verdict": "pass", "feedback": "ok"},
+    ])
+    e = _edict()
+    storage.save_edict(e)
+    # 创建后立即切到 paused（模拟用户已点暂停）
+    storage.update_edict_lifecycle_phase(e.id, "paused")
+
+    # 后台 task 在 100ms 后把 lifecycle 切回 active（模拟用户恢复）
+    async def _delayed_resume():
+        await asyncio.sleep(0.1)
+        storage.update_edict_lifecycle_phase(e.id, "active")
+
+    resume_task = asyncio.create_task(_delayed_resume())
+    r = await run(e, _memorial(e.id), ctx)
+    await resume_task
+
+    assert r.status == TaskStatus.COMPLETED, f"应正常完成，得到 {r.status}"
+    assert r.final_output == "draft v1"
+    assert r.state.iteration == 1
+
+
+@pytest.mark.integration
+async def test_pause_then_complete_externally_returns_cancelled(storage, bus, monkeypatch):
+    """paused 状态下 lifecycle 被外部切到 complete（如 cancel），应干净 CANCELLED 退出。"""
+    import asyncio
+
+    monkeypatch.setattr(
+        "tianshu.executor.orchestrator.loop.PAUSE_POLL_INTERVAL_SECONDS",
+        0.01,
+    )
+
+    ctx = _make_ctx(storage, bus, _agent(["never run"]), [])
+    e = _edict()
+    storage.save_edict(e)
+    storage.update_edict_lifecycle_phase(e.id, "paused")
+
+    async def _delayed_complete():
+        await asyncio.sleep(0.1)
+        storage.update_edict_lifecycle_phase(e.id, "complete")
+
+    end_task = asyncio.create_task(_delayed_complete())
+    r = await run(e, _memorial(e.id), ctx)
+    await end_task
+
+    assert r.status == TaskStatus.CANCELLED
+    # actor 没被调用过（agent.execute side_effect 未消费）
+    assert ctx.agent.execute.call_count == 0
+
+
+@pytest.mark.integration
+async def test_pause_emits_paused_event_only_once_on_entry(storage, bus, monkeypatch):
+    """outer_loop.paused 事件应只在入场发一次，等待循环里不应重复发。"""
+    import asyncio
+
+    monkeypatch.setattr(
+        "tianshu.executor.orchestrator.loop.PAUSE_POLL_INTERVAL_SECONDS",
+        0.01,
+    )
+
+    ctx = _make_ctx(storage, bus, _agent(["v1"]), [
+        {"verdict": "pass", "feedback": "ok"},
+    ])
+    e = _edict()
+    storage.save_edict(e)
+    storage.update_edict_lifecycle_phase(e.id, "paused")
+
+    async def _delayed_resume():
+        # 多 sleep 几次保证经过多轮 PAUSE_POLL_INTERVAL_SECONDS
+        await asyncio.sleep(0.15)
+        storage.update_edict_lifecycle_phase(e.id, "active")
+
+    resume_task = asyncio.create_task(_delayed_resume())
+    await run(e, _memorial(e.id), ctx)
+    await resume_task
+
+    # 数 storage 里的 outer_loop.paused 事件
+    paused_events = [
+        ev for ev in storage.get_events(e.id)
+        if ev["event_type"] == "outer_loop.paused"
+    ]
+    assert len(paused_events) == 1, f"应只发一次入场事件，实际 {len(paused_events)} 次"
+    # 续跑后应有恢复事件
+    resumed_events = [
+        ev for ev in storage.get_events(e.id)
+        if ev["event_type"] == "outer_loop.resumed"
+    ]
+    assert len(resumed_events) == 1

@@ -37,6 +37,9 @@ from tianshu.executor.orchestrator.templates import (
 )
 from tianshu.llm import LLMClient
 from tianshu.models.common import TaskStatus, UsageSummary
+
+# pause 等待轮询间隔。短一点用户体感快、长一点 DB 压力小。
+PAUSE_POLL_INTERVAL_SECONDS: float = 2.0
 from tianshu.models.edict import Edict
 from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
@@ -310,9 +313,10 @@ async def run(
             {"iteration": state.iteration, "level": state.current_level},
         )
 
-        # ---- NEW: 检查用户是否手动 pause ----
+        # ---- NEW: 检查用户是否手动 pause —— 等待恢复后续跑，不退出 loop ----
         latest_edict = ctx.storage.get_edict(edict.id)
         if latest_edict and latest_edict.runtime.lifecycle_phase == "paused":
+            # 入场：仅首次进入 paused 时发事件 + checkpoint
             await emit_audit(
                 ctx.bus, ctx.storage, edict.id, memorial.id,
                 "outer_loop.paused",
@@ -320,12 +324,37 @@ async def run(
             )
             if edict.execution_profile in ("checkpointed", "background"):
                 _save_checkpoint(ctx, state)
-            return OrchestratorResult(
-                status=TaskStatus.NEEDS_REVIEW,
-                final_output=None,
-                state=state,
-                error=None,
-            )
+            # 等待循环：每 PAUSE_POLL_INTERVAL 秒重读 lifecycle，直到 active 或 cancelled
+            while True:
+                await asyncio.sleep(PAUSE_POLL_INTERVAL_SECONDS)
+                latest_edict = ctx.storage.get_edict(edict.id)
+                if not latest_edict:
+                    # edict 被删除，按 cancelled 退出
+                    return OrchestratorResult(
+                        status=TaskStatus.CANCELLED,
+                        final_output=None,
+                        state=state,
+                        error="edict deleted while paused",
+                    )
+                phase = latest_edict.runtime.lifecycle_phase
+                if phase == "active":
+                    # 续跑：发恢复事件，刷新本地 edict 引用，跳出等待
+                    await emit_audit(
+                        ctx.bus, ctx.storage, edict.id, memorial.id,
+                        "outer_loop.resumed",
+                        {"iteration": state.iteration},
+                    )
+                    edict = latest_edict
+                    break
+                if phase == "complete":
+                    # 外部把 edict 终结（cancel / 其他），干净退出
+                    return OrchestratorResult(
+                        status=TaskStatus.CANCELLED,
+                        final_output=None,
+                        state=state,
+                        error="edict ended while paused",
+                    )
+                # phase == "paused" 或 "winding_down" 继续等
         # ---- pause 检查结束 ----
 
         # ---- NEW: 预算检查（usage_ratio）+ 软着陆触发 ----
