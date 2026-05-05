@@ -14,6 +14,12 @@ import {
   BulbOutlined,
   SafetyCertificateOutlined,
   RedoOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+  WarningOutlined,
+  AuditOutlined,
+  RollbackOutlined,
+  SwapOutlined,
 } from "@ant-design/icons";
 import type { EdictEvent } from "../../api/types";
 import GlowCard from "../common/GlowCard";
@@ -134,6 +140,50 @@ const EVENT_CONFIG: Record<
     icon: <StopOutlined />,
     label: "工具拦截",
   },
+  // ↓ Phase 6 长任务相关事件
+  "edict.audit.executed": {
+    color: "#13c2c2",
+    icon: <AuditOutlined />,
+    label: "完成审计",
+  },
+  "edict.continuation.injected": {
+    color: "#722ed1",
+    icon: <RollbackOutlined />,
+    label: "续转反哺",
+  },
+  "edict.wind_down.entered": {
+    color: "#fa8c16",
+    icon: <WarningOutlined />,
+    label: "进入收尾",
+  },
+  "edict.lifecycle.changed": {
+    color: "#1890ff",
+    icon: <SwapOutlined />,
+    label: "生命周期变更",
+  },
+  "outer_loop.paused": {
+    color: "#faad14",
+    icon: <PauseCircleOutlined />,
+    label: "已暂停",
+  },
+  "outer_loop.resumed": {
+    color: "#52c41a",
+    icon: <PlayCircleOutlined />,
+    label: "已恢复",
+  },
+};
+
+const FIELD_LABEL_CN: Record<string, string> = {
+  tokens: "Token",
+  cost: "费用",
+  time: "时间",
+};
+
+const PHASE_LABEL_CN: Record<string, string> = {
+  active: "运行",
+  paused: "暂停",
+  winding_down: "收尾",
+  complete: "终结",
 };
 
 /** Derive a status tag for a group of events */
@@ -253,6 +303,30 @@ function renderTimelineItem(
     iteration !== undefined
   ) {
     detail = `${config.label} #${iteration}`;
+  } else if (event.event_type === "edict.wind_down.entered") {
+    const field = payload.trigger_field as string | undefined;
+    const ratio = payload.usage_ratio as number | undefined;
+    const fieldCN = field && FIELD_LABEL_CN[field] ? FIELD_LABEL_CN[field] : field ?? "?";
+    const pct = ratio != null ? ` (已用 ${Math.round(ratio * 100)}%)` : "";
+    detail = `${config.label}：${fieldCN} 维度${pct}`;
+  } else if (event.event_type === "edict.lifecycle.changed") {
+    const from = payload.from_phase as string | undefined;
+    const to = payload.to_phase as string | undefined;
+    const fromCN = from ? PHASE_LABEL_CN[from] ?? from : "?";
+    const toCN = to ? PHASE_LABEL_CN[to] ?? to : "?";
+    detail = `${config.label}：${fromCN} → ${toCN}`;
+  } else if (event.event_type === "edict.audit.executed") {
+    const passed = payload.passed as boolean | undefined;
+    const gaps = payload.gaps_count as number | undefined;
+    const exec = payload.executor_persona as string | undefined;
+    const passLabel = passed ? "通过" : `未过（${gaps ?? 0} 项缺口）`;
+    const execLabel = exec === "actor_self_audit" ? "actor 自审" : "critic";
+    detail = `${config.label}：${passLabel}，由 ${execLabel}`;
+  } else if (
+    event.event_type === "outer_loop.paused" ||
+    event.event_type === "outer_loop.resumed"
+  ) {
+    detail = iteration !== undefined ? `${config.label} (轮次 ${iteration})` : config.label;
   }
 
   return {

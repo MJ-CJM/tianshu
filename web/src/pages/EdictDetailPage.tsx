@@ -408,8 +408,8 @@ export default function EdictDetailPage() {
                 最多 {edict.acceptance.max_outer_iterations ?? 5} 轮
               </Tag>
               {edict.acceptance.deadline_seconds && (
-                <Tag>
-                  截止 {Math.round(edict.acceptance.deadline_seconds / 60)}分钟
+                <Tag color="gold">
+                  时间预算 {Math.round(edict.acceptance.deadline_seconds / 60)}分钟
                 </Tag>
               )}
               <Tag color="orange">
@@ -493,6 +493,7 @@ export default function EdictDetailPage() {
                     { key: "retry", label: "重试", children: edict.runtime?.retry_limit ?? 0 },
                     { key: "token_budget", label: "Token 预算", children: edict.runtime?.token_budget ?? "不限" },
                     { key: "cost_budget", label: "费用预算", children: edict.runtime?.cost_budget_cny != null ? `¥${edict.runtime.cost_budget_cny}` : "不限" },
+                    { key: "time_budget", label: "时间预算", children: edict.acceptance?.deadline_seconds ? `${Math.round(edict.acceptance.deadline_seconds / 60)} 分钟` : "不限" },
                   ]}
                 />
               ),

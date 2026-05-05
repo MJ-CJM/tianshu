@@ -8,6 +8,7 @@ import { usePersonas } from "../../hooks/usePersonas";
 import GlowCard from "../common/GlowCard";
 import StatusTag from "../edict/StatusTag";
 import { formatDuration } from "../../utils/format";
+import { parseErrorMessage } from "../../utils/errorMessage";
 import { STATUS_COLORS } from "../../utils/constants";
 import glowStyles from "../common/GlowCard.module.css";
 
@@ -145,24 +146,52 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
         </div>
       )}
 
-      {memorial.error && (
-        <div style={{ marginTop: 12 }}>
-          <Typography.Text type="danger" style={{ fontSize: 12 }}>
-            未竟
-          </Typography.Text>
-          <Typography.Paragraph
-            style={{
-              color: token.colorError,
-              marginTop: 4,
-              marginBottom: 0,
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 13,
-            }}
-          >
-            {memorial.error}
-          </Typography.Paragraph>
-        </div>
-      )}
+      {memorial.error && (() => {
+        const parsed = parseErrorMessage(memorial.error);
+        return (
+          <div style={{ marginTop: 12 }}>
+            <Typography.Text type="danger" style={{ fontSize: 12 }}>
+              未竟
+            </Typography.Text>
+            {parsed && parsed.headline !== parsed.raw ? (
+              <>
+                <Typography.Paragraph
+                  style={{
+                    color: token.colorError,
+                    marginTop: 4,
+                    marginBottom: 0,
+                    fontSize: 14,
+                    fontWeight: 500,
+                  }}
+                >
+                  {parsed.headline}
+                </Typography.Paragraph>
+                <Typography.Text
+                  style={{
+                    color: token.colorTextSecondary,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 11,
+                  }}
+                >
+                  {parsed.raw}
+                </Typography.Text>
+              </>
+            ) : (
+              <Typography.Paragraph
+                style={{
+                  color: token.colorError,
+                  marginTop: 4,
+                  marginBottom: 0,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 13,
+                }}
+              >
+                {memorial.error}
+              </Typography.Paragraph>
+            )}
+          </div>
+        );
+      })()}
 
       {memorial.artifacts && memorial.artifacts.length > 0 && (
         <div style={{ marginTop: 12 }}>
