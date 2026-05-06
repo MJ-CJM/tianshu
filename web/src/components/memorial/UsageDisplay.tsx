@@ -75,6 +75,30 @@ export default function UsageDisplay({ usage }: UsageDisplayProps) {
           </Space>
         </>
       )}
+      {usage.actual_model && (
+        <>
+          <span style={{ color: token.colorBorder }}>|</span>
+          <Space size={6}>
+            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
+              真身
+            </Typography.Text>
+            <Typography.Text
+              style={{
+                color: token.colorTextSecondary,
+                fontSize: 12,
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
+              title={
+                usage.upstream_provider
+                  ? `provider: ${usage.upstream_provider}`
+                  : undefined
+              }
+            >
+              {usage.actual_model}
+            </Typography.Text>
+          </Space>
+        </>
+      )}
     </div>
   );
 }

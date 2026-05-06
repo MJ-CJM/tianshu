@@ -167,15 +167,19 @@ async def lifespan(app: FastAPI):
         persona_loader=persona_loader,
     )
 
-    # 默认禁用 submit_edict；通政司 toggle 打开后启用（reload 时同步）
+    # 默认禁用敕令管理工具集；通政司 toggle 打开后启用（reload 时同步）
+    # submit_edict（写）+ list_edicts / get_edict_status（读）作为同一捆绑能力。
+    edict_tools = ("submit_edict", "list_edicts", "get_edict_status")
     feishu_channel_cfg = storage.get_channel_config("feishu")
     if not (feishu_channel_cfg and feishu_channel_cfg.get("enable_edict_submission")):
-        tools.disable("submit_edict")
+        for tool_name in edict_tools:
+            tools.disable(tool_name)
         logger.info(
-            "[tools] submit_edict disabled at startup (toggle 通政司「允许助手下发敕令」可启用)",
+            "[tools] edict tools disabled at startup (toggle 通政司「允许助手下发敕令」可启用)：%s",
+            ", ".join(edict_tools),
         )
     else:
-        logger.info("[tools] submit_edict enabled at startup")
+        logger.info("[tools] edict tools enabled at startup: %s", ", ".join(edict_tools))
 
     # --- Memory Palace (Drawer Store) ---
     memory_config = MemoryConfig()

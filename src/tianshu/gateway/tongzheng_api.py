@@ -166,13 +166,14 @@ async def put_feishu_channel(
         # 之前未启用机器人 → 现在启用：v1 不支持运行时新建 bot 实例（需要重启）
         reload_msg = "feishu bot 未运行，配置已保存，下次重启生效"
 
-    # 同步 submit_edict tool 启用状态（颁敕权限 toggle）
+    # 同步敕令管理工具集启用状态（颁敕权限 toggle 同时管控读写工具）
     tool_registry = getattr(request.app.state, "tool_registry", None)
     if tool_registry is not None:
-        if new_settings.enable_edict_submission:
-            tool_registry.enable("submit_edict")
-        else:
-            tool_registry.disable("submit_edict")
+        for tool_name in ("submit_edict", "list_edicts", "get_edict_status"):
+            if new_settings.enable_edict_submission:
+                tool_registry.enable(tool_name)
+            else:
+                tool_registry.disable(tool_name)
 
     return ApiResponse(
         success=True,

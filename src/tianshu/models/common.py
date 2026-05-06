@@ -34,6 +34,9 @@ class UsageSummary(BaseModel):
     total_tokens: int = 0
     cache_read_tokens: int = 0
     cost_cny: float = 0.0
+    # 上游网关回显的真实模型与 LiteLLM 识别的 provider，用于诊断中转网关静默改写。
+    actual_model: str | None = None
+    upstream_provider: str | None = None
 
 
 class AuditResult(BaseModel):
