@@ -31,6 +31,7 @@ import type { EdictUsageRow, RecentAuditRow, ReviewPolicyInfo } from "../api/typ
 import apiClient from "../api/client";
 import { listNetworkEvents } from "../api/network_events";
 import type { NetworkEventRow } from "../api/types";
+import { useT } from "../i18n";
 
 interface HookEvent {
   id: string;
@@ -46,6 +47,7 @@ interface HookEvent {
 }
 
 function HookEventsCard() {
+  const t = useT();
   const [collapsed, setCollapsed] = useState(true);
   // Fetch recent hook events from the most recent edicts
   const { data: recentEdicts } = useQuery({
@@ -98,7 +100,7 @@ function HookEventsCard() {
             <DownOutlined style={{ marginRight: 8, fontSize: 12 }} />
           )}
           <ThunderboltOutlined style={{ marginRight: 8 }} />
-          Hook 触发记录
+          {t("audit.hookEvents.title")}
           <Tag style={{ marginLeft: 8 }}>{events.length}</Tag>
         </span>
       }
@@ -108,7 +110,7 @@ function HookEventsCard() {
           size="small"
           onClick={() => setCollapsed((v) => !v)}
         >
-          {collapsed ? "展开" : "折叠"}
+          {collapsed ? t("audit.hookEvents.expand") : t("audit.hookEvents.collapse")}
         </Button>
       }
       style={{ marginTop: 24 }}
@@ -199,6 +201,7 @@ function PolicyDecisionsTab() {
 }
 
 function NetworkEventsTab() {
+  const t = useT();
   const [rows, setRows] = useState<NetworkEventRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [tool, setTool] = useState<string | undefined>(undefined);
@@ -233,13 +236,13 @@ function NetworkEventsTab() {
 
   const columns: ColumnsType<NetworkEventRow> = [
     {
-      title: "时间",
+      title: t("audit.network.table.time"),
       dataIndex: "created_at",
       width: 170,
       render: (v: string) => formatTime(v),
     },
     {
-      title: "敕令",
+      title: t("audit.network.table.edict"),
       dataIndex: "edict_title",
       width: 180,
       ellipsis: true,
@@ -250,20 +253,20 @@ function NetworkEventsTab() {
       ),
     },
     {
-      title: "工具",
+      title: t("audit.network.table.tool"),
       dataIndex: "tool",
       width: 110,
       render: (v: string) => <Tag color={toolColors[v] ?? "default"}>{v}</Tag>,
     },
     {
-      title: "Host",
+      title: t("audit.network.table.host"),
       dataIndex: "host",
       ellipsis: true,
       render: (v: string | null) => v ?? "—",
     },
-    { title: "方法", dataIndex: "method", width: 80, render: (v) => v ?? "—" },
+    { title: t("audit.network.table.method"), dataIndex: "method", width: 80, render: (v) => v ?? "—" },
     {
-      title: "HTTP",
+      title: t("audit.network.table.http"),
       dataIndex: "http_status",
       width: 90,
       render: (v: number | null, r: NetworkEventRow) => {
@@ -272,19 +275,19 @@ function NetworkEventsTab() {
       },
     },
     {
-      title: "字节",
+      title: t("audit.network.table.bytes"),
       dataIndex: "bytes_out",
       width: 90,
       render: (v: number | null) => (v == null ? "—" : v.toLocaleString()),
     },
     {
-      title: "凭证",
+      title: t("audit.network.table.credential"),
       dataIndex: "credential_name",
       width: 140,
       render: (v: string | null) => v ?? "—",
     },
     {
-      title: "缓存",
+      title: t("audit.network.table.cached"),
       dataIndex: "cached",
       width: 70,
       render: (v: boolean) => (v ? <Tag color="green">yes</Tag> : "—"),
@@ -296,7 +299,7 @@ function NetworkEventsTab() {
       <Card size="small">
         <Space wrap>
           <Select
-            placeholder="工具"
+            placeholder={t("audit.network.filter.tool")}
             allowClear
             style={{ width: 160 }}
             value={tool}
@@ -309,7 +312,7 @@ function NetworkEventsTab() {
             ]}
           />
           <Input
-            placeholder="host (精确匹配)"
+            placeholder={t("audit.network.filter.host")}
             style={{ width: 220 }}
             value={host}
             onChange={(e) => setHost(e.target.value)}
@@ -317,18 +320,18 @@ function NetworkEventsTab() {
             allowClear
           />
           <Select
-            placeholder="状态"
+            placeholder={t("audit.network.filter.status")}
             allowClear
             style={{ width: 120 }}
             value={status}
             onChange={setStatus}
             options={[
-              { value: "ok", label: "成功" },
-              { value: "error", label: "失败" },
+              { value: "ok", label: t("audit.network.filter.success") },
+              { value: "error", label: t("audit.network.filter.fail") },
             ]}
           />
           <Button onClick={reload} loading={loading}>
-            刷新
+            {t("action.refresh")}
           </Button>
         </Space>
       </Card>
@@ -346,6 +349,7 @@ function NetworkEventsTab() {
 }
 
 export default function AuditDashboardPage() {
+  const t = useT();
   const navigate = useNavigate();
   const { data: stats, isLoading, refetch } = useAuditStats();
   const [activeTab, setActiveTab] = useState("stats");
@@ -358,7 +362,7 @@ export default function AuditDashboardPage() {
 
   const usageColumns: ColumnsType<EdictUsageRow> = [
     {
-      title: "敕令",
+      title: t("audit.usageTable.edict"),
       dataIndex: "edict_title",
       ellipsis: true,
       render: (title: string, record) => (
@@ -366,7 +370,7 @@ export default function AuditDashboardPage() {
       ),
     },
     {
-      title: "优先级",
+      title: t("audit.usageTable.priority"),
       dataIndex: "priority",
       width: 80,
       render: (p: string) => (
@@ -374,34 +378,34 @@ export default function AuditDashboardPage() {
       ),
     },
     {
-      title: "奏折数",
+      title: t("audit.usageTable.memorialCount"),
       dataIndex: "memorial_count",
       width: 80,
       align: "right",
     },
     {
-      title: "Prompt",
+      title: t("audit.usageTable.prompt"),
       dataIndex: "prompt_tokens",
       width: 100,
       align: "right",
       render: (v: number) => formatTokens(v),
     },
     {
-      title: "Completion",
+      title: t("audit.usageTable.completion"),
       dataIndex: "completion_tokens",
       width: 100,
       align: "right",
       render: (v: number) => formatTokens(v),
     },
     {
-      title: "Total",
+      title: t("audit.usageTable.total"),
       dataIndex: "total_tokens",
       width: 100,
       align: "right",
       render: (v: number) => <strong>{formatTokens(v)}</strong>,
     },
     {
-      title: "预算",
+      title: t("audit.usageTable.budget"),
       dataIndex: "token_budget",
       width: 120,
       align: "right",
@@ -412,7 +416,7 @@ export default function AuditDashboardPage() {
 
   const auditColumns: ColumnsType<RecentAuditRow> = [
     {
-      title: "奏折编号",
+      title: t("audit.recentTable.memorialId"),
       dataIndex: "memorial_id",
       width: 120,
       render: (id: string) => (
@@ -420,7 +424,7 @@ export default function AuditDashboardPage() {
       ),
     },
     {
-      title: "敕令",
+      title: t("audit.recentTable.edict"),
       dataIndex: "edict_title",
       ellipsis: true,
       render: (title: string, record) => (
@@ -428,7 +432,7 @@ export default function AuditDashboardPage() {
       ),
     },
     {
-      title: "审计结论",
+      title: t("audit.recentTable.verdict"),
       dataIndex: "verdict",
       width: 90,
       render: (v: string) => (
@@ -436,7 +440,7 @@ export default function AuditDashboardPage() {
       ),
     },
     {
-      title: "原因",
+      title: t("audit.recentTable.reasons"),
       dataIndex: "reasons",
       width: 200,
       ellipsis: true,
@@ -453,7 +457,7 @@ export default function AuditDashboardPage() {
       },
     },
     {
-      title: "复核状态",
+      title: t("audit.recentTable.reviewStatus"),
       dataIndex: "review_status",
       width: 100,
       render: (s: string) => (
@@ -461,7 +465,7 @@ export default function AuditDashboardPage() {
       ),
     },
     {
-      title: "时间",
+      title: t("audit.recentTable.time"),
       dataIndex: "completed_at",
       width: 170,
       render: (v: string | null) => formatTime(v),
@@ -470,10 +474,10 @@ export default function AuditDashboardPage() {
 
   return (
     <PageContainer
-      title="都察院"
+      title={t("audit.title")}
       extra={
         <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
-          刷新
+          {t("action.refresh")}
         </Button>
       }
     >
@@ -483,14 +487,14 @@ export default function AuditDashboardPage() {
         items={[
           {
             key: "stats",
-            label: "审计统计",
+            label: t("audit.tab.stats"),
             children: (
               <>
                 <Row gutter={16}>
                   <Col span={6}>
                     <Card size="small">
                       <Statistic
-                        title="Token 总量"
+                        title={t("audit.stat.totalTokens")}
                         value={summary?.total_tokens ?? 0}
                         formatter={(v) => formatTokens(Number(v))}
                       />
@@ -498,13 +502,13 @@ export default function AuditDashboardPage() {
                   </Col>
                   <Col span={6}>
                     <Card size="small">
-                      <Statistic title="奏折总数" value={summary?.total_memorials ?? 0} />
+                      <Statistic title={t("audit.stat.totalMemorials")} value={summary?.total_memorials ?? 0} />
                     </Card>
                   </Col>
                   <Col span={6}>
                     <Card size="small">
                       <Statistic
-                        title="审计通过率"
+                        title={t("audit.stat.passRate")}
                         value={passRate}
                         precision={1}
                         suffix="%"
@@ -515,7 +519,7 @@ export default function AuditDashboardPage() {
                   <Col span={6}>
                     <Card size="small">
                       <Statistic
-                        title="标记率"
+                        title={t("audit.stat.flagRate")}
                         value={flagRate}
                         precision={1}
                         suffix="%"
@@ -525,7 +529,7 @@ export default function AuditDashboardPage() {
                   </Col>
                 </Row>
 
-                <Card title="敕令 Token 用量" style={{ marginTop: 24 }} size="small">
+                <Card title={t("audit.section.usage")} style={{ marginTop: 24 }} size="small">
                   <Table<EdictUsageRow>
                     columns={usageColumns}
                     dataSource={stats?.per_edict ?? []}
@@ -533,11 +537,11 @@ export default function AuditDashboardPage() {
                     loading={isLoading}
                     pagination={false}
                     size="small"
-                    locale={{ emptyText: "暂无数据" }}
+                    locale={{ emptyText: t("audit.empty.usage") }}
                   />
                 </Card>
 
-                <Card title="最近审计结果" style={{ marginTop: 24 }} size="small">
+                <Card title={t("audit.section.recent")} style={{ marginTop: 24 }} size="small">
                   <Table<RecentAuditRow>
                     columns={auditColumns}
                     dataSource={stats?.recent_audits ?? []}
@@ -545,7 +549,7 @@ export default function AuditDashboardPage() {
                     loading={isLoading}
                     pagination={false}
                     size="small"
-                    locale={{ emptyText: "暂无审计记录" }}
+                    locale={{ emptyText: t("audit.empty.recent") }}
                   />
                 </Card>
 
@@ -558,7 +562,7 @@ export default function AuditDashboardPage() {
             label: (
               <Space>
                 <SafetyOutlined />
-                Policy Decisions
+                {t("audit.tab.policy")}
               </Space>
             ),
             children: <PolicyDecisionsTab />,
@@ -568,7 +572,7 @@ export default function AuditDashboardPage() {
             label: (
               <Space>
                 <ThunderboltOutlined />
-                事件流
+                {t("audit.tab.eventbus")}
               </Space>
             ),
             children: <EventBusTab />,
@@ -578,7 +582,7 @@ export default function AuditDashboardPage() {
             label: (
               <Space>
                 <NodeIndexOutlined />
-                并发控制
+                {t("audit.tab.workers")}
               </Space>
             ),
             children: <WorkersTab />,
@@ -588,28 +592,28 @@ export default function AuditDashboardPage() {
             label: (
               <Space>
                 <ApiOutlined />
-                Hooks & 通知
+                {t("audit.tab.hooks")}
               </Space>
             ),
             children: <HooksTab />,
           },
           {
             key: "network",
-            label: "鸿胪寺访问",
+            label: t("audit.tab.network"),
             children: <NetworkEventsTab />,
           },
           {
             key: "rules",
-            label: "规则管理",
+            label: t("audit.tab.rules"),
             children: (
               <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                <Card title="审计规则" size="small">
+                <Card title={t("audit.section.auditRules")} size="small">
                   <Table
                     columns={[
-                      { title: "规则名称", dataIndex: "name", key: "name" },
-                      { title: "描述", dataIndex: "description", key: "description" },
+                      { title: t("audit.rulesTable.name"), dataIndex: "name", key: "name" },
+                      { title: t("audit.rulesTable.description"), dataIndex: "description", key: "description" },
                       {
-                        title: "严重级别",
+                        title: t("audit.rulesTable.severity"),
                         dataIndex: "severity",
                         key: "severity",
                         width: 100,
@@ -618,12 +622,12 @@ export default function AuditDashboardPage() {
                         ),
                       },
                       {
-                        title: "状态",
+                        title: t("audit.rulesTable.status"),
                         dataIndex: "enabled",
                         key: "enabled",
                         width: 80,
                         render: (v: boolean) => (
-                          <Tag color={v ? "green" : "default"}>{v ? "启用" : "禁用"}</Tag>
+                          <Tag color={v ? "green" : "default"}>{v ? t("audit.rulesTable.enabled") : t("audit.rulesTable.disabled")}</Tag>
                         ),
                       },
                     ]}
@@ -631,15 +635,15 @@ export default function AuditDashboardPage() {
                     rowKey="id"
                     size="small"
                     pagination={false}
-                    locale={{ emptyText: "暂无规则" }}
+                    locale={{ emptyText: t("audit.empty.rules") }}
                   />
                 </Card>
 
-                <Card title="审阅策略" size="small">
+                <Card title={t("audit.section.reviewPolicies")} size="small">
                   <Descriptions column={1} bordered size="small">
                     {(rulesData?.review_policies ?? []).map((p: ReviewPolicyInfo) => (
                       <Descriptions.Item key={p.value} label={<Tag color="blue">{p.label}</Tag>}>
-                        {p.description}（值：<MonoText>{p.value}</MonoText>）
+                        {p.description}{t("audit.reviewPolicy.valuePrefix")}<MonoText>{p.value}</MonoText>{t("audit.reviewPolicy.valueSuffix")}
                       </Descriptions.Item>
                     ))}
                   </Descriptions>

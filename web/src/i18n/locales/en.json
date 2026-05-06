@@ -639,6 +639,89 @@
     "zh-modern": "Modern",
     "en": "English"
   },
+  "audit": {
+    "title": "Audit Center",
+    "tab": {
+      "stats": "Audit stats",
+      "policy": "Policy Decisions",
+      "eventbus": "Event bus",
+      "workers": "Concurrency",
+      "hooks": "Hooks & notifications",
+      "network": "Network access",
+      "rules": "Rules"
+    },
+    "stat": {
+      "totalTokens": "Total tokens",
+      "totalMemorials": "Total executions",
+      "passRate": "Audit pass rate",
+      "flagRate": "Flag rate"
+    },
+    "section": {
+      "usage": "Task token usage",
+      "recent": "Recent audit results",
+      "auditRules": "Audit rules",
+      "reviewPolicies": "Review policies"
+    },
+    "empty": {
+      "usage": "No data",
+      "recent": "No audit records",
+      "rules": "No rules"
+    },
+    "usageTable": {
+      "edict": "Task",
+      "priority": "Priority",
+      "memorialCount": "Executions",
+      "prompt": "Prompt",
+      "completion": "Completion",
+      "total": "Total",
+      "budget": "Budget"
+    },
+    "recentTable": {
+      "memorialId": "Record ID",
+      "edict": "Task",
+      "verdict": "Verdict",
+      "reasons": "Reasons",
+      "reviewStatus": "Review status",
+      "time": "Time"
+    },
+    "hookEvents": {
+      "title": "Hook events",
+      "expand": "Expand",
+      "collapse": "Collapse"
+    },
+    "network": {
+      "filter": {
+        "tool": "Tool",
+        "host": "host (exact match)",
+        "status": "Status",
+        "success": "Success",
+        "fail": "Failed"
+      },
+      "table": {
+        "time": "Time",
+        "edict": "Task",
+        "tool": "Tool",
+        "host": "Host",
+        "method": "Method",
+        "http": "HTTP",
+        "bytes": "Bytes",
+        "credential": "Credential",
+        "cached": "Cached"
+      }
+    },
+    "rulesTable": {
+      "name": "Rule name",
+      "description": "Description",
+      "severity": "Severity",
+      "status": "Status",
+      "enabled": "Enabled",
+      "disabled": "Disabled"
+    },
+    "reviewPolicy": {
+      "valuePrefix": " (value: ",
+      "valueSuffix": ")"
+    }
+  },
   "system": {
     "title": "System",
     "tab": {

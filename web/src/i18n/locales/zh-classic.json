@@ -639,6 +639,89 @@
     "zh-modern": "通用",
     "en": "English"
   },
+  "audit": {
+    "title": "都察院",
+    "tab": {
+      "stats": "审计统计",
+      "policy": "Policy Decisions",
+      "eventbus": "事件流",
+      "workers": "并发控制",
+      "hooks": "Hooks & 通知",
+      "network": "鸿胪寺访问",
+      "rules": "规则管理"
+    },
+    "stat": {
+      "totalTokens": "Token 总量",
+      "totalMemorials": "奏折总数",
+      "passRate": "审计通过率",
+      "flagRate": "标记率"
+    },
+    "section": {
+      "usage": "敕令 Token 用量",
+      "recent": "最近审计结果",
+      "auditRules": "审计规则",
+      "reviewPolicies": "审阅策略"
+    },
+    "empty": {
+      "usage": "暂无数据",
+      "recent": "暂无审计记录",
+      "rules": "暂无规则"
+    },
+    "usageTable": {
+      "edict": "敕令",
+      "priority": "优先级",
+      "memorialCount": "奏折数",
+      "prompt": "Prompt",
+      "completion": "Completion",
+      "total": "Total",
+      "budget": "预算"
+    },
+    "recentTable": {
+      "memorialId": "奏折编号",
+      "edict": "敕令",
+      "verdict": "审计结论",
+      "reasons": "原因",
+      "reviewStatus": "复核状态",
+      "time": "时间"
+    },
+    "hookEvents": {
+      "title": "Hook 触发记录",
+      "expand": "展开",
+      "collapse": "折叠"
+    },
+    "network": {
+      "filter": {
+        "tool": "工具",
+        "host": "host (精确匹配)",
+        "status": "状态",
+        "success": "成功",
+        "fail": "失败"
+      },
+      "table": {
+        "time": "时间",
+        "edict": "敕令",
+        "tool": "工具",
+        "host": "Host",
+        "method": "方法",
+        "http": "HTTP",
+        "bytes": "字节",
+        "credential": "凭证",
+        "cached": "缓存"
+      }
+    },
+    "rulesTable": {
+      "name": "规则名称",
+      "description": "描述",
+      "severity": "严重级别",
+      "status": "状态",
+      "enabled": "启用",
+      "disabled": "禁用"
+    },
+    "reviewPolicy": {
+      "valuePrefix": "（值：",
+      "valueSuffix": "）"
+    }
+  },
   "system": {
     "title": "藏兵阁",
     "tab": {
