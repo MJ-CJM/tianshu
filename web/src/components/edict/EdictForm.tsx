@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Alert, Form, Input, InputNumber, Button, Collapse, Select, Divider, Radio, Switch, Space, Card } from "antd";
 import { SendOutlined, MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { usePersonas } from "../../hooks/usePersonas";
+import { useT } from "../../i18n";
 import type {
   AcceptanceCriteria,
   CheckSpec,
@@ -19,6 +20,7 @@ interface EdictFormProps {
 }
 
 export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
+  const t = useT();
   const [form] = Form.useForm();
   const [scheduleType, setScheduleType] = useState("immediate");
   const [assignMode, setAssignMode] = useState<"auto" | "direct">("auto");
@@ -42,21 +44,11 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     label: `${p.name}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
   }));
 
-  // critic 监督官候选：所有 personas（推荐都察院/内阁系列）
-  const DEPT_LABEL: Record<string, string> = {
-    ducha: "都察院",
-    neige: "内阁",
-    bingbu: "兵部",
-    hubu: "户部",
-    wenyuan: "文渊阁",
-    tongzheng: "通政司",
-  };
   const criticPersonas = personas ?? [];
   const criticPersonaOptions = criticPersonas.map((p) => ({
     value: p.id,
-    label: `${p.name} · ${DEPT_LABEL[p.department] ?? p.department}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
+    label: `${p.name} · ${t(`dept.${p.department}`)}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
   }));
-  // 默认值：优先 ducha → neige → 第一个
   const defaultCriticPersonaIds = (() => {
     const ducha = criticPersonas.find((p) => p.department === "ducha")?.id;
     if (ducha) return [ducha];
@@ -156,7 +148,6 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       req.plan_review = true;
     }
 
-    // 长任务 outer loop 字段
     if (longTaskEnabled) {
       const acceptance: AcceptanceCriteria = {};
       const maxOuter = values.max_outer_iterations as number | undefined;
@@ -251,23 +242,23 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       }}
       style={{ maxWidth: 640 }}
     >
-      <Form.Item name="title" label="敕令标题（可选）">
-        <Input placeholder="留空则自动截取旨意前 20 字" />
+      <Form.Item name="title" label={t("form.edict.field.title")}>
+        <Input placeholder={t("form.edict.placeholder.title")} />
       </Form.Item>
 
       <Form.Item
         name="goal"
-        label="敕令旨意"
-        rules={[{ required: true, message: "请拟定敕令旨意" }]}
+        label={t("form.edict.field.goal")}
+        rules={[{ required: true, message: t("form.edict.validation.goalRequired") }]}
       >
         <Input.TextArea
           rows={4}
-          placeholder="请拟定敕令旨意..."
+          placeholder={t("form.edict.placeholder.goal")}
           style={{ resize: "vertical" }}
         />
       </Form.Item>
 
-      <Form.Item label="执行方式">
+      <Form.Item label={t("form.edict.field.executionMode")}>
         <Radio.Group
           value={assignMode}
           onChange={(e) => {
@@ -277,18 +268,18 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
             }
           }}
         >
-          <Radio value="auto">内阁决策（自动规划分配）</Radio>
-          <Radio value="direct">直接指派官员</Radio>
+          <Radio value="auto">{t("form.edict.option.autoPlanning")}</Radio>
+          <Radio value="direct">{t("form.edict.option.directAssign")}</Radio>
         </Radio.Group>
       </Form.Item>
 
       {assignMode === "direct" && (
         <Form.Item
           name="assigned_persona_id"
-          rules={[{ required: true, message: "请选择执行官员" }]}
+          rules={[{ required: true, message: t("form.edict.validation.assignedPersonaRequired") }]}
         >
           <Select
-            placeholder="选择官员"
+            placeholder={t("form.edict.placeholder.assignedPersona")}
             options={personaOptions}
             showSearch
             optionFilterProp="label"
@@ -299,11 +290,11 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       {assignMode === "auto" && cabinetPersonas.length > 1 && (
         <Form.Item
           name="planner_persona_id"
-          label="规划官（可选）"
-          tooltip="选择使用哪位内阁官员进行规划，不同官员可使用不同的 LLM"
+          label={t("form.edict.field.plannerPersona")}
+          tooltip={t("form.edict.tooltip.plannerPersona")}
         >
           <Select
-            placeholder="自动（使用全局配置）"
+            placeholder={t("form.edict.placeholder.plannerPersona")}
             options={plannerOptions}
             allowClear
             showSearch
@@ -315,18 +306,18 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       {assignMode === "auto" && (
         <Form.Item
           name="plan_review"
-          label="规划审批"
+          label={t("form.edict.field.planReview")}
           valuePropName="checked"
-          tooltip="开启后，规划方案需人工审批通过后才会执行"
+          tooltip={t("form.edict.tooltip.planReview")}
         >
           <Switch />
         </Form.Item>
       )}
 
-      <Form.Item name="context" label="附则（可选）">
+      <Form.Item name="context" label={t("form.edict.field.context")}>
         <Input.TextArea
           rows={3}
-          placeholder="补充背景信息或约束条件..."
+          placeholder={t("form.edict.placeholder.context")}
           style={{ resize: "vertical" }}
         />
       </Form.Item>
@@ -337,19 +328,19 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
         items={[
           {
             key: "advanced",
-            label: "高级选项",
+            label: t("form.edict.section.advanced"),
             children: (
               <>
                 <Form.Item
                   name="schedule_type"
-                  label="调度方式"
+                  label={t("form.edict.field.scheduleType")}
                 >
                   <Select
                     onChange={(v) => setScheduleType(v)}
                     options={[
-                      { value: "immediate", label: "即时执行" },
-                      { value: "once", label: "定时执行" },
-                      { value: "cron", label: "周期执行" },
+                      { value: "immediate", label: t("form.edict.option.scheduleImmediate") },
+                      { value: "once", label: t("form.edict.option.scheduleOnce") },
+                      { value: "cron", label: t("form.edict.option.scheduleCron") },
                     ]}
                   />
                 </Form.Item>
@@ -357,99 +348,99 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                 {scheduleType === "cron" && (
                   <Form.Item
                     name="cron_expr"
-                    label="Cron 表达式"
-                    rules={[{ required: true, message: "请输入 Cron 表达式" }]}
+                    label={t("form.edict.field.cronExpr")}
+                    rules={[{ required: true, message: t("form.edict.validation.cronExprRequired") }]}
                   >
-                    <Input placeholder="例如 0 9 * * 1-5" />
+                    <Input placeholder={t("form.edict.placeholder.cronExpr")} />
                   </Form.Item>
                 )}
 
                 {scheduleType === "once" && (
                   <Form.Item
                     name="schedule_at"
-                    label="执行时间"
-                    rules={[{ required: true, message: "请输入执行时间" }]}
+                    label={t("form.edict.field.scheduleAt")}
+                    rules={[{ required: true, message: t("form.edict.validation.scheduleAtRequired") }]}
                   >
-                    <Input placeholder="ISO 8601 时间，例如 2026-03-20T09:00:00" />
+                    <Input placeholder={t("form.edict.placeholder.scheduleAt")} />
                   </Form.Item>
                 )}
 
                 <Form.Item
                   name="priority"
-                  label="优先级"
+                  label={t("form.edict.field.priority")}
                 >
                   <Select
                     options={[
-                      { value: "urgent", label: "紧急" },
-                      { value: "normal", label: "普通" },
-                      { value: "low", label: "低" },
+                      { value: "urgent", label: t("priority.urgent") },
+                      { value: "normal", label: t("priority.normal") },
+                      { value: "low", label: t("priority.low") },
                     ]}
                   />
                 </Form.Item>
 
                 <Form.Item
                   name="review_policy"
-                  label="审核策略"
+                  label={t("form.edict.field.reviewPolicy")}
                 >
                   <Select
                     options={[
-                      { value: "always", label: "始终人工复核" },
-                      { value: "on_flag", label: "自动（审计标记时人工复核）" },
-                      { value: "on_failure", label: "失败时人工复核" },
-                      { value: "never", label: "跳过人工复核" },
+                      { value: "always", label: t("reviewPolicy.always") },
+                      { value: "on_flag", label: t("reviewPolicy.on_flag") },
+                      { value: "on_failure", label: t("reviewPolicy.on_failure") },
+                      { value: "never", label: t("reviewPolicy.never") },
                     ]}
                   />
                 </Form.Item>
 
                 <Form.Item
                   name="constraints"
-                  label="约束条件"
+                  label={t("form.edict.field.constraints")}
                 >
                   <Select
                     mode="tags"
-                    placeholder="输入约束条件后按回车添加"
+                    placeholder={t("form.edict.placeholder.constraints")}
                     tokenSeparators={[","]}
                   />
                 </Form.Item>
 
                 <Form.Item
                   name="output_format"
-                  label="输出格式"
+                  label={t("form.edict.field.outputFormat")}
                 >
                   <Input.TextArea
                     rows={2}
-                    placeholder="指定期望的输出格式，如 JSON、Markdown 表格等"
+                    placeholder={t("form.edict.placeholder.outputFormat")}
                     style={{ resize: "vertical" }}
                   />
                 </Form.Item>
 
                 <Divider style={{ margin: "12px 0" }} />
                 <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 12 }}>
-                  执行参数
+                  {t("form.edict.section.runtime")}
                 </div>
 
-                <Form.Item name="timeout_seconds" label="超时时间 (秒)">
-                  <InputNumber min={10} max={3600} style={{ width: "100%" }} placeholder="默认 300" />
+                <Form.Item name="timeout_seconds" label={t("form.edict.field.timeoutSeconds")}>
+                  <InputNumber min={10} max={3600} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.timeoutSeconds")} />
                 </Form.Item>
 
-                <Form.Item name="max_iterations" label="最大迭代次数">
-                  <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder="默认 20" />
+                <Form.Item name="max_iterations" label={t("form.edict.field.maxIterations")}>
+                  <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxIterations")} />
                 </Form.Item>
 
-                <Form.Item name="max_concurrency" label="DAG 并发度">
-                  <InputNumber min={1} max={8} style={{ width: "100%" }} placeholder="默认 1" />
+                <Form.Item name="max_concurrency" label={t("form.edict.field.maxConcurrency")}>
+                  <InputNumber min={1} max={8} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxConcurrency")} />
                 </Form.Item>
 
-                <Form.Item name="retry_limit" label="重试次数">
-                  <InputNumber min={0} max={10} style={{ width: "100%" }} placeholder="默认 0" />
+                <Form.Item name="retry_limit" label={t("form.edict.field.retryLimit")}>
+                  <InputNumber min={0} max={10} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.retryLimit")} />
                 </Form.Item>
 
-                <Form.Item name="token_budget" label="Token 预算">
-                  <InputNumber min={1} style={{ width: "100%" }} placeholder="不限" />
+                <Form.Item name="token_budget" label={t("form.edict.field.tokenBudget")}>
+                  <InputNumber min={1} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.tokenBudget")} />
                 </Form.Item>
 
-                <Form.Item name="cost_budget_cny" label="费用预算 (CNY)">
-                  <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder="不限" />
+                <Form.Item name="cost_budget_cny" label={t("form.edict.field.costBudget")}>
+                  <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.costBudget")} />
                 </Form.Item>
 
                 <Divider style={{ margin: "12px 0" }} />
@@ -471,21 +462,21 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
           },
           {
             key: "long-task",
-            label: "长任务模式 (Outer Loop)",
+            label: t("form.edict.section.longTask"),
             children: (
               <>
-                <Form.Item label="启用长任务模式" tooltip="启用后 edict 走 actor → checks → critic 的多轮迭代路径，可自驱收敛；不启用则走单回合 agent loop（默认）">
+                <Form.Item label={t("form.edict.field.longTaskEnabled")} tooltip={t("form.edict.tooltip.longTaskEnabled")}>
                   <Switch
                     checked={longTaskEnabled}
                     onChange={setLongTaskEnabled}
-                    checkedChildren="启用"
-                    unCheckedChildren="关闭"
+                    checkedChildren={t("common2.enabled")}
+                    unCheckedChildren={t("common2.disabled")}
                   />
                 </Form.Item>
 
                 {longTaskEnabled && (
                   <>
-                    <Form.Item label="模板预设" tooltip="一键填入常用配置；填完仍可在下方继续微调">
+                    <Form.Item label={t("form.edict.field.templatePreset")} tooltip={t("form.edict.tooltip.templatePreset")}>
                       <Space wrap>
                         <Button
                           size="small"
@@ -500,7 +491,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                             });
                           }}
                         >
-                          📊 数据分析型
+                          {t("form.edict.template.analysis")}
                         </Button>
                         <Button
                           size="small"
@@ -517,7 +508,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                             });
                           }}
                         >
-                          ✍️ 内容创作型
+                          {t("form.edict.template.creative")}
                         </Button>
                         <Button
                           size="small"
@@ -534,7 +525,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                             });
                           }}
                         >
-                          🛠 代码实现型
+                          {t("form.edict.template.coding")}
                         </Button>
                         <Button
                           size="small"
@@ -553,64 +544,64 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                             });
                           }}
                         >
-                          🔬 深度研究型
+                          {t("form.edict.template.research")}
                         </Button>
                       </Space>
                     </Form.Item>
 
                     <Form.Item
                       name="execution_profile"
-                      label="执行模型"
-                      tooltip="foreground=同进程；checkpointed=每轮 checkpoint 可续跑；background=后台跑（用户可关页面）"
+                      label={t("form.edict.field.executionProfile")}
+                      tooltip={t("form.edict.tooltip.executionProfile")}
                       initialValue="foreground"
                     >
                       <Radio.Group>
-                        <Radio value="foreground">前台</Radio>
-                        <Radio value="checkpointed">可续跑</Radio>
-                        <Radio value="background">后台</Radio>
+                        <Radio value="foreground">{t("executionProfile.foreground")}</Radio>
+                        <Radio value="checkpointed">{t("executionProfile.checkpointed")}</Radio>
+                        <Radio value="background">{t("executionProfile.background")}</Radio>
                       </Radio.Group>
                     </Form.Item>
 
                     <Form.Item
                       name="max_outer_iterations"
-                      label="最多迭代轮数"
-                      tooltip="actor → critic 一回合算一轮；超过此数走 on_exhaustion 决策"
+                      label={t("form.edict.field.maxOuterIterations")}
+                      tooltip={t("form.edict.tooltip.maxOuterIterations")}
                     >
-                      <InputNumber min={1} max={50} style={{ width: "100%" }} placeholder="默认 5" />
+                      <InputNumber min={1} max={50} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxOuterIterations")} />
                     </Form.Item>
 
                     <Form.Item
                       name="min_outer_iterations"
-                      label="最少迭代轮数 (持续优化模式)"
-                      tooltip="≥2 时即使 critic 第一轮就 PASS 也强制继续；critic 的'可优化方向'会注入下一轮 actor。让监督官真正持续推动优化。"
+                      label={t("form.edict.field.minOuterIterations")}
+                      tooltip={t("form.edict.tooltip.minOuterIterations")}
                     >
-                      <InputNumber min={1} max={20} style={{ width: "100%" }} placeholder="默认 1（不持续优化）" />
+                      <InputNumber min={1} max={20} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.minOuterIterations")} />
                     </Form.Item>
 
                     <Form.Item
                       name="critic_strictness"
-                      label="Critic 严苛度"
-                      tooltip="lenient=合格即 PASS（默认） / balanced=高标准倾向 fail / strict=优秀才 PASS"
+                      label={t("form.edict.field.criticStrictness")}
+                      tooltip={t("form.edict.tooltip.criticStrictness")}
                       initialValue="lenient"
                     >
                       <Radio.Group>
-                        <Radio value="lenient">宽松</Radio>
-                        <Radio value="balanced">高标准</Radio>
-                        <Radio value="strict">严苛</Radio>
+                        <Radio value="lenient">{t("strictness.lenient")}</Radio>
+                        <Radio value="balanced">{t("strictness.balanced")}</Radio>
+                        <Radio value="strict">{t("strictness.strict")}</Radio>
                       </Radio.Group>
                     </Form.Item>
 
                     <Form.Item
-                      label="截止时间 (可选)"
-                      tooltip="超过则触发 EXHAUSTED；全留空 = 无硬截止"
+                      label={t("form.edict.field.deadline")}
+                      tooltip={t("form.edict.tooltip.deadline")}
                     >
                       <Space>
                         <Form.Item name="deadline_hours" noStyle>
                           <InputNumber
                             min={0}
                             max={48}
-                            placeholder="时"
-                            addonAfter="小时"
+                            placeholder={t("form.edict.placeholder.deadlineHours")}
+                            addonAfter={t("unit.hours")}
                             style={{ width: 130 }}
                           />
                         </Form.Item>
@@ -618,8 +609,8 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                           <InputNumber
                             min={0}
                             max={59}
-                            placeholder="分"
-                            addonAfter="分钟"
+                            placeholder={t("form.edict.placeholder.deadlineMinutes")}
+                            addonAfter={t("unit.minutes")}
                             style={{ width: 130 }}
                           />
                         </Form.Item>
@@ -628,38 +619,38 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
 
                     <Form.Item
                       name="on_exhaustion"
-                      label="耗尽时"
-                      tooltip="超过 max_outer_iterations / deadline / cost_budget 时的处理"
+                      label={t("form.edict.field.onExhaustion")}
+                      tooltip={t("form.edict.tooltip.onExhaustion")}
                       initialValue="escalate"
                     >
                       <Radio.Group>
-                        <Radio value="escalate">上报人工 (L3)</Radio>
-                        <Radio value="best_effort">取最近一轮当成果</Radio>
-                        <Radio value="fail">直接失败</Radio>
+                        <Radio value="escalate">{t("exhaustion.escalate")}</Radio>
+                        <Radio value="best_effort">{t("exhaustion.best_effort")}</Radio>
+                        <Radio value="fail">{t("exhaustion.fail")}</Radio>
                       </Radio.Group>
                     </Form.Item>
 
                     <Form.Item
                       name="on_critic_unavailable"
-                      label="Critic 故障时"
-                      tooltip="critic LLM 调用全部失败的兜底"
+                      label={t("form.edict.field.onCriticUnavailable")}
+                      tooltip={t("form.edict.tooltip.onCriticUnavailable")}
                       initialValue="skip"
                     >
                       <Radio.Group>
-                        <Radio value="skip">跳过当作通过</Radio>
-                        <Radio value="escalate">上报人工</Radio>
+                        <Radio value="skip">{t("criticUnavail.skip")}</Radio>
+                        <Radio value="escalate">{t("criticUnavail.escalate")}</Radio>
                       </Radio.Group>
                     </Form.Item>
 
                     <Form.Item
                       name="critic_persona_ids"
-                      label="监督官 (Critic Personas，可多选)"
-                      tooltip="谁来监督任务质量。多选时每轮并发评审，按'全过则过'聚合；任意一位 FAIL 即不过。终态后每位监督官独立产出监督报告。"
+                      label={t("form.edict.field.criticPersonas")}
+                      tooltip={t("form.edict.tooltip.criticPersonas")}
                       rules={[{
                         required: true,
                         type: "array",
                         min: 1,
-                        message: "启用长任务时至少选择一位监督官",
+                        message: t("form.edict.validation.criticPersonasRequired"),
                       }]}
                       initialValue={defaultCriticPersonaIds}
                     >
@@ -668,7 +659,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                         options={criticPersonaOptions}
                         showSearch
                         optionFilterProp="label"
-                        placeholder="可选多位 persona（都察院/内阁推荐）"
+                        placeholder={t("form.edict.placeholder.criticPersonas")}
                       />
                     </Form.Item>
 
@@ -689,8 +680,8 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                             type="warning"
                             showIcon
                             style={{ marginBottom: 16 }}
-                            message="执行官与监督官重合"
-                            description="同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议监督官选用都察院 / 文渊阁等不参与执行的 persona。"
+                            message={t("form.edict.warning.criticSelfReviewTitle")}
+                            description={t("form.edict.warning.criticSelfReviewDesc")}
                           />
                         );
                       }}
@@ -698,23 +689,23 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
 
                     <Form.Item
                       name="same_issue_threshold"
-                      label="同类问题升级阈值"
-                      tooltip="critic 连续 N 轮报同类问题（issue_class）则升 L1"
+                      label={t("form.edict.field.sameIssueThreshold")}
+                      tooltip={t("form.edict.tooltip.sameIssueThreshold")}
                     >
-                      <InputNumber min={1} max={10} style={{ width: "100%" }} placeholder="默认 2" />
+                      <InputNumber min={1} max={10} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.sameIssueThreshold")} />
                     </Form.Item>
 
-                    <Form.Item name="l1_max_rounds" label="L1 最多重试轮数">
-                      <InputNumber min={1} max={5} style={{ width: "100%" }} placeholder="默认 2" />
+                    <Form.Item name="l1_max_rounds" label={t("form.edict.field.l1MaxRounds")}>
+                      <InputNumber min={1} max={5} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.l1MaxRounds")} />
                     </Form.Item>
 
-                    <Form.Item name="l2_max_rounds" label="L2 最多重试轮数">
-                      <InputNumber min={1} max={5} style={{ width: "100%" }} placeholder="默认 1" />
+                    <Form.Item name="l2_max_rounds" label={t("form.edict.field.l2MaxRounds")}>
+                      <InputNumber min={1} max={5} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.l2MaxRounds")} />
                     </Form.Item>
 
                     <Divider style={{ margin: "12px 0" }} />
                     <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 12 }}>
-                      可验收指标 Checks（可选，零或多条）
+                      {t("form.edict.section.checks")}
                     </div>
 
                     <Form.List name="checks">
@@ -737,20 +728,20 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                             >
                               <Form.Item
                                 name={[name, "name"]}
-                                label="名称"
-                                rules={[{ required: true, message: "必填" }]}
+                                label={t("form.check.field.name")}
+                                rules={[{ required: true, message: t("form.check.validation.nameRequired") }]}
                               >
-                                <Input placeholder="例如 pytest / tone-check" />
+                                <Input placeholder={t("form.check.placeholder.name")} />
                               </Form.Item>
                               <Form.Item
                                 name={[name, "kind"]}
-                                label="类型"
+                                label={t("form.check.field.kind")}
                                 initialValue="bash"
                               >
                                 <Radio.Group>
-                                  <Radio value="bash">Bash</Radio>
-                                  <Radio value="lint">Lint</Radio>
-                                  <Radio value="rubric">Rubric (LLM 评分)</Radio>
+                                  <Radio value="bash">{t("checkKind.bash")}</Radio>
+                                  <Radio value="lint">{t("checkKind.lint")}</Radio>
+                                  <Radio value="rubric">{t("checkKind.rubric")}</Radio>
                                 </Radio.Group>
                               </Form.Item>
                               <Form.Item
@@ -766,17 +757,17 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                                       <>
                                         <Form.Item
                                           name={[name, "rubric"]}
-                                          label="Rubric 提示词"
-                                          rules={[{ required: true, message: "rubric 必填" }]}
+                                          label={t("form.check.field.rubric")}
+                                          rules={[{ required: true, message: t("form.check.validation.rubricRequired") }]}
                                         >
                                           <Input.TextArea
                                             rows={3}
-                                            placeholder="评估标准描述，要求 LLM 回 0~1 分"
+                                            placeholder={t("form.check.placeholder.rubric")}
                                           />
                                         </Form.Item>
                                         <Form.Item
                                           name={[name, "pass_threshold"]}
-                                          label="通过阈值"
+                                          label={t("form.check.field.passThreshold")}
                                           initialValue={0.8}
                                         >
                                           <InputNumber
@@ -792,17 +783,17 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                                   return (
                                     <Form.Item
                                       name={[name, "command"]}
-                                      label="Shell 命令"
-                                      rules={[{ required: true, message: "command 必填" }]}
+                                      label={t("form.check.field.command")}
+                                      rules={[{ required: true, message: t("form.check.validation.commandRequired") }]}
                                     >
-                                      <Input placeholder="例如 pytest tests/ -q" />
+                                      <Input placeholder={t("form.check.placeholder.command")} />
                                     </Form.Item>
                                   );
                                 }}
                               </Form.Item>
                               <Form.Item
                                 name={[name, "timeout_seconds"]}
-                                label="超时 (秒)"
+                                label={t("form.check.field.timeout")}
                                 initialValue={60}
                               >
                                 <InputNumber min={1} max={3600} style={{ width: "100%" }} />
@@ -817,7 +808,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                                 add({ kind: "bash", name: "", timeout_seconds: 60 })
                               }
                             >
-                              添加 Bash/Lint Check
+                              {t("form.check.action.addBashLint")}
                             </Button>
                             <Button
                               type="dashed"
@@ -826,7 +817,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                                 add({ kind: "rubric", name: "", pass_threshold: 0.8 })
                               }
                             >
-                              添加 Rubric Check
+                              {t("form.check.action.addRubric")}
                             </Button>
                           </Space>
                         </>
@@ -848,7 +839,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
           icon={<SendOutlined />}
           size="large"
         >
-          颁发敕令
+          {t("nav.edictCreate")}
         </Button>
       </Form.Item>
     </Form>
