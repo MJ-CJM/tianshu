@@ -8,8 +8,10 @@ import MonoText from "../components/common/MonoText";
 import { formatTime, truncateId } from "../utils/format";
 import { SCHEDULE_TYPE_LABELS } from "../utils/constants";
 import type { SchedulerJob } from "../api/types";
+import { useT } from "../i18n";
 
 export default function SchedulerPage() {
+  const t = useT();
   const navigate = useNavigate();
   const { data: jobs, isLoading, refetch } = useSchedulerJobs();
   const cancelMutation = useCancelJob();
@@ -17,15 +19,15 @@ export default function SchedulerPage() {
   const handleCancel = async (jobId: string) => {
     try {
       await cancelMutation.mutateAsync(jobId);
-      message.success("排期已取消");
+      message.success(t("scheduler.toast.cancelled"));
     } catch {
-      message.error("取消失败");
+      message.error(t("scheduler.toast.cancelFailed"));
     }
   };
 
   const columns: ColumnsType<SchedulerJob> = [
     {
-      title: "调度编号",
+      title: t("scheduler.table.jobId"),
       dataIndex: "job_id",
       width: 140,
       render: (id: string) => (
@@ -33,7 +35,7 @@ export default function SchedulerPage() {
       ),
     },
     {
-      title: "敕令编号",
+      title: t("scheduler.table.edictId"),
       dataIndex: "edict_id",
       width: 140,
       render: (id: string) => (
@@ -43,7 +45,7 @@ export default function SchedulerPage() {
       ),
     },
     {
-      title: "调度类型",
+      title: t("scheduler.table.scheduleType"),
       dataIndex: "schedule_type",
       width: 100,
       render: (type: string) => (
@@ -51,24 +53,24 @@ export default function SchedulerPage() {
       ),
     },
     {
-      title: "下次执行",
+      title: t("scheduler.table.nextRun"),
       dataIndex: "next_run",
       width: 180,
       render: (v: string | null) =>
         v ? formatTime(v) : <span style={{ color: "#8c8c8c" }}>—</span>,
     },
     {
-      title: "操作",
+      title: t("scheduler.table.actions"),
       width: 100,
       render: (_, record) => (
         <Popconfirm
-          title="确认取消此排期？"
+          title={t("scheduler.popconfirm.cancel")}
           onConfirm={() => handleCancel(record.job_id)}
-          okText="确认"
-          cancelText="取消"
+          okText={t("common.confirm")}
+          cancelText={t("common.cancel")}
         >
           <Button type="link" danger size="small">
-            取消
+            {t("action.cancel")}
           </Button>
         </Popconfirm>
       ),
@@ -77,10 +79,10 @@ export default function SchedulerPage() {
 
   return (
     <PageContainer
-      title="文书房"
+      title={t("scheduler.title")}
       extra={
         <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
-          刷新
+          {t("action.refresh")}
         </Button>
       }
     >
@@ -91,7 +93,7 @@ export default function SchedulerPage() {
         loading={isLoading}
         pagination={false}
         size="middle"
-        locale={{ emptyText: "暂无排期任务" }}
+        locale={{ emptyText: t("scheduler.empty") }}
       />
     </PageContainer>
   );

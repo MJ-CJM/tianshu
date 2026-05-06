@@ -639,6 +639,24 @@
     "zh-modern": "Modern",
     "en": "English"
   },
+  "scheduler": {
+    "title": "Scheduler",
+    "table": {
+      "jobId": "Job ID",
+      "edictId": "Task ID",
+      "scheduleType": "Schedule type",
+      "nextRun": "Next run",
+      "actions": "Actions"
+    },
+    "popconfirm": {
+      "cancel": "Cancel this schedule?"
+    },
+    "empty": "No scheduled jobs",
+    "toast": {
+      "cancelled": "Schedule cancelled",
+      "cancelFailed": "Cancel failed"
+    }
+  },
   "audit": {
     "title": "Audit Center",
     "tab": {

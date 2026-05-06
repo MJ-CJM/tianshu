@@ -639,6 +639,24 @@
     "zh-modern": "通用",
     "en": "English"
   },
+  "scheduler": {
+    "title": "调度中心",
+    "table": {
+      "jobId": "调度 ID",
+      "edictId": "任务 ID",
+      "scheduleType": "调度类型",
+      "nextRun": "下次执行",
+      "actions": "操作"
+    },
+    "popconfirm": {
+      "cancel": "确认取消此排期？"
+    },
+    "empty": "暂无排期任务",
+    "toast": {
+      "cancelled": "排期已取消",
+      "cancelFailed": "取消失败"
+    }
+  },
   "audit": {
     "title": "审计中心",
     "tab": {
