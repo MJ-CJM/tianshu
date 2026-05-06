@@ -31,15 +31,10 @@ import {
   fetchTools,
 } from "../api/policy";
 import type { SessionRule, ToolInfo } from "../api/policy";
+import { useT } from "../i18n";
 
 const { Text } = Typography;
 
-const TIER_LABELS: Record<number, string> = {
-  0: "T0 只读",
-  1: "T1 工作区",
-  2: "T2 写入",
-  3: "T3 危险",
-};
 const TIER_COLORS: Record<number, string> = {
   0: "green",
   1: "blue",
@@ -47,26 +42,19 @@ const TIER_COLORS: Record<number, string> = {
   3: "red",
 };
 
-const scopeLabel: Record<string, string> = {
-  always: "全局",
-  edict: "敕令级",
-};
-const scopeColor: Record<string, string> = {
+const SCOPE_COLORS: Record<string, string> = {
   always: "purple",
   edict: "cyan",
 };
-const sourceLabel: Record<string, string> = {
-  approval: "审批授予",
-  profile: "策略模板",
-  manual: "手动添加",
-};
-const sourceColor: Record<string, string> = {
+
+const SOURCE_COLORS: Record<string, string> = {
   approval: "blue",
   profile: "geekblue",
   manual: "default",
 };
 
 export default function SessionRulesPage() {
+  const t = useT();
   const [rules, setRules] = useState<SessionRule[]>([]);
   const [loading, setLoading] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<string>("all");
@@ -113,10 +101,10 @@ export default function SessionRulesPage() {
   const handleRevoke = async (ruleId: string) => {
     try {
       await revokeSessionRule(ruleId);
-      message.success("规则已撤销");
+      message.success(t("toast.ruleRevoked"));
       await load();
     } catch {
-      message.error("撤销失败");
+      message.error(t("toast.ruleRevokeFailed"));
     }
   };
 
@@ -130,13 +118,13 @@ export default function SessionRulesPage() {
         reason: values.reason || undefined,
         expires_days: values.expires_days || null,
       });
-      message.success("规则已创建");
+      message.success(t("toast.ruleCreated"));
       form.resetFields();
       setAddOpen(false);
       await load();
     } catch (err: unknown) {
       if (err && typeof err === "object" && "errorFields" in err) return;
-      const msg = err instanceof Error ? err.message : "创建失败";
+      const msg = err instanceof Error ? err.message : t("toast.ruleCreateFailed");
       message.error(msg);
     } finally {
       setAddSubmitting(false);
@@ -145,18 +133,18 @@ export default function SessionRulesPage() {
 
   const columns: ColumnsType<SessionRule> = [
     {
-      title: "工具",
+      title: t("table.sessionRules.column.tool"),
       dataIndex: "tool_name",
       width: 160,
       render: (v: string) => <Text code>{v}</Text>,
     },
     {
-      title: "参数指纹",
+      title: t("table.sessionRules.column.fingerprint"),
       dataIndex: "arg_fingerprint",
       ellipsis: true,
       render: (v: string) =>
         v === "*" ? (
-          <Tag>任意参数</Tag>
+          <Tag>{t("table.sessionRules.cell.anyArg")}</Tag>
         ) : v ? (
           <Tooltip title={v}>
             <Text type="secondary" style={{ fontSize: 12 }}>
@@ -168,23 +156,23 @@ export default function SessionRulesPage() {
         ),
     },
     {
-      title: "范围",
+      title: t("table.sessionRules.column.scope"),
       dataIndex: "scope",
       width: 100,
       render: (v: string) => (
-        <Tag color={scopeColor[v] ?? "default"}>{scopeLabel[v] ?? v}</Tag>
+        <Tag color={SCOPE_COLORS[v] ?? "default"}>{t(`sessionRules.scope.${v}`)}</Tag>
       ),
     },
     {
-      title: "来源",
+      title: t("table.sessionRules.column.source"),
       dataIndex: "source",
       width: 110,
       render: (v: string) => (
-        <Tag color={sourceColor[v] ?? "default"}>{sourceLabel[v] ?? v}</Tag>
+        <Tag color={SOURCE_COLORS[v] ?? "default"}>{t(`sessionRules.source.${v}`)}</Tag>
       ),
     },
     {
-      title: "授予时间",
+      title: t("table.sessionRules.column.grantedAt"),
       dataIndex: "granted_at",
       width: 180,
       render: (v: string) => new Date(v).toLocaleString(),
@@ -193,18 +181,18 @@ export default function SessionRulesPage() {
       defaultSortOrder: "descend",
     },
     {
-      title: "过期时间",
+      title: t("table.sessionRules.column.expiresAt"),
       dataIndex: "expires_at",
       width: 120,
       render: (v: string | null) =>
         v ? (
           new Date(v).toLocaleDateString()
         ) : (
-          <Text type="secondary">永不</Text>
+          <Text type="secondary">{t("table.sessionRules.cell.never")}</Text>
         ),
     },
     {
-      title: "原因",
+      title: t("table.sessionRules.column.reason"),
       dataIndex: "reason",
       ellipsis: true,
       render: (v: string) => (
@@ -214,18 +202,18 @@ export default function SessionRulesPage() {
       ),
     },
     {
-      title: "操作",
+      title: t("table.sessionRules.column.action"),
       width: 90,
       render: (_: unknown, row: SessionRule) => (
         <Popconfirm
-          title="确定撤销此规则？"
-          description="撤销后相关工具调用将重新需要审批"
+          title={t("sessionRules.popconfirm.title")}
+          description={t("sessionRules.popconfirm.description")}
           onConfirm={() => handleRevoke(row.rule_id)}
-          okText="确定"
-          cancelText="取消"
+          okText={t("action.ok")}
+          cancelText={t("common.cancel")}
         >
           <Button size="small" danger icon={<DeleteOutlined />}>
-            撤销
+            {t("action.revoke")}
           </Button>
         </Popconfirm>
       ),
@@ -233,18 +221,18 @@ export default function SessionRulesPage() {
   ];
 
   // Tool select options grouped by tier
-  const toolOptions = tools.map((t) => ({
-    value: t.name,
+  const toolOptions = tools.map((tool) => ({
+    value: tool.name,
     label: (
       <Space size={4}>
         <Text code style={{ fontSize: 12 }}>
-          {t.name}
+          {tool.name}
         </Text>
         <Tag
-          color={TIER_COLORS[t.tier] ?? "default"}
+          color={TIER_COLORS[tool.tier] ?? "default"}
           style={{ fontSize: 10, lineHeight: "16px" }}
         >
-          {TIER_LABELS[t.tier] ?? `T${t.tier}`}
+          {t(`sessionRules.tier.${tool.tier}`)}
         </Tag>
       </Space>
     ),
@@ -252,7 +240,7 @@ export default function SessionRulesPage() {
 
   return (
     <PageContainer
-      title="权印司 · Session Rules"
+      title={t("page.sessionRules.title")}
       extra={
         <Space>
           <Button
@@ -263,10 +251,10 @@ export default function SessionRulesPage() {
               setAddOpen(true);
             }}
           >
-            添加规则
+            {t("page.sessionRules.addRule")}
           </Button>
           <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
-            刷新
+            {t("action.refresh")}
           </Button>
         </Space>
       }
@@ -275,8 +263,8 @@ export default function SessionRulesPage() {
         type="info"
         showIcon
         icon={<SafetyCertificateOutlined />}
-        message="Session Rules 是工具调用的免审令牌"
-        description="当你在御书房朱批工具调用时选择「本敕令」或「全局」范围，系统会自动创建 session rule。你也可以手动添加规则来预配置免审权限。注意：shell_exec/bash 工具不允许设为全局免审。"
+        message={t("page.sessionRules.alertTitle")}
+        description={t("page.sessionRules.alertDesc")}
         style={{ marginBottom: 16 }}
       />
 
@@ -287,9 +275,9 @@ export default function SessionRulesPage() {
             onChange={(v: "edict" | "always" | "all") => setScope(v)}
             style={{ width: 160 }}
             options={[
-              { value: "all", label: "全部范围" },
-              { value: "always", label: "全局 (always)" },
-              { value: "edict", label: "敕令级 (edict)" },
+              { value: "all", label: t("sessionRules.scopeFilter.all") },
+              { value: "always", label: t("sessionRules.scopeFilter.always") },
+              { value: "edict", label: t("sessionRules.scopeFilter.edict") },
             ]}
           />
           <Select
@@ -297,14 +285,14 @@ export default function SessionRulesPage() {
             onChange={setSourceFilter}
             style={{ width: 160 }}
             options={[
-              { value: "all", label: "全部来源" },
-              { value: "approval", label: "审批授予" },
-              { value: "profile", label: "策略模板" },
-              { value: "manual", label: "手动添加" },
+              { value: "all", label: t("sessionRules.sourceFilter.all") },
+              { value: "approval", label: t("sessionRules.sourceFilter.approval") },
+              { value: "profile", label: t("sessionRules.sourceFilter.profile") },
+              { value: "manual", label: t("sessionRules.sourceFilter.manual") },
             ]}
           />
           <Text type="secondary" style={{ fontSize: 12 }}>
-            共 {filtered.length} 条规则
+            {t("page.sessionRules.summary", { n: filtered.length })}
           </Text>
         </Space>
         <Table<SessionRule>
@@ -313,16 +301,13 @@ export default function SessionRulesPage() {
           rowKey="rule_id"
           loading={loading}
           pagination={{ pageSize: 20 }}
-          locale={{
-            emptyText:
-              "暂无规则 — 点击右上角「添加规则」手动创建，或在御书房朱批时选择「本敕令/全局」自动生成",
-          }}
+          locale={{ emptyText: t("page.sessionRules.empty") }}
           size="small"
         />
       </Card>
 
       <Modal
-        title="添加免审规则"
+        title={t("page.sessionRules.addModalTitle")}
         open={addOpen}
         onOk={handleAdd}
         onCancel={() => {
@@ -330,8 +315,8 @@ export default function SessionRulesPage() {
           setAddOpen(false);
         }}
         confirmLoading={addSubmitting}
-        okText="创建"
-        cancelText="取消"
+        okText={t("action.create")}
+        cancelText={t("common.cancel")}
       >
         <Form
           form={form}
@@ -340,13 +325,13 @@ export default function SessionRulesPage() {
         >
           <Form.Item
             name="tool_name"
-            label="工具名称"
-            rules={[{ required: true, message: "请选择工具" }]}
+            label={t("form.sessionRule.field.toolName")}
+            rules={[{ required: true, message: t("form.sessionRule.validation.toolNameRequired") }]}
           >
             <Select
               showSearch
               loading={toolsLoading}
-              placeholder="搜索或选择工具…"
+              placeholder={t("form.sessionRule.placeholder.toolName")}
               options={toolOptions}
               filterOption={(input, option) =>
                 typeof option?.value === "string" &&
@@ -357,31 +342,31 @@ export default function SessionRulesPage() {
           </Form.Item>
           <Form.Item
             name="scope"
-            label="范围"
+            label={t("form.sessionRule.field.scope")}
             rules={[{ required: true }]}
           >
             <Select
               options={[
-                { value: "always", label: "全局 — 所有敕令生效" },
-                { value: "edict", label: "敕令级 — 仅当前指定敕令" },
+                { value: "always", label: t("form.sessionRule.scopeOption.always") },
+                { value: "edict", label: t("form.sessionRule.scopeOption.edict") },
               ]}
             />
           </Form.Item>
           <Form.Item
             name="expires_days"
-            label="有效天数"
-            tooltip="留空或填 0 表示永不过期（全局规则默认 30 天）"
+            label={t("form.sessionRule.field.expiresDays")}
+            tooltip={t("form.sessionRule.tooltip.expiresDays")}
           >
             <InputNumber
               min={0}
               max={365}
-              placeholder="30"
+              placeholder={t("form.sessionRule.placeholder.expiresDays")}
               style={{ width: "100%" }}
-              addonAfter="天"
+              addonAfter={t("unit.days")}
             />
           </Form.Item>
-          <Form.Item name="reason" label="原因 / 备注">
-            <Input.TextArea rows={2} placeholder="可选，记录为什么添加此规则" />
+          <Form.Item name="reason" label={t("form.sessionRule.field.reason")}>
+            <Input.TextArea rows={2} placeholder={t("form.sessionRule.placeholder.reason")} />
           </Form.Item>
         </Form>
       </Modal>

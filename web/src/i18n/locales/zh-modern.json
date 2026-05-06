@@ -38,7 +38,12 @@
     "issue": "下发",
     "review": "审批",
     "pause": "暂停",
-    "resume": "恢复"
+    "resume": "恢复",
+    "revoke": "撤销",
+    "add": "添加",
+    "refresh": "刷新",
+    "create": "创建",
+    "ok": "确定"
   },
   "status": {
     "submitted": "已提交",
@@ -297,6 +302,15 @@
       "title": "创建新任务",
       "successTitle": "任务已创建",
       "successDesc": "系统正在执行"
+    },
+    "sessionRules": {
+      "title": "会话规则",
+      "alertTitle": "Session Rules 是工具调用的免审令牌",
+      "alertDesc": "当你在审批中心审批工具调用时选择「本任务」或「全局」范围，系统会自动创建 session rule。你也可以手动添加规则来预配置免审权限。注意：shell_exec/bash 工具不允许设为全局免审。",
+      "addRule": "添加规则",
+      "addModalTitle": "添加免审规则",
+      "summary": "共 {n} 条规则",
+      "empty": "暂无规则 — 点击右上角「添加规则」手动创建，或在审批工具调用时选择「本任务/全局」自动生成"
     }
   },
   "form": {
@@ -447,6 +461,79 @@
         "addBashLint": "添加 Bash/Lint Check",
         "addRubric": "添加 Rubric Check"
       }
+    },
+    "sessionRule": {
+      "field": {
+        "toolName": "工具名称",
+        "scope": "范围",
+        "expiresDays": "有效天数",
+        "reason": "原因 / 备注"
+      },
+      "placeholder": {
+        "toolName": "搜索或选择工具…",
+        "expiresDays": "30",
+        "reason": "可选，记录为什么添加此规则"
+      },
+      "tooltip": {
+        "expiresDays": "留空或填 0 表示永不过期（全局规则默认 30 天）"
+      },
+      "validation": {
+        "toolNameRequired": "请选择工具"
+      },
+      "scopeOption": {
+        "always": "全局 — 所有任务生效",
+        "edict": "任务级 — 仅当前指定任务"
+      }
+    }
+  },
+  "table": {
+    "sessionRules": {
+      "column": {
+        "tool": "工具",
+        "fingerprint": "参数指纹",
+        "scope": "范围",
+        "source": "来源",
+        "grantedAt": "授予时间",
+        "expiresAt": "过期时间",
+        "reason": "原因",
+        "action": "操作"
+      },
+      "cell": {
+        "anyArg": "任意参数",
+        "never": "永不"
+      }
+    }
+  },
+  "sessionRules": {
+    "scope": {
+      "always": "全局",
+      "edict": "任务级"
+    },
+    "source": {
+      "approval": "审批授予",
+      "profile": "策略模板",
+      "manual": "手动添加"
+    },
+    "tier": {
+      "0": "T0 只读",
+      "1": "T1 工作区",
+      "2": "T2 写入",
+      "3": "T3 危险"
+    },
+    "scopeFilter": {
+      "all": "全部范围",
+      "always": "全局 (always)",
+      "edict": "任务级 (edict)"
+    },
+    "sourceFilter": {
+      "all": "全部来源",
+      "approval": "审批授予",
+      "profile": "策略模板",
+      "manual": "手动添加"
+    },
+    "popconfirm": {
+      "title": "确定撤销此规则？",
+      "description": "撤销后相关工具调用将重新需要审批"
     }
   },
   "priority": {
@@ -503,7 +590,8 @@
   "unit": {
     "hours": "小时",
     "minutes": "分钟",
-    "seconds": "秒"
+    "seconds": "秒",
+    "days": "天"
   },
   "button": {
     "save": "保存",
@@ -538,7 +626,11 @@
     "edictResumed": "任务已恢复",
     "resumeFailed": "恢复失败",
     "edictUpdated": "任务已更新",
-    "updateFailed": "更新失败"
+    "updateFailed": "更新失败",
+    "ruleRevoked": "规则已撤销",
+    "ruleRevokeFailed": "撤销失败",
+    "ruleCreated": "规则已创建",
+    "ruleCreateFailed": "创建失败"
   },
   "locale": {
     "zh-classic": "彩蛋",

@@ -38,7 +38,12 @@
     "issue": "Issue",
     "review": "Review",
     "pause": "Pause",
-    "resume": "Resume"
+    "resume": "Resume",
+    "revoke": "Revoke",
+    "add": "Add",
+    "refresh": "Refresh",
+    "create": "Create",
+    "ok": "OK"
   },
   "status": {
     "submitted": "Submitted",
@@ -297,6 +302,15 @@
       "title": "New Task",
       "successTitle": "Task created",
       "successDesc": "System is processing"
+    },
+    "sessionRules": {
+      "title": "Session Rules",
+      "alertTitle": "Session Rules are pre-approval tokens for tool calls",
+      "alertDesc": "When approving a tool call in the Approval Center with scope \"This task\" or \"Global\", a session rule is automatically created. You can also add rules manually to pre-configure pre-approved permissions. Note: shell_exec/bash tools cannot be granted global pre-approval.",
+      "addRule": "Add Rule",
+      "addModalTitle": "Add Pre-Approval Rule",
+      "summary": "{n} rules total",
+      "empty": "No rules — click \"Add Rule\" in the top right to create manually, or select \"This task / Global\" when approving tool calls to auto-generate"
     }
   },
   "form": {
@@ -447,6 +461,79 @@
         "addBashLint": "Add Bash/Lint Check",
         "addRubric": "Add Rubric Check"
       }
+    },
+    "sessionRule": {
+      "field": {
+        "toolName": "Tool name",
+        "scope": "Scope",
+        "expiresDays": "Valid days",
+        "reason": "Reason / notes"
+      },
+      "placeholder": {
+        "toolName": "Search or select a tool…",
+        "expiresDays": "30",
+        "reason": "Optional — note why this rule was added"
+      },
+      "tooltip": {
+        "expiresDays": "Leave blank or 0 for never expires (global rules default to 30 days)"
+      },
+      "validation": {
+        "toolNameRequired": "Please select a tool"
+      },
+      "scopeOption": {
+        "always": "Global — applies to all tasks",
+        "edict": "Task-level — only for the specified task"
+      }
+    }
+  },
+  "table": {
+    "sessionRules": {
+      "column": {
+        "tool": "Tool",
+        "fingerprint": "Arg fingerprint",
+        "scope": "Scope",
+        "source": "Source",
+        "grantedAt": "Granted at",
+        "expiresAt": "Expires at",
+        "reason": "Reason",
+        "action": "Action"
+      },
+      "cell": {
+        "anyArg": "Any args",
+        "never": "Never"
+      }
+    }
+  },
+  "sessionRules": {
+    "scope": {
+      "always": "Global",
+      "edict": "Task-level"
+    },
+    "source": {
+      "approval": "Approval-granted",
+      "profile": "Policy profile",
+      "manual": "Manual"
+    },
+    "tier": {
+      "0": "T0 Read-only",
+      "1": "T1 Workspace",
+      "2": "T2 Write",
+      "3": "T3 Dangerous"
+    },
+    "scopeFilter": {
+      "all": "All scopes",
+      "always": "Global (always)",
+      "edict": "Task-level (edict)"
+    },
+    "sourceFilter": {
+      "all": "All sources",
+      "approval": "Approval-granted",
+      "profile": "Policy profile",
+      "manual": "Manual"
+    },
+    "popconfirm": {
+      "title": "Revoke this rule?",
+      "description": "After revocation, related tool calls will require approval again"
     }
   },
   "priority": {
@@ -503,7 +590,8 @@
   "unit": {
     "hours": "hours",
     "minutes": "minutes",
-    "seconds": "seconds"
+    "seconds": "seconds",
+    "days": "days"
   },
   "button": {
     "save": "Save",
@@ -538,7 +626,11 @@
     "edictResumed": "Task resumed",
     "resumeFailed": "Resume failed",
     "edictUpdated": "Task updated",
-    "updateFailed": "Update failed"
+    "updateFailed": "Update failed",
+    "ruleRevoked": "Rule revoked",
+    "ruleRevokeFailed": "Revoke failed",
+    "ruleCreated": "Rule created",
+    "ruleCreateFailed": "Create failed"
   },
   "locale": {
     "zh-classic": "Easter Egg",
