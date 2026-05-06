@@ -43,7 +43,9 @@
     "add": "Add",
     "refresh": "Refresh",
     "create": "Create",
-    "ok": "OK"
+    "ok": "OK",
+    "delete": "Delete",
+    "edit": "Edit"
   },
   "status": {
     "submitted": "Submitted",
@@ -636,5 +638,210 @@
     "zh-classic": "Easter Egg",
     "zh-modern": "Modern",
     "en": "English"
+  },
+  "system": {
+    "title": "System",
+    "tab": {
+      "skills": "Skills",
+      "tools": "Tools",
+      "prompt": "Prompts",
+      "providers": "Providers",
+      "plugins": "Plugins",
+      "config": "Config",
+      "externalCreds": "Credentials"
+    },
+    "skills": {
+      "charsLoaded": "{n} chars loaded",
+      "newSkill": "New skill",
+      "detail": "Skill detail",
+      "detailWithName": "Skill: {name}",
+      "notFound": "Skill not found",
+      "createTitle": "New skill",
+      "confirmDelete": "Delete this skill?",
+      "table": {
+        "name": "Name",
+        "description": "Description",
+        "source": "Source",
+        "toolTier": "Tool tier",
+        "chars": "Chars",
+        "actions": "Actions"
+      },
+      "form": {
+        "name": "Skill name",
+        "content": "SKILL.md content",
+        "namePlaceholder": "e.g. my-skill",
+        "contentPlaceholder": "Enter SKILL.md content...",
+        "nameRequired": "Skill name is required",
+        "namePattern": "Only letters, digits, underscores and hyphens allowed"
+      }
+    },
+    "tools": {
+      "liveAlert": "Tool toggles take effect live — once disabled, the LLM will not see the tool on the next call; no restart needed.",
+      "table": {
+        "enabled": "Enabled",
+        "name": "Name",
+        "description": "Description",
+        "tier": "Tier",
+        "personas": "Personas"
+      }
+    },
+    "prompt": {
+      "layeredAnalysis": "Prompt layer breakdown",
+      "totalChars": "Total chars",
+      "estTokens": "Est. tokens",
+      "layerCount": "Layers",
+      "layeredFor": "{name} — Prompt layers",
+      "templateFiles": "Template files",
+      "emptyFiles": "No prompt files",
+      "usingTemplate": "Officers using this template (click to view/edit prompt layers)",
+      "preview": "Preview",
+      "editFile": "Edit file",
+      "editFileTitle": "Edit: {personaId}/{filename}",
+      "previewModalTitle": "System prompt preview: {persona}",
+      "previewEmpty": "Cannot generate preview",
+      "table": {
+        "layer": "Layer",
+        "name": "Name",
+        "source": "Source",
+        "chars": "Chars",
+        "tokensEst": "Tokens (est)",
+        "percent": "Share",
+        "actions": "Actions"
+      }
+    },
+    "providers": {
+      "listTitle": "Provider list",
+      "llmConfigTitle": "LLM Config",
+      "addConfig": "Add config",
+      "addConfigTitle": "Add model config",
+      "active": "Active",
+      "activate": "Activate",
+      "empty": "No providers",
+      "confirmDeleteProvider": "Confirm delete?",
+      "confirmDeleteConfig": "Delete this config?",
+      "costNoCustom": "No custom pricing — falls back to _DEFAULT_PRICING",
+      "costAllCustom": "All custom",
+      "costPartial": "Partially custom (other fields fall back to default pricing)",
+      "table": {
+        "name": "Name",
+        "model": "Model",
+        "status": "Status",
+        "priority": "Priority",
+        "rpm": "RPM",
+        "cost": "3-tier ¥/1K"
+      },
+      "form": {
+        "name": "Config name",
+        "model": "Model",
+        "namePlaceholder": "e.g. gpt-4o",
+        "modelPlaceholder": "e.g. gpt-4o",
+        "apiKeyPlaceholder": "Optional",
+        "apiBasePlaceholder": "Optional",
+        "newKeyPlaceholder": "Enter new key to update",
+        "apiBaseExample": "https://open.bigmodel.cn/api/paas/v4",
+        "nameRequired": "Config name is required",
+        "modelRequired": "Model name is required"
+      }
+    },
+    "plugins": {
+      "empty": "No plugins",
+      "table": {
+        "name": "Name",
+        "version": "Version",
+        "status": "Status",
+        "sha256": "SHA256",
+        "installedAt": "Installed at"
+      }
+    },
+    "globalConfig": {
+      "agentSection": "Agent parameters",
+      "agentMaxIter": "Max iterations",
+      "agentTimeout": "Timeout (seconds)",
+      "skillSection": "Skill parameters",
+      "skillCharBudget": "Char budget",
+      "apply": "Apply"
+    },
+    "externalCreds": {
+      "edictAuthLabel": "Task credentials",
+      "engineLabel": "Engine config",
+      "add": "Add",
+      "engineAlertMsg": "Engine config provides API keys for Jina / Tavily / Firecrawl used by web_fetch / web_search / web_extract.",
+      "engineAlertDesc": "DB-stored config takes precedence; falls back to .env when not set; takes effect immediately after edit (live rebuild).",
+      "edictEmpty": "No external credentials yet. Click \"Add\" in the top right to start.",
+      "engineEmpty": "No engine provider keys configured.",
+      "addEdictTitle": "Add external credential",
+      "addEngineTitle": "Add engine provider key",
+      "editEngineTitle": "Edit provider key",
+      "editCredTitle": "Edit credential",
+      "immutableHint": "Name / host / template / provider cannot be modified (delete and recreate to change)",
+      "edit": "Edit",
+      "delEdictPopconfirm": "Delete this credential? Tasks referencing it will no longer inject the header.",
+      "delEnginePopconfirm": "Delete this provider key? The engine will be downgraded immediately (falls back to env or off).",
+      "vaultTitle": "Master key TIANSHU_SECRET_MASTER_KEY not configured",
+      "vaultDescPara1": "External credentials are encrypted with Fernet symmetric encryption. A master key must be configured for the system to enable this feature. Losing the key means all stored credentials are unrecoverable — please back it up safely.",
+      "vaultStepLabel": "Setup steps",
+      "vaultStep1": "1) Generate a Fernet key:",
+      "vaultStep2": "2) Write the output into the project root .env file:",
+      "vaultStep3": "3) Restart the Tianshu backend → refresh this page. Other registered network tools (web_fetch / web_search / web_extract) are not affected.",
+      "vaultRecheck": "I have configured it, recheck",
+      "infoLabel": "Name: ",
+      "infoProvider": "Provider: ",
+      "infoHost": "Host pattern: ",
+      "infoHeader": "Header template: ",
+      "table": {
+        "name": "Name",
+        "enabled": "Enabled",
+        "hostPattern": "Host pattern",
+        "headerTemplate": "Header template",
+        "provider": "Provider",
+        "lastUsed": "Last used",
+        "actions": "Actions"
+      },
+      "form": {
+        "name": "Name",
+        "hostPattern": "Host pattern (e.g. api.github.com or *.notion.com)",
+        "headerTemplate": "Header template",
+        "provider": "Provider",
+        "value": "Value",
+        "newValue": "New value",
+        "extraHeaders": "Extra Headers (JSON)",
+        "namePlaceholderEdict": "github-prod-token",
+        "namePlaceholderEngine": "jina-prod",
+        "hostPlaceholder": "api.github.com",
+        "providerPlaceholder": "Select service provider",
+        "valuePlaceholder": "Will not echo",
+        "newValuePlaceholder": "Empty = keep current value",
+        "extraHeadersPlaceholder": "e.g. {\"Notion-Version\": \"2022-06-28\"}",
+        "headerTemplateTooltip": "Use {value} as placeholder",
+        "newValueTooltip": "Empty = do not change value"
+      }
+    },
+    "toast": {
+      "skillSaved": "Skill saved",
+      "skillCreated": "Skill \"{name}\" created",
+      "skillDeleted": "Skill \"{name}\" deleted",
+      "toolEnabled": "Enabled {name}",
+      "toolDisabled": "Disabled {name}",
+      "actionFailed": "Action failed",
+      "fileSaved": "File saved",
+      "noChanges": "No changes",
+      "llmConfigUpdated": "Config updated",
+      "llmConfigAdded": "Config \"{name}\" added",
+      "llmConfigDuplicate": "Name already exists",
+      "providerDeleted": "Provider \"{name}\" deleted",
+      "llmConfigSwitched": "Switched active config to \"{name}\"",
+      "llmConfigDeleted": "Config \"{name}\" deleted",
+      "agentParamsUpdated": "Runtime parameters updated",
+      "credLoadFailed": "Failed to load credentials",
+      "credCreated": "Credential created",
+      "credCreatedLive": "Created, took effect immediately",
+      "credCreateFailed": "Create failed",
+      "credDeleted": "Credential deleted",
+      "credDeleteFailed": "Delete failed",
+      "credSaved": "Saved",
+      "credSaveFailed": "Save failed",
+      "credToggleFailed": "Toggle failed",
+      "extraHeadersInvalid": "extra_headers is not valid JSON"
+    }
   }
 }

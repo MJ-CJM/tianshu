@@ -43,7 +43,9 @@
     "add": "添加",
     "refresh": "刷新",
     "create": "创建",
-    "ok": "确定"
+    "ok": "确定",
+    "delete": "删除",
+    "edit": "修改"
   },
   "status": {
     "submitted": "已提交",
@@ -636,5 +638,210 @@
     "zh-classic": "彩蛋",
     "zh-modern": "通用",
     "en": "English"
+  },
+  "system": {
+    "title": "系统管理",
+    "tab": {
+      "skills": "技能库",
+      "tools": "工具箱",
+      "prompt": "Prompt 模板",
+      "providers": "模型供应",
+      "plugins": "插件",
+      "config": "全局配置",
+      "externalCreds": "外部凭证"
+    },
+    "skills": {
+      "charsLoaded": "已加载 {n} chars",
+      "newSkill": "新建技能",
+      "detail": "技能详情",
+      "detailWithName": "技能: {name}",
+      "notFound": "未找到技能",
+      "createTitle": "新建技能",
+      "confirmDelete": "确认删除此技能？",
+      "table": {
+        "name": "名称",
+        "description": "描述",
+        "source": "来源",
+        "toolTier": "工具等级",
+        "chars": "字符数",
+        "actions": "操作"
+      },
+      "form": {
+        "name": "技能名称",
+        "content": "SKILL.md 内容",
+        "namePlaceholder": "例如 my-skill",
+        "contentPlaceholder": "在此输入 SKILL.md 内容...",
+        "nameRequired": "请输入技能名称",
+        "namePattern": "仅支持字母、数字、下划线、连字符"
+      }
+    },
+    "tools": {
+      "liveAlert": "工具启用开关 live 生效 — 关闭后 LLM 在下一轮调用里看不到此工具；无需重启。",
+      "table": {
+        "enabled": "启用",
+        "name": "名称",
+        "description": "描述",
+        "tier": "等级",
+        "personas": "关联 Persona"
+      }
+    },
+    "prompt": {
+      "layeredAnalysis": "Prompt 分层分析",
+      "totalChars": "总字符数",
+      "estTokens": "估算 Token",
+      "layerCount": "层数",
+      "layeredFor": "{name} — Prompt 分层",
+      "templateFiles": "部门模板文件",
+      "emptyFiles": "暂无 Prompt 文件",
+      "usingTemplate": "使用此模板的官员（点击查看/编辑 Prompt 分层）",
+      "preview": "预览",
+      "editFile": "编辑文件",
+      "editFileTitle": "编辑: {personaId}/{filename}",
+      "previewModalTitle": "System Prompt 预览: {persona}",
+      "previewEmpty": "无法生成预览",
+      "table": {
+        "layer": "层",
+        "name": "名称",
+        "source": "来源",
+        "chars": "字符",
+        "tokensEst": "Token (est)",
+        "percent": "占比",
+        "actions": "操作"
+      }
+    },
+    "providers": {
+      "listTitle": "Provider 列表",
+      "llmConfigTitle": "LLM 配置",
+      "addConfig": "添加配置",
+      "addConfigTitle": "添加模型配置",
+      "active": "活跃",
+      "activate": "激活",
+      "empty": "暂无 Provider",
+      "confirmDeleteProvider": "确定删除？",
+      "confirmDeleteConfig": "确认删除此配置？",
+      "costNoCustom": "未配置自定义价 — 落 _DEFAULT_PRICING 默认表",
+      "costAllCustom": "全部自定义",
+      "costPartial": "部分自定义（其余字段落默认价表）",
+      "table": {
+        "name": "名称",
+        "model": "模型",
+        "status": "状态",
+        "priority": "优先级",
+        "rpm": "RPM",
+        "cost": "三维价 ¥/1K"
+      },
+      "form": {
+        "name": "配置名称",
+        "model": "模型",
+        "namePlaceholder": "例如 gpt-4o",
+        "modelPlaceholder": "例如 gpt-4o",
+        "apiKeyPlaceholder": "可选",
+        "apiBasePlaceholder": "可选",
+        "newKeyPlaceholder": "输入新 Key 以更新",
+        "apiBaseExample": "https://open.bigmodel.cn/api/paas/v4",
+        "nameRequired": "请输入配置名称",
+        "modelRequired": "请输入模型名"
+      }
+    },
+    "plugins": {
+      "empty": "暂无插件",
+      "table": {
+        "name": "名称",
+        "version": "版本",
+        "status": "状态",
+        "sha256": "SHA256",
+        "installedAt": "安装时间"
+      }
+    },
+    "globalConfig": {
+      "agentSection": "Agent 参数",
+      "agentMaxIter": "最大迭代次数",
+      "agentTimeout": "执行超时 (秒)",
+      "skillSection": "Skill 参数",
+      "skillCharBudget": "字符预算",
+      "apply": "应用"
+    },
+    "externalCreds": {
+      "edictAuthLabel": "任务凭证",
+      "engineLabel": "引擎配置",
+      "add": "新增",
+      "engineAlertMsg": "引擎配置用于给 web_fetch / web_search / web_extract 使用的 Jina / Tavily / Firecrawl 服务传入 API Key。",
+      "engineAlertDesc": "DB 里配置后优先使用；没有则回落 .env；修改后立即生效（后端 live rebuild）。",
+      "edictEmpty": "还没添加任何外部凭证。点右上角「新增」开始。",
+      "engineEmpty": "还没配置任何引擎 Provider key。",
+      "addEdictTitle": "新增外部凭证",
+      "addEngineTitle": "新增引擎 Provider Key",
+      "editEngineTitle": "修改 Provider Key",
+      "editCredTitle": "修改凭证",
+      "immutableHint": "名称 / host / template / provider 不可修改（改动请删除重建）",
+      "edit": "修改",
+      "delEdictPopconfirm": "删除此凭证？引用它的任务将无法再注入 header。",
+      "delEnginePopconfirm": "删除此 provider key？对应引擎立即降级（回落 env 或关闭）。",
+      "vaultTitle": "尚未配置主密钥 TIANSHU_SECRET_MASTER_KEY",
+      "vaultDescPara1": "外部凭证用 Fernet 对称加密存储，需要先给系统配置一把主密钥才能启用。密钥丢失等于所有已存凭证不可恢复，请妥善备份。",
+      "vaultStepLabel": "配置步骤",
+      "vaultStep1": "1) 生成一把 Fernet 密钥：",
+      "vaultStep2": "2) 把输出写进项目根目录的 .env：",
+      "vaultStep3": "3) 重启系统后台进程 → 刷新本页。其它已注册的网络工具（web_fetch / web_search / web_extract）不受影响。",
+      "vaultRecheck": "我已配置，重新检测",
+      "infoLabel": "名称：",
+      "infoProvider": "Provider：",
+      "infoHost": "匹配域：",
+      "infoHeader": "Header 模板：",
+      "table": {
+        "name": "名称",
+        "enabled": "启用",
+        "hostPattern": "匹配域",
+        "headerTemplate": "Header 模板",
+        "provider": "Provider",
+        "lastUsed": "最近使用",
+        "actions": "操作"
+      },
+      "form": {
+        "name": "名称",
+        "hostPattern": "匹配域 (例: api.github.com 或 *.notion.com)",
+        "headerTemplate": "Header 模板",
+        "provider": "Provider",
+        "value": "Value",
+        "newValue": "新 Value",
+        "extraHeaders": "Extra Headers (JSON)",
+        "namePlaceholderEdict": "github-prod-token",
+        "namePlaceholderEngine": "jina-prod",
+        "hostPlaceholder": "api.github.com",
+        "providerPlaceholder": "选择服务提供方",
+        "valuePlaceholder": "不会回显",
+        "newValuePlaceholder": "留空 = 保留原 value",
+        "extraHeadersPlaceholder": "例: {\"Notion-Version\": \"2022-06-28\"}",
+        "headerTemplateTooltip": "用 {value} 做占位符",
+        "newValueTooltip": "留空 = 不修改 value"
+      }
+    },
+    "toast": {
+      "skillSaved": "技能已保存",
+      "skillCreated": "技能 \"{name}\" 已创建",
+      "skillDeleted": "技能 \"{name}\" 已删除",
+      "toolEnabled": "已启用 {name}",
+      "toolDisabled": "已禁用 {name}",
+      "actionFailed": "操作失败",
+      "fileSaved": "文件已保存",
+      "noChanges": "无变更",
+      "llmConfigUpdated": "配置已更新",
+      "llmConfigAdded": "配置 \"{name}\" 已添加",
+      "llmConfigDuplicate": "名称已存在",
+      "providerDeleted": "Provider \"{name}\" 已删除",
+      "llmConfigSwitched": "已切换活跃配置为 \"{name}\"",
+      "llmConfigDeleted": "配置 \"{name}\" 已删除",
+      "agentParamsUpdated": "执行参数已更新",
+      "credLoadFailed": "加载凭证失败",
+      "credCreated": "凭证已创建",
+      "credCreatedLive": "已创建，立即生效",
+      "credCreateFailed": "创建失败",
+      "credDeleted": "凭证已删除",
+      "credDeleteFailed": "删除失败",
+      "credSaved": "已保存",
+      "credSaveFailed": "保存失败",
+      "credToggleFailed": "切换失败",
+      "extraHeadersInvalid": "extra_headers 不是合法 JSON"
+    }
   }
 }

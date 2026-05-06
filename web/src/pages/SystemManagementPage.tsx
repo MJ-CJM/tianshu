@@ -81,6 +81,7 @@ import {
   deleteCredential,
   updateCredential,
 } from "../api/credentials";
+import { useT } from "../i18n";
 
 const monoStyle: React.CSSProperties = {
   fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
@@ -90,6 +91,7 @@ const monoStyle: React.CSSProperties = {
 // ==================== Tab 1: Skills ====================
 
 function SkillsTab() {
+  const t = useT();
   const { token } = theme.useToken();
   const { data: skills, isLoading } = useSkills();
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
@@ -121,7 +123,7 @@ function SkillsTab() {
       { name: selectedSkill, content: editContent },
       {
         onSuccess: () => {
-          notification.success({ message: "技能已保存" });
+          notification.success({ message: t("system.toast.skillSaved") });
           setDirty(false);
         },
       },
@@ -134,7 +136,7 @@ function SkillsTab() {
         { name: values.name, content: values.content || "" },
         {
           onSuccess: () => {
-            notification.success({ message: `技能 "${values.name}" 已创建` });
+            notification.success({ message: t("system.toast.skillCreated", { name: values.name }) });
             setCreateOpen(false);
             createForm.resetFields();
           },
@@ -151,7 +153,7 @@ function SkillsTab() {
 
   const columns = [
     {
-      title: "名称",
+      title: t("system.skills.table.name"),
       dataIndex: "name",
       key: "name",
       render: (name: string) => (
@@ -159,13 +161,13 @@ function SkillsTab() {
       ),
     },
     {
-      title: "描述",
+      title: t("system.skills.table.description"),
       dataIndex: "description",
       key: "description",
       ellipsis: true,
     },
     {
-      title: "来源",
+      title: t("system.skills.table.source"),
       dataIndex: "source",
       key: "source",
       width: 100,
@@ -180,32 +182,32 @@ function SkillsTab() {
       },
     },
     {
-      title: "工具等级",
+      title: t("system.skills.table.toolTier"),
       dataIndex: "tool_tier",
       key: "tool_tier",
       width: 100,
       render: (v: string | null) => v ?? "-",
     },
     {
-      title: "字符数",
+      title: t("system.skills.table.chars"),
       dataIndex: "content_length",
       key: "content_length",
       width: 90,
       render: (v: number) => v.toLocaleString(),
     },
     {
-      title: "操作",
+      title: t("system.skills.table.actions"),
       key: "actions",
       width: 80,
       render: (_: unknown, record: SkillInfo) =>
         record.source === "workspace" || record.source === "user" ? (
           <Popconfirm
-            title="确认删除此技能？"
+            title={t("system.skills.confirmDelete")}
             onConfirm={() =>
               deleteMutation.mutate(record.name, {
                 onSuccess: () =>
                   notification.success({
-                    message: `技能 "${record.name}" 已删除`,
+                    message: t("system.toast.skillDeleted", { name: record.name }),
                   }),
               })
             }
@@ -232,14 +234,14 @@ function SkillsTab() {
         }}
       >
         <Typography.Text style={{ color: token.colorTextSecondary }}>
-          已加载 {totalChars.toLocaleString()} chars
+          {t("system.skills.charsLoaded", { n: totalChars.toLocaleString() })}
         </Typography.Text>
         <Button
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => setCreateOpen(true)}
         >
-          新建技能
+          {t("system.skills.newSkill")}
         </Button>
       </div>
 
@@ -258,7 +260,7 @@ function SkillsTab() {
 
       {/* Skill Detail Drawer */}
       <Drawer
-        title={selectedSkill ? `技能: ${selectedSkill}` : "技能详情"}
+        title={selectedSkill ? t("system.skills.detailWithName", { name: selectedSkill }) : t("system.skills.detail")}
         open={!!selectedSkill}
         onClose={() => setSelectedSkill(null)}
         width={640}
@@ -269,7 +271,7 @@ function SkillsTab() {
             loading={updateMutation.isPending}
             onClick={handleSave}
           >
-            保存
+            {t("button.save")}
           </Button>
         }
       >
@@ -315,13 +317,13 @@ function SkillsTab() {
             />
           </div>
         ) : (
-          <Typography.Text type="secondary">未找到技能</Typography.Text>
+          <Typography.Text type="secondary">{t("system.skills.notFound")}</Typography.Text>
         )}
       </Drawer>
 
       {/* Create Skill Modal */}
       <Modal
-        title="新建技能"
+        title={t("system.skills.createTitle")}
         open={createOpen}
         onOk={handleCreate}
         onCancel={() => {
@@ -329,27 +331,27 @@ function SkillsTab() {
           createForm.resetFields();
         }}
         confirmLoading={createMutation.isPending}
-        okText="创建"
-        cancelText="取消"
+        okText={t("action.create")}
+        cancelText={t("common.cancel")}
       >
         <Form form={createForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item
             name="name"
-            label="技能名称"
+            label={t("system.skills.form.name")}
             rules={[
-              { required: true, message: "请输入技能名称" },
+              { required: true, message: t("system.skills.form.nameRequired") },
               {
                 pattern: /^[a-zA-Z0-9_-]+$/,
-                message: "仅支持字母、数字、下划线、连字符",
+                message: t("system.skills.form.namePattern"),
               },
             ]}
           >
-            <Input placeholder="例如 my-skill" />
+            <Input placeholder={t("system.skills.form.namePlaceholder")} />
           </Form.Item>
-          <Form.Item name="content" label="SKILL.md 内容">
+          <Form.Item name="content" label={t("system.skills.form.content")}>
             <Input.TextArea
               rows={12}
-              placeholder="在此输入 SKILL.md 内容..."
+              placeholder={t("system.skills.form.contentPlaceholder")}
               style={monoStyle}
             />
           </Form.Item>
@@ -362,6 +364,7 @@ function SkillsTab() {
 // ==================== Tab 2: Tools ====================
 
 function ToolsTab() {
+  const t = useT();
   const { data: tools, isLoading } = useTools();
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const setEnabledMutation = useSetToolEnabled();
@@ -372,12 +375,12 @@ function ToolsTab() {
       {
         onSuccess: () => {
           notification.success({
-            message: enabled ? `已启用 ${name}` : `已禁用 ${name}`,
+            message: enabled ? t("system.toast.toolEnabled", { name }) : t("system.toast.toolDisabled", { name }),
           });
         },
         onError: (err: any) => {
           notification.error({
-            message: "操作失败",
+            message: t("system.toast.actionFailed"),
             description: String(err?.response?.data?.detail ?? err?.message ?? err),
           });
         },
@@ -394,7 +397,7 @@ function ToolsTab() {
 
   const columns = [
     {
-      title: "启用",
+      title: t("system.tools.table.enabled"),
       dataIndex: "enabled",
       key: "enabled",
       width: 80,
@@ -408,7 +411,7 @@ function ToolsTab() {
       ),
     },
     {
-      title: "名称",
+      title: t("system.tools.table.name"),
       dataIndex: "name",
       key: "name",
       width: 180,
@@ -417,13 +420,13 @@ function ToolsTab() {
       ),
     },
     {
-      title: "描述",
+      title: t("system.tools.table.description"),
       dataIndex: "description",
       key: "description",
       ellipsis: true,
     },
     {
-      title: "等级",
+      title: t("system.tools.table.tier"),
       dataIndex: "tier",
       key: "tier",
       width: 70,
@@ -433,7 +436,7 @@ function ToolsTab() {
       },
     },
     {
-      title: "关联 Persona",
+      title: t("system.tools.table.personas"),
       dataIndex: "personas",
       key: "personas",
       width: 240,
@@ -452,7 +455,7 @@ function ToolsTab() {
       <Alert
         type="info"
         showIcon
-        message="工具启用开关 live 生效 — 关闭后 LLM 在下一轮调用里看不到此工具；无需重启。"
+        message={t("system.tools.liveAlert")}
       />
       <Table
         dataSource={tools}
@@ -497,6 +500,7 @@ function PromptLayersCard({
   title?: string;
   onEditFile?: (personaId: string, filename: string) => void;
 }) {
+  const t = useT();
   const { data: layers, isLoading } = usePromptLayers(personaId);
 
   if (!personaId || !layers) return null;
@@ -513,27 +517,27 @@ function PromptLayersCard({
   };
 
   return (
-    <Card title={title ?? "Prompt 分层分析"} size="small" loading={isLoading} style={{ marginTop: 16 }}>
+    <Card title={title ?? t("system.prompt.layeredAnalysis")} size="small" loading={isLoading} style={{ marginTop: 16 }}>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
-          <Statistic title="总字符数" value={layers.total_chars} />
+          <Statistic title={t("system.prompt.totalChars")} value={layers.total_chars} />
         </Col>
         <Col span={8}>
-          <Statistic title="估算 Token" value={layers.total_tokens_est} />
+          <Statistic title={t("system.prompt.estTokens")} value={layers.total_tokens_est} />
         </Col>
         <Col span={8}>
-          <Statistic title="层数" value={layers.layers.length} />
+          <Statistic title={t("system.prompt.layerCount")} value={layers.layers.length} />
         </Col>
       </Row>
       <Table
         columns={[
-          { title: "层", dataIndex: "layer", key: "layer", width: 60, align: "center" as const },
-          { title: "名称", dataIndex: "name", key: "name", width: 150 },
-          { title: "来源", dataIndex: "source", key: "source", ellipsis: true,
+          { title: t("system.prompt.table.layer"), dataIndex: "layer", key: "layer", width: 60, align: "center" as const },
+          { title: t("system.prompt.table.name"), dataIndex: "name", key: "name", width: 150 },
+          { title: t("system.prompt.table.source"), dataIndex: "source", key: "source", ellipsis: true,
             render: (v: string) => <Typography.Text style={{ fontSize: 12 }}>{v}</Typography.Text> },
-          { title: "字符", dataIndex: "chars", key: "chars", width: 80, align: "right" as const },
-          { title: "Token (est)", dataIndex: "tokens_est", key: "tokens_est", width: 100, align: "right" as const },
-          { title: "占比", key: "percent", width: 120,
+          { title: t("system.prompt.table.chars"), dataIndex: "chars", key: "chars", width: 80, align: "right" as const },
+          { title: t("system.prompt.table.tokensEst"), dataIndex: "tokens_est", key: "tokens_est", width: 100, align: "right" as const },
+          { title: t("system.prompt.table.percent"), key: "percent", width: 120,
             render: (_: unknown, record: { chars: number; name: string }) => (
               <Progress
                 percent={Math.round((record.chars / (layers.total_chars || 1)) * 100)}
@@ -543,7 +547,7 @@ function PromptLayersCard({
             ),
           },
           ...(onEditFile ? [{
-            title: "操作" as const,
+            title: t("system.prompt.table.actions") as string,
             key: "actions" as const,
             width: 70,
             align: "center" as const,
@@ -572,6 +576,7 @@ function PromptLayersCard({
 // ==================== Tab 3: System Prompt ====================
 
 function SystemPromptTab() {
+  const t = useT();
   const { token } = theme.useToken();
   const { data: personas } = usePersonas();
   const { data: promptData } = usePromptFiles();
@@ -631,7 +636,7 @@ function SystemPromptTab() {
       },
       {
         onSuccess: () => {
-          notification.success({ message: "文件已保存" });
+          notification.success({ message: t("system.toast.fileSaved") });
           setEditingFile(null);
         },
       },
@@ -665,12 +670,12 @@ function SystemPromptTab() {
             type="secondary"
             style={{ display: "block", marginBottom: 8, fontSize: 12 }}
           >
-            部门模板文件
+            {t("system.prompt.templateFiles")}
           </Typography.Text>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
             {personaFiles.length === 0 ? (
               <Typography.Text type="secondary">
-                暂无 Prompt 文件
+                {t("system.prompt.emptyFiles")}
               </Typography.Text>
             ) : (
               personaFiles.map((f) => (
@@ -722,7 +727,7 @@ function SystemPromptTab() {
                   type="secondary"
                   style={{ display: "block", marginBottom: 8, fontSize: 12 }}
                 >
-                  使用此模板的官员（点击查看/编辑 Prompt 分层）
+                  {t("system.prompt.usingTemplate")}
                 </Typography.Text>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                   {deptPersonas.map((p) => {
@@ -750,7 +755,7 @@ function SystemPromptTab() {
                           icon={<EyeOutlined />}
                           onClick={(e) => { e.stopPropagation(); handlePreview(p.id); }}
                         >
-                          预览
+                          {t("system.prompt.preview")}
                         </Button>
                       </div>
                     );
@@ -766,8 +771,8 @@ function SystemPromptTab() {
       <Drawer
         title={
           editingFile
-            ? `编辑: ${editingFile.personaId}/${editingFile.filename}`
-            : "编辑文件"
+            ? t("system.prompt.editFileTitle", { personaId: editingFile.personaId, filename: editingFile.filename })
+            : t("system.prompt.editFile")
         }
         open={!!editingFile}
         onClose={() => setEditingFile(null)}
@@ -778,7 +783,7 @@ function SystemPromptTab() {
             loading={updateMutation.isPending}
             onClick={handleSave}
           >
-            保存
+            {t("button.save")}
           </Button>
         }
       >
@@ -801,7 +806,7 @@ function SystemPromptTab() {
 
       {/* Preview Modal */}
       <Modal
-        title={`System Prompt 预览: ${previewPersona ?? ""}`}
+        title={t("system.prompt.previewModalTitle", { persona: previewPersona ?? "" })}
         open={previewOpen}
         onCancel={() => setPreviewOpen(false)}
         footer={null}
@@ -817,7 +822,7 @@ function SystemPromptTab() {
             style={monoStyle}
           />
         ) : (
-          <Typography.Text type="secondary">无法生成预览</Typography.Text>
+          <Typography.Text type="secondary">{t("system.prompt.previewEmpty")}</Typography.Text>
         )}
       </Modal>
 
@@ -827,8 +832,8 @@ function SystemPromptTab() {
           deptId={activePersona ?? undefined}
           title={
             selectedOfficer
-              ? `${(personas ?? []).find((p) => p.id === selectedOfficer)?.name ?? selectedOfficer} — Prompt 分层`
-              : "Prompt 分层分析"
+              ? t("system.prompt.layeredFor", { name: (personas ?? []).find((p) => p.id === selectedOfficer)?.name ?? selectedOfficer })
+              : t("system.prompt.layeredAnalysis")
           }
           onEditFile={handleEdit}
         />
@@ -880,6 +885,7 @@ function ConfigPanelBody({
   applyLoading: boolean;
   activateLoading: boolean;
 }) {
+  const t = useT();
   const labelStyle = {
     marginBottom: 4,
     fontSize: 13,
@@ -901,7 +907,7 @@ function ConfigPanelBody({
         <div style={labelStyle}>API Key ({config.api_key_masked})</div>
         <Input.Password
           size="small"
-          placeholder="输入新 Key 以更新"
+          placeholder={t("system.providers.form.newKeyPlaceholder")}
           value={form.api_key ?? ""}
           onChange={(e) => onFieldChange("api_key", e.target.value)}
         />
@@ -911,7 +917,7 @@ function ConfigPanelBody({
         <div style={labelStyle}>API Base</div>
         <Input
           size="small"
-          placeholder="https://open.bigmodel.cn/api/paas/v4"
+          placeholder={t("system.providers.form.apiBaseExample")}
           value={form.api_base ?? ""}
           onChange={(e) => onFieldChange("api_base", e.target.value)}
         />
@@ -984,23 +990,23 @@ function ConfigPanelBody({
       >
         <div style={{ display: "flex", gap: 8 }}>
           <Button size="small" type="primary" loading={applyLoading} onClick={onApply}>
-            应用
+            {t("system.globalConfig.apply")}
           </Button>
           {!isActive && (
             <Button size="small" loading={activateLoading} onClick={onActivate}>
-              激活
+              {t("system.providers.activate")}
             </Button>
           )}
         </div>
         {canDelete && (
           <Popconfirm
-            title="确认删除此配置？"
+            title={t("system.providers.confirmDeleteConfig")}
             onConfirm={onDelete}
-            okText="删除"
-            cancelText="取消"
+            okText={t("action.delete")}
+            cancelText={t("common.cancel")}
           >
             <Button size="small" danger icon={<DeleteOutlined />}>
-              删除
+              {t("action.delete")}
             </Button>
           </Popconfirm>
         )}
@@ -1010,6 +1016,7 @@ function ConfigPanelBody({
 }
 
 function ProvidersTab() {
+  const t = useT();
   const { token } = theme.useToken();
   const { data: providers, isLoading: providersLoading } = useProviders();
   const deleteProviderMutation = useDeleteProvider();
@@ -1070,14 +1077,14 @@ function ProvidersTab() {
       if (form.api_key) payload.api_key = form.api_key;
 
       if (Object.keys(payload).length === 0) {
-        notification.info({ message: "无变更" });
+        notification.info({ message: t("system.toast.noChanges") });
         return;
       }
       updateMutation.mutate(
         { name, req: payload },
         {
           onSuccess: () => {
-            notification.success({ message: "配置已更新" });
+            notification.success({ message: t("system.toast.llmConfigUpdated") });
             setForms((prev) => ({
               ...prev,
               [name]: { ...prev[name], api_key: undefined },
@@ -1086,28 +1093,28 @@ function ProvidersTab() {
         },
       );
     },
-    [forms, configsData, updateMutation],
+    [forms, configsData, updateMutation, t],
   );
 
   const handleAdd = useCallback(() => {
     addForm.validateFields().then((values) => {
       createMutation.mutate(values, {
         onSuccess: () => {
-          notification.success({ message: `配置 "${values.name}" 已添加` });
+          notification.success({ message: t("system.toast.llmConfigAdded", { name: values.name }) });
           setAddModalOpen(false);
           addForm.resetFields();
         },
         onError: (err: unknown) => {
-          const msg = err instanceof Error ? err.message : "名称已存在";
+          const msg = err instanceof Error ? err.message : t("system.toast.llmConfigDuplicate");
           notification.error({ message: msg });
         },
       });
     });
-  }, [addForm, createMutation]);
+  }, [addForm, createMutation, t]);
 
   const handleDeleteProvider = (name: string) => {
     deleteProviderMutation.mutate(name, {
-      onSuccess: () => notification.success({ message: `Provider "${name}" 已删除` }),
+      onSuccess: () => notification.success({ message: t("system.toast.providerDeleted", { name }) }),
     });
   };
 
@@ -1115,22 +1122,22 @@ function ProvidersTab() {
   const activeName = configsData?.active_name ?? "";
 
   const providerColumns: import("antd/es/table").ColumnsType<ProviderInfo> = [
-    { title: "名称", dataIndex: "name", key: "name", width: 140 },
-    { title: "模型", dataIndex: "model", key: "model", width: 160 },
+    { title: t("system.providers.table.name"), dataIndex: "name", key: "name", width: 140 },
+    { title: t("system.providers.table.model"), dataIndex: "model", key: "model", width: 160 },
     {
-      title: "状态", dataIndex: "status", key: "status", width: 100,
+      title: t("system.providers.table.status"), dataIndex: "status", key: "status", width: 100,
       render: (v: string) => {
         const color = v === "active" ? "green" : v === "degraded" ? "orange" : "red";
         return <Tag color={color}>{v}</Tag>;
       },
     },
-    { title: "优先级", dataIndex: "priority", key: "priority", width: 80, align: "right" },
+    { title: t("system.providers.table.priority"), dataIndex: "priority", key: "priority", width: 80, align: "right" },
     {
-      title: "RPM", dataIndex: "rpm_limit", key: "rpm_limit", width: 80, align: "right",
+      title: t("system.providers.table.rpm"), dataIndex: "rpm_limit", key: "rpm_limit", width: 80, align: "right",
       render: (v: number | null) => v ?? "—",
     },
     {
-      title: "三维价 ¥/1K", key: "cost", width: 200, align: "right",
+      title: t("system.providers.table.cost"), key: "cost", width: 200, align: "right",
       render: (_, r) => {
         const miss = r.cost_per_1k_prompt;
         const hit = r.cost_per_1k_cache_read;
@@ -1138,10 +1145,10 @@ function ProvidersTab() {
         const customCount = [miss, hit, out].filter((v) => v != null).length;
         const tooltip =
           customCount === 0
-            ? "未配置自定义价 — 落 _DEFAULT_PRICING 默认表"
+            ? t("system.providers.costNoCustom")
             : customCount === 3
-            ? "全部自定义"
-            : "部分自定义（其余字段落默认价表）";
+            ? t("system.providers.costAllCustom")
+            : t("system.providers.costPartial");
         const fmt = (v: number | null) => (v != null ? v.toFixed(5).replace(/0+$/, "").replace(/\.$/, "") : "—");
         return (
           <Tooltip title={tooltip}>
@@ -1155,7 +1162,7 @@ function ProvidersTab() {
     {
       title: "", key: "actions", width: 50,
       render: (_, record) => (
-        <Popconfirm title="确定删除？" onConfirm={() => handleDeleteProvider(record.name)}>
+        <Popconfirm title={t("system.providers.confirmDeleteProvider")} onConfirm={() => handleDeleteProvider(record.name)}>
           <Button type="text" danger size="small" icon={<DeleteOutlined />} />
         </Popconfirm>
       ),
@@ -1177,7 +1184,7 @@ function ProvidersTab() {
           {c.name}
           {c.name === activeName && (
             <Tag color="green" style={{ marginLeft: 8, fontSize: 11 }}>
-              活跃
+              {t("system.providers.active")}
             </Tag>
           )}
         </span>
@@ -1198,13 +1205,13 @@ function ProvidersTab() {
         onActivate={() =>
           activateMutation.mutate(c.name, {
             onSuccess: () =>
-              notification.success({ message: `已切换活跃配置为 "${c.name}"` }),
+              notification.success({ message: t("system.toast.llmConfigSwitched", { name: c.name }) }),
           })
         }
         onDelete={() =>
           deleteMutation.mutate(c.name, {
             onSuccess: () =>
-              notification.success({ message: `配置 "${c.name}" 已删除` }),
+              notification.success({ message: t("system.toast.llmConfigDeleted", { name: c.name }) }),
           })
         }
         applyLoading={updateMutation.isPending}
@@ -1216,7 +1223,7 @@ function ProvidersTab() {
   return (
     <>
       {/* Provider 列表 */}
-      <Typography.Title level={5} style={{ marginBottom: 12 }}>Provider 列表</Typography.Title>
+      <Typography.Title level={5} style={{ marginBottom: 12 }}>{t("system.providers.listTitle")}</Typography.Title>
       <Table<ProviderInfo>
         columns={providerColumns}
         dataSource={providers ?? []}
@@ -1224,7 +1231,7 @@ function ProvidersTab() {
         loading={providersLoading}
         size="small"
         pagination={false}
-        locale={{ emptyText: "暂无 Provider" }}
+        locale={{ emptyText: t("system.providers.empty") }}
       />
 
       <Divider />
@@ -1238,14 +1245,14 @@ function ProvidersTab() {
           marginBottom: 12,
         }}
       >
-        <Typography.Title level={5} style={{ margin: 0 }}>LLM 配置</Typography.Title>
+        <Typography.Title level={5} style={{ margin: 0 }}>{t("system.providers.llmConfigTitle")}</Typography.Title>
         <Button
           type="primary"
           size="small"
           icon={<PlusOutlined />}
           onClick={() => setAddModalOpen(true)}
         >
-          添加配置
+          {t("system.providers.addConfig")}
         </Button>
       </div>
 
@@ -1261,7 +1268,7 @@ function ProvidersTab() {
 
       {/* Add Config Modal */}
       <Modal
-        title="添加模型配置"
+        title={t("system.providers.addConfigTitle")}
         open={addModalOpen}
         onOk={handleAdd}
         onCancel={() => {
@@ -1269,29 +1276,29 @@ function ProvidersTab() {
           addForm.resetFields();
         }}
         confirmLoading={createMutation.isPending}
-        okText="添加"
-        cancelText="取消"
+        okText={t("action.add")}
+        cancelText={t("common.cancel")}
       >
         <Form form={addForm} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item
             name="name"
-            label="配置名称"
-            rules={[{ required: true, message: "请输入配置名称" }]}
+            label={t("system.providers.form.name")}
+            rules={[{ required: true, message: t("system.providers.form.nameRequired") }]}
           >
-            <Input placeholder="例如 gpt-4o" />
+            <Input placeholder={t("system.providers.form.namePlaceholder")} />
           </Form.Item>
           <Form.Item
             name="model"
-            label="模型"
-            rules={[{ required: true, message: "请输入模型名" }]}
+            label={t("system.providers.form.model")}
+            rules={[{ required: true, message: t("system.providers.form.modelRequired") }]}
           >
-            <Input placeholder="例如 gpt-4o" />
+            <Input placeholder={t("system.providers.form.modelPlaceholder")} />
           </Form.Item>
           <Form.Item name="api_key" label="API Key">
-            <Input.Password placeholder="可选" />
+            <Input.Password placeholder={t("system.providers.form.apiKeyPlaceholder")} />
           </Form.Item>
           <Form.Item name="api_base" label="API Base">
-            <Input placeholder="可选" />
+            <Input placeholder={t("system.providers.form.apiBasePlaceholder")} />
           </Form.Item>
           <Form.Item name="max_retries" label="Max Retries" initialValue={3}>
             <InputNumber min={0} max={10} style={{ width: "100%" }} />
@@ -1314,21 +1321,22 @@ function ProvidersTab() {
 // ==================== Tab 5: Plugins ====================
 
 function PluginsTab() {
+  const t = useT();
   const { data: plugins, isLoading } = usePlugins();
 
   const columns: import("antd/es/table").ColumnsType<PluginInfo> = [
-    { title: "名称", dataIndex: "name", key: "name", width: 160 },
-    { title: "版本", dataIndex: "version", key: "version", width: 100 },
+    { title: t("system.plugins.table.name"), dataIndex: "name", key: "name", width: 160 },
+    { title: t("system.plugins.table.version"), dataIndex: "version", key: "version", width: 100 },
     {
-      title: "状态", dataIndex: "status", key: "status", width: 100,
+      title: t("system.plugins.table.status"), dataIndex: "status", key: "status", width: 100,
       render: (v: string) => <Tag color={v === "active" ? "green" : "default"}>{v}</Tag>,
     },
     {
-      title: "SHA256", dataIndex: "sha256", key: "sha256", ellipsis: true,
+      title: t("system.plugins.table.sha256"), dataIndex: "sha256", key: "sha256", ellipsis: true,
       render: (v: string | null) => v ? <Typography.Text style={{ fontSize: 11 }} copyable>{v}</Typography.Text> : "—",
     },
     {
-      title: "安装时间", dataIndex: "installed_at", key: "installed_at", width: 180,
+      title: t("system.plugins.table.installedAt"), dataIndex: "installed_at", key: "installed_at", width: 180,
       render: (v: string) => (v ? new Date(v).toLocaleString("zh-CN") : "—"),
     },
   ];
@@ -1341,7 +1349,7 @@ function PluginsTab() {
       loading={isLoading}
       size="small"
       pagination={false}
-      locale={{ emptyText: "暂无插件" }}
+      locale={{ emptyText: t("system.plugins.empty") }}
     />
   );
 }
@@ -1349,6 +1357,7 @@ function PluginsTab() {
 // ==================== Tab 6: Global Config ====================
 
 function GlobalConfigTab() {
+  const t = useT();
   const { token } = theme.useToken();
   const { data: agentConfigData } = useAgentConfig();
   const updateAgentMutation = useUpdateAgentConfig();
@@ -1385,16 +1394,16 @@ function GlobalConfigTab() {
       payload.skills_char_budget = agentForm.skills_char_budget;
 
     if (Object.keys(payload).length === 0) {
-      notification.info({ message: "无变更" });
+      notification.info({ message: t("system.toast.noChanges") });
       return;
     }
     updateAgentMutation.mutate(payload, {
       onSuccess: (data) => {
-        notification.success({ message: "执行参数已更新" });
+        notification.success({ message: t("system.toast.agentParamsUpdated") });
         setAgentForm({ ...data });
       },
     });
-  }, [agentForm, agentConfigData, updateAgentMutation]);
+  }, [agentForm, agentConfigData, updateAgentMutation, t]);
 
   const labelStyle: React.CSSProperties = {
     marginBottom: 4,
@@ -1405,9 +1414,9 @@ function GlobalConfigTab() {
   return (
     <Row gutter={16}>
       <Col xs={24} md={12} lg={8}>
-        <Card title="Agent 参数" size="small">
+        <Card title={t("system.globalConfig.agentSection")} size="small">
           <div style={{ marginBottom: 16 }}>
-            <div style={labelStyle}>最大迭代次数</div>
+            <div style={labelStyle}>{t("system.globalConfig.agentMaxIter")}</div>
             <InputNumber
               min={1}
               max={200}
@@ -1423,7 +1432,7 @@ function GlobalConfigTab() {
             />
           </div>
           <div style={{ marginBottom: 16 }}>
-            <div style={labelStyle}>执行超时 (秒)</div>
+            <div style={labelStyle}>{t("system.globalConfig.agentTimeout")}</div>
             <InputNumber
               min={10}
               max={3600}
@@ -1441,9 +1450,9 @@ function GlobalConfigTab() {
         </Card>
       </Col>
       <Col xs={24} md={12} lg={8}>
-        <Card title="Skill 参数" size="small">
+        <Card title={t("system.globalConfig.skillSection")} size="small">
           <div style={{ marginBottom: 16 }}>
-            <div style={labelStyle}>字符预算</div>
+            <div style={labelStyle}>{t("system.globalConfig.skillCharBudget")}</div>
             <InputNumber
               min={1000}
               max={500000}
@@ -1466,7 +1475,7 @@ function GlobalConfigTab() {
           loading={updateAgentMutation.isPending}
           onClick={handleApply}
         >
-          应用
+          {t("system.globalConfig.apply")}
         </Button>
       </Col>
     </Row>
@@ -1476,6 +1485,7 @@ function GlobalConfigTab() {
 // ==================== Tab: External Credentials ====================
 
 function ExternalCredentialsTab() {
+  const t = useT();
   const qc = useQueryClient();
   const [kind, setKind] = useState<"edict_auth" | "engine_provider">(
     "edict_auth",
@@ -1505,14 +1515,14 @@ function ExternalCredentialsTab() {
         setVaultUnavailable(true);
       } else {
         notification.error({
-          message: "加载凭证失败",
+          message: t("system.toast.credLoadFailed"),
           description: detail,
         });
       }
     } finally {
       setLoading(false);
     }
-  }, [kind]);
+  }, [kind, t]);
 
   useEffect(() => {
     reload();
@@ -1535,7 +1545,7 @@ function ExternalCredentialsTab() {
       await createCredential(payload);
       notification.success({
         message:
-          kind === "edict_auth" ? "凭证已创建" : "已创建，立即生效",
+          kind === "edict_auth" ? t("system.toast.credCreated") : t("system.toast.credCreatedLive"),
       });
       setModalOpen(false);
       form.resetFields();
@@ -1545,7 +1555,7 @@ function ExternalCredentialsTab() {
       }
     } catch (e: any) {
       notification.error({
-        message: "创建失败",
+        message: t("system.toast.credCreateFailed"),
         description: String(e?.response?.data?.detail ?? e?.message ?? e),
       });
     }
@@ -1554,14 +1564,14 @@ function ExternalCredentialsTab() {
   const onDelete = async (id: string) => {
     try {
       await deleteCredential(id);
-      notification.success({ message: "凭证已删除" });
+      notification.success({ message: t("system.toast.credDeleted") });
       reload();
       if (kind === "engine_provider") {
         qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
       }
     } catch (e: any) {
       notification.error({
-        message: "删除失败",
+        message: t("system.toast.credDeleteFailed"),
         description: String(e?.response?.data?.detail ?? e?.message ?? e),
       });
     }
@@ -1584,13 +1594,13 @@ function ExternalCredentialsTab() {
       try {
         patch.extra_headers = JSON.parse(values.extra_headers || "{}");
       } catch {
-        notification.error({ message: "extra_headers 不是合法 JSON" });
+        notification.error({ message: t("system.toast.extraHeadersInvalid") });
         return;
       }
     }
     try {
       await updateCredential(editRow.id, patch);
-      notification.success({ message: "已保存" });
+      notification.success({ message: t("system.toast.credSaved") });
       setEditOpen(false);
       editForm.resetFields();
       reload();
@@ -1599,7 +1609,7 @@ function ExternalCredentialsTab() {
       }
     } catch (e: any) {
       notification.error({
-        message: "保存失败",
+        message: t("system.toast.credSaveFailed"),
         description: String(e?.response?.data?.detail ?? e?.message ?? e),
       });
     }
@@ -1608,23 +1618,23 @@ function ExternalCredentialsTab() {
   const toggleEnabled = async (row: Credential, next: boolean) => {
     try {
       await updateCredential(row.id, { enabled: next });
-      notification.success({ message: next ? `已启用 ${row.name}` : `已禁用 ${row.name}` });
+      notification.success({ message: next ? t("system.toast.toolEnabled", { name: row.name }) : t("system.toast.toolDisabled", { name: row.name }) });
       reload();
       if (row.kind === "engine_provider") {
         qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
       }
     } catch (e: any) {
       notification.error({
-        message: "切换失败",
+        message: t("system.toast.credToggleFailed"),
         description: String(e?.response?.data?.detail ?? e?.message ?? e),
       });
     }
   };
 
   const edictColumns = [
-    { title: "名称", dataIndex: "name", key: "name" },
+    { title: t("system.externalCreds.table.name"), dataIndex: "name", key: "name" },
     {
-      title: "启用",
+      title: t("system.externalCreds.table.enabled"),
       dataIndex: "enabled",
       key: "enabled",
       width: 70,
@@ -1637,13 +1647,13 @@ function ExternalCredentialsTab() {
       ),
     },
     {
-      title: "匹配域",
+      title: t("system.externalCreds.table.hostPattern"),
       dataIndex: "host_pattern",
       key: "host_pattern",
       render: (v: string) => <code style={monoStyle}>{v}</code>,
     },
     {
-      title: "Header 模板",
+      title: t("system.externalCreds.table.headerTemplate"),
       dataIndex: "header_template",
       key: "header_template",
       render: (v: string) => (
@@ -1651,13 +1661,13 @@ function ExternalCredentialsTab() {
       ),
     },
     {
-      title: "最近使用",
+      title: t("system.externalCreds.table.lastUsed"),
       dataIndex: "last_used_at",
       key: "last_used_at",
       render: (v: string | null) => v ?? "—",
     },
     {
-      title: "操作",
+      title: t("system.externalCreds.table.actions"),
       key: "actions",
       width: 160,
       render: (_: unknown, row: Credential) => (
@@ -1667,14 +1677,14 @@ function ExternalCredentialsTab() {
             icon={<EditOutlined />}
             onClick={() => openEdit(row)}
           >
-            修改
+            {t("action.edit")}
           </Button>
           <Popconfirm
-            title="删除此凭证？引用它的 Edict 将无法再注入 header。"
+            title={t("system.externalCreds.delEdictPopconfirm")}
             onConfirm={() => onDelete(row.id)}
           >
             <Button size="small" danger icon={<DeleteOutlined />}>
-              删除
+              {t("action.delete")}
             </Button>
           </Popconfirm>
         </Space>
@@ -1683,9 +1693,9 @@ function ExternalCredentialsTab() {
   ];
 
   const providerColumns = [
-    { title: "名称", dataIndex: "name", key: "name" },
+    { title: t("system.externalCreds.table.name"), dataIndex: "name", key: "name" },
     {
-      title: "启用",
+      title: t("system.externalCreds.table.enabled"),
       dataIndex: "enabled",
       key: "enabled",
       width: 70,
@@ -1698,20 +1708,20 @@ function ExternalCredentialsTab() {
       ),
     },
     {
-      title: "Provider",
+      title: t("system.externalCreds.table.provider"),
       dataIndex: "provider_name",
       key: "provider_name",
       render: (v: string | null) =>
         v ? <Tag color="geekblue">{v}</Tag> : "—",
     },
     {
-      title: "最近使用",
+      title: t("system.externalCreds.table.lastUsed"),
       dataIndex: "last_used_at",
       key: "last_used_at",
       render: (v: string | null) => v ?? "—",
     },
     {
-      title: "操作",
+      title: t("system.externalCreds.table.actions"),
       key: "actions",
       width: 160,
       render: (_: unknown, row: Credential) => (
@@ -1721,14 +1731,14 @@ function ExternalCredentialsTab() {
             icon={<EditOutlined />}
             onClick={() => openEdit(row)}
           >
-            修改
+            {t("action.edit")}
           </Button>
           <Popconfirm
-            title="删除此 provider key？对应引擎立即降级（回落 env 或关闭）。"
+            title={t("system.externalCreds.delEnginePopconfirm")}
             onConfirm={() => onDelete(row.id)}
           >
             <Button size="small" danger icon={<DeleteOutlined />}>
-              删除
+              {t("action.delete")}
             </Button>
           </Popconfirm>
         </Space>
@@ -1742,16 +1752,15 @@ function ExternalCredentialsTab() {
         type="warning"
         showIcon
         icon={<LockOutlined />}
-        message="尚未配置主密钥 TIANSHU_SECRET_MASTER_KEY"
+        message={t("system.externalCreds.vaultTitle")}
         description={
           <Space direction="vertical" style={{ width: "100%", marginTop: 4 }}>
             <Typography.Paragraph style={{ marginBottom: 4 }}>
-              外部凭证用 Fernet 对称加密存储，需要先给系统配置一把主密钥才能启用。
-              密钥丢失等于所有已存凭证不可恢复，请妥善备份。
+              {t("system.externalCreds.vaultDescPara1")}
             </Typography.Paragraph>
-            <Typography.Text strong>配置步骤</Typography.Text>
+            <Typography.Text strong>{t("system.externalCreds.vaultStepLabel")}</Typography.Text>
             <Typography.Paragraph style={{ marginBottom: 4 }}>
-              1) 生成一把 Fernet 密钥：
+              {t("system.externalCreds.vaultStep1")}
             </Typography.Paragraph>
             <pre
               style={{
@@ -1766,7 +1775,7 @@ function ExternalCredentialsTab() {
 {`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`}
             </pre>
             <Typography.Paragraph style={{ marginBottom: 4, marginTop: 8 }}>
-              2) 把输出写进项目根目录的 <code style={monoStyle}>.env</code>：
+              {t("system.externalCreds.vaultStep2")}
             </Typography.Paragraph>
             <pre
               style={{
@@ -1777,16 +1786,14 @@ function ExternalCredentialsTab() {
                 margin: 0,
               }}
             >
-{`TIANSHU_SECRET_MASTER_KEY=<上一步生成的 key>`}
+{`TIANSHU_SECRET_MASTER_KEY=<key>`}
             </pre>
             <Typography.Paragraph style={{ marginBottom: 0, marginTop: 8 }}>
-              3) 重启天枢后台进程 → 刷新本页。其它已注册的网络工具
-              (<code style={monoStyle}>web_fetch</code> / <code style={monoStyle}>web_search</code>
-              / <code style={monoStyle}>web_extract</code>) 不受影响。
+              {t("system.externalCreds.vaultStep3")}
             </Typography.Paragraph>
             <Space style={{ marginTop: 12 }}>
               <Button type="primary" onClick={reload}>
-                我已配置，重新检测
+                {t("system.externalCreds.vaultRecheck")}
               </Button>
             </Space>
           </Space>
@@ -1804,8 +1811,8 @@ function ExternalCredentialsTab() {
             setKind(v as "edict_auth" | "engine_provider")
           }
           options={[
-            { value: "edict_auth", label: "Edict 凭证" },
-            { value: "engine_provider", label: "引擎配置" },
+            { value: "edict_auth", label: t("system.externalCreds.edictAuthLabel") },
+            { value: "engine_provider", label: t("system.externalCreds.engineLabel") },
           ]}
         />
         <Button
@@ -1813,15 +1820,15 @@ function ExternalCredentialsTab() {
           icon={<PlusOutlined />}
           onClick={() => setModalOpen(true)}
         >
-          新增
+          {t("system.externalCreds.add")}
         </Button>
       </Space>
 
       {kind === "engine_provider" && (
         <Alert
           type="info"
-          message="引擎配置用于给 web_fetch / web_search / web_extract 使用的 Jina / Tavily / Firecrawl 服务传入 API Key。"
-          description="DB 里配置后优先使用；没有则回落 .env；修改后立即生效（后端 live rebuild）。"
+          message={t("system.externalCreds.engineAlertMsg")}
+          description={t("system.externalCreds.engineAlertDesc")}
           showIcon
           style={{ marginBottom: 8 }}
         />
@@ -1840,8 +1847,8 @@ function ExternalCredentialsTab() {
               description={
                 <Typography.Text type="secondary">
                   {kind === "edict_auth"
-                    ? "还没添加任何外部凭证。点右上角「新增」开始。"
-                    : "还没配置任何引擎 Provider key。"}
+                    ? t("system.externalCreds.edictEmpty")
+                    : t("system.externalCreds.engineEmpty")}
                 </Typography.Text>
               }
             />
@@ -1852,17 +1859,17 @@ function ExternalCredentialsTab() {
       <Modal
         open={modalOpen}
         title={
-          kind === "edict_auth" ? "新增外部凭证" : "新增引擎 Provider Key"
+          kind === "edict_auth" ? t("system.externalCreds.addEdictTitle") : t("system.externalCreds.addEngineTitle")
         }
         onCancel={() => setModalOpen(false)}
         onOk={() => form.submit()}
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={onCreate}>
-          <Form.Item name="name" label="名称" rules={[{ required: true }]}>
+          <Form.Item name="name" label={t("system.externalCreds.form.name")} rules={[{ required: true }]}>
             <Input
               placeholder={
-                kind === "edict_auth" ? "github-prod-token" : "jina-prod"
+                kind === "edict_auth" ? t("system.externalCreds.form.namePlaceholderEdict") : t("system.externalCreds.form.namePlaceholderEngine")
               }
             />
           </Form.Item>
@@ -1870,16 +1877,16 @@ function ExternalCredentialsTab() {
             <>
               <Form.Item
                 name="host_pattern"
-                label="匹配域 (例: api.github.com 或 *.notion.com)"
+                label={t("system.externalCreds.form.hostPattern")}
                 rules={[{ required: true }]}
               >
-                <Input placeholder="api.github.com" />
+                <Input placeholder={t("system.externalCreds.form.hostPlaceholder")} />
               </Form.Item>
               <Form.Item
                 name="header_template"
-                label="Header 模板"
+                label={t("system.externalCreds.form.headerTemplate")}
                 initialValue="Authorization: Bearer {value}"
-                tooltip="用 {value} 做占位符"
+                tooltip={t("system.externalCreds.form.headerTemplateTooltip")}
               >
                 <Input />
               </Form.Item>
@@ -1887,11 +1894,11 @@ function ExternalCredentialsTab() {
           ) : (
             <Form.Item
               name="provider_name"
-              label="Provider"
+              label={t("system.externalCreds.form.provider")}
               rules={[{ required: true }]}
             >
               <Select
-                placeholder="选择服务提供方"
+                placeholder={t("system.externalCreds.form.providerPlaceholder")}
                 options={[
                   { value: "jina", label: "Jina (web_fetch / web_search)" },
                   { value: "tavily", label: "Tavily (web_search)" },
@@ -1903,8 +1910,8 @@ function ExternalCredentialsTab() {
               />
             </Form.Item>
           )}
-          <Form.Item name="value" label="Value" rules={[{ required: true }]}>
-            <Input.Password placeholder="不会回显" />
+          <Form.Item name="value" label={t("system.externalCreds.form.value")} rules={[{ required: true }]}>
+            <Input.Password placeholder={t("system.externalCreds.form.valuePlaceholder")} />
           </Form.Item>
         </Form>
       </Modal>
@@ -1912,7 +1919,7 @@ function ExternalCredentialsTab() {
       <Modal
         open={editOpen}
         title={
-          editRow?.kind === "engine_provider" ? "修改 Provider Key" : "修改凭证"
+          editRow?.kind === "engine_provider" ? t("system.externalCreds.editEngineTitle") : t("system.externalCreds.editCredTitle")
         }
         onCancel={() => setEditOpen(false)}
         onOk={() => editForm.submit()}
@@ -1922,42 +1929,42 @@ function ExternalCredentialsTab() {
           {editRow && (
             <div style={{ marginBottom: 12, fontSize: 12, color: "#999" }}>
               <div>
-                名称：<code style={monoStyle}>{editRow.name}</code>
+                {t("system.externalCreds.infoLabel")}<code style={monoStyle}>{editRow.name}</code>
               </div>
               {editRow.kind === "engine_provider" ? (
                 <div>
-                  Provider：
+                  {t("system.externalCreds.infoProvider")}
                   <code style={monoStyle}>{editRow.provider_name}</code>
                 </div>
               ) : (
                 <>
                   <div>
-                    匹配域：
+                    {t("system.externalCreds.infoHost")}
                     <code style={monoStyle}>{editRow.host_pattern}</code>
                   </div>
                   <div>
-                    Header 模板：
+                    {t("system.externalCreds.infoHeader")}
                     <code style={monoStyle}>{editRow.header_template}</code>
                   </div>
                 </>
               )}
               <div style={{ color: "#faad14", marginTop: 4 }}>
-                名称 / host / template / provider 不可修改（改动请删除重建）
+                {t("system.externalCreds.immutableHint")}
               </div>
             </div>
           )}
           <Form.Item
             name="value"
-            label="新 Value"
-            tooltip="留空 = 不修改 value"
+            label={t("system.externalCreds.form.newValue")}
+            tooltip={t("system.externalCreds.form.newValueTooltip")}
           >
-            <Input.Password placeholder="留空 = 保留原 value" />
+            <Input.Password placeholder={t("system.externalCreds.form.newValuePlaceholder")} />
           </Form.Item>
           {editRow?.kind === "edict_auth" && (
-            <Form.Item name="extra_headers" label="Extra Headers (JSON)">
+            <Form.Item name="extra_headers" label={t("system.externalCreds.form.extraHeaders")}>
               <Input.TextArea
                 rows={3}
-                placeholder='例: {"Notion-Version": "2022-06-28"}'
+                placeholder={t("system.externalCreds.form.extraHeadersPlaceholder")}
               />
             </Form.Item>
           )}
@@ -1970,44 +1977,45 @@ function ExternalCredentialsTab() {
 // ==================== Main Page ====================
 
 export default function SystemManagementPage() {
+  const t = useT();
   return (
-    <PageContainer title="藏兵阁">
+    <PageContainer title={t("system.title")}>
       <Tabs
         defaultActiveKey="skills"
         items={[
           {
             key: "skills",
-            label: "技能库",
+            label: t("system.tab.skills"),
             children: <SkillsTab />,
           },
           {
             key: "tools",
-            label: "工具箱",
+            label: t("system.tab.tools"),
             children: <ToolsTab />,
           },
           {
             key: "prompt",
-            label: "Prompt 模板",
+            label: t("system.tab.prompt"),
             children: <SystemPromptTab />,
           },
           {
             key: "providers",
-            label: "模型供应",
+            label: t("system.tab.providers"),
             children: <ProvidersTab />,
           },
           {
             key: "plugins",
-            label: "插件",
+            label: t("system.tab.plugins"),
             children: <PluginsTab />,
           },
           {
             key: "config",
-            label: "全局配置",
+            label: t("system.tab.config"),
             children: <GlobalConfigTab />,
           },
           {
             key: "external-creds",
-            label: "外部凭证",
+            label: t("system.tab.externalCreds"),
             children: <ExternalCredentialsTab />,
           },
         ]}
