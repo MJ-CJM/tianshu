@@ -639,6 +639,88 @@
     "zh-modern": "通用",
     "en": "English"
   },
+  "memory": {
+    "title": "记忆中心",
+    "tab": {
+      "memory": "记忆摘要",
+      "history": "对话历史",
+      "maintenance": "维护"
+    },
+    "search": {
+      "placeholder": "搜索记忆...",
+      "submit": "检索",
+      "summary": "找到 {n} 条匹配 \"{q}\" 的记忆"
+    },
+    "selection": {
+      "selected": "已选 {n} 条",
+      "batchDelete": "批量删除",
+      "clearSelection": "取消选择",
+      "confirmBatchDelete": "确认删除选中的 {n} 条记忆？",
+      "confirmDelete": "确定删除此记忆？"
+    },
+    "summary": "{name} — 记忆",
+    "count": "{n} 条",
+    "empty": "暂无记忆",
+    "policy": {
+      "title": "访问策略",
+      "canRead": "可读取",
+      "canWrite": "可写入",
+      "shareLevel": "共享级别",
+      "none": "无",
+      "missing": "该模块暂无策略配置"
+    },
+    "table": {
+      "category": "分类",
+      "content": "内容",
+      "source": "来源",
+      "access": "权限",
+      "confidence": "置信度",
+      "time": "时间"
+    },
+    "category": {
+      "observation": "观察",
+      "insight": "洞察",
+      "entity": "实体",
+      "summary": "摘要"
+    },
+    "history": {
+      "empty": "暂无对话历史",
+      "expand": "展开",
+      "count": "{n} 条对话"
+    },
+    "stats": {
+      "entries": "记忆条目",
+      "tokens": "估算 Token",
+      "files": "Markdown 文件",
+      "size": "文件大小",
+      "byCategory": "分类统计"
+    },
+    "compact": {
+      "title": "记忆压缩",
+      "desc": "将超过指定天数的旧记忆压缩为摘要，节省 Token 用量。",
+      "prefix": "压缩",
+      "suffix": "天前的记忆",
+      "submit": "执行压缩"
+    },
+    "reflect": {
+      "title": "记忆反思",
+      "desc": "使用 LLM 从观察记忆中提取洞察和模式。每个模块有 1 小时冷却期。",
+      "submit": "触发反思"
+    },
+    "toast": {
+      "deleted": "记忆已删除",
+      "batchDeleted": "已删除 {n} 条记忆",
+      "batchDeleteFailed": "批量删除失败",
+      "compactCompleted": "压缩完成",
+      "compactCompletedDesc": "{from} → {to} 条，节省约 {tokens} tokens",
+      "compactSkipped": "跳过压缩",
+      "compactResult": "压缩结果",
+      "reflectCompleted": "反思完成",
+      "reflectCompletedDesc": "生成 {n} 条洞察",
+      "reflectCooldown": "冷却中",
+      "reflectResult": "反思结果"
+    }
+  },
   "scheduler": {
     "title": "调度中心",
     "table": {

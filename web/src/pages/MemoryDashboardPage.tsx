@@ -41,17 +41,11 @@ import {
 import { useMemoryStats, useCompactMemory, useTriggerReflection } from "../hooks/useOps";
 import type { MemoryEntry, EdictMemorialGroup, MemorialBrief } from "../api/types";
 import PageContainer from "../components/common/PageContainer";
+import { useT } from "../i18n";
 
 const { Text, Paragraph } = Typography;
 
-const PERSONAS = [
-  { value: "bingbu", label: "兵部" },
-  { value: "neige", label: "内阁" },
-  { value: "ducha", label: "都察院" },
-  { value: "tongzheng", label: "通政司" },
-  { value: "wenyuan", label: "文渊阁" },
-  { value: "hubu", label: "户部" },
-];
+const PERSONA_IDS = ["bingbu", "neige", "ducha", "tongzheng", "wenyuan", "hubu"] as const;
 
 const categoryColors: Record<string, string> = {
   observation: "blue",
@@ -75,6 +69,7 @@ const statusColors: Record<string, string> = {
 };
 
 function MemorySummaryTab({ persona }: { persona: string }) {
+  const t = useT();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<MemoryEntry[] | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -100,7 +95,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
 
   const handleDelete = (entryId: string) => {
     deleteMutation.mutate(entryId, {
-      onSuccess: () => notification.success({ message: "记忆已删除" }),
+      onSuccess: () => notification.success({ message: t("memory.toast.deleted") }),
     });
   };
 
@@ -108,10 +103,10 @@ function MemorySummaryTab({ persona }: { persona: string }) {
     if (selectedRowKeys.length === 0) return;
     batchDeleteMutation.mutate(selectedRowKeys as string[], {
       onSuccess: (result) => {
-        notification.success({ message: `已删除 ${result.deleted} 条记忆` });
+        notification.success({ message: t("memory.toast.batchDeleted", { n: result.deleted }) });
         setSelectedRowKeys([]);
       },
-      onError: () => notification.error({ message: "批量删除失败" }),
+      onError: () => notification.error({ message: t("memory.toast.batchDeleteFailed") }),
     });
   };
 
@@ -119,7 +114,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
 
   const columns: ColumnsType<MemoryEntry> = [
     {
-      title: "分类",
+      title: t("memory.table.category"),
       dataIndex: "category",
       key: "category",
       width: 110,
@@ -127,21 +122,21 @@ function MemorySummaryTab({ persona }: { persona: string }) {
         <Tag color={categoryColors[v] ?? "default"}>{v}</Tag>
       ),
       filters: [
-        { text: "观察", value: "observation" },
-        { text: "洞察", value: "insight" },
-        { text: "实体", value: "entity" },
-        { text: "摘要", value: "summary" },
+        { text: t("memory.category.observation"), value: "observation" },
+        { text: t("memory.category.insight"), value: "insight" },
+        { text: t("memory.category.entity"), value: "entity" },
+        { text: t("memory.category.summary"), value: "summary" },
       ],
       onFilter: (value, record) => record.category === value,
     },
     {
-      title: "内容",
+      title: t("memory.table.content"),
       dataIndex: "content",
       key: "content",
       ellipsis: true,
     },
     {
-      title: "来源",
+      title: t("memory.table.source"),
       dataIndex: "source",
       key: "source",
       width: 100,
@@ -150,7 +145,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       ),
     },
     {
-      title: "权限",
+      title: t("memory.table.access"),
       dataIndex: "access_level",
       key: "access_level",
       width: 90,
@@ -160,7 +155,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       },
     },
     {
-      title: "置信度",
+      title: t("memory.table.confidence"),
       dataIndex: "confidence",
       key: "confidence",
       width: 90,
@@ -168,7 +163,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       render: (v: number) => `${(v * 100).toFixed(0)}%`,
     },
     {
-      title: "时间",
+      title: t("memory.table.time"),
       dataIndex: "created_at",
       key: "created_at",
       width: 170,
@@ -180,7 +175,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       width: 50,
       render: (_, record) => (
         <Popconfirm
-          title="确定删除此记忆？"
+          title={t("memory.selection.confirmDelete")}
           onConfirm={() => handleDelete(record.id)}
         >
           <Button
@@ -195,6 +190,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
   ];
 
   const currentPolicy = policies?.[persona];
+  const personaName = t(`dept.${persona}`);
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
@@ -202,7 +198,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       <Card size="small">
         <Space.Compact style={{ width: "100%" }}>
           <Input
-            placeholder="搜索记忆..."
+            placeholder={t("memory.search.placeholder")}
             prefix={<SearchOutlined />}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -215,12 +211,12 @@ function MemorySummaryTab({ persona }: { persona: string }) {
             loading={recallMutation.isPending}
             onClick={handleSearch}
           >
-            检索
+            {t("memory.search.submit")}
           </Button>
         </Space.Compact>
         {searchResults && (
           <Text type="secondary" style={{ marginTop: 8, display: "block" }}>
-            找到 {searchResults.length} 条匹配 &quot;{searchQuery}&quot; 的记忆
+            {t("memory.search.summary", { n: searchResults.length, q: searchQuery })}
           </Text>
         )}
       </Card>
@@ -228,12 +224,12 @@ function MemorySummaryTab({ persona }: { persona: string }) {
       {/* Batch action bar */}
       {selectedRowKeys.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <Text type="secondary">已选 {selectedRowKeys.length} 条</Text>
+          <Text type="secondary">{t("memory.selection.selected", { n: selectedRowKeys.length })}</Text>
           <Popconfirm
-            title={`确认删除选中的 ${selectedRowKeys.length} 条记忆？`}
+            title={t("memory.selection.confirmBatchDelete", { n: selectedRowKeys.length })}
             onConfirm={handleBatchDelete}
-            okText="确认"
-            cancelText="取消"
+            okText={t("common.confirm")}
+            cancelText={t("common.cancel")}
           >
             <Button
               danger
@@ -241,22 +237,22 @@ function MemorySummaryTab({ persona }: { persona: string }) {
               icon={<DeleteOutlined />}
               loading={batchDeleteMutation.isPending}
             >
-              批量删除
+              {t("memory.selection.batchDelete")}
             </Button>
           </Popconfirm>
           <Button size="small" onClick={() => setSelectedRowKeys([])}>
-            取消选择
+            {t("memory.selection.clearSelection")}
           </Button>
         </div>
       )}
 
       {/* Memory Table */}
       <Card
-        title={`${PERSONAS.find((p) => p.value === persona)?.label ?? persona} — 记忆`}
-        extra={<Text type="secondary">{displayData.length} 条</Text>}
+        title={t("memory.summary", { name: personaName })}
+        extra={<Text type="secondary">{t("memory.count", { n: displayData.length })}</Text>}
       >
         {displayData.length === 0 && !isLoading ? (
-          <Empty description="暂无记忆" />
+          <Empty description={t("memory.empty")} />
         ) : (
           <Table<MemoryEntry>
             columns={columns}
@@ -281,30 +277,30 @@ function MemorySummaryTab({ persona }: { persona: string }) {
             label: (
               <Space>
                 <TeamOutlined />
-                <span>访问策略</span>
+                <span>{t("memory.policy.title")}</span>
               </Space>
             ),
             children: currentPolicy ? (
               <Descriptions column={1} size="small" bordered>
-                <Descriptions.Item label="可读取">
+                <Descriptions.Item label={t("memory.policy.canRead")}>
                   {currentPolicy.can_read.length > 0
                     ? currentPolicy.can_read.map((p: string) => (
                         <Tag key={p} color="blue">
-                          {PERSONAS.find((x) => x.value === p)?.label ?? p}
+                          {t(`dept.${p}`)}
                         </Tag>
                       ))
-                    : <Text type="secondary">无</Text>}
+                    : <Text type="secondary">{t("memory.policy.none")}</Text>}
                 </Descriptions.Item>
-                <Descriptions.Item label="可写入">
+                <Descriptions.Item label={t("memory.policy.canWrite")}>
                   {currentPolicy.can_write.length > 0
                     ? currentPolicy.can_write.map((p: string) => (
                         <Tag key={p} color="green">
-                          {PERSONAS.find((x) => x.value === p)?.label ?? p}
+                          {t(`dept.${p}`)}
                         </Tag>
                       ))
-                    : <Text type="secondary">无</Text>}
+                    : <Text type="secondary">{t("memory.policy.none")}</Text>}
                 </Descriptions.Item>
-                <Descriptions.Item label="共享级别">
+                <Descriptions.Item label={t("memory.policy.shareLevel")}>
                   <Tag
                     color={
                       currentPolicy.share_level === "court"
@@ -319,7 +315,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
                 </Descriptions.Item>
               </Descriptions>
             ) : (
-              <Text type="secondary">该官员暂无策略配置</Text>
+              <Text type="secondary">{t("memory.policy.missing")}</Text>
             ),
           },
         ]}
@@ -329,6 +325,7 @@ function MemorySummaryTab({ persona }: { persona: string }) {
 }
 
 function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
+  const t = useT();
   const { token } = theme.useToken();
   const isFailed = memorial.status === "failed";
 
@@ -372,7 +369,7 @@ function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
             </Text>
           ) : memorial.result ? (
             <Paragraph
-              ellipsis={{ rows: 6, expandable: true, symbol: "展开" }}
+              ellipsis={{ rows: 6, expandable: true, symbol: t("memory.history.expand") }}
               style={{ marginBottom: 0, fontSize: 13, whiteSpace: "pre-wrap" }}
             >
               {memorial.result}
@@ -400,6 +397,7 @@ function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
 }
 
 function ConversationHistoryTab({ persona }: { persona: string }) {
+  const t = useT();
   const { data: groups, isLoading } = usePersonaMemorials(persona);
 
   if (isLoading) {
@@ -411,7 +409,7 @@ function ConversationHistoryTab({ persona }: { persona: string }) {
   }
 
   if (!groups || groups.length === 0) {
-    return <Empty description="暂无对话历史" />;
+    return <Empty description={t("memory.history.empty")} />;
   }
 
   return (
@@ -426,7 +424,7 @@ function ConversationHistoryTab({ persona }: { persona: string }) {
               {group.edict_status}
             </Tag>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {group.memorials.length} 条对话
+              {t("memory.history.count", { n: group.memorials.length })}
             </Text>
           </Space>
         ),
@@ -443,6 +441,7 @@ function ConversationHistoryTab({ persona }: { persona: string }) {
 }
 
 function MemoryMaintenanceTab({ persona }: { persona: string }) {
+  const t = useT();
   const { data: stats } = useMemoryStats();
   const compactMutation = useCompactMemory();
   const reflectMutation = useTriggerReflection();
@@ -458,12 +457,12 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
           const data = resp.data;
           if (data?.status === "completed") {
             notification.success({
-              message: "压缩完成",
-              description: `${data.original_count} → ${data.compacted_count} 条，节省约 ${data.tokens_saved} tokens`,
+              message: t("memory.toast.compactCompleted"),
+              description: t("memory.toast.compactCompletedDesc", { from: data.original_count ?? 0, to: data.compacted_count ?? 0, tokens: data.tokens_saved ?? 0 }),
             });
           } else {
             notification.info({
-              message: data?.status === "skipped" ? "跳过压缩" : "压缩结果",
+              message: data?.status === "skipped" ? t("memory.toast.compactSkipped") : t("memory.toast.compactResult"),
               description: data?.reason,
             });
           }
@@ -478,12 +477,12 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
         const data = resp.data;
         if (data?.status === "completed") {
           notification.success({
-            message: "反思完成",
-            description: `生成 ${data.insights_generated} 条洞察`,
+            message: t("memory.toast.reflectCompleted"),
+            description: t("memory.toast.reflectCompletedDesc", { n: data.insights_generated ?? 0 }),
           });
         } else {
           notification.info({
-            message: data?.status === "cooldown" ? "冷却中" : "反思结果",
+            message: data?.status === "cooldown" ? t("memory.toast.reflectCooldown") : t("memory.toast.reflectResult"),
             description: data?.reason,
           });
         }
@@ -498,23 +497,23 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
         <Row gutter={16}>
           <Col span={6}>
             <Card size="small">
-              <Statistic title="记忆条目" value={personaStats.entry_count} />
+              <Statistic title={t("memory.stats.entries")} value={personaStats.entry_count} />
             </Card>
           </Col>
           <Col span={6}>
             <Card size="small">
-              <Statistic title="估算 Token" value={personaStats.estimated_tokens} />
+              <Statistic title={t("memory.stats.tokens")} value={personaStats.estimated_tokens} />
             </Card>
           </Col>
           <Col span={6}>
             <Card size="small">
-              <Statistic title="Markdown 文件" value={personaStats.markdown_files} />
+              <Statistic title={t("memory.stats.files")} value={personaStats.markdown_files} />
             </Card>
           </Col>
           <Col span={6}>
             <Card size="small">
               <Statistic
-                title="文件大小"
+                title={t("memory.stats.size")}
                 value={(personaStats.markdown_size_bytes / 1024).toFixed(1)}
                 suffix="KB"
               />
@@ -524,7 +523,7 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
       )}
 
       {personaStats?.by_category && (
-        <Card title="分类统计" size="small">
+        <Card title={t("memory.stats.byCategory")} size="small">
           <Row gutter={16}>
             {Object.entries(personaStats.by_category).map(([cat, count]) => (
               <Col key={cat} span={6}>
@@ -544,13 +543,13 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
       )}
 
       {/* Operations */}
-      <Card title="记忆压缩" size="small">
+      <Card title={t("memory.compact.title")} size="small">
         <Space direction="vertical" style={{ width: "100%" }}>
           <Text type="secondary">
-            将超过指定天数的旧记忆压缩为摘要，节省 Token 用量。
+            {t("memory.compact.desc")}
           </Text>
           <Space>
-            <Text>压缩</Text>
+            <Text>{t("memory.compact.prefix")}</Text>
             <InputNumber
               value={maxAgeDays}
               onChange={(v) => setMaxAgeDays(v ?? 7)}
@@ -558,29 +557,29 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
               max={90}
               style={{ width: 80 }}
             />
-            <Text>天前的记忆</Text>
+            <Text>{t("memory.compact.suffix")}</Text>
             <Button
               type="primary"
               loading={compactMutation.isPending}
               onClick={handleCompact}
             >
-              执行压缩
+              {t("memory.compact.submit")}
             </Button>
           </Space>
         </Space>
       </Card>
 
-      <Card title="记忆反思" size="small">
+      <Card title={t("memory.reflect.title")} size="small">
         <Space direction="vertical" style={{ width: "100%" }}>
           <Text type="secondary">
-            使用 LLM 从观察记忆中提取洞察和模式。每个官员有 1 小时冷却期。
+            {t("memory.reflect.desc")}
           </Text>
           <Button
             type="primary"
             loading={reflectMutation.isPending}
             onClick={handleReflect}
           >
-            触发反思
+            {t("memory.reflect.submit")}
           </Button>
         </Space>
       </Card>
@@ -589,18 +588,24 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
 }
 
 export default function MemoryDashboardPage() {
+  const t = useT();
   const [persona, setPersona] = useState("bingbu");
   const [activeTab, setActiveTab] = useState("memory");
 
+  const personaOptions = PERSONA_IDS.map((id) => ({
+    value: id,
+    label: t(`dept.${id}`),
+  }));
+
   return (
-    <PageContainer title="文渊阁">
+    <PageContainer title={t("memory.title")}>
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         <Segmented
           value={persona}
           onChange={(v) => {
             setPersona(v as string);
           }}
-          options={PERSONAS}
+          options={personaOptions}
           block
         />
 
@@ -613,7 +618,7 @@ export default function MemoryDashboardPage() {
               label: (
                 <Space>
                   <FileTextOutlined />
-                  记忆摘要
+                  {t("memory.tab.memory")}
                 </Space>
               ),
               children: <MemorySummaryTab persona={persona} />,
@@ -623,7 +628,7 @@ export default function MemoryDashboardPage() {
               label: (
                 <Space>
                   <MessageOutlined />
-                  对话历史
+                  {t("memory.tab.history")}
                 </Space>
               ),
               children: <ConversationHistoryTab persona={persona} />,
@@ -633,7 +638,7 @@ export default function MemoryDashboardPage() {
               label: (
                 <Space>
                   <BarChartOutlined />
-                  维护
+                  {t("memory.tab.maintenance")}
                 </Space>
               ),
               children: <MemoryMaintenanceTab persona={persona} />,

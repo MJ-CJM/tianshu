@@ -639,6 +639,88 @@
     "zh-modern": "Modern",
     "en": "English"
   },
+  "memory": {
+    "title": "Memory Center",
+    "tab": {
+      "memory": "Memory entries",
+      "history": "Conversation history",
+      "maintenance": "Maintenance"
+    },
+    "search": {
+      "placeholder": "Search memories...",
+      "submit": "Search",
+      "summary": "Found {n} memories matching \"{q}\""
+    },
+    "selection": {
+      "selected": "{n} selected",
+      "batchDelete": "Batch delete",
+      "clearSelection": "Clear selection",
+      "confirmBatchDelete": "Delete {n} selected memories?",
+      "confirmDelete": "Delete this memory?"
+    },
+    "summary": "{name} — Memory",
+    "count": "{n} entries",
+    "empty": "No memories",
+    "policy": {
+      "title": "Access policies",
+      "canRead": "Can read",
+      "canWrite": "Can write",
+      "shareLevel": "Share level",
+      "none": "None",
+      "missing": "No policy configured for this module"
+    },
+    "table": {
+      "category": "Category",
+      "content": "Content",
+      "source": "Source",
+      "access": "Access",
+      "confidence": "Confidence",
+      "time": "Time"
+    },
+    "category": {
+      "observation": "Observation",
+      "insight": "Insight",
+      "entity": "Entity",
+      "summary": "Summary"
+    },
+    "history": {
+      "empty": "No conversation history",
+      "expand": "Expand",
+      "count": "{n} conversations"
+    },
+    "stats": {
+      "entries": "Entries",
+      "tokens": "Est. tokens",
+      "files": "Markdown files",
+      "size": "File size",
+      "byCategory": "By category"
+    },
+    "compact": {
+      "title": "Compact memory",
+      "desc": "Compress old memories beyond the specified day count into a summary to save tokens.",
+      "prefix": "Compact memories older than",
+      "suffix": "days",
+      "submit": "Run compaction"
+    },
+    "reflect": {
+      "title": "Memory reflection",
+      "desc": "Use the LLM to extract insights and patterns from observation memories. Each module has a 1-hour cooldown.",
+      "submit": "Trigger reflection"
+    },
+    "toast": {
+      "deleted": "Memory deleted",
+      "batchDeleted": "{n} memories deleted",
+      "batchDeleteFailed": "Batch delete failed",
+      "compactCompleted": "Compaction complete",
+      "compactCompletedDesc": "{from} → {to} entries, saved ~{tokens} tokens",
+      "compactSkipped": "Compaction skipped",
+      "compactResult": "Compaction result",
+      "reflectCompleted": "Reflection complete",
+      "reflectCompletedDesc": "Generated {n} insights",
+      "reflectCooldown": "Cooling down",
+      "reflectResult": "Reflection result"
+    }
+  },
   "scheduler": {
     "title": "Scheduler",
     "table": {
