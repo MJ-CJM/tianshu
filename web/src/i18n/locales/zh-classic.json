@@ -806,6 +806,7 @@
       "auditReasons": "审计原因："
     },
     "appHeader": {
+      "brand": "天枢",
       "tagline": "成功只有一个——按照自己的方式，去度过人生。"
     },
     "healthDot": {
