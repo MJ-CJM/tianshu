@@ -1,4 +1,5 @@
 import type { Memorial } from "../api/types";
+import { useT } from "../i18n";
 
 export type EdictPhase = "running" | "needs_review" | "idle" | "no_memorial";
 
@@ -37,3 +38,17 @@ export const PHASE_SORT_ORDER: Record<EdictPhase, number> = {
   idle: 2,
   no_memorial: 3,
 };
+
+/**
+ * Locale-aware phase labels. Static `PHASE_LABELS` is preserved as zh-classic
+ * fallback for legacy call sites that cannot use hooks.
+ */
+export function useEdictPhaseLabels(): Record<EdictPhase, string> {
+  const t = useT();
+  return {
+    running: t("phase.running"),
+    needs_review: t("phase.needs_review"),
+    idle: t("phase.idle"),
+    no_memorial: t("phase.no_memorial"),
+  };
+}

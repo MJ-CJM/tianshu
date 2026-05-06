@@ -1,6 +1,7 @@
 import { Layout, theme } from "antd";
 import HealthDot from "../common/HealthDot";
 import ConnectionIndicator from "../common/ConnectionIndicator";
+import LocaleSwitcher from "./LocaleSwitcher";
 
 interface AppHeaderProps {
   isWsConnected?: boolean;
@@ -47,7 +48,8 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
       >
         成功只有一个——按照自己的方式，去度过人生。
       </div>
-      <div style={{ display: "flex", alignItems: "center" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <LocaleSwitcher />
         <ConnectionIndicator isConnected={isWsConnected} />
         <HealthDot />
       </div>

@@ -1,0 +1,126 @@
+{
+  "nav": {
+    "edictList": "敕令总览",
+    "edictCreate": "颁发敕令",
+    "approvals": "御书房",
+    "cabinet": "内阁",
+    "tax": "户部账房",
+    "war": "兵部",
+    "audit": "都察院",
+    "knowledge": "文渊阁",
+    "consultation": "廷议",
+    "foreign": "鸿胪寺",
+    "notify": "通政司",
+    "scheduler": "文书房",
+    "persona": "百官阁",
+    "system": "藏兵阁",
+    "sessionRules": "权印司"
+  },
+  "sidebar": {
+    "darkMode": "深色模式",
+    "lightMode": "浅色模式",
+    "collapse": "收起侧栏",
+    "expand": "展开",
+    "switchToDark": "切换深色",
+    "switchToLight": "切换浅色"
+  },
+  "entity": {
+    "edict": "敕令",
+    "memorial": "奏折",
+    "decree": "朱批"
+  },
+  "action": {
+    "approve": "准",
+    "reject": "驳",
+    "cancel": "撤回",
+    "retry": "重办",
+    "amend": "改批",
+    "issue": "颁发",
+    "review": "朱批",
+    "pause": "搁置",
+    "resume": "续办"
+  },
+  "status": {
+    "submitted": "已呈递",
+    "running": "办理中",
+    "needs_review": "待朱批",
+    "completed": "已完成",
+    "failed": "已驳回",
+    "cancelled": "已撤回",
+    "scheduled": "已排期",
+    "planning": "规划中",
+    "auditing": "审计中"
+  },
+  "edictStatus": {
+    "open": "进行中",
+    "completed": "已结案",
+    "cancelled": "已撤回"
+  },
+  "phase": {
+    "running": "运行中",
+    "needs_review": "待朱批",
+    "idle": "待批示",
+    "no_memorial": "待启动"
+  },
+  "event": {
+    "decree": {
+      "approved": "朱批：准",
+      "rejected": "朱批：驳",
+      "retry": "朱批：重办",
+      "cancelled": "朱批：撤回"
+    }
+  },
+  "common": {
+    "search": "搜索",
+    "confirm": "确认",
+    "cancel": "取消",
+    "submit": "提交"
+  },
+  "decree": {
+    "title": "朱批",
+    "memorialId": "奏折 ID",
+    "auditResult": "审计结果",
+    "okText": {
+      "submit": "提交",
+      "cancel": "确认撤回"
+    },
+    "actionOption": {
+      "approve": "准 — 批准执行",
+      "reject": "驳 — 驳回",
+      "retry": "重办 — 原目标重试",
+      "amend": "改批 — 修改目标后重试",
+      "cancel": "撤回 — 取消任务"
+    }
+  },
+  "form": {
+    "search": {
+      "edict": "搜索敕令..."
+    },
+    "decree": {
+      "field": {
+        "action": "操作",
+        "amendedGoal": "修改后目标",
+        "comment": "批注（可选）"
+      },
+      "placeholder": {
+        "amendedGoal": "请输入修改后的任务目标",
+        "comment": "可选批注"
+      },
+      "validation": {
+        "amendedGoalRequired": "改批操作须填写修改后目标"
+      }
+    }
+  },
+  "empty": {
+    "noMatch": "无匹配的敕令",
+    "noOpenEdict": "暂无进行中的敕令"
+  },
+  "phaseFilter": {
+    "all": "全部阶段"
+  },
+  "locale": {
+    "zh-classic": "彩蛋",
+    "zh-modern": "通用",
+    "en": "English"
+  }
+}

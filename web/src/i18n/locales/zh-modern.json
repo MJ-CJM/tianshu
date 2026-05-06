@@ -1,0 +1,126 @@
+{
+  "nav": {
+    "edictList": "任务列表",
+    "edictCreate": "新建任务",
+    "approvals": "审批中心",
+    "cabinet": "规划中心",
+    "tax": "财务中心",
+    "war": "任务执行",
+    "audit": "审计中心",
+    "knowledge": "知识库",
+    "consultation": "群议",
+    "foreign": "外部接入",
+    "notify": "通知中心",
+    "scheduler": "调度器",
+    "persona": "角色管理",
+    "system": "系统管理",
+    "sessionRules": "会话规则"
+  },
+  "sidebar": {
+    "darkMode": "深色模式",
+    "lightMode": "浅色模式",
+    "collapse": "收起侧栏",
+    "expand": "展开",
+    "switchToDark": "切换深色",
+    "switchToLight": "切换浅色"
+  },
+  "entity": {
+    "edict": "任务",
+    "memorial": "执行记录",
+    "decree": "审批决策"
+  },
+  "action": {
+    "approve": "批准",
+    "reject": "拒绝",
+    "cancel": "撤销",
+    "retry": "重试",
+    "amend": "修改",
+    "issue": "下发",
+    "review": "审批",
+    "pause": "暂停",
+    "resume": "恢复"
+  },
+  "status": {
+    "submitted": "已提交",
+    "running": "运行中",
+    "needs_review": "待审批",
+    "completed": "已完成",
+    "failed": "已失败",
+    "cancelled": "已取消",
+    "scheduled": "已调度",
+    "planning": "规划中",
+    "auditing": "审计中"
+  },
+  "edictStatus": {
+    "open": "进行中",
+    "completed": "已完成",
+    "cancelled": "已取消"
+  },
+  "phase": {
+    "running": "运行中",
+    "needs_review": "待审批",
+    "idle": "待处理",
+    "no_memorial": "未启动"
+  },
+  "event": {
+    "decree": {
+      "approved": "审批：批准",
+      "rejected": "审批：拒绝",
+      "retry": "审批：重试",
+      "cancelled": "审批：撤销"
+    }
+  },
+  "common": {
+    "search": "搜索",
+    "confirm": "确认",
+    "cancel": "取消",
+    "submit": "提交"
+  },
+  "decree": {
+    "title": "审批决策",
+    "memorialId": "执行 ID",
+    "auditResult": "审计结果",
+    "okText": {
+      "submit": "提交",
+      "cancel": "确认撤销"
+    },
+    "actionOption": {
+      "approve": "批准 — 同意执行",
+      "reject": "拒绝 — 驳回",
+      "retry": "重试 — 原目标",
+      "amend": "修改 — 修改目标后重试",
+      "cancel": "撤销 — 取消任务"
+    }
+  },
+  "form": {
+    "search": {
+      "edict": "搜索任务..."
+    },
+    "decree": {
+      "field": {
+        "action": "操作",
+        "amendedGoal": "修改后目标",
+        "comment": "备注（可选）"
+      },
+      "placeholder": {
+        "amendedGoal": "请输入修改后的任务目标",
+        "comment": "可选备注"
+      },
+      "validation": {
+        "amendedGoalRequired": "修改操作须填写修改后目标"
+      }
+    }
+  },
+  "empty": {
+    "noMatch": "无匹配的任务",
+    "noOpenEdict": "暂无进行中的任务"
+  },
+  "phaseFilter": {
+    "all": "全部阶段"
+  },
+  "locale": {
+    "zh-classic": "彩蛋",
+    "zh-modern": "通用",
+    "en": "English"
+  }
+}

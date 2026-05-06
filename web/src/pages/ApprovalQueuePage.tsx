@@ -12,17 +12,20 @@ import PageContainer from "../components/common/PageContainer";
 import {
   deriveEdictPhase,
   PHASE_SORT_ORDER,
-  PHASE_LABELS,
+  useEdictPhaseLabels,
   type EdictPhase,
 } from "../utils/edictPhase";
+import { useT } from "../i18n";
 import type { Memorial, PendingToolCall } from "../api/types";
 
-const phaseOptions = [
-  { value: "", label: "全部阶段" },
-  ...Object.entries(PHASE_LABELS).map(([value, label]) => ({ value, label })),
-];
-
 export default function ApprovalQueuePage() {
+  const t = useT();
+  const phaseLabels = useEdictPhaseLabels();
+  const phaseOptions = [
+    { value: "", label: t("phaseFilter.all") },
+    ...Object.entries(phaseLabels).map(([value, label]) => ({ value, label })),
+  ];
+
   const { data, isLoading, refetch } = useOpenEdicts();
   const edicts = data?.data ?? [];
   const edictIds = useMemo(() => edicts.map((e) => e.id), [edicts]);
@@ -92,12 +95,12 @@ export default function ApprovalQueuePage() {
 
   return (
     <PageContainer
-      title={`御书房 (${edicts.length})`}
+      title={`${t("nav.approvals")} (${edicts.length})`}
       extra={
         <Space>
           <Input
             prefix={<SearchOutlined />}
-            placeholder="搜索敕令..."
+            placeholder={t("form.search.edict")}
             allowClear
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -120,7 +123,7 @@ export default function ApprovalQueuePage() {
       {items.length === 0 && !isLoading ? (
         <Empty
           description={
-            searchText || phaseFilter ? "无匹配的敕令" : "暂无进行中的敕令"
+            searchText || phaseFilter ? t("empty.noMatch") : t("empty.noOpenEdict")
           }
         />
       ) : (

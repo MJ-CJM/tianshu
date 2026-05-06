@@ -1,4 +1,5 @@
 import type { EdictStatus, TaskStatus } from "../api/types";
+import { useT } from "../i18n";
 
 export const STATUS_COLORS: Record<TaskStatus, string> = {
   submitted: "#faad14",
@@ -35,6 +36,37 @@ export const EDICT_STATUS_COLORS: Record<EdictStatus, string> = {
   completed: "#52c41a",
   cancelled: "#8c8c8c",
 };
+
+/**
+ * Locale-aware status labels. Use this hook in components that need to display
+ * status labels in the user's currently selected locale (zh-classic / zh-modern / en).
+ *
+ * Static `STATUS_LABELS` constant above is preserved as a zh-classic fallback for
+ * legacy call sites that cannot use hooks (e.g. non-component utilities).
+ */
+export function useStatusLabels(): Record<TaskStatus, string> {
+  const t = useT();
+  return {
+    submitted: t("status.submitted"),
+    running: t("status.running"),
+    completed: t("status.completed"),
+    failed: t("status.failed"),
+    cancelled: t("status.cancelled"),
+    scheduled: t("status.scheduled"),
+    planning: t("status.planning"),
+    auditing: t("status.auditing"),
+    needs_review: t("status.needs_review"),
+  };
+}
+
+export function useEdictStatusLabels(): Record<EdictStatus, string> {
+  const t = useT();
+  return {
+    open: t("edictStatus.open"),
+    completed: t("edictStatus.completed"),
+    cancelled: t("edictStatus.cancelled"),
+  };
+}
 
 export const PRIORITY_LABELS: Record<string, string> = {
   urgent: "紧急",

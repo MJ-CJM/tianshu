@@ -28,19 +28,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
 import { useTheme } from "../../hooks/useTheme";
 import { useNeedsReview } from "../../hooks/useApprovals";
-
-const staticMenuItems = [
-  {
-    key: "/",
-    icon: <UnorderedListOutlined />,
-    label: "敕令总览",
-  },
-  {
-    key: "/edicts/create",
-    icon: <PlusCircleOutlined />,
-    label: "颁发敕令",
-  },
-];
+import { useT } from "../../i18n";
 
 export default function AppSidebar() {
   const navigate = useNavigate();
@@ -48,71 +36,81 @@ export default function AppSidebar() {
   const { token } = theme.useToken();
   const { mode, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
+  const t = useT();
 
   const { data: reviewData } = useNeedsReview();
   const reviewCount = reviewData?.metadata?.total ?? reviewData?.data?.length ?? 0;
 
   const menuItems = [
-    ...staticMenuItems,
+    {
+      key: "/",
+      icon: <UnorderedListOutlined />,
+      label: t("nav.edictList"),
+    },
+    {
+      key: "/edicts/create",
+      icon: <PlusCircleOutlined />,
+      label: t("nav.edictCreate"),
+    },
     {
       key: "/approvals",
       icon: <AuditOutlined />,
-      label: reviewCount > 0 ? `御书房 (${reviewCount})` : "御书房",
+      label: reviewCount > 0 ? `${t("nav.approvals")} (${reviewCount})` : t("nav.approvals"),
     },
     {
       key: "/scheduler",
       icon: <ScheduleOutlined />,
-      label: "文书房",
+      label: t("nav.scheduler"),
     },
     {
       key: "/audit",
       icon: <SafetyCertificateOutlined />,
-      label: "都察院",
+      label: t("nav.audit"),
     },
     {
       key: "/cost",
       icon: <DollarOutlined />,
-      label: "户部账房",
+      label: t("nav.tax"),
     },
     {
       key: "/memory",
       icon: <BookOutlined />,
-      label: "文渊阁",
+      label: t("nav.knowledge"),
     },
     {
       key: "/consultation",
       icon: <TeamOutlined />,
-      label: "廷议",
+      label: t("nav.consultation"),
     },
     {
       key: "/cabinet",
       icon: <CrownOutlined />,
-      label: "内阁",
+      label: t("nav.cabinet"),
     },
     {
       key: "/hongluisi",
       icon: <GlobalOutlined />,
-      label: "鸿胪寺",
+      label: t("nav.foreign"),
     },
     {
       key: "/tongzheng",
       icon: <MessageOutlined />,
-      label: "通政司",
+      label: t("nav.notify"),
     },
     {
       key: "/personas",
       icon: <TeamOutlined />,
-      label: "百官阁",
+      label: t("nav.persona"),
     },
     {
       key: "/session-rules",
       icon: <SafetyOutlined />,
-      label: "权印司",
+      label: t("nav.sessionRules"),
     },
     {
       key: "/system",
       icon: <ToolOutlined />,
-      label: "藏兵阁",
+      label: t("nav.system"),
     },
   ];
 
@@ -158,7 +156,7 @@ export default function AppSidebar() {
           }}
         >
           <Tooltip
-            title={collapsed ? (mode === "light" ? "深色模式" : "浅色模式") : ""}
+            title={collapsed ? (mode === "light" ? t("sidebar.darkMode") : t("sidebar.lightMode")) : ""}
             placement="right"
           >
             <Button
@@ -171,11 +169,11 @@ export default function AppSidebar() {
                 justifyContent: collapsed ? "center" : "flex-start",
               }}
             >
-              {collapsed ? null : mode === "light" ? "深色模式" : "浅色模式"}
+              {collapsed ? null : mode === "light" ? t("sidebar.darkMode") : t("sidebar.lightMode")}
             </Button>
           </Tooltip>
           <Tooltip
-            title={collapsed ? (collapsed ? "展开" : "收起") : ""}
+            title={collapsed ? t("sidebar.expand") : ""}
             placement="right"
           >
             <Button
@@ -188,7 +186,7 @@ export default function AppSidebar() {
                 justifyContent: collapsed ? "center" : "flex-start",
               }}
             >
-              {collapsed ? null : "收起侧栏"}
+              {collapsed ? null : t("sidebar.collapse")}
             </Button>
           </Tooltip>
         </div>

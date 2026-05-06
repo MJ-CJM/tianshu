@@ -3,7 +3,9 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ConfigProvider, App as AntApp, Spin } from "antd";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import zhCN from "antd/locale/zh_CN";
+import enUS from "antd/locale/en_US";
 import { ThemeContext, useThemeProvider } from "./hooks/useTheme";
+import { LocaleContext, useLocaleProvider } from "./hooks/useLocale";
 import { getThemeConfig } from "./theme";
 import AppLayout from "./components/layout/AppLayout";
 import EdictListPage from "./pages/EdictListPage";
@@ -37,10 +39,13 @@ const queryClient = new QueryClient({
 
 function ThemedApp() {
   const themeCtx = useThemeProvider();
+  const localeCtx = useLocaleProvider();
+  const antdLocale = localeCtx.locale === "en" ? enUS : zhCN;
 
   return (
     <ThemeContext.Provider value={themeCtx}>
-      <ConfigProvider theme={getThemeConfig(themeCtx.mode)} locale={zhCN}>
+      <LocaleContext.Provider value={localeCtx}>
+      <ConfigProvider theme={getThemeConfig(themeCtx.mode)} locale={antdLocale}>
         <AntApp>
           <BrowserRouter>
             <Routes>
@@ -74,6 +79,7 @@ function ThemedApp() {
           </BrowserRouter>
         </AntApp>
       </ConfigProvider>
+      </LocaleContext.Provider>
     </ThemeContext.Provider>
   );
 }

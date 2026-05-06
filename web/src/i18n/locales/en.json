@@ -1,0 +1,126 @@
+{
+  "nav": {
+    "edictList": "Tasks",
+    "edictCreate": "New Task",
+    "approvals": "Approvals",
+    "cabinet": "Planning",
+    "tax": "Finance",
+    "war": "Execution",
+    "audit": "Audit",
+    "knowledge": "Knowledge",
+    "consultation": "Consultation",
+    "foreign": "External",
+    "notify": "Notifications",
+    "scheduler": "Scheduler",
+    "persona": "Personas",
+    "system": "System",
+    "sessionRules": "Session Rules"
+  },
+  "sidebar": {
+    "darkMode": "Dark Mode",
+    "lightMode": "Light Mode",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "switchToDark": "Switch to Dark",
+    "switchToLight": "Switch to Light"
+  },
+  "entity": {
+    "edict": "Task",
+    "memorial": "Run",
+    "decree": "Decision"
+  },
+  "action": {
+    "approve": "Approve",
+    "reject": "Reject",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "amend": "Amend",
+    "issue": "Issue",
+    "review": "Review",
+    "pause": "Pause",
+    "resume": "Resume"
+  },
+  "status": {
+    "submitted": "Submitted",
+    "running": "Running",
+    "needs_review": "Pending Review",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "scheduled": "Scheduled",
+    "planning": "Planning",
+    "auditing": "Auditing"
+  },
+  "edictStatus": {
+    "open": "Open",
+    "completed": "Completed",
+    "cancelled": "Cancelled"
+  },
+  "phase": {
+    "running": "Running",
+    "needs_review": "Pending Review",
+    "idle": "Idle",
+    "no_memorial": "Not Started"
+  },
+  "event": {
+    "decree": {
+      "approved": "Decision: Approved",
+      "rejected": "Decision: Rejected",
+      "retry": "Decision: Retry",
+      "cancelled": "Decision: Cancelled"
+    }
+  },
+  "common": {
+    "search": "Search",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "submit": "Submit"
+  },
+  "decree": {
+    "title": "Decision",
+    "memorialId": "Run ID",
+    "auditResult": "Audit Result",
+    "okText": {
+      "submit": "Submit",
+      "cancel": "Confirm Cancel"
+    },
+    "actionOption": {
+      "approve": "Approve — Confirm execution",
+      "reject": "Reject — Decline",
+      "retry": "Retry — Same goal",
+      "amend": "Amend — Edit goal then retry",
+      "cancel": "Cancel — Stop task"
+    }
+  },
+  "form": {
+    "search": {
+      "edict": "Search tasks..."
+    },
+    "decree": {
+      "field": {
+        "action": "Action",
+        "amendedGoal": "Amended Goal",
+        "comment": "Comment (optional)"
+      },
+      "placeholder": {
+        "amendedGoal": "Enter amended task goal",
+        "comment": "Optional comment"
+      },
+      "validation": {
+        "amendedGoalRequired": "Amended goal required for amend action"
+      }
+    }
+  },
+  "empty": {
+    "noMatch": "No matching tasks",
+    "noOpenEdict": "No active tasks"
+  },
+  "phaseFilter": {
+    "all": "All Phases"
+  },
+  "locale": {
+    "zh-classic": "Easter Egg",
+    "zh-modern": "Modern",
+    "en": "English"
+  }
+}
