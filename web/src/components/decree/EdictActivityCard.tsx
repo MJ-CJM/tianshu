@@ -20,6 +20,7 @@ import {
 } from "../../utils/edictPhase";
 import type { Edict, Memorial, PendingToolCall } from "../../api/types";
 import styles from "../common/GlowCard.module.css";
+import { useT, type TFunction } from "../../i18n";
 
 interface EdictActivityCardProps {
   edict: Edict;
@@ -34,6 +35,7 @@ export default function EdictActivityCard({
   onOpenDecree,
   pendingToolCalls = [],
 }: EdictActivityCardProps) {
+  const t = useT();
   const { token } = theme.useToken();
   const navigate = useNavigate();
   const phase = deriveEdictPhase(latestMemorial);
@@ -53,11 +55,11 @@ export default function EdictActivityCard({
         <Space>
           <span>{edict.title}</span>
           {edict.priority === "urgent" && (
-            <Tag color="#ff4d4f">紧急</Tag>
+            <Tag color="#ff4d4f">{t("priority.urgent")}</Tag>
           )}
           <Tag color={PHASE_COLORS[phase]}>{PHASE_LABELS[phase]}</Tag>
           {hasPendingTool && (
-            <Tag color="orange">工具待批 ({pendingToolCalls.length})</Tag>
+            <Tag color="orange">{t("comp.edictActivity.pendingTool", { n: pendingToolCalls.length })}</Tag>
           )}
           <Typography.Text
             style={{ color: token.colorTextSecondary, fontSize: 12 }}
@@ -84,12 +86,13 @@ export default function EdictActivityCard({
         memorial={latestMemorial}
         token={token}
         onOpenDecree={onOpenDecree}
+        t={t}
       />
       <div style={{ marginTop: 8 }}>
         <Typography.Text
           style={{ color: token.colorTextTertiary, fontSize: 12 }}
         >
-          创建于 {formatTime(edict.created_at)}
+          {t("comp.edictActivity.createdAt", { time: formatTime(edict.created_at) })}
         </Typography.Text>
       </div>
     </GlowCard>
@@ -101,17 +104,19 @@ function PhaseContent({
   memorial,
   token,
   onOpenDecree,
+  t,
 }: {
   phase: EdictPhase;
   memorial: Memorial | null;
   token: ReturnType<typeof theme.useToken>["token"];
   onOpenDecree: (memorial: Memorial, action: string) => void;
+  t: TFunction;
 }) {
   if (phase === "no_memorial") {
     return (
       <div style={{ color: token.colorTextSecondary, fontSize: 13 }}>
         <ClockCircleOutlined style={{ marginRight: 6 }} />
-        正在初始化…
+        {t("comp.edictActivity.initializing")}
       </div>
     );
   }
@@ -122,7 +127,7 @@ function PhaseContent({
     return (
       <div style={{ color: token.colorTextSecondary, fontSize: 13 }}>
         <LoadingOutlined spin style={{ marginRight: 6 }} />
-        {memorial.instruction ?? "执行中…"}
+        {memorial.instruction ?? t("comp.edictActivity.executing")}
       </div>
     );
   }
@@ -149,7 +154,7 @@ function PhaseContent({
             <Typography.Text
               style={{ fontSize: 12, color: token.colorTextSecondary }}
             >
-              审计原因：
+              {t("comp.edictActivity.auditReasons")}
             </Typography.Text>
             {memorial.audit.reasons.map((r, i) => (
               <div
@@ -168,7 +173,7 @@ function PhaseContent({
             icon={<CheckCircleOutlined />}
             onClick={() => onOpenDecree(memorial, "approve")}
           >
-            准
+            {t("action.approve")}
           </Button>
           <Button
             danger
@@ -176,28 +181,28 @@ function PhaseContent({
             icon={<CloseCircleOutlined />}
             onClick={() => onOpenDecree(memorial, "reject")}
           >
-            驳
+            {t("action.reject")}
           </Button>
           <Button
             size="small"
             icon={<RedoOutlined />}
             onClick={() => onOpenDecree(memorial, "retry")}
           >
-            重办
+            {t("action.retry")}
           </Button>
           <Button
             size="small"
             icon={<EditOutlined />}
             onClick={() => onOpenDecree(memorial, "amend")}
           >
-            改批
+            {t("action.amend")}
           </Button>
           <Button
             size="small"
             icon={<StopOutlined />}
             onClick={() => onOpenDecree(memorial, "cancel")}
           >
-            撤回
+            {t("action.cancel")}
           </Button>
         </Space>
       </>

@@ -6,6 +6,7 @@ import { ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined } from "@
 import { getOuterLoopIterations } from "../../api/edicts";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import type { OuterLoopIteration } from "../../api/types";
+import { useT } from "../../i18n";
 
 interface ParsedChecksResult {
   all_passed: boolean;
@@ -53,6 +54,7 @@ interface Props {
 }
 
 export default function OuterLoopTimeline({ edictId }: Props) {
+  const t = useT();
   const [rows, setRows] = useState<OuterLoopIteration[] | null>(null);
   const [loading, setLoading] = useState(true);
   const { lastMessage } = useWebSocket();
@@ -102,14 +104,14 @@ export default function OuterLoopTimeline({ edictId }: Props) {
 
   if (loading) {
     return (
-      <Card size="small" title="长任务迭代时间线" style={{ marginTop: 16 }}>
+      <Card size="small" title={t("comp.outerLoop.title")} style={{ marginTop: 16 }}>
         <Spin />
       </Card>
     );
   }
 
   if (!rows || rows.length === 0) {
-    return null; // 静默隐藏：edict 未启用 outer loop 或还没跑过
+    return null;
   }
 
   return (
@@ -117,9 +119,9 @@ export default function OuterLoopTimeline({ edictId }: Props) {
       size="small"
       title={
         <Space>
-          <span>长任务迭代时间线</span>
-          <Tag color="default">{rows.length} 轮</Tag>
-          <Tag color="green">总成本 ¥{totalCost.toFixed(4)}</Tag>
+          <span>{t("comp.outerLoop.title")}</span>
+          <Tag color="default">{t("comp.outerLoop.rounds", { n: rows.length })}</Tag>
+          <Tag color="green">{t("comp.outerLoop.totalCost", { cost: totalCost.toFixed(4) })}</Tag>
         </Space>
       }
       style={{ marginTop: 16 }}
@@ -148,12 +150,12 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                 {verdictIcon}
                 {verdict && (
                   <span style={{ fontSize: 12 }}>
-                    critic: {verdict === "pass" ? "通过" : "打回"}
+                    critic: {verdict === "pass" ? t("comp.outerLoop.criticPass") : t("comp.outerLoop.criticFail")}
                     {issueClass ? ` (${issueClass})` : ""}
                   </span>
                 )}
                 {checks && !checks.all_passed && (
-                  <Tag color="red">checks 未过</Tag>
+                  <Tag color="red">{t("comp.outerLoop.checksFailed")}</Tag>
                 )}
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {formatDuration(r.started_at, r.finished_at)}
@@ -161,7 +163,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   ¥{r.cost_cny.toFixed(4)}
                 </Typography.Text>
-                {r.archived_at && <Tag>已归档</Tag>}
+                {r.archived_at && <Tag>{t("comp.outerLoop.archived")}</Tag>}
               </Space>
             ),
             children: (
@@ -188,7 +190,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                           key={idx}
                           type="secondary"
                           style={{ fontSize: 12, marginTop: 4 }}
-                          ellipsis={{ rows: 3, expandable: true, symbol: "展开" }}
+                          ellipsis={{ rows: 3, expandable: true, symbol: t("comp.outerLoop.expand") }}
                         >
                           {o.name}: {o.detail}
                         </Typography.Paragraph>
@@ -202,17 +204,17 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                     </Typography.Text>
                     <Typography.Paragraph
                       style={{ fontSize: 12, marginTop: 4, whiteSpace: "pre-wrap" }}
-                      ellipsis={{ rows: 4, expandable: true, symbol: "展开" }}
+                      ellipsis={{ rows: 4, expandable: true, symbol: t("comp.outerLoop.expand") }}
                     >
-                      {critic.feedback || "(无 feedback)"}
+                      {critic.feedback || t("comp.outerLoop.noFeedback")}
                     </Typography.Paragraph>
                     {critic.suggested_fix && (
                       <Typography.Paragraph
                         type="secondary"
                         style={{ fontSize: 12, whiteSpace: "pre-wrap" }}
-                        ellipsis={{ rows: 3, expandable: true, symbol: "展开" }}
+                        ellipsis={{ rows: 3, expandable: true, symbol: t("comp.outerLoop.expand") }}
                       >
-                        建议：{critic.suggested_fix}
+                        {t("comp.outerLoop.suggestion")}{critic.suggested_fix}
                       </Typography.Paragraph>
                     )}
                   </div>
@@ -229,7 +231,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                         whiteSpace: "pre-wrap",
                         fontFamily: "monospace",
                       }}
-                      ellipsis={{ rows: 6, expandable: true, symbol: "展开" }}
+                      ellipsis={{ rows: 6, expandable: true, symbol: t("comp.outerLoop.expand") }}
                     >
                       {r.actor_output}
                     </Typography.Paragraph>
@@ -238,7 +240,7 @@ export default function OuterLoopTimeline({ edictId }: Props) {
                   r.archived_at && (
                     <Empty
                       image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description="actor_output 已归档（仅保留摘要）"
+                      description={t("comp.outerLoop.actorOutputArchived")}
                       style={{ marginBottom: 0 }}
                     />
                   )

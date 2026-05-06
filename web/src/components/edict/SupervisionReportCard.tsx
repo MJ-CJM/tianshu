@@ -23,6 +23,7 @@ import {
 import { getSupervisionReports } from "../../api/edicts";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import type { SupervisionReport } from "../../api/types";
+import { useT, type TFunction } from "../../i18n";
 
 const STATUS_COLORS: Record<string, string> = {
   completed: "green",
@@ -31,21 +32,13 @@ const STATUS_COLORS: Record<string, string> = {
   running: "blue",
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  completed: "完成",
-  failed: "失败",
-  cancelled: "取消",
-  running: "进行中",
-  submitted: "已提交",
-};
-
 interface Props {
   edictId: string;
   /** 按 memorial 过滤；不传则展示该 edict 全部（含历次 follow-up）。 */
   memorialId?: string;
 }
 
-function ReportContent({ report }: { report: SupervisionReport }) {
+function ReportContent({ report, t }: { report: SupervisionReport; t: TFunction }) {
   const allEmpty =
     report.issues_observed.length === 0 &&
     report.well_done.length === 0 &&
@@ -56,7 +49,7 @@ function ReportContent({ report }: { report: SupervisionReport }) {
     return (
       <Empty
         image={Empty.PRESENTED_IMAGE_SIMPLE}
-        description="监督报告生成失败或解析异常"
+        description={t("comp.supervision.failTitle")}
       >
         {report.raw_feedback && (
           <Typography.Paragraph
@@ -66,9 +59,9 @@ function ReportContent({ report }: { report: SupervisionReport }) {
               whiteSpace: "pre-wrap",
               textAlign: "left",
             }}
-            ellipsis={{ rows: 5, expandable: true, symbol: "展开" }}
+            ellipsis={{ rows: 5, expandable: true, symbol: t("comp.supervision.expand") }}
           >
-            原始输出：{report.raw_feedback}
+            {t("comp.supervision.rawOutput")}{report.raw_feedback}
           </Typography.Paragraph>
         )}
       </Empty>
@@ -81,7 +74,7 @@ function ReportContent({ report }: { report: SupervisionReport }) {
         <div>
           <Typography.Text strong>
             <CloseCircleOutlined style={{ color: "#ff4d4f", marginRight: 6 }} />
-            观察到的问题（{report.issues_observed.length}）
+            {t("comp.supervision.issues", { n: report.issues_observed.length })}
           </Typography.Text>
           <List
             size="small"
@@ -99,7 +92,7 @@ function ReportContent({ report }: { report: SupervisionReport }) {
         <div>
           <Typography.Text strong>
             <CheckCircleOutlined style={{ color: "#52c41a", marginRight: 6 }} />
-            做得好的地方（{report.well_done.length}）
+            {t("comp.supervision.wellDone", { n: report.well_done.length })}
           </Typography.Text>
           <List
             size="small"
@@ -119,7 +112,7 @@ function ReportContent({ report }: { report: SupervisionReport }) {
             <ExclamationCircleOutlined
               style={{ color: "#faad14", marginRight: 6 }}
             />
-            做得不够的地方（{report.poorly_done.length}）
+            {t("comp.supervision.poorlyDone", { n: report.poorly_done.length })}
           </Typography.Text>
           <List
             size="small"
@@ -137,7 +130,7 @@ function ReportContent({ report }: { report: SupervisionReport }) {
         <div>
           <Typography.Text strong>
             <BulbOutlined style={{ color: "#1890ff", marginRight: 6 }} />
-            建议
+            {t("comp.supervision.recommendation")}
           </Typography.Text>
           <Typography.Paragraph
             style={{ marginTop: 4, whiteSpace: "pre-wrap" }}
@@ -151,6 +144,7 @@ function ReportContent({ report }: { report: SupervisionReport }) {
 }
 
 export default function SupervisionReportCard({ edictId, memorialId }: Props) {
+  const t = useT();
   const [reports, setReports] = useState<SupervisionReport[]>([]);
   const [loading, setLoading] = useState(true);
   const { lastMessage } = useWebSocket();
@@ -193,7 +187,7 @@ export default function SupervisionReportCard({ edictId, memorialId }: Props) {
 
   if (loading) {
     return (
-      <Card size="small" title="监督报告" style={{ marginTop: 16 }}>
+      <Card size="small" title={t("comp.supervision.title")} style={{ marginTop: 16 }}>
         <Spin />
       </Card>
     );
@@ -203,7 +197,7 @@ export default function SupervisionReportCard({ edictId, memorialId }: Props) {
     return null;
   }
 
-  // 单监督官：直接展开
+  // Single supervisor: expand directly
   if (reports.length === 1) {
     const r = reports[0]!;
     return (
@@ -211,40 +205,38 @@ export default function SupervisionReportCard({ edictId, memorialId }: Props) {
         size="small"
         title={
           <Space wrap>
-            <span>监督报告</span>
+            <span>{t("comp.supervision.title")}</span>
             <Tag color="purple">{r.persona_name}</Tag>
             <Tag color={STATUS_COLORS[r.final_status] ?? "default"}>
-              {STATUS_LABELS[r.final_status] ?? r.final_status}
+              {t(`comp.supervision.status.${r.final_status}`)}
             </Tag>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {r.iterations_count} 轮 · ¥{r.total_cost_cny.toFixed(4)}
+              {t("comp.supervision.iterCost", { n: r.iterations_count, cost: r.total_cost_cny.toFixed(4) })}
             </Typography.Text>
           </Space>
         }
         style={{ marginTop: 16 }}
       >
-        <ReportContent report={r} />
+        <ReportContent report={r} t={t} />
       </Card>
     );
   }
 
-  // 多监督官：用 Tabs 切换
+  // Multiple supervisors: use Tabs
   const first = reports[0]!;
+  const totalCost = reports.reduce((s, r) => s + r.total_cost_cny, 0);
   return (
     <Card
       size="small"
       title={
         <Space wrap>
-          <span>监督报告</span>
-          <Tag color="purple">{reports.length} 位监督官</Tag>
+          <span>{t("comp.supervision.title")}</span>
+          <Tag color="purple">{t("comp.supervision.supervisorCount", { n: reports.length })}</Tag>
           <Tag color={STATUS_COLORS[first.final_status] ?? "default"}>
-            {STATUS_LABELS[first.final_status] ?? first.final_status}
+            {t(`comp.supervision.status.${first.final_status}`)}
           </Tag>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {first.iterations_count} 轮 · 总成本 ¥
-            {reports
-              .reduce((s, r) => s + r.total_cost_cny, 0)
-              .toFixed(4)}
+            {t("comp.supervision.iterTotalCost", { n: first.iterations_count, cost: totalCost.toFixed(4) })}
           </Typography.Text>
         </Space>
       }
@@ -254,7 +246,7 @@ export default function SupervisionReportCard({ edictId, memorialId }: Props) {
         items={reports.map((r) => ({
           key: r.persona_id,
           label: r.persona_name,
-          children: <ReportContent report={r} />,
+          children: <ReportContent report={r} t={t} />,
         }))}
       />
     </Card>

@@ -1,6 +1,7 @@
 import { Card, Checkbox, Select, Space, Tooltip, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { listCredentials } from "../../api/credentials";
+import { useT } from "../../i18n";
 
 const { Text } = Typography;
 
@@ -15,6 +16,7 @@ type Props = {
 };
 
 export default function NetworkCapabilitySection(props: Props) {
+  const t = useT();
   const [allowWrite, setAllowWrite] = useState(
     props.apiRequestWriteHosts.length > 0,
   );
@@ -32,24 +34,18 @@ export default function NetworkCapabilitySection(props: Props) {
   ).map((h) => ({ value: h, label: h }));
 
   return (
-    <Card size="small" title="网络能力" style={{ marginTop: 16 }}>
+    <Card size="small" title={t("comp.network.title")} style={{ marginTop: 16 }}>
       <Space direction="vertical" style={{ width: "100%" }}>
-        <Tooltip
-          title={
-            disabled
-              ? '需要切换到 "trusted-automation" profile 才能启用 api_request'
-              : ""
-          }
-        >
+        <Tooltip title={disabled ? t("comp.network.tooltipDisabled") : ""}>
           <div>
-            <Text strong>允许调用的 API host</Text>
+            <Text strong>{t("comp.network.allowedHosts")}</Text>
             <div style={{ color: "#999", fontSize: 12, marginBottom: 4 }}>
-              api_request 工具仅允许访问这些 host
+              {t("comp.network.allowedHostsDesc")}
             </div>
             <Select
               mode="tags"
               style={{ width: "100%" }}
-              placeholder="从已有凭证选择或输入 host"
+              placeholder={t("comp.network.hostPlaceholder")}
               options={hostOptions}
               value={props.apiRequestHosts}
               onChange={(hosts: string[]) =>
@@ -69,16 +65,16 @@ export default function NetworkCapabilitySection(props: Props) {
             if (!v) props.onChange({ api_request_write_hosts: [] });
           }}
         >
-          允许写方法 (POST/PUT/DELETE/PATCH) — 需要审批
+          {t("comp.network.allowWrite")}
         </Checkbox>
 
         {allowWrite && !disabled && (
           <div>
-            <Text strong>允许写入的 host（必须是上面列表的子集）</Text>
+            <Text strong>{t("comp.network.writeHosts")}</Text>
             <Select
               mode="multiple"
               style={{ width: "100%", marginTop: 4 }}
-              placeholder="从上面的 host 中选择"
+              placeholder={t("comp.network.writeHostPlaceholder")}
               options={props.apiRequestHosts.map((h) => ({
                 value: h,
                 label: h,

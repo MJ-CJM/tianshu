@@ -13,6 +13,7 @@ import { useMemo, useState } from "react";
 import { Alert, Collapse, Form, InputNumber, Radio, Select, Switch, Typography } from "antd";
 import { usePersonas } from "../../hooks/usePersonas";
 import type { AcceptanceCriteria, EdictRuntime } from "../../api/types";
+import { useT } from "../../i18n";
 
 export interface FollowUpOverrideValue {
   runtime_override?: Partial<EdictRuntime>;
@@ -20,22 +21,12 @@ export interface FollowUpOverrideValue {
 }
 
 interface Props {
-  /** 受控值；父组件读这两个字段塞进 followUpEdict body */
   onChange: (v: FollowUpOverrideValue) => void;
-  /** 当前敕令的执行官 ID — 用于判断是否与所选监督官重合 */
   assignedPersonaId?: string | null;
 }
 
-const DEPT_LABEL: Record<string, string> = {
-  ducha: "都察院",
-  neige: "内阁",
-  bingbu: "兵部",
-  hubu: "户部",
-  wenyuan: "文渊阁",
-  tongzheng: "通政司",
-};
-
 export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: Props) {
+  const t = useT();
   const [form] = Form.useForm();
   const [longTaskEnabled, setLongTaskEnabled] = useState(false);
   const { data: personas } = usePersonas();
@@ -44,9 +35,9 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
     () =>
       (personas ?? []).map((p) => ({
         value: p.id,
-        label: `${p.name} · ${DEPT_LABEL[p.department] ?? p.department}`,
+        label: `${p.name} · ${t(`dept.${p.department}`)}`,
       })),
-    [personas],
+    [personas, t],
   );
 
   const handleValuesChange = (
@@ -69,7 +60,7 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
       style={{ marginTop: 12 }}
     >
       <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-        留空 = 沿用本敕令配置；填写即本次覆盖（不影响后续继续批示）。
+        {t("comp.followUp.hint")}
       </Typography.Text>
 
       <Collapse
@@ -78,30 +69,30 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
         items={[
           {
             key: "advanced",
-            label: "高级选项（本次覆盖）",
+            label: t("comp.followUp.advanced"),
             children: (
               <>
-                <Form.Item name="timeout_seconds" label="超时时间 (秒)">
-                  <InputNumber min={10} max={3600} style={{ width: "100%" }} placeholder="留空沿用" />
+                <Form.Item name="timeout_seconds" label={t("comp.followUp.timeoutLabel")}>
+                  <InputNumber min={10} max={3600} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
                 </Form.Item>
-                <Form.Item name="max_iterations" label="最大迭代次数">
-                  <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder="留空沿用" />
+                <Form.Item name="max_iterations" label={t("comp.followUp.maxIterLabel")}>
+                  <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
                 </Form.Item>
-                <Form.Item name="token_budget" label="Token 预算">
-                  <InputNumber min={1} style={{ width: "100%" }} placeholder="留空沿用" />
+                <Form.Item name="token_budget" label={t("comp.followUp.tokenBudgetLabel")}>
+                  <InputNumber min={1} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
                 </Form.Item>
-                <Form.Item name="cost_budget_cny" label="费用预算 (CNY)">
-                  <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder="留空沿用" />
+                <Form.Item name="cost_budget_cny" label={t("comp.followUp.costBudgetLabel")}>
+                  <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
                 </Form.Item>
-                <Form.Item name="review_policy" label="审核策略">
+                <Form.Item name="review_policy" label={t("comp.followUp.reviewPolicyLabel")}>
                   <Select
                     allowClear
-                    placeholder="留空沿用"
+                    placeholder={t("comp.followUp.placeholderInherit")}
                     options={[
-                      { value: "always", label: "始终人工复核" },
-                      { value: "on_flag", label: "审计标记时人工复核" },
-                      { value: "on_failure", label: "失败时人工复核" },
-                      { value: "never", label: "跳过人工复核" },
+                      { value: "always", label: t("reviewPolicy.always") },
+                      { value: "on_flag", label: t("reviewPolicy.on_flag") },
+                      { value: "on_failure", label: t("reviewPolicy.on_failure") },
+                      { value: "never", label: t("reviewPolicy.never") },
                     ]}
                   />
                 </Form.Item>
@@ -110,15 +101,15 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
           },
           {
             key: "long-task",
-            label: "长任务模式 (本次覆盖)",
+            label: t("comp.followUp.longTask"),
             children: (
               <>
-                <Form.Item label="本次启用长任务模式" tooltip="启用后本次 follow-up 走 actor → checks → critic 多轮路径">
+                <Form.Item label={t("comp.followUp.longTaskEnableLabel")} tooltip={t("comp.followUp.longTaskEnableTooltip")}>
                   <Switch
                     checked={longTaskEnabled}
                     onChange={handleLongTaskToggle}
-                    checkedChildren="启用"
-                    unCheckedChildren="关闭"
+                    checkedChildren={t("common2.enabled")}
+                    unCheckedChildren={t("common2.disabled")}
                   />
                 </Form.Item>
 
@@ -126,15 +117,15 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
                   <>
                     <Form.Item
                       name="critic_persona_ids"
-                      label="监督官 (可多选)"
-                      rules={[{ required: true, type: "array", min: 1, message: "至少选一位监督官" }]}
+                      label={t("comp.followUp.criticLabel")}
+                      rules={[{ required: true, type: "array", min: 1, message: t("comp.followUp.criticRequired") }]}
                     >
                       <Select
                         mode="multiple"
                         options={criticOptions}
                         showSearch
                         optionFilterProp="label"
-                        placeholder="选择监督官"
+                        placeholder={t("comp.followUp.criticPlaceholder")}
                       />
                     </Form.Item>
 
@@ -151,38 +142,38 @@ export default function FollowUpOverridePanel({ onChange, assignedPersonaId }: P
                             type="warning"
                             showIcon
                             style={{ marginBottom: 16 }}
-                            message="执行官与监督官重合"
-                            description={`本敕令的执行官（${assignedPersonaId}）也被选为监督官，自我审议会显著降低 critic 客观性，建议改选都察院 / 文渊阁等独立 persona。`}
+                            message={t("comp.followUp.criticOverlapTitle")}
+                            description={t("comp.followUp.criticOverlapDesc", { id: assignedPersonaId })}
                           />
                         );
                       }}
                     </Form.Item>
-                    <Form.Item name="critic_strictness" label="Critic 严苛度" initialValue="lenient">
+                    <Form.Item name="critic_strictness" label={t("comp.followUp.strictnessLabel")} initialValue="lenient">
                       <Radio.Group>
-                        <Radio value="lenient">宽松</Radio>
-                        <Radio value="balanced">高标准</Radio>
-                        <Radio value="strict">严苛</Radio>
+                        <Radio value="lenient">{t("strictness.lenient")}</Radio>
+                        <Radio value="balanced">{t("strictness.balanced")}</Radio>
+                        <Radio value="strict">{t("strictness.strict")}</Radio>
                       </Radio.Group>
                     </Form.Item>
                     <Form.Item
                       name="max_outer_iterations"
-                      label="最多迭代轮数"
+                      label={t("comp.followUp.maxOuterLabel")}
                       initialValue={5}
                     >
                       <InputNumber min={1} max={50} style={{ width: "100%" }} />
                     </Form.Item>
                     <Form.Item
                       name="min_outer_iterations"
-                      label="最少迭代轮数 (持续优化)"
-                      tooltip="≥2 时即使 critic 第一轮 PASS 也强制继续"
+                      label={t("comp.followUp.minOuterLabel")}
+                      tooltip={t("comp.followUp.minOuterTooltip")}
                     >
-                      <InputNumber min={1} max={20} style={{ width: "100%" }} placeholder="默认 1" />
+                      <InputNumber min={1} max={20} style={{ width: "100%" }} placeholder={t("comp.followUp.placeholderInherit")} />
                     </Form.Item>
-                    <Form.Item name="on_exhaustion" label="耗尽时" initialValue="escalate">
+                    <Form.Item name="on_exhaustion" label={t("comp.followUp.exhaustionLabel")} initialValue="escalate">
                       <Radio.Group>
-                        <Radio value="escalate">上报人工</Radio>
-                        <Radio value="best_effort">取最近一轮</Radio>
-                        <Radio value="fail">失败</Radio>
+                        <Radio value="escalate">{t("exhaustion.shortEscalate")}</Radio>
+                        <Radio value="best_effort">{t("exhaustion.shortBestEffort")}</Radio>
+                        <Radio value="fail">{t("exhaustion.shortFail")}</Radio>
                       </Radio.Group>
                     </Form.Item>
                   </>

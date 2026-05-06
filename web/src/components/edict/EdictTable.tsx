@@ -8,6 +8,7 @@ import { updateEdict } from "../../api/edicts";
 import MonoText from "../common/MonoText";
 import { truncateId, formatTime } from "../../utils/format";
 import { EDICT_STATUS_LABELS, EDICT_STATUS_COLORS, PRIORITY_LABELS, PRIORITY_COLORS } from "../../utils/constants";
+import { useT } from "../../i18n";
 
 interface EdictTableProps {
   edicts: Edict[];
@@ -32,6 +33,7 @@ export default function EdictTable({
   onBatchDelete,
   onRefresh,
 }: EdictTableProps) {
+  const t = useT();
   const navigate = useNavigate();
   const { token } = theme.useToken();
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -45,10 +47,10 @@ export default function EdictTable({
     setBatchDeleting(true);
     try {
       await onBatchDelete(selectedRowKeys as string[]);
-      message.success(`已删除 ${selectedRowKeys.length} 条敕令`);
+      message.success(t("comp.edictTable.toastBatchDeleted", { n: selectedRowKeys.length }));
       setSelectedRowKeys([]);
     } catch {
-      message.error("批量删除失败");
+      message.error(t("comp.edictTable.toastBatchDeleteFailed"));
     } finally {
       setBatchDeleting(false);
     }
@@ -60,9 +62,9 @@ export default function EdictTable({
     e.stopPropagation();
     try {
       await onDelete(edictId);
-      message.success("敕令已删除");
+      message.success(t("comp.edictTable.toastDeleted"));
     } catch {
-      message.error("删除失败");
+      message.error(t("comp.edictTable.toastDeleteFailed"));
     }
   };
 
@@ -73,10 +75,10 @@ export default function EdictTable({
     try {
       await updateEdict(edictId, { title: trimmed });
       setRenameId(null);
-      message.success("已重命名");
+      message.success(t("comp.edictTable.toastRenamed"));
       onRefresh?.();
     } catch {
-      message.error("重命名失败");
+      message.error(t("comp.edictTable.toastRenameFailed"));
     } finally {
       setRenameSaving(false);
     }
@@ -84,7 +86,7 @@ export default function EdictTable({
 
   const columns: ColumnsType<Edict> = [
     {
-      title: "敕令编号",
+      title: t("comp.edictTable.id"),
       dataIndex: "id",
       width: 120,
       render: (id: string) => (
@@ -94,14 +96,14 @@ export default function EdictTable({
       ),
     },
     {
-      title: "敕令标题",
+      title: t("comp.edictTable.title"),
       dataIndex: "title",
       ellipsis: true,
       render: (_: string, record: Edict) =>
         record.title || record.goal.slice(0, 20) + (record.goal.length > 20 ? "…" : ""),
     },
     {
-      title: "状态",
+      title: t("comp.edictTable.status"),
       dataIndex: "status",
       width: 100,
       render: (status: EdictStatus) => (
@@ -111,7 +113,7 @@ export default function EdictTable({
       ),
     },
     {
-      title: "优先级",
+      title: t("comp.edictTable.priority"),
       dataIndex: "priority",
       width: 80,
       render: (priority: string) => (
@@ -121,7 +123,7 @@ export default function EdictTable({
       ),
     },
     {
-      title: "颁发时间",
+      title: t("comp.edictTable.createdAt"),
       dataIndex: "created_at",
       width: 180,
       render: (v: string) => (
@@ -129,7 +131,7 @@ export default function EdictTable({
       ),
     },
     {
-      title: "操作",
+      title: t("comp.edictTable.actions"),
       width: 120,
       render: (_, record) => {
         const canEdit = record.status === "open";
@@ -164,7 +166,7 @@ export default function EdictTable({
                       loading={renameSaving}
                       onClick={() => handleRename(record.id)}
                     >
-                      确定
+                      {t("action.ok")}
                     </Button>
                   </div>
                 }
@@ -178,12 +180,12 @@ export default function EdictTable({
             )}
             {canDelete && (
               <Popconfirm
-                title="确认删除？"
-                description="删除后关联的奏折和事件将一并清除"
+                title={t("comp.edictTable.deleteConfirm")}
+                description={t("comp.edictTable.deleteDesc")}
                 onConfirm={(e) => handleDelete(e as unknown as React.MouseEvent, record.id)}
                 onCancel={(e) => e?.stopPropagation()}
-                okText="确认"
-                cancelText="取消"
+                okText={t("common.confirm")}
+                cancelText={t("common.cancel")}
                 onPopupClick={(e) => e.stopPropagation()}
               >
                 <Button
@@ -205,14 +207,14 @@ export default function EdictTable({
       {selectedRowKeys.length > 0 && (
         <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>
-            已选 {selectedRowKeys.length} 项
+            {t("comp.edictTable.selected", { n: selectedRowKeys.length })}
           </span>
           <Popconfirm
-            title={`确认删除选中的 ${selectedRowKeys.length} 条敕令？`}
-            description="删除后关联的奏折和事件将一并清除"
+            title={t("comp.edictTable.batchDeleteConfirm", { n: selectedRowKeys.length })}
+            description={t("comp.edictTable.deleteDesc")}
             onConfirm={handleBatchDelete}
-            okText="确认"
-            cancelText="取消"
+            okText={t("common.confirm")}
+            cancelText={t("common.cancel")}
           >
             <Button
               danger
@@ -220,11 +222,11 @@ export default function EdictTable({
               icon={<DeleteOutlined />}
               loading={batchDeleting}
             >
-              批量删除
+              {t("comp.edictTable.batchDelete")}
             </Button>
           </Popconfirm>
           <Button size="small" onClick={() => setSelectedRowKeys([])}>
-            取消选择
+            {t("comp.edictTable.clearSelection")}
           </Button>
         </div>
       )}

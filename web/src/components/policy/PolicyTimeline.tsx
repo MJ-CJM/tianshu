@@ -12,6 +12,7 @@ import {
 } from "antd";
 import { fetchPolicyEvents } from "../../api/policy";
 import type { PolicyEvent } from "../../api/policy";
+import { useT } from "../../i18n";
 
 const { Text } = Typography;
 
@@ -29,14 +30,6 @@ function verdictColor(verdict: string): string {
 }
 
 type FilterKey = "all" | "policy" | "approval" | "decree" | "hook";
-
-const FILTER_OPTIONS: { value: FilterKey; label: string }[] = [
-  { value: "all", label: "全部事件" },
-  { value: "policy", label: "策略决策 (policy.*)" },
-  { value: "approval", label: "工具审批 (tool.approval_required)" },
-  { value: "decree", label: "决策令 (decree.*)" },
-  { value: "hook", label: "Hook 事件 (hook.*)" },
-];
 
 function matchFilter(eventType: string, filter: FilterKey): boolean {
   if (filter === "all") return true;
@@ -58,6 +51,14 @@ export function PolicyTimeline({
   refreshKey,
   defaultOpen = true,
 }: Props) {
+  const t = useT();
+  const filterOptions: { value: FilterKey; label: string }[] = [
+    { value: "all", label: t("comp.policyTimeline.filterAll") },
+    { value: "policy", label: t("comp.policyTimeline.filterPolicy") },
+    { value: "approval", label: t("comp.policyTimeline.filterApproval") },
+    { value: "decree", label: t("comp.policyTimeline.filterDecree") },
+    { value: "hook", label: t("comp.policyTimeline.filterHook") },
+  ];
   const [events, setEvents] = useState<PolicyEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -107,7 +108,7 @@ export function PolicyTimeline({
         size="small"
         value={filter}
         onChange={(v) => setFilter(v as FilterKey)}
-        options={FILTER_OPTIONS}
+        options={filterOptions}
         style={{ width: 220 }}
       />
     </Space>
@@ -171,7 +172,7 @@ export function PolicyTimeline({
     </div>
   ) : filteredEvents.length === 0 ? (
     <Empty
-      description={events.length === 0 ? "暂无策略事件" : "当前筛选下无事件"}
+      description={events.length === 0 ? t("comp.policyTimeline.emptyAll") : t("comp.policyTimeline.emptyFiltered")}
     />
   ) : (
     <Timeline mode="left" items={items} />
@@ -187,7 +188,7 @@ export function PolicyTimeline({
           key: "policy",
           label: (
             <Space>
-              <span>Policy Timeline</span>
+              <span>{t("comp.policyTimeline.title")}</span>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 ({events.length})
               </Text>
