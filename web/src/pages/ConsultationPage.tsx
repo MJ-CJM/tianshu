@@ -7,8 +7,10 @@ import GlowCard from "../components/common/GlowCard";
 import { useConsultation, useCreateConsultation } from "../hooks/useConsultation";
 import { usePersonas } from "../hooks/usePersonas";
 import type { ConsultationRequest, PersonaOpinion } from "../api/types";
+import { useT } from "../i18n";
 
 export default function ConsultationPage() {
+  const t = useT();
   const { token } = theme.useToken();
   const [topic, setTopic] = useState("");
   const [context, setContext] = useState("");
@@ -44,43 +46,43 @@ export default function ConsultationPage() {
   }));
 
   return (
-    <PageContainer title="廷议">
+    <PageContainer title={t("consultation.title")}>
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
         {/* Submit form */}
-        <GlowCard title="发起廷议">
+        <GlowCard title={t("consultation.submit")}>
           <Space direction="vertical" size="middle" style={{ width: "100%" }}>
             <div>
               <Typography.Text style={{ fontSize: 13, color: token.colorTextSecondary }}>
-                议题 *
+                {t("consultation.topic")} *
               </Typography.Text>
               <Input.TextArea
                 rows={2}
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="请输入廷议议题"
+                placeholder={t("consultation.topicPlaceholder")}
                 style={{ marginTop: 4 }}
               />
             </div>
             <div>
               <Typography.Text style={{ fontSize: 13, color: token.colorTextSecondary }}>
-                背景（选填）
+                {t("consultation.context")}
               </Typography.Text>
               <Input.TextArea
                 rows={2}
                 value={context}
                 onChange={(e) => setContext(e.target.value)}
-                placeholder="提供额外上下文信息"
+                placeholder={t("consultation.contextPlaceholder")}
                 style={{ marginTop: 4 }}
               />
             </div>
             <div>
               <Typography.Text style={{ fontSize: 13, color: token.colorTextSecondary }}>
-                参与百官 *
+                {t("consultation.participants")} *
               </Typography.Text>
               <Select
                 mode="multiple"
                 style={{ width: "100%", marginTop: 4 }}
-                placeholder="选择参与廷议的百官"
+                placeholder={t("consultation.participantsPlaceholder")}
                 value={selectedPersonas}
                 onChange={setSelectedPersonas}
                 options={personaOptions}
@@ -92,7 +94,7 @@ export default function ConsultationPage() {
               onClick={handleSubmit}
               disabled={!topic.trim() || selectedPersonas.length === 0}
             >
-              发起廷议
+              {t("consultation.submit")}
             </Button>
           </Space>
         </GlowCard>
@@ -100,7 +102,7 @@ export default function ConsultationPage() {
         {/* History navigation */}
         {history.length > 1 && (
           <Space wrap>
-            <Typography.Text type="secondary">历史：</Typography.Text>
+            <Typography.Text type="secondary">{t("consultation.history")}</Typography.Text>
             {history.map((id, i) => (
               <Tag
                 key={id}
@@ -108,7 +110,7 @@ export default function ConsultationPage() {
                 style={{ cursor: "pointer" }}
                 onClick={() => setActiveId(id)}
               >
-                廷议 #{i + 1}
+                {t("consultation.round", { n: i + 1 })}
               </Tag>
             ))}
           </Space>
@@ -128,7 +130,7 @@ export default function ConsultationPage() {
                 <div style={{ textAlign: "center", padding: 24 }}>
                   <Spin />
                   <Typography.Text style={{ display: "block", marginTop: 12 }}>
-                    廷议准备中...
+                    {t("consultation.preparing")}
                   </Typography.Text>
                 </div>
               </GlowCard>
@@ -139,14 +141,14 @@ export default function ConsultationPage() {
                 <div style={{ textAlign: "center", padding: 24 }}>
                   <Spin />
                   <Typography.Text style={{ display: "block", marginTop: 12 }}>
-                    廷议进行中...
+                    {t("consultation.running")}
                   </Typography.Text>
                 </div>
               </GlowCard>
             )}
 
             {consultation?.status === "failed" && (
-              <Result status="error" title="廷议失败" subTitle="请稍后重试" />
+              <Result status="error" title={t("consultation.failedTitle")} subTitle={t("consultation.failedSubtitle")} />
             )}
 
             {consultation?.status === "completed" && (
@@ -190,7 +192,7 @@ export default function ConsultationPage() {
 
                 {/* Synthesis */}
                 {consultation.synthesis && (
-                  <GlowCard title="综合意见">
+                  <GlowCard title={t("consultation.synthesisTitle")}>
                     <div
                       className="memorial-markdown"
                       style={{
@@ -210,7 +212,7 @@ export default function ConsultationPage() {
                 {/* Decision */}
                 {consultation.decision && (
                   <GlowCard
-                    title="决策"
+                    title={t("consultation.decisionTitle")}
                     style={{
                       borderLeft: `3px solid ${token.colorSuccess}`,
                     }}

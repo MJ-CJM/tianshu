@@ -639,6 +639,185 @@
     "zh-modern": "Modern",
     "en": "English"
   },
+  "cabinet": {
+    "title": "Planner",
+    "overview": "Planner overview",
+    "noPersonas": "No planner personas found",
+    "globalDefault": "Global default",
+    "thresholdHint": "Planner threshold: goal < 100 chars and no constraints/output format → skip planning (passthrough)",
+    "stats": "Planning stats",
+    "history": "Recent plans",
+    "stat": {
+      "total": "Total tasks",
+      "passthrough": "Passthrough (skip planning)",
+      "dag": "DAG generated",
+      "avgTasks": "Avg subtasks"
+    },
+    "table": {
+      "edict": "Task",
+      "planType": "Plan type",
+      "planner": "Planner",
+      "assigned": "Assigned",
+      "taskCount": "Subtasks",
+      "createdAt": "Created at"
+    },
+    "planType": {
+      "dag": "DAG plan",
+      "passthrough": "Passthrough"
+    },
+    "tag": {
+      "global": "Global",
+      "auto": "Auto"
+    },
+    "empty": "No planning records"
+  },
+  "consultation": {
+    "title": "Consultation",
+    "submit": "Start consultation",
+    "topic": "Topic",
+    "context": "Context (optional)",
+    "participants": "Participants",
+    "topicPlaceholder": "Enter the consultation topic",
+    "contextPlaceholder": "Provide additional context",
+    "participantsPlaceholder": "Select participants",
+    "history": "History:",
+    "round": "Consultation #{n}",
+    "preparing": "Preparing consultation...",
+    "running": "Consultation in progress...",
+    "failedTitle": "Consultation failed",
+    "failedSubtitle": "Please try again later",
+    "synthesisTitle": "Synthesis",
+    "decisionTitle": "Decision"
+  },
+  "hongluisi": {
+    "title": "Network Center",
+    "section": {
+      "tools": "Tool status",
+      "preferences": "Engine preferences (system default)",
+      "credentials": "Credentials",
+      "recent": "Recent access"
+    },
+    "tool": {
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "apiRequestCredentialTooltip": "Each call looks up the corresponding token by URL host from task credentials and injects Authorization dynamically; does not depend on a global provider key. Configure path: System → Credentials → Task credentials",
+      "apiRequestCredentialTag": "Credentials: System (Task-level)",
+      "keyPrefix": "Key:"
+    },
+    "toolsHint1": "Enabled status depends on profile + env keys + master key (",
+    "toolsHint2": " controls api_request; ",
+    "toolsHint3": " controls web_extract).",
+    "preferences": {
+      "save": "Save",
+      "intro": "Overrides the engine selection from profile preset; overrides at task creation take highest precedence. Empty = inherit profile default. Changes take effect immediately, no restart needed.",
+      "fetchChainLabel": "web_fetch engine chain (tries in order, first OK is returned)",
+      "fetchChainPlaceholder": "Empty = inherit profile (e.g. DEFAULT=local+jina)",
+      "fallbackLabel": "fallback_mode (whether to switch to next engine on failure/empty)",
+      "fallbackProfile": "Inherit profile",
+      "fallbackOnErrorOrEmpty": "Switch on error/empty",
+      "fallbackNone": "Use first engine only",
+      "searchLabel": "web_search provider"
+    },
+    "credentials": {
+      "goto": "Go to System",
+      "desc1": "External API credentials (GitHub / Notion / ...) are managed by",
+      "desc2": " System · External Credentials ",
+      "desc3": "with encryption (Fernet symmetric, master key from env). LLM never sees the credential value; Authorization header is auto-injected by host match.",
+      "viewAll": "View all"
+    },
+    "recent": {
+      "viewAll": "View all",
+      "empty": "No network tool call records yet"
+    },
+    "table": {
+      "time": "Time",
+      "tool": "Tool",
+      "host": "Host",
+      "method": "Method",
+      "status": "Status",
+      "credential": "Credential"
+    },
+    "toast": {
+      "saved": "Saved, takes effect immediately",
+      "saveFailed": "Save failed"
+    }
+  },
+  "tongzheng": {
+    "title": "Notify Center",
+    "section": {
+      "bot": "Feishu Bot",
+      "assistant": "Feishu Assistant"
+    },
+    "status": {
+      "running": "Running ({mode})",
+      "off": "Off",
+      "fromEnv": "From env (will switch to DB after save)",
+      "fromDb": "From DB"
+    },
+    "alert": {
+      "tipTitle": "Tips",
+      "tip1Prefix": "Saving config requires the env variable ",
+      "tip1Suffix": " (generated with cryptography.fernet) first",
+      "tip2Prefix": "Modify ",
+      "tip2Suffix": " then save to write to DB; saving empty = no change",
+      "tip3": "Auto hot-reload after save, no restart needed",
+      "tip4Prefix": "Enable \"bot\", \"event subscription\", \"card callback\" capabilities in the Feishu developer console first; see ",
+      "tip4Suffix": "",
+      "assistantTitle": "Assistant is the command routing + natural language conversation layer on Feishu",
+      "assistant1": "Pick a cabinet persona to act as the Feishu assistant, using its name + emoji as the reply persona",
+      "assistant2": "Non-command messages enter chat tasks by default for multi-turn conversation with the persona"
+    },
+    "field": {
+      "appId": "App ID",
+      "appSecret": "App Secret",
+      "appSecretConfigured": " (configured)",
+      "appSecretMissing": " (not configured)",
+      "appSecretExtra": "Empty = no change; new value = replace; empty string = clear",
+      "domain": "Domain",
+      "connectionMode": "Connection mode",
+      "webhookPath": "Webhook path",
+      "allowedUsers": "Allowlist",
+      "allowedUsersExtra": "Comma-separated open_ids; empty = allow anyone (same as hermes). Recommend setting in production to avoid accidental exposure.",
+      "homeChannel": "Home channel (optional)",
+      "homeChannelExtra": "Fallback chat_id for cron-triggered results and source-less task approvals",
+      "botOpenId": "Bot Open ID (group @ detection)",
+      "encryptKey": "Encrypt key (Webhook mode)",
+      "verificationToken": "Verification token (Webhook mode)",
+      "wsReconnect": "WS reconnect interval (seconds)",
+      "textBatchDelay": "Text batch silence (seconds)",
+      "dedupCacheSize": "Dedup cache size",
+      "assistantPersona": "Assistant Persona",
+      "assistantPersonaExtra": "Assistant uses this persona's voice for replies; does not affect this persona's regular tasks",
+      "enableEdict": "Allow assistant to submit tasks",
+      "enableEdictExtra": "When enabled, the assistant can call the submit_edict tool to create tasks (same path as cli `tianshu edict submit`). When disabled, it only replies."
+    },
+    "placeholder": {
+      "appSecretConfigured": "Stored, empty = no change",
+      "appSecretMissing": "secret_xxx",
+      "allowedUsers": "Empty = any; or ou_a,ou_b to restrict",
+      "homeChannel": "oc_xxxxxxxxx",
+      "botOpenId": "ou_bot_xxx",
+      "encryptKey": "Optional",
+      "verificationToken": "Optional",
+      "assistantPersona": "Select a persona"
+    },
+    "option": {
+      "domainFeishu": "feishu (China)",
+      "domainLark": "lark (International)",
+      "modeWebsocket": "WebSocket (recommended, no public IP needed)",
+      "modeWebhook": "Webhook (HTTP callback)"
+    },
+    "action": {
+      "save": "Save & hot reload",
+      "reset": "Reset"
+    },
+    "toast": {
+      "saved": "Saved",
+      "savedReloaded": "Config saved and hot-reloaded",
+      "savedNoReload": "Config saved ({reason})",
+      "saveFailed": "Save failed"
+    }
+  },
   "cost": {
     "title": "Cost Center",
     "period": {

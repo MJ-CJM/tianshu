@@ -24,8 +24,10 @@ import {
   listPersonas,
   type FeishuChannelConfig,
 } from "../api/tongzheng";
+import { useT } from "../i18n";
 
 export default function TongzhengPage() {
+  const t = useT();
   const qc = useQueryClient();
   const [form] = Form.useForm<FeishuChannelConfig>();
   const [secretChanged, setSecretChanged] = useState(false);
@@ -67,10 +69,10 @@ export default function TongzhengPage() {
     },
     onSuccess: (result) => {
       notification.success({
-        message: "已保存",
+        message: t("tongzheng.toast.saved"),
         description: result.reloaded
-          ? "配置已保存并热加载完成"
-          : `配置已保存（${result.reason}）`,
+          ? t("tongzheng.toast.savedReloaded")
+          : t("tongzheng.toast.savedNoReload", { reason: result.reason ?? "" }),
         duration: 5,
       });
       qc.invalidateQueries({ queryKey: ["tongzheng"] });
@@ -78,7 +80,7 @@ export default function TongzhengPage() {
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
       notification.error({
-        message: "保存失败",
+        message: t("tongzheng.toast.saveFailed"),
         description: e?.response?.data?.detail ?? e?.message ?? String(err),
       });
     },
@@ -89,7 +91,7 @@ export default function TongzhengPage() {
   };
 
   return (
-    <PageContainer title="通政司">
+    <PageContainer title={t("tongzheng.title")}>
       <Form
         form={form}
         layout="vertical"
@@ -109,16 +111,16 @@ export default function TongzhengPage() {
         <Card
           title={
             <Space>
-              <span>飞书机器人</span>
+              <span>{t("tongzheng.section.bot")}</span>
               {status?.running ? (
-                <Tag color="green">运行中（{status.mode}）</Tag>
+                <Tag color="green">{t("tongzheng.status.running", { mode: status.mode ?? "" })}</Tag>
               ) : (
-                <Tag>未启用</Tag>
+                <Tag>{t("tongzheng.status.off")}</Tag>
               )}
               {channel?._source === "env" && (
-                <Tag color="orange">来自环境变量（保存后切换为 DB）</Tag>
+                <Tag color="orange">{t("tongzheng.status.fromEnv")}</Tag>
               )}
-              {channel?._source === "db" && <Tag color="blue">来自 DB</Tag>}
+              {channel?._source === "db" && <Tag color="blue">{t("tongzheng.status.fromDb")}</Tag>}
             </Space>
           }
           loading={isLoading}
@@ -126,20 +128,18 @@ export default function TongzhengPage() {
           <Alert
             type="info"
             showIcon
-            message="提示"
+            message={t("tongzheng.alert.tipTitle")}
             description={
               <ul style={{ margin: 0, paddingLeft: 20 }}>
                 <li>
-                  保存配置需要先设置环境变量 <code>TIANSHU_SECRET_MASTER_KEY</code>
-                  （用 cryptography.fernet 生成）
+                  {t("tongzheng.alert.tip1Prefix")}<code>TIANSHU_SECRET_MASTER_KEY</code>{t("tongzheng.alert.tip1Suffix")}
                 </li>
                 <li>
-                  修改 <code>app_secret</code> 后保存才会写入 DB；空着保存 = 不修改
+                  {t("tongzheng.alert.tip2Prefix")}<code>app_secret</code>{t("tongzheng.alert.tip2Suffix")}
                 </li>
-                <li>保存后自动热加载，无需重启服务</li>
+                <li>{t("tongzheng.alert.tip3")}</li>
                 <li>
-                  需先在飞书开发者后台开启「机器人」「事件订阅」「卡片回调」等能力，详见{" "}
-                  <code>docs/ops/feishu-setup.md</code>
+                  {t("tongzheng.alert.tip4Prefix")}<code>docs/ops/feishu-setup.md</code>{t("tongzheng.alert.tip4Suffix")}
                 </li>
               </ul>
             }
@@ -148,7 +148,7 @@ export default function TongzhengPage() {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                label="App ID"
+                label={t("tongzheng.field.appId")}
                 name="app_id"
                 rules={[{ required: true }]}
               >
@@ -157,15 +157,15 @@ export default function TongzhengPage() {
             </Col>
             <Col span={12}>
               <Form.Item
-                label={`App Secret ${channel?._has_secret ? "（已配置）" : "（未配置）"}`}
+                label={`${t("tongzheng.field.appSecret")} ${channel?._has_secret ? t("tongzheng.field.appSecretConfigured") : t("tongzheng.field.appSecretMissing")}`}
                 name="app_secret"
-                extra="留空 = 不修改；填新值 = 替换；空字符串 = 清空"
+                extra={t("tongzheng.field.appSecretExtra")}
               >
                 <Input.Password
                   placeholder={
                     channel?._has_secret
-                      ? "已存储，留空不修改"
-                      : "secret_xxx"
+                      ? t("tongzheng.placeholder.appSecretConfigured")
+                      : t("tongzheng.placeholder.appSecretMissing")
                   }
                   onChange={() => setSecretChanged(true)}
                 />
@@ -175,75 +175,75 @@ export default function TongzhengPage() {
 
           <Row gutter={16}>
             <Col span={8}>
-              <Form.Item label="域" name="domain">
+              <Form.Item label={t("tongzheng.field.domain")} name="domain">
                 <Select
                   options={[
-                    { value: "feishu", label: "feishu (China)" },
-                    { value: "lark", label: "lark (国际)" },
+                    { value: "feishu", label: t("tongzheng.option.domainFeishu") },
+                    { value: "lark", label: t("tongzheng.option.domainLark") },
                   ]}
                 />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item label="连接模式" name="connection_mode">
+              <Form.Item label={t("tongzheng.field.connectionMode")} name="connection_mode">
                 <Select
                   options={[
                     {
                       value: "websocket",
-                      label: "WebSocket（推荐，无需公网）",
+                      label: t("tongzheng.option.modeWebsocket"),
                     },
-                    { value: "webhook", label: "Webhook（HTTP 回调）" },
+                    { value: "webhook", label: t("tongzheng.option.modeWebhook") },
                   ]}
                 />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item label="Webhook 路径" name="webhook_path">
+              <Form.Item label={t("tongzheng.field.webhookPath")} name="webhook_path">
                 <Input placeholder="/feishu/webhook" />
               </Form.Item>
             </Col>
           </Row>
 
           <Form.Item
-            label="允许用户（Allowlist）"
+            label={t("tongzheng.field.allowedUsers")}
             name="allowed_users"
-            extra="逗号分隔的 open_id；留空 = 任何人都放行（与 hermes 一致）。生产环境建议填写以避免误开放。"
+            extra={t("tongzheng.field.allowedUsersExtra")}
           >
-            <Input placeholder="留空 = 放行任意；或填 ou_a,ou_b 限制" />
+            <Input placeholder={t("tongzheng.placeholder.allowedUsers")} />
           </Form.Item>
 
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                label="Home 频道（可选）"
+                label={t("tongzheng.field.homeChannel")}
                 name="home_channel"
-                extra="cron 触发结果与无源敕令审批的兜底 chat_id"
+                extra={t("tongzheng.field.homeChannelExtra")}
               >
-                <Input placeholder="oc_xxxxxxxxx" />
+                <Input placeholder={t("tongzheng.placeholder.homeChannel")} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
-                label="机器人 Open ID（群 @ 检测）"
+                label={t("tongzheng.field.botOpenId")}
                 name="bot_open_id"
               >
-                <Input placeholder="ou_bot_xxx" />
+                <Input placeholder={t("tongzheng.placeholder.botOpenId")} />
               </Form.Item>
             </Col>
           </Row>
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item label="加密密钥（Webhook 模式）" name="encrypt_key">
-                <Input.Password placeholder="可选" />
+              <Form.Item label={t("tongzheng.field.encryptKey")} name="encrypt_key">
+                <Input.Password placeholder={t("tongzheng.placeholder.encryptKey")} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
-                label="校验 Token（Webhook 模式）"
+                label={t("tongzheng.field.verificationToken")}
                 name="verification_token"
               >
-                <Input.Password placeholder="可选" />
+                <Input.Password placeholder={t("tongzheng.placeholder.verificationToken")} />
               </Form.Item>
             </Col>
           </Row>
@@ -251,7 +251,7 @@ export default function TongzhengPage() {
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item
-                label="WS 重连间隔（秒）"
+                label={t("tongzheng.field.wsReconnect")}
                 name="ws_reconnect_interval"
               >
                 <InputNumber min={30} max={600} style={{ width: "100%" }} />
@@ -259,7 +259,7 @@ export default function TongzhengPage() {
             </Col>
             <Col span={8}>
               <Form.Item
-                label="文本批处理静默期（秒）"
+                label={t("tongzheng.field.textBatchDelay")}
                 name="text_batch_delay"
               >
                 <InputNumber
@@ -271,7 +271,7 @@ export default function TongzhengPage() {
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item label="消息去重缓存大小" name="dedup_cache_size">
+              <Form.Item label={t("tongzheng.field.dedupCacheSize")} name="dedup_cache_size">
                 <InputNumber
                   min={128}
                   max={65536}
@@ -286,7 +286,7 @@ export default function TongzhengPage() {
         <Card
           title={
             <Space>
-              <span>飞书助手</span>
+              <span>{t("tongzheng.section.assistant")}</span>
             </Space>
           }
           style={{ marginTop: 16 }}
@@ -294,39 +294,35 @@ export default function TongzhengPage() {
           <Alert
             type="info"
             showIcon
-            message="助手是飞书侧的命令路由 + 自然语言对话层"
+            message={t("tongzheng.alert.assistantTitle")}
             description={
               <ul style={{ margin: 0, paddingLeft: 20 }}>
-                <li>
-                  选一个 cabinet persona 兼任飞书助手，借用其名字 + emoji 作为回信人格
-                </li>
-                <li>
-                  非命令消息默认进入 chat 敕令，与该 persona 进行多轮对话
-                </li>
+                <li>{t("tongzheng.alert.assistant1")}</li>
+                <li>{t("tongzheng.alert.assistant2")}</li>
               </ul>
             }
             style={{ marginBottom: 16 }}
           />
 
           <Form.Item
-            label="助手 Persona"
+            label={t("tongzheng.field.assistantPersona")}
             name="assistant_persona_id"
-            extra="助手用此 persona 的人格渲染回信；不影响该 persona 原本的敕令任务"
+            extra={t("tongzheng.field.assistantPersonaExtra")}
           >
             <Select
-              placeholder="选择一个 persona"
+              placeholder={t("tongzheng.placeholder.assistantPersona")}
               options={(personas ?? []).map((p) => ({
                 value: p.id,
-                label: `${p.name}（${p.department}）`,
+                label: `${p.name} (${p.department})`,
               }))}
             />
           </Form.Item>
 
           <Form.Item
-            label="允许助手下发敕令"
+            label={t("tongzheng.field.enableEdict")}
             name="enable_edict_submission"
             valuePropName="checked"
-            extra="开启后助手可在对话中调用 submit_edict 工具新建敕令（与 cli `tianshu edict submit` 同路径）。关闭则只回答不下发。"
+            extra={t("tongzheng.field.enableEdictExtra")}
           >
             <Switch />
           </Form.Item>
@@ -339,9 +335,9 @@ export default function TongzhengPage() {
                 icon={<ReloadOutlined />}
                 loading={saveMutation.isPending}
               >
-                保存并热加载
+                {t("tongzheng.action.save")}
               </Button>
-              <Button onClick={() => form.resetFields()}>重置</Button>
+              <Button onClick={() => form.resetFields()}>{t("tongzheng.action.reset")}</Button>
             </Space>
           </Form.Item>
         </Card>

@@ -639,6 +639,184 @@
     "zh-modern": "通用",
     "en": "English"
   },
+  "cabinet": {
+    "title": "规划中心",
+    "overview": "规划概览",
+    "noPersonas": "未找到规划角色",
+    "globalDefault": "全局默认",
+    "thresholdHint": "规划阈值：goal < 100 字 且无约束/输出格式 → 跳过规划（直通执行）",
+    "stats": "规划统计",
+    "history": "近期规划记录",
+    "stat": {
+      "total": "总任务数",
+      "passthrough": "直通（跳过规划）",
+      "dag": "DAG 生成",
+      "avgTasks": "均子任务数"
+    },
+    "table": {
+      "edict": "任务",
+      "planType": "规划结果",
+      "planner": "规划角色",
+      "assigned": "指派",
+      "taskCount": "子任务数",
+      "createdAt": "创建时间"
+    },
+    "planType": {
+      "dag": "DAG 规划",
+      "passthrough": "直通"
+    },
+    "tag": {
+      "global": "全局",
+      "auto": "自动"
+    },
+    "empty": "暂无规划记录"
+  },
+  "consultation": {
+    "title": "讨论",
+    "submit": "发起讨论",
+    "topic": "议题",
+    "context": "背景（选填）",
+    "participants": "参与角色",
+    "topicPlaceholder": "请输入议题",
+    "contextPlaceholder": "提供额外上下文信息",
+    "participantsPlaceholder": "选择参与讨论的角色",
+    "history": "历史：",
+    "round": "讨论 #{n}",
+    "preparing": "讨论准备中...",
+    "running": "讨论进行中...",
+    "failedTitle": "讨论失败",
+    "failedSubtitle": "请稍后重试",
+    "synthesisTitle": "综合意见",
+    "decisionTitle": "决策"
+  },
+  "hongluisi": {
+    "title": "网络中心",
+    "section": {
+      "tools": "工具状态",
+      "preferences": "引擎偏好（系统默认）",
+      "credentials": "凭证管理",
+      "recent": "最近访问"
+    },
+    "tool": {
+      "enabled": "已启用",
+      "disabled": "未启用",
+      "apiRequestCredentialTooltip": "每次调用按 URL host 从凭证库里查对应 token 动态注入 Authorization；不依赖全局 provider key。配置路径：系统 → 外部凭证 → 任务凭证",
+      "apiRequestCredentialTag": "凭证: 系统 (任务级)",
+      "keyPrefix": "Key:"
+    },
+    "toolsHint1": "启用情况取决于 profile + env keys + 主密钥（",
+    "toolsHint2": " 控制 api_request；",
+    "toolsHint3": " 控制 web_extract）。",
+    "preferences": {
+      "save": "保存",
+      "intro": "覆盖 profile 预设的引擎选择；任务创建时的 override 优先级最高。留空 = 沿用 profile 默认。改动立即生效，无需重启。",
+      "fetchChainLabel": "web_fetch 引擎链（按顺序尝试，第一个 ok 即返回）",
+      "fetchChainPlaceholder": "留空 = 沿用 profile（如 DEFAULT=local+jina）",
+      "fallbackLabel": "fallback_mode（引擎失败/空时是否切下一个）",
+      "fallbackProfile": "沿用 profile",
+      "fallbackOnErrorOrEmpty": "失败/空即切",
+      "fallbackNone": "只用首个引擎",
+      "searchLabel": "web_search provider"
+    },
+    "credentials": {
+      "goto": "前往系统",
+      "desc1": "外部 API 凭证（GitHub / Notion / ...）由",
+      "desc2": " 系统 · 外部凭证 ",
+      "desc3": "加密托管（Fernet 对称加密，主密钥来自 env）。LLM 全程不可见 credential value，只按 host 匹配自动注入 Authorization header。"
+    },
+    "recent": {
+      "viewAll": "查看全部",
+      "empty": "还没有网络工具调用记录"
+    },
+    "table": {
+      "time": "时间",
+      "tool": "工具",
+      "host": "Host",
+      "method": "方法",
+      "status": "状态",
+      "credential": "凭证"
+    },
+    "toast": {
+      "saved": "已保存，立即生效",
+      "saveFailed": "保存失败"
+    }
+  },
+  "tongzheng": {
+    "title": "通知中心",
+    "section": {
+      "bot": "飞书机器人",
+      "assistant": "飞书助手"
+    },
+    "status": {
+      "running": "运行中（{mode}）",
+      "off": "未启用",
+      "fromEnv": "来自环境变量（保存后切换为 DB）",
+      "fromDb": "来自 DB"
+    },
+    "alert": {
+      "tipTitle": "提示",
+      "tip1Prefix": "保存配置需要先设置环境变量 ",
+      "tip1Suffix": "（用 cryptography.fernet 生成）",
+      "tip2Prefix": "修改 ",
+      "tip2Suffix": " 后保存才会写入 DB；空着保存 = 不修改",
+      "tip3": "保存后自动热加载，无需重启服务",
+      "tip4Prefix": "需先在飞书开发者后台开启「机器人」「事件订阅」「卡片回调」等能力，详见 ",
+      "tip4Suffix": "",
+      "assistantTitle": "助手是飞书侧的命令路由 + 自然语言对话层",
+      "assistant1": "选一个规划角色兼任飞书助手，借用其名字 + emoji 作为回信人格",
+      "assistant2": "非命令消息默认进入 chat 任务，与该角色进行多轮对话"
+    },
+    "field": {
+      "appId": "App ID",
+      "appSecret": "App Secret",
+      "appSecretConfigured": "（已配置）",
+      "appSecretMissing": "（未配置）",
+      "appSecretExtra": "留空 = 不修改；填新值 = 替换；空字符串 = 清空",
+      "domain": "域",
+      "connectionMode": "连接模式",
+      "webhookPath": "Webhook 路径",
+      "allowedUsers": "允许用户（Allowlist）",
+      "allowedUsersExtra": "逗号分隔的 open_id；留空 = 任何人都放行（与 hermes 一致）。生产环境建议填写以避免误开放。",
+      "homeChannel": "Home 频道（可选）",
+      "homeChannelExtra": "cron 触发结果与无源任务审批的兜底 chat_id",
+      "botOpenId": "机器人 Open ID（群 @ 检测）",
+      "encryptKey": "加密密钥（Webhook 模式）",
+      "verificationToken": "校验 Token（Webhook 模式）",
+      "wsReconnect": "WS 重连间隔（秒）",
+      "textBatchDelay": "文本批处理静默期（秒）",
+      "dedupCacheSize": "消息去重缓存大小",
+      "assistantPersona": "助手 Persona",
+      "assistantPersonaExtra": "助手用此角色的人格渲染回信；不影响该角色原本的任务",
+      "enableEdict": "允许助手下发任务",
+      "enableEdictExtra": "开启后助手可在对话中调用 submit_edict 工具新建任务（与 cli `tianshu edict submit` 同路径）。关闭则只回答不下发。"
+    },
+    "placeholder": {
+      "appSecretConfigured": "已存储，留空不修改",
+      "appSecretMissing": "secret_xxx",
+      "allowedUsers": "留空 = 放行任意；或填 ou_a,ou_b 限制",
+      "homeChannel": "oc_xxxxxxxxx",
+      "botOpenId": "ou_bot_xxx",
+      "encryptKey": "可选",
+      "verificationToken": "可选",
+      "assistantPersona": "选择一个角色"
+    },
+    "option": {
+      "domainFeishu": "feishu (China)",
+      "domainLark": "lark (国际)",
+      "modeWebsocket": "WebSocket（推荐，无需公网）",
+      "modeWebhook": "Webhook（HTTP 回调）"
+    },
+    "action": {
+      "save": "保存并热加载",
+      "reset": "重置"
+    },
+    "toast": {
+      "saved": "已保存",
+      "savedReloaded": "配置已保存并热加载完成",
+      "savedNoReload": "配置已保存（{reason}）",
+      "saveFailed": "保存失败"
+    }
+  },
   "cost": {
     "title": "成本中心",
     "period": {

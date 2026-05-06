@@ -34,6 +34,7 @@ import {
 import type { ProviderSource } from "../api/hongluisi";
 import type { NetworkEventRow } from "../api/types";
 import { formatTime } from "../utils/format";
+import { useT } from "../i18n";
 
 const NETWORK_TOOL_NAMES = [
   "web_fetch",
@@ -57,6 +58,7 @@ const PROVIDERS_BY_TOOL: Record<string, string[]> = {
 };
 
 export default function HongluisiPage() {
+  const t = useT();
   const navigate = useNavigate();
   const { data: tools = [] } = useTools();
   // 权威数据：后端当前真正绑到的 provider key 来源（engine_provider CRUD 后 backend live rebuild）
@@ -91,12 +93,12 @@ export default function HongluisiPage() {
     mutationFn: updateEnginePreferences,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hongluisi", "engine-preferences"] });
-      notification.success({ message: "已保存，立即生效" });
+      notification.success({ message: t("hongluisi.toast.saved") });
     },
     onError: (e: unknown) => {
       const err = e as { response?: { data?: { detail?: string } }; message?: string };
       notification.error({
-        message: "保存失败",
+        message: t("hongluisi.toast.saveFailed"),
         description: String(err?.response?.data?.detail ?? err?.message ?? e),
       });
     },
@@ -147,15 +149,15 @@ export default function HongluisiPage() {
           <Card size="small">
             <Statistic
               title={name}
-              value={isOn ? "已启用" : "未启用"}
+              value={isOn ? t("hongluisi.tool.enabled") : t("hongluisi.tool.disabled")}
               valueStyle={{
                 color: isOn ? "#52c41a" : "#999",
                 fontSize: 18,
               }}
             />
-            <Tooltip title="每次调用按 URL host 从藏兵阁 Edict 凭证里查对应 token 动态注入 Authorization；不依赖全局 provider key。配置路径：藏兵阁 → 外部凭证 → Edict 凭证">
+            <Tooltip title={t("hongluisi.tool.apiRequestCredentialTooltip")}>
               <Tag color="purple" style={{ marginTop: 4 }}>
-                凭证: 藏兵阁 (Edict 级)
+                {t("hongluisi.tool.apiRequestCredentialTag")}
               </Tag>
             </Tooltip>
           </Card>
@@ -172,14 +174,14 @@ export default function HongluisiPage() {
         <Card size="small">
           <Statistic
             title={name}
-            value={isOn ? "已启用" : "未启用"}
+            value={isOn ? t("hongluisi.tool.enabled") : t("hongluisi.tool.disabled")}
             valueStyle={{
               color: isOn ? "#52c41a" : "#999",
               fontSize: 18,
             }}
           />
           <Space size={4} style={{ marginTop: 4 }} wrap>
-            <Tag color={srcColor}>Key: {srcLabel}</Tag>
+            <Tag color={srcColor}>{t("hongluisi.tool.keyPrefix")} {srcLabel}</Tag>
           </Space>
         </Card>
       </Col>
@@ -188,14 +190,14 @@ export default function HongluisiPage() {
 
   const columns = [
     {
-      title: "时间",
+      title: t("hongluisi.table.time"),
       dataIndex: "created_at",
       key: "created_at",
       width: 160,
       render: (v: string) => formatTime(v),
     },
     {
-      title: "工具",
+      title: t("hongluisi.table.tool"),
       dataIndex: "tool",
       key: "tool",
       width: 110,
@@ -204,21 +206,21 @@ export default function HongluisiPage() {
       ),
     },
     {
-      title: "Host",
+      title: t("hongluisi.table.host"),
       dataIndex: "host",
       key: "host",
       ellipsis: true,
       render: (v: string | null) => v ?? "—",
     },
     {
-      title: "方法",
+      title: t("hongluisi.table.method"),
       dataIndex: "method",
       key: "method",
       width: 80,
       render: (v: string | null) => v ?? "—",
     },
     {
-      title: "状态",
+      title: t("hongluisi.table.status"),
       dataIndex: "http_status",
       key: "http_status",
       width: 90,
@@ -229,7 +231,7 @@ export default function HongluisiPage() {
       },
     },
     {
-      title: "凭证",
+      title: t("hongluisi.table.credential"),
       dataIndex: "credential_name",
       key: "credential_name",
       width: 160,
@@ -238,13 +240,13 @@ export default function HongluisiPage() {
   ];
 
   return (
-    <PageContainer title="鸿胪寺">
+    <PageContainer title={t("hongluisi.title")}>
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <Card
           title={
             <Space>
               <GlobalOutlined />
-              <span>工具状态</span>
+              <span>{t("hongluisi.section.tools")}</span>
             </Space>
           }
           size="small"
@@ -254,16 +256,16 @@ export default function HongluisiPage() {
             type="secondary"
             style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}
           >
-            启用情况取决于 profile + env keys + 主密钥（
-            <code>TIANSHU_SECRET_MASTER_KEY</code> 控制 api_request；
-            <code>TIANSHU_FIRECRAWL_API_KEY</code> 控制 web_extract）。
+            {t("hongluisi.toolsHint1")}
+            <code>TIANSHU_SECRET_MASTER_KEY</code>{t("hongluisi.toolsHint2")}
+            <code>TIANSHU_FIRECRAWL_API_KEY</code>{t("hongluisi.toolsHint3")}
           </Typography.Paragraph>
         </Card>
 
         <Card
           title={
             <Space>
-              <span>引擎偏好（系统默认）</span>
+              <span>{t("hongluisi.section.preferences")}</span>
             </Space>
           }
           size="small"
@@ -279,7 +281,7 @@ export default function HongluisiPage() {
                 })
               }
             >
-              保存
+              {t("hongluisi.preferences.save")}
             </Button>
           }
         >
@@ -288,16 +290,16 @@ export default function HongluisiPage() {
               type="secondary"
               style={{ marginBottom: 0, fontSize: 12 }}
             >
-              覆盖 profile 预设的引擎选择；Edict 创建时的 override 优先级最高。留空 = 沿用 profile 默认。改动立即生效，无需重启。
+              {t("hongluisi.preferences.intro")}
             </Typography.Paragraph>
 
             <Form.Item
-              label="web_fetch 引擎链（按顺序尝试，第一个 ok 即返回）"
+              label={t("hongluisi.preferences.fetchChainLabel")}
               style={{ marginBottom: 0 }}
             >
               <Select
                 mode="multiple"
-                placeholder="留空 = 沿用 profile（如 DEFAULT=local+jina）"
+                placeholder={t("hongluisi.preferences.fetchChainPlaceholder")}
                 value={fetchChain}
                 onChange={setFetchChain}
                 options={[
@@ -310,25 +312,25 @@ export default function HongluisiPage() {
             </Form.Item>
 
             <Form.Item
-              label="fallback_mode（引擎失败/空时是否切下一个）"
+              label={t("hongluisi.preferences.fallbackLabel")}
               style={{ marginBottom: 0 }}
             >
               <Radio.Group
                 value={fallbackMode ?? ""}
                 onChange={(e) => setFallbackMode(e.target.value || null)}
               >
-                <Radio value="">沿用 profile</Radio>
-                <Radio value="on_error_or_empty">失败/空即切</Radio>
-                <Radio value="none">只用首个引擎</Radio>
+                <Radio value="">{t("hongluisi.preferences.fallbackProfile")}</Radio>
+                <Radio value="on_error_or_empty">{t("hongluisi.preferences.fallbackOnErrorOrEmpty")}</Radio>
+                <Radio value="none">{t("hongluisi.preferences.fallbackNone")}</Radio>
               </Radio.Group>
             </Form.Item>
 
-            <Form.Item label="web_search provider" style={{ marginBottom: 0 }}>
+            <Form.Item label={t("hongluisi.preferences.searchLabel")} style={{ marginBottom: 0 }}>
               <Radio.Group
                 value={searchProvider ?? ""}
                 onChange={(e) => setSearchProvider(e.target.value || null)}
               >
-                <Radio value="">沿用 profile</Radio>
+                <Radio value="">{t("hongluisi.preferences.fallbackProfile")}</Radio>
                 <Radio value="tavily">Tavily</Radio>
                 <Radio value="jina">Jina Search</Radio>
               </Radio.Group>
@@ -340,7 +342,7 @@ export default function HongluisiPage() {
           title={
             <Space>
               <KeyOutlined />
-              <span>凭证管理</span>
+              <span>{t("hongluisi.section.credentials")}</span>
             </Space>
           }
           size="small"
@@ -349,24 +351,23 @@ export default function HongluisiPage() {
               type="link"
               onClick={() => navigate("/system?tab=external-creds")}
             >
-              前往藏兵阁 <RightOutlined />
+              {t("hongluisi.credentials.goto")} <RightOutlined />
             </Button>
           }
         >
           <Typography.Paragraph style={{ marginBottom: 0 }}>
-            外部 API 凭证（GitHub / Notion / ...）由
-            <strong> 藏兵阁 · 外部凭证 </strong>
-            加密托管（Fernet 对称加密，主密钥来自 env）。
-            LLM 全程不可见 credential value，只按 host 匹配自动注入 Authorization header。
+            {t("hongluisi.credentials.desc1")}
+            <strong>{t("hongluisi.credentials.desc2")}</strong>
+            {t("hongluisi.credentials.desc3")}
           </Typography.Paragraph>
         </Card>
 
         <Card
-          title="最近访问"
+          title={t("hongluisi.section.recent")}
           size="small"
           extra={
             <Button type="link" onClick={() => navigate("/audit?tab=network")}>
-              查看全部 <RightOutlined />
+              {t("hongluisi.recent.viewAll")} <RightOutlined />
             </Button>
           }
         >
@@ -381,7 +382,7 @@ export default function HongluisiPage() {
               emptyText: (
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="还没有网络工具调用记录"
+                  description={t("hongluisi.recent.empty")}
                 />
               ),
             }}
