@@ -118,22 +118,22 @@ const EVENT_CONFIG: Record<
   "decree.approved": {
     color: "#52c41a",
     icon: <CheckCircleOutlined />,
-    label: "批红：准",
+    label: "朱批：准",
   },
   "decree.rejected": {
     color: "#ff4d4f",
     icon: <CloseCircleOutlined />,
-    label: "批红：驳",
+    label: "朱批：驳",
   },
   "decree.retry": {
     color: "#faad14",
     icon: <RedoOutlined />,
-    label: "批红：重办",
+    label: "朱批：重办",
   },
   "decree.cancelled": {
     color: "#8c8c8c",
     icon: <StopOutlined />,
-    label: "批红：撤回",
+    label: "朱批：撤回",
   },
   "tool.blocked": {
     color: "#ff4d4f",

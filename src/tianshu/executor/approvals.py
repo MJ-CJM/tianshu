@@ -121,7 +121,7 @@ class ApprovalManager:
         return True
 
     def list_pending_outer_loop(self) -> list[dict]:
-        """列出所有等审批的 outer-loop edict 及附带 payload。前端批红台用。"""
+        """列出所有等审批的 outer-loop edict 及附带 payload。前端御书房用。"""
         out: list[dict] = []
         for edict_id, payload in self._outer_loop_payload.items():
             out.append({
@@ -133,7 +133,7 @@ class ApprovalManager:
     def list_pending_tool_calls(self) -> list[dict]:
         """List in-memory pending tool approvals enriched with metadata.
 
-        Used by 批红台 (ApprovalQueuePage) to render mid-execution tool approval
+        Used by 御书房 (ApprovalQueuePage) to render mid-execution tool approval
         cards. Each entry is built from `_pending` + `_pending_tool` plus the most
         recent `tool.approval_required` event for the memorial.
         """

@@ -276,7 +276,7 @@ export default function SessionRulesPage() {
         showIcon
         icon={<SafetyCertificateOutlined />}
         message="Session Rules 是工具调用的免审令牌"
-        description="当你在批红台审批工具调用时选择「本敕令」或「全局」范围，系统会自动创建 session rule。你也可以手动添加规则来预配置免审权限。注意：shell_exec/bash 工具不允许设为全局免审。"
+        description="当你在御书房朱批工具调用时选择「本敕令」或「全局」范围，系统会自动创建 session rule。你也可以手动添加规则来预配置免审权限。注意：shell_exec/bash 工具不允许设为全局免审。"
         style={{ marginBottom: 16 }}
       />
 
@@ -315,7 +315,7 @@ export default function SessionRulesPage() {
           pagination={{ pageSize: 20 }}
           locale={{
             emptyText:
-              "暂无规则 — 点击右上角「添加规则」手动创建，或在批红台审批时选择「本敕令/全局」自动生成",
+              "暂无规则 — 点击右上角「添加规则」手动创建，或在御书房朱批时选择「本敕令/全局」自动生成",
           }}
           size="small"
         />

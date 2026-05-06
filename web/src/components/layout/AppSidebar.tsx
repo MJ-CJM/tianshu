@@ -57,7 +57,7 @@ export default function AppSidebar() {
     {
       key: "/approvals",
       icon: <AuditOutlined />,
-      label: reviewCount > 0 ? `批红台 (${reviewCount})` : "批红台",
+      label: reviewCount > 0 ? `御书房 (${reviewCount})` : "御书房",
     },
     {
       key: "/scheduler",

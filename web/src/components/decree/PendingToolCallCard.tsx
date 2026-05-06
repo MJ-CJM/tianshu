@@ -38,7 +38,7 @@ export default function PendingToolCallCard({ pending }: Props) {
         action: "approve",
         comment: comment || undefined,
         grant_scope: scope,
-        grant_reason: scope !== "once" ? `granted via 批红台 (${scope})` : undefined,
+        grant_reason: scope !== "once" ? `granted via 御书房 (${scope})` : undefined,
         actor: "user",
       },
       {

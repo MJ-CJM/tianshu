@@ -644,7 +644,7 @@ async def create_decree(body: DecreeCreateRequest, request: Request):
 async def list_pending_tool_calls(request: Request):
     """Return in-memory pending tool-call approvals awaited by PolicyHook.
 
-    Used by 批红台 to render mid-execution approval cards. The state is sourced
+    Used by 御书房 to render mid-execution approval cards. The state is sourced
     from `ApprovalManager._pending` (authoritative) and enriched with the latest
     `tool.approval_required` event payload for each memorial.
     """

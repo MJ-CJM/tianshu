@@ -64,7 +64,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
               onClick={() => navigate("/approvals")}
               style={{ padding: 0 }}
             >
-              待批红
+              待朱批
             </Button>
           )}
           {hasDuration && (

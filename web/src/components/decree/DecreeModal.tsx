@@ -52,7 +52,7 @@ export default function DecreeModal({ memorial, action, open, onClose }: DecreeM
 
   return (
     <Modal
-      title="批红"
+      title="朱批"
       open={open}
       onOk={handleOk}
       onCancel={() => {

@@ -92,7 +92,7 @@ export default function ApprovalQueuePage() {
 
   return (
     <PageContainer
-      title={`批红台 (${edicts.length})`}
+      title={`御书房 (${edicts.length})`}
       extra={
         <Space>
           <Input

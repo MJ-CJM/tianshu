@@ -596,9 +596,9 @@ export default function EdictDetailPage() {
       {hasUsage && <UsageDisplay usage={aggregatedUsage} />}
 
       {hasPendingReview && edict.status === "open" && (
-        <GlowCard title="批红" style={{ marginBottom: 24 }}>
+        <GlowCard title="朱批" style={{ marginBottom: 24 }}>
           <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 13, display: "block", marginBottom: 16 }}>
-            有奏折待批红，请选择操作：
+            有奏折待朱批，请选择操作：
           </Typography.Text>
           <Space wrap>
             {([

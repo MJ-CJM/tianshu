@@ -18,7 +18,7 @@ interface ToastPayload {
 /**
  * 订阅 WebSocket 中的 policy 事件并弹出 AntD notification toast。
  *
- * - tool.approval_required → warning 提示，点击跳转到批红台
+ * - tool.approval_required → warning 提示，点击跳转到御书房
  * - policy.decision (verdict=deny) → error 提示，5 秒后自动关闭
  * - decree.approved (grant_downgraded=true) → info 提示"已降级为本次"
  *
