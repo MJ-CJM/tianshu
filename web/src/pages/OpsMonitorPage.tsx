@@ -35,6 +35,7 @@ import {
   useNotificationChannels,
 } from "../hooks/useOps";
 import type { RecentEvent, NotificationChannel } from "../api/types";
+import { useT } from "../i18n";
 
 const { Text } = Typography;
 
@@ -55,6 +56,7 @@ interface HookRow {
 // ==================== Tab 1: EventBus ====================
 
 export function EventBusTab() {
+  const t = useT();
   const { data: handlers, isLoading: handlersLoading } = useEventBusHandlers();
   const { data: stats, isLoading: statsLoading } = useEventBusStats();
   const { data: recentEvents, isLoading: eventsLoading, refetch } = useRecentEvents(30);
@@ -77,7 +79,7 @@ export function EventBusTab() {
 
   const eventColumns: ColumnsType<RecentEvent> = [
     {
-      title: "事件类型",
+      title: t("ops.eventbus.table.type"),
       dataIndex: "event_type",
       key: "event_type",
       width: 200,
@@ -89,22 +91,22 @@ export function EventBusTab() {
         return <Tag color={color}>{v}</Tag>;
       },
       filters: recentEvents
-        ? [...new Set(recentEvents.map((e) => e.event_type))].map((t) => ({
-            text: t,
-            value: t,
+        ? [...new Set(recentEvents.map((e) => e.event_type))].map((evt) => ({
+            text: evt,
+            value: evt,
           }))
         : [],
       onFilter: (value, record) => record.event_type === value,
     },
     {
-      title: "敕令",
+      title: t("ops.eventbus.table.edict"),
       dataIndex: "edict_id",
       key: "edict_id",
       width: 120,
       render: (v: string) => <MonoText style={{ fontSize: 11 }}>{truncateId(v)}</MonoText>,
     },
     {
-      title: "奏折",
+      title: t("ops.eventbus.table.memorial"),
       dataIndex: "memorial_id",
       key: "memorial_id",
       width: 120,
@@ -112,7 +114,7 @@ export function EventBusTab() {
         v ? <MonoText style={{ fontSize: 11 }}>{truncateId(v)}</MonoText> : <Text type="secondary">—</Text>,
     },
     {
-      title: "详情",
+      title: t("ops.eventbus.table.detail"),
       dataIndex: "payload",
       key: "payload",
       ellipsis: true,
@@ -125,7 +127,7 @@ export function EventBusTab() {
       },
     },
     {
-      title: "时间",
+      title: t("ops.eventbus.table.time"),
       dataIndex: "created_at",
       key: "created_at",
       width: 170,
@@ -138,18 +140,18 @@ export function EventBusTab() {
       <Row gutter={16}>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="事件总数" value={totalEvents} />
+            <Statistic title={t("ops.eventbus.stat.total")} value={totalEvents} />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="事件类型数" value={eventTypes} />
+            <Statistic title={t("ops.eventbus.stat.types")} value={eventTypes} />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
             <Statistic
-              title="已注册 Handler"
+              title={t("ops.eventbus.stat.handlers")}
               value={handlerRows.length}
               loading={handlersLoading}
             />
@@ -157,14 +159,14 @@ export function EventBusTab() {
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="最近事件" value={recentEvents?.length ?? 0} loading={eventsLoading} />
+            <Statistic title={t("ops.eventbus.stat.recent")} value={recentEvents?.length ?? 0} loading={eventsLoading} />
           </Card>
         </Col>
       </Row>
 
       {/* Event type distribution */}
       {stats && (
-        <Card title="事件类型分布" size="small" loading={statsLoading}>
+        <Card title={t("ops.eventbus.dist")} size="small" loading={statsLoading}>
           <Row gutter={[8, 8]}>
             {Object.entries(stats)
               .sort(([, a], [, b]) => b - a)
@@ -181,24 +183,24 @@ export function EventBusTab() {
       )}
 
       {/* Handler registration table */}
-      <Card title="已注册 Handler" size="small" loading={handlersLoading}>
+      <Card title={t("ops.eventbus.handlersTitle")} size="small" loading={handlersLoading}>
         <Table
           columns={[
             {
-              title: "事件类型",
+              title: t("ops.eventbus.table.type"),
               dataIndex: "event_type",
               key: "event_type",
               width: 200,
               render: (v: string) => <Tag>{v}</Tag>,
             },
             {
-              title: "Handler",
+              title: t("ops.eventbus.handlerCol"),
               dataIndex: "handler",
               key: "handler",
               render: (v: string) => <MonoText style={{ fontSize: 12 }}>{v}</MonoText>,
             },
             {
-              title: "优先级",
+              title: t("ops.eventbus.priority"),
               dataIndex: "priority",
               key: "priority",
               width: 100,
@@ -215,15 +217,15 @@ export function EventBusTab() {
           rowKey="key"
           size="small"
           pagination={false}
-          locale={{ emptyText: "暂无注册" }}
+          locale={{ emptyText: t("ops.eventbus.emptyHandlers") }}
         />
       </Card>
 
       {/* Recent events */}
       <Card
-        title="最近事件流"
+        title={t("ops.eventbus.recentTitle")}
         size="small"
-        extra={<Button icon={<ReloadOutlined />} size="small" onClick={() => refetch()}>刷新</Button>}
+        extra={<Button icon={<ReloadOutlined />} size="small" onClick={() => refetch()}>{t("action.refresh")}</Button>}
       >
         <Table<RecentEvent>
           columns={eventColumns}
@@ -232,7 +234,7 @@ export function EventBusTab() {
           loading={eventsLoading}
           size="small"
           pagination={{ pageSize: 15, showSizeChanger: true }}
-          locale={{ emptyText: "暂无事件" }}
+          locale={{ emptyText: t("ops.eventbus.emptyEvents") }}
         />
       </Card>
     </Space>
@@ -242,6 +244,7 @@ export function EventBusTab() {
 // ==================== Tab 2: Workers & Lanes ====================
 
 export function WorkersTab() {
+  const t = useT();
   const { data: status, isLoading, refetch } = useWorkersStatus();
 
   if (isLoading) {
@@ -249,7 +252,7 @@ export function WorkersTab() {
   }
 
   if (!status) {
-    return <Empty description="无法获取 Worker 状态" />;
+    return <Empty description={t("ops.workers.empty")} />;
   }
 
   const pool = status.pool;
@@ -263,7 +266,7 @@ export function WorkersTab() {
         <Col span={4}>
           <Card size="small">
             <Statistic
-              title="活跃任务"
+              title={t("ops.workers.active")}
               value={pool?.active_count ?? 0}
               suffix={`/ ${pool?.max_concurrency ?? 0}`}
               valueStyle={{ color: pool?.active_count > 0 ? "#1890ff" : undefined }}
@@ -272,18 +275,18 @@ export function WorkersTab() {
         </Col>
         <Col span={4}>
           <Card size="small">
-            <Statistic title="最大并发" value={pool?.max_concurrency ?? 0} />
+            <Statistic title={t("ops.workers.maxConcurrency")} value={pool?.max_concurrency ?? 0} />
           </Card>
         </Col>
         <Col span={4}>
           <Card size="small">
-            <Statistic title="排队中" value={pool?.pending_count ?? 0} />
+            <Statistic title={t("ops.workers.queue")} value={pool?.pending_count ?? 0} />
           </Card>
         </Col>
         <Col span={4}>
           <Card size="small">
             <Statistic
-              title="已完成"
+              title={t("ops.workers.completed")}
               value={pool?.completed_count ?? 0}
               valueStyle={{ color: "#52c41a" }}
             />
@@ -292,7 +295,7 @@ export function WorkersTab() {
         <Col span={4}>
           <Card size="small">
             <Statistic
-              title="失败"
+              title={t("ops.workers.failed")}
               value={pool?.failed_count ?? 0}
               valueStyle={{ color: pool?.failed_count > 0 ? "#ff4d4f" : undefined }}
             />
@@ -305,7 +308,7 @@ export function WorkersTab() {
               onClick={() => refetch()}
               style={{ width: "100%", height: "100%" }}
             >
-              刷新
+              {t("action.refresh")}
             </Button>
           </Card>
         </Col>
@@ -313,18 +316,18 @@ export function WorkersTab() {
 
       {/* Global Lane */}
       {globalLane && (
-        <Card title="GlobalLane — 系统级并发" size="small">
+        <Card title={t("ops.workers.globalLane")} size="small">
           <Row gutter={16} align="middle">
             <Col span={8}>
               <Descriptions column={1} size="small" bordered>
-                <Descriptions.Item label="最大并发">
+                <Descriptions.Item label={t("ops.workers.maxConcurrency")}>
                   {globalLane.max_concurrency}
                 </Descriptions.Item>
-                <Descriptions.Item label="活跃">
+                <Descriptions.Item label={t("ops.workers.active2")}>
                   <Badge status={globalLane.active > 0 ? "processing" : "default"} />
                   {globalLane.active}
                 </Descriptions.Item>
-                <Descriptions.Item label="可用">
+                <Descriptions.Item label={t("ops.workers.available")}>
                   {globalLane.available}
                 </Descriptions.Item>
               </Descriptions>
@@ -332,7 +335,7 @@ export function WorkersTab() {
             <Col span={16}>
               <div style={{ padding: "0 24px" }}>
                 <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>
-                  槽位占用
+                  {t("ops.workers.slotUsage")}
                 </Text>
                 <Progress
                   percent={Math.round((globalLane.active / globalLane.max_concurrency) * 100)}
@@ -346,25 +349,25 @@ export function WorkersTab() {
       )}
 
       {/* Session Lanes */}
-      <Card title="SessionLane — 敕令级并发" size="small">
+      <Card title={t("ops.workers.sessionLane")} size="small">
         {lanes?.sessions && Object.keys(lanes.sessions).length > 0 ? (
           <Table<SessionLaneRow>
             columns={[
               {
-                title: "敕令 ID",
+                title: t("ops.workers.edictId"),
                 dataIndex: "edict_id",
                 key: "edict_id",
                 render: (v) => <MonoText style={{ fontSize: 12 }}>{truncateId(v)}</MonoText>,
               },
               {
-                title: "最大并发",
+                title: t("ops.workers.maxConcurrency"),
                 dataIndex: "max",
                 key: "max",
                 width: 100,
                 align: "center" as const,
               },
               {
-                title: "可用槽",
+                title: t("ops.workers.availableSlot"),
                 dataIndex: "available",
                 key: "available",
                 width: 100,
@@ -376,14 +379,14 @@ export function WorkersTab() {
                 ),
               },
               {
-                title: "状态",
+                title: t("ops.workers.status"),
                 key: "status",
                 width: 100,
                 render: (_, record) =>
                   record.available < record.max ? (
-                    <Badge status="processing" text="执行中" />
+                    <Badge status="processing" text={t("ops.workers.running")} />
                   ) : (
-                    <Badge status="default" text="空闲" />
+                    <Badge status="default" text={t("ops.workers.idle")} />
                   ),
               },
             ]}
@@ -394,10 +397,10 @@ export function WorkersTab() {
             }))}
             size="small"
             pagination={false}
-            locale={{ emptyText: "暂无活跃会话" }}
+            locale={{ emptyText: t("ops.workers.emptySession") }}
           />
         ) : (
-          <Empty description="暂无活跃的 Session Lane" />
+          <Empty description={t("ops.workers.emptySessionDesc")} />
         )}
       </Card>
     </Space>
@@ -407,6 +410,7 @@ export function WorkersTab() {
 // ==================== Tab 3: Hooks & Channels ====================
 
 export function HooksTab() {
+  const t = useT();
   const { data: hooks, isLoading } = useHooksRegistry();
   const { data: channels } = useNotificationChannels();
 
@@ -422,32 +426,18 @@ export function HooksTab() {
       )
     : [];
 
-  // Hook type labels
-  const hookLabels: Record<string, string> = {
-    before_agent_start: "启动前",
-    before_tool_call: "工具调用前",
-    after_tool_call: "工具调用后",
-    llm_input: "LLM 输入",
-    llm_output: "LLM 输出",
-    agent_end: "执行结束",
-    before_iteration: "迭代前",
-    before_compaction: "压缩前",
-    session_start: "会话开始",
-    session_end: "会话结束",
-  };
-
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Row gutter={16}>
         <Col span={8}>
           <Card size="small">
-            <Statistic title="已注册 Hook" value={hookRows.length} />
+            <Statistic title={t("ops.hooks.registered")} value={hookRows.length} />
           </Card>
         </Col>
         <Col span={8}>
           <Card size="small">
             <Statistic
-              title="Hook 类型"
+              title={t("ops.hooks.types")}
               value={hooks ? Object.keys(hooks).length : 0}
               suffix="/ 10"
             />
@@ -456,7 +446,7 @@ export function HooksTab() {
         <Col span={8}>
           <Card size="small">
             <Statistic
-              title="通知渠道"
+              title={t("ops.hooks.channels")}
               value={channels?.length ?? 0}
               prefix={<BellOutlined />}
             />
@@ -465,37 +455,37 @@ export function HooksTab() {
       </Row>
 
       {/* Hooks table */}
-      <Card title="Hooks 注册列表" size="small" loading={isLoading}>
+      <Card title={t("ops.hooks.registryTitle")} size="small" loading={isLoading}>
         <Table<HookRow>
           columns={[
             {
-              title: "Hook 类型",
+              title: t("ops.hooks.type"),
               dataIndex: "hook_type",
               key: "hook_type",
               width: 180,
               render: (v) => (
-                <Tag color="purple">{hookLabels[v] ?? v}</Tag>
+                <Tag color="purple">{t(`ops.hooks.label.${v}`) || v}</Tag>
               ),
               filters: hooks
-                ? Object.keys(hooks).map((t) => ({ text: hookLabels[t] ?? t, value: t }))
+                ? Object.keys(hooks).map((hk) => ({ text: t(`ops.hooks.label.${hk}`) || hk, value: hk }))
                 : [],
               onFilter: (value, record) => record.hook_type === value,
             },
             {
-              title: "Handler",
+              title: t("ops.hooks.handler"),
               dataIndex: "handler",
               key: "handler",
               render: (v) => <MonoText style={{ fontSize: 12 }}>{v}</MonoText>,
             },
             {
-              title: "优先级",
+              title: t("ops.hooks.priority"),
               dataIndex: "priority",
               key: "priority",
               width: 100,
               align: "center" as const,
               render: (v) => {
                 const color = v <= 10 ? "red" : v <= 50 ? "orange" : v <= 100 ? "blue" : "default";
-                const label = v <= 10 ? "最高" : v <= 50 ? "高" : v <= 100 ? "中" : "低";
+                const label = v <= 10 ? t("ops.hooks.priorityHighest") : v <= 50 ? t("ops.hooks.priorityHigh") : v <= 100 ? t("ops.hooks.priorityMid") : t("ops.hooks.priorityLow");
                 return <Tag color={color}>{v} ({label})</Tag>;
               },
               sorter: (a, b) => a.priority - b.priority,
@@ -505,7 +495,7 @@ export function HooksTab() {
           rowKey="key"
           size="small"
           pagination={false}
-          locale={{ emptyText: "暂无注册" }}
+          locale={{ emptyText: t("ops.hooks.emptyRegistry") }}
         />
       </Card>
 
@@ -514,7 +504,7 @@ export function HooksTab() {
         title={
           <Space>
             <BellOutlined />
-            通知渠道
+            {t("ops.hooks.channelsTitle")}
           </Space>
         }
         size="small"
@@ -523,20 +513,20 @@ export function HooksTab() {
           <Table<NotificationChannel>
             columns={[
               {
-                title: "渠道名称",
+                title: t("ops.hooks.channelName"),
                 dataIndex: "name",
                 key: "name",
                 render: (v: string) => <Text strong>{v}</Text>,
               },
               {
-                title: "类型",
+                title: t("ops.hooks.channelType"),
                 dataIndex: "type",
                 key: "type",
                 width: 150,
                 render: (v: string) => <Tag color="blue">{v}</Tag>,
               },
               {
-                title: "速率限制",
+                title: t("ops.hooks.rateLimit"),
                 dataIndex: "rpm_limit",
                 key: "rpm_limit",
                 width: 120,
@@ -544,7 +534,7 @@ export function HooksTab() {
                 render: (v: number) => `${v} / min`,
               },
               {
-                title: "近期发送",
+                title: t("ops.hooks.recentSends"),
                 dataIndex: "recent_sends",
                 key: "recent_sends",
                 width: 120,
@@ -560,10 +550,10 @@ export function HooksTab() {
             rowKey="name"
             size="small"
             pagination={false}
-            locale={{ emptyText: "暂无注册渠道" }}
+            locale={{ emptyText: t("ops.hooks.emptyChannels") }}
           />
         ) : (
-          <Empty description="暂无注册的通知渠道" />
+          <Empty description={t("ops.hooks.emptyChannelsDesc")} />
         )}
       </Card>
     </Space>
@@ -573,10 +563,11 @@ export function HooksTab() {
 // ==================== Main Page ====================
 
 export default function OpsMonitorPage() {
+  const t = useT();
   const [activeTab, setActiveTab] = useState("eventbus");
 
   return (
-    <PageContainer title="运维监控台">
+    <PageContainer title={t("ops.title")}>
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
@@ -586,7 +577,7 @@ export default function OpsMonitorPage() {
             label: (
               <Space>
                 <ThunderboltOutlined />
-                事件流
+                {t("ops.tab.eventbus")}
               </Space>
             ),
             children: <EventBusTab />,
@@ -596,7 +587,7 @@ export default function OpsMonitorPage() {
             label: (
               <Space>
                 <NodeIndexOutlined />
-                并发控制
+                {t("ops.tab.workers")}
               </Space>
             ),
             children: <WorkersTab />,
@@ -606,7 +597,7 @@ export default function OpsMonitorPage() {
             label: (
               <Space>
                 <ApiOutlined />
-                Hooks & 通知
+                {t("ops.tab.hooks")}
               </Space>
             ),
             children: <HooksTab />,

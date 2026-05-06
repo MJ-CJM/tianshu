@@ -144,7 +144,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
       )}
 
       {memorial.error && (() => {
-        const parsed = parseErrorMessage(memorial.error);
+        const parsed = parseErrorMessage(memorial.error, t);
         return (
           <div style={{ marginTop: 12 }}>
             <Typography.Text type="danger" style={{ fontSize: 12 }}>

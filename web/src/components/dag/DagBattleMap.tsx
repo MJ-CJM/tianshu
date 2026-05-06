@@ -15,6 +15,7 @@ import DagNodeComponent from './DagNode';
 import DagToolbar from './DagToolbar';
 import WorkerPanel from './WorkerPanel';
 import type { DAGExecution, DAGNode as DAGNodeType } from '../../api/types';
+import { useT } from "../../i18n";
 
 const nodeTypes = { dagNode: DagNodeComponent };
 
@@ -110,13 +111,14 @@ export default function DagBattleMap({
   cancelLoading,
   retryLoading,
 }: DagBattleMapProps) {
+  const t = useT();
   const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(
     () => layoutNodes(execution?.nodes || []),
     [execution?.nodes],
   );
 
   if (!execution) {
-    return <Empty description="暂无 DAG 数据" />;
+    return <Empty description={t("comp.dag.battleEmpty")} />;
   }
 
   return (

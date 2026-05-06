@@ -2,12 +2,14 @@ import { Layout, theme } from "antd";
 import HealthDot from "../common/HealthDot";
 import ConnectionIndicator from "../common/ConnectionIndicator";
 import LocaleSwitcher from "./LocaleSwitcher";
+import { useT } from "../../i18n";
 
 interface AppHeaderProps {
   isWsConnected?: boolean;
 }
 
 export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
+  const t = useT();
   const { token } = theme.useToken();
 
   return (
@@ -46,7 +48,7 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
           fontStyle: "italic",
         }}
       >
-        成功只有一个——按照自己的方式，去度过人生。
+        {t("comp.appHeader.tagline")}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <LocaleSwitcher />

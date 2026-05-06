@@ -2,8 +2,10 @@ import { useParams } from 'react-router-dom';
 import { Spin, Result } from 'antd';
 import DagBattleMap from '../components/dag/DagBattleMap';
 import { useDag, useCancelDag, useRetryDag, useWorkersStatus } from '../hooks/useDag';
+import { useT } from "../i18n";
 
 export default function DagBattleMapPage() {
+  const t = useT();
   const { dagId } = useParams<{ dagId: string }>();
   const { data: execution, isLoading, error } = useDag(dagId);
   const { data: workersStatus } = useWorkersStatus();
@@ -13,13 +15,13 @@ export default function DagBattleMapPage() {
   if (isLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
-        <Spin size="large" tip="加载作战图..." />
+        <Spin size="large" tip={t("page.edictDetail.viewBattleMap")} />
       </div>
     );
   }
 
   if (error) {
-    return <Result status="error" title="加载失败" subTitle={String(error)} />;
+    return <Result status="error" title={t("comp.profile.loadFailed")} subTitle={String(error)} />;
   }
 
   return (

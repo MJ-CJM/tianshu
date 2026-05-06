@@ -3,6 +3,7 @@ import { App } from "antd";
 import { useNavigate } from "react-router-dom";
 import type { WsMessage } from "../api/types";
 import type { WsListener } from "./useWebSocket";
+import { useT } from "../i18n";
 
 interface ToastPayload {
   tool_name?: string;
@@ -33,6 +34,7 @@ interface ToastPayload {
 export function useWsPolicyToasts(
   subscribe: (listener: WsListener) => () => void,
 ): void {
+  const t = useT();
   const { notification } = App.useApp();
   const navigate = useNavigate();
   const seenRef = useRef<Set<string>>(new Set());
@@ -61,13 +63,13 @@ export function useWsPolicyToasts(
           }
         }
 
-        // 服务端降级 always→once 的提示（bash 类工具不支持 always）
+        // Server-side downgrade always→once notice (bash tools don't support always)
         if (type === "decree.approved" && payload.grant_downgraded) {
           notification.info({
-            message: "永久授权已降级为本次",
+            message: t("comp.policyToast.downgradedTitle"),
             description:
               payload.grant_downgrade_reason ??
-              `${toolName || "该工具"} 不支持 always 授权，已降级为 once。`,
+              t("comp.policyToast.downgradedDescDefault", { tool: toolName || t("comp.policyToast.fallbackTool") }),
             duration: 6,
           });
         }
@@ -83,7 +85,7 @@ export function useWsPolicyToasts(
         notifKeyRef.current.set(dedupKey, notifKey);
         notification.warning({
           key: notifKey,
-          message: "需要审批",
+          message: t("comp.policyToast.approvalRequired"),
           description: `${toolName || "tool"}: ${payload.reason ?? ""}`,
           duration: 0,
           onClick: () => {
@@ -99,11 +101,10 @@ export function useWsPolicyToasts(
         if (seenRef.current.has(dedupKey)) return;
         seenRef.current.add(dedupKey);
         notification.error({
-          message: "Policy 拒绝",
+          message: t("comp.policyToast.policyDeny"),
           description: `${toolName || "tool"}: ${payload.reason ?? ""}`,
           duration: 5,
         });
-        // deny toast 5s 后自动关闭——同步清理缓存，避免相同原因再次触发被屏蔽
         setTimeout(() => {
           seenRef.current.delete(dedupKey);
         }, 6000);
@@ -111,5 +112,5 @@ export function useWsPolicyToasts(
     };
 
     return subscribe(handle);
-  }, [subscribe, notification, navigate]);
+  }, [subscribe, notification, navigate, t]);
 }

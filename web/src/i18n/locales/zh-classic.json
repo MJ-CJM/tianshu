@@ -639,6 +639,89 @@
     "zh-modern": "通用",
     "en": "English"
   },
+  "ops": {
+    "title": "运维监控台",
+    "tab": {
+      "eventbus": "事件流",
+      "workers": "并发控制",
+      "hooks": "Hooks & 通知"
+    },
+    "eventbus": {
+      "stat": {
+        "total": "事件总数",
+        "types": "事件类型数",
+        "handlers": "已注册 Handler",
+        "recent": "最近事件"
+      },
+      "table": {
+        "type": "事件类型",
+        "edict": "敕令",
+        "memorial": "奏折",
+        "detail": "详情",
+        "time": "时间"
+      },
+      "dist": "事件类型分布",
+      "handlersTitle": "已注册 Handler",
+      "recentTitle": "最近事件流",
+      "handlerCol": "Handler",
+      "priority": "优先级",
+      "emptyHandlers": "暂无注册",
+      "emptyEvents": "暂无事件"
+    },
+    "workers": {
+      "empty": "无法获取 Worker 状态",
+      "active": "活跃任务",
+      "maxConcurrency": "最大并发",
+      "queue": "排队中",
+      "completed": "已完成",
+      "failed": "失败",
+      "globalLane": "GlobalLane — 系统级并发",
+      "active2": "活跃",
+      "available": "可用",
+      "slotUsage": "槽位占用",
+      "sessionLane": "SessionLane — 敕令级并发",
+      "edictId": "敕令 ID",
+      "availableSlot": "可用槽",
+      "status": "状态",
+      "running": "执行中",
+      "idle": "空闲",
+      "emptySession": "暂无活跃会话",
+      "emptySessionDesc": "暂无活跃的 Session Lane"
+    },
+    "hooks": {
+      "registered": "已注册 Hook",
+      "types": "Hook 类型",
+      "channels": "通知渠道",
+      "registryTitle": "Hooks 注册列表",
+      "type": "Hook 类型",
+      "handler": "Handler",
+      "priority": "优先级",
+      "priorityHighest": "最高",
+      "priorityHigh": "高",
+      "priorityMid": "中",
+      "priorityLow": "低",
+      "emptyRegistry": "暂无注册",
+      "channelsTitle": "通知渠道",
+      "channelName": "渠道名称",
+      "channelType": "类型",
+      "rateLimit": "速率限制",
+      "recentSends": "近期发送",
+      "emptyChannels": "暂无注册渠道",
+      "emptyChannelsDesc": "暂无注册的通知渠道",
+      "label": {
+        "before_agent_start": "启动前",
+        "before_tool_call": "工具调用前",
+        "after_tool_call": "工具调用后",
+        "llm_input": "LLM 输入",
+        "llm_output": "LLM 输出",
+        "agent_end": "执行结束",
+        "before_iteration": "迭代前",
+        "before_compaction": "压缩前",
+        "session_start": "会话开始",
+        "session_end": "会话结束"
+      }
+    }
+  },
   "comp": {
     "usage": {
       "title": "用墨统计",
@@ -746,6 +829,68 @@
       "initializing": "正在初始化…",
       "executing": "执行中…",
       "auditReasons": "审计原因："
+    },
+    "appHeader": {
+      "tagline": "成功只有一个——按照自己的方式，去度过人生。"
+    },
+    "healthDot": {
+      "ok": "通政",
+      "err": "断讯"
+    },
+    "connection": {
+      "online": "实时",
+      "offline": "离线",
+      "onlineTitle": "WebSocket 已连接",
+      "offlineTitle": "WebSocket 已断开，轮询降级中"
+    },
+    "dag": {
+      "battleEmpty": "暂无 DAG 数据",
+      "cancelConfirm": "确定取消整个 DAG 执行？",
+      "retryConfirm": "重试失败的节点？"
+    },
+    "worker": {
+      "completed": "已完成",
+      "failed": "失败",
+      "globalLane": "全局 Lane"
+    },
+    "profile": {
+      "loading": "加载成长档案…",
+      "loadFailed": "加载失败",
+      "empty": "暂无成长档案。首版将在 AGENT_END 每 20 次 或每日 03:00 自动生成；也可点击\"立即合成\"。",
+      "synthesize": "立即合成",
+      "history": "📜 历史版本",
+      "editManual": "编辑手写",
+      "synthesizedAt": "合成于 {date}",
+      "userEdited": "用户手改",
+      "degraded": "⚠️ 降级",
+      "manualEditTitle": "编辑手写段(synthesizer 不会覆盖)",
+      "manualEditPlaceholder": "在这里写下你希望补充的内容(Markdown 支持)",
+      "toast": {
+        "synthesisFailed": "合成失败",
+        "synthesisCompleted": "合成完成",
+        "synthesisDegraded": "合成完成(降级模式)",
+        "synthesisSkipped": "已跳过(并发运行中)",
+        "manualSaved": "手写段已保存"
+      }
+    },
+    "policyToast": {
+      "downgradedTitle": "永久授权已降级为本次",
+      "downgradedDescDefault": "{tool} 不支持 always 授权，已降级为 once。",
+      "approvalRequired": "需要审批",
+      "policyDeny": "Policy 拒绝",
+      "fallbackTool": "该工具"
+    },
+    "error": {
+      "budgetCost": "💴 费用预算已用尽",
+      "budgetTime": "⏱️ 时间预算已用尽",
+      "budgetTokens": "🔢 Token 预算已用尽",
+      "budgetGeneric": "💸 预算已用尽",
+      "usagePctSuffix": " (已用 {pct}%)",
+      "exhausted": "🔁 已达最大迭代次数",
+      "abortedHuman": "🛑 人工中止",
+      "exhaustedAbort": "🛑 达最大迭代次数后被人工中止",
+      "checksConfig": "⚙️ acceptance.checks 配置错误",
+      "longTaskRuntime": "⚠️ 长任务运行时错误"
     },
     "followUp": {
       "hint": "留空 = 沿用本敕令配置；填写即本次覆盖（不影响后续继续批示）。",

@@ -639,6 +639,89 @@
     "zh-modern": "Modern",
     "en": "English"
   },
+  "ops": {
+    "title": "Ops Monitor",
+    "tab": {
+      "eventbus": "Event bus",
+      "workers": "Concurrency",
+      "hooks": "Hooks & Notifications"
+    },
+    "eventbus": {
+      "stat": {
+        "total": "Total events",
+        "types": "Event types",
+        "handlers": "Registered handlers",
+        "recent": "Recent events"
+      },
+      "table": {
+        "type": "Event type",
+        "edict": "Task",
+        "memorial": "Execution",
+        "detail": "Detail",
+        "time": "Time"
+      },
+      "dist": "Event type distribution",
+      "handlersTitle": "Registered handlers",
+      "recentTitle": "Recent event stream",
+      "handlerCol": "Handler",
+      "priority": "Priority",
+      "emptyHandlers": "No registrations",
+      "emptyEvents": "No events"
+    },
+    "workers": {
+      "empty": "Unable to fetch worker status",
+      "active": "Active tasks",
+      "maxConcurrency": "Max concurrency",
+      "queue": "Queued",
+      "completed": "Completed",
+      "failed": "Failed",
+      "globalLane": "GlobalLane — system concurrency",
+      "active2": "Active",
+      "available": "Available",
+      "slotUsage": "Slot usage",
+      "sessionLane": "SessionLane — task concurrency",
+      "edictId": "Task ID",
+      "availableSlot": "Available slot",
+      "status": "Status",
+      "running": "Running",
+      "idle": "Idle",
+      "emptySession": "No active sessions",
+      "emptySessionDesc": "No active session lane"
+    },
+    "hooks": {
+      "registered": "Registered hooks",
+      "types": "Hook types",
+      "channels": "Notification channels",
+      "registryTitle": "Hook registry",
+      "type": "Hook type",
+      "handler": "Handler",
+      "priority": "Priority",
+      "priorityHighest": "Highest",
+      "priorityHigh": "High",
+      "priorityMid": "Mid",
+      "priorityLow": "Low",
+      "emptyRegistry": "No registrations",
+      "channelsTitle": "Notification channels",
+      "channelName": "Channel name",
+      "channelType": "Type",
+      "rateLimit": "Rate limit",
+      "recentSends": "Recent sends",
+      "emptyChannels": "No registered channels",
+      "emptyChannelsDesc": "No notification channels registered",
+      "label": {
+        "before_agent_start": "Before agent start",
+        "before_tool_call": "Before tool call",
+        "after_tool_call": "After tool call",
+        "llm_input": "LLM input",
+        "llm_output": "LLM output",
+        "agent_end": "Agent end",
+        "before_iteration": "Before iteration",
+        "before_compaction": "Before compaction",
+        "session_start": "Session start",
+        "session_end": "Session end"
+      }
+    }
+  },
   "comp": {
     "usage": {
       "title": "Usage",
@@ -746,6 +829,68 @@
       "initializing": "Initializing…",
       "executing": "Running…",
       "auditReasons": "Audit reasons: "
+    },
+    "appHeader": {
+      "tagline": "There is only one kind of success — to be able to spend your life in your own way."
+    },
+    "healthDot": {
+      "ok": "Online",
+      "err": "Offline"
+    },
+    "connection": {
+      "online": "Live",
+      "offline": "Offline",
+      "onlineTitle": "WebSocket connected",
+      "offlineTitle": "WebSocket disconnected, falling back to polling"
+    },
+    "dag": {
+      "battleEmpty": "No DAG data",
+      "cancelConfirm": "Cancel the entire DAG execution?",
+      "retryConfirm": "Retry failed nodes?"
+    },
+    "worker": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "globalLane": "Global lane"
+    },
+    "profile": {
+      "loading": "Loading profile…",
+      "loadFailed": "Load failed",
+      "empty": "No profile yet. First version is auto-generated every 20 AGENT_END events or daily at 03:00; you can also click \"Synthesize now\".",
+      "synthesize": "Synthesize now",
+      "history": "📜 History",
+      "editManual": "Edit manual",
+      "synthesizedAt": "Synthesized at {date}",
+      "userEdited": "User-edited",
+      "degraded": "⚠️ Degraded",
+      "manualEditTitle": "Edit manual section (synthesizer will not overwrite)",
+      "manualEditPlaceholder": "Write the content you want to add (Markdown supported)",
+      "toast": {
+        "synthesisFailed": "Synthesis failed",
+        "synthesisCompleted": "Synthesis complete",
+        "synthesisDegraded": "Synthesis complete (degraded mode)",
+        "synthesisSkipped": "Skipped (already running)",
+        "manualSaved": "Manual section saved"
+      }
+    },
+    "policyToast": {
+      "downgradedTitle": "Permanent grant downgraded to once",
+      "downgradedDescDefault": "{tool} does not support always grant; downgraded to once.",
+      "approvalRequired": "Approval required",
+      "policyDeny": "Policy denied",
+      "fallbackTool": "the tool"
+    },
+    "error": {
+      "budgetCost": "💴 Cost budget exhausted",
+      "budgetTime": "⏱️ Time budget exhausted",
+      "budgetTokens": "🔢 Token budget exhausted",
+      "budgetGeneric": "💸 Budget exhausted",
+      "usagePctSuffix": " ({pct}% used)",
+      "exhausted": "🔁 Max iterations reached",
+      "abortedHuman": "🛑 Aborted by user",
+      "exhaustedAbort": "🛑 Aborted by user after max iterations",
+      "checksConfig": "⚙️ acceptance.checks misconfigured",
+      "longTaskRuntime": "⚠️ Long task runtime error"
     },
     "followUp": {
       "hint": "Empty = inherit task config; fill in to override for this turn (does not affect future follow-ups).",

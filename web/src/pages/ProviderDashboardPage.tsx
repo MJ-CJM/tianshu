@@ -13,26 +13,28 @@ import { DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useProviders, useDeleteProvider, usePlugins } from "../hooks/useProviders";
 import type { ProviderInfo, PluginInfo } from "../api/types";
+import { useT, type TFunction } from "../i18n";
 
 const { Title } = Typography;
 
-const providerColumns = (
+const buildProviderColumns = (
+  t: TFunction,
   onDelete: (name: string) => void,
 ): ColumnsType<ProviderInfo> => [
   {
-    title: "名称",
+    title: t("system.providers.table.name"),
     dataIndex: "name",
     key: "name",
     width: 140,
   },
   {
-    title: "模型",
+    title: t("system.providers.table.model"),
     dataIndex: "model",
     key: "model",
     width: 160,
   },
   {
-    title: "状态",
+    title: t("system.providers.table.status"),
     dataIndex: "status",
     key: "status",
     width: 100,
@@ -42,14 +44,14 @@ const providerColumns = (
     },
   },
   {
-    title: "优先级",
+    title: t("system.providers.table.priority"),
     dataIndex: "priority",
     key: "priority",
     width: 80,
     align: "right",
   },
   {
-    title: "RPM 限制",
+    title: t("system.providers.table.rpm"),
     dataIndex: "rpm_limit",
     key: "rpm_limit",
     width: 100,
@@ -57,7 +59,7 @@ const providerColumns = (
     render: (v: number | null) => v ?? "-",
   },
   {
-    title: "每千 Token 成本",
+    title: t("cost.summary.totalCost"),
     dataIndex: "cost_per_1k_prompt",
     key: "cost_per_1k_prompt",
     width: 140,
@@ -65,32 +67,32 @@ const providerColumns = (
     render: (v: number | null) => (v != null ? `¥${v.toFixed(4)}` : "-"),
   },
   {
-    title: "操作",
+    title: t("system.skills.table.actions"),
     key: "actions",
     width: 80,
     render: (_, record) => (
-      <Popconfirm title="确定删除此 Provider？" onConfirm={() => onDelete(record.name)}>
+      <Popconfirm title={t("system.providers.confirmDeleteProvider")} onConfirm={() => onDelete(record.name)}>
         <Button type="text" danger size="small" icon={<DeleteOutlined />} />
       </Popconfirm>
     ),
   },
 ];
 
-const pluginColumns: ColumnsType<PluginInfo> = [
+const buildPluginColumns = (t: TFunction): ColumnsType<PluginInfo> => [
   {
-    title: "名称",
+    title: t("system.plugins.table.name"),
     dataIndex: "name",
     key: "name",
     width: 160,
   },
   {
-    title: "版本",
+    title: t("system.plugins.table.version"),
     dataIndex: "version",
     key: "version",
     width: 100,
   },
   {
-    title: "状态",
+    title: t("system.plugins.table.status"),
     dataIndex: "status",
     key: "status",
     width: 100,
@@ -99,7 +101,7 @@ const pluginColumns: ColumnsType<PluginInfo> = [
     ),
   },
   {
-    title: "安装时间",
+    title: t("system.plugins.table.installedAt"),
     dataIndex: "installed_at",
     key: "installed_at",
     width: 180,
@@ -108,26 +110,27 @@ const pluginColumns: ColumnsType<PluginInfo> = [
 ];
 
 export default function ProviderDashboardPage() {
+  const t = useT();
   const { data: providers, isLoading: providersLoading } = useProviders();
   const { data: plugins, isLoading: pluginsLoading } = usePlugins();
   const deleteMutation = useDeleteProvider();
 
   const handleDelete = (name: string) => {
     deleteMutation.mutate(name, {
-      onSuccess: () => notification.success({ message: `Provider "${name}" 已删除` }),
+      onSuccess: () => notification.success({ message: t("system.toast.providerDeleted", { name }) }),
     });
   };
 
   return (
     <div style={{ padding: 24 }}>
       <Space direction="vertical" size="large" style={{ width: "100%" }}>
-        <Title level={4}>Provider 列表</Title>
+        <Title level={4}>{t("system.providers.listTitle")}</Title>
         <Card>
           {!providers?.length && !providersLoading ? (
-            <Empty description="暂无 Provider" />
+            <Empty description={t("system.providers.empty")} />
           ) : (
             <Table<ProviderInfo>
-              columns={providerColumns(handleDelete)}
+              columns={buildProviderColumns(t, handleDelete)}
               dataSource={providers ?? []}
               rowKey="name"
               loading={providersLoading}
@@ -137,13 +140,13 @@ export default function ProviderDashboardPage() {
           )}
         </Card>
 
-        <Title level={4}>插件列表</Title>
+        <Title level={4}>{t("system.tab.plugins")}</Title>
         <Card>
           {!plugins?.length && !pluginsLoading ? (
-            <Empty description="暂无插件" />
+            <Empty description={t("system.plugins.empty")} />
           ) : (
             <Table<PluginInfo>
-              columns={pluginColumns}
+              columns={buildPluginColumns(t)}
               dataSource={plugins ?? []}
               rowKey="name"
               loading={pluginsLoading}

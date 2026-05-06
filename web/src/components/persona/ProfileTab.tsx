@@ -20,12 +20,14 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { usePersonaProfile } from "../../hooks/usePersonaProfile";
 import { getProfileHistory, updateProfileManual } from "../../api/profile";
+import { useT } from "../../i18n";
 
 interface Props {
   personaId: string;
 }
 
 export default function ProfileTab({ personaId }: Props) {
+  const t = useT();
   const { data, isLoading, error } = usePersonaProfile(personaId);
   const qc = useQueryClient();
 
@@ -49,7 +51,7 @@ export default function ProfileTab({ personaId }: Props) {
       });
       if (!resp.ok || !resp.body) {
         notification.error({
-          message: "合成失败",
+          message: t("comp.profile.toast.synthesisFailed"),
           description: `HTTP ${resp.status}`,
         });
         setSyncStatus(null);
@@ -85,13 +87,13 @@ export default function ProfileTab({ personaId }: Props) {
         if (terminal) break;
       }
       if (terminal === "profile.synthesis.completed") {
-        notification.success({ message: "合成完成" });
+        notification.success({ message: t("comp.profile.toast.synthesisCompleted") });
       } else if (terminal === "profile.synthesis.degraded") {
-        notification.warning({ message: "合成完成(降级模式)" });
+        notification.warning({ message: t("comp.profile.toast.synthesisDegraded") });
       } else if (terminal === "profile.synthesis.failed") {
-        notification.error({ message: "合成失败" });
+        notification.error({ message: t("comp.profile.toast.synthesisFailed") });
       } else if (terminal === "profile.synthesis.skipped") {
-        notification.info({ message: "已跳过(并发运行中)" });
+        notification.info({ message: t("comp.profile.toast.synthesisSkipped") });
       }
       await qc.invalidateQueries({
         queryKey: ["persona", "profile", personaId],
@@ -128,7 +130,7 @@ export default function ProfileTab({ personaId }: Props) {
     try {
       const resp = await updateProfileManual(personaId, manualDraft);
       if (resp.success) {
-        notification.success({ message: "手写段已保存" });
+        notification.success({ message: t("comp.profile.toast.manualSaved") });
         setManualOpen(false);
         await qc.invalidateQueries({
           queryKey: ["persona", "profile", personaId],
@@ -142,7 +144,7 @@ export default function ProfileTab({ personaId }: Props) {
   if (isLoading) {
     return (
       <div style={{ padding: 24, textAlign: "center" }}>
-        <Spin tip="加载成长档案…" />
+        <Spin tip={t("comp.profile.loading")} />
       </div>
     );
   }
@@ -152,7 +154,7 @@ export default function ProfileTab({ personaId }: Props) {
       <Alert
         type="error"
         showIcon
-        message="加载失败"
+        message={t("comp.profile.loadFailed")}
         description={String((error as Error).message ?? error)}
         style={{ margin: 16 }}
       />
@@ -162,7 +164,7 @@ export default function ProfileTab({ personaId }: Props) {
   if (!data?.exists) {
     return (
       <Empty
-        description='暂无成长档案。首版将在 AGENT_END 每 20 次 或每日 03:00 自动生成；也可点击"立即合成"。'
+        description={t("comp.profile.empty")}
         style={{ padding: 48 }}
       />
     );
@@ -179,13 +181,13 @@ export default function ProfileTab({ personaId }: Props) {
           loading={syncing}
           onClick={handleSynthesize}
         >
-          立即合成
+          {t("comp.profile.synthesize")}
           {syncStatus
             ? ` (${syncStatus.replace("profile.synthesis.", "")})`
             : ""}
         </Button>
         <Select
-          placeholder="📜 历史版本"
+          placeholder={t("comp.profile.history")}
           style={{ minWidth: 180 }}
           loading={historyLoading}
           onChange={handleHistoryChange}
@@ -193,7 +195,7 @@ export default function ProfileTab({ personaId }: Props) {
           options={data.history.map((h) => ({ label: h.name, value: h.name }))}
         />
         <Button icon={<EditOutlined />} onClick={openManualEdit}>
-          编辑手写
+          {t("comp.profile.editManual")}
         </Button>
       </Space>
 
@@ -201,13 +203,13 @@ export default function ProfileTab({ personaId }: Props) {
         {fm && <Tag color="blue">v{fm.version}</Tag>}
         {fm?.data_window && <Tag>window {fm.data_window}</Tag>}
         {fm?.last_synthesized && (
-          <Tag color="default">合成于 {fm.last_synthesized.slice(0, 10)}</Tag>
+          <Tag color="default">{t("comp.profile.synthesizedAt", { date: fm.last_synthesized.slice(0, 10) })}</Tag>
         )}
         {fm?.synthesizer_model && (
           <Tag color="purple">{fm.synthesizer_model}</Tag>
         )}
-        {fm?.manually_edited && <Tag color="cyan">用户手改</Tag>}
-        {degraded && <Tag color="warning">⚠️ 降级</Tag>}
+        {fm?.manually_edited && <Tag color="cyan">{t("comp.profile.userEdited")}</Tag>}
+        {degraded && <Tag color="warning">{t("comp.profile.degraded")}</Tag>}
       </Space>
 
       <div className="tianshu-markdown">
@@ -232,10 +234,10 @@ export default function ProfileTab({ personaId }: Props) {
 
       <Modal
         open={manualOpen}
-        title="编辑手写段(synthesizer 不会覆盖)"
+        title={t("comp.profile.manualEditTitle")}
         width={700}
-        okText="保存"
-        cancelText="取消"
+        okText={t("button.save")}
+        cancelText={t("common.cancel")}
         onOk={handleManualSave}
         onCancel={() => setManualOpen(false)}
         confirmLoading={manualSaving}
@@ -244,7 +246,7 @@ export default function ProfileTab({ personaId }: Props) {
           rows={16}
           value={manualDraft}
           onChange={(e) => setManualDraft(e.target.value)}
-          placeholder="在这里写下你希望补充的内容(Markdown 支持)"
+          placeholder={t("comp.profile.manualEditPlaceholder")}
         />
       </Modal>
     </div>
