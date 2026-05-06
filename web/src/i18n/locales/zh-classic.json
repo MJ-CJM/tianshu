@@ -729,7 +729,67 @@
       "deptCreated": "部门已创建",
       "deptUpdated": "部门已更新",
       "deptDeleted": "部门已删除",
-      "deptDeleteFailed": "删除失败，该部门下仍有官员"
+      "deptDeleteFailed": "删除失败，该部门下仍有官员",
+      "regenerateSuccess": "身份文件已重新生成",
+      "regenerateSuccessDesc": "SOUL.md / ROLE.md 已基于姓名、部门、职务重写。",
+      "regenerateFailed": "重新生成失败"
+    },
+    "detail": {
+      "title": "官员详情",
+      "notFound": "未找到该官员",
+      "pageTitle": "{name}: {dept}",
+      "pageTitleWithTitle": "{name}（{title}）: {dept}",
+      "regenerate": "重新生成身份文件",
+      "regenerateConfirm": "重新生成身份文件？",
+      "regenerateDesc": "将基于当前姓名/部门/职务覆盖 SOUL.md 与 ROLE.md，原文件内容会丢失。",
+      "regenerateOk": "覆盖重写",
+      "back": "返回{name}",
+      "tab": {
+        "overview": "概览",
+        "prompt": "指令文件",
+        "history": "执行记录",
+        "memory": "记忆",
+        "profile": "成长档案"
+      },
+      "section": {
+        "identity": "身份信息",
+        "toolsSkills": "工具与技能",
+        "delegation": "委派关系",
+        "metrics": "执行指标",
+        "instructionFiles": "指令文件",
+        "memoryEntries": "记忆条目"
+      },
+      "field": {
+        "id": "ID",
+        "name": "名称",
+        "dept": "部门",
+        "title": "职务",
+        "llmConfig": "LLM 配置",
+        "toolPermission": "工具权限等级",
+        "toolsAllowed": "允许工具",
+        "toolsDenied": "禁用工具",
+        "skills": "技能注入",
+        "canDelegate": "可委派",
+        "delegatesTo": "可委派至"
+      },
+      "value": {
+        "notAssigned": "未指派",
+        "globalConfig": "全局配置",
+        "yes": "是",
+        "no": "否",
+        "none": "无",
+        "allSkills": "全部技能（无过滤）",
+        "noSpecified": "无指定（按 tier 过滤）"
+      },
+      "previewBtn": "预览完整 Prompt",
+      "history": {
+        "empty": "暂无执行记录",
+        "viewEdict": "查看敕令",
+        "count": "{n} 条奏折"
+      },
+      "memory": {
+        "count": "{n} 条"
+      }
     },
     "form": {
       "persona": {

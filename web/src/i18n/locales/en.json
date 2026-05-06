@@ -729,7 +729,67 @@
       "deptCreated": "Department created",
       "deptUpdated": "Department updated",
       "deptDeleted": "Department deleted",
-      "deptDeleteFailed": "Delete failed — department still has personas"
+      "deptDeleteFailed": "Delete failed — department still has personas",
+      "regenerateSuccess": "Identity files regenerated",
+      "regenerateSuccessDesc": "SOUL.md / ROLE.md rewritten based on name, department, and title.",
+      "regenerateFailed": "Regenerate failed"
+    },
+    "detail": {
+      "title": "Persona detail",
+      "notFound": "Persona not found",
+      "pageTitle": "{name}: {dept}",
+      "pageTitleWithTitle": "{name} ({title}): {dept}",
+      "regenerate": "Regenerate identity files",
+      "regenerateConfirm": "Regenerate identity files?",
+      "regenerateDesc": "SOUL.md and ROLE.md will be overwritten based on the current name / department / title. Original contents will be lost.",
+      "regenerateOk": "Overwrite",
+      "back": "Back to {name}",
+      "tab": {
+        "overview": "Overview",
+        "prompt": "Prompt files",
+        "history": "Execution history",
+        "memory": "Memory",
+        "profile": "Profile"
+      },
+      "section": {
+        "identity": "Identity",
+        "toolsSkills": "Tools & skills",
+        "delegation": "Delegation",
+        "metrics": "Metrics",
+        "instructionFiles": "Instruction files",
+        "memoryEntries": "Memory entries"
+      },
+      "field": {
+        "id": "ID",
+        "name": "Name",
+        "dept": "Department",
+        "title": "Title",
+        "llmConfig": "LLM Config",
+        "toolPermission": "Tool permission tier",
+        "toolsAllowed": "Allowed tools",
+        "toolsDenied": "Denied tools",
+        "skills": "Injected skills",
+        "canDelegate": "Can delegate",
+        "delegatesTo": "Can delegate to"
+      },
+      "value": {
+        "notAssigned": "Not assigned",
+        "globalConfig": "Global config",
+        "yes": "Yes",
+        "no": "No",
+        "none": "None",
+        "allSkills": "All skills (no filter)",
+        "noSpecified": "Not specified (filtered by tier)"
+      },
+      "previewBtn": "Preview full prompt",
+      "history": {
+        "empty": "No execution records",
+        "viewEdict": "View task",
+        "count": "{n} executions"
+      },
+      "memory": {
+        "count": "{n} entries"
+      }
     },
     "form": {
       "persona": {
