@@ -180,12 +180,6 @@
     "action": "Approve/Reject",
     "comment": "Comment (optional)"
   },
-  "toast": {
-    "toolApproved": "Approved {tool}",
-    "toolApprovedWithRule": "Approved and saved session rule ({scope})",
-    "toolRejected": "Rejected {tool}",
-    "actionFailed": "Action failed"
-  },
   "statusFilter": {
     "all": "All Status"
   },
@@ -209,25 +203,6 @@
       "retry": "Retry — Same goal",
       "amend": "Amend — Edit goal then retry",
       "cancel": "Cancel — Stop task"
-    }
-  },
-  "form": {
-    "search": {
-      "edict": "Search tasks..."
-    },
-    "decree": {
-      "field": {
-        "action": "Action",
-        "amendedGoal": "Amended Goal",
-        "comment": "Comment (optional)"
-      },
-      "placeholder": {
-        "amendedGoal": "Enter amended task goal",
-        "comment": "Optional comment"
-      },
-      "validation": {
-        "amendedGoalRequired": "Amended goal required for amend action"
-      }
     }
   },
   "empty": {

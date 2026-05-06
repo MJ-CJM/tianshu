@@ -180,12 +180,6 @@
     "action": "准/驳",
     "comment": "批注（可选）"
   },
-  "toast": {
-    "toolApproved": "已放行 {tool}",
-    "toolApprovedWithRule": "已放行并写入 session rule ({scope})",
-    "toolRejected": "已拒绝 {tool}",
-    "actionFailed": "操作失败"
-  },
   "statusFilter": {
     "all": "全部状态"
   },
@@ -209,25 +203,6 @@
       "retry": "重办 — 原目标重试",
       "amend": "改批 — 修改目标后重试",
       "cancel": "撤回 — 取消任务"
-    }
-  },
-  "form": {
-    "search": {
-      "edict": "搜索敕令..."
-    },
-    "decree": {
-      "field": {
-        "action": "操作",
-        "amendedGoal": "修改后目标",
-        "comment": "批注（可选）"
-      },
-      "placeholder": {
-        "amendedGoal": "请输入修改后的任务目标",
-        "comment": "可选批注"
-      },
-      "validation": {
-        "amendedGoalRequired": "改批操作须填写修改后目标"
-      }
     }
   },
   "empty": {
