@@ -61,6 +61,7 @@ import type {
   DepartmentCreateRequest,
   DepartmentUpdateRequest,
 } from "../api/types";
+import { useT } from "../i18n";
 
 function PersonaCard({
   persona,
@@ -75,6 +76,7 @@ function PersonaCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const t = useT();
   const { token } = theme.useToken();
   const navigate = useNavigate();
   const { data: metrics, isLoading } = usePersonaMetrics(expanded ? persona.id : null);
@@ -97,7 +99,7 @@ function PersonaCard({
           <Tag color="blue">{persona.department_name ?? persona.department}</Tag>
           {persona.can_delegate && (
             <Tag icon={<CheckCircleOutlined />} color="green">
-              可委派
+              {t("persona.card.delegate")}
             </Tag>
           )}
         </Space>
@@ -117,11 +119,11 @@ function PersonaCard({
             onClick={onEdit}
           />
           <Popconfirm
-            title="确定删除该官员？"
-            description="删除后不可恢复"
+            title={t("persona.confirm.deletePersona")}
+            description={t("persona.confirm.deletePersonaDesc")}
             onConfirm={onDelete}
-            okText="确认"
-            cancelText="取消"
+            okText={t("common.confirm")}
+            cancelText={t("common.cancel")}
           >
             <Button type="text" size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
@@ -132,7 +134,7 @@ function PersonaCard({
       {/* Tool tier — the primary capability indicator */}
       <div style={{ marginBottom: 8 }}>
         <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
-          工具权限
+          {t("persona.card.toolPermission")}
         </Typography.Text>
         <div style={{ marginTop: 4 }}>
           <Tag
@@ -143,10 +145,10 @@ function PersonaCard({
           </Tag>
           <Typography.Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
             {persona.tool_tier_max === 0
-              ? "仅监控/审核，不操作工具"
+              ? t("persona.tier.tier0")
               : persona.tool_tier_max === 1
-                ? "基础工具（只读）"
-                : `可使用 tier ≤ ${persona.tool_tier_max} 的所有工具`}
+                ? t("persona.tier.tier1")
+                : t("persona.tier.tierN", { n: persona.tool_tier_max })}
           </Typography.Text>
         </div>
       </div>
@@ -155,7 +157,7 @@ function PersonaCard({
       {persona.tools_allowed.length > 0 && (
         <div style={{ marginBottom: 8 }}>
           <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
-            指定工具
+            {t("persona.card.specifiedTools")}
           </Typography.Text>
           <div style={{ marginTop: 4 }}>
             {persona.tools_allowed.map((tool) => (
@@ -171,7 +173,7 @@ function PersonaCard({
       {persona.tools_denied.length > 0 && (
         <div style={{ marginBottom: 8 }}>
           <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
-            禁用工具
+            {t("persona.card.deniedTools")}
           </Typography.Text>
           <div style={{ marginTop: 4 }}>
             {persona.tools_denied.map((tool) => (
@@ -186,7 +188,7 @@ function PersonaCard({
       {/* Skills */}
       <div style={{ marginBottom: 8 }}>
         <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
-          技能注入
+          {t("persona.card.skills")}
         </Typography.Text>
         <div style={{ marginTop: 4 }}>
           {persona.skills_allowed.length > 0 ? (
@@ -197,7 +199,7 @@ function PersonaCard({
             ))
           ) : (
             <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-              全部技能（无过滤）
+              {t("persona.card.allSkills")}
             </Typography.Text>
           )}
         </div>
@@ -207,7 +209,7 @@ function PersonaCard({
       {persona.delegates_to.length > 0 && (
         <div style={{ marginBottom: 8 }}>
           <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
-            可委派至
+            {t("persona.card.delegatesTo")}
           </Typography.Text>
           <div style={{ marginTop: 4 }}>
             {persona.delegates_to.map((d) => (
@@ -223,7 +225,7 @@ function PersonaCard({
       {persona.llm_config_name && (
         <div style={{ marginBottom: 8 }}>
           <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
-            LLM 配置
+            {t("persona.card.llmConfig")}
           </Typography.Text>
           <div style={{ marginTop: 4 }}>
             <Tag color="orange" style={{ fontSize: 11 }}>
@@ -251,14 +253,14 @@ function PersonaCard({
               <Row gutter={16}>
                 <Col span={12}>
                   <Statistic
-                    title="总执行"
+                    title={t("persona.metric.total")}
                     value={metrics.total_executions}
                     valueStyle={{ fontSize: 18 }}
                   />
                 </Col>
                 <Col span={12}>
                   <Statistic
-                    title="完成"
+                    title={t("persona.metric.completed")}
                     value={metrics.completed}
                     valueStyle={{ fontSize: 18, color: token.colorSuccess }}
                   />
@@ -267,7 +269,7 @@ function PersonaCard({
               <Row gutter={16}>
                 <Col span={12}>
                   <Statistic
-                    title="失败"
+                    title={t("persona.metric.failed")}
                     value={metrics.failed}
                     valueStyle={{ fontSize: 18, color: token.colorError }}
                   />
@@ -277,7 +279,7 @@ function PersonaCard({
                     <Typography.Text
                       style={{ fontSize: 12, color: token.colorTextSecondary }}
                     >
-                      成功率
+                      {t("persona.metric.successRate")}
                     </Typography.Text>
                     <Progress
                       percent={Number(metrics.success_rate.toFixed(1))}
@@ -290,14 +292,14 @@ function PersonaCard({
               <Row gutter={16}>
                 <Col span={12}>
                   <Statistic
-                    title="总 Token"
+                    title={t("persona.metric.totalTokens")}
                     value={metrics.total_tokens}
                     valueStyle={{ fontSize: 16 }}
                   />
                 </Col>
                 <Col span={12}>
                   <Statistic
-                    title="均 Token"
+                    title={t("persona.metric.avgTokens")}
                     value={metrics.avg_tokens_per_execution}
                     valueStyle={{ fontSize: 16 }}
                   />
@@ -306,7 +308,7 @@ function PersonaCard({
               <Row gutter={16}>
                 <Col span={12}>
                   <Statistic
-                    title="总成本"
+                    title={t("persona.metric.totalCost")}
                     value={metrics.total_cost_cny}
                     prefix="¥"
                     precision={4}
@@ -315,7 +317,7 @@ function PersonaCard({
                 </Col>
                 <Col span={12}>
                   <Statistic
-                    title="均耗时"
+                    title={t("persona.metric.avgDuration")}
                     value={metrics.avg_duration_seconds}
                     suffix="s"
                     precision={1}
@@ -325,7 +327,7 @@ function PersonaCard({
               </Row>
             </Space>
           ) : (
-            <Typography.Text type="secondary">暂无指标数据</Typography.Text>
+            <Typography.Text type="secondary">{t("persona.metric.empty")}</Typography.Text>
           )}
         </div>
       )}
@@ -350,6 +352,7 @@ function PersonaFormModal({
   onSubmit: (values: PersonaCreateRequest | PersonaUpdateRequest) => void;
   loading: boolean;
 }) {
+  const t = useT();
   const [form] = Form.useForm();
   const isEdit = !!editingPersona;
   const { data: tools } = useTools();
@@ -357,15 +360,15 @@ function PersonaFormModal({
   const { data: configsData } = useConfigs();
 
   const llmConfigOptions = [
-    { value: "", label: "使用全局配置（默认）" },
+    { value: "", label: t("persona.form.persona.llmConfigGlobal") },
     ...(configsData?.configs ?? []).map((c) => ({
       value: c.name,
       label: `${c.name} (${c.model})`,
     })),
   ];
-  const toolOptions = (tools ?? []).map((t) => ({
-    value: t.name,
-    label: `${t.name} (tier ${t.tier})`,
+  const toolOptions = (tools ?? []).map((tool) => ({
+    value: tool.name,
+    label: `${tool.name} (tier ${tool.tier})`,
   }));
   const skillOptions = (skills ?? []).map((s) => ({
     value: s.name,
@@ -393,7 +396,7 @@ function PersonaFormModal({
 
   return (
     <Modal
-      title={isEdit ? "编辑官员" : "添加官员"}
+      title={isEdit ? t("persona.form.persona.editTitle") : t("persona.form.persona.addTitle")}
       open={open}
       onCancel={onClose}
       afterOpenChange={(visible) => visible && handleOpen()}
@@ -418,86 +421,86 @@ function PersonaFormModal({
         {!isEdit && (
           <Form.Item
             name="id"
-            label="ID"
+            label={t("persona.form.persona.field.id")}
             rules={[
-              { required: true, message: "请输入 ID" },
-              { pattern: /^[a-z][a-z0-9_]*$/, message: "仅允许小写字母、数字和下划线" },
+              { required: true, message: t("persona.form.persona.validation.idRequired") },
+              { pattern: /^[a-z][a-z0-9_]*$/, message: t("persona.form.persona.validation.idPattern") },
             ]}
           >
-            <Input placeholder="如 bingbu, neige" />
+            <Input placeholder={t("persona.form.persona.placeholder.id")} />
           </Form.Item>
         )}
         <Form.Item
           name="name"
-          label="名称"
-          rules={[{ required: true, message: "请输入名称" }]}
+          label={t("persona.form.persona.field.name")}
+          rules={[{ required: true, message: t("persona.form.persona.validation.nameRequired") }]}
         >
-          <Input placeholder="如 王阳明、兵部尚书" />
+          <Input placeholder={t("persona.form.persona.placeholder.name")} />
         </Form.Item>
         <Form.Item
           name="title"
-          label="职务（部门内岗位）"
-          rules={[{ max: 32, message: "最多 32 字" }]}
-          tooltip="如：大学士、协理通政、参谋。可选；填了之后会写入官员的身份卡，自报家门更准确。"
+          label={t("persona.form.persona.field.title")}
+          rules={[{ max: 32, message: t("persona.form.persona.validation.titleMax") }]}
+          tooltip={t("persona.form.persona.tooltip.title")}
         >
-          <Input placeholder="如 大学士、协理通政（可选）" maxLength={32} />
+          <Input placeholder={t("persona.form.persona.placeholder.title")} maxLength={32} />
         </Form.Item>
         <Form.Item
           name="department"
-          label="部门"
-          rules={[{ required: true, message: "请选择部门" }]}
+          label={t("persona.form.persona.field.department")}
+          rules={[{ required: true, message: t("persona.form.persona.validation.departmentRequired") }]}
         >
           <Select
-            placeholder="选择部门"
+            placeholder={t("persona.form.persona.placeholder.department")}
             options={deptOptions}
             showSearch
             optionFilterProp="label"
           />
         </Form.Item>
-        <Form.Item name="llm_config_name" label="LLM 配置">
+        <Form.Item name="llm_config_name" label={t("persona.form.persona.field.llmConfig")}>
           <Select
-            placeholder="使用全局配置（默认）"
+            placeholder={t("persona.form.persona.placeholder.llmConfig")}
             options={llmConfigOptions}
             allowClear
           />
         </Form.Item>
-        <Form.Item name="tools_allowed" label="允许工具">
+        <Form.Item name="tools_allowed" label={t("persona.form.persona.field.toolsAllowed")}>
           <Select
             mode="multiple"
-            placeholder="选择允许使用的工具"
+            placeholder={t("persona.form.persona.placeholder.toolsAllowed")}
             options={toolOptions}
             showSearch
             optionFilterProp="label"
           />
         </Form.Item>
-        <Form.Item name="tools_denied" label="禁用工具">
+        <Form.Item name="tools_denied" label={t("persona.form.persona.field.toolsDenied")}>
           <Select
             mode="multiple"
-            placeholder="选择禁用的工具"
+            placeholder={t("persona.form.persona.placeholder.toolsDenied")}
             options={toolOptions}
             showSearch
             optionFilterProp="label"
           />
         </Form.Item>
-        <Form.Item name="skills_allowed" label="技能">
+        <Form.Item name="skills_allowed" label={t("persona.form.persona.field.skills")}>
           <Select
             mode="multiple"
-            placeholder="选择技能（留空 = 全部注入）"
+            placeholder={t("persona.form.persona.placeholder.skills")}
             options={skillOptions}
             showSearch
             optionFilterProp="label"
           />
         </Form.Item>
-        <Form.Item name="tool_tier_max" label="最大工具等级">
+        <Form.Item name="tool_tier_max" label={t("persona.form.persona.field.tierMax")}>
           <InputNumber min={0} max={10} style={{ width: "100%" }} />
         </Form.Item>
-        <Form.Item name="can_delegate" label="可委派" valuePropName="checked">
+        <Form.Item name="can_delegate" label={t("persona.form.persona.field.canDelegate")} valuePropName="checked">
           <Switch />
         </Form.Item>
-        <Form.Item name="delegates_to" label="可委派目标">
+        <Form.Item name="delegates_to" label={t("persona.form.persona.field.delegatesTo")}>
           <Select
             mode="multiple"
-            placeholder="选择可委派的官员"
+            placeholder={t("persona.form.persona.placeholder.delegatesTo")}
             options={personas
               .filter((p) => p.id !== editingPersona?.id)
               .map((p) => ({ value: p.id, label: `${p.name} (${p.id})` }))}
@@ -521,6 +524,7 @@ function DepartmentFormModal({
   onSubmit: (values: DepartmentCreateRequest | DepartmentUpdateRequest) => void;
   loading: boolean;
 }) {
+  const t = useT();
   const [form] = Form.useForm();
   const isEdit = !!editingDept;
 
@@ -538,7 +542,7 @@ function DepartmentFormModal({
 
   return (
     <Modal
-      title={isEdit ? "编辑部门" : "添加部门"}
+      title={isEdit ? t("persona.form.department.editTitle") : t("persona.form.department.addTitle")}
       open={open}
       onCancel={onClose}
       afterOpenChange={(visible) => visible && handleOpen()}
@@ -551,24 +555,24 @@ function DepartmentFormModal({
         {!isEdit && (
           <Form.Item
             name="id"
-            label="部门 ID"
+            label={t("persona.form.department.field.id")}
             rules={[
-              { required: true, message: "请输入部门 ID" },
-              { pattern: /^[a-z][a-z0-9_]*$/, message: "仅允许小写字母、数字和下划线" },
+              { required: true, message: t("persona.form.department.validation.idRequired") },
+              { pattern: /^[a-z][a-z0-9_]*$/, message: t("persona.form.department.validation.idPattern") },
             ]}
           >
-            <Input placeholder="如 bingbu, neige" />
+            <Input placeholder={t("persona.form.department.placeholder.id")} />
           </Form.Item>
         )}
         <Form.Item
           name="name"
-          label="部门名称"
-          rules={[{ required: true, message: "请输入部门名称" }]}
+          label={t("persona.form.department.field.name")}
+          rules={[{ required: true, message: t("persona.form.department.validation.nameRequired") }]}
         >
-          <Input placeholder="如 兵部 (Ministry of War)" />
+          <Input placeholder={t("persona.form.department.placeholder.name")} />
         </Form.Item>
-        <Form.Item name="description" label="描述">
-          <Input.TextArea rows={3} placeholder="部门职责描述（可选）" />
+        <Form.Item name="description" label={t("persona.form.department.field.description")}>
+          <Input.TextArea rows={3} placeholder={t("persona.form.department.placeholder.description")} />
         </Form.Item>
       </Form>
     </Modal>
@@ -582,6 +586,7 @@ function DepartmentTab({
   departments: DepartmentInfo[];
   personas: PersonaInfo[];
 }) {
+  const t = useT();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingDept, setEditingDept] = useState<DepartmentInfo | null>(null);
 
@@ -604,7 +609,7 @@ function DepartmentTab({
         { id: editingDept.id, body: values },
         {
           onSuccess: () => {
-            notification.success({ message: "部门已更新" });
+            notification.success({ message: t("persona.toast.deptUpdated") });
             setModalOpen(false);
           },
         },
@@ -612,7 +617,7 @@ function DepartmentTab({
     } else {
       createMutation.mutate(values as DepartmentCreateRequest, {
         onSuccess: () => {
-          notification.success({ message: "部门已创建" });
+          notification.success({ message: t("persona.toast.deptCreated") });
           setModalOpen(false);
         },
       });
@@ -621,20 +626,20 @@ function DepartmentTab({
 
   const handleDelete = (id: string) => {
     deleteMutation.mutate(id, {
-      onSuccess: () => notification.success({ message: "部门已删除" }),
+      onSuccess: () => notification.success({ message: t("persona.toast.deptDeleted") }),
       onError: (err: Error) => {
         const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-        notification.error({ message: msg ?? "删除失败，该部门下仍有官员" });
+        notification.error({ message: msg ?? t("persona.toast.deptDeleteFailed") });
       },
     });
   };
 
   const columns = [
-    { title: "ID", dataIndex: "id", key: "id", width: 120 },
-    { title: "名称", dataIndex: "name", key: "name", width: 200 },
-    { title: "描述", dataIndex: "description", key: "description", ellipsis: true },
+    { title: t("persona.department.table.id"), dataIndex: "id", key: "id", width: 120 },
+    { title: t("persona.department.table.name"), dataIndex: "name", key: "name", width: 200 },
+    { title: t("persona.department.table.description"), dataIndex: "description", key: "description", ellipsis: true },
     {
-      title: "官员数量",
+      title: t("persona.department.table.personaCount"),
       key: "persona_count",
       width: 100,
       render: (_: unknown, record: DepartmentInfo) => (
@@ -644,7 +649,7 @@ function DepartmentTab({
       ),
     },
     {
-      title: "操作",
+      title: t("persona.department.table.actions"),
       key: "actions",
       width: 120,
       render: (_: unknown, record: DepartmentInfo) => (
@@ -659,11 +664,11 @@ function DepartmentTab({
             }}
           />
           <Popconfirm
-            title="确定删除该部门？"
-            description="仅当部门下无官员时可删除"
+            title={t("persona.confirm.deleteDept")}
+            description={t("persona.confirm.deleteDeptDesc")}
             onConfirm={() => handleDelete(record.id)}
-            okText="确认"
-            cancelText="取消"
+            okText={t("common.confirm")}
+            cancelText={t("common.cancel")}
           >
             <Button
               type="text"
@@ -689,7 +694,7 @@ function DepartmentTab({
             setModalOpen(true);
           }}
         >
-          添加部门
+          {t("persona.action.addDept")}
         </Button>
       </div>
       <Table
@@ -697,7 +702,7 @@ function DepartmentTab({
         dataSource={departments.map((d) => ({ key: d.id, ...d }))}
         size="small"
         pagination={false}
-        locale={{ emptyText: "暂无部门" }}
+        locale={{ emptyText: t("persona.empty.noDepartments") }}
       />
       <DepartmentFormModal
         open={modalOpen}
@@ -711,6 +716,7 @@ function DepartmentTab({
 }
 
 export default function PersonaDashboardPage() {
+  const t = useT();
   const { data: personas, isLoading } = usePersonas();
   const { data: departments } = useDepartments();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -742,7 +748,7 @@ export default function PersonaDashboardPage() {
 
   const handleDelete = (id: string) => {
     deleteMutation.mutate(id, {
-      onSuccess: () => notification.success({ message: "官员已删除" }),
+      onSuccess: () => notification.success({ message: t("persona.toast.personaDeleted") }),
     });
   };
 
@@ -754,7 +760,7 @@ export default function PersonaDashboardPage() {
         { id: editingPersona.id, body: values },
         {
           onSuccess: () => {
-            notification.success({ message: "官员已更新" });
+            notification.success({ message: t("persona.toast.personaUpdated") });
             setModalOpen(false);
           },
         },
@@ -762,7 +768,7 @@ export default function PersonaDashboardPage() {
     } else {
       createMutation.mutate(values as PersonaCreateRequest, {
         onSuccess: () => {
-          notification.success({ message: "官员已创建" });
+          notification.success({ message: t("persona.toast.personaCreated") });
           setModalOpen(false);
         },
       });
@@ -771,7 +777,7 @@ export default function PersonaDashboardPage() {
 
   if (isLoading) {
     return (
-      <PageContainer title="百官阁">
+      <PageContainer title={t("persona.title")}>
         <div style={{ textAlign: "center", padding: 48 }}>
           <Spin size="large" />
         </div>
@@ -782,14 +788,14 @@ export default function PersonaDashboardPage() {
   if (!personas || personas.length === 0) {
     return (
       <PageContainer
-        title="百官阁"
+        title={t("persona.title")}
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            添加官员
+            {t("persona.action.addPersona")}
           </Button>
         }
       >
-        <Empty description="暂无百官配置" />
+        <Empty description={t("persona.empty.noPersonas")} />
         <PersonaFormModal
           open={modalOpen}
           editingPersona={null}
@@ -804,16 +810,16 @@ export default function PersonaDashboardPage() {
   }
 
   const deptFilterOptions = [
-    { value: "", label: "全部部门" },
+    { value: "", label: t("persona.filter.deptAll") },
     ...(departments ?? []).map((d) => ({ value: d.id, label: d.name })),
   ];
 
   return (
     <PageContainer
-      title="百官阁"
+      title={t("persona.title")}
       extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          添加官员
+          {t("persona.action.addPersona")}
         </Button>
       }
     >
@@ -823,7 +829,7 @@ export default function PersonaDashboardPage() {
         items={[
           {
             key: "personas",
-            label: "百官列表",
+            label: t("persona.tab.personas"),
             children: (
               <>
                 <div style={{ marginBottom: 16 }}>
@@ -832,7 +838,7 @@ export default function PersonaDashboardPage() {
                     onChange={(v) => setDeptFilter(v || null)}
                     options={deptFilterOptions}
                     style={{ width: 200 }}
-                    placeholder="按部门筛选"
+                    placeholder={t("persona.filter.byDept")}
                   />
                 </div>
                 <Row gutter={[16, 16]}>
@@ -851,7 +857,7 @@ export default function PersonaDashboardPage() {
                   ))}
                   {filteredPersonas.length === 0 && (
                     <Col span={24}>
-                      <Empty description="该部门下无官员" />
+                      <Empty description={t("persona.empty.noDeptPersonas")} />
                     </Col>
                   )}
                 </Row>
@@ -863,7 +869,7 @@ export default function PersonaDashboardPage() {
             label: (
               <Space>
                 <ApartmentOutlined />
-                部门管理
+                {t("persona.tab.departments")}
               </Space>
             ),
             children: (
@@ -878,35 +884,35 @@ export default function PersonaDashboardPage() {
             label: (
               <Space>
                 <NodeIndexOutlined />
-                路由规则
+                {t("persona.tab.routing")}
               </Space>
             ),
             children: (
               <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                <Card title="默认任务映射" size="small">
+                <Card title={t("persona.routing.defaultMapTitle")} size="small">
                   <Table
                     columns={[
-                      { title: "任务类型", dataIndex: "task_type", key: "task_type", width: 120 },
+                      { title: t("persona.routing.table.taskType"), dataIndex: "task_type", key: "task_type", width: 120 },
                       {
-                        title: "状态",
+                        title: t("persona.routing.table.status"),
                         key: "status",
                         width: 100,
                         render: (_: unknown, r: { is_fallback?: boolean; preferred_department?: string }) =>
                           r.is_fallback ? (
-                            <Tooltip title={`缺少 ${r.preferred_department} 部门的官员，已回退`}>
-                              <Tag icon={<WarningOutlined />} color="warning">回退</Tag>
+                            <Tooltip title={t("persona.routing.fallbackTooltip", { dept: r.preferred_department ?? "" })}>
+                              <Tag icon={<WarningOutlined />} color="warning">{t("persona.routing.fallback")}</Tag>
                             </Tooltip>
                           ) : (
-                            <Tag color="success">正常</Tag>
+                            <Tag color="success">{t("persona.routing.normal")}</Tag>
                           ),
                       },
-                      { title: "官员 ID", dataIndex: "persona_id", key: "persona_id", width: 120,
+                      { title: t("persona.routing.table.personaId"), dataIndex: "persona_id", key: "persona_id", width: 120,
                         render: (v: string) => <Tag color="blue">{v}</Tag> },
-                      { title: "官员名称", dataIndex: "name", key: "name", width: 120 },
-                      { title: "部门", dataIndex: "department", key: "department", width: 120,
+                      { title: t("persona.routing.table.personaName"), dataIndex: "name", key: "name", width: 120 },
+                      { title: t("persona.routing.table.department"), dataIndex: "department", key: "department", width: 120,
                         render: (v: string) => <Tag>{v}</Tag> },
                       {
-                        title: "期望部门",
+                        title: t("persona.routing.table.preferredDept"),
                         dataIndex: "preferred_department",
                         key: "preferred_department",
                         width: 120,
@@ -923,19 +929,19 @@ export default function PersonaDashboardPage() {
                       : []}
                     size="small"
                     pagination={false}
-                    locale={{ emptyText: "暂无映射" }}
+                    locale={{ emptyText: t("persona.empty.noMapping") }}
                   />
                 </Card>
 
-                <Card title="关键词匹配规则" size="small">
+                <Card title={t("persona.routing.keywordMapTitle")} size="small">
                   <Table
                     columns={[
-                      { title: "官员 ID", dataIndex: "persona_id", key: "persona_id", width: 120,
+                      { title: t("persona.routing.table.personaId"), dataIndex: "persona_id", key: "persona_id", width: 120,
                         render: (v: string) => <Tag color="blue">{v}</Tag> },
-                      { title: "官员名称", dataIndex: "name", key: "name", width: 120 },
-                      { title: "部门", dataIndex: "department", key: "department", width: 120,
+                      { title: t("persona.routing.table.personaName"), dataIndex: "name", key: "name", width: 120 },
+                      { title: t("persona.routing.table.department"), dataIndex: "department", key: "department", width: 120,
                         render: (v: string) => <Tag>{v}</Tag> },
-                      { title: "关键词", dataIndex: "keywords", key: "keywords",
+                      { title: t("persona.routing.table.keywords"), dataIndex: "keywords", key: "keywords",
                         render: (v: string[]) => v.map((kw) => <Tag key={kw} color="green">{kw}</Tag>) },
                     ]}
                     dataSource={routingRules?.keyword_map
@@ -947,18 +953,18 @@ export default function PersonaDashboardPage() {
                       : []}
                     size="small"
                     pagination={false}
-                    locale={{ emptyText: "暂无规则" }}
+                    locale={{ emptyText: t("persona.empty.noRules") }}
                   />
                 </Card>
 
                 {routingRules?.delegation_chains && routingRules.delegation_chains.length > 0 && (
-                  <Card title="委派链路" size="small">
+                  <Card title={t("persona.routing.delegationChainTitle")} size="small">
                     <Table
                       columns={[
-                        { title: "委派方", dataIndex: "from_name", key: "from_name" },
-                        { title: "委派方 ID", dataIndex: "from_id", key: "from_id", width: 120,
+                        { title: t("persona.routing.table.fromName"), dataIndex: "from_name", key: "from_name" },
+                        { title: t("persona.routing.table.fromId"), dataIndex: "from_id", key: "from_id", width: 120,
                           render: (v: string) => <Tag color="blue">{v}</Tag> },
-                        { title: "可委派至", dataIndex: "delegates_to", key: "delegates_to",
+                        { title: t("persona.routing.table.delegatesTo"), dataIndex: "delegates_to", key: "delegates_to",
                           render: (v: string[]) => v.map((d) => <Tag key={d} color="purple">{d}</Tag>) },
                       ]}
                       dataSource={routingRules.delegation_chains.map((d) => ({ key: d.from_id, ...d }))}

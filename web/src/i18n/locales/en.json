@@ -639,6 +639,159 @@
     "zh-modern": "Modern",
     "en": "English"
   },
+  "persona": {
+    "title": "Personas",
+    "tab": {
+      "personas": "Persona list",
+      "departments": "Departments",
+      "routing": "Routing rules"
+    },
+    "action": {
+      "addPersona": "Add persona",
+      "addDept": "Add department"
+    },
+    "empty": {
+      "noPersonas": "No personas configured",
+      "noDeptPersonas": "No personas in this department",
+      "noDepartments": "No departments",
+      "noMapping": "No mappings",
+      "noRules": "No rules"
+    },
+    "filter": {
+      "deptAll": "All departments",
+      "byDept": "Filter by department"
+    },
+    "card": {
+      "delegate": "Can delegate",
+      "toolPermission": "Tool permissions",
+      "specifiedTools": "Specified tools",
+      "deniedTools": "Denied tools",
+      "skills": "Injected skills",
+      "delegatesTo": "Can delegate to",
+      "llmConfig": "LLM Config",
+      "allSkills": "All skills (no filter)"
+    },
+    "tier": {
+      "tier0": "Monitor / review only, no tool use",
+      "tier1": "Basic tools (read-only)",
+      "tierN": "All tools at tier ≤ {n}"
+    },
+    "metric": {
+      "total": "Total",
+      "completed": "Completed",
+      "failed": "Failed",
+      "successRate": "Success rate",
+      "totalTokens": "Total tokens",
+      "avgTokens": "Avg tokens",
+      "totalCost": "Total cost",
+      "avgDuration": "Avg duration",
+      "empty": "No metrics yet"
+    },
+    "confirm": {
+      "deletePersona": "Delete this persona?",
+      "deletePersonaDesc": "Cannot be undone",
+      "deleteDept": "Delete this department?",
+      "deleteDeptDesc": "Only deletable when no personas remain"
+    },
+    "department": {
+      "table": {
+        "id": "ID",
+        "name": "Name",
+        "description": "Description",
+        "personaCount": "Personas",
+        "actions": "Actions"
+      }
+    },
+    "routing": {
+      "defaultMapTitle": "Default task mapping",
+      "keywordMapTitle": "Keyword matching rules",
+      "delegationChainTitle": "Delegation chains",
+      "table": {
+        "taskType": "Task type",
+        "status": "Status",
+        "personaId": "Persona ID",
+        "personaName": "Persona name",
+        "department": "Department",
+        "preferredDept": "Preferred dept",
+        "keywords": "Keywords",
+        "fromName": "Delegator",
+        "fromId": "Delegator ID",
+        "delegatesTo": "Delegates to"
+      },
+      "fallback": "Fallback",
+      "normal": "Normal",
+      "fallbackTooltip": "No persona in {dept}, fell back"
+    },
+    "toast": {
+      "personaCreated": "Persona created",
+      "personaUpdated": "Persona updated",
+      "personaDeleted": "Persona deleted",
+      "deptCreated": "Department created",
+      "deptUpdated": "Department updated",
+      "deptDeleted": "Department deleted",
+      "deptDeleteFailed": "Delete failed — department still has personas"
+    },
+    "form": {
+      "persona": {
+        "addTitle": "Add persona",
+        "editTitle": "Edit persona",
+        "field": {
+          "id": "ID",
+          "name": "Name",
+          "title": "Title (role within department)",
+          "department": "Department",
+          "llmConfig": "LLM Config",
+          "toolsAllowed": "Allowed tools",
+          "toolsDenied": "Denied tools",
+          "skills": "Skills",
+          "tierMax": "Max tool tier",
+          "canDelegate": "Can delegate",
+          "delegatesTo": "Delegation targets"
+        },
+        "placeholder": {
+          "id": "e.g. bingbu, neige",
+          "name": "e.g. Wang Yangming, Lead",
+          "title": "e.g. Lead, Coordinator (optional)",
+          "department": "Select department",
+          "llmConfig": "Use global config (default)",
+          "toolsAllowed": "Select allowed tools",
+          "toolsDenied": "Select denied tools",
+          "skills": "Select skills (empty = all injected)",
+          "delegatesTo": "Select delegation targets"
+        },
+        "validation": {
+          "idRequired": "ID is required",
+          "idPattern": "Lowercase letters, digits and underscores only",
+          "nameRequired": "Name is required",
+          "titleMax": "Max 32 characters",
+          "departmentRequired": "Department is required"
+        },
+        "tooltip": {
+          "title": "e.g. Lead, Coordinator, Strategist. Optional; if filled, will be written into the persona card for clearer self-introduction."
+        },
+        "llmConfigGlobal": "Use global config (default)"
+      },
+      "department": {
+        "addTitle": "Add department",
+        "editTitle": "Edit department",
+        "field": {
+          "id": "Department ID",
+          "name": "Department name",
+          "description": "Description"
+        },
+        "placeholder": {
+          "id": "e.g. bingbu, neige",
+          "name": "e.g. Execution",
+          "description": "Department description (optional)"
+        },
+        "validation": {
+          "idRequired": "Department ID is required",
+          "idPattern": "Lowercase letters, digits and underscores only",
+          "nameRequired": "Department name is required"
+        }
+      }
+    }
+  },
   "memory": {
     "title": "Memory Center",
     "tab": {

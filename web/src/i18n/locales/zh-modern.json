@@ -639,6 +639,159 @@
     "zh-modern": "通用",
     "en": "English"
   },
+  "persona": {
+    "title": "角色管理",
+    "tab": {
+      "personas": "角色列表",
+      "departments": "部门管理",
+      "routing": "路由规则"
+    },
+    "action": {
+      "addPersona": "添加角色",
+      "addDept": "添加部门"
+    },
+    "empty": {
+      "noPersonas": "暂无角色配置",
+      "noDeptPersonas": "该部门下无角色",
+      "noDepartments": "暂无部门",
+      "noMapping": "暂无映射",
+      "noRules": "暂无规则"
+    },
+    "filter": {
+      "deptAll": "全部部门",
+      "byDept": "按部门筛选"
+    },
+    "card": {
+      "delegate": "可委派",
+      "toolPermission": "工具权限",
+      "specifiedTools": "指定工具",
+      "deniedTools": "禁用工具",
+      "skills": "技能注入",
+      "delegatesTo": "可委派至",
+      "llmConfig": "LLM 配置",
+      "allSkills": "全部技能（无过滤）"
+    },
+    "tier": {
+      "tier0": "仅监控/审核，不操作工具",
+      "tier1": "基础工具（只读）",
+      "tierN": "可使用 tier ≤ {n} 的所有工具"
+    },
+    "metric": {
+      "total": "总执行",
+      "completed": "完成",
+      "failed": "失败",
+      "successRate": "成功率",
+      "totalTokens": "总 Token",
+      "avgTokens": "均 Token",
+      "totalCost": "总成本",
+      "avgDuration": "均耗时",
+      "empty": "暂无指标数据"
+    },
+    "confirm": {
+      "deletePersona": "确定删除该角色？",
+      "deletePersonaDesc": "删除后不可恢复",
+      "deleteDept": "确定删除该部门？",
+      "deleteDeptDesc": "仅当部门下无角色时可删除"
+    },
+    "department": {
+      "table": {
+        "id": "ID",
+        "name": "名称",
+        "description": "描述",
+        "personaCount": "角色数量",
+        "actions": "操作"
+      }
+    },
+    "routing": {
+      "defaultMapTitle": "默认任务映射",
+      "keywordMapTitle": "关键词匹配规则",
+      "delegationChainTitle": "委派链路",
+      "table": {
+        "taskType": "任务类型",
+        "status": "状态",
+        "personaId": "角色 ID",
+        "personaName": "角色名称",
+        "department": "部门",
+        "preferredDept": "期望部门",
+        "keywords": "关键词",
+        "fromName": "委派方",
+        "fromId": "委派方 ID",
+        "delegatesTo": "可委派至"
+      },
+      "fallback": "回退",
+      "normal": "正常",
+      "fallbackTooltip": "缺少 {dept} 部门的角色，已回退"
+    },
+    "toast": {
+      "personaCreated": "角色已创建",
+      "personaUpdated": "角色已更新",
+      "personaDeleted": "角色已删除",
+      "deptCreated": "部门已创建",
+      "deptUpdated": "部门已更新",
+      "deptDeleted": "部门已删除",
+      "deptDeleteFailed": "删除失败，该部门下仍有角色"
+    },
+    "form": {
+      "persona": {
+        "addTitle": "添加角色",
+        "editTitle": "编辑角色",
+        "field": {
+          "id": "ID",
+          "name": "名称",
+          "title": "职务（部门内岗位）",
+          "department": "部门",
+          "llmConfig": "LLM 配置",
+          "toolsAllowed": "允许工具",
+          "toolsDenied": "禁用工具",
+          "skills": "技能",
+          "tierMax": "最大工具等级",
+          "canDelegate": "可委派",
+          "delegatesTo": "可委派目标"
+        },
+        "placeholder": {
+          "id": "如 bingbu, neige",
+          "name": "如 王阳明、负责人",
+          "title": "如 主管、协助员（可选）",
+          "department": "选择部门",
+          "llmConfig": "使用全局配置（默认）",
+          "toolsAllowed": "选择允许使用的工具",
+          "toolsDenied": "选择禁用的工具",
+          "skills": "选择技能（留空 = 全部注入）",
+          "delegatesTo": "选择可委派的角色"
+        },
+        "validation": {
+          "idRequired": "请输入 ID",
+          "idPattern": "仅允许小写字母、数字和下划线",
+          "nameRequired": "请输入名称",
+          "titleMax": "最多 32 字",
+          "departmentRequired": "请选择部门"
+        },
+        "tooltip": {
+          "title": "如：主管、协助员、参谋。可选；填了之后会写入角色卡，自报家门更准确。"
+        },
+        "llmConfigGlobal": "使用全局配置（默认）"
+      },
+      "department": {
+        "addTitle": "添加部门",
+        "editTitle": "编辑部门",
+        "field": {
+          "id": "部门 ID",
+          "name": "部门名称",
+          "description": "描述"
+        },
+        "placeholder": {
+          "id": "如 bingbu, neige",
+          "name": "如 执行部 (Execution)",
+          "description": "部门职责描述（可选）"
+        },
+        "validation": {
+          "idRequired": "请输入部门 ID",
+          "idPattern": "仅允许小写字母、数字和下划线",
+          "nameRequired": "请输入部门名称"
+        }
+      }
+    }
+  },
   "memory": {
     "title": "记忆中心",
     "tab": {
