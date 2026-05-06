@@ -1,5 +1,6 @@
 import { Card, Empty } from "antd";
 import type { CostRecord } from "../../api/types";
+import { useT } from "../../i18n";
 
 interface Props {
   records: CostRecord[];
@@ -7,14 +8,15 @@ interface Props {
 }
 
 export default function CostTrendChart({ records, loading }: Props) {
+  const t = useT();
   if (loading) {
-    return <Card title="成本趋势" loading />;
+    return <Card title={t("cost.trend.title")} loading />;
   }
 
   if (!records.length) {
     return (
-      <Card title="成本趋势">
-        <Empty description="暂无成本记录" />
+      <Card title={t("cost.trend.title")}>
+        <Empty description={t("cost.trend.empty")} />
       </Card>
     );
   }
@@ -31,14 +33,14 @@ export default function CostTrendChart({ records, loading }: Props) {
   const dates = Object.keys(byDate).sort();
 
   return (
-    <Card title="成本趋势">
+    <Card title={t("cost.trend.title")}>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={{ textAlign: "left", padding: "8px", borderBottom: "1px solid #f0f0f0" }}>日期</th>
-              <th style={{ textAlign: "right", padding: "8px", borderBottom: "1px solid #f0f0f0" }}>Token</th>
-              <th style={{ textAlign: "right", padding: "8px", borderBottom: "1px solid #f0f0f0" }}>成本 (CNY)</th>
+              <th style={{ textAlign: "left", padding: "8px", borderBottom: "1px solid #f0f0f0" }}>{t("cost.trend.date")}</th>
+              <th style={{ textAlign: "right", padding: "8px", borderBottom: "1px solid #f0f0f0" }}>{t("cost.trend.tokens")}</th>
+              <th style={{ textAlign: "right", padding: "8px", borderBottom: "1px solid #f0f0f0" }}>{t("cost.trend.cost")}</th>
             </tr>
           </thead>
           <tbody>

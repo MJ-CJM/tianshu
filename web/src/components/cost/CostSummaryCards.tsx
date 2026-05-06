@@ -5,6 +5,7 @@ import {
   RiseOutlined,
 } from "@ant-design/icons";
 import type { CostSummary } from "../../api/types";
+import { useT } from "../../i18n";
 
 interface Props {
   summary: CostSummary | undefined;
@@ -12,12 +13,13 @@ interface Props {
 }
 
 export default function CostSummaryCards({ summary, loading }: Props) {
+  const t = useT();
   return (
     <Row gutter={[16, 16]}>
       <Col xs={24} sm={12} lg={6}>
         <Card>
           <Statistic
-            title="总成本 (CNY)"
+            title={t("cost.summary.totalCost")}
             value={summary?.total_cost_cny ?? 0}
             precision={4}
             prefix="¥"
@@ -28,7 +30,7 @@ export default function CostSummaryCards({ summary, loading }: Props) {
       <Col xs={24} sm={12} lg={6}>
         <Card>
           <Statistic
-            title="总 Token"
+            title={t("cost.summary.totalTokens")}
             value={summary?.total_tokens ?? 0}
             prefix={<ThunderboltOutlined />}
             loading={loading}
@@ -38,7 +40,7 @@ export default function CostSummaryCards({ summary, loading }: Props) {
       <Col xs={24} sm={12} lg={6}>
         <Card>
           <Statistic
-            title="输入 Token"
+            title={t("cost.summary.promptTokens")}
             value={summary?.total_prompt_tokens ?? 0}
             prefix={<FileTextOutlined />}
             loading={loading}
@@ -48,7 +50,7 @@ export default function CostSummaryCards({ summary, loading }: Props) {
       <Col xs={24} sm={12} lg={6}>
         <Card>
           <Statistic
-            title="输出 Token"
+            title={t("cost.summary.completionTokens")}
             value={summary?.total_completion_tokens ?? 0}
             prefix={<RiseOutlined />}
             loading={loading}

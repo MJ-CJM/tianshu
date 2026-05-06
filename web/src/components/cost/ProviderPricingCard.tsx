@@ -34,15 +34,16 @@ import type {
   ProviderInfo,
   ProviderPricingUpdate,
 } from "../../api/types";
+import { useT } from "../../i18n";
 
 interface RowData extends ProviderInfo {
   effective: EffectivePricing | null;
 }
 
-const SOURCE_LABEL: Record<string, { color: string; text: string }> = {
-  custom: { color: "purple", text: "自定义" },
-  mixed: { color: "blue", text: "部分自定义" },
-  default: { color: "default", text: "默认价表" },
+const SOURCE_COLOR: Record<string, string> = {
+  custom: "purple",
+  mixed: "blue",
+  default: "default",
 };
 
 function formatPrice(p: number | null): string {
@@ -51,6 +52,7 @@ function formatPrice(p: number | null): string {
 }
 
 export default function ProviderPricingCard() {
+  const t = useT();
   const [rows, setRows] = useState<RowData[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<RowData | null>(null);
@@ -97,11 +99,11 @@ export default function ProviderPricingCard() {
     setSaving(true);
     try {
       await updateProviderPricing(editing.name, form);
-      message.success("已保存");
+      message.success(t("cost.pricing.saved"));
       setEditing(null);
       await refresh();
     } catch (e) {
-      message.error("保存失败：" + String(e));
+      message.error(t("cost.pricing.saveFailed", { err: String(e) }));
     } finally {
       setSaving(false);
     }
@@ -110,42 +112,42 @@ export default function ProviderPricingCard() {
   const handleReset = async (name: string) => {
     try {
       await resetProviderPricing(name);
-      message.success("已重置为默认价表");
+      message.success(t("cost.pricing.resetDone"));
       await refresh();
     } catch (e) {
-      message.error("重置失败：" + String(e));
+      message.error(t("cost.pricing.resetFailed", { err: String(e) }));
     }
   };
 
   const columns = [
-    { title: "名称", dataIndex: "name", key: "name" },
-    { title: "模型", dataIndex: "model", key: "model" },
+    { title: t("cost.pricing.name"), dataIndex: "name", key: "name" },
+    { title: t("cost.pricing.model"), dataIndex: "model", key: "model" },
     {
-      title: "Input miss ¥/1K",
+      title: t("cost.pricing.miss"),
       key: "miss",
       render: (_: unknown, r: RowData) => formatPrice(r.effective?.miss ?? null),
     },
     {
-      title: "Input hit ¥/1K",
+      title: t("cost.pricing.hit"),
       key: "hit",
       render: (_: unknown, r: RowData) => formatPrice(r.effective?.hit ?? null),
     },
     {
-      title: "Output ¥/1K",
+      title: t("cost.pricing.out"),
       key: "out",
       render: (_: unknown, r: RowData) => formatPrice(r.effective?.out ?? null),
     },
     {
-      title: "来源",
+      title: t("cost.pricing.source"),
       key: "source",
       render: (_: unknown, r: RowData) => {
         const src = r.effective?.source ?? "default";
-        const meta = SOURCE_LABEL[src] ?? SOURCE_LABEL.default!;
-        return <Tag color={meta.color}>{meta.text}</Tag>;
+        const color = SOURCE_COLOR[src] ?? "default";
+        return <Tag color={color}>{t(`cost.pricing.sourceLabel.${src}`)}</Tag>;
       },
     },
     {
-      title: "操作",
+      title: t("cost.pricing.actions"),
       key: "actions",
       render: (_: unknown, r: RowData) => (
         <Space size="small">
@@ -154,15 +156,15 @@ export default function ProviderPricingCard() {
             icon={<EditOutlined />}
             onClick={() => openEdit(r)}
           >
-            编辑
+            {t("cost.pricing.edit")}
           </Button>
           <Popconfirm
-            title="重置为默认价表？"
-            description="清空自定义 3 维价，回退到 _DEFAULT_PRICING。"
+            title={t("cost.pricing.resetConfirm")}
+            description={t("cost.pricing.resetDesc")}
             onConfirm={() => handleReset(r.name)}
           >
             <Button size="small" icon={<ReloadOutlined />} danger>
-              重置
+              {t("cost.pricing.reset")}
             </Button>
           </Popconfirm>
         </Space>
@@ -173,10 +175,10 @@ export default function ProviderPricingCard() {
   const openDefaultTable = async () => {
     if (!defaultTable) {
       try {
-        const t = await getDefaultPricingTable();
-        setDefaultTable(t);
+        const tbl = await getDefaultPricingTable();
+        setDefaultTable(tbl);
       } catch (e) {
-        message.error("加载默认价表失败：" + String(e));
+        message.error(t("cost.pricing.loadDefaultFailed", { err: String(e) }));
         return;
       }
     }
@@ -186,13 +188,13 @@ export default function ProviderPricingCard() {
   return (
     <Card
       size="small"
-      title="提供方计价"
+      title={t("cost.pricing.title")}
       extra={
         <Space size="small">
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            每千 token CNY；空白字段落默认价表
+            {t("cost.pricing.perKHint")}
           </Typography.Text>
-          <Button size="small" onClick={openDefaultTable}>查看默认价表</Button>
+          <Button size="small" onClick={openDefaultTable}>{t("cost.pricing.viewDefault")}</Button>
         </Space>
       }
       style={{ marginTop: 16 }}
@@ -210,17 +212,17 @@ export default function ProviderPricingCard() {
       )}
 
       <Modal
-        title={`编辑「${editing?.name}」三维价`}
+        title={t("cost.pricing.editTitle", { name: editing?.name ?? "" })}
         open={!!editing}
         onCancel={() => setEditing(null)}
         onOk={handleSave}
         confirmLoading={saving}
-        okText="保存"
-        cancelText="取消"
+        okText={t("button.save")}
+        cancelText={t("common.cancel")}
       >
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <div>
-            <Typography.Text>Input ¥/1K（缓存未中）</Typography.Text>
+            <Typography.Text>{t("cost.pricing.promptLabel")}</Typography.Text>
             <InputNumber
               min={0}
               step={0.0001}
@@ -229,13 +231,11 @@ export default function ProviderPricingCard() {
               onChange={(v) =>
                 setForm((s) => ({ ...s, cost_per_1k_prompt: v ?? null }))
               }
-              placeholder="留空 = 用默认价表"
+              placeholder={t("cost.pricing.promptPlaceholder")}
             />
           </div>
           <div>
-            <Typography.Text>
-              Input ¥/1K（缓存命中折扣价）
-            </Typography.Text>
+            <Typography.Text>{t("cost.pricing.cacheLabel")}</Typography.Text>
             <InputNumber
               min={0}
               step={0.00001}
@@ -244,11 +244,11 @@ export default function ProviderPricingCard() {
               onChange={(v) =>
                 setForm((s) => ({ ...s, cost_per_1k_cache_read: v ?? null }))
               }
-              placeholder="留空 = 与未中价相同（无折扣）"
+              placeholder={t("cost.pricing.cachePlaceholder")}
             />
           </div>
           <div>
-            <Typography.Text>Output ¥/1K</Typography.Text>
+            <Typography.Text>{t("cost.pricing.outputLabel")}</Typography.Text>
             <InputNumber
               min={0}
               step={0.001}
@@ -257,24 +257,24 @@ export default function ProviderPricingCard() {
               onChange={(v) =>
                 setForm((s) => ({ ...s, cost_per_1k_completion: v ?? null }))
               }
-              placeholder="留空 = 用默认价表"
+              placeholder={t("cost.pricing.promptPlaceholder")}
             />
           </div>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            提示：留空字段会落回 _DEFAULT_PRICING。修改立即生效，下次 LLM 调用按新价计费。
+            {t("cost.pricing.tip")}
           </Typography.Text>
         </Space>
       </Modal>
 
       <Modal
-        title="默认价表 (_DEFAULT_PRICING)"
+        title={t("cost.pricing.defaultTitle")}
         open={defaultTableOpen}
         onCancel={() => setDefaultTableOpen(false)}
         footer={null}
         width={720}
       >
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-          provider 自定义价格未填字段时，按 model 名匹配此表。匹配不到则用兜底价。
+          {t("cost.pricing.defaultIntro")}
         </Typography.Paragraph>
         <Table
           dataSource={defaultTable?.entries ?? []}
@@ -282,23 +282,23 @@ export default function ProviderPricingCard() {
           size="small"
           pagination={false}
           columns={[
-            { title: "Model", dataIndex: "model", key: "model" },
+            { title: t("cost.pricing.model"), dataIndex: "model", key: "model" },
             {
-              title: "Input miss ¥/1K",
+              title: t("cost.pricing.miss"),
               dataIndex: "miss",
               key: "miss",
               render: (v: number) => formatPrice(v),
               align: "right" as const,
             },
             {
-              title: "Input hit ¥/1K",
+              title: t("cost.pricing.hit"),
               dataIndex: "hit",
               key: "hit",
               render: (v: number) => formatPrice(v),
               align: "right" as const,
             },
             {
-              title: "Output ¥/1K",
+              title: t("cost.pricing.out"),
               dataIndex: "out",
               key: "out",
               render: (v: number) => formatPrice(v),
@@ -311,9 +311,9 @@ export default function ProviderPricingCard() {
             type="secondary"
             style={{ fontSize: 12, marginTop: 12 }}
           >
-            兜底价（未命中表时）：
-            miss <code>{formatPrice(defaultTable.fallback.miss)}</code>，
-            hit <code>{formatPrice(defaultTable.fallback.hit)}</code>，
+            {t("cost.pricing.fallback")}
+            miss <code>{formatPrice(defaultTable.fallback.miss)}</code>,
+            hit <code>{formatPrice(defaultTable.fallback.hit)}</code>,
             out <code>{formatPrice(defaultTable.fallback.out)}</code>
           </Typography.Paragraph>
         )}

@@ -639,6 +639,81 @@
     "zh-modern": "通用",
     "en": "English"
   },
+  "cost": {
+    "title": "成本中心",
+    "period": {
+      "day": "今日",
+      "week": "本周",
+      "month": "本月"
+    },
+    "summary": {
+      "totalCost": "总成本 (CNY)",
+      "totalTokens": "总 Token",
+      "promptTokens": "输入 Token",
+      "completionTokens": "输出 Token"
+    },
+    "budget": {
+      "title": "预算",
+      "empty": "暂未设置预算",
+      "set": "设置预算",
+      "edit": "修改预算",
+      "remaining": "剩余: ¥{remaining} ({period})",
+      "amountInvalid": "预算金额须大于零",
+      "updated": "预算已更新"
+    },
+    "trend": {
+      "title": "成本趋势",
+      "empty": "暂无成本记录",
+      "date": "日期",
+      "tokens": "Token",
+      "cost": "成本 (CNY)"
+    },
+    "record": {
+      "time": "时间",
+      "edictId": "任务编号",
+      "model": "模型",
+      "promptTokens": "输入",
+      "completionTokens": "输出",
+      "totalTokens": "总量",
+      "cost": "成本 (CNY)"
+    },
+    "pricing": {
+      "title": "提供方计价",
+      "perKHint": "每千 token CNY；空白字段落默认价表",
+      "viewDefault": "查看默认价表",
+      "name": "名称",
+      "model": "模型",
+      "miss": "Input miss ¥/1K",
+      "hit": "Input hit ¥/1K",
+      "out": "Output ¥/1K",
+      "source": "来源",
+      "actions": "操作",
+      "sourceLabel": {
+        "custom": "自定义",
+        "mixed": "部分自定义",
+        "default": "默认价表"
+      },
+      "edit": "编辑",
+      "reset": "重置",
+      "resetConfirm": "重置为默认价表？",
+      "resetDesc": "清空自定义 3 维价，回退到 _DEFAULT_PRICING。",
+      "editTitle": "编辑「{name}」三维价",
+      "promptLabel": "Input ¥/1K（缓存未中）",
+      "promptPlaceholder": "留空 = 用默认价表",
+      "cacheLabel": "Input ¥/1K（缓存命中折扣价）",
+      "cachePlaceholder": "留空 = 与未中价相同（无折扣）",
+      "outputLabel": "Output ¥/1K",
+      "tip": "提示：留空字段会落回 _DEFAULT_PRICING。修改立即生效，下次 LLM 调用按新价计费。",
+      "defaultTitle": "默认价表 (_DEFAULT_PRICING)",
+      "defaultIntro": "provider 自定义价格未填字段时，按 model 名匹配此表。匹配不到则用兜底价。",
+      "fallback": "兜底价（未命中表时）：",
+      "saved": "已保存",
+      "saveFailed": "保存失败：{err}",
+      "resetDone": "已重置为默认价表",
+      "resetFailed": "重置失败：{err}",
+      "loadDefaultFailed": "加载默认价表失败：{err}"
+    }
+  },
   "persona": {
     "title": "角色管理",
     "tab": {

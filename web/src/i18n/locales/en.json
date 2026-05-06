@@ -639,6 +639,81 @@
     "zh-modern": "Modern",
     "en": "English"
   },
+  "cost": {
+    "title": "Cost Center",
+    "period": {
+      "day": "Today",
+      "week": "Week",
+      "month": "Month"
+    },
+    "summary": {
+      "totalCost": "Total cost (CNY)",
+      "totalTokens": "Total tokens",
+      "promptTokens": "Prompt tokens",
+      "completionTokens": "Completion tokens"
+    },
+    "budget": {
+      "title": "Budget",
+      "empty": "No budget set",
+      "set": "Set budget",
+      "edit": "Edit budget",
+      "remaining": "Remaining: ¥{remaining} ({period})",
+      "amountInvalid": "Budget must be greater than zero",
+      "updated": "Budget updated"
+    },
+    "trend": {
+      "title": "Cost trend",
+      "empty": "No cost records",
+      "date": "Date",
+      "tokens": "Tokens",
+      "cost": "Cost (CNY)"
+    },
+    "record": {
+      "time": "Time",
+      "edictId": "Task ID",
+      "model": "Model",
+      "promptTokens": "Prompt",
+      "completionTokens": "Completion",
+      "totalTokens": "Total",
+      "cost": "Cost (CNY)"
+    },
+    "pricing": {
+      "title": "Provider pricing",
+      "perKHint": "Per 1K tokens CNY; empty fields fall back to default pricing",
+      "viewDefault": "View default pricing",
+      "name": "Name",
+      "model": "Model",
+      "miss": "Input miss ¥/1K",
+      "hit": "Input hit ¥/1K",
+      "out": "Output ¥/1K",
+      "source": "Source",
+      "actions": "Actions",
+      "sourceLabel": {
+        "custom": "Custom",
+        "mixed": "Partial custom",
+        "default": "Default"
+      },
+      "edit": "Edit",
+      "reset": "Reset",
+      "resetConfirm": "Reset to default pricing?",
+      "resetDesc": "Clears custom 3-tier pricing and falls back to _DEFAULT_PRICING.",
+      "editTitle": "Edit pricing for \"{name}\"",
+      "promptLabel": "Input ¥/1K (cache miss)",
+      "promptPlaceholder": "Empty = use default pricing",
+      "cacheLabel": "Input ¥/1K (cache hit discount)",
+      "cachePlaceholder": "Empty = same as miss (no discount)",
+      "outputLabel": "Output ¥/1K",
+      "tip": "Tip: empty fields fall back to _DEFAULT_PRICING. Changes take effect on the next LLM call.",
+      "defaultTitle": "Default pricing table (_DEFAULT_PRICING)",
+      "defaultIntro": "When custom pricing is empty, matches by model name from this table. If no match, the fallback price is used.",
+      "fallback": "Fallback (when no match): ",
+      "saved": "Saved",
+      "saveFailed": "Save failed: {err}",
+      "resetDone": "Reset to default pricing",
+      "resetFailed": "Reset failed: {err}",
+      "loadDefaultFailed": "Failed to load default pricing: {err}"
+    }
+  },
   "persona": {
     "title": "Personas",
     "tab": {
