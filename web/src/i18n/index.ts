@@ -24,18 +24,26 @@ function lookup(dict: Dict, key: string): string | undefined {
   return typeof cur === "string" ? cur : undefined;
 }
 
-export type TFunction = (key: string, fallback?: string) => string;
+function interpolate(template: string, vars: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (match, name) =>
+    name in vars ? String(vars[name]) : match
+  );
+}
+
+export type TFunction = (
+  key: string,
+  vars?: Record<string, string | number>,
+) => string;
 
 export function useT(): TFunction {
   const locale = useLocaleMode();
-  return (key: string, fallback?: string): string => {
-    const value = lookup(DICT[locale], key);
-    if (value !== undefined) return value;
-    // Fallback to zh-classic to ensure UI never shows raw keys
-    if (locale !== "zh-classic") {
-      const zhValue = lookup(DICT["zh-classic"], key);
-      if (zhValue !== undefined) return zhValue;
+  return (key: string, vars?: Record<string, string | number>): string => {
+    let value = lookup(DICT[locale], key);
+    // Fallback to zh-classic (anchor language) so UI never shows raw keys
+    if (value === undefined && locale !== "zh-classic") {
+      value = lookup(DICT["zh-classic"], key);
     }
-    return fallback ?? key;
+    if (value === undefined) value = key;
+    return vars ? interpolate(value, vars) : value;
   };
 }

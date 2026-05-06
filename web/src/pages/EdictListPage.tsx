@@ -6,18 +6,20 @@ import { useNavigate } from "react-router-dom";
 import { listEdicts, deleteEdict } from "../api/edicts";
 import EdictTable from "../components/edict/EdictTable";
 import PageContainer from "../components/common/PageContainer";
-import { PAGE_SIZE, EDICT_STATUS_LABELS } from "../utils/constants";
-
-const statusOptions = [
-  { value: "", label: "全部状态" },
-  ...Object.entries(EDICT_STATUS_LABELS).map(([value, label]) => ({
-    value,
-    label,
-  })),
-];
+import { PAGE_SIZE, useEdictStatusLabels } from "../utils/constants";
+import { useT } from "../i18n";
 
 export default function EdictListPage() {
   const navigate = useNavigate();
+  const t = useT();
+  const edictStatusLabels = useEdictStatusLabels();
+  const statusOptions = [
+    { value: "", label: t("statusFilter.all") },
+    ...Object.entries(edictStatusLabels).map(([value, label]) => ({
+      value,
+      label,
+    })),
+  ];
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("open");
   const [searchText, setSearchText] = useState("");
@@ -61,12 +63,12 @@ export default function EdictListPage() {
 
   return (
     <PageContainer
-      title="敕令总览"
+      title={t("nav.edictList")}
       extra={
         <Space>
           <Input
             prefix={<SearchOutlined />}
-            placeholder="搜索敕令..."
+            placeholder={t("form.search.edict")}
             allowClear
             value={searchText}
             onChange={(e) => {
@@ -93,7 +95,7 @@ export default function EdictListPage() {
             icon={<PlusOutlined />}
             onClick={() => navigate("/edicts/create")}
           >
-            颁发敕令
+            {t("nav.edictCreate")}
           </Button>
         </Space>
       }

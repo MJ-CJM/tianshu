@@ -17,6 +17,7 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import { useSubmitToolDecision } from "../../hooks/useApprovals";
+import { useT } from "../../i18n";
 import type { PendingToolCall, ToolGrantScope } from "../../api/types";
 
 interface Props {
@@ -30,6 +31,7 @@ export default function PendingToolCallCard({ pending }: Props) {
   const [scope, setScope] = useState<ToolGrantScope>("once");
   const [comment, setComment] = useState("");
   const [open, setOpen] = useState(false);
+  const t = useT();
 
   const handleApprove = () => {
     mutation.mutate(
@@ -38,21 +40,21 @@ export default function PendingToolCallCard({ pending }: Props) {
         action: "approve",
         comment: comment || undefined,
         grant_scope: scope,
-        grant_reason: scope !== "once" ? `granted via 御书房 (${scope})` : undefined,
+        grant_reason: scope !== "once" ? `granted via approval queue (${scope})` : undefined,
         actor: "user",
       },
       {
         onSuccess: () => {
           message.success(
             scope === "once"
-              ? `已放行 ${pending.tool_name}`
-              : `已放行并写入 session rule (${scope})`,
+              ? t("toast.toolApproved", { tool: pending.tool_name })
+              : t("toast.toolApprovedWithRule", { scope }),
           );
           setOpen(false);
           setComment("");
         },
         onError: (err: unknown) => {
-          const msg = err instanceof Error ? err.message : "操作失败";
+          const msg = err instanceof Error ? err.message : t("toast.actionFailed");
           message.error(msg);
         },
       },
@@ -69,7 +71,7 @@ export default function PendingToolCallCard({ pending }: Props) {
       },
       {
         onSuccess: () => {
-          message.warning(`已拒绝 ${pending.tool_name}`);
+          message.warning(t("toast.toolRejected", { tool: pending.tool_name }));
           setOpen(false);
           setComment("");
         },
@@ -81,7 +83,7 @@ export default function PendingToolCallCard({ pending }: Props) {
     <div style={{ minWidth: 260 }}>
       <div style={{ marginBottom: 8 }}>
         <Typography.Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
-          授权范围
+          {t("pendingTool.grantScope")}
         </Typography.Text>
       </div>
       <Radio.Group
@@ -92,13 +94,13 @@ export default function PendingToolCallCard({ pending }: Props) {
         size="small"
         style={{ marginBottom: 12 }}
       >
-        <Radio.Button value="once">本次</Radio.Button>
-        <Radio.Button value="edict">本敕令</Radio.Button>
-        <Radio.Button value="always">全局</Radio.Button>
+        <Radio.Button value="once">{t("pendingTool.scope.once")}</Radio.Button>
+        <Radio.Button value="edict">{t("pendingTool.scope.edict")}</Radio.Button>
+        <Radio.Button value="always">{t("pendingTool.scope.always")}</Radio.Button>
       </Radio.Group>
       <Input.TextArea
         rows={2}
-        placeholder="批注（可选）"
+        placeholder={t("pendingTool.comment")}
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         style={{ marginBottom: 8 }}
@@ -111,7 +113,7 @@ export default function PendingToolCallCard({ pending }: Props) {
           loading={mutation.isPending}
           onClick={handleApprove}
         >
-          放行
+          {t("pendingTool.approve")}
         </Button>
         <Button
           danger
@@ -120,7 +122,7 @@ export default function PendingToolCallCard({ pending }: Props) {
           loading={mutation.isPending}
           onClick={handleReject}
         >
-          拒绝
+          {t("pendingTool.reject")}
         </Button>
       </Space>
     </div>
@@ -134,7 +136,7 @@ export default function PendingToolCallCard({ pending }: Props) {
       style={{ marginBottom: 8 }}
       message={
         <Space size={6} wrap>
-          <span>工具调用待批</span>
+          <span>{t("pendingTool.title")}</span>
           <Typography.Text code>{pending.tool_name}</Typography.Text>
           {pending.tool_tier && <Tag color="orange">{pending.tool_tier}</Tag>}
           {pending.rule_id && (
@@ -159,7 +161,7 @@ export default function PendingToolCallCard({ pending }: Props) {
             placement="bottomLeft"
           >
             <Button type="primary" size="small" icon={<CheckCircleOutlined />}>
-              准/驳
+              {t("pendingTool.action")}
             </Button>
           </Popover>
         </div>

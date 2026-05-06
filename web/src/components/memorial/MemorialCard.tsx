@@ -10,18 +10,13 @@ import StatusTag from "../edict/StatusTag";
 import { formatDuration } from "../../utils/format";
 import { parseErrorMessage } from "../../utils/errorMessage";
 import { STATUS_COLORS } from "../../utils/constants";
+import { useT } from "../../i18n";
 import glowStyles from "../common/GlowCard.module.css";
 
 const AUDIT_COLORS: Record<string, string> = {
   pass: "success",
   flag: "warning",
   block: "error",
-};
-
-const AUDIT_LABELS: Record<string, string> = {
-  pass: "审计通过",
-  flag: "审计标记",
-  block: "审计拦截",
 };
 
 interface MemorialCardProps {
@@ -33,8 +28,10 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
   const { token } = theme.useToken();
   const navigate = useNavigate();
   const { data: personas } = usePersonas();
-  const attemptLabel = memorial.attempt > 1 ? ` (第 ${memorial.attempt} 次)` : "";
-  const title = index !== undefined ? `奏折 #${index + 1}${attemptLabel}` : `奏折${attemptLabel}`;
+  const t = useT();
+  const memorialTitle = t("memorial.title");
+  const attemptLabel = memorial.attempt > 1 ? ` ${t("memorial.attemptLabel", { n: memorial.attempt })}` : "";
+  const title = index !== undefined ? `${memorialTitle} #${index + 1}${attemptLabel}` : `${memorialTitle}${attemptLabel}`;
   const isRunning = memorial.status === "running";
   const borderColor = STATUS_COLORS[memorial.status] ?? token.colorBorder;
   const duration = formatDuration(memorial.started_at, memorial.completed_at);
@@ -54,7 +51,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
               icon={<SafetyCertificateOutlined />}
               color={AUDIT_COLORS[memorial.audit.verdict] ?? "default"}
             >
-              {AUDIT_LABELS[memorial.audit.verdict] ?? memorial.audit.verdict}
+              {t(`audit.label.${memorial.audit.verdict}`)}
             </Tag>
           )}
           {memorial.review_status === "pending" && (
@@ -64,7 +61,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
               onClick={() => navigate("/approvals")}
               style={{ padding: 0 }}
             >
-              待朱批
+              {t("memorial.review.pending")}
             </Button>
           )}
           {hasDuration && (
@@ -99,7 +96,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
       {memorial.instruction && (
         <div style={{ marginBottom: 12 }}>
           <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
-            指令：
+            {t("memorial.field.instruction")}：
           </Typography.Text>
           <Typography.Text style={{ color: token.colorText }}>
             {memorial.instruction}
@@ -110,7 +107,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
       {showSummary && (
         <div style={{ marginBottom: 12 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            要旨
+            {t("memorial.field.summary")}
           </Typography.Text>
           <Typography.Paragraph
             style={{ color: token.colorText, marginTop: 4, marginBottom: 0 }}
@@ -123,7 +120,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
       {memorial.result && (
         <div>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {showSummary ? "详文" : "奏报"}
+            {showSummary ? t("memorial.field.detail") : t("memorial.field.report")}
           </Typography.Text>
           <div
             className="memorial-markdown"
@@ -151,7 +148,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
         return (
           <div style={{ marginTop: 12 }}>
             <Typography.Text type="danger" style={{ fontSize: 12 }}>
-              未竟
+              {t("memorial.field.error")}
             </Typography.Text>
             {parsed && parsed.headline !== parsed.raw ? (
               <>
@@ -197,7 +194,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
         <div style={{ marginTop: 12 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             <PaperClipOutlined style={{ marginRight: 4 }} />
-            附件
+            {t("memorial.field.artifacts")}
           </Typography.Text>
           <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8 }}>
             {memorial.artifacts.map((artifact, i) => (

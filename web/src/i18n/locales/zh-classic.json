@@ -63,12 +63,124 @@
     "no_memorial": "待启动"
   },
   "event": {
+    "label": {
+      "edict.submitted": "敕令颁发",
+      "execution.started": "开始执行",
+      "execution.completed": "执行完成",
+      "execution.failed": "执行失败",
+      "execution.cancelled": "执行取消",
+      "iteration.started": "迭代开始",
+      "tool.completed": "工具调用",
+      "tool.failed": "工具失败",
+      "followup.submitted": "后续指令",
+      "edict.updated": "敕令编辑",
+      "edict.closed": "敕令结案",
+      "edict.scheduled": "调度排期",
+      "plan.completed": "规划完成",
+      "plan.pending_review": "规划待审批",
+      "plan.approved": "规划已批准",
+      "plan.rejected": "规划已驳回",
+      "audit.completed": "审计完成",
+      "decree.approved": "朱批：准",
+      "decree.rejected": "朱批：驳",
+      "decree.retry": "朱批：重办",
+      "decree.cancelled": "朱批：撤回",
+      "tool.blocked": "工具拦截",
+      "edict.audit.executed": "完成审计",
+      "edict.continuation.injected": "续转反哺",
+      "edict.wind_down.entered": "进入收尾",
+      "edict.lifecycle.changed": "生命周期变更",
+      "outer_loop.paused": "已暂停",
+      "outer_loop.resumed": "已恢复"
+    },
+    "field": {
+      "tokens": "Token",
+      "cost": "费用",
+      "time": "时间"
+    },
+    "group": {
+      "label": {
+        "initial": "初始指令",
+        "followUp": "后续指令",
+        "edictAction": "敕令操作"
+      },
+      "status": {
+        "completed": "完成",
+        "failed": "失败",
+        "cancelled": "取消",
+        "running": "执行中"
+      },
+      "itemsCount": "{n} 条",
+      "unknownInstruction": "未知指令"
+    },
+    "detail": {
+      "iteration": "轮次",
+      "usagePct": "已用 {pct}%",
+      "dimension": "维度",
+      "auditPassed": "通过",
+      "auditFailed": "未过（{n} 项缺口）",
+      "executorActorSelf": "actor 自审",
+      "executorCritic": "critic"
+    },
+    "timeline": {
+      "title": "办理记录"
+    },
     "decree": {
       "approved": "朱批：准",
       "rejected": "朱批：驳",
       "retry": "朱批：重办",
       "cancelled": "朱批：撤回"
     }
+  },
+  "lifecycle": {
+    "active": "运行",
+    "paused": "暂停",
+    "winding_down": "收尾",
+    "complete": "终结"
+  },
+  "audit": {
+    "label": {
+      "pass": "审计通过",
+      "flag": "审计标记",
+      "block": "审计拦截"
+    }
+  },
+  "memorial": {
+    "title": "奏折",
+    "attemptLabel": "(第 {n} 次)",
+    "field": {
+      "instruction": "指令",
+      "summary": "要旨",
+      "detail": "详文",
+      "report": "奏报",
+      "error": "未竟",
+      "artifacts": "附件"
+    },
+    "review": {
+      "pending": "待朱批"
+    }
+  },
+  "pendingTool": {
+    "title": "工具调用待批",
+    "grantScope": "授权范围",
+    "scope": {
+      "once": "本次",
+      "edict": "本敕令",
+      "always": "全局"
+    },
+    "approve": "放行",
+    "reject": "拒绝",
+    "action": "准/驳",
+    "comment": "批注（可选）"
+  },
+  "toast": {
+    "toolApproved": "已放行 {tool}",
+    "toolApprovedWithRule": "已放行并写入 session rule ({scope})",
+    "toolRejected": "已拒绝 {tool}",
+    "actionFailed": "操作失败"
+  },
+  "statusFilter": {
+    "all": "全部状态"
   },
   "common": {
     "search": "搜索",

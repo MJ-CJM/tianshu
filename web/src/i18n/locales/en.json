@@ -63,12 +63,124 @@
     "no_memorial": "Not Started"
   },
   "event": {
+    "label": {
+      "edict.submitted": "Task Submitted",
+      "execution.started": "Execution Started",
+      "execution.completed": "Execution Completed",
+      "execution.failed": "Execution Failed",
+      "execution.cancelled": "Execution Cancelled",
+      "iteration.started": "Iteration Started",
+      "tool.completed": "Tool Call",
+      "tool.failed": "Tool Failed",
+      "followup.submitted": "Follow-up",
+      "edict.updated": "Task Updated",
+      "edict.closed": "Task Closed",
+      "edict.scheduled": "Scheduled",
+      "plan.completed": "Plan Completed",
+      "plan.pending_review": "Plan Pending Review",
+      "plan.approved": "Plan Approved",
+      "plan.rejected": "Plan Rejected",
+      "audit.completed": "Audit Completed",
+      "decree.approved": "Decision: Approved",
+      "decree.rejected": "Decision: Rejected",
+      "decree.retry": "Decision: Retry",
+      "decree.cancelled": "Decision: Cancelled",
+      "tool.blocked": "Tool Blocked",
+      "edict.audit.executed": "Audit Executed",
+      "edict.continuation.injected": "Continuation Injected",
+      "edict.wind_down.entered": "Winding Down",
+      "edict.lifecycle.changed": "Lifecycle Changed",
+      "outer_loop.paused": "Paused",
+      "outer_loop.resumed": "Resumed"
+    },
+    "field": {
+      "tokens": "Tokens",
+      "cost": "Cost",
+      "time": "Time"
+    },
+    "group": {
+      "label": {
+        "initial": "Initial",
+        "followUp": "Follow-up",
+        "edictAction": "Task Action"
+      },
+      "status": {
+        "completed": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "running": "Running"
+      },
+      "itemsCount": "{n} items",
+      "unknownInstruction": "Unknown instruction"
+    },
+    "detail": {
+      "iteration": "iter",
+      "usagePct": "{pct}% used",
+      "dimension": "dimension",
+      "auditPassed": "passed",
+      "auditFailed": "failed ({n} gaps)",
+      "executorActorSelf": "actor self-audit",
+      "executorCritic": "critic"
+    },
+    "timeline": {
+      "title": "Execution Log"
+    },
     "decree": {
       "approved": "Decision: Approved",
       "rejected": "Decision: Rejected",
       "retry": "Decision: Retry",
       "cancelled": "Decision: Cancelled"
     }
+  },
+  "lifecycle": {
+    "active": "active",
+    "paused": "paused",
+    "winding_down": "winding down",
+    "complete": "complete"
+  },
+  "audit": {
+    "label": {
+      "pass": "Audit Pass",
+      "flag": "Audit Flag",
+      "block": "Audit Block"
+    }
+  },
+  "memorial": {
+    "title": "Run",
+    "attemptLabel": "(attempt {n})",
+    "field": {
+      "instruction": "Instruction",
+      "summary": "Summary",
+      "detail": "Detail",
+      "report": "Report",
+      "error": "Error",
+      "artifacts": "Artifacts"
+    },
+    "review": {
+      "pending": "Pending Review"
+    }
+  },
+  "pendingTool": {
+    "title": "Tool call pending approval",
+    "grantScope": "Grant scope",
+    "scope": {
+      "once": "Once",
+      "edict": "This task",
+      "always": "Always"
+    },
+    "approve": "Approve",
+    "reject": "Reject",
+    "action": "Approve/Reject",
+    "comment": "Comment (optional)"
+  },
+  "toast": {
+    "toolApproved": "Approved {tool}",
+    "toolApprovedWithRule": "Approved and saved session rule ({scope})",
+    "toolRejected": "Rejected {tool}",
+    "actionFailed": "Action failed"
+  },
+  "statusFilter": {
+    "all": "All Status"
   },
   "common": {
     "search": "Search",

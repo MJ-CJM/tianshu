@@ -24,187 +24,62 @@ import {
 import type { EdictEvent } from "../../api/types";
 import GlowCard from "../common/GlowCard";
 import { formatTime } from "../../utils/format";
+import { useT, type TFunction } from "../../i18n";
 import type { ReactNode } from "react";
 
-const EVENT_CONFIG: Record<
-  string,
-  { color: string; icon: ReactNode; label: string }
-> = {
-  "edict.submitted": {
-    color: "#faad14",
-    icon: <SendOutlined />,
-    label: "敕令颁发",
-  },
-  "execution.started": {
-    color: "#1890ff",
-    icon: <SyncOutlined spin />,
-    label: "开始执行",
-  },
-  "execution.completed": {
-    color: "#52c41a",
-    icon: <CheckCircleOutlined />,
-    label: "执行完成",
-  },
-  "execution.failed": {
-    color: "#ff4d4f",
-    icon: <CloseCircleOutlined />,
-    label: "执行失败",
-  },
-  "execution.cancelled": {
-    color: "#8c8c8c",
-    icon: <CloseCircleOutlined />,
-    label: "执行取消",
-  },
-  "iteration.started": {
-    color: "#1890ff",
-    icon: <SyncOutlined spin />,
-    label: "迭代开始",
-  },
-  "tool.completed": {
-    color: "#1890ff",
-    icon: <ToolOutlined />,
-    label: "工具调用",
-  },
-  "tool.failed": {
-    color: "#ff4d4f",
-    icon: <ExclamationCircleOutlined />,
-    label: "工具失败",
-  },
-  "followup.submitted": {
-    color: "#722ed1",
-    icon: <PlusCircleOutlined />,
-    label: "后续指令",
-  },
-  "edict.updated": {
-    color: "#faad14",
-    icon: <SendOutlined />,
-    label: "敕令编辑",
-  },
-  "edict.closed": {
-    color: "#52c41a",
-    icon: <StopOutlined />,
-    label: "敕令结案",
-  },
-  "edict.scheduled": {
-    color: "#faad14",
-    icon: <ScheduleOutlined />,
-    label: "调度排期",
-  },
-  "plan.completed": {
-    color: "#722ed1",
-    icon: <BulbOutlined />,
-    label: "规划完成",
-  },
-  "plan.pending_review": {
-    color: "#faad14",
-    icon: <ExclamationCircleOutlined />,
-    label: "规划待审批",
-  },
-  "plan.approved": {
-    color: "#52c41a",
-    icon: <CheckCircleOutlined />,
-    label: "规划已批准",
-  },
-  "plan.rejected": {
-    color: "#ff4d4f",
-    icon: <CloseCircleOutlined />,
-    label: "规划已驳回",
-  },
-  "audit.completed": {
-    color: "#13c2c2",
-    icon: <SafetyCertificateOutlined />,
-    label: "审计完成",
-  },
-  "decree.approved": {
-    color: "#52c41a",
-    icon: <CheckCircleOutlined />,
-    label: "朱批：准",
-  },
-  "decree.rejected": {
-    color: "#ff4d4f",
-    icon: <CloseCircleOutlined />,
-    label: "朱批：驳",
-  },
-  "decree.retry": {
-    color: "#faad14",
-    icon: <RedoOutlined />,
-    label: "朱批：重办",
-  },
-  "decree.cancelled": {
-    color: "#8c8c8c",
-    icon: <StopOutlined />,
-    label: "朱批：撤回",
-  },
-  "tool.blocked": {
-    color: "#ff4d4f",
-    icon: <StopOutlined />,
-    label: "工具拦截",
-  },
-  // ↓ Phase 6 长任务相关事件
-  "edict.audit.executed": {
-    color: "#13c2c2",
-    icon: <AuditOutlined />,
-    label: "完成审计",
-  },
-  "edict.continuation.injected": {
-    color: "#722ed1",
-    icon: <RollbackOutlined />,
-    label: "续转反哺",
-  },
-  "edict.wind_down.entered": {
-    color: "#fa8c16",
-    icon: <WarningOutlined />,
-    label: "进入收尾",
-  },
-  "edict.lifecycle.changed": {
-    color: "#1890ff",
-    icon: <SwapOutlined />,
-    label: "生命周期变更",
-  },
-  "outer_loop.paused": {
-    color: "#faad14",
-    icon: <PauseCircleOutlined />,
-    label: "已暂停",
-  },
-  "outer_loop.resumed": {
-    color: "#52c41a",
-    icon: <PlayCircleOutlined />,
-    label: "已恢复",
-  },
+const EVENT_VISUALS: Record<string, { color: string; icon: ReactNode }> = {
+  "edict.submitted": { color: "#faad14", icon: <SendOutlined /> },
+  "execution.started": { color: "#1890ff", icon: <SyncOutlined spin /> },
+  "execution.completed": { color: "#52c41a", icon: <CheckCircleOutlined /> },
+  "execution.failed": { color: "#ff4d4f", icon: <CloseCircleOutlined /> },
+  "execution.cancelled": { color: "#8c8c8c", icon: <CloseCircleOutlined /> },
+  "iteration.started": { color: "#1890ff", icon: <SyncOutlined spin /> },
+  "tool.completed": { color: "#1890ff", icon: <ToolOutlined /> },
+  "tool.failed": { color: "#ff4d4f", icon: <ExclamationCircleOutlined /> },
+  "followup.submitted": { color: "#722ed1", icon: <PlusCircleOutlined /> },
+  "edict.updated": { color: "#faad14", icon: <SendOutlined /> },
+  "edict.closed": { color: "#52c41a", icon: <StopOutlined /> },
+  "edict.scheduled": { color: "#faad14", icon: <ScheduleOutlined /> },
+  "plan.completed": { color: "#722ed1", icon: <BulbOutlined /> },
+  "plan.pending_review": { color: "#faad14", icon: <ExclamationCircleOutlined /> },
+  "plan.approved": { color: "#52c41a", icon: <CheckCircleOutlined /> },
+  "plan.rejected": { color: "#ff4d4f", icon: <CloseCircleOutlined /> },
+  "audit.completed": { color: "#13c2c2", icon: <SafetyCertificateOutlined /> },
+  "decree.approved": { color: "#52c41a", icon: <CheckCircleOutlined /> },
+  "decree.rejected": { color: "#ff4d4f", icon: <CloseCircleOutlined /> },
+  "decree.retry": { color: "#faad14", icon: <RedoOutlined /> },
+  "decree.cancelled": { color: "#8c8c8c", icon: <StopOutlined /> },
+  "tool.blocked": { color: "#ff4d4f", icon: <StopOutlined /> },
+  "edict.audit.executed": { color: "#13c2c2", icon: <AuditOutlined /> },
+  "edict.continuation.injected": { color: "#722ed1", icon: <RollbackOutlined /> },
+  "edict.wind_down.entered": { color: "#fa8c16", icon: <WarningOutlined /> },
+  "edict.lifecycle.changed": { color: "#1890ff", icon: <SwapOutlined /> },
+  "outer_loop.paused": { color: "#faad14", icon: <PauseCircleOutlined /> },
+  "outer_loop.resumed": { color: "#52c41a", icon: <PlayCircleOutlined /> },
 };
 
-const FIELD_LABEL_CN: Record<string, string> = {
-  tokens: "Token",
-  cost: "费用",
-  time: "时间",
-};
-
-const PHASE_LABEL_CN: Record<string, string> = {
-  active: "运行",
-  paused: "暂停",
-  winding_down: "收尾",
-  complete: "终结",
-};
+function eventLabel(t: TFunction, eventType: string): string {
+  return t(`event.label.${eventType}`);
+}
 
 /** Derive a status tag for a group of events */
-function getGroupStatus(events: EdictEvent[]): {
-  label: string;
-  color: string;
-} | null {
+function getGroupStatus(
+  events: EdictEvent[],
+  t: TFunction,
+): { label: string; color: string } | null {
   for (let i = events.length - 1; i >= 0; i--) {
-    const t = events[i]!.event_type;
-    if (t === "execution.completed") return { label: "完成", color: "success" };
-    if (t === "execution.failed") return { label: "失败", color: "error" };
-    if (t === "execution.cancelled") return { label: "取消", color: "default" };
+    const et = events[i]!.event_type;
+    if (et === "execution.completed") return { label: t("event.group.status.completed"), color: "success" };
+    if (et === "execution.failed") return { label: t("event.group.status.failed"), color: "error" };
+    if (et === "execution.cancelled") return { label: t("event.group.status.cancelled"), color: "default" };
   }
-  // Still running if we have execution.started but no terminal event
   const hasStarted = events.some((e) => e.event_type === "execution.started");
-  if (hasStarted) return { label: "执行中", color: "processing" };
+  if (hasStarted) return { label: t("event.group.status.running"), color: "processing" };
   return null;
 }
 
 /** Extract instruction text from a group's events */
-function getGroupInstruction(events: EdictEvent[]): string {
+function getGroupInstruction(events: EdictEvent[], t: TFunction): string {
   for (const e of events) {
     if (e.event_type === "followup.submitted") {
       const instr = e.payload?.instruction;
@@ -215,7 +90,7 @@ function getGroupInstruction(events: EdictEvent[]): string {
       if (typeof goal === "string") return goal;
     }
   }
-  return "未知指令";
+  return t("event.group.unknownInstruction");
 }
 
 interface EventGroup {
@@ -225,9 +100,8 @@ interface EventGroup {
   status: { label: string; color: string } | null;
 }
 
-/** Group events by memorial_id, preserving order.
- *  Events without memorial_id are appended to the most recent group. */
-function groupEvents(events: EdictEvent[]): EventGroup[] {
+/** Group events by memorial_id, preserving order. */
+function groupEvents(events: EdictEvent[], t: TFunction): EventGroup[] {
   const groups: EventGroup[] = [];
   const memorialMap = new Map<string, EventGroup>();
 
@@ -235,11 +109,9 @@ function groupEvents(events: EdictEvent[]): EventGroup[] {
     const mid = event.memorial_id;
 
     if (!mid) {
-      // Edict-level events (edict.updated, edict.closed) — append to the last group
       if (groups.length > 0) {
         groups[groups.length - 1]!.events.push(event);
       } else {
-        // Edge case: edict-level event before any memorial group
         const fallback: EventGroup = {
           key: "__edict__",
           label: "",
@@ -260,15 +132,14 @@ function groupEvents(events: EdictEvent[]): EventGroup[] {
     group.events.push(event);
   }
 
-  // Derive labels and statuses
   for (const group of groups) {
-    const instruction = getGroupInstruction(group.events);
+    const instruction = getGroupInstruction(group.events, t);
     const isFirst = group === groups[0];
-    const prefix = isFirst ? "初始指令" : "后续指令";
+    const prefix = isFirst ? t("event.group.label.initial") : t("event.group.label.followUp");
     const truncated =
       instruction.length > 40 ? instruction.slice(0, 40) + "..." : instruction;
-    group.label = group.key === "__edict__" ? "敕令操作" : `${prefix}: ${truncated}`;
-    group.status = getGroupStatus(group.events);
+    group.label = group.key === "__edict__" ? t("event.group.label.edictAction") : `${prefix}: ${truncated}`;
+    group.status = getGroupStatus(group.events, t);
   }
 
   return groups;
@@ -276,72 +147,74 @@ function groupEvents(events: EdictEvent[]): EventGroup[] {
 
 function renderTimelineItem(
   event: EdictEvent,
-  token: ReturnType<typeof theme.useToken>["token"]
+  token: ReturnType<typeof theme.useToken>["token"],
+  t: TFunction,
 ) {
-  const config = EVENT_CONFIG[event.event_type] ?? {
-    color: "#64748b",
-    icon: <ClockCircleOutlined />,
-    label: event.event_type,
-  };
+  const visual = EVENT_VISUALS[event.event_type];
+  const color = visual?.color ?? "#64748b";
+  const icon = visual?.icon ?? <ClockCircleOutlined />;
+  const baseLabel = visual ? eventLabel(t, event.event_type) : event.event_type;
 
   const payload = event.payload ?? {};
   const toolName = payload.tool as string | undefined;
   const iteration = payload.iteration as number | undefined;
 
-  let detail = config.label;
+  let detail = baseLabel;
   if (
-    (event.event_type === "tool.completed" ||
-      event.event_type === "tool.failed") &&
+    (event.event_type === "tool.completed" || event.event_type === "tool.failed") &&
     toolName
   ) {
-    detail = `${config.label}: ${toolName}`;
+    detail = `${baseLabel}: ${toolName}`;
     if (iteration !== undefined) {
-      detail += ` (轮次 ${iteration})`;
+      detail += ` (${t("event.detail.iteration")} ${iteration})`;
     }
-  } else if (
-    event.event_type === "iteration.started" &&
-    iteration !== undefined
-  ) {
-    detail = `${config.label} #${iteration}`;
+  } else if (event.event_type === "iteration.started" && iteration !== undefined) {
+    detail = `${baseLabel} #${iteration}`;
   } else if (event.event_type === "edict.wind_down.entered") {
     const field = payload.trigger_field as string | undefined;
     const ratio = payload.usage_ratio as number | undefined;
-    const fieldCN = field && FIELD_LABEL_CN[field] ? FIELD_LABEL_CN[field] : field ?? "?";
-    const pct = ratio != null ? ` (已用 ${Math.round(ratio * 100)}%)` : "";
-    detail = `${config.label}：${fieldCN} 维度${pct}`;
+    const fieldLabel = field ? t(`event.field.${field}`) : "?";
+    const pct = ratio != null ? ` (${t("event.detail.usagePct", { pct: Math.round(ratio * 100) })})` : "";
+    detail = `${baseLabel}：${fieldLabel} ${t("event.detail.dimension")}${pct}`;
   } else if (event.event_type === "edict.lifecycle.changed") {
     const from = payload.from_phase as string | undefined;
     const to = payload.to_phase as string | undefined;
-    const fromCN = from ? PHASE_LABEL_CN[from] ?? from : "?";
-    const toCN = to ? PHASE_LABEL_CN[to] ?? to : "?";
-    detail = `${config.label}：${fromCN} → ${toCN}`;
+    const fromLabel = from ? t(`lifecycle.${from}`) : "?";
+    const toLabel = to ? t(`lifecycle.${to}`) : "?";
+    detail = `${baseLabel}：${fromLabel} → ${toLabel}`;
   } else if (event.event_type === "edict.audit.executed") {
     const passed = payload.passed as boolean | undefined;
     const gaps = payload.gaps_count as number | undefined;
     const exec = payload.executor_persona as string | undefined;
-    const passLabel = passed ? "通过" : `未过（${gaps ?? 0} 项缺口）`;
-    const execLabel = exec === "actor_self_audit" ? "actor 自审" : "critic";
-    detail = `${config.label}：${passLabel}，由 ${execLabel}`;
+    const passLabel = passed
+      ? t("event.detail.auditPassed")
+      : t("event.detail.auditFailed", { n: gaps ?? 0 });
+    const execLabel =
+      exec === "actor_self_audit"
+        ? t("event.detail.executorActorSelf")
+        : t("event.detail.executorCritic");
+    detail = `${baseLabel}：${passLabel}，${execLabel}`;
   } else if (
     event.event_type === "outer_loop.paused" ||
     event.event_type === "outer_loop.resumed"
   ) {
-    detail = iteration !== undefined ? `${config.label} (轮次 ${iteration})` : config.label;
+    detail =
+      iteration !== undefined
+        ? `${baseLabel} (${t("event.detail.iteration")} ${iteration})`
+        : baseLabel;
   }
 
   return {
     key: event.id,
-    color: config.color,
-    dot: config.icon,
+    color,
+    dot: icon,
     children: (
       <div>
         <Typography.Text strong style={{ color: token.colorText }}>
           {detail}
         </Typography.Text>
         <br />
-        <Typography.Text
-          style={{ color: token.colorTextSecondary, fontSize: 12 }}
-        >
+        <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
           {formatTime(event.created_at)}
         </Typography.Text>
         {payload && Object.keys(payload).length > 0 && (
@@ -373,19 +246,26 @@ interface EventTimelineProps {
 
 export default function EventTimeline({ events }: EventTimelineProps) {
   const { token } = theme.useToken();
+  const t = useT();
+
+  // Hooks must be called before any conditional return
+  const [activeKeys, setActiveKeys] = useState<string[]>(() => {
+    if (events.length === 0) return [];
+    // We need to derive the last group key — but groupEvents uses t which
+    // depends on locale. Since the key is just memorial_id (or "__edict__"),
+    // we can compute it directly from events without locale-specific labels.
+    let lastKey: string | undefined;
+    for (const e of events) {
+      if (e.memorial_id) lastKey = e.memorial_id;
+    }
+    if (!lastKey && events.length > 0) lastKey = "__edict__";
+    return lastKey ? [lastKey] : [];
+  });
+  const [expanded, setExpanded] = useState(false);
 
   if (events.length === 0) return null;
 
-  const groups = groupEvents(events);
-
-  // Default: expand only the last group
-  const [activeKeys, setActiveKeys] = useState<string[]>(() => {
-    if (groups.length === 0) return [];
-    return [groups[groups.length - 1]!.key];
-  });
-
-  // Card-level collapse — default collapsed
-  const [expanded, setExpanded] = useState(false);
+  const groups = groupEvents(events, t);
 
   const collapseItems = groups.map((group) => ({
     key: group.key,
@@ -395,25 +275,17 @@ export default function EventTimeline({ events }: EventTimelineProps) {
           {group.label}
         </Typography.Text>
         {group.status && (
-          <Tag
-            color={group.status.color}
-            bordered={false}
-            style={{ marginRight: 0 }}
-          >
+          <Tag color={group.status.color} bordered={false} style={{ marginRight: 0 }}>
             {group.status.label}
           </Tag>
         )}
-        <Typography.Text
-          style={{ color: token.colorTextTertiary, fontSize: 12 }}
-        >
-          {group.events.length} 条
+        <Typography.Text style={{ color: token.colorTextTertiary, fontSize: 12 }}>
+          {t("event.group.itemsCount", { n: group.events.length })}
         </Typography.Text>
       </Space>
     ),
     children: (
-      <Timeline
-        items={group.events.map((e) => renderTimelineItem(e, token))}
-      />
+      <Timeline items={group.events.map((e) => renderTimelineItem(e, token, t))} />
     ),
   }));
 
@@ -424,7 +296,7 @@ export default function EventTimeline({ events }: EventTimelineProps) {
           style={{ cursor: "pointer", userSelect: "none" }}
           onClick={() => setExpanded((v) => !v)}
         >
-          {expanded ? "▾" : "▸"} 办理记录 ({events.length})
+          {expanded ? "▾" : "▸"} {t("event.timeline.title")} ({events.length})
         </span>
       }
     >
@@ -432,9 +304,7 @@ export default function EventTimeline({ events }: EventTimelineProps) {
         <Collapse
           ghost
           activeKey={activeKeys}
-          onChange={(keys) =>
-            setActiveKeys(Array.isArray(keys) ? keys : [keys])
-          }
+          onChange={(keys) => setActiveKeys(Array.isArray(keys) ? keys : [keys])}
           items={collapseItems}
         />
       )}
