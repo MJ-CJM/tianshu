@@ -230,6 +230,316 @@
   "phaseFilter": {
     "all": "All Phases"
   },
+  "page": {
+    "edictDetail": {
+      "title": "Task Detail",
+      "notFound": "Task not found",
+      "viewBattleMap": "View DAG",
+      "backToList": "Back",
+      "planCardTitle": "Execution Plan",
+      "planExecuted": "Executed",
+      "planTaskColumn": {
+        "task": "Task",
+        "executor": "Executor",
+        "depends": "Depends",
+        "tools": "Tools"
+      },
+      "planApprove": "Approve (execute plan)",
+      "planReject": "Reject (decline plan)",
+      "decreePrompt": "Run pending review, choose an action:",
+      "followupTitle": "Follow Up",
+      "followupPlaceholder": "Enter follow-up instruction...",
+      "followupSubmit": "Submit (Ctrl+Enter)",
+      "closeButton": "Close",
+      "cancelButton": "Cancel",
+      "confirmClose": {
+        "title": "Confirm close?",
+        "description": "Cannot send further instructions after close"
+      },
+      "confirmCancel": {
+        "title": "Confirm cancel?",
+        "description": "Task will be marked as cancelled"
+      },
+      "editModal": {
+        "title": "Edit Task",
+        "fieldTitle": "Title",
+        "fieldGoal": "Goal",
+        "fieldContext": "Context"
+      },
+      "details": {
+        "priority": "Priority",
+        "reviewPolicy": "Review Policy",
+        "schedule": "Schedule",
+        "source": "Source",
+        "executionMode": "Mode",
+        "plannerPersona": "Planner",
+        "cabinetDecision": "Auto Plan",
+        "globalConfig": "Global config",
+        "constraints": "Constraints",
+        "outputFormat": "Output Format",
+        "runtimeSection": "Runtime",
+        "timeout": "Timeout",
+        "maxIterations": "Max Iter",
+        "concurrency": "Concurrency",
+        "retry": "Retry",
+        "tokenBudget": "Token Budget",
+        "costBudget": "Cost Budget",
+        "timeBudget": "Time Budget",
+        "longTaskTag": "Long Task",
+        "maxOuterRounds": "Max {n} rounds",
+        "timeBudgetMin": "Time {n} min",
+        "exhaustionPrefix": "On Exhaustion → ",
+        "checksCount": "{n} checks",
+        "criticLabel": "Critic:"
+      }
+    },
+    "edictCreate": {
+      "title": "New Task",
+      "successTitle": "Task created",
+      "successDesc": "System is processing"
+    }
+  },
+  "form": {
+    "search": {
+      "edict": "Search tasks..."
+    },
+    "decree": {
+      "field": {
+        "action": "Action",
+        "amendedGoal": "Amended Goal",
+        "comment": "Comment (optional)"
+      },
+      "placeholder": {
+        "amendedGoal": "Enter amended task goal",
+        "comment": "Optional comment"
+      },
+      "validation": {
+        "amendedGoalRequired": "Amended goal required for amend action"
+      }
+    },
+    "edict": {
+      "field": {
+        "title": "Title (optional)",
+        "goal": "Goal",
+        "context": "Context (optional)",
+        "executionMode": "Execution Mode",
+        "assignedPersona": "Assignee",
+        "plannerPersona": "Planner (optional)",
+        "planReview": "Plan Review",
+        "scheduleType": "Schedule",
+        "cronExpr": "Cron Expression",
+        "scheduleAt": "Run At",
+        "priority": "Priority",
+        "reviewPolicy": "Review Policy",
+        "constraints": "Constraints",
+        "outputFormat": "Output Format",
+        "timeoutSeconds": "Timeout (seconds)",
+        "maxIterations": "Max Iterations",
+        "maxConcurrency": "DAG Concurrency",
+        "retryLimit": "Retry Limit",
+        "tokenBudget": "Token Budget",
+        "costBudget": "Cost Budget (CNY)",
+        "longTaskEnabled": "Enable Long Task Mode",
+        "templatePreset": "Template Preset",
+        "executionProfile": "Execution Profile",
+        "maxOuterIterations": "Max Outer Iterations",
+        "minOuterIterations": "Min Outer Iterations (continuous improvement)",
+        "criticStrictness": "Critic Strictness",
+        "deadline": "Deadline (optional)",
+        "onExhaustion": "On Exhaustion",
+        "onCriticUnavailable": "On Critic Unavailable",
+        "criticPersonas": "Critic Personas (multi-select)",
+        "sameIssueThreshold": "Same-issue Escalation Threshold",
+        "l1MaxRounds": "L1 Max Retry Rounds",
+        "l2MaxRounds": "L2 Max Retry Rounds"
+      },
+      "placeholder": {
+        "title": "Leave blank to auto-extract first 20 chars of goal",
+        "goal": "Enter task goal...",
+        "context": "Additional background or constraints...",
+        "assignedPersona": "Select assignee",
+        "plannerPersona": "Auto (use global config)",
+        "cronExpr": "e.g. 0 9 * * 1-5",
+        "scheduleAt": "ISO 8601 time, e.g. 2026-03-20T09:00:00",
+        "constraints": "Type constraint and press Enter",
+        "outputFormat": "Specify expected output format (JSON, Markdown table, etc.)",
+        "timeoutSeconds": "Default 300",
+        "maxIterations": "Default 20",
+        "maxConcurrency": "Default 1",
+        "retryLimit": "Default 0",
+        "tokenBudget": "Unlimited",
+        "costBudget": "Unlimited",
+        "maxOuterIterations": "Default 5",
+        "minOuterIterations": "Default 1 (no continuous)",
+        "sameIssueThreshold": "Default 2",
+        "l1MaxRounds": "Default 2",
+        "l2MaxRounds": "Default 1",
+        "criticPersonas": "Multi-select personas (audit/planning recommended)",
+        "deadlineHours": "h",
+        "deadlineMinutes": "m"
+      },
+      "validation": {
+        "goalRequired": "Goal is required",
+        "assignedPersonaRequired": "Please select an assignee",
+        "cronExprRequired": "Cron expression required",
+        "scheduleAtRequired": "Run time required",
+        "criticPersonasRequired": "At least one critic required for long task mode"
+      },
+      "tooltip": {
+        "plannerPersona": "Choose which planner persona to use; different personas may use different LLMs",
+        "planReview": "When enabled, plans require human approval before execution",
+        "longTaskEnabled": "When enabled, task runs actor → checks → critic loop with self-driven convergence; otherwise single-round agent loop (default)",
+        "templatePreset": "One-click fill of common configs; you can still tweak below",
+        "executionProfile": "foreground=in-process; checkpointed=resumable per round; background=runs in background (page can close)",
+        "maxOuterIterations": "actor → critic counts as one round; exceeding triggers on_exhaustion",
+        "minOuterIterations": "When ≥2, force continue even if critic PASSes round 1; critic's 'optimization directions' inject into next round actor",
+        "criticStrictness": "lenient=PASS if acceptable (default) / balanced=high bar tends to fail / strict=PASS only if excellent",
+        "deadline": "Trigger EXHAUSTED if exceeded; leave blank for no hard deadline",
+        "onExhaustion": "What to do when max_outer_iterations / deadline / cost_budget exceeded",
+        "onCriticUnavailable": "Fallback when all critic LLM calls fail",
+        "criticPersonas": "Who reviews task quality. Multi-select runs concurrent review per round, aggregated as 'all pass'; any FAIL = fail. Each critic produces an independent report on terminal state.",
+        "sameIssueThreshold": "Escalate to L1 when critic reports same issue_class for N consecutive rounds"
+      },
+      "option": {
+        "autoPlanning": "Auto Plan (system decides)",
+        "directAssign": "Direct Assign",
+        "scheduleImmediate": "Immediate",
+        "scheduleOnce": "Scheduled",
+        "scheduleCron": "Recurring"
+      },
+      "section": {
+        "advanced": "Advanced",
+        "runtime": "Runtime",
+        "longTask": "Long Task Mode (Outer Loop)",
+        "checks": "Acceptance Checks (optional)"
+      },
+      "template": {
+        "analysis": "📊 Data Analysis",
+        "creative": "✍️ Content Creation",
+        "coding": "🛠 Code Implementation",
+        "research": "🔬 Deep Research"
+      },
+      "warning": {
+        "criticSelfReviewTitle": "Executor and Critic overlap",
+        "criticSelfReviewDesc": "Same persona executing and self-reviewing significantly reduces critic objectivity. Recommend audit / knowledge-base personas not involved in execution."
+      }
+    },
+    "check": {
+      "field": {
+        "name": "Name",
+        "kind": "Kind",
+        "rubric": "Rubric Prompt",
+        "passThreshold": "Pass Threshold",
+        "command": "Shell Command",
+        "timeout": "Timeout (seconds)"
+      },
+      "placeholder": {
+        "name": "e.g. pytest / tone-check",
+        "rubric": "Evaluation criteria; ask LLM to return 0~1 score",
+        "command": "e.g. pytest tests/ -q"
+      },
+      "validation": {
+        "nameRequired": "Required",
+        "rubricRequired": "rubric required",
+        "commandRequired": "command required"
+      },
+      "action": {
+        "addBashLint": "Add Bash/Lint Check",
+        "addRubric": "Add Rubric Check"
+      }
+    }
+  },
+  "priority": {
+    "urgent": "Urgent",
+    "normal": "Normal",
+    "low": "Low"
+  },
+  "reviewPolicy": {
+    "always": "Always Manual Review",
+    "on_flag": "Auto (manual on audit flag)",
+    "on_failure": "Manual on Failure",
+    "never": "Skip Manual Review"
+  },
+  "scheduleType": {
+    "immediate": "Immediate",
+    "once": "Scheduled",
+    "cron": "Recurring"
+  },
+  "executionProfile": {
+    "foreground": "Foreground",
+    "checkpointed": "Resumable",
+    "background": "Background"
+  },
+  "strictness": {
+    "lenient": "Lenient",
+    "balanced": "Balanced",
+    "strict": "Strict"
+  },
+  "exhaustion": {
+    "escalate": "Escalate to Human (L3)",
+    "best_effort": "Best Effort (last round)",
+    "fail": "Fail Directly",
+    "shortEscalate": "Escalate",
+    "shortBestEffort": "Best Effort",
+    "shortFail": "Fail"
+  },
+  "criticUnavail": {
+    "skip": "Skip as Pass",
+    "escalate": "Escalate"
+  },
+  "checkKind": {
+    "bash": "Bash",
+    "lint": "Lint",
+    "rubric": "Rubric (LLM scoring)"
+  },
+  "dept": {
+    "ducha": "Audit",
+    "neige": "Planning",
+    "bingbu": "Execution",
+    "hubu": "Finance",
+    "wenyuan": "Knowledge",
+    "tongzheng": "Notify"
+  },
+  "unit": {
+    "hours": "hours",
+    "minutes": "minutes",
+    "seconds": "seconds"
+  },
+  "button": {
+    "save": "Save",
+    "close": "Close",
+    "cancel": "Cancel",
+    "pause": "Pause",
+    "resume": "Resume"
+  },
+  "common2": {
+    "unlimited": "Unlimited",
+    "enabled": "On",
+    "disabled": "Off",
+    "optional": "Optional",
+    "save": "Save"
+  },
+  "toast": {
+    "toolApproved": "Approved {tool}",
+    "toolApprovedWithRule": "Approved and saved session rule ({scope})",
+    "toolRejected": "Rejected {tool}",
+    "actionFailed": "Action failed",
+    "planApproved": "Plan approved, starting execution",
+    "planApproveFailed": "Plan approve failed",
+    "planRejected": "Plan rejected",
+    "planRejectFailed": "Plan reject failed",
+    "followupFailed": "Submit follow-up failed",
+    "edictClosed": "Task closed",
+    "closeFailed": "Close failed",
+    "edictCancelled": "Task cancelled",
+    "cancelFailed": "Cancel failed",
+    "edictPaused": "Task paused",
+    "pauseFailed": "Pause failed",
+    "edictResumed": "Task resumed",
+    "resumeFailed": "Resume failed",
+    "edictUpdated": "Task updated",
+    "updateFailed": "Update failed"
+  },
   "locale": {
     "zh-classic": "Easter Egg",
     "zh-modern": "Modern",

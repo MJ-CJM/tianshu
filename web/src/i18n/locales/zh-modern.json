@@ -230,6 +230,316 @@
   "phaseFilter": {
     "all": "全部阶段"
   },
+  "page": {
+    "edictDetail": {
+      "title": "任务详情",
+      "notFound": "未找到该任务",
+      "viewBattleMap": "查看 DAG",
+      "backToList": "返回列表",
+      "planCardTitle": "规划方案",
+      "planExecuted": "已执行",
+      "planTaskColumn": {
+        "task": "任务",
+        "executor": "执行者",
+        "depends": "依赖",
+        "tools": "工具"
+      },
+      "planApprove": "批准（执行此方案）",
+      "planReject": "拒绝（驳回方案）",
+      "decreePrompt": "有执行结果待审批，请选择操作：",
+      "followupTitle": "继续追加指令",
+      "followupPlaceholder": "输入后续指令...",
+      "followupSubmit": "提交 (Ctrl+Enter)",
+      "closeButton": "关闭任务",
+      "cancelButton": "取消任务",
+      "confirmClose": {
+        "title": "确认关闭？",
+        "description": "关闭后将无法继续下达指令"
+      },
+      "confirmCancel": {
+        "title": "确认取消？",
+        "description": "取消后任务将被标记为已撤销"
+      },
+      "editModal": {
+        "title": "编辑任务",
+        "fieldTitle": "任务标题",
+        "fieldGoal": "目标",
+        "fieldContext": "上下文"
+      },
+      "details": {
+        "priority": "优先级",
+        "reviewPolicy": "审核策略",
+        "schedule": "调度方式",
+        "source": "来源",
+        "executionMode": "执行方式",
+        "plannerPersona": "规划者",
+        "cabinetDecision": "自动规划",
+        "globalConfig": "全局配置",
+        "constraints": "约束条件",
+        "outputFormat": "输出格式",
+        "runtimeSection": "执行参数",
+        "timeout": "超时",
+        "maxIterations": "最大迭代",
+        "concurrency": "并发",
+        "retry": "重试",
+        "tokenBudget": "Token 预算",
+        "costBudget": "费用预算",
+        "timeBudget": "时间预算",
+        "longTaskTag": "长任务模式",
+        "maxOuterRounds": "最多 {n} 轮",
+        "timeBudgetMin": "时间预算 {n} 分钟",
+        "exhaustionPrefix": "耗尽 → ",
+        "checksCount": "{n} 项 checks",
+        "criticLabel": "审核者:"
+      }
+    },
+    "edictCreate": {
+      "title": "创建新任务",
+      "successTitle": "任务已创建",
+      "successDesc": "系统正在执行"
+    }
+  },
+  "form": {
+    "search": {
+      "edict": "搜索任务..."
+    },
+    "decree": {
+      "field": {
+        "action": "操作",
+        "amendedGoal": "修改后目标",
+        "comment": "备注（可选）"
+      },
+      "placeholder": {
+        "amendedGoal": "请输入修改后的任务目标",
+        "comment": "可选备注"
+      },
+      "validation": {
+        "amendedGoalRequired": "修改操作须填写修改后目标"
+      }
+    },
+    "edict": {
+      "field": {
+        "title": "任务标题（可选）",
+        "goal": "任务目标",
+        "context": "上下文（可选）",
+        "executionMode": "执行方式",
+        "assignedPersona": "执行者",
+        "plannerPersona": "规划者（可选）",
+        "planReview": "规划审批",
+        "scheduleType": "调度方式",
+        "cronExpr": "Cron 表达式",
+        "scheduleAt": "执行时间",
+        "priority": "优先级",
+        "reviewPolicy": "审核策略",
+        "constraints": "约束条件",
+        "outputFormat": "输出格式",
+        "timeoutSeconds": "超时时间 (秒)",
+        "maxIterations": "最大迭代次数",
+        "maxConcurrency": "DAG 并发度",
+        "retryLimit": "重试次数",
+        "tokenBudget": "Token 预算",
+        "costBudget": "费用预算 (CNY)",
+        "longTaskEnabled": "启用长任务模式",
+        "templatePreset": "模板预设",
+        "executionProfile": "执行模型",
+        "maxOuterIterations": "最多迭代轮数",
+        "minOuterIterations": "最少迭代轮数 (持续优化模式)",
+        "criticStrictness": "Critic 严苛度",
+        "deadline": "截止时间 (可选)",
+        "onExhaustion": "耗尽时",
+        "onCriticUnavailable": "Critic 故障时",
+        "criticPersonas": "审核者 (Critic Personas，可多选)",
+        "sameIssueThreshold": "同类问题升级阈值",
+        "l1MaxRounds": "L1 最多重试轮数",
+        "l2MaxRounds": "L2 最多重试轮数"
+      },
+      "placeholder": {
+        "title": "留空则自动截取目标前 20 字",
+        "goal": "请输入任务目标...",
+        "context": "补充背景信息或约束条件...",
+        "assignedPersona": "选择执行者",
+        "plannerPersona": "自动（使用全局配置）",
+        "cronExpr": "例如 0 9 * * 1-5",
+        "scheduleAt": "ISO 8601 时间，例如 2026-03-20T09:00:00",
+        "constraints": "输入约束条件后按回车添加",
+        "outputFormat": "指定期望的输出格式，如 JSON、Markdown 表格等",
+        "timeoutSeconds": "默认 300",
+        "maxIterations": "默认 20",
+        "maxConcurrency": "默认 1",
+        "retryLimit": "默认 0",
+        "tokenBudget": "不限",
+        "costBudget": "不限",
+        "maxOuterIterations": "默认 5",
+        "minOuterIterations": "默认 1（不持续优化）",
+        "sameIssueThreshold": "默认 2",
+        "l1MaxRounds": "默认 2",
+        "l2MaxRounds": "默认 1",
+        "criticPersonas": "可选多位 persona（推荐审计/规划部门）",
+        "deadlineHours": "时",
+        "deadlineMinutes": "分"
+      },
+      "validation": {
+        "goalRequired": "请输入任务目标",
+        "assignedPersonaRequired": "请选择执行者",
+        "cronExprRequired": "请输入 Cron 表达式",
+        "scheduleAtRequired": "请输入执行时间",
+        "criticPersonasRequired": "启用长任务时至少选择一位审核者"
+      },
+      "tooltip": {
+        "plannerPersona": "选择哪位规划者进行规划，不同 persona 可使用不同的 LLM",
+        "planReview": "开启后，规划方案需人工审批通过后才会执行",
+        "longTaskEnabled": "启用后任务走 actor → checks → critic 的多轮迭代路径，可自驱收敛；不启用则走单回合 agent loop（默认）",
+        "templatePreset": "一键填入常用配置；填完仍可在下方继续微调",
+        "executionProfile": "foreground=同进程；checkpointed=每轮 checkpoint 可续跑；background=后台跑（用户可关页面）",
+        "maxOuterIterations": "actor → critic 一回合算一轮；超过此数走 on_exhaustion 决策",
+        "minOuterIterations": "≥2 时即使 critic 第一轮就 PASS 也强制继续；critic 的'可优化方向'会注入下一轮 actor。让审核者真正持续推动优化。",
+        "criticStrictness": "lenient=合格即 PASS（默认） / balanced=高标准倾向 fail / strict=优秀才 PASS",
+        "deadline": "超过则触发 EXHAUSTED；全留空 = 无硬截止",
+        "onExhaustion": "超过 max_outer_iterations / deadline / cost_budget 时的处理",
+        "onCriticUnavailable": "critic LLM 调用全部失败的兜底",
+        "criticPersonas": "谁来审核任务质量。多选时每轮并发评审，按'全过则过'聚合；任意一位 FAIL 即不过。终态后每位审核者独立产出审核报告。",
+        "sameIssueThreshold": "critic 连续 N 轮报同类问题（issue_class）则升 L1"
+      },
+      "option": {
+        "autoPlanning": "自动规划（系统决策分配）",
+        "directAssign": "直接指派 persona",
+        "scheduleImmediate": "立即执行",
+        "scheduleOnce": "定时执行",
+        "scheduleCron": "周期执行"
+      },
+      "section": {
+        "advanced": "高级选项",
+        "runtime": "执行参数",
+        "longTask": "长任务模式 (Outer Loop)",
+        "checks": "可验收指标 Checks（可选，零或多条）"
+      },
+      "template": {
+        "analysis": "📊 数据分析型",
+        "creative": "✍️ 内容创作型",
+        "coding": "🛠 代码实现型",
+        "research": "🔬 深度研究型"
+      },
+      "warning": {
+        "criticSelfReviewTitle": "执行者与审核者重合",
+        "criticSelfReviewDesc": "同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议审核者选用审计 / 知识库等不参与执行的 persona。"
+      }
+    },
+    "check": {
+      "field": {
+        "name": "名称",
+        "kind": "类型",
+        "rubric": "Rubric 提示词",
+        "passThreshold": "通过阈值",
+        "command": "Shell 命令",
+        "timeout": "超时 (秒)"
+      },
+      "placeholder": {
+        "name": "例如 pytest / tone-check",
+        "rubric": "评估标准描述，要求 LLM 回 0~1 分",
+        "command": "例如 pytest tests/ -q"
+      },
+      "validation": {
+        "nameRequired": "必填",
+        "rubricRequired": "rubric 必填",
+        "commandRequired": "command 必填"
+      },
+      "action": {
+        "addBashLint": "添加 Bash/Lint Check",
+        "addRubric": "添加 Rubric Check"
+      }
+    }
+  },
+  "priority": {
+    "urgent": "紧急",
+    "normal": "普通",
+    "low": "低"
+  },
+  "reviewPolicy": {
+    "always": "始终人工复核",
+    "on_flag": "自动（审计标记时人工复核）",
+    "on_failure": "失败时人工复核",
+    "never": "跳过人工复核"
+  },
+  "scheduleType": {
+    "immediate": "立即",
+    "once": "定时",
+    "cron": "周期"
+  },
+  "executionProfile": {
+    "foreground": "前台",
+    "checkpointed": "可续跑",
+    "background": "后台"
+  },
+  "strictness": {
+    "lenient": "宽松",
+    "balanced": "高标准",
+    "strict": "严苛"
+  },
+  "exhaustion": {
+    "escalate": "上报人工 (L3)",
+    "best_effort": "取最近一轮当成果",
+    "fail": "直接失败",
+    "shortEscalate": "上报人工",
+    "shortBestEffort": "取最近一轮",
+    "shortFail": "直接失败"
+  },
+  "criticUnavail": {
+    "skip": "跳过当作通过",
+    "escalate": "上报人工"
+  },
+  "checkKind": {
+    "bash": "Bash",
+    "lint": "Lint",
+    "rubric": "Rubric (LLM 评分)"
+  },
+  "dept": {
+    "ducha": "审计",
+    "neige": "规划",
+    "bingbu": "执行",
+    "hubu": "财务",
+    "wenyuan": "知识库",
+    "tongzheng": "通知"
+  },
+  "unit": {
+    "hours": "小时",
+    "minutes": "分钟",
+    "seconds": "秒"
+  },
+  "button": {
+    "save": "保存",
+    "close": "关闭",
+    "cancel": "取消",
+    "pause": "暂停",
+    "resume": "恢复"
+  },
+  "common2": {
+    "unlimited": "不限",
+    "enabled": "启用",
+    "disabled": "关闭",
+    "optional": "可选",
+    "save": "保存"
+  },
+  "toast": {
+    "toolApproved": "已放行 {tool}",
+    "toolApprovedWithRule": "已放行并写入 session rule ({scope})",
+    "toolRejected": "已拒绝 {tool}",
+    "actionFailed": "操作失败",
+    "planApproved": "规划方案已批准，开始执行",
+    "planApproveFailed": "批准规划失败",
+    "planRejected": "规划方案已拒绝",
+    "planRejectFailed": "拒绝规划失败",
+    "followupFailed": "提交后续指令失败",
+    "edictClosed": "任务已关闭",
+    "closeFailed": "关闭失败",
+    "edictCancelled": "任务已取消",
+    "cancelFailed": "取消失败",
+    "edictPaused": "任务已暂停",
+    "pauseFailed": "暂停失败",
+    "edictResumed": "任务已恢复",
+    "resumeFailed": "恢复失败",
+    "edictUpdated": "任务已更新",
+    "updateFailed": "更新失败"
+  },
   "locale": {
     "zh-classic": "彩蛋",
     "zh-modern": "通用",
