@@ -421,6 +421,28 @@ class Storage:
                     encrypted_secret BLOB,
                     updated_at       TIMESTAMP NOT NULL
                 );
+
+                -- 藏兵阁 · MCP server DB 配置（既能 override YAML 种子，也能完整定义新 server）。
+                -- nullable 字段语义：
+                --   * 若 YAML 中存在同名 server：NULL = 沿用 YAML；非 NULL = 覆写
+                --   * 若 YAML 中无同名 server：DB 必须填够 transport + 主字段，merge 时晋级为完整 server
+                CREATE TABLE IF NOT EXISTS mcp_server_overrides (
+                    name                 TEXT PRIMARY KEY,
+                    enabled              INTEGER,
+                    env_json             TEXT,
+                    tools_include_json   TEXT,
+                    tools_exclude_json   TEXT,
+                    transport            TEXT,           -- "stdio" | "streamable_http"
+                    command              TEXT,
+                    args_json            TEXT,
+                    url                  TEXT,
+                    headers_json         TEXT,
+                    default_tier         INTEGER,
+                    timeout              INTEGER,
+                    connect_timeout      INTEGER,
+                    tool_overrides_json  TEXT,
+                    updated_at           TEXT NOT NULL
+                );
             """)
 
     def _migrate(self) -> None:
@@ -540,6 +562,16 @@ class Storage:
             "ALTER TABLE feishu_thinking_messages ADD COLUMN source_message_id TEXT NOT NULL DEFAULT ''",
             # 2026-04-30: persona 加 title（部门内职务，例：大学士、协理通政）
             "ALTER TABLE personas ADD COLUMN title TEXT",
+            # 2026-05-07: MCP server DB 配置升级 — 让 DB 能完整定义新 server，不再仅 override YAML
+            "ALTER TABLE mcp_server_overrides ADD COLUMN transport TEXT",
+            "ALTER TABLE mcp_server_overrides ADD COLUMN command TEXT",
+            "ALTER TABLE mcp_server_overrides ADD COLUMN args_json TEXT",
+            "ALTER TABLE mcp_server_overrides ADD COLUMN url TEXT",
+            "ALTER TABLE mcp_server_overrides ADD COLUMN headers_json TEXT",
+            "ALTER TABLE mcp_server_overrides ADD COLUMN default_tier INTEGER",
+            "ALTER TABLE mcp_server_overrides ADD COLUMN timeout INTEGER",
+            "ALTER TABLE mcp_server_overrides ADD COLUMN connect_timeout INTEGER",
+            "ALTER TABLE mcp_server_overrides ADD COLUMN tool_overrides_json TEXT",
         ]
         for sql in migrations:
             try:
@@ -2544,6 +2576,128 @@ class Storage:
                      enabled = excluded.enabled,
                      updated_at = excluded.updated_at""",
                 (tool_name, 1 if enabled else 0, now),
+            )
+
+    # --- mcp server overrides --------------------------------------------
+
+    def list_mcp_overrides(self) -> list[dict]:
+        """读取所有 mcp_server_overrides 行。
+
+        nullable 字段语义：
+          * 若 YAML 中存在同名 server：NULL = 沿用 YAML，非 NULL = 覆写
+          * 若 YAML 中无同名 server：DB 必须填够 transport + 主字段，merge 时晋级为完整 server
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT name, enabled, env_json,
+                          tools_include_json, tools_exclude_json,
+                          transport, command, args_json,
+                          url, headers_json,
+                          default_tier, timeout, connect_timeout,
+                          tool_overrides_json
+                     FROM mcp_server_overrides"""
+            ).fetchall()
+        out: list[dict] = []
+        for r in rows:
+            out.append({
+                "name": r["name"],
+                "enabled": None if r["enabled"] is None else bool(r["enabled"]),
+                "env": json.loads(r["env_json"]) if r["env_json"] else None,
+                "tools_include": (
+                    json.loads(r["tools_include_json"])
+                    if r["tools_include_json"] else None
+                ),
+                "tools_exclude": (
+                    json.loads(r["tools_exclude_json"])
+                    if r["tools_exclude_json"] else None
+                ),
+                "transport": r["transport"],
+                "command": r["command"],
+                "args": json.loads(r["args_json"]) if r["args_json"] else None,
+                "url": r["url"],
+                "headers": (
+                    json.loads(r["headers_json"]) if r["headers_json"] else None
+                ),
+                "default_tier": r["default_tier"],
+                "timeout": r["timeout"],
+                "connect_timeout": r["connect_timeout"],
+                "tool_overrides": (
+                    json.loads(r["tool_overrides_json"])
+                    if r["tool_overrides_json"] else None
+                ),
+            })
+        return out
+
+    def upsert_mcp_override(
+        self,
+        name: str,
+        *,
+        enabled: bool | None = None,
+        env: dict[str, str] | None = None,
+        tools_include: list[str] | None = None,
+        tools_exclude: list[str] | None = None,
+        transport: str | None = None,
+        command: str | None = None,
+        args: list[str] | None = None,
+        url: str | None = None,
+        headers: dict[str, str] | None = None,
+        default_tier: int | None = None,
+        timeout: int | None = None,
+        connect_timeout: int | None = None,
+        tool_overrides: dict[str, int] | None = None,
+    ) -> None:
+        """upsert 一行 server 配置；None 字段写入 NULL（= 沿用 YAML 或不指定）。"""
+        from datetime import UTC, datetime
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                # COALESCE 让 NULL 入参表示「不动该字段」，保留旧值。
+                # 这避免 PATCH 单字段时把其他列清成 NULL。
+                # 想真的清字段 → 走 DELETE override 删整行后重建。
+                """INSERT INTO mcp_server_overrides
+                   (name, enabled, env_json, tools_include_json, tools_exclude_json,
+                    transport, command, args_json, url, headers_json,
+                    default_tier, timeout, connect_timeout, tool_overrides_json,
+                    updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(name) DO UPDATE SET
+                     enabled = COALESCE(excluded.enabled, mcp_server_overrides.enabled),
+                     env_json = COALESCE(excluded.env_json, mcp_server_overrides.env_json),
+                     tools_include_json = COALESCE(excluded.tools_include_json, mcp_server_overrides.tools_include_json),
+                     tools_exclude_json = COALESCE(excluded.tools_exclude_json, mcp_server_overrides.tools_exclude_json),
+                     transport = COALESCE(excluded.transport, mcp_server_overrides.transport),
+                     command = COALESCE(excluded.command, mcp_server_overrides.command),
+                     args_json = COALESCE(excluded.args_json, mcp_server_overrides.args_json),
+                     url = COALESCE(excluded.url, mcp_server_overrides.url),
+                     headers_json = COALESCE(excluded.headers_json, mcp_server_overrides.headers_json),
+                     default_tier = COALESCE(excluded.default_tier, mcp_server_overrides.default_tier),
+                     timeout = COALESCE(excluded.timeout, mcp_server_overrides.timeout),
+                     connect_timeout = COALESCE(excluded.connect_timeout, mcp_server_overrides.connect_timeout),
+                     tool_overrides_json = COALESCE(excluded.tool_overrides_json, mcp_server_overrides.tool_overrides_json),
+                     updated_at = excluded.updated_at""",
+                (
+                    name,
+                    None if enabled is None else (1 if enabled else 0),
+                    json.dumps(env) if env is not None else None,
+                    json.dumps(tools_include) if tools_include is not None else None,
+                    json.dumps(tools_exclude) if tools_exclude is not None else None,
+                    transport,
+                    command,
+                    json.dumps(args) if args is not None else None,
+                    url,
+                    json.dumps(headers) if headers is not None else None,
+                    default_tier,
+                    timeout,
+                    connect_timeout,
+                    json.dumps(tool_overrides) if tool_overrides is not None else None,
+                    now,
+                ),
+            )
+
+    def delete_mcp_override(self, name: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "DELETE FROM mcp_server_overrides WHERE name = ?", (name,)
             )
 
     # --- engine preferences ---------------------------------------------

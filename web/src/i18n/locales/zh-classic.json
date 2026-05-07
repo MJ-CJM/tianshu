@@ -146,10 +146,86 @@
     "complete": "终结"
   },
   "audit": {
-    "label": {
-      "pass": "审计通过",
-      "flag": "审计标记",
-      "block": "审计拦截"
+    "title": "都察院",
+    "tab": {
+      "stats": "审计统计",
+      "policy": "Policy Decisions",
+      "eventbus": "事件流",
+      "workers": "并发控制",
+      "hooks": "Hooks & 通知",
+      "network": "鸿胪寺访问",
+      "rules": "规则管理"
+    },
+    "stat": {
+      "totalTokens": "Token 总量",
+      "totalMemorials": "奏折总数",
+      "passRate": "审计通过率",
+      "flagRate": "标记率"
+    },
+    "section": {
+      "usage": "敕令 Token 用量",
+      "recent": "最近审计结果",
+      "auditRules": "审计规则",
+      "reviewPolicies": "审阅策略"
+    },
+    "empty": {
+      "usage": "暂无数据",
+      "recent": "暂无审计记录",
+      "rules": "暂无规则"
+    },
+    "usageTable": {
+      "edict": "敕令",
+      "priority": "优先级",
+      "memorialCount": "奏折数",
+      "prompt": "Prompt",
+      "completion": "Completion",
+      "total": "Total",
+      "budget": "预算"
+    },
+    "recentTable": {
+      "memorialId": "奏折编号",
+      "edict": "敕令",
+      "verdict": "审计结论",
+      "reasons": "原因",
+      "reviewStatus": "复核状态",
+      "time": "时间"
+    },
+    "hookEvents": {
+      "title": "Hook 触发记录",
+      "expand": "展开",
+      "collapse": "折叠"
+    },
+    "network": {
+      "filter": {
+        "tool": "工具",
+        "host": "host (精确匹配)",
+        "status": "状态",
+        "success": "成功",
+        "fail": "失败"
+      },
+      "table": {
+        "time": "时间",
+        "edict": "敕令",
+        "tool": "工具",
+        "host": "Host",
+        "method": "方法",
+        "http": "HTTP",
+        "bytes": "字节",
+        "credential": "凭证",
+        "cached": "缓存"
+      }
+    },
+    "rulesTable": {
+      "name": "规则名称",
+      "description": "描述",
+      "severity": "严重级别",
+      "status": "状态",
+      "enabled": "启用",
+      "disabled": "禁用"
+    },
+    "reviewPolicy": {
+      "valuePrefix": "（值：",
+      "valueSuffix": "）"
     }
   },
   "memorial": {
@@ -1335,7 +1411,9 @@
         "tooltip": {
           "title": "如：大学士、协理通政、参谋。可选；填了之后会写入官员的身份卡，自报家门更准确。"
         },
-        "llmConfigGlobal": "使用全局配置（默认）"
+        "llmConfigGlobal": "使用全局配置（默认）",
+        "mcpAllOf": "外援「{name}」麾下尽用",
+        "toolsWildcardHint": "可填具名兵种或通配符（例：mcp_context7_* 全军授调，mcp_*_delete_* 禁所有 delete 之兵）。"
       },
       "department": {
         "addTitle": "添加部门",
@@ -1458,89 +1536,6 @@
       "cancelFailed": "取消失败"
     }
   },
-  "audit": {
-    "title": "都察院",
-    "tab": {
-      "stats": "审计统计",
-      "policy": "Policy Decisions",
-      "eventbus": "事件流",
-      "workers": "并发控制",
-      "hooks": "Hooks & 通知",
-      "network": "鸿胪寺访问",
-      "rules": "规则管理"
-    },
-    "stat": {
-      "totalTokens": "Token 总量",
-      "totalMemorials": "奏折总数",
-      "passRate": "审计通过率",
-      "flagRate": "标记率"
-    },
-    "section": {
-      "usage": "敕令 Token 用量",
-      "recent": "最近审计结果",
-      "auditRules": "审计规则",
-      "reviewPolicies": "审阅策略"
-    },
-    "empty": {
-      "usage": "暂无数据",
-      "recent": "暂无审计记录",
-      "rules": "暂无规则"
-    },
-    "usageTable": {
-      "edict": "敕令",
-      "priority": "优先级",
-      "memorialCount": "奏折数",
-      "prompt": "Prompt",
-      "completion": "Completion",
-      "total": "Total",
-      "budget": "预算"
-    },
-    "recentTable": {
-      "memorialId": "奏折编号",
-      "edict": "敕令",
-      "verdict": "审计结论",
-      "reasons": "原因",
-      "reviewStatus": "复核状态",
-      "time": "时间"
-    },
-    "hookEvents": {
-      "title": "Hook 触发记录",
-      "expand": "展开",
-      "collapse": "折叠"
-    },
-    "network": {
-      "filter": {
-        "tool": "工具",
-        "host": "host (精确匹配)",
-        "status": "状态",
-        "success": "成功",
-        "fail": "失败"
-      },
-      "table": {
-        "time": "时间",
-        "edict": "敕令",
-        "tool": "工具",
-        "host": "Host",
-        "method": "方法",
-        "http": "HTTP",
-        "bytes": "字节",
-        "credential": "凭证",
-        "cached": "缓存"
-      }
-    },
-    "rulesTable": {
-      "name": "规则名称",
-      "description": "描述",
-      "severity": "严重级别",
-      "status": "状态",
-      "enabled": "启用",
-      "disabled": "禁用"
-    },
-    "reviewPolicy": {
-      "valuePrefix": "（值：",
-      "valueSuffix": "）"
-    }
-  },
   "system": {
     "title": "藏兵阁",
     "tab": {
@@ -1550,7 +1545,8 @@
       "providers": "模型供应",
       "plugins": "插件",
       "config": "全局配置",
-      "externalCreds": "外部凭证"
+      "externalCreds": "外部凭证",
+      "mcp": "外援"
     },
     "skills": {
       "charsLoaded": "已加载 {n} chars",
@@ -1744,6 +1740,66 @@
       "credSaveFailed": "保存失败",
       "credToggleFailed": "切换失败",
       "extraHeadersInvalid": "extra_headers 不是合法 JSON"
+    },
+    "mcp": {
+      "reload": "调遣",
+      "configHint": "案上修改 ~/.tianshu/mcp_servers.yaml 之后，按「调遣」一键复阅。",
+      "empty": "藏兵阁外援未设。请于 ~/.tianshu/mcp_servers.yaml 立册以聘。",
+      "lastError": "近况战报",
+      "defaultTier": "本爵",
+      "timeout": "时限",
+      "enabled": "听调",
+      "disabled": "归籍",
+      "discoveredTools": "麾下兵种（{n}）",
+      "noTools": "麾下空虚",
+      "status": {
+        "connected": "在阵",
+        "reconnecting": "整队",
+        "error": "失阵",
+        "stopped": "解甲",
+        "pending": "待发",
+        "disabled": "归籍",
+        "unknown": "未察"
+      },
+      "notify": {
+        "savedTitle": "档案已录",
+        "savedNeedReload": "请按「调遣」以行新令。",
+        "errorTitle": "藏兵阁调度未果",
+        "reloadedTitle": "兵贴已下达",
+        "reloadedDesc": "现立 {servers} 营，临阵 {active} 队。",
+        "createdTitle": "已新聘外援",
+        "createdDesc": "{name} → {status}"
+      },
+      "addServer": "新聘外援",
+      "create": {
+        "title": "新聘外援",
+        "submit": "立册",
+        "name": "号",
+        "nameRequired": "「号」字必填",
+        "namePattern": "仅许字母 / 数字 / 点 / 短横（下划线另有大用）",
+        "nameHint": "此「号」作藏兵阁档名 mcp_<号>_<兵种>，故下划线另有它用。",
+        "transport": "传式",
+        "command": "差遣令",
+        "commandRequired": "stdio 之法必填差遣令",
+        "args": "差遣副参",
+        "argsHint": "一行一字；不解引号义。",
+        "env": "炉侧水土",
+        "envHint": "${VAR} 临阵从环境取符；战报中令牌字样自动 [REDACTED]。",
+        "url": "驿路",
+        "urlRequired": "streamable-http 之法必书驿路",
+        "urlInvalid": "驿路格式不合",
+        "headers": "门符",
+        "advanced": "细则",
+        "defaultTier": "本爵",
+        "defaultTierHint": "外援本爵。T2 = 跨垣，须由君上裁决；T0 = 只阅，免奏疾行。",
+        "timeout": "时限（秒）",
+        "connectTimeout": "通鸿之限（秒）",
+        "enabled": "听调",
+        "toolsInclude": "白册（一行一名，空 = 尽用）",
+        "toolsExclude": "黑册",
+        "toolsFilterHint": "外援 tools/list 所列之名；剔不需要者。",
+        "addRow": "增列"
+      }
     }
   }
 }

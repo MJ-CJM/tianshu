@@ -146,10 +146,86 @@
     "complete": "complete"
   },
   "audit": {
-    "label": {
-      "pass": "Audit Pass",
-      "flag": "Audit Flag",
-      "block": "Audit Block"
+    "title": "Audit Center",
+    "tab": {
+      "stats": "Audit stats",
+      "policy": "Policy Decisions",
+      "eventbus": "Event bus",
+      "workers": "Concurrency",
+      "hooks": "Hooks & notifications",
+      "network": "Network access",
+      "rules": "Rules"
+    },
+    "stat": {
+      "totalTokens": "Total tokens",
+      "totalMemorials": "Total executions",
+      "passRate": "Audit pass rate",
+      "flagRate": "Flag rate"
+    },
+    "section": {
+      "usage": "Task token usage",
+      "recent": "Recent audit results",
+      "auditRules": "Audit rules",
+      "reviewPolicies": "Review policies"
+    },
+    "empty": {
+      "usage": "No data",
+      "recent": "No audit records",
+      "rules": "No rules"
+    },
+    "usageTable": {
+      "edict": "Task",
+      "priority": "Priority",
+      "memorialCount": "Executions",
+      "prompt": "Prompt",
+      "completion": "Completion",
+      "total": "Total",
+      "budget": "Budget"
+    },
+    "recentTable": {
+      "memorialId": "Record ID",
+      "edict": "Task",
+      "verdict": "Verdict",
+      "reasons": "Reasons",
+      "reviewStatus": "Review status",
+      "time": "Time"
+    },
+    "hookEvents": {
+      "title": "Hook events",
+      "expand": "Expand",
+      "collapse": "Collapse"
+    },
+    "network": {
+      "filter": {
+        "tool": "Tool",
+        "host": "host (exact match)",
+        "status": "Status",
+        "success": "Success",
+        "fail": "Failed"
+      },
+      "table": {
+        "time": "Time",
+        "edict": "Task",
+        "tool": "Tool",
+        "host": "Host",
+        "method": "Method",
+        "http": "HTTP",
+        "bytes": "Bytes",
+        "credential": "Credential",
+        "cached": "Cached"
+      }
+    },
+    "rulesTable": {
+      "name": "Rule name",
+      "description": "Description",
+      "severity": "Severity",
+      "status": "Status",
+      "enabled": "Enabled",
+      "disabled": "Disabled"
+    },
+    "reviewPolicy": {
+      "valuePrefix": " (value: ",
+      "valueSuffix": ")"
     }
   },
   "memorial": {
@@ -1336,7 +1412,9 @@
         "tooltip": {
           "title": "e.g. Lead, Coordinator, Strategist. Optional; if filled, will be written into the persona card for clearer self-introduction."
         },
-        "llmConfigGlobal": "Use global config (default)"
+        "llmConfigGlobal": "Use global config (default)",
+        "mcpAllOf": "All tools of MCP server '{name}'",
+        "toolsWildcardHint": "Type a tool name or fnmatch wildcard (e.g. mcp_context7_* to allow the whole MCP server, mcp_*_delete_* to deny all delete tools)."
       },
       "department": {
         "addTitle": "Add department",
@@ -1459,89 +1537,6 @@
       "cancelFailed": "Cancel failed"
     }
   },
-  "audit": {
-    "title": "Audit Center",
-    "tab": {
-      "stats": "Audit stats",
-      "policy": "Policy Decisions",
-      "eventbus": "Event bus",
-      "workers": "Concurrency",
-      "hooks": "Hooks & notifications",
-      "network": "Network access",
-      "rules": "Rules"
-    },
-    "stat": {
-      "totalTokens": "Total tokens",
-      "totalMemorials": "Total executions",
-      "passRate": "Audit pass rate",
-      "flagRate": "Flag rate"
-    },
-    "section": {
-      "usage": "Task token usage",
-      "recent": "Recent audit results",
-      "auditRules": "Audit rules",
-      "reviewPolicies": "Review policies"
-    },
-    "empty": {
-      "usage": "No data",
-      "recent": "No audit records",
-      "rules": "No rules"
-    },
-    "usageTable": {
-      "edict": "Task",
-      "priority": "Priority",
-      "memorialCount": "Executions",
-      "prompt": "Prompt",
-      "completion": "Completion",
-      "total": "Total",
-      "budget": "Budget"
-    },
-    "recentTable": {
-      "memorialId": "Record ID",
-      "edict": "Task",
-      "verdict": "Verdict",
-      "reasons": "Reasons",
-      "reviewStatus": "Review status",
-      "time": "Time"
-    },
-    "hookEvents": {
-      "title": "Hook events",
-      "expand": "Expand",
-      "collapse": "Collapse"
-    },
-    "network": {
-      "filter": {
-        "tool": "Tool",
-        "host": "host (exact match)",
-        "status": "Status",
-        "success": "Success",
-        "fail": "Failed"
-      },
-      "table": {
-        "time": "Time",
-        "edict": "Task",
-        "tool": "Tool",
-        "host": "Host",
-        "method": "Method",
-        "http": "HTTP",
-        "bytes": "Bytes",
-        "credential": "Credential",
-        "cached": "Cached"
-      }
-    },
-    "rulesTable": {
-      "name": "Rule name",
-      "description": "Description",
-      "severity": "Severity",
-      "status": "Status",
-      "enabled": "Enabled",
-      "disabled": "Disabled"
-    },
-    "reviewPolicy": {
-      "valuePrefix": " (value: ",
-      "valueSuffix": ")"
-    }
-  },
   "system": {
     "title": "System",
     "tab": {
@@ -1551,7 +1546,8 @@
       "providers": "Providers",
       "plugins": "Plugins",
       "config": "Config",
-      "externalCreds": "Credentials"
+      "externalCreds": "Credentials",
+      "mcp": "MCP"
     },
     "skills": {
       "charsLoaded": "{n} chars loaded",
@@ -1745,6 +1741,66 @@
       "credSaveFailed": "Save failed",
       "credToggleFailed": "Toggle failed",
       "extraHeadersInvalid": "extra_headers is not valid JSON"
+    },
+    "mcp": {
+      "reload": "Reload",
+      "configHint": "Edit ~/.tianshu/mcp_servers.yaml then click Reload to apply.",
+      "empty": "No MCP servers configured. Create ~/.tianshu/mcp_servers.yaml to add one.",
+      "lastError": "Last error",
+      "defaultTier": "default tier",
+      "timeout": "timeout",
+      "enabled": "On",
+      "disabled": "Off",
+      "discoveredTools": "Discovered tools ({n})",
+      "noTools": "No tools discovered",
+      "status": {
+        "connected": "connected",
+        "reconnecting": "reconnecting",
+        "error": "error",
+        "stopped": "stopped",
+        "pending": "starting",
+        "disabled": "disabled",
+        "unknown": "unknown"
+      },
+      "notify": {
+        "savedTitle": "Override saved",
+        "savedNeedReload": "Click Reload to apply changes.",
+        "errorTitle": "MCP operation failed",
+        "reloadedTitle": "MCP reloaded",
+        "reloadedDesc": "{servers} server(s) configured, {active} active session(s).",
+        "createdTitle": "Server created",
+        "createdDesc": "{name} → {status}"
+      },
+      "addServer": "Add server",
+      "create": {
+        "title": "Add MCP server",
+        "submit": "Create",
+        "name": "Name",
+        "nameRequired": "Name is required",
+        "namePattern": "Letters, digits, dot, dash only (no underscore)",
+        "nameHint": "Used as namespace prefix: mcp_<name>_<tool>. No underscore.",
+        "transport": "Transport",
+        "command": "Command",
+        "commandRequired": "Command is required for stdio",
+        "args": "Arguments",
+        "argsHint": "One per line. Quotes/escapes are not parsed — write literal tokens.",
+        "env": "Environment variables",
+        "envHint": "${VAR} will be replaced from process environment at connect time. Tokens are redacted in logs.",
+        "url": "URL",
+        "urlRequired": "URL is required for streamable-http",
+        "urlInvalid": "Must be a valid URL",
+        "headers": "Headers",
+        "advanced": "Advanced",
+        "defaultTier": "Default tier",
+        "defaultTierHint": "Per-tool tier. T2 = network, requires approval. T0 = readonly, fast path.",
+        "timeout": "Tool timeout (s)",
+        "connectTimeout": "Connect timeout (s)",
+        "enabled": "Enabled",
+        "toolsInclude": "Whitelist (one per line, empty = all)",
+        "toolsExclude": "Blacklist",
+        "toolsFilterHint": "Names from server's tools/list. Use to hide tools you don't need.",
+        "addRow": "Add"
+      }
     }
   }
 }

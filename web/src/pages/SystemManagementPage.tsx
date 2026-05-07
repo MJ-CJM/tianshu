@@ -38,6 +38,7 @@ import {
   LockOutlined,
 } from "@ant-design/icons";
 import PageContainer from "../components/common/PageContainer";
+import MCPTab from "../components/system/MCPTab";
 import {
   useSkills,
   useSkillDetail,
@@ -1992,6 +1993,11 @@ export default function SystemManagementPage() {
             key: "tools",
             label: t("system.tab.tools"),
             children: <ToolsTab />,
+          },
+          {
+            key: "mcp",
+            label: t("system.tab.mcp"),
+            children: <MCPTab />,
           },
           {
             key: "prompt",

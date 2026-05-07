@@ -91,6 +91,26 @@ async def lifespan(app: FastAPI):
         storage=storage, event_bus=event_bus,
     )
 
+    # --- MCP（藏兵阁外挂）：fire-and-forget 启动，不阻塞 lifespan ---
+    # config 同步读（毫秒级），session 启动放后台（broken/慢 server 的退避不会卡 web）。
+    from tianshu.tools.mcp import MCPManager
+    mcp_manager = MCPManager(tools, storage=storage)
+    app.state.mcp_manager = mcp_manager
+    try:
+        mcp_manager.load_config()
+    except Exception:
+        logger.exception("[mcp] load_config failed; continuing without MCP tools")
+
+    async def _mcp_bg_start() -> None:
+        try:
+            await mcp_manager.start()
+        except Exception:
+            logger.exception("[mcp] background start failed")
+
+    app.state._mcp_start_task = asyncio.create_task(
+        _mcp_bg_start(), name="mcp-bg-start"
+    )
+
     # 应用 DB 里持久化的禁用列表（live toggle 在运行时通过 PATCH /api/tools/{name} 更新）
     try:
         disabled = storage.list_disabled_tools()
@@ -358,10 +378,18 @@ async def lifespan(app: FastAPI):
             provider_manager=provider_manager,
             cost_manager=cost_manager,
         )
-        await feishu_bot.start()
-        app.state.feishu_bot = feishu_bot
-        if feishu_settings.connection_mode == "webhook":
-            feishu_bot.attach_webhook_router(app)
+        # degrade: feishu 启动失败（锁冲突 / 网络异常等）不阻塞 web 服务可用性
+        try:
+            await feishu_bot.start()
+            app.state.feishu_bot = feishu_bot
+            if feishu_settings.connection_mode == "webhook":
+                feishu_bot.attach_webhook_router(app)
+        except Exception:
+            logger.exception(
+                "[feishu] start failed; tianshu will run without feishu bot. "
+                "Check stale lock at ~/.tianshu/feishu_app_lock.* or network."
+            )
+            feishu_bot = None
 
     # --- PolicyEngine + PolicyHook ---
     policy_engine = PolicyEngine(rules=build_default_rules())
@@ -583,6 +611,10 @@ async def lifespan(app: FastAPI):
     await scheduler.stop()
     await worker_pool.shutdown()
     await executor.shutdown()
+    try:
+        await mcp_manager.shutdown()
+    except Exception:
+        logger.exception("[mcp] manager shutdown error")
     if feishu_bot is not None:
         await feishu_bot.stop()
     storage.close()

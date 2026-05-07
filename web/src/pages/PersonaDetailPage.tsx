@@ -56,6 +56,7 @@ import {
   useTools,
   useSkills,
 } from "../hooks/useSystem";
+import { useMCPServers } from "../hooks/useMCP";
 import { usePromptLayers } from "../hooks/useOps";
 import {
   usePersonaMemorials,
@@ -802,6 +803,7 @@ export default function PersonaDetailPage() {
   const { data: tools } = useTools();
   const { data: skills } = useSkills();
   const { data: configsData } = useConfigs();
+  const { data: mcpServers } = useMCPServers();
 
   const persona = useMemo(
     () => (personas ?? []).find((p) => p.id === personaId) ?? null,
@@ -882,10 +884,18 @@ export default function PersonaDetailPage() {
       label: `${c.name} (${c.model})`,
     })),
   ];
-  const toolOptions = (tools ?? []).map((tool) => ({
-    value: tool.name,
-    label: `${tool.name} (tier ${tool.tier})`,
+  // MCP server 整体授权快捷项：mcp_<server>_*（fnmatch 通配符，后端 P4 支持）
+  const mcpWildcardOptions = (mcpServers ?? []).map((s) => ({
+    value: `mcp_${s.name}_*`,
+    label: `${t("persona.form.persona.mcpAllOf", { name: s.name })} — mcp_${s.name}_*`,
   }));
+  const toolOptions = [
+    ...mcpWildcardOptions,
+    ...(tools ?? []).map((tool) => ({
+      value: tool.name,
+      label: `${tool.name} (tier ${tool.tier})`,
+    })),
+  ];
   const skillOptions = (skills ?? []).map((s) => ({
     value: s.name,
     label: `${s.name}${s.description ? ` — ${s.description}` : ""}`,
@@ -1011,11 +1021,33 @@ export default function PersonaDetailPage() {
           <Form.Item name="llm_config_name" label={t("persona.form.persona.field.llmConfig")}>
             <Select options={llmConfigOptions} allowClear />
           </Form.Item>
-          <Form.Item name="tools_allowed" label={t("persona.form.persona.field.toolsAllowed")}>
-            <Select mode="multiple" options={toolOptions} showSearch optionFilterProp="label" placeholder={t("persona.form.persona.placeholder.toolsAllowed")} />
+          <Form.Item
+            name="tools_allowed"
+            label={t("persona.form.persona.field.toolsAllowed")}
+            extra={t("persona.form.persona.toolsWildcardHint")}
+          >
+            <Select
+              mode="tags"
+              options={toolOptions}
+              showSearch
+              optionFilterProp="label"
+              placeholder={t("persona.form.persona.placeholder.toolsAllowed")}
+              tokenSeparators={[",", " "]}
+            />
           </Form.Item>
-          <Form.Item name="tools_denied" label={t("persona.form.persona.field.toolsDenied")}>
-            <Select mode="multiple" options={toolOptions} showSearch optionFilterProp="label" placeholder={t("persona.form.persona.placeholder.toolsDenied")} />
+          <Form.Item
+            name="tools_denied"
+            label={t("persona.form.persona.field.toolsDenied")}
+            extra={t("persona.form.persona.toolsWildcardHint")}
+          >
+            <Select
+              mode="tags"
+              options={toolOptions}
+              showSearch
+              optionFilterProp="label"
+              placeholder={t("persona.form.persona.placeholder.toolsDenied")}
+              tokenSeparators={[",", " "]}
+            />
           </Form.Item>
           <Form.Item name="skills_allowed" label={t("persona.form.persona.field.skills")}>
             <Select mode="multiple" options={skillOptions} showSearch optionFilterProp="label" placeholder={t("persona.form.persona.placeholder.skills")} />

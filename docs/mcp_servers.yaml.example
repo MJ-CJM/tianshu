@@ -1,0 +1,55 @@
+# 藏兵阁 · MCP server 配置示例
+#
+# 把本文件复制到 ~/.tianshu/mcp_servers.yaml 后修改，启动 tianshu 即可生效。
+# 也可以从 web 后台 → 系统管理 → MCP Tab 启停 / 覆写 env / 改过滤名单。
+#
+# server name 在 dict key 上（如下面的 "filesystem"、"github"），不允许包含
+# 下划线（用于切分 mcp_<server>_<tool> 命名）。
+#
+# 凭据用 ${ENV_VAR} 语法引用环境变量；找不到时保留字面量（启动不 fail-fast）。
+# 错误消息和日志会自动对常见 token 模式做 [REDACTED] 脱敏。
+
+mcp_servers:
+  # 本地 stdio 子进程：filesystem 沙盒
+  filesystem:
+    transport: stdio
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "/tmp/tianshu-sandbox"
+    enabled: true
+    default_tier: 2          # 全部工具默认 T2（需审批）
+    tool_overrides:
+      read_file: 0           # 只读工具改 T0（快路径，不审批）
+      list_directory: 0
+    timeout: 120
+    connect_timeout: 30
+
+  # 远程 HTTP MCP server：GitHub
+  github:
+    transport: streamable_http
+    url: https://api.githubcopilot.com/mcp
+    headers:
+      Authorization: "Bearer ${MCP_GITHUB_TOKEN}"
+    enabled: false           # 默认关；填好 token 后改 true
+    default_tier: 3
+    tools:
+      include: []            # 空 = 全开
+      exclude:
+        - delete_repository  # 黑名单永远不会暴露给 LLM
+    timeout: 180
+    connect_timeout: 15
+
+# ----- 在官员 SOUL.md 中授权 MCP 工具 -----
+#
+# tools_allowed / tools_denied 支持 fnmatch 通配符：
+#
+# personas/honglusi/SOUL.md
+# ---
+# tools_allowed:
+#   - "mcp_filesystem_read_*"   # 鸿胪寺只能读 filesystem
+#   - "mcp_github_*"            # github 整个 server 全开
+# tools_denied:
+#   - "mcp_github_delete_*"     # 但禁所有 delete 操作
+# ---

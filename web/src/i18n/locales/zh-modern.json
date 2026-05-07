@@ -146,10 +146,86 @@
     "complete": "终结"
   },
   "audit": {
-    "label": {
-      "pass": "审计通过",
-      "flag": "审计标记",
-      "block": "审计拦截"
+    "title": "审计中心",
+    "tab": {
+      "stats": "审计统计",
+      "policy": "Policy Decisions",
+      "eventbus": "事件流",
+      "workers": "并发控制",
+      "hooks": "Hooks & 通知",
+      "network": "网络访问",
+      "rules": "规则管理"
+    },
+    "stat": {
+      "totalTokens": "Token 总量",
+      "totalMemorials": "执行记录总数",
+      "passRate": "审计通过率",
+      "flagRate": "标记率"
+    },
+    "section": {
+      "usage": "任务 Token 用量",
+      "recent": "最近审计结果",
+      "auditRules": "审计规则",
+      "reviewPolicies": "审阅策略"
+    },
+    "empty": {
+      "usage": "暂无数据",
+      "recent": "暂无审计记录",
+      "rules": "暂无规则"
+    },
+    "usageTable": {
+      "edict": "任务",
+      "priority": "优先级",
+      "memorialCount": "执行记录数",
+      "prompt": "Prompt",
+      "completion": "Completion",
+      "total": "Total",
+      "budget": "预算"
+    },
+    "recentTable": {
+      "memorialId": "记录编号",
+      "edict": "任务",
+      "verdict": "审计结论",
+      "reasons": "原因",
+      "reviewStatus": "复核状态",
+      "time": "时间"
+    },
+    "hookEvents": {
+      "title": "Hook 触发记录",
+      "expand": "展开",
+      "collapse": "折叠"
+    },
+    "network": {
+      "filter": {
+        "tool": "工具",
+        "host": "host (精确匹配)",
+        "status": "状态",
+        "success": "成功",
+        "fail": "失败"
+      },
+      "table": {
+        "time": "时间",
+        "edict": "任务",
+        "tool": "工具",
+        "host": "Host",
+        "method": "方法",
+        "http": "HTTP",
+        "bytes": "字节",
+        "credential": "凭证",
+        "cached": "缓存"
+      }
+    },
+    "rulesTable": {
+      "name": "规则名称",
+      "description": "描述",
+      "severity": "严重级别",
+      "status": "状态",
+      "enabled": "启用",
+      "disabled": "禁用"
+    },
+    "reviewPolicy": {
+      "valuePrefix": "（值：",
+      "valueSuffix": "）"
     }
   },
   "memorial": {
@@ -1335,7 +1411,9 @@
         "tooltip": {
           "title": "如：主管、协助员、参谋。可选；填了之后会写入角色卡，自报家门更准确。"
         },
-        "llmConfigGlobal": "使用全局配置（默认）"
+        "llmConfigGlobal": "使用全局配置（默认）",
+        "mcpAllOf": "MCP server '{name}' 的全部工具",
+        "toolsWildcardHint": "可输入工具名或 fnmatch 通配符（例：mcp_context7_* 整个 server 一键授权，mcp_*_delete_* 禁所有 delete 工具）。"
       },
       "department": {
         "addTitle": "添加部门",
@@ -1458,89 +1536,6 @@
       "cancelFailed": "取消失败"
     }
   },
-  "audit": {
-    "title": "审计中心",
-    "tab": {
-      "stats": "审计统计",
-      "policy": "Policy Decisions",
-      "eventbus": "事件流",
-      "workers": "并发控制",
-      "hooks": "Hooks & 通知",
-      "network": "网络访问",
-      "rules": "规则管理"
-    },
-    "stat": {
-      "totalTokens": "Token 总量",
-      "totalMemorials": "执行记录总数",
-      "passRate": "审计通过率",
-      "flagRate": "标记率"
-    },
-    "section": {
-      "usage": "任务 Token 用量",
-      "recent": "最近审计结果",
-      "auditRules": "审计规则",
-      "reviewPolicies": "审阅策略"
-    },
-    "empty": {
-      "usage": "暂无数据",
-      "recent": "暂无审计记录",
-      "rules": "暂无规则"
-    },
-    "usageTable": {
-      "edict": "任务",
-      "priority": "优先级",
-      "memorialCount": "执行记录数",
-      "prompt": "Prompt",
-      "completion": "Completion",
-      "total": "Total",
-      "budget": "预算"
-    },
-    "recentTable": {
-      "memorialId": "记录编号",
-      "edict": "任务",
-      "verdict": "审计结论",
-      "reasons": "原因",
-      "reviewStatus": "复核状态",
-      "time": "时间"
-    },
-    "hookEvents": {
-      "title": "Hook 触发记录",
-      "expand": "展开",
-      "collapse": "折叠"
-    },
-    "network": {
-      "filter": {
-        "tool": "工具",
-        "host": "host (精确匹配)",
-        "status": "状态",
-        "success": "成功",
-        "fail": "失败"
-      },
-      "table": {
-        "time": "时间",
-        "edict": "任务",
-        "tool": "工具",
-        "host": "Host",
-        "method": "方法",
-        "http": "HTTP",
-        "bytes": "字节",
-        "credential": "凭证",
-        "cached": "缓存"
-      }
-    },
-    "rulesTable": {
-      "name": "规则名称",
-      "description": "描述",
-      "severity": "严重级别",
-      "status": "状态",
-      "enabled": "启用",
-      "disabled": "禁用"
-    },
-    "reviewPolicy": {
-      "valuePrefix": "（值：",
-      "valueSuffix": "）"
-    }
-  },
   "system": {
     "title": "系统管理",
     "tab": {
@@ -1550,7 +1545,8 @@
       "providers": "模型供应",
       "plugins": "插件",
       "config": "全局配置",
-      "externalCreds": "外部凭证"
+      "externalCreds": "外部凭证",
+      "mcp": "MCP"
     },
     "skills": {
       "charsLoaded": "已加载 {n} chars",
@@ -1744,6 +1740,66 @@
       "credSaveFailed": "保存失败",
       "credToggleFailed": "切换失败",
       "extraHeadersInvalid": "extra_headers 不是合法 JSON"
+    },
+    "mcp": {
+      "reload": "重载",
+      "configHint": "编辑 ~/.tianshu/mcp_servers.yaml 后点重载生效。",
+      "empty": "尚未配置任何 MCP server。创建 ~/.tianshu/mcp_servers.yaml 来添加。",
+      "lastError": "最近一次错误",
+      "defaultTier": "默认 tier",
+      "timeout": "超时",
+      "enabled": "开",
+      "disabled": "关",
+      "discoveredTools": "发现的工具（{n}）",
+      "noTools": "未发现工具",
+      "status": {
+        "connected": "已连接",
+        "reconnecting": "重连中",
+        "error": "错误",
+        "stopped": "已停止",
+        "pending": "启动中",
+        "disabled": "已禁用",
+        "unknown": "未知"
+      },
+      "notify": {
+        "savedTitle": "已保存覆写",
+        "savedNeedReload": "点击重载以使变更生效。",
+        "errorTitle": "MCP 操作失败",
+        "reloadedTitle": "MCP 已重载",
+        "reloadedDesc": "已配置 {servers} 个 server，活跃会话 {active} 个。",
+        "createdTitle": "已创建 server",
+        "createdDesc": "{name} → {status}"
+      },
+      "addServer": "新增 server",
+      "create": {
+        "title": "新增 MCP server",
+        "submit": "创建",
+        "name": "名称",
+        "nameRequired": "名称必填",
+        "namePattern": "仅允许字母 / 数字 / 点 / 短横（不能含下划线）",
+        "nameHint": "用作命名空间前缀 mcp_<name>_<tool>，不能含下划线。",
+        "transport": "传输方式",
+        "command": "可执行命令",
+        "commandRequired": "stdio 方式必填 command",
+        "args": "命令参数",
+        "argsHint": "一行一个；不会解析引号/转义。",
+        "env": "环境变量",
+        "envHint": "${VAR} 在连接时从进程环境读取；日志/错误中 token 会自动脱敏。",
+        "url": "URL",
+        "urlRequired": "streamable-http 方式必填 URL",
+        "urlInvalid": "URL 格式不合法",
+        "headers": "请求头",
+        "advanced": "高级",
+        "defaultTier": "默认 tier",
+        "defaultTierHint": "工具默认权限。T2=网络（默认，需审批），T0=只读（快路径）。",
+        "timeout": "工具超时（秒）",
+        "connectTimeout": "连接超时（秒）",
+        "enabled": "启用",
+        "toolsInclude": "白名单（一行一个，空 = 全开）",
+        "toolsExclude": "黑名单",
+        "toolsFilterHint": "对应 server 的 tools/list 中的名字，用来隐藏不需要的工具。",
+        "addRow": "添加"
+      }
     }
   }
 }
