@@ -127,8 +127,26 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     if body.review_policy:
         edict_kwargs["review_policy"] = body.review_policy
     if body.schedule and body.schedule.type != "immediate":
+        from datetime import UTC, datetime
+
         from tianshu.models.edict import EdictSchedule
-        edict_kwargs["schedule"] = EdictSchedule(type=body.schedule.type, cron=body.schedule.cron)
+        schedule_kwargs: dict = {
+            "type": body.schedule.type,
+            "cron": body.schedule.cron,
+            "timezone": body.schedule.timezone or "UTC",
+        }
+        if body.schedule.at:
+            try:
+                at_dt = datetime.fromisoformat(body.schedule.at)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    400,
+                    f"schedule.at 不是合法 ISO 8601 datetime: {body.schedule.at!r}",
+                ) from exc
+            if at_dt.tzinfo is None:
+                at_dt = at_dt.replace(tzinfo=UTC)
+            schedule_kwargs["at"] = at_dt
+        edict_kwargs["schedule"] = EdictSchedule(**schedule_kwargs)
     if body.constraints:
         edict_kwargs["constraints"] = body.constraints
     if body.output_format:

@@ -14,6 +14,7 @@ class EdictScheduleRequest(BaseModel):
     type: str = "immediate"
     cron: str | None = None
     at: str | None = None
+    timezone: str | None = None
 
 
 class EdictRuntimeRequest(BaseModel):

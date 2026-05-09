@@ -172,3 +172,244 @@ async def test_submit_edict_rejects_invalid_profile(setup):
     result = await func(goal="x", execution_profile="async")
     assert result.is_error is True
     assert "execution_profile" in result.content
+
+
+# ── schedule 调度分支 ─────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_submit_edict_default_schedule_immediate(setup):
+    """不传 schedule_type 时默认 immediate。"""
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="立刻跑一下")
+    assert result.is_error is False
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.schedule.type == "immediate"
+    assert edict.schedule.cron is None
+    assert edict.schedule.at is None
+    assert result.details["schedule_type"] == "immediate"
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_cron_schedule(setup):
+    """schedule_type=cron + 合法 cron 表达式。"""
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(
+        goal="每天 11 点推送天气",
+        schedule_type="cron",
+        cron_expr="0 11 * * *",
+        timezone="Asia/Shanghai",
+    )
+    assert result.is_error is False
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.schedule.type == "cron"
+    assert edict.schedule.cron == "0 11 * * *"
+    assert edict.schedule.timezone == "Asia/Shanghai"
+    assert "cron=0 11 * * *" in result.content
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_cron_requires_cron_expr(setup):
+    registry, _, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="x", schedule_type="cron")
+    assert result.is_error is True
+    assert "cron_expr" in result.content
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_rejects_invalid_cron_expr(setup):
+    registry, _, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(
+        goal="x", schedule_type="cron", cron_expr="not a cron",
+    )
+    assert result.is_error is True
+    assert "cron" in result.content
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_once_schedule(setup):
+    """schedule_type=once + 合法 ISO datetime。"""
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(
+        goal="明天 9 点提醒我开会",
+        schedule_type="once",
+        run_at="2026-12-01T09:00:00+08:00",
+    )
+    assert result.is_error is False
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.schedule.type == "once"
+    assert edict.schedule.at is not None
+    assert edict.schedule.at.year == 2026
+    assert edict.schedule.at.hour == 9
+    assert "定于" in result.content
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_once_naive_datetime_treated_as_utc(setup):
+    """run_at 不带时区时按 UTC 处理。"""
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(
+        goal="x", schedule_type="once", run_at="2026-12-01T09:00:00",
+    )
+    assert result.is_error is False
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.schedule.at.tzinfo is not None
+    assert edict.schedule.at.utcoffset().total_seconds() == 0
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_once_requires_run_at(setup):
+    registry, _, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="x", schedule_type="once")
+    assert result.is_error is True
+    assert "run_at" in result.content
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_rejects_invalid_run_at(setup):
+    registry, _, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(
+        goal="x", schedule_type="once", run_at="not a datetime",
+    )
+    assert result.is_error is True
+    assert "run_at" in result.content
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_rejects_invalid_schedule_type(setup):
+    registry, _, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="x", schedule_type="recurring")
+    assert result.is_error is True
+    assert "schedule_type" in result.content
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_event_payload_carries_schedule_type(setup):
+    """edict.submitted 事件载荷里能拿到 schedule_type。"""
+    registry, _, bus = setup
+    received: list = []
+
+    async def handler(ev):
+        received.append(ev)
+
+    bus.on("edict.submitted", handler, priority=200)
+    _, func = registry._tools["submit_edict"]
+    await func(
+        goal="每周一同步",
+        schedule_type="cron",
+        cron_expr="0 9 * * 1",
+    )
+    import asyncio
+    await asyncio.sleep(0.05)
+    assert any(
+        ev.payload.get("schedule_type") == "cron" for ev in received
+    )
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_schema_exposes_schedule_fields(setup):
+    """ToolDefinition schema 暴露 schedule_type / cron_expr / run_at。"""
+    registry, _, _ = setup
+    defn = registry.get_definition("submit_edict")
+    props = defn.parameters["properties"]
+    assert "schedule_type" in props
+    assert set(props["schedule_type"]["enum"]) == {"immediate", "once", "cron"}
+    assert "cron_expr" in props
+    assert "run_at" in props
+    assert "timezone" in props
+
+
+# ── review_policy / output_format / acceptance_rubric ────────────────────────
+
+@pytest.mark.asyncio
+async def test_submit_edict_default_review_policy_never(setup):
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="x")
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.review_policy == "never"
+    assert result.details["review_policy"] == "never"
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_review_policy_always(setup):
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="跑完给我看一眼", review_policy="always")
+    assert result.is_error is False
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.review_policy == "always"
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_rejects_invalid_review_policy(setup):
+    registry, _, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="x", review_policy="maybe")
+    assert result.is_error is True
+    assert "review_policy" in result.content
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_output_format_passthrough(setup):
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="出个表", output_format="markdown 表格，列：项目|状态|备注")
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.output_format == "markdown 表格，列：项目|状态|备注"
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_blank_output_format_ignored(setup):
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="x", output_format="   ")
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.output_format is None
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_acceptance_rubric_creates_criteria(setup):
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(
+        goal="写一份周报",
+        acceptance_rubric="必须包含本周完成事项、风险点、下周计划三个章节",
+    )
+    assert result.is_error is False
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.acceptance is not None
+    assert len(edict.acceptance.checks) == 1
+    check = edict.acceptance.checks[0]
+    assert check.kind == "rubric"
+    assert "本周完成事项" in check.rubric
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_no_acceptance_when_rubric_absent(setup):
+    registry, storage, _ = setup
+    _, func = registry._tools["submit_edict"]
+    result = await func(goal="x")
+    edict = storage.get_edict(result.details["edict_id"])
+    assert edict.acceptance is None
+
+
+@pytest.mark.asyncio
+async def test_submit_edict_schema_exposes_extended_fields(setup):
+    registry, _, _ = setup
+    defn = registry.get_definition("submit_edict")
+    props = defn.parameters["properties"]
+    assert "review_policy" in props
+    assert set(props["review_policy"]["enum"]) == {
+        "never", "on_failure", "on_flag", "always",
+    }
+    assert "output_format" in props
+    assert "acceptance_rubric" in props

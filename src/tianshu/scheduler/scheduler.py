@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import Any, Callable, Coroutine
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
 from ulid import ULID
@@ -18,6 +19,32 @@ from tianshu.storage import Storage
 logger = logging.getLogger(__name__)
 
 _AsyncFn = Callable[[], Coroutine[Any, Any, None]]
+
+
+def _resolve_tz(tz_name: str | None) -> tzinfo:
+    """解析时区名为 tzinfo；非法/空时回退 UTC 并 warn。"""
+    if not tz_name or tz_name.upper() == "UTC":
+        return UTC
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        logger.warning(
+            "Unknown timezone %r in cron schedule, falling back to UTC", tz_name,
+        )
+        return UTC
+
+
+def _next_cron_utc(cron_expr: str, tz_name: str | None = "UTC") -> datetime:
+    """按指定时区计算 cron 表达式的下次触发时刻，统一返回 UTC datetime。
+
+    croniter 在传入 timezone-aware datetime 时会按该时区做日历推算（处理 DST），
+    返回的 datetime 也带同一时区；这里把它转成 UTC 以便存储和 sleep 计算。
+    """
+    tz = _resolve_tz(tz_name)
+    base = datetime.now(tz)
+    cron = croniter(cron_expr, base)
+    next_local = cron.get_next(datetime)
+    return next_local.astimezone(UTC)
 
 
 class _Job:
@@ -90,11 +117,13 @@ class Scheduler:
                 self._storage.delete_scheduler_job(job_id)
                 continue
             if schedule_type == "cron" and row.get("cron_expr"):
-                task = asyncio.create_task(
-                    self._cron_loop(edict, row["cron_expr"], job_id)
+                tz_name = (
+                    edict.schedule.timezone if edict.schedule else "UTC"
                 )
-                cron = croniter(row["cron_expr"], datetime.now(UTC))
-                next_run = cron.get_next(datetime)
+                task = asyncio.create_task(
+                    self._cron_loop(edict, row["cron_expr"], job_id, tz_name)
+                )
+                next_run = _next_cron_utc(row["cron_expr"], tz_name)
                 job = _Job(job_id, edict_id, "cron", task=task, next_run=next_run)
                 self._jobs[job_id] = job
                 restored += 1
@@ -153,11 +182,10 @@ class Scheduler:
             pass
 
     async def _system_cron_loop(self, cron_expr: str, name: str, fn: _AsyncFn) -> None:
-        """Run a system cron job on the given expression until stopped."""
+        """Run a system cron job on the given expression until stopped (UTC)."""
         try:
             while self._running:
-                cron = croniter(cron_expr, datetime.now(UTC))
-                next_run = cron.get_next(datetime)
+                next_run = _next_cron_utc(cron_expr, "UTC")
                 delay = (next_run - datetime.now(UTC)).total_seconds()
                 if delay > 0:
                     await asyncio.sleep(delay)
@@ -229,10 +257,10 @@ class Scheduler:
                 self._jobs[job_id] = job
                 await self._emit_scheduled(edict, memorial_id=memorial_id)
             else:
-                cron = croniter(schedule.cron, datetime.now(UTC))
-                next_run = cron.get_next(datetime)
+                tz_name = schedule.timezone or "UTC"
+                next_run = _next_cron_utc(schedule.cron, tz_name)
                 task = asyncio.create_task(
-                    self._cron_loop(edict, schedule.cron, job_id)
+                    self._cron_loop(edict, schedule.cron, job_id, tz_name)
                 )
                 job = _Job(job_id, edict.id, "cron", task=task, next_run=next_run)
                 self._jobs[job_id] = job
@@ -291,12 +319,17 @@ class Scheduler:
             )
         )
 
-    async def _cron_loop(self, edict: Edict, cron_expr: str, job_id: str) -> None:
-        """Repeatedly emit edict.scheduled at cron intervals."""
+    async def _cron_loop(
+        self,
+        edict: Edict,
+        cron_expr: str,
+        job_id: str,
+        tz_name: str = "UTC",
+    ) -> None:
+        """Repeatedly emit edict.scheduled at cron intervals (in given timezone)."""
         try:
             while self._running:
-                cron = croniter(cron_expr, datetime.now(UTC))
-                next_run = cron.get_next(datetime)
+                next_run = _next_cron_utc(cron_expr, tz_name)
                 delay = (next_run - datetime.now(UTC)).total_seconds()
                 if delay > 0:
                     await asyncio.sleep(delay)
@@ -310,8 +343,7 @@ class Scheduler:
                     break
                 await self._emit_scheduled(fresh_edict)
                 if job_id in self._jobs:
-                    next_cron = croniter(cron_expr, datetime.now(UTC))
-                    next_dt = next_cron.get_next(datetime)
+                    next_dt = _next_cron_utc(cron_expr, tz_name)
                     self._jobs[job_id].next_run = next_dt
                     self._storage.update_scheduler_job_next_run(job_id, next_dt)
         except asyncio.CancelledError:
