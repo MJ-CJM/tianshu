@@ -121,7 +121,8 @@ scrapling_stealthy_enabled INTEGER NOT NULL DEFAULT 0
 ### 5. Scrapling 依赖
 
 - 在 `pyproject.toml` 加可选依赖组
-  `[project.optional-dependencies] scrapling = ["scrapling>=..."]`。
+  `[project.optional-dependencies] scrapling = ["scrapling"]`，版本在实现阶段
+  按当时最新稳定版固定下限。
 - 浏览器二进制（Playwright Chromium / Camoufox）不随 pip 安装，需用户手动
   `scrapling install`；UI 上对浏览器引擎给出该提示。
 
@@ -151,8 +152,8 @@ scrapling_stealthy_enabled INTEGER NOT NULL DEFAULT 0
 - `search_provider = "duckduckgo"`
 - `fallback_mode = "on_error_or_empty"`
 
-迁移：把现有 DB 里 `["jina"]` / `jina` 的 override 纠正为上述默认（一次性
-data migration 或在 schema migration 中处理）。
+迁移：把现有 DB 里 `["jina"]` / `jina` 的 override 纠正为上述默认。在 storage
+的 schema migration 步骤里一并处理（与新增两列同一次 migration）。
 
 ## 数据流
 
