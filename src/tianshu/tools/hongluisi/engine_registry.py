@@ -15,6 +15,8 @@ from tianshu.tools.hongluisi.engines.firecrawl_extract import build_firecrawl_ex
 from tianshu.tools.hongluisi.engines.jina_reader import build_jina_reader
 from tianshu.tools.hongluisi.engines.jina_search import build_jina_search
 from tianshu.tools.hongluisi.engines.local_fetch import LocalFetchEngine
+from tianshu.tools.hongluisi.engines.duckduckgo_search import build_duckduckgo
+from tianshu.tools.hongluisi.engines.scrapling_fetch import build_scrapling
 from tianshu.tools.hongluisi.engines.tavily import build_tavily
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,19 @@ def _do_build(
 
     # 3. 构造 fetch engines
     fetch: dict[str, FetchEngine] = {"local": LocalFetchEngine()}
+    # Scrapling 免费引擎：http 模式默认注册；浏览器模式受 engine_preferences 开关控制
+    prefs = storage.get_engine_preferences() if storage is not None else {}
+    sc_http = build_scrapling("http")
+    if sc_http:
+        fetch["scrapling"] = sc_http
+    if prefs.get("scrapling_dynamic_enabled"):
+        sc_dyn = build_scrapling("dynamic")
+        if sc_dyn:
+            fetch["scrapling_dynamic"] = sc_dyn
+    if prefs.get("scrapling_stealthy_enabled"):
+        sc_sth = build_scrapling("stealthy")
+        if sc_sth:
+            fetch["scrapling_stealthy"] = sc_sth
     jina_r = build_jina_reader(cred_store)
     if jina_r:
         fetch["jina"] = jina_r
@@ -75,6 +90,7 @@ def _do_build(
 
     # 4. 构造 search providers
     search: dict[str, SearchEngine] = {}
+    search["duckduckgo"] = build_duckduckgo()
     tv = build_tavily(cred_store)
     if tv:
         search["tavily"] = tv
