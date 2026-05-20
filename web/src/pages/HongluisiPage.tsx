@@ -16,6 +16,7 @@ import {
   Select,
   Radio,
   Form,
+  Checkbox,
   notification,
 } from "antd";
 import {
@@ -80,12 +81,16 @@ export default function HongluisiPage() {
   const [fetchChain, setFetchChain] = useState<string[]>([]);
   const [searchProvider, setSearchProvider] = useState<string | null>(null);
   const [fallbackMode, setFallbackMode] = useState<string | null>(null);
+  const [dynamicEnabled, setDynamicEnabled] = useState(false);
+  const [stealthyEnabled, setStealthyEnabled] = useState(false);
 
   useEffect(() => {
     if (prefs) {
       setFetchChain(prefs.fetch_chain);
       setSearchProvider(prefs.search_provider);
       setFallbackMode(prefs.fallback_mode);
+      setDynamicEnabled(prefs.scrapling_dynamic_enabled);
+      setStealthyEnabled(prefs.scrapling_stealthy_enabled);
     }
   }, [prefs]);
 
@@ -278,6 +283,8 @@ export default function HongluisiPage() {
                   fetch_chain: fetchChain,
                   search_provider: searchProvider,
                   fallback_mode: fallbackMode,
+                  scrapling_dynamic_enabled: dynamicEnabled,
+                  scrapling_stealthy_enabled: stealthyEnabled,
                 })
               }
             >
@@ -303,7 +310,10 @@ export default function HongluisiPage() {
                 value={fetchChain}
                 onChange={setFetchChain}
                 options={[
+                  { value: "scrapling", label: "scrapling (free, TLS stealth)" },
                   { value: "local", label: "local (trafilatura)" },
+                  { value: "scrapling_dynamic", label: "scrapling_dynamic (browser)" },
+                  { value: "scrapling_stealthy", label: "scrapling_stealthy (browser)" },
                   { value: "jina", label: "jina (r.jina.ai)" },
                   { value: "firecrawl", label: "firecrawl" },
                 ]}
@@ -331,9 +341,33 @@ export default function HongluisiPage() {
                 onChange={(e) => setSearchProvider(e.target.value || null)}
               >
                 <Radio value="">{t("hongluisi.preferences.fallbackProfile")}</Radio>
+                <Radio value="duckduckgo">DuckDuckGo (free)</Radio>
                 <Radio value="tavily">Tavily</Radio>
                 <Radio value="jina">Jina Search</Radio>
               </Radio.Group>
+            </Form.Item>
+
+            <Form.Item
+              label={t("hongluisi.preferences.browserEnginesLabel")}
+              style={{ marginBottom: 0 }}
+            >
+              <Space direction="vertical">
+                <Checkbox
+                  checked={dynamicEnabled}
+                  onChange={(e) => setDynamicEnabled(e.target.checked)}
+                >
+                  {t("hongluisi.preferences.enableDynamic")}
+                </Checkbox>
+                <Checkbox
+                  checked={stealthyEnabled}
+                  onChange={(e) => setStealthyEnabled(e.target.checked)}
+                >
+                  {t("hongluisi.preferences.enableStealthy")}
+                </Checkbox>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {t("hongluisi.preferences.browserEnginesHint")}
+                </Typography.Text>
+              </Space>
             </Form.Item>
           </Space>
         </Card>

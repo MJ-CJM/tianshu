@@ -1045,7 +1045,11 @@
       "fallbackProfile": "沿用 profile",
       "fallbackOnErrorOrEmpty": "失败/空即切",
       "fallbackNone": "只用首个引擎",
-      "searchLabel": "web_search provider"
+      "searchLabel": "web_search provider",
+      "browserEnginesLabel": "鸿胪寺浏览器引擎",
+      "browserEnginesHint": "浏览器引擎需先备齐浏览器二进制 —— 请先运行 `scrapling install`。",
+      "enableDynamic": "启用 scrapling_dynamic（Chromium，渲染动态页）",
+      "enableStealthy": "启用 scrapling_stealthy（Camoufox，破 Cloudflare 关卡）"
     },
     "credentials": {
       "goto": "前往藏兵阁",

@@ -17,6 +17,8 @@ export interface EnginePreferences {
   fetch_chain: string[];
   search_provider: string | null;
   fallback_mode: string | null;
+  scrapling_dynamic_enabled: boolean;
+  scrapling_stealthy_enabled: boolean;
 }
 
 export async function getEnginePreferences(): Promise<EnginePreferences> {

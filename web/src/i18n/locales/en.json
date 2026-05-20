@@ -1045,7 +1045,11 @@
       "fallbackProfile": "Inherit profile",
       "fallbackOnErrorOrEmpty": "Switch on error/empty",
       "fallbackNone": "Use first engine only",
-      "searchLabel": "web_search provider"
+      "searchLabel": "web_search provider",
+      "browserEnginesLabel": "Scrapling browser engines",
+      "browserEnginesHint": "Browser engines need browser binaries — run `scrapling install` first.",
+      "enableDynamic": "Enable scrapling_dynamic (Chromium, renders JS)",
+      "enableStealthy": "Enable scrapling_stealthy (Camoufox, bypasses Cloudflare)"
     },
     "credentials": {
       "goto": "Go to System",
