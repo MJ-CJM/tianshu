@@ -22,7 +22,7 @@ class NetworkPolicy:
 
     fetch_engines: tuple[str, ...] = ("local",)
     fallback_mode: Literal["none", "on_error_or_empty"] = "none"
-    search_provider: Literal["tavily", "jina"] | None = None
+    search_provider: Literal["tavily", "jina", "duckduckgo"] | None = None
     max_fallback_depth: int = 3
     web_fetch_rate_per_min: int = 20
     web_search_rate_per_min: int = 10
@@ -42,17 +42,17 @@ NETWORK_OFFLINE = NetworkPolicy(
 )
 
 NETWORK_DEFAULT = NetworkPolicy(
-    fetch_engines=("local", "jina"),
+    fetch_engines=("scrapling", "local"),
     fallback_mode="on_error_or_empty",
-    search_provider="tavily",
+    search_provider="duckduckgo",
     allow_api_request=False,
     api_request_methods=(),
 )
 
 NETWORK_RESEARCH = NetworkPolicy(
-    fetch_engines=("local", "jina", "firecrawl"),
+    fetch_engines=("scrapling", "local", "jina", "firecrawl"),
     fallback_mode="on_error_or_empty",
-    search_provider="tavily",
+    search_provider="duckduckgo",
     allow_api_request=True,
     api_request_methods=("GET", "HEAD"),  # 写方法需 Edict 额外显式启用
 )
