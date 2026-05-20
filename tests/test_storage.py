@@ -224,3 +224,26 @@ class TestEventStorage:
         assert len(events) == 1
         assert events[0]["event_type"] == "test.event"
         assert events[0]["payload"]["key"] == "val"
+
+
+@pytest.mark.unit
+def test_engine_preferences_roundtrip_with_toggles(storage):
+    storage.set_engine_preferences(
+        fetch_chain=["scrapling", "local"],
+        search_provider="duckduckgo",
+        fallback_mode="on_error_or_empty",
+        scrapling_dynamic_enabled=True,
+        scrapling_stealthy_enabled=False,
+    )
+    prefs = storage.get_engine_preferences()
+    assert prefs["fetch_chain"] == ["scrapling", "local"]
+    assert prefs["search_provider"] == "duckduckgo"
+    assert prefs["scrapling_dynamic_enabled"] is True
+    assert prefs["scrapling_stealthy_enabled"] is False
+
+
+@pytest.mark.unit
+def test_engine_preferences_defaults_when_empty(storage):
+    prefs = storage.get_engine_preferences()
+    assert prefs["scrapling_dynamic_enabled"] is False
+    assert prefs["scrapling_stealthy_enabled"] is False
