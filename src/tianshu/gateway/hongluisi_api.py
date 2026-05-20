@@ -13,6 +13,7 @@ from tianshu.tools.hongluisi.engine_registry import (
     get_provider_sources,
     get_registered_fetch_engines,
     get_registered_search_providers,
+    rebuild_engines,
 )
 from tianshu.tools.policy_profile import (
     get_system_engine_overrides,
@@ -38,25 +39,35 @@ def engine_status() -> dict:
 
 class EnginePreferencesPayload(BaseModel):
     fetch_chain: list[str] = Field(default_factory=list)
-    search_provider: str | None = None  # "tavily" | "jina" | null
-    fallback_mode: str | None = None  # "none" | "on_error_or_empty" | null
+    search_provider: str | None = None  # "tavily"|"jina"|"duckduckgo"|null
+    fallback_mode: str | None = None  # "none"|"on_error_or_empty"|null
+    scrapling_dynamic_enabled: bool = False
+    scrapling_stealthy_enabled: bool = False
 
 
 @hongluisi_router.get("/engine-preferences")
-def get_engine_preferences() -> dict:
-    """返回当前系统级引擎覆盖。空字段表示沿用 profile 预设。"""
-    return get_system_engine_overrides()
+def get_engine_preferences(request: Request) -> dict:
+    """返回当前系统级引擎覆盖 + 浏览器引擎开关。空字段表示沿用 profile 预设。"""
+    overrides = get_system_engine_overrides()
+    prefs = request.app.state.storage.get_engine_preferences()
+    return {
+        **overrides,
+        "scrapling_dynamic_enabled": prefs["scrapling_dynamic_enabled"],
+        "scrapling_stealthy_enabled": prefs["scrapling_stealthy_enabled"],
+    }
 
 
 @hongluisi_router.patch("/engine-preferences")
 def update_engine_preferences(
     body: EnginePreferencesPayload, request: Request
 ) -> dict:
-    """live 更新：写 DB + 刷缓存。无需重启。"""
+    """live 更新：写 DB + 刷缓存 + rebuild 引擎。无需重启。"""
     storage = request.app.state.storage
-    # validate: fetch_chain 元素必须是已知 engine
-    ALLOWED_FETCH = {"local", "jina", "firecrawl"}
-    ALLOWED_SEARCH = {"tavily", "jina", None, ""}
+    ALLOWED_FETCH = {
+        "local", "jina", "firecrawl",
+        "scrapling", "scrapling_dynamic", "scrapling_stealthy",
+    }
+    ALLOWED_SEARCH = {"tavily", "jina", "duckduckgo", None, ""}
     ALLOWED_FALLBACK = {"none", "on_error_or_empty", None, ""}
     bad_fetch = [e for e in body.fetch_chain if e not in ALLOWED_FETCH]
     if bad_fetch:
@@ -70,10 +81,20 @@ def update_engine_preferences(
         fetch_chain=body.fetch_chain,
         search_provider=body.search_provider or None,
         fallback_mode=body.fallback_mode or None,
+        scrapling_dynamic_enabled=body.scrapling_dynamic_enabled,
+        scrapling_stealthy_enabled=body.scrapling_stealthy_enabled,
     )
     set_system_engine_overrides(
         fetch_chain=body.fetch_chain,
         search_provider=body.search_provider or "",
         fallback_mode=body.fallback_mode or "",
     )
-    return get_system_engine_overrides()
+    # 浏览器引擎开关影响引擎注册，需 rebuild
+    rebuild_engines()
+
+    overrides = get_system_engine_overrides()
+    return {
+        **overrides,
+        "scrapling_dynamic_enabled": body.scrapling_dynamic_enabled,
+        "scrapling_stealthy_enabled": body.scrapling_stealthy_enabled,
+    }
