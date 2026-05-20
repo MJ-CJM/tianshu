@@ -576,6 +576,15 @@ class Storage:
             # 2026-05-09: 最终交付物字段 —— 与 result（含中间过程）分离，
             # 外发渠道（飞书/邮件等）优先用此字段，只呈现"用户关心的产物"。
             "ALTER TABLE memorials ADD COLUMN final_output TEXT",
+            # 2026-05-19: engine_preferences 加浏览器引擎启停开关
+            "ALTER TABLE engine_preferences ADD COLUMN scrapling_dynamic_enabled INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE engine_preferences ADD COLUMN scrapling_stealthy_enabled INTEGER NOT NULL DEFAULT 0",
+            # 2026-05-19: 纠正存量 jina-only override（欠费 key 导致定时任务连续失败）
+            """UPDATE engine_preferences
+                  SET fetch_chain = '["scrapling", "local"]',
+                      search_provider = 'duckduckgo',
+                      fallback_mode = 'on_error_or_empty'
+                WHERE id = 'default' AND fetch_chain = '["jina"]'""",
         ]
         for sql in migrations:
             try:
@@ -2714,23 +2723,30 @@ class Storage:
     # --- engine preferences ---------------------------------------------
 
     def get_engine_preferences(self) -> dict:
-        """返回 {fetch_chain: list, search_provider: str|None, fallback_mode: str|None};
-        无记录返回全空 (不覆盖 profile)。"""
+        """返回 {fetch_chain, search_provider, fallback_mode,
+        scrapling_dynamic_enabled, scrapling_stealthy_enabled};
+        无记录返回全空（不覆盖 profile），开关默认 False。"""
         with self._lock:
             row = self._conn.execute(
-                "SELECT fetch_chain, search_provider, fallback_mode "
+                "SELECT fetch_chain, search_provider, fallback_mode, "
+                "scrapling_dynamic_enabled, scrapling_stealthy_enabled "
                 "FROM engine_preferences WHERE id='default'"
             ).fetchone()
         if row is None:
-            return {"fetch_chain": [], "search_provider": None, "fallback_mode": None}
-        try:
-            chain = json.loads(row["fetch_chain"] or "[]")
-        except Exception:
-            chain = []
+            return {
+                "fetch_chain": [],
+                "search_provider": None,
+                "fallback_mode": None,
+                "scrapling_dynamic_enabled": False,
+                "scrapling_stealthy_enabled": False,
+            }
+        chain = json.loads(row["fetch_chain"] or "[]")
         return {
             "fetch_chain": chain if isinstance(chain, list) else [],
-            "search_provider": row["search_provider"] or None,
-            "fallback_mode": row["fallback_mode"] or None,
+            "search_provider": row["search_provider"],
+            "fallback_mode": row["fallback_mode"],
+            "scrapling_dynamic_enabled": bool(row["scrapling_dynamic_enabled"]),
+            "scrapling_stealthy_enabled": bool(row["scrapling_stealthy_enabled"]),
         }
 
     def set_engine_preferences(
@@ -2739,20 +2755,30 @@ class Storage:
         fetch_chain: list[str],
         search_provider: str | None,
         fallback_mode: str | None,
+        scrapling_dynamic_enabled: bool = False,
+        scrapling_stealthy_enabled: bool = False,
     ) -> None:
         from datetime import UTC, datetime
         now = datetime.now(UTC).isoformat()
         with self._lock, self._conn:
             self._conn.execute(
                 """INSERT INTO engine_preferences
-                   (id, fetch_chain, search_provider, fallback_mode, updated_at)
-                   VALUES ('default', ?, ?, ?, ?)
+                   (id, fetch_chain, search_provider, fallback_mode,
+                    scrapling_dynamic_enabled, scrapling_stealthy_enabled, updated_at)
+                   VALUES ('default', ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(id) DO UPDATE SET
                      fetch_chain = excluded.fetch_chain,
                      search_provider = excluded.search_provider,
                      fallback_mode = excluded.fallback_mode,
+                     scrapling_dynamic_enabled = excluded.scrapling_dynamic_enabled,
+                     scrapling_stealthy_enabled = excluded.scrapling_stealthy_enabled,
                      updated_at = excluded.updated_at""",
-                (json.dumps(fetch_chain), search_provider, fallback_mode, now),
+                (
+                    json.dumps(fetch_chain), search_provider, fallback_mode,
+                    1 if scrapling_dynamic_enabled else 0,
+                    1 if scrapling_stealthy_enabled else 0,
+                    now,
+                ),
             )
 
     # --- outer loop iterations ------------------------------------------
