@@ -64,6 +64,17 @@ class ScraplingFetchEngine:
         encoding = getattr(page, "encoding", None) or "utf-8"
         final = getattr(page, "url", None) or clean_url
 
+        # 重定向后的最终 URL 再校验一次 SSRF —— 浏览器模式可能跟随跳转到内网，
+        # 不能把内网内容回吐给 LLM。
+        if final != clean_url:
+            try:
+                await validate_url(final)
+            except SSRFViolation as v:
+                return FetchOutcome(
+                    content="", status="error", http_status=http_status,
+                    reason=v.code, bytes_fetched=bytes_read, final_url=final,
+                )
+
         if http_status >= 400:
             return FetchOutcome(
                 content="", status="error", http_status=http_status,
@@ -84,8 +95,11 @@ class ScraplingFetchEngine:
         """调对应的 Scrapling async API；返回 Scrapling Response 对象。"""
         if self._mode == "http":
             from scrapling.fetchers import AsyncFetcher
+            # follow_redirects="safe" 显式声明：跳转到私网/内网 IP 会被拒，
+            # 不依赖上游默认值（pin 仅 >=0.3）。
             return await AsyncFetcher.get(
                 url, timeout=_HTTP_TIMEOUT_S, stealthy_headers=True,
+                follow_redirects="safe",
             )
         if self._mode == "dynamic":
             from scrapling.fetchers import DynamicFetcher

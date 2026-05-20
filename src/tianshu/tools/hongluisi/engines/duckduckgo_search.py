@@ -45,7 +45,9 @@ class DuckDuckGoSearchEngine:
 def _parse(html_text: str) -> list[SearchResult]:
     """从 DuckDuckGo HTML 结果页解析 SearchResult 列表。
 
-    结果块：.result__a（标题+链接），.result__snippet（摘要），按文档顺序配对。
+    按 .result 容器逐块解析：每块内取 .result__a（标题+链接）与
+    .result__snippet（摘要）。结构化配对而非全局索引配对——避免广告/无摘要块
+    导致后续 snippet 整体错位。
     """
     if not html_text:
         return []
@@ -55,16 +57,18 @@ def _parse(html_text: str) -> list[SearchResult]:
         logger.warning("duckduckgo: failed to parse HTML")
         return []
 
-    anchors = tree.find_class("result__a")
-    snippets = [s.text_content().strip() for s in tree.find_class("result__snippet")]
-
     out: list[SearchResult] = []
-    for i, anchor in enumerate(anchors):
+    for block in tree.find_class("result"):
+        anchors = block.find_class("result__a")
+        if not anchors:
+            continue
+        anchor = anchors[0]
         title = anchor.text_content().strip()
         real_url = _unwrap_ddg(anchor.get("href") or "")
         if not title or not real_url:
             continue
-        snippet = snippets[i] if i < len(snippets) else ""
+        snippet_els = block.find_class("result__snippet")
+        snippet = snippet_els[0].text_content().strip() if snippet_els else ""
         out.append(
             SearchResult(
                 title=title, url=real_url, snippet=snippet[:1000], score=None,

@@ -59,3 +59,34 @@ def test_parse_empty_html():
 def test_parse_malformed_html_no_results():
     result = _parse("<not real html")
     assert isinstance(result, list)
+
+
+@pytest.mark.unit
+def test_parse_snippetless_block_does_not_shift_pairing():
+    """中间夹一个无 .result__snippet 的块（如广告），后续结果的摘要不应错位。"""
+    html = """
+    <html><body>
+    <div class="result results_links">
+      <div class="result__body">
+        <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fa.com">A</a>
+        <a class="result__snippet">snippet A</a>
+      </div>
+    </div>
+    <div class="result result--ad">
+      <div class="result__body">
+        <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fad.com">Ad</a>
+      </div>
+    </div>
+    <div class="result results_links">
+      <div class="result__body">
+        <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fc.com">C</a>
+        <a class="result__snippet">snippet C</a>
+      </div>
+    </div>
+    </body></html>
+    """
+    results = _parse(html)
+    by_url = {r.url: r.snippet for r in results}
+    assert by_url["https://a.com"] == "snippet A"
+    assert by_url["https://ad.com"] == ""  # 广告块无摘要
+    assert by_url["https://c.com"] == "snippet C"  # 不被广告块挤偏
