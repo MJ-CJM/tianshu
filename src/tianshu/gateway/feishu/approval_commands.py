@@ -139,7 +139,7 @@ class ApprovalCommandHandler:
             memorial_id = pending[0]
 
         try:
-            await self._approval.submit_tool_decision(
+            decree = await self._approval.submit_tool_decision(
                 memorial_id=memorial_id,
                 action=command.action,
                 grant_scope=command.scope if command.action == "approve" else None,
@@ -152,9 +152,22 @@ class ApprovalCommandHandler:
 
         if command.action == "reject":
             return f"❌ 已拒绝 #{memorial_id[:8]}"
+        # 用 decree 的实际 scope（可能被安全降级，如 shell_exec 的 always→once）
+        actual_scope = decree.grant_scope or "once"
         scope_label = {"once": "单次", "edict": "本敕令", "always": "总是"}.get(
-            command.scope or "once", "单次"
+            actual_scope, "单次"
         )
+        # 用户请求的 scope 与实际不一致（如 always→once）→ 显式提示降级，
+        # 避免用户以为永久放行了，下次又遇到同一审批时困惑
+        if command.scope and command.scope != actual_scope:
+            requested_label = {
+                "once": "单次", "edict": "本敕令", "always": "总是",
+            }.get(command.scope, command.scope)
+            return (
+                f"✅ 已批准 #{memorial_id[:8]}（{scope_label}，"
+                f"原请求 {requested_label} 因安全策略降级 —— "
+                f"shell_exec 等高危工具不可永久放行）"
+            )
         return f"✅ 已批准 #{memorial_id[:8]}（{scope_label}）"
 
     def _list_pending_for_chat(self, chat_id: str) -> list[str]:

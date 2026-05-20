@@ -78,6 +78,7 @@ class Storage:
                     status TEXT NOT NULL,
                     summary TEXT,
                     result TEXT,
+                    final_output TEXT,
                     usage_json TEXT NOT NULL DEFAULT '{}',
                     error TEXT,
                     created_at TEXT NOT NULL,
@@ -572,6 +573,9 @@ class Storage:
             "ALTER TABLE mcp_server_overrides ADD COLUMN timeout INTEGER",
             "ALTER TABLE mcp_server_overrides ADD COLUMN connect_timeout INTEGER",
             "ALTER TABLE mcp_server_overrides ADD COLUMN tool_overrides_json TEXT",
+            # 2026-05-09: 最终交付物字段 —— 与 result（含中间过程）分离，
+            # 外发渠道（飞书/邮件等）优先用此字段，只呈现"用户关心的产物"。
+            "ALTER TABLE memorials ADD COLUMN final_output TEXT",
         ]
         for sql in migrations:
             try:
@@ -787,8 +791,8 @@ class Storage:
                     attempt, parent_memorial_id, review_status, audit_json,
                     artifacts_json, timeline_json, dag_node_id, persona_id,
                     runtime_override_json, acceptance_override_json,
-                    reasoning_content)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    reasoning_content, final_output)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 self._memorial_to_params(memorial),
             )
 
@@ -802,7 +806,7 @@ class Storage:
                    artifacts_json=?, timeline_json=?,
                    dag_node_id=?, persona_id=?,
                    runtime_override_json=?, acceptance_override_json=?,
-                   reasoning_content=?
+                   reasoning_content=?, final_output=?
                    WHERE id=?""",
                 (
                     memorial.status.value,
@@ -822,6 +826,7 @@ class Storage:
                     json.dumps(memorial.runtime_override) if memorial.runtime_override else None,
                     memorial.acceptance_override.model_dump_json() if memorial.acceptance_override else None,
                     memorial.reasoning_content,
+                    memorial.final_output,
                     memorial.id,
                 ),
             )
@@ -2290,6 +2295,11 @@ class Storage:
                 if "reasoning_content" in keys
                 else None
             ),
+            final_output=(
+                row["final_output"]
+                if "final_output" in keys
+                else None
+            ),
         )
 
     @staticmethod
@@ -2338,6 +2348,7 @@ class Storage:
             json.dumps(m.runtime_override) if m.runtime_override else None,
             m.acceptance_override.model_dump_json() if m.acceptance_override else None,
             m.reasoning_content,
+            m.final_output,
         )
 
     def insert_credential(

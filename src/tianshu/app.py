@@ -187,9 +187,18 @@ async def lifespan(app: FastAPI):
         persona_loader=persona_loader,
     )
 
+    # list_personas（T0 只读）—— 让 LLM 能查 DB 实际注册的官员名册。
+    # 与 edict 工具组同 toggle —— 因为它的核心用途是支持"颁敕时按擅长领域指派"，
+    # 跟 submit_edict 同生命周期，启用语义一致。
+    from tianshu.tools.persona_query import register_list_personas
+    register_list_personas(tools, storage=storage)
+
     # 默认禁用敕令管理工具集；通政司 toggle 打开后启用（reload 时同步）
-    # submit_edict（写）+ list_edicts / get_edict_status（读）作为同一捆绑能力。
-    edict_tools = ("submit_edict", "list_edicts", "get_edict_status")
+    # submit_edict（写）+ list_edicts / get_edict_status / list_personas（读）
+    # 作为同一捆绑能力 —— 助手能"颁敕"才需要"看官员名册帮决策指派"。
+    edict_tools = (
+        "submit_edict", "list_edicts", "get_edict_status", "list_personas",
+    )
     feishu_channel_cfg = storage.get_channel_config("feishu")
     if not (feishu_channel_cfg and feishu_channel_cfg.get("enable_edict_submission")):
         for tool_name in edict_tools:
@@ -244,6 +253,13 @@ async def lifespan(app: FastAPI):
     app.state.provider_manager = provider_manager
 
     # --- Agent ---
+    # 实时读 channel_configs.feishu.assistant_persona_id —— agent 用它判断
+    # 当前执行 persona 是不是助手，非助手过滤掉 ASSISTANT_ONLY_TOOLS
+    # （submit_edict 等），防 cron 触发的执行 persona 递归颁敕。
+    def _assistant_persona_id_provider() -> str | None:
+        cfg = storage.get_channel_config("feishu")
+        return (cfg or {}).get("assistant_persona_id")
+
     agent = Agent(
         config_manager=config_manager,
         tools=tools,
@@ -252,6 +268,7 @@ async def lifespan(app: FastAPI):
         prompt_builder=prompt_builder,
         provider_manager=provider_manager,
         metrics_store=metrics_store,
+        assistant_persona_id_provider=_assistant_persona_id_provider,
     )
     app.state.agent = agent
     app.state.skills_loader = skills

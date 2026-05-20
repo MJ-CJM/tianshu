@@ -229,6 +229,67 @@ async def test_on_execution_completed_sends_post_with_table_converted(storage):
 
 
 @pytest.mark.asyncio
+async def test_on_execution_completed_prefers_final_output(storage):
+    """final_output 存在时只发它，过滤掉 result 里的中间过程（规划/调研）。"""
+    from tianshu.models.edict import Edict
+    from tianshu.models.memorial import Memorial
+    bus = EventBus(storage=storage)
+    out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
+    out._send_post = AsyncMock(return_value="m1")
+
+    edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    full_result = (
+        "## t1: 调研天气 API\n\n"
+        "wttr.in 接口分析...\n\n---\n\n"
+        "## t2: 编写脚本\n\nshell 脚本如下...\n\n---\n\n"
+        "## t3: 推送结果\n\n上海今日多云 22°C"
+    )
+    final = "上海今日多云 22°C，湿度 65%"
+    memorial = Memorial(
+        edict_id=edict.id, instruction="i",
+        result=full_result, final_output=final,
+    )
+    storage.save_memorial(memorial)
+    event = EventEnvelope(
+        event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
+    )
+    await out._on_execution_completed(event)
+
+    out._send_post.assert_awaited_once()
+    body_arg = out._send_post.await_args.args[1]
+    # 只发 final_output，不应出现规划/调研标题
+    assert final in body_arg
+    assert "## t1" not in body_arg
+    assert "调研天气 API" not in body_arg
+    assert "wttr.in" not in body_arg
+
+
+@pytest.mark.asyncio
+async def test_on_execution_completed_falls_back_to_result_when_no_final(storage):
+    """final_output 为空时回退用 result（兼容老 memorial / outer-loop 场景）。"""
+    from tianshu.models.edict import Edict
+    from tianshu.models.memorial import Memorial
+    bus = EventBus(storage=storage)
+    out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
+    out._send_post = AsyncMock(return_value="m1")
+
+    edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    memorial = Memorial(
+        edict_id=edict.id, instruction="i",
+        result="老 memorial 的 result", final_output=None,
+    )
+    storage.save_memorial(memorial)
+    event = EventEnvelope(
+        event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
+    )
+    await out._on_execution_completed(event)
+    body_arg = out._send_post.await_args.args[1]
+    assert "老 memorial 的 result" in body_arg
+
+
+@pytest.mark.asyncio
 async def test_on_execution_completed_long_content_split(storage):
     """超长 result 拆多段连续下发。"""
     from tianshu.models.edict import Edict

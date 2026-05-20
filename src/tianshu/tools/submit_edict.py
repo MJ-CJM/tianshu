@@ -237,6 +237,10 @@ def register_submit_edict(
                 "与当前对话独立运行。"
                 "若用户要求'每天/每周/定时/到某时再做'，使用 schedule_type=cron 或 once；"
                 "默认 schedule_type=immediate（立刻执行一次）。"
+                "**指派人选规则**：若用户已点名指派（如'让唐伯虎/王阳明做'），"
+                "直接传 assigned_persona_id；若用户未指定，**必须先调用 list_personas** "
+                "拿到当前 DB 实际官员名册，按各人 department/title 与任务匹配后再选定 "
+                "assigned_persona_id 颁敕；切勿凭空猜测某 persona 是否存在。"
                 "返回敕令短 ID 给用户做后续追踪。"
             ),
             parameters={

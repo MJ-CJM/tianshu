@@ -91,16 +91,51 @@ def register_builtins(
         ),
     )
 
-    async def read_file(path: str) -> ToolResult:
+    async def read_file(
+        path: str,
+        offset: int | None = None,
+        limit: int | None = None,
+    ) -> ToolResult:
+        """Read a file. Supports line-based slicing (1-indexed offset).
+
+        Behavior aligned with Anthropic's Read tool:
+        - 默认整体读取，超 10000 字符截断
+        - 提供 offset/limit 时按行切片：从 offset 行开始读 limit 行
+          （offset=1 表示第一行；limit=None 表示读到结尾）
+        """
         file_path = safe_path(workspace, path)
         if not file_path.is_file():
             return error_result(f"Error: file '{path}' does not exist")
+
+        size = file_path.stat().st_size
+        if offset is not None or limit is not None:
+            # 行切片模式
+            start = max(0, (offset or 1) - 1)  # 1-indexed → 0-indexed
+            with file_path.open("r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+            total_lines = len(lines)
+            end = min(total_lines, start + limit) if limit is not None else total_lines
+            sliced = "".join(lines[start:end])
+            truncated = len(sliced) > 10000
+            content = sliced[:10000]
+            return ok_result(
+                content,
+                details={
+                    "size": size,
+                    "truncated": truncated,
+                    "lines_returned": max(0, end - start),
+                    "total_lines": total_lines,
+                    "offset": start + 1,
+                },
+            )
+
+        # 整体读模式（向后兼容原行为）
         content = file_path.read_text(encoding="utf-8", errors="replace")
         truncated = len(content) > 10000
         content = content[:10000]
         return ok_result(
             content,
-            details={"size": file_path.stat().st_size, "truncated": truncated},
+            details={"size": size, "truncated": truncated},
         )
 
     registry.register(
@@ -108,13 +143,33 @@ def register_builtins(
         read_file,
         ToolDefinition(
             name="read_file",
-            description="Read the contents of a file in the workspace.",
+            description=(
+                "Read the contents of a file in the workspace. "
+                "For large files, use offset (1-indexed start line) "
+                "and limit (max lines to read) to slice."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
                         "description": "File path relative to workspace",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": (
+                            "Optional: 1-indexed line number to start reading from. "
+                            "Default: read from the beginning."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": (
+                            "Optional: max number of lines to read starting at offset. "
+                            "Default: read to end of file."
+                        ),
                     },
                 },
                 "required": ["path"],

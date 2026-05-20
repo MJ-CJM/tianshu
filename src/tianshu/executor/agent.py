@@ -52,6 +52,17 @@ class AgentResult(BaseModel):
     reasoning_content: str | None = None
 
 
+#: 仅"助手 persona"（飞书里跟用户对话的那个）能调用的工具集。
+#: 业务执行 persona（被指派去做事的 tbh/wy/ys 等）即使 toggle 开了
+#: 也看不到这些工具 —— 防递归颁敕（执行人把"每日推送"当成"再造一道敕令"）。
+ASSISTANT_ONLY_TOOLS: frozenset[str] = frozenset({
+    "submit_edict",
+    "list_edicts",
+    "get_edict_status",
+    "list_personas",
+})
+
+
 class Agent:
     def __init__(
         self,
@@ -62,6 +73,7 @@ class Agent:
         prompt_builder: PromptBuilder | None = None,
         provider_manager: object | None = None,
         metrics_store: object | None = None,
+        assistant_persona_id_provider: Callable[[], str | None] | None = None,
     ) -> None:
         self._config_manager = config_manager
         self._tools = tools
@@ -71,6 +83,8 @@ class Agent:
         self._provider_manager = provider_manager
         self._metrics_store = metrics_store
         self._shutdown_event = asyncio.Event()
+        # 实时读取（每次 execute 调一次），避免 toggle / persona 切换需重启
+        self._assistant_persona_id_provider = assistant_persona_id_provider
 
     def request_shutdown(self) -> None:
         self._shutdown_event.set()
@@ -159,6 +173,11 @@ class Agent:
         # --- New: LoopState replaces mutable messages list ---
         state = LoopState(messages=tuple(messages), iteration=0)
         recovery_attempts: dict[str, int] = {}
+        # 连续同错熔断：(tool_name, error_signature) → 连续次数。
+        # 任一签名连续 3 次 → 主动 break，避免 LLM 拿着同样的 schema/args bug 死磕
+        # 烧满 max_iterations 的 token（如 read_file 的 limit/offset 幻觉）。
+        repeated_failures: dict[tuple[str, str], int] = {}
+        REPEATED_FAILURE_LIMIT = 3
 
         while state.iteration < max_iterations:
             if self._shutdown_event.is_set():
@@ -211,6 +230,34 @@ class Agent:
                     t for t in openai_tools
                     if t.get("function", {}).get("name") in tool_filter
                 ] or None
+
+            # ASSISTANT_ONLY_TOOLS 过滤：非助手 persona 不应看见 submit_edict 等
+            # 颁敕工具，否则 cron 触发的执行 persona（tbh/wy/...）会把"每日推送"
+            # 误解为"再造一道敕令"无限套娃。每轮重新读 provider 以反映 toggle / persona 切换。
+            if openai_tools and self._assistant_persona_id_provider is not None:
+                persona_id = getattr(persona, "id", None) if persona else None
+                try:
+                    assistant_id = self._assistant_persona_id_provider()
+                except Exception:
+                    logger.warning(
+                        "[AGENT] assistant_persona_id_provider raised; "
+                        "skipping ASSISTANT_ONLY filter (fail-open by design)",
+                        exc_info=True,
+                    )
+                    assistant_id = None
+                if assistant_id and persona_id != assistant_id:
+                    before = len(openai_tools)
+                    openai_tools = [
+                        t for t in openai_tools
+                        if t.get("function", {}).get("name") not in ASSISTANT_ONLY_TOOLS
+                    ] or None
+                    after = len(openai_tools or [])
+                    if before != after:
+                        logger.debug(
+                            "[AGENT] persona %r is not assistant %r — filtered "
+                            "%d ASSISTANT_ONLY tools (%d → %d)",
+                            persona_id, assistant_id, before - after, before, after,
+                        )
 
             # LLM input hook
             current_messages = list(state.messages)
@@ -443,6 +490,32 @@ class Agent:
                         "is_error": tool_result.is_error,
                         "details": tool_result.details,
                     })
+
+                    # 连续同错熔断：失败计数 +1；成功清掉该 tool 的所有计数
+                    if tool_result.is_error:
+                        # 错误签名：取前 200 字符消除噪音（行号/时间戳等）
+                        err_sig = (tool_result.content or "")[:200]
+                        key = (tc["name"], err_sig)
+                        repeated_failures[key] = repeated_failures.get(key, 0) + 1
+                        if repeated_failures[key] >= REPEATED_FAILURE_LIMIT:
+                            logger.warning(
+                                "[AGENT] Edict %s: tool %r failed %d times with same error, breaking loop. error=%.150s",
+                                edict.id, tc["name"], repeated_failures[key], err_sig,
+                            )
+                            return self._build_result(
+                                state.next_turn(new_messages),
+                                ExitReason.REPEATED_TOOL_FAILURE,
+                                usage=usage, events=events, recovery=recovery_attempts,
+                                error=(
+                                    f"工具 {tc['name']!r} 连续 {repeated_failures[key]} "
+                                    f"次失败，错误一致：{err_sig[:120]}"
+                                ),
+                            )
+                    else:
+                        # 任一次成功 → 清掉该 tool 的所有失败计数
+                        repeated_failures = {
+                            k: v for k, v in repeated_failures.items() if k[0] != tc["name"]
+                        }
 
                 # State replacement: advance to next turn
                 state = state.next_turn(new_messages)

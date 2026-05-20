@@ -155,10 +155,30 @@ class DAGScheduler:
                     )
             combined_result = "\n\n---\n\n".join(result_parts) if result_parts else None
 
+            # 抽取最终交付物：叶子节点（不被任何其他节点依赖）的输出
+            # 用于外发渠道（飞书/邮件等）单独呈现"用户关心的产物"
+            depended_on: set[str] = set()
+            for n in execution.nodes:
+                depended_on.update(n.depends_on)
+            leaf_results: list[str] = []
+            for n in execution.nodes:
+                if n.node_id in depended_on:
+                    continue
+                r = self._node_results.get(n.node_id)
+                if r:
+                    leaf_results.append(r)
+            if len(leaf_results) == 1:
+                final_output = leaf_results[0]
+            elif leaf_results:
+                final_output = "\n\n---\n\n".join(leaf_results)
+            else:
+                final_output = None
+
             root = self._storage.get_memorial(execution.root_memorial_id)
             if root:
                 root.usage = total_usage
                 root.result = combined_result
+                root.final_output = final_output
                 root.status = TaskStatus.COMPLETED if execution.status == "completed" else TaskStatus.FAILED
                 root.completed_at = datetime.now(UTC)
                 self._storage.update_memorial(root)

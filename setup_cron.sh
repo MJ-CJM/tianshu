@@ -18,13 +18,13 @@ fi
 
 # 创建cron任务
 # 每天9:30运行，输出追加到日志文件
-CRON_JOB="30 9 * * * /usr/bin/python3 $WEATHER_SCRIPT >> $LOG_FILE 2>&1"
+CRON_JOB="0 18 * * * /usr/bin/python3 $WEATHER_SCRIPT >> $LOG_FILE 2>&1"
 
 # 检查是否已存在相同的cron任务
 (crontab -l 2>/dev/null | grep -v "$WEATHER_SCRIPT") | { cat; echo "$CRON_JOB"; } | crontab -
 
 echo "cron任务已设置:"
-echo "  时间: 每天 9:30"
+echo "  时间: 每天 18:00"
 echo "  脚本: $WEATHER_SCRIPT"
 echo "  日志: $LOG_FILE"
 echo ""

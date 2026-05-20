@@ -53,6 +53,8 @@ class TestExecutor:
         assert len(memorials) == 1
         assert memorials[0].status == TaskStatus.COMPLETED
         assert memorials[0].result == "Task completed"
+        # 单 task 路径：final_output 应等于 result（无中间过程混淆）
+        assert memorials[0].final_output == "Task completed"
 
     async def test_execute_with_existing_memorial(self, executor, storage):
         edict = Edict(goal="test")

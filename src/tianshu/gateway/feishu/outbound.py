@@ -245,7 +245,12 @@ class FeishuOutbound:
             if event.memorial_id
             else None
         )
-        if not memorial or not memorial.result:
+        # 优先用 final_output（最终交付物，过滤掉规划/调研等中间过程），
+        # 无则回退 result（兼容老 memorial / outer-loop 老路径）
+        delivery = (
+            memorial.final_output or memorial.result if memorial else None
+        )
+        if not delivery:
             # 没结果也移除 typing 反应，免得用户原消息上一直挂着
             if event.memorial_id:
                 pending = self._storage.pop_feishu_thinking(event.memorial_id)
@@ -265,7 +270,7 @@ class FeishuOutbound:
                 pending["source_message_id"], pending["reaction_id"],
             )
 
-        body = convert_tables_to_lists(memorial.result)
+        body = convert_tables_to_lists(delivery)
         chunks = split_long(body)
         for idx, chunk in enumerate(chunks):
             if len(chunks) == 1:

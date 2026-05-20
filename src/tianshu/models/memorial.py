@@ -25,6 +25,10 @@ class Memorial(BaseModel):
     status: TaskStatus = TaskStatus.SUBMITTED
     summary: str | None = None
     result: str | None = None
+    # 最终交付物：外发渠道（飞书/邮件等）单独呈现的"用户关心的产物"。
+    # 与 result 分离 —— result 含规划/调研/中间步骤的全量记录用于审计，
+    # final_output 只是最后一步任务的产出。None 时外发回退到 result。
+    final_output: str | None = None
     usage: UsageSummary = Field(default_factory=UsageSummary)
     error: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -213,6 +213,8 @@ class Executor:
             result = await orch_run(edict, memorial, self._orchestrator_ctx)
             memorial.status = result.status
             memorial.result = result.final_output
+            # outer-loop 的 final_output 已是验收通过的最终产物
+            memorial.final_output = result.final_output
             memorial.error = result.error
         except Exception as e:
             logger.exception("orchestrator failed for edict %s", edict.id)
@@ -386,6 +388,8 @@ class Executor:
             memorial.status = result.status
             memorial.summary = result.summary
             memorial.result = result.result
+            # 单 task / 短任务路径：result 即最终交付物（无中间过程混淆）
+            memorial.final_output = result.result
             memorial.usage = result.usage
             memorial.error = result.error
             memorial.reasoning_content = result.reasoning_content

@@ -36,10 +36,10 @@ EOF
 # 创建systemd用户timer文件
 cat > "$SERVICE_DIR/weather.timer" << EOF
 [Unit]
-Description=每日9:30天气查询定时器
+Description=每日18:00天气查询定时器
 
 [Timer]
-OnCalendar=*-*-* 09:30:00
+OnCalendar=*-*-* 18:00:00
 Persistent=true
 RandomizedDelaySec=0
 

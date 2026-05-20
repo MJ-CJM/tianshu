@@ -59,13 +59,25 @@ def test_parse_id_prefix_too_short_ignored():
 
 # --- ApprovalCommandHandler ---
 
+def _decree_returning(scope: str | None):
+    """构造 mock Decree，grant_scope = 实际生效值（可能被 always→once 降级）。"""
+    d = MagicMock()
+    d.grant_scope = scope
+    return d
+
+
 @pytest.fixture
 def handler_setup():
     storage = MagicMock()
     # 模拟 storage._conn.execute(...).fetchall()
     storage._conn = MagicMock()
     approval = MagicMock()
-    approval.submit_tool_decision = AsyncMock()
+
+    # 默认：实际 scope 等于 input scope（无降级）
+    async def _default_decision(*, memorial_id, action, grant_scope=None, **_kw):
+        return _decree_returning(grant_scope)
+
+    approval.submit_tool_decision = AsyncMock(side_effect=_default_decision)
     h = ApprovalCommandHandler(storage=storage, approval_manager=approval)
     return h, storage, approval
 
@@ -168,3 +180,39 @@ async def test_handle_idempotent_when_already_resolved(handler_setup):
     cmd = ApprovalCommand("approve", "once", None)
     reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
     assert "其他通道" in reply
+
+
+@pytest.mark.asyncio
+async def test_handle_always_downgraded_to_once_shows_real_scope(handler_setup):
+    """shell_exec 等 bash 类工具 always→once 降级时，回复必须显示真实 scope + 降级提示。
+
+    不能再像旧版一样无脑显示"总是" —— 那会让用户以为永久放行了，
+    下次同一审批又冒出来时还以为系统出 bug，反复 /approve always 死循环。
+    """
+    h, storage, approval = handler_setup
+    _set_pending(storage, ["mem_w12345678"])
+
+    # 模拟后端把 always 降级为 once（policy_store.assert_can_grant 拒绝）
+    async def _downgrade(*, memorial_id, action, grant_scope=None, **_kw):
+        return _decree_returning("once")  # 实际生效 once
+    approval.submit_tool_decision = AsyncMock(side_effect=_downgrade)
+
+    cmd = ApprovalCommand("approve", "always", None)  # 用户请求 always
+    reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
+
+    assert "已批准" in reply
+    assert "单次" in reply             # 真实生效是单次
+    assert "总是" not in reply.split("（")[0]  # 不该把"总是"作为主标签
+    assert "降级" in reply              # 显式提示用户被降级了
+    assert "shell_exec" in reply or "高危" in reply  # 解释为什么
+
+
+@pytest.mark.asyncio
+async def test_handle_no_downgrade_no_extra_hint(handler_setup):
+    """正常 once/edict 批准不应带降级提示，避免噪音。"""
+    h, storage, approval = handler_setup
+    _set_pending(storage, ["mem_n"])
+    cmd = ApprovalCommand("approve", "edict", None)
+    reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
+    assert "本敕令" in reply
+    assert "降级" not in reply

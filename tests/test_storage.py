@@ -129,6 +129,34 @@ class TestMemorialStorage:
         assert loaded.result == "done"
         assert loaded.usage.total_tokens == 100
 
+    def test_final_output_persists(self, storage):
+        """final_output 字段独立持久化，与 result 分离。"""
+        edict = Edict(goal="test")
+        storage.save_edict(edict)
+        memorial = Memorial(edict_id=edict.id)
+        storage.save_memorial(memorial)
+
+        # 模拟多 task 场景：result 含全量过程，final_output 仅最终交付物
+        memorial.status = TaskStatus.COMPLETED
+        memorial.result = "## t1: 调研...\n\n---\n\n## t2: 编脚本...\n\n---\n\n## t3: 推送..."
+        memorial.final_output = "上海今日多云 22°C，湿度 65%"
+        storage.update_memorial(memorial)
+
+        loaded = storage.get_memorial(memorial.id)
+        assert loaded.result.startswith("## t1: 调研")
+        assert loaded.final_output == "上海今日多云 22°C，湿度 65%"
+        # 两个字段独立，不应混淆
+        assert loaded.final_output != loaded.result
+
+    def test_final_output_defaults_none(self, storage):
+        """新建 memorial 时 final_output 应为 None（兼容老 memorial）。"""
+        edict = Edict(goal="test")
+        storage.save_edict(edict)
+        memorial = Memorial(edict_id=edict.id)
+        storage.save_memorial(memorial)
+        loaded = storage.get_memorial(memorial.id)
+        assert loaded.final_output is None
+
     def test_get_by_edict(self, storage):
         edict = Edict(goal="test")
         storage.save_edict(edict)

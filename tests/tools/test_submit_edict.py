@@ -134,6 +134,15 @@ async def test_submit_edict_in_definition(setup):
 
 
 @pytest.mark.asyncio
+async def test_submit_edict_description_guides_to_list_personas(setup):
+    """description 应明确：未指定 assigned_persona_id 时先调 list_personas 决策。"""
+    registry, _, _ = setup
+    defn = registry.get_definition("submit_edict")
+    assert "list_personas" in defn.description
+    assert "未指定" in defn.description
+
+
+@pytest.mark.asyncio
 async def test_submit_edict_default_profile_foreground(setup):
     """不传 execution_profile 时默认走短任务（foreground）。"""
     registry, storage, _ = setup

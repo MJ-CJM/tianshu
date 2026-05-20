@@ -125,6 +125,21 @@ class ToolRegistry:
         except jsonschema.ValidationError as e:
             return error_result(f"Parameter validation failed: {e.message}")
 
+        # 过滤掉 schema 未声明的字段 —— 防 LLM 幻觉额外参数（例如基于训练数据
+        # 想象 read_file 有 limit/offset），原生 Python 函数 strict 收 kwargs
+        # 会抛 TypeError 让 LLM 死循环重试。jsonschema.validate 默认
+        # additionalProperties=True，不会拦这种字段，所以这里手动过滤+warn。
+        if isinstance(args, dict):
+            declared = (defn.parameters or {}).get("properties", {})
+            extra = [k for k in args if k not in declared]
+            if extra:
+                logger.warning(
+                    "[TOOL] %s: dropping unexpected args %s "
+                    "(LLM may be hallucinating params from training data)",
+                    name, extra,
+                )
+                args = {k: v for k, v in args.items() if k in declared}
+
         logger.debug(
             "[TOOL] execute: name=%s, tier=%d, args_keys=%s",
             name, defn.tier, list(args.keys()) if isinstance(args, dict) else "raw",

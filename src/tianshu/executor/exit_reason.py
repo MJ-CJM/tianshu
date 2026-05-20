@@ -17,3 +17,4 @@ class ExitReason(StrEnum):
     BUDGET_EXHAUSTED = "budget_exhausted"
     LLM_ERROR = "llm_error"
     OUTPUT_TRUNCATED = "output_truncated"
+    REPEATED_TOOL_FAILURE = "repeated_tool_failure"
