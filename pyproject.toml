@@ -43,6 +43,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "respx>=0.21",
 ]
+scrapling = ["scrapling>=0.3"]
 
 [project.scripts]
 tianshu = "tianshu.cli.main:app"
