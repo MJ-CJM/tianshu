@@ -418,7 +418,11 @@
         "criticPersonas": "审核者 (Critic Personas，可多选)",
         "sameIssueThreshold": "同类问题升级阈值",
         "l1MaxRounds": "L1 最多重试轮数",
-        "l2MaxRounds": "L2 最多重试轮数"
+        "l2MaxRounds": "L2 最多重试轮数",
+        "nlLabel": "用一句话描述",
+        "nlPlaceholder": "例如：每天早上9点给我推送上海天气",
+        "nlButton": "智能填充",
+        "nlFailed": "没太理解，请换种说法或手动填写下方表单。"
       },
       "placeholder": {
         "title": "留空则自动截取目标前 20 字",
@@ -478,7 +482,8 @@
         "advanced": "高级选项",
         "runtime": "执行参数",
         "longTask": "长任务模式 (Outer Loop)",
-        "checks": "可验收指标 Checks（可选，零或多条）"
+        "checks": "可验收指标 Checks（可选，零或多条）",
+        "more": "更多设置"
       },
       "template": {
         "analysis": "📊 数据分析型",

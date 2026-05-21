@@ -161,3 +161,29 @@ export async function resumeEdict(
   );
   return data;
 }
+
+export interface EdictDraft {
+  goal?: string;
+  title?: string;
+  context?: string;
+  priority?: string;
+  schedule?: {
+    type: "immediate" | "once" | "cron";
+    cron?: string;
+    at?: string;
+    timezone?: string;
+  };
+}
+
+export interface ParseEdictResult {
+  draft: EdictDraft;
+  notes: string;
+}
+
+export async function parseEdict(text: string): Promise<ParseEdictResult> {
+  const { data } = await apiClient.post<{ success: boolean; data: ParseEdictResult }>(
+    "/edicts/parse",
+    { text },
+  );
+  return data.data;
+}

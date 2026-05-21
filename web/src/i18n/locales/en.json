@@ -418,7 +418,11 @@
         "criticPersonas": "Critic Personas (multi-select)",
         "sameIssueThreshold": "Same-issue Escalation Threshold",
         "l1MaxRounds": "L1 Max Retry Rounds",
-        "l2MaxRounds": "L2 Max Retry Rounds"
+        "l2MaxRounds": "L2 Max Retry Rounds",
+        "nlLabel": "Describe in one sentence",
+        "nlPlaceholder": "e.g. push Shanghai weather to me every day at 9am",
+        "nlButton": "Smart fill",
+        "nlFailed": "Couldn't understand that — try rephrasing or fill the form manually."
       },
       "placeholder": {
         "title": "Leave blank to auto-extract first 20 chars of goal",
@@ -478,7 +482,8 @@
         "advanced": "Advanced",
         "runtime": "Runtime",
         "longTask": "Long Task Mode (Outer Loop)",
-        "checks": "Acceptance Checks (optional)"
+        "checks": "Acceptance Checks (optional)",
+        "more": "More settings"
       },
       "template": {
         "analysis": "📊 Data Analysis",
