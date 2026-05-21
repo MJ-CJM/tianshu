@@ -127,7 +127,7 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     if body.review_policy:
         edict_kwargs["review_policy"] = body.review_policy
     if body.schedule and body.schedule.type != "immediate":
-        from datetime import UTC, datetime
+        from datetime import datetime
 
         from tianshu.models.edict import EdictSchedule
         schedule_kwargs: dict = {
@@ -144,7 +144,14 @@ async def create_edict(body: EdictCreateRequest, request: Request):
                     f"schedule.at 不是合法 ISO 8601 datetime: {body.schedule.at!r}",
                 ) from exc
             if at_dt.tzinfo is None:
-                at_dt = at_dt.replace(tzinfo=UTC)
+                # 无时区偏移的输入按调度时区解释，默认 Asia/Shanghai（北京时间）。
+                # 不再强当 UTC —— 否则用户填的本地时间会偏移 8 小时。
+                from zoneinfo import ZoneInfo
+                tz_name = body.schedule.timezone or "Asia/Shanghai"
+                try:
+                    at_dt = at_dt.replace(tzinfo=ZoneInfo(tz_name))
+                except Exception:
+                    at_dt = at_dt.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
             schedule_kwargs["at"] = at_dt
         edict_kwargs["schedule"] = EdictSchedule(**schedule_kwargs)
     if body.constraints:

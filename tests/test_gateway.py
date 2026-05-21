@@ -94,6 +94,25 @@ class TestEdictEndpoints:
         assert schedule["at"] is not None
         assert "2026-12-01" in schedule["at"]
 
+    async def test_create_edict_once_naive_at_treated_as_shanghai(self, client):
+        """无时区偏移的 at 应按北京时间解释，而非 UTC（否则偏移 8 小时）。"""
+        from datetime import datetime
+
+        with patch("tianshu.executor.agent.LLMClient"):
+            resp = await client.post(
+                "/api/edicts",
+                json={
+                    "goal": "今天下午两点二十二",
+                    "schedule": {"type": "once", "at": "2026-05-21 14:22:00"},
+                },
+            )
+        assert resp.status_code == 202
+        at = resp.json()["data"]["schedule"]["at"]
+        # 解析回来：应等于北京时间 14:22（= UTC 06:22），不是 UTC 14:22
+        parsed = datetime.fromisoformat(at)
+        assert parsed.utcoffset().total_seconds() == 8 * 3600
+        assert parsed.hour == 14 and parsed.minute == 22
+
     async def test_create_edict_rejects_invalid_at(self, client):
         with patch("tianshu.executor.agent.LLMClient"):
             resp = await client.post(
