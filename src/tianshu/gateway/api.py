@@ -34,6 +34,7 @@ from tianshu.models import (
     ToolDecisionRequest,
     make_event,
 )
+from tianshu.models.api import ParseEdictRequest
 from tianshu.consultation.models import ConsultationRequest
 from tianshu.consultation.session import ConsultationSession
 from tianshu.cost.manager import CostManager
@@ -206,6 +207,35 @@ async def create_edict(body: EdictCreateRequest, request: Request):
         success=True,
         data=edict.model_dump(mode="json"),
     )
+
+
+@gateway_router.post("/edicts/parse", response_model=ApiResponse)
+async def parse_edict_nl(body: ParseEdictRequest, request: Request):
+    """自然语言 → 敕令草稿（只读，不落库）。前端拿去预填表单。"""
+    from tianshu.gateway.edict_parse import (
+        ParseEdictError,
+        build_parse_messages,
+        coerce_draft,
+        parse_llm_json,
+    )
+
+    pm = request.app.state.provider_manager
+    try:
+        client = pm.get_client(config_name_override="deepseek-flash")
+    except Exception:
+        client = pm.get_client()
+
+    messages = build_parse_messages(body.text)
+    try:
+        resp = await client.chat(messages)
+        raw = parse_llm_json(resp.content or "")
+    except ParseEdictError as e:
+        raise HTTPException(422, f"没太理解这句话，请换种说法或手动填写：{e}") from e
+    except Exception as e:
+        raise HTTPException(422, f"解析服务暂不可用：{type(e).__name__}") from e
+
+    draft, notes = coerce_draft(raw)
+    return ApiResponse(success=True, data={"draft": draft, "notes": notes})
 
 
 @gateway_router.get("/edicts")

@@ -62,6 +62,10 @@ class EdictCreateRequest(BaseModel):
     execution_profile: Literal["foreground", "checkpointed", "background"] = "foreground"
 
 
+class ParseEdictRequest(BaseModel):
+    text: str = Field(min_length=1)
+
+
 class FollowUpRequest(BaseModel):
     instruction: str = Field(min_length=1)
     context: str | None = None
