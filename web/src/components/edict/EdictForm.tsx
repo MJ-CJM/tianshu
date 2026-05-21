@@ -27,6 +27,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
   const [policyProfile, setPolicyProfile] =
     useState<PolicyProfileValue | null>(null);
   const [longTaskEnabled, setLongTaskEnabled] = useState(false);
+  const [activePanels, setActivePanels] = useState<string[]>([]);
   const [netState, setNetState] = useState<{
     api_request_hosts: string[];
     api_request_write_hosts: string[];
@@ -242,10 +243,6 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       }}
       style={{ maxWidth: 640 }}
     >
-      <Form.Item name="title" label={t("form.edict.field.title")}>
-        <Input placeholder={t("form.edict.placeholder.title")} />
-      </Form.Item>
-
       <Form.Item
         name="goal"
         label={t("form.edict.field.goal")}
@@ -258,112 +255,113 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
         />
       </Form.Item>
 
-      <Form.Item label={t("form.edict.field.executionMode")}>
-        <Radio.Group
-          value={assignMode}
-          onChange={(e) => {
-            setAssignMode(e.target.value);
-            if (e.target.value === "auto") {
-              form.setFieldValue("assigned_persona_id", undefined);
-            }
-          }}
-        >
-          <Radio value="auto">{t("form.edict.option.autoPlanning")}</Radio>
-          <Radio value="direct">{t("form.edict.option.directAssign")}</Radio>
-        </Radio.Group>
-      </Form.Item>
-
-      {assignMode === "direct" && (
-        <Form.Item
-          name="assigned_persona_id"
-          rules={[{ required: true, message: t("form.edict.validation.assignedPersonaRequired") }]}
-        >
-          <Select
-            placeholder={t("form.edict.placeholder.assignedPersona")}
-            options={personaOptions}
-            showSearch
-            optionFilterProp="label"
-          />
-        </Form.Item>
-      )}
-
-      {assignMode === "auto" && cabinetPersonas.length > 1 && (
-        <Form.Item
-          name="planner_persona_id"
-          label={t("form.edict.field.plannerPersona")}
-          tooltip={t("form.edict.tooltip.plannerPersona")}
-        >
-          <Select
-            placeholder={t("form.edict.placeholder.plannerPersona")}
-            options={plannerOptions}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-          />
-        </Form.Item>
-      )}
-
-      {assignMode === "auto" && (
-        <Form.Item
-          name="plan_review"
-          label={t("form.edict.field.planReview")}
-          valuePropName="checked"
-          tooltip={t("form.edict.tooltip.planReview")}
-        >
-          <Switch />
-        </Form.Item>
-      )}
-
-      <Form.Item name="context" label={t("form.edict.field.context")}>
-        <Input.TextArea
-          rows={3}
-          placeholder={t("form.edict.placeholder.context")}
-          style={{ resize: "vertical" }}
+      <Form.Item name="schedule_type" label={t("form.edict.field.scheduleType")}>
+        <Select
+          onChange={(v) => setScheduleType(v)}
+          options={[
+            { value: "immediate", label: t("form.edict.option.scheduleImmediate") },
+            { value: "once", label: t("form.edict.option.scheduleOnce") },
+            { value: "cron", label: t("form.edict.option.scheduleCron") },
+          ]}
         />
       </Form.Item>
+      {scheduleType === "cron" && (
+        <Form.Item
+          name="cron_expr"
+          label={t("form.edict.field.cronExpr")}
+          rules={[{ required: true, message: t("form.edict.validation.cronExprRequired") }]}
+        >
+          <Input placeholder={t("form.edict.placeholder.cronExpr")} />
+        </Form.Item>
+      )}
+      {scheduleType === "once" && (
+        <Form.Item
+          name="schedule_at"
+          label={t("form.edict.field.scheduleAt")}
+          rules={[{ required: true, message: t("form.edict.validation.scheduleAtRequired") }]}
+        >
+          <Input placeholder={t("form.edict.placeholder.scheduleAt")} />
+        </Form.Item>
+      )}
 
       <Collapse
         ghost
         style={{ marginBottom: 24 }}
+        activeKey={activePanels}
+        onChange={(keys) => setActivePanels(keys as string[])}
         items={[
           {
             key: "advanced",
-            label: t("form.edict.section.advanced"),
+            label: t("form.edict.section.more"),
             children: (
               <>
-                <Form.Item
-                  name="schedule_type"
-                  label={t("form.edict.field.scheduleType")}
-                >
-                  <Select
-                    onChange={(v) => setScheduleType(v)}
-                    options={[
-                      { value: "immediate", label: t("form.edict.option.scheduleImmediate") },
-                      { value: "once", label: t("form.edict.option.scheduleOnce") },
-                      { value: "cron", label: t("form.edict.option.scheduleCron") },
-                    ]}
-                  />
+                <Form.Item name="title" label={t("form.edict.field.title")}>
+                  <Input placeholder={t("form.edict.placeholder.title")} />
                 </Form.Item>
 
-                {scheduleType === "cron" && (
-                  <Form.Item
-                    name="cron_expr"
-                    label={t("form.edict.field.cronExpr")}
-                    rules={[{ required: true, message: t("form.edict.validation.cronExprRequired") }]}
+                <Form.Item label={t("form.edict.field.executionMode")}>
+                  <Radio.Group
+                    value={assignMode}
+                    onChange={(e) => {
+                      setAssignMode(e.target.value);
+                      if (e.target.value === "auto") {
+                        form.setFieldValue("assigned_persona_id", undefined);
+                      }
+                    }}
                   >
-                    <Input placeholder={t("form.edict.placeholder.cronExpr")} />
+                    <Radio value="auto">{t("form.edict.option.autoPlanning")}</Radio>
+                    <Radio value="direct">{t("form.edict.option.directAssign")}</Radio>
+                  </Radio.Group>
+                </Form.Item>
+
+                {assignMode === "direct" && (
+                  <Form.Item
+                    name="assigned_persona_id"
+                    rules={[{ required: true, message: t("form.edict.validation.assignedPersonaRequired") }]}
+                  >
+                    <Select
+                      placeholder={t("form.edict.placeholder.assignedPersona")}
+                      options={personaOptions}
+                      showSearch
+                      optionFilterProp="label"
+                    />
                   </Form.Item>
                 )}
 
-                {scheduleType === "once" && (
+                {assignMode === "auto" && cabinetPersonas.length > 1 && (
                   <Form.Item
-                    name="schedule_at"
-                    label={t("form.edict.field.scheduleAt")}
-                    rules={[{ required: true, message: t("form.edict.validation.scheduleAtRequired") }]}
+                    name="planner_persona_id"
+                    label={t("form.edict.field.plannerPersona")}
+                    tooltip={t("form.edict.tooltip.plannerPersona")}
                   >
-                    <Input placeholder={t("form.edict.placeholder.scheduleAt")} />
+                    <Select
+                      placeholder={t("form.edict.placeholder.plannerPersona")}
+                      options={plannerOptions}
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                    />
                   </Form.Item>
                 )}
+
+                {assignMode === "auto" && (
+                  <Form.Item
+                    name="plan_review"
+                    label={t("form.edict.field.planReview")}
+                    valuePropName="checked"
+                    tooltip={t("form.edict.tooltip.planReview")}
+                  >
+                    <Switch />
+                  </Form.Item>
+                )}
+
+                <Form.Item name="context" label={t("form.edict.field.context")}>
+                  <Input.TextArea
+                    rows={3}
+                    placeholder={t("form.edict.placeholder.context")}
+                    style={{ resize: "vertical" }}
+                  />
+                </Form.Item>
 
                 <Form.Item
                   name="priority"
