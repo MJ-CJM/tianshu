@@ -77,3 +77,53 @@ def test_coerce_drops_invalid_priority():
     draft, _ = coerce_draft(raw)
     assert "priority" not in draft
     assert draft["goal"] == "x"
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — parse endpoint
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock, patch  # noqa: E402
+
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+
+from tianshu.app import create_app, lifespan  # noqa: E402
+from tianshu.llm import LLMResponse  # noqa: E402
+from tianshu.models import UsageSummary  # noqa: E402
+
+
+@pytest.fixture
+async def client():
+    app = create_app()
+    async with lifespan(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+
+
+@pytest.mark.integration
+async def test_parse_endpoint_cron(client):
+    fake = LLMResponse(
+        content='{"goal":"每天推送天气","schedule":{"type":"cron","cron":"0 9 * * *"},"notes":"每天9点"}',
+        tool_calls=None,
+        usage=UsageSummary(),
+    )
+    with patch("tianshu.llm.LLMClient.chat", new=AsyncMock(return_value=fake)):
+        resp = await client.post("/api/edicts/parse", json={"text": "每天早上9点推送天气"})
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["draft"]["goal"] == "每天推送天气"
+    assert data["draft"]["schedule"]["cron"] == "0 9 * * *"
+    assert "每天9点" in data["notes"]
+
+
+@pytest.mark.integration
+async def test_parse_endpoint_bad_json_returns_422(client):
+    fake = LLMResponse(
+        content="这根本不是 JSON",
+        tool_calls=None,
+        usage=UsageSummary(),
+    )
+    with patch("tianshu.llm.LLMClient.chat", new=AsyncMock(return_value=fake)):
+        resp = await client.post("/api/edicts/parse", json={"text": "随便说点啥"})
+    assert resp.status_code == 422
