@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Alert, Form, Input, InputNumber, Button, Collapse, Select, Divider, Radio, Switch, Space, Card } from "antd";
 import { SendOutlined, MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
+import { parseEdict } from "../../api/edicts";
 import { usePersonas } from "../../hooks/usePersonas";
 import { useT } from "../../i18n";
 import type {
@@ -28,6 +29,10 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     useState<PolicyProfileValue | null>(null);
   const [longTaskEnabled, setLongTaskEnabled] = useState(false);
   const [activePanels, setActivePanels] = useState<string[]>([]);
+  const [nlText, setNlText] = useState("");
+  const [nlLoading, setNlLoading] = useState(false);
+  const [nlNotes, setNlNotes] = useState<string | null>(null);
+  const [nlError, setNlError] = useState<string | null>(null);
   const [netState, setNetState] = useState<{
     api_request_hosts: string[];
     api_request_write_hosts: string[];
@@ -57,6 +62,38 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     if (neige) return [neige];
     return criticPersonas[0] ? [criticPersonas[0].id] : [];
   })();
+
+  const handleSmartFill = async () => {
+    if (!nlText.trim()) return;
+    setNlLoading(true);
+    setNlError(null);
+    setNlNotes(null);
+    try {
+      const { draft, notes } = await parseEdict(nlText.trim());
+      const patch: Record<string, unknown> = {};
+      if (draft.goal) patch.goal = draft.goal;
+      if (draft.title) patch.title = draft.title;
+      if (draft.context) patch.context = draft.context;
+      if (draft.priority) patch.priority = draft.priority;
+      if (draft.schedule) {
+        patch.schedule_type = draft.schedule.type;
+        setScheduleType(draft.schedule.type);
+        if (draft.schedule.cron) patch.cron_expr = draft.schedule.cron;
+        if (draft.schedule.at) patch.schedule_at = draft.schedule.at;
+      }
+      form.setFieldsValue(patch);
+      if (draft.title || draft.context || draft.priority) {
+        setActivePanels((prev) =>
+          prev.includes("advanced") ? prev : [...prev, "advanced"],
+        );
+      }
+      setNlNotes(notes || t("form.edict.field.nlLabel"));
+    } catch {
+      setNlError(t("form.edict.field.nlFailed"));
+    } finally {
+      setNlLoading(false);
+    }
+  };
 
   const handleFinish = (values: Record<string, unknown>) => {
     const req: EdictCreateRequest = {
@@ -243,6 +280,27 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       }}
       style={{ maxWidth: 640 }}
     >
+      <Form.Item label={t("form.edict.field.nlLabel")}>
+        <Space.Compact style={{ width: "100%" }}>
+          <Input.TextArea
+            rows={2}
+            value={nlText}
+            onChange={(e) => setNlText(e.target.value)}
+            placeholder={t("form.edict.field.nlPlaceholder")}
+            style={{ resize: "vertical" }}
+          />
+          <Button type="primary" loading={nlLoading} onClick={handleSmartFill}>
+            {t("form.edict.field.nlButton")}
+          </Button>
+        </Space.Compact>
+        {nlNotes && (
+          <Alert type="info" showIcon style={{ marginTop: 8 }} message={nlNotes} />
+        )}
+        {nlError && (
+          <Alert type="warning" showIcon style={{ marginTop: 8 }} message={nlError} />
+        )}
+      </Form.Item>
+      <Divider style={{ margin: "8px 0 16px" }} />
       <Form.Item
         name="goal"
         label={t("form.edict.field.goal")}
