@@ -63,7 +63,7 @@ class EdictCreateRequest(BaseModel):
 
 
 class ParseEdictRequest(BaseModel):
-    text: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=2000)
 
 
 class FollowUpRequest(BaseModel):

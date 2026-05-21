@@ -87,7 +87,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
           prev.includes("advanced") ? prev : [...prev, "advanced"],
         );
       }
-      setNlNotes(notes || t("form.edict.field.nlLabel"));
+      if (notes) setNlNotes(notes);
     } catch {
       setNlError(t("form.edict.field.nlFailed"));
     } finally {
