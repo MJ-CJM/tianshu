@@ -66,17 +66,28 @@ class ApprovalKeyboardHandler:
         event_bus: EventBus,
         approval_manager: ApprovalManager,
         outbound: "TelegramOutbound",
+        instance_id: str = "telegram-default",
     ) -> None:
         self._settings = settings
         self._storage = storage
         self._event_bus = event_bus
         self._approval = approval_manager
         self._outbound = outbound
+        self._instance_id = instance_id
+        # 保存订阅引用：EventBus.off 用 `is` 比对，bound method 每次取属性都是新对象。
+        self._sub_approval_required = self._on_approval_required
+        self._sub_decree_resolved = self._on_decree_resolved
 
     def start(self) -> None:
-        self._event_bus.on("tool.approval_required", self._on_approval_required, priority=200)
-        self._event_bus.on("decree.approved", self._on_decree_resolved, priority=200)
-        self._event_bus.on("decree.rejected", self._on_decree_resolved, priority=200)
+        self._event_bus.on("tool.approval_required", self._sub_approval_required, priority=200)
+        self._event_bus.on("decree.approved", self._sub_decree_resolved, priority=200)
+        self._event_bus.on("decree.rejected", self._sub_decree_resolved, priority=200)
+
+    def stop(self) -> None:
+        """取消 EventBus 订阅（实例停止时调用）。"""
+        self._event_bus.off("tool.approval_required", self._sub_approval_required)
+        self._event_bus.off("decree.approved", self._sub_decree_resolved)
+        self._event_bus.off("decree.rejected", self._sub_decree_resolved)
 
     async def _on_approval_required(self, event: EventEnvelope) -> None:
         edict_id = event.edict_id
@@ -86,13 +97,20 @@ class ApprovalKeyboardHandler:
         edict = self._storage.get_edict(edict_id)
         if not edict:
             return
-        # channel 路由隔离：非 telegram 敕令不在 telegram 推审批（避免与飞书重复/错投）
-        ch = (edict.metadata or {}).get("channel")
-        if ch and ch != "telegram":
+        # 实例路由隔离：非本实例的敕令不在本 handler 推审批（避免与飞书/其它实例重复/错投）。
+        # 存量敕令无 instance_id → 回退 {channel}-default；无 channel 敕令（inst=None）
+        # 不被实例守卫拦截，仍走 home_channel 兜底。
+        inst = (edict.metadata or {}).get("instance_id")
+        if inst is None:
+            ch = (edict.metadata or {}).get("channel")
+            inst = f"{ch}-default" if ch else None
+        if inst is not None and inst != self._instance_id:
             return
         chat_id = (edict.metadata or {}).get("chat_id") or self._settings.home_channel
         if not chat_id:
-            anchored = self._storage.list_telegram_chats_anchored_to(edict_id)
+            anchored = self._storage.list_telegram_chats_anchored_to(
+                edict_id, instance_id=self._instance_id
+            )
             if anchored:
                 chat_id = anchored[0]
         if not chat_id:
@@ -114,6 +132,7 @@ class ApprovalKeyboardHandler:
             self._storage.save_telegram_pending_button(
                 approval_id=memorial_id, chat_id=chat_id,
                 message_id=message_id, kind="tool.approval_required",
+                instance_id=self._instance_id,
             )
             logger.info(
                 "[telegram/approval] sent edict=%s memorial=%s chat=%s msg=%s",

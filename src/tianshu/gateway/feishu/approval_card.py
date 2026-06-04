@@ -85,21 +85,32 @@ class ApprovalCardHandler:
         event_bus: EventBus,
         approval_manager: ApprovalManager,
         outbound: "FeishuOutbound",
+        instance_id: str = "feishu-default",
     ) -> None:
         self._settings = settings
         self._storage = storage
         self._event_bus = event_bus
         self._approval = approval_manager
         self._outbound = outbound
+        self._instance_id = instance_id
+        # 保存订阅引用：EventBus.off 用 `is` 比对，bound method 每次取属性都是新对象。
+        self._sub_approval_required = self._on_approval_required
+        self._sub_decree_resolved = self._on_decree_resolved
 
     def start(self) -> None:
         """订阅 EventBus：tool.approval_required → 下发卡片；decree.* → 刷新。
 
         注意：tool.approval_required 在 PolicyHook 内 fire 到 EventBus（修订 1）。
         """
-        self._event_bus.on("tool.approval_required", self._on_approval_required, priority=200)
-        self._event_bus.on("decree.approved", self._on_decree_resolved, priority=200)
-        self._event_bus.on("decree.rejected", self._on_decree_resolved, priority=200)
+        self._event_bus.on("tool.approval_required", self._sub_approval_required, priority=200)
+        self._event_bus.on("decree.approved", self._sub_decree_resolved, priority=200)
+        self._event_bus.on("decree.rejected", self._sub_decree_resolved, priority=200)
+
+    def stop(self) -> None:
+        """取消 EventBus 订阅（实例停止时调用）。"""
+        self._event_bus.off("tool.approval_required", self._sub_approval_required)
+        self._event_bus.off("decree.approved", self._sub_decree_resolved)
+        self._event_bus.off("decree.rejected", self._sub_decree_resolved)
 
     async def _on_approval_required(self, event: EventEnvelope) -> None:
         """tool.approval_required → 找 chat_id → 下发卡片 → 记录 pending_card。
@@ -116,10 +127,21 @@ class ApprovalCardHandler:
         edict = self._storage.get_edict(edict_id)
         if not edict:
             return
+        # 实例路由隔离：非本实例的敕令不由本 handler 下卡片，避免交叉投递。
+        # 存量敕令无 instance_id → 回退 {channel}-default；无 channel 敕令（inst=None）
+        # 不被实例守卫拦截，仍走 home_channel 兜底。
+        inst = (edict.metadata or {}).get("instance_id")
+        if inst is None:
+            ch = (edict.metadata or {}).get("channel")
+            inst = f"{ch}-default" if ch else None
+        if inst is not None and inst != self._instance_id:
+            return
         chat_id = (edict.metadata or {}).get("chat_id") or self._settings.home_channel
         if not chat_id:
             # 精准反查：哪个 chat 当前 anchor 指向这个 edict（web 创建 + 飞书 /select 场景）
-            anchored = self._storage.list_chats_anchored_to(edict_id)
+            anchored = self._storage.list_chats_anchored_to(
+                edict_id, instance_id=self._instance_id
+            )
             if anchored:
                 chat_id = anchored[0]
                 logger.info(
@@ -146,6 +168,7 @@ class ApprovalCardHandler:
             self._storage.save_feishu_pending_card(
                 approval_id=memorial_id, chat_id=chat_id,
                 message_id=message_id, kind="tool.approval_required",
+                instance_id=self._instance_id,
             )
             logger.info("[feishu/approval] card sent edict=%s memorial=%s chat=%s msg=%s",
                         edict_id, memorial_id, chat_id, message_id)

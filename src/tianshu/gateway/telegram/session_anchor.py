@@ -8,14 +8,15 @@ from tianshu.storage import Storage
 
 
 class SessionAnchor:
-    def __init__(self, storage: Storage) -> None:
+    def __init__(self, storage: Storage, instance_id: str = "telegram-default") -> None:
         self._storage = storage
+        self._instance_id = instance_id
 
     def get(self, chat_id: str) -> str | None:
-        return self._storage.get_telegram_anchor(chat_id)
+        return self._storage.get_telegram_anchor(chat_id, instance_id=self._instance_id)
 
     def set(self, chat_id: str, edict_id: str) -> None:
-        self._storage.set_telegram_anchor(chat_id, edict_id)
+        self._storage.set_telegram_anchor(chat_id, edict_id, instance_id=self._instance_id)
 
     def delete(self, chat_id: str) -> None:
-        self._storage.delete_telegram_anchor(chat_id)
+        self._storage.delete_telegram_anchor(chat_id, instance_id=self._instance_id)

@@ -41,6 +41,7 @@ class AssistantBranch:
         card_builder: "CardBuilder",
         approval_commands: "ApprovalCommandHandler | None" = None,
         assistant_persona_id: str = "tongzheng",
+        instance_id: str = "feishu-default",
     ) -> None:
         self._storage = storage
         self._anchor = anchor
@@ -50,6 +51,7 @@ class AssistantBranch:
         self._card_builder = card_builder
         self._approval_commands = approval_commands
         self._assistant_persona_id = assistant_persona_id
+        self._instance_id = instance_id
 
     def set_renderer(self, renderer: "PersonaRenderer") -> None:
         """支持 reload 时切换 persona。"""
@@ -132,6 +134,7 @@ class AssistantBranch:
         edicts, _total = self._storage.list_edicts(
             status=status_value, limit=10, offset=0,
             exclude_assistant_chat=True,   # v2: 隐藏聊天敕令
+            instance_id=self._instance_id,
         )
         if not edicts:
             await self._reply(
@@ -153,6 +156,7 @@ class AssistantBranch:
             return
         edicts, _total = self._storage.list_edicts(
             limit=200, offset=0, exclude_assistant_chat=True,
+            instance_id=self._instance_id,
         )
         matches = [e for e in edicts if e.id.startswith(target)]
         if not matches:
@@ -237,7 +241,7 @@ class AssistantBranch:
         # 归档当前聊天敕令
         self._storage.update_edict_status(edict.id, EdictStatus.COMPLETED.value)
         # 清 anchor 让 ensure_chat_edict 自然新建
-        self._storage.delete_feishu_anchor(msg.chat_id)
+        self._anchor.delete(msg.chat_id)
         new_eid = await self._edict_bridge.ensure_chat_edict(
             chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
             assistant_persona_id=self._assistant_persona_id,
@@ -287,6 +291,7 @@ class AssistantBranch:
             return None
         edicts, _total = self._storage.list_edicts(
             limit=200, offset=0, exclude_assistant_chat=True,
+            instance_id=self._instance_id,
         )
         for e in edicts:
             if e.id.startswith(prefix):

@@ -315,7 +315,7 @@ def test_parse_filter_all_branches():
 @pytest.mark.asyncio
 async def test_clear_archives_chat_edict_and_creates_new(branch):
     """v2: /clear 归档当前 chat 敕令 + ensure 新一个。"""
-    b, storage, _, outbound, _, bridge = branch
+    b, storage, anchor, outbound, _, bridge = branch
     e_chat = MagicMock()
     e_chat.id = "ed_chat_old"
     e_chat.metadata = {"assistant_chat": True}
@@ -329,7 +329,8 @@ async def test_clear_archives_chat_edict_and_creates_new(branch):
     await b.handle(_msg("/clear"), ctx)
 
     storage.update_edict_status.assert_called_with("ed_chat_old", "completed")
-    storage.delete_feishu_anchor.assert_called_with("oc_x")
+    # Phase 3A: anchor 删除现在经 SessionAnchor 协作者路由，而非直接调 storage
+    anchor.delete.assert_called_with("oc_x")
     bridge.ensure_chat_edict.assert_awaited_once()
 
 

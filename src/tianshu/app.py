@@ -368,85 +368,29 @@ async def lifespan(app: FastAPI):
     cost_manager = CostManager(storage=storage, event_bus=event_bus)
     app.state.cost_manager = cost_manager
 
-    # --- Feishu Bot ---
-    from tianshu.gateway.feishu import FeishuBot
-    from tianshu.gateway.feishu.settings import from_global_settings as build_feishu_settings
+    # --- Channel bots（多实例：每渠道 N 个 bot 实例）---
+    from tianshu.gateway.bot_manager import ChannelBotManager
 
-    # 加载优先级：DB > env
-    db_runtime_cfg = storage.load_channel_runtime_config("feishu")
-    if db_runtime_cfg and db_runtime_cfg.get("app_id"):
-        from tianshu.gateway.tongzheng_api import _build_feishu_settings_from_runtime
-        feishu_settings = _build_feishu_settings_from_runtime(db_runtime_cfg)
-        logger.info("[feishu] settings loaded from DB (channel_configs)")
-    else:
-        feishu_settings = build_feishu_settings(settings)
-    feishu_settings.validate_or_raise()
-
-    feishu_bot: FeishuBot | None = None
-    if feishu_settings.enabled:
-        feishu_bot = FeishuBot(
-            storage=storage,
-            event_bus=event_bus,
-            approval_manager=approval_manager,
-            executor=executor,
-            notifier=notifier,
-            settings=feishu_settings,
-            persona_loader=persona_loader,
-            provider_manager=provider_manager,
-            cost_manager=cost_manager,
-        )
-        # degrade: feishu 启动失败（锁冲突 / 网络异常等）不阻塞 web 服务可用性
-        try:
-            await feishu_bot.start()
-            app.state.feishu_bot = feishu_bot
-            if feishu_settings.connection_mode == "webhook":
-                feishu_bot.attach_webhook_router(app)
-        except Exception:
-            logger.exception(
-                "[feishu] start failed; tianshu will run without feishu bot. "
-                "Check stale lock at ~/.tianshu/feishu_app_lock.* or network."
-            )
-            feishu_bot = None
-
-    # --- Telegram Bot（与飞书并列）---
-    from tianshu.gateway.telegram import TelegramBot
-    from tianshu.gateway.telegram.settings import from_global_settings as build_telegram_settings
-
-    # 加载优先级：DB > env
-    tg_db_runtime_cfg = storage.load_channel_runtime_config("telegram")
-    if tg_db_runtime_cfg and tg_db_runtime_cfg.get("bot_token"):
-        from tianshu.gateway.tongzheng_api import _build_telegram_settings_from_runtime
-        telegram_settings = _build_telegram_settings_from_runtime(tg_db_runtime_cfg)
-        logger.info("[telegram] settings loaded from DB (channel_configs)")
-    else:
-        telegram_settings = build_telegram_settings(settings)
-    telegram_settings.validate_or_raise()
-
-    telegram_bot: TelegramBot | None = None
-    if telegram_settings.enabled:
-        telegram_bot = TelegramBot(
-            storage=storage,
-            event_bus=event_bus,
-            approval_manager=approval_manager,
-            executor=executor,
-            notifier=notifier,
-            settings=telegram_settings,
-            persona_loader=persona_loader,
-            provider_manager=provider_manager,
-            cost_manager=cost_manager,
-        )
-        # degrade: telegram 启动失败（锁冲突 / 网络 / token 无效等）不阻塞 web 服务可用性
-        try:
-            await telegram_bot.start()
-            app.state.telegram_bot = telegram_bot
-            if telegram_settings.connection_mode == "webhook":
-                telegram_bot.attach_webhook_router(app)
-        except Exception:
-            logger.exception(
-                "[telegram] start failed; tianshu will run without telegram bot. "
-                "Check stale lock at ~/.tianshu/telegram_app_lock.* , bot token, or network."
-            )
-            telegram_bot = None
+    bot_manager = ChannelBotManager(
+        storage=storage,
+        event_bus=event_bus,
+        approval_manager=approval_manager,
+        executor=executor,
+        notifier=notifier,
+        persona_loader=persona_loader,
+        provider_manager=provider_manager,
+        cost_manager=cost_manager,
+        env_settings=settings,
+        app=app,
+    )
+    app.state.bot_manager = bot_manager
+    try:
+        await bot_manager.start_all()
+    except Exception:
+        logger.exception("[gateway] bot_manager.start_all failed; web stays up")
+    # 向后兼容别名：部分代码/测试读取 app.state.feishu_bot / telegram_bot（默认实例）。
+    app.state.feishu_bot = bot_manager.get("feishu-default")
+    app.state.telegram_bot = bot_manager.get("telegram-default")
 
     # --- PolicyEngine + PolicyHook ---
     policy_engine = PolicyEngine(rules=build_default_rules())
@@ -672,10 +616,7 @@ async def lifespan(app: FastAPI):
         await mcp_manager.shutdown()
     except Exception:
         logger.exception("[mcp] manager shutdown error")
-    if feishu_bot is not None:
-        await feishu_bot.stop()
-    if telegram_bot is not None:
-        await telegram_bot.stop()
+    await bot_manager.stop_all()
     storage.close()
     logger.info("Tianshu shutdown complete")
 

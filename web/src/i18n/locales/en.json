@@ -1194,6 +1194,31 @@
         "modePolling": "Long-polling (recommended, no public URL)",
         "modeWebhook": "Webhook (needs public HTTPS)"
       }
+    },
+    "instances": {
+      "title": "Channel Instances",
+      "addFeishuBtn": "+ Add Feishu instance",
+      "addTelegramBtn": "+ Add Telegram instance",
+      "addFeishu": "Add Feishu instance",
+      "addTelegram": "Add Telegram instance",
+      "editTitle": "Edit instance",
+      "colLabel": "Label",
+      "colChannel": "Channel",
+      "colRunning": "Running",
+      "colEnabled": "Enabled",
+      "colActions": "Actions",
+      "edit": "Edit",
+      "delete": "Delete",
+      "deleteConfirm": "Delete this instance? This cannot be undone.",
+      "defaultTag": "Default",
+      "stopped": "Stopped",
+      "secretConfigured": "(configured, blank = keep)",
+      "fieldLabel": "Label",
+      "fieldLabelPlaceholder": "A recognizable name, e.g. \"Support Feishu\"",
+      "fieldEnabled": "Enabled",
+      "botName": "Bot name",
+      "botNamePlaceholder": "Optional, used for group @ detection",
+      "intentLlm": "Intent detection (LLM)"
     }
   },
   "cost": {

@@ -42,6 +42,7 @@ class AssistantBranch:
         card_builder: "TelegramCardBuilder",
         approval_commands: "TelegramApprovalCommandHandler | None" = None,
         assistant_persona_id: str = "tongzheng",
+        instance_id: str = "telegram-default",
     ) -> None:
         self._storage = storage
         self._anchor = anchor
@@ -51,6 +52,7 @@ class AssistantBranch:
         self._card_builder = card_builder
         self._approval_commands = approval_commands
         self._assistant_persona_id = assistant_persona_id
+        self._instance_id = instance_id
 
     def set_renderer(self, renderer) -> None:
         self._renderer = renderer
@@ -126,6 +128,7 @@ class AssistantBranch:
         status_value = status_filter.value if status_filter is not None else None
         edicts, _total = self._storage.list_edicts(
             status=status_value, limit=10, offset=0, exclude_assistant_chat=True,
+            instance_id=self._instance_id,
         )
         if not edicts:
             await self._reply(
@@ -145,6 +148,7 @@ class AssistantBranch:
             return
         edicts, _total = self._storage.list_edicts(
             limit=200, offset=0, exclude_assistant_chat=True,
+            instance_id=self._instance_id,
         )
         matches = [e for e in edicts if e.id.startswith(target)]
         if not matches:
@@ -265,6 +269,7 @@ class AssistantBranch:
             return None
         edicts, _total = self._storage.list_edicts(
             limit=200, offset=0, exclude_assistant_chat=True,
+            instance_id=self._instance_id,
         )
         for e in edicts:
             if e.id.startswith(prefix):

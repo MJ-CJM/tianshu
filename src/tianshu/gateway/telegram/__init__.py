@@ -65,6 +65,7 @@ class TelegramBot:
         persona_loader: "PersonaLoader | None" = None,
         provider_manager: "ProviderManager | None" = None,
         cost_manager: "CostManager | None" = None,
+        instance_id: str = "telegram-default",
     ) -> None:
         self._storage = storage
         self._event_bus = event_bus
@@ -75,23 +76,27 @@ class TelegramBot:
         self._persona_loader = persona_loader
         self._provider_manager = provider_manager
         self._cost_manager = cost_manager
+        self._instance_id = instance_id
 
         self._connection: TelegramConnection | None = None
-        self._anchor = SessionAnchor(storage)
+        self._anchor = SessionAnchor(storage, instance_id=instance_id)
         self._edict_bridge = EdictBridge(
             storage=storage,
             event_bus=event_bus,
             executor=executor,
             anchor=self._anchor,
             channel="telegram",
+            instance_id=instance_id,
             user_meta_key="telegram_user",
             chat_title_prefix="Telegram 助手对话",
         )
         self._outbound = TelegramOutbound(
             settings=settings, storage=storage, event_bus=event_bus,
+            instance_id=instance_id,
         )
         self._approval_commands = TelegramApprovalCommandHandler(
             storage=storage, approval_manager=approval_manager,
+            instance_id=instance_id,
         )
 
         persona = None
@@ -112,6 +117,7 @@ class TelegramBot:
             card_builder=self._card_builder,
             approval_commands=self._approval_commands,
             assistant_persona_id=settings.assistant_persona_id,
+            instance_id=instance_id,
         )
         self._edict_branch = EdictBranch(
             storage=storage,
@@ -122,6 +128,7 @@ class TelegramBot:
             assistant_branch=self._assistant_branch,
             approval_commands=self._approval_commands,
             assistant_persona_id=settings.assistant_persona_id,
+            instance_id=instance_id,
         )
         self._mode_router = ModeRouter(
             anchor=self._anchor,
@@ -137,6 +144,7 @@ class TelegramBot:
             event_bus=event_bus,
             approval_manager=approval_manager,
             outbound=self._outbound,
+            instance_id=instance_id,
         )
         self._callback_dispatcher = CallbackDispatcher(
             mode_router=self._mode_router,
@@ -181,6 +189,9 @@ class TelegramBot:
             await self._connection.stop()
         await self._dispatcher.stop()
         self._release_app_lock()
+        # 取消 EventBus 订阅，避免已停实例继续投递回执 / 审批消息
+        self._outbound.stop()
+        self._approval_kb.stop()
 
     async def reload(self, new_settings: TelegramSettings) -> None:
         """热加载新 settings：重建 connection；保持 outbound/approval_kb 订阅。"""

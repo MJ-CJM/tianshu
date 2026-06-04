@@ -24,6 +24,7 @@ class FeishuSettings:
     intent_llm_enabled: bool = True   # DEPRECATED v2: 极简模型不再使用 IntentParser；保留为向后兼容
     disable_assistant_mode: bool = False       # 紧急逃生开关
     enable_edict_submission: bool = False      # 助手是否允许在对话中颁敕（调 submit_edict tool）
+    instance_id: str = "feishu-default"
 
     @property
     def enabled(self) -> bool:
@@ -65,4 +66,5 @@ def from_global_settings(s) -> FeishuSettings:
         intent_llm_enabled=getattr(s, "feishu_intent_llm_enabled", True),
         disable_assistant_mode=getattr(s, "feishu_disable_assistant_mode", False),
         enable_edict_submission=getattr(s, "feishu_enable_edict_submission", False),
+        instance_id="feishu-default",
     )

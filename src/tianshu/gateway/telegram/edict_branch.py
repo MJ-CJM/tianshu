@@ -38,6 +38,7 @@ class EdictBranch:
         assistant_branch: "AssistantBranch",
         approval_commands: "TelegramApprovalCommandHandler | None" = None,
         assistant_persona_id: str = "tongzheng",
+        instance_id: str = "telegram-default",
     ) -> None:
         self._storage = storage
         self._anchor = anchor
@@ -47,6 +48,7 @@ class EdictBranch:
         self._assistant = assistant_branch
         self._approval_commands = approval_commands
         self._assistant_persona_id = assistant_persona_id
+        self._instance_id = instance_id
 
     def set_renderer(self, renderer) -> None:
         self._renderer = renderer

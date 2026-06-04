@@ -107,9 +107,11 @@ class ApprovalCommandHandler:
         *,
         storage: "Storage",
         approval_manager: "ApprovalManager",
+        instance_id: str = "feishu-default",
     ) -> None:
         self._storage = storage
         self._approval = approval_manager
+        self._instance_id = instance_id
 
     async def handle(
         self,
@@ -175,8 +177,9 @@ class ApprovalCommandHandler:
         rows = self._storage._conn.execute(
             "SELECT approval_id FROM feishu_pending_cards "
             "WHERE chat_id = ? AND kind = 'tool.approval_required' "
+            "AND instance_id = ? "
             "ORDER BY created_at ASC",
-            (chat_id,),
+            (chat_id, self._instance_id),
         ).fetchall()
         return [r[0] for r in rows]
 

@@ -1193,6 +1193,31 @@
         "modePolling": "长轮询（推荐，无需公网）",
         "modeWebhook": "Webhook（需公网 HTTPS）"
       }
+    },
+    "instances": {
+      "title": "渠道实例",
+      "addFeishuBtn": "+ 新增飞书实例",
+      "addTelegramBtn": "+ 新增 Telegram 实例",
+      "addFeishu": "新增飞书实例",
+      "addTelegram": "新增 Telegram 实例",
+      "editTitle": "编辑实例",
+      "colLabel": "标签",
+      "colChannel": "渠道",
+      "colRunning": "运行",
+      "colEnabled": "启用",
+      "colActions": "操作",
+      "edit": "编辑",
+      "delete": "删除",
+      "deleteConfirm": "确认删除该实例？此操作不可撤销。",
+      "defaultTag": "默认",
+      "stopped": "未运行",
+      "secretConfigured": "（已配置，留空不改）",
+      "fieldLabel": "标签",
+      "fieldLabelPlaceholder": "便于识别的名称，如「客服飞书」",
+      "fieldEnabled": "启用",
+      "botName": "机器人名称",
+      "botNamePlaceholder": "可选，用于群 @ 检测",
+      "intentLlm": "意图识别（LLM）"
     }
   },
   "cost": {

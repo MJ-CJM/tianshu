@@ -56,6 +56,7 @@ class FeishuBot:
         persona_loader: "PersonaLoader | None" = None,
         provider_manager: "ProviderManager | None" = None,
         cost_manager: "CostManager | None" = None,
+        instance_id: str = "feishu-default",
     ) -> None:
         self._storage = storage
         self._event_bus = event_bus
@@ -66,20 +67,25 @@ class FeishuBot:
         self._persona_loader = persona_loader
         self._provider_manager = provider_manager
         self._cost_manager = cost_manager
+        # 实例标识：贯穿所有协作者，实现多实例隔离（敕令路由 / 会话锚 / 审批卡片）。
+        # reload 不改变实例身份。默认 feishu-default 向后兼容。
+        self._instance_id = instance_id
         self._inbound: asyncio.Queue = asyncio.Queue()
         self._connection: WebhookConnection | WebSocketConnection | None = None
         self._dispatcher: Dispatcher | None = None
-        self._anchor = SessionAnchor(storage)
+        self._anchor = SessionAnchor(storage, instance_id=instance_id)
         self._edict_bridge = EdictBridge(
             storage=storage,
             event_bus=event_bus,
             executor=executor,
             anchor=self._anchor,
+            instance_id=instance_id,
         )
         self._outbound = FeishuOutbound(
             settings=settings,
             storage=storage,
             event_bus=event_bus,
+            instance_id=instance_id,
         )
         self._approval_card = ApprovalCardHandler(
             settings=settings,
@@ -87,10 +93,12 @@ class FeishuBot:
             event_bus=event_bus,
             approval_manager=approval_manager,
             outbound=self._outbound,
+            instance_id=instance_id,
         )
         self._approval_commands = ApprovalCommandHandler(
             storage=storage,
             approval_manager=approval_manager,
+            instance_id=instance_id,
         )
 
         # --- v1.1 双模式整合 ---
@@ -115,6 +123,7 @@ class FeishuBot:
             card_builder=self._card_builder,
             approval_commands=self._approval_commands,
             assistant_persona_id=settings.assistant_persona_id,
+            instance_id=instance_id,
         )
         self._edict_branch = EdictBranch(
             storage=storage,
@@ -125,6 +134,7 @@ class FeishuBot:
             assistant_branch=self._assistant_branch,
             approval_commands=self._approval_commands,
             assistant_persona_id=settings.assistant_persona_id,
+            instance_id=instance_id,
         )
         self._mode_router = ModeRouter(
             anchor=self._anchor,
@@ -192,6 +202,9 @@ class FeishuBot:
         if self._connection:
             await self._connection.stop()
         self._release_app_lock()
+        # 取消 EventBus 订阅，避免已停实例继续投递回执 / 审批卡片
+        self._outbound.stop()
+        self._approval_card.stop()
 
     async def reload(self, new_settings: FeishuSettings) -> None:
         """热加载新 settings：重建 connection；保持 dispatcher / outbound / approval_card 实例。
@@ -277,7 +290,7 @@ class FeishuBot:
     async def _send_upgrade_notice_once(self) -> None:
         """v1.1 升级通告：对所有现有 anchor 的 chat 发一次。幂等（重复启动不重发）。"""
         version_tag = "v1_1"
-        chats = self._storage.list_active_anchor_chats()
+        chats = self._storage.list_active_anchor_chats(instance_id=self._instance_id)
         for chat_id in chats:
             if self._storage.has_sent_upgrade_notice(chat_id, version_tag):
                 continue

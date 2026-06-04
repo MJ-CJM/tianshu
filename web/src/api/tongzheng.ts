@@ -106,3 +106,79 @@ export async function listPersonas(): Promise<PersonaSummary[]> {
   const { data } = await apiClient.get("/tongzheng/personas");
   return data.data?.personas ?? [];
 }
+
+// ===================== 多实例（instances）=====================
+
+export interface InstanceView {
+  instance_id: string;
+  channel_type: "feishu" | "telegram";
+  label: string;
+  enabled: boolean;
+  _has_secret: boolean;
+  updated_at: string;
+  running: boolean;
+  mode: string | null;
+  [key: string]: unknown; // 展平的渠道配置字段
+}
+
+export interface InstanceCreate {
+  channel_type: "feishu" | "telegram";
+  label?: string;
+  enabled?: boolean;
+  config?: Record<string, unknown>;
+  secret?: string;
+}
+
+export interface InstanceUpdate {
+  label?: string;
+  enabled?: boolean;
+  config?: Record<string, unknown>;
+  secret?: string;
+}
+
+export async function listInstances(): Promise<InstanceView[]> {
+  const { data } = await apiClient.get("/tongzheng/instances");
+  return data.data?.instances ?? [];
+}
+
+export async function getInstance(id: string): Promise<InstanceView> {
+  const { data } = await apiClient.get(`/tongzheng/instances/${id}`);
+  return data.data;
+}
+
+export async function createInstance(
+  body: InstanceCreate,
+): Promise<{ instance_id: string; reloaded: boolean; reason: string }> {
+  const { data } = await apiClient.post("/tongzheng/instances", body);
+  return data.data;
+}
+
+export async function updateInstance(
+  id: string,
+  body: InstanceUpdate,
+): Promise<{ reloaded: boolean; reason: string }> {
+  const { data } = await apiClient.put(`/tongzheng/instances/${id}`, body);
+  return data.data;
+}
+
+export async function setInstanceEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<{ enabled: boolean }> {
+  const { data } = await apiClient.patch(`/tongzheng/instances/${id}/enabled`, {
+    enabled,
+  });
+  return data.data;
+}
+
+export async function deleteInstance(id: string): Promise<{ deleted: string }> {
+  const { data } = await apiClient.delete(`/tongzheng/instances/${id}`);
+  return data.data;
+}
+
+export async function getInstanceStatus(
+  id: string,
+): Promise<{ running: boolean; mode: string | null }> {
+  const { data } = await apiClient.get(`/tongzheng/instances/${id}/status`);
+  return data.data;
+}

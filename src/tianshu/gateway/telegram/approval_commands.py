@@ -29,14 +29,18 @@ class TelegramApprovalCommandHandler:
         *,
         storage: "Storage",
         approval_manager: "ApprovalManager",
+        instance_id: str = "telegram-default",
     ) -> None:
         self._storage = storage
         self._approval = approval_manager
+        self._instance_id = instance_id
 
     async def handle(
         self, *, chat_id: str, sender_open_id: str, command: ApprovalCommand,
     ) -> str:
-        pending = self._storage.list_telegram_pending_for_chat(chat_id)
+        pending = self._storage.list_telegram_pending_for_chat(
+            chat_id, instance_id=self._instance_id
+        )
         if not pending:
             return "🛡️ 当前 chat 无待审批工具调用。"
 

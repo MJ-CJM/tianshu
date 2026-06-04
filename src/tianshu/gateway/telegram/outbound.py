@@ -51,21 +51,31 @@ class TelegramOutbound:
         settings: TelegramSettings,
         storage: Storage,
         event_bus: EventBus,
+        instance_id: str = "telegram-default",
     ) -> None:
         self._settings = settings
         self._storage = storage
         self._event_bus = event_bus
+        self._instance_id = instance_id
         self._bot: Bot | None = None
+        # 保存订阅引用：EventBus.off 用 `is` 比对，bound method 每次取属性都是新对象。
+        self._sub_completed = self._on_execution_completed
+        self._sub_failed = self._on_execution_failed
 
     def start(self) -> None:
         """构造 Bot + 注册 EventBus 订阅（仅 TelegramBot.start 调用一次）。"""
         self._bot = Bot(self._settings.bot_token)
         self._event_bus.on(
-            "execution.completed", self._on_execution_completed, priority=200
+            "execution.completed", self._sub_completed, priority=200
         )
         self._event_bus.on(
-            "execution.failed", self._on_execution_failed, priority=200
+            "execution.failed", self._sub_failed, priority=200
         )
+
+    def stop(self) -> None:
+        """取消 EventBus 订阅（实例停止时调用，避免已停实例继续投递）。"""
+        self._event_bus.off("execution.completed", self._sub_completed)
+        self._event_bus.off("execution.failed", self._sub_failed)
 
     def rebuild_client(self) -> None:
         """仅重建 Bot（热加载切 token），**不重订阅 EventBus**。"""
@@ -270,7 +280,7 @@ class TelegramOutbound:
             )
 
     def _lookup_chat_id(self, event: EventEnvelope) -> str | None:
-        """反查回执目标 chat_id；channel 路由隔离：仅处理 telegram 敕令 + home 兜底。
+        """反查回执目标 chat_id；实例路由隔离：仅处理本实例敕令 + home 兜底。
 
         Fallback：
           1. edict.metadata.chat_id（telegram 原生发起）
@@ -282,13 +292,21 @@ class TelegramOutbound:
         edict = self._storage.get_edict(event.edict_id)
         if not edict:
             return self._settings.home_channel or None
-        ch = (edict.metadata or {}).get("channel")
-        if ch and ch != "telegram":
-            return None  # 非 telegram 敕令（如飞书）不由 telegram 投递
+        # 实例路由隔离：非本实例的敕令不由本 outbound 投递，避免交叉发送。
+        # 存量敕令无 instance_id → 回退 {channel}-default；cron 等无 channel 敕令
+        # （inst=None）仍走 home_channel 兜底，不被实例守卫拦截。
+        inst = (edict.metadata or {}).get("instance_id")
+        if inst is None:
+            ch = (edict.metadata or {}).get("channel")
+            inst = f"{ch}-default" if ch else None
+        if inst is not None and inst != self._instance_id:
+            return None  # 非本实例的敕令，不投递
         chat_id = (edict.metadata or {}).get("chat_id")
         if chat_id:
             return chat_id
-        anchored = self._storage.list_telegram_chats_anchored_to(event.edict_id)
+        anchored = self._storage.list_telegram_chats_anchored_to(
+            event.edict_id, instance_id=self._instance_id
+        )
         if anchored:
             return anchored[0]
         return self._settings.home_channel or None

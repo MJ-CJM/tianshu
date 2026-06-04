@@ -47,6 +47,7 @@ class EdictBranch:
         assistant_branch: "AssistantBranch",
         approval_commands: "ApprovalCommandHandler | None" = None,
         assistant_persona_id: str = "tongzheng",
+        instance_id: str = "feishu-default",
     ) -> None:
         self._storage = storage
         self._anchor = anchor
@@ -56,6 +57,7 @@ class EdictBranch:
         self._assistant = assistant_branch  # 用于查询类命令复用
         self._approval_commands = approval_commands
         self._assistant_persona_id = assistant_persona_id
+        self._instance_id = instance_id
 
     def set_renderer(self, renderer: "PersonaRenderer") -> None:
         self._renderer = renderer
@@ -112,7 +114,7 @@ class EdictBranch:
 
     async def _cmd_exit(self, msg, ctx) -> None:
         """v2: 退出业务敕令模式 → 切回 chat 敕令（自动 ensure）。"""
-        self._storage.delete_feishu_anchor(msg.chat_id)
+        self._anchor.delete(msg.chat_id)
         new_eid = await self._edict_bridge.ensure_chat_edict(
             chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
             assistant_persona_id=self._assistant_persona_id,
@@ -127,7 +129,7 @@ class EdictBranch:
             await self._reply(msg.chat_id, "用法：/new <目标描述>")
             return
         # 先退出当前敕令模式
-        self._storage.delete_feishu_anchor(msg.chat_id)
+        self._anchor.delete(msg.chat_id)
         # 再新建
         result = await self._edict_bridge.create_new(
             chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, goal=goal,
@@ -163,7 +165,7 @@ class EdictBranch:
         self._storage.update_edict_lifecycle_phase(edict.id, "complete")
         # 如果取消的是当前 anchor 敕令，清 anchor
         if edict.id == self._anchor.get(msg.chat_id):
-            self._storage.delete_feishu_anchor(msg.chat_id)
+            self._anchor.delete(msg.chat_id)
             await self._reply(
                 msg.chat_id,
                 f"{self._renderer.edict_cancel_reply(edict.id)}（已自动退出敕令模式）",

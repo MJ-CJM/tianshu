@@ -33,22 +33,33 @@ class FeishuOutbound:
         settings: FeishuSettings,
         storage: Storage,
         event_bus: EventBus,
+        instance_id: str = "feishu-default",
     ) -> None:
         self._settings = settings
         self._storage = storage
         self._event_bus = event_bus
+        self._instance_id = instance_id
         self._client: lark.Client | None = None
+        # 保存订阅时的 handler 引用：EventBus.off 用 `is` 比对，bound method
+        # 每次取属性都是新对象，必须复用 start() 时的同一引用才能 off 掉。
+        self._sub_completed = self._on_execution_completed
+        self._sub_failed = self._on_execution_failed
 
     def start(self) -> None:
         """构造 lark client + 注册 EventBus 订阅。仅在 FeishuBot.start 时调用一次。"""
         self._client = self._build_client()
         # 注意：事件名是 execution.completed（不是 memorial.completed）
         self._event_bus.on(
-            "execution.completed", self._on_execution_completed, priority=200
+            "execution.completed", self._sub_completed, priority=200
         )
         self._event_bus.on(
-            "execution.failed", self._on_execution_failed, priority=200
+            "execution.failed", self._sub_failed, priority=200
         )
+
+    def stop(self) -> None:
+        """取消 EventBus 订阅（实例停止时调用，避免已停实例继续投递）。"""
+        self._event_bus.off("execution.completed", self._sub_completed)
+        self._event_bus.off("execution.failed", self._sub_failed)
 
     def rebuild_client(self) -> None:
         """仅重建 lark client（用于热加载切换 app_id/secret）；**不重订阅 EventBus**。"""
@@ -310,15 +321,21 @@ class FeishuOutbound:
         edict = self._storage.get_edict(event.edict_id)
         if not edict:
             return self._settings.home_channel or None
-        # channel 路由隔离：非飞书敕令（如 telegram）不由飞书投递，避免交叉发送。
-        # 现有飞书敕令 channel="feishu"；cron 等无 channel 敕令仍走 home_channel 兜底。
-        ch = (edict.metadata or {}).get("channel")
-        if ch and ch != "feishu":
-            return None
+        # 实例路由隔离：非本实例的敕令不由本 outbound 投递，避免交叉发送。
+        # 存量敕令无 instance_id → 回退 {channel}-default；cron 等无 channel 敕令
+        # （inst=None）仍走 home_channel 兜底，不被实例守卫拦截。
+        inst = (edict.metadata or {}).get("instance_id")
+        if inst is None:
+            ch = (edict.metadata or {}).get("channel")
+            inst = f"{ch}-default" if ch else None
+        if inst is not None and inst != self._instance_id:
+            return None  # 非本实例的敕令，不投递
         chat_id = (edict.metadata or {}).get("chat_id")
         if chat_id:
             return chat_id
-        anchored = self._storage.list_chats_anchored_to(event.edict_id)
+        anchored = self._storage.list_chats_anchored_to(
+            event.edict_id, instance_id=self._instance_id
+        )
         if anchored:
             return anchored[0]
         return self._settings.home_channel or None

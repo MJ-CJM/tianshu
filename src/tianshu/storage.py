@@ -391,17 +391,21 @@ class Storage:
             """)
             self._conn.executescript("""
                 CREATE TABLE IF NOT EXISTS feishu_session_anchor (
-                    chat_id          TEXT PRIMARY KEY,
+                    instance_id      TEXT NOT NULL,
+                    chat_id          TEXT NOT NULL,
                     current_edict_id TEXT,
-                    updated_at       TIMESTAMP NOT NULL
+                    updated_at       TIMESTAMP NOT NULL,
+                    PRIMARY KEY (instance_id, chat_id)
                 );
                 CREATE TABLE IF NOT EXISTS feishu_seen_messages (
                     message_id  TEXT PRIMARY KEY,
+                    instance_id TEXT NOT NULL DEFAULT 'feishu-default',
                     seen_at     TIMESTAMP NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_feishu_seen_at ON feishu_seen_messages(seen_at);
                 CREATE TABLE IF NOT EXISTS feishu_pending_cards (
                     approval_id TEXT PRIMARY KEY,
+                    instance_id TEXT NOT NULL DEFAULT 'feishu-default',
                     chat_id     TEXT NOT NULL,
                     message_id  TEXT NOT NULL,
                     kind        TEXT NOT NULL,
@@ -418,17 +422,21 @@ class Storage:
             # --- Telegram（与飞书并列；表结构对应飞书，message_id 语义不同）---
             self._conn.executescript("""
                 CREATE TABLE IF NOT EXISTS telegram_session_anchor (
-                    chat_id          TEXT PRIMARY KEY,
+                    instance_id      TEXT NOT NULL,
+                    chat_id          TEXT NOT NULL,
                     current_edict_id TEXT,
-                    updated_at       TIMESTAMP NOT NULL
+                    updated_at       TIMESTAMP NOT NULL,
+                    PRIMARY KEY (instance_id, chat_id)
                 );
                 CREATE TABLE IF NOT EXISTS telegram_seen_messages (
                     update_id   TEXT PRIMARY KEY,
+                    instance_id TEXT NOT NULL DEFAULT 'telegram-default',
                     seen_at     TIMESTAMP NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_tg_seen_at ON telegram_seen_messages(seen_at);
                 CREATE TABLE IF NOT EXISTS telegram_pending_buttons (
                     approval_id TEXT PRIMARY KEY,
+                    instance_id TEXT NOT NULL DEFAULT 'telegram-default',
                     chat_id     TEXT NOT NULL,
                     message_id  TEXT NOT NULL,
                     kind        TEXT NOT NULL,
@@ -448,6 +456,18 @@ class Storage:
                     encrypted_secret BLOB,
                     updated_at       TIMESTAMP NOT NULL
                 );
+
+                -- 多 bot 实例：每个实例独立的 channel 配置 + 凭证（instance_id 维度）。
+                CREATE TABLE IF NOT EXISTS channel_instances (
+                    instance_id      TEXT PRIMARY KEY,
+                    channel_type     TEXT NOT NULL,
+                    label            TEXT NOT NULL DEFAULT '',
+                    enabled          INTEGER NOT NULL DEFAULT 1,
+                    config_json      TEXT NOT NULL,
+                    encrypted_secret BLOB,
+                    updated_at       TIMESTAMP NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_channel_instances_type ON channel_instances(channel_type);
 
                 -- 藏兵阁 · MCP server DB 配置（既能 override YAML 种子，也能完整定义新 server）。
                 -- nullable 字段语义：
@@ -635,8 +655,65 @@ class Storage:
                     raise
         self._conn.commit()
 
+        # 2026-06-04: 多 bot 实例 —— 会话/审批表加 instance_id 维度（幂等）
+        self._migrate_session_tables_add_instance()
+
         # Seed departments from existing personas (one-time)
         self._seed_departments()
+
+    def _migrate_session_tables_add_instance(self) -> None:
+        """为存量 DB 的飞书/telegram 会话表补 instance_id 维度（幂等）。
+
+        - anchor 表：PK 改为 (instance_id, chat_id)，存量行回填 '<channel>-default'。
+        - pending/seen 表：ALTER ADD COLUMN instance_id（带 default）。
+        - thinking 表不动（memorial_id 全局唯一）。
+        """
+        cols = {
+            r[1]
+            for r in self._conn.execute(
+                "PRAGMA table_info(telegram_session_anchor)"
+            ).fetchall()
+        }
+        if "instance_id" in cols:
+            return  # 已迁移
+
+        # anchor 表：SQLite 不支持改 PK，需重建 + 拷贝。
+        for channel in ("feishu", "telegram"):
+            default_iid = f"{channel}-default"
+            table = f"{channel}_session_anchor"
+            self._conn.executescript(
+                f"""
+                CREATE TABLE {table}_new (
+                    instance_id      TEXT NOT NULL,
+                    chat_id          TEXT NOT NULL,
+                    current_edict_id TEXT,
+                    updated_at       TIMESTAMP NOT NULL,
+                    PRIMARY KEY (instance_id, chat_id)
+                );
+                INSERT INTO {table}_new (instance_id, chat_id, current_edict_id, updated_at)
+                    SELECT '{default_iid}', chat_id, current_edict_id, updated_at FROM {table};
+                DROP TABLE {table};
+                ALTER TABLE {table}_new RENAME TO {table};
+                """
+            )
+
+        # pending / seen 表：ALTER ADD COLUMN（带 default，存量行自动回填）。
+        for sql in (
+            "ALTER TABLE feishu_pending_cards ADD COLUMN "
+            "instance_id TEXT NOT NULL DEFAULT 'feishu-default'",
+            "ALTER TABLE telegram_pending_buttons ADD COLUMN "
+            "instance_id TEXT NOT NULL DEFAULT 'telegram-default'",
+            "ALTER TABLE feishu_seen_messages ADD COLUMN "
+            "instance_id TEXT NOT NULL DEFAULT 'feishu-default'",
+            "ALTER TABLE telegram_seen_messages ADD COLUMN "
+            "instance_id TEXT NOT NULL DEFAULT 'telegram-default'",
+        ):
+            try:
+                self._conn.execute(sql)
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    raise
+        self._conn.commit()
 
     def _seed_departments(self) -> None:
         """Populate departments table from existing personas if empty."""
@@ -730,11 +807,17 @@ class Storage:
         limit: int = 50,
         offset: int = 0,
         exclude_assistant_chat: bool = False,
+        instance_id: str | None = None,
     ) -> tuple[list[Edict], int]:
         """列敕令。
 
         exclude_assistant_chat=True 时过滤掉 metadata.assistant_chat=true 的聊天敕令。
         SQL 用 json_extract(metadata_json, '$.assistant_chat') 实现（SQLite 中 JSON true → 整数 1）。
+
+        instance_id=None 时不按实例过滤（web 全局视图）；指定时只返回
+        metadata.instance_id 匹配的敕令。仅当实例 id 以 ``-default`` 结尾时，
+        额外纳入无 instance_id 的存量敕令中 metadata.channel 等于该实例 channel
+        前缀的（向后兼容旧敕令）；非 default 实例不继承未打标的旧敕令。
         """
         conditions: list[str] = []
         params: list[str | int] = []
@@ -745,6 +828,18 @@ class Storage:
             conditions.append("(title LIKE ? OR goal LIKE ?)")
             params.append(f"%{search}%")
             params.append(f"%{search}%")
+        if instance_id is not None:
+            if instance_id.endswith("-default"):
+                channel_prefix = instance_id[: -len("-default")]
+                conditions.append(
+                    "(json_extract(metadata_json, '$.instance_id') = ? "
+                    " OR (json_extract(metadata_json, '$.instance_id') IS NULL "
+                    "     AND json_extract(metadata_json, '$.channel') = ?))"
+                )
+                params.extend([instance_id, channel_prefix])
+            else:
+                conditions.append("json_extract(metadata_json, '$.instance_id') = ?")
+                params.append(instance_id)
         if exclude_assistant_chat:
             conditions.append(
                 "(json_extract(metadata_json, '$.assistant_chat') IS NULL "
@@ -2927,28 +3022,37 @@ class Storage:
 
     # --- Feishu session anchor ---
 
-    def get_feishu_anchor(self, chat_id: str) -> str | None:
+    def get_feishu_anchor(
+        self, chat_id: str, instance_id: str = "feishu-default"
+    ) -> str | None:
         row = self._conn.execute(
-            "SELECT current_edict_id FROM feishu_session_anchor WHERE chat_id = ?",
-            (chat_id,),
+            "SELECT current_edict_id FROM feishu_session_anchor "
+            "WHERE instance_id = ? AND chat_id = ?",
+            (instance_id, chat_id),
         ).fetchone()
         return row[0] if row else None
 
-    def set_feishu_anchor(self, chat_id: str, edict_id: str) -> None:
+    def set_feishu_anchor(
+        self, chat_id: str, edict_id: str, instance_id: str = "feishu-default"
+    ) -> None:
         from datetime import UTC, datetime
         self._conn.execute(
-            "INSERT INTO feishu_session_anchor (chat_id, current_edict_id, updated_at) "
-            "VALUES (?, ?, ?) "
-            "ON CONFLICT(chat_id) DO UPDATE SET current_edict_id = excluded.current_edict_id, "
+            "INSERT INTO feishu_session_anchor (instance_id, chat_id, current_edict_id, updated_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(instance_id, chat_id) DO UPDATE SET "
+            "    current_edict_id = excluded.current_edict_id, "
             "    updated_at = excluded.updated_at",
-            (chat_id, edict_id, datetime.now(UTC).isoformat()),
+            (instance_id, chat_id, edict_id, datetime.now(UTC).isoformat()),
         )
         self._conn.commit()
 
-    def delete_feishu_anchor(self, chat_id: str) -> None:
+    def delete_feishu_anchor(
+        self, chat_id: str, instance_id: str = "feishu-default"
+    ) -> None:
         """`/exit` 用：清除该 chat 的 anchor，回到助手模式。"""
         self._conn.execute(
-            "DELETE FROM feishu_session_anchor WHERE chat_id = ?", (chat_id,),
+            "DELETE FROM feishu_session_anchor WHERE instance_id = ? AND chat_id = ?",
+            (instance_id, chat_id),
         )
         self._conn.commit()
 
@@ -2973,11 +3077,14 @@ class Storage:
         )
         self._conn.commit()
 
-    def list_active_anchor_chats(self) -> list[str]:
+    def list_active_anchor_chats(
+        self, instance_id: str = "feishu-default"
+    ) -> list[str]:
         """列出所有有活跃 anchor 的 chat（用于升级通告下发）。"""
         rows = self._conn.execute(
             "SELECT chat_id FROM feishu_session_anchor "
-            "WHERE current_edict_id IS NOT NULL"
+            "WHERE instance_id = ? AND current_edict_id IS NOT NULL",
+            (instance_id,),
         ).fetchall()
         return [row[0] for row in rows]
 
@@ -3020,7 +3127,9 @@ class Storage:
             "source_message_id": row[2],
         }
 
-    def list_chats_anchored_to(self, edict_id: str) -> list[str]:
+    def list_chats_anchored_to(
+        self, edict_id: str, instance_id: str = "feishu-default"
+    ) -> list[str]:
         """反查：哪些飞书 chat 的 anchor 当前指向该 edict。
 
         用于飞书 outbound 在 edict.metadata.chat_id 缺失（web 创建敕令）时
@@ -3028,46 +3137,55 @@ class Storage:
         """
         rows = self._conn.execute(
             "SELECT chat_id FROM feishu_session_anchor "
-            "WHERE current_edict_id = ?",
-            (edict_id,),
+            "WHERE instance_id = ? AND current_edict_id = ?",
+            (instance_id, edict_id),
         ).fetchall()
         return [row[0] for row in rows]
 
     # --- Feishu dedup ---
 
-    def is_feishu_message_seen(self, message_id: str) -> bool:
+    def is_feishu_message_seen(
+        self, message_id: str, instance_id: str = "feishu-default"
+    ) -> bool:
         row = self._conn.execute(
-            "SELECT 1 FROM feishu_seen_messages WHERE message_id = ?",
-            (message_id,),
+            "SELECT 1 FROM feishu_seen_messages WHERE message_id = ? AND instance_id = ?",
+            (message_id, instance_id),
         ).fetchone()
         return row is not None
 
-    def mark_feishu_message_seen(self, message_id: str, max_entries: int = 2048) -> None:
+    def mark_feishu_message_seen(
+        self, message_id: str, max_entries: int = 2048,
+        instance_id: str = "feishu-default",
+    ) -> None:
         from datetime import UTC, datetime
         now = datetime.now(UTC).isoformat()
         self._conn.execute(
-            "INSERT OR IGNORE INTO feishu_seen_messages (message_id, seen_at) VALUES (?, ?)",
-            (message_id, now),
+            "INSERT OR IGNORE INTO feishu_seen_messages (message_id, instance_id, seen_at) "
+            "VALUES (?, ?, ?)",
+            (message_id, instance_id, now),
         )
         self._conn.execute(
-            "DELETE FROM feishu_seen_messages WHERE message_id IN ("
-            "  SELECT message_id FROM feishu_seen_messages ORDER BY seen_at ASC "
-            "  LIMIT MAX(0, (SELECT COUNT(*) FROM feishu_seen_messages) - ?))",
-            (max_entries,),
+            "DELETE FROM feishu_seen_messages WHERE instance_id = ? AND message_id IN ("
+            "  SELECT message_id FROM feishu_seen_messages WHERE instance_id = ? "
+            "  ORDER BY seen_at ASC "
+            "  LIMIT MAX(0, (SELECT COUNT(*) FROM feishu_seen_messages WHERE instance_id = ?) - ?))",
+            (instance_id, instance_id, instance_id, max_entries),
         )
         self._conn.commit()
 
     # --- Feishu pending cards (Step 5 用) ---
 
     def save_feishu_pending_card(
-        self, approval_id: str, chat_id: str, message_id: str, kind: str
+        self, approval_id: str, chat_id: str, message_id: str, kind: str,
+        instance_id: str = "feishu-default",
     ) -> None:
         from datetime import UTC, datetime
         self._conn.execute(
             "INSERT OR REPLACE INTO feishu_pending_cards "
-            "(approval_id, chat_id, message_id, kind, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (approval_id, chat_id, message_id, kind, datetime.now(UTC).isoformat()),
+            "(approval_id, instance_id, chat_id, message_id, kind, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (approval_id, instance_id, chat_id, message_id, kind,
+             datetime.now(UTC).isoformat()),
         )
         self._conn.commit()
 
@@ -3086,66 +3204,88 @@ class Storage:
 
     # --- Telegram session anchor（与飞书并列）---
 
-    def get_telegram_anchor(self, chat_id: str) -> str | None:
+    def get_telegram_anchor(
+        self, chat_id: str, instance_id: str = "telegram-default"
+    ) -> str | None:
         row = self._conn.execute(
-            "SELECT current_edict_id FROM telegram_session_anchor WHERE chat_id = ?",
-            (chat_id,),
+            "SELECT current_edict_id FROM telegram_session_anchor "
+            "WHERE instance_id = ? AND chat_id = ?",
+            (instance_id, chat_id),
         ).fetchone()
         return row[0] if row else None
 
-    def set_telegram_anchor(self, chat_id: str, edict_id: str) -> None:
+    def set_telegram_anchor(
+        self, chat_id: str, edict_id: str, instance_id: str = "telegram-default"
+    ) -> None:
         from datetime import UTC, datetime
         self._conn.execute(
-            "INSERT INTO telegram_session_anchor (chat_id, current_edict_id, updated_at) "
-            "VALUES (?, ?, ?) "
-            "ON CONFLICT(chat_id) DO UPDATE SET current_edict_id = excluded.current_edict_id, "
+            "INSERT INTO telegram_session_anchor (instance_id, chat_id, current_edict_id, updated_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(instance_id, chat_id) DO UPDATE SET "
+            "    current_edict_id = excluded.current_edict_id, "
             "    updated_at = excluded.updated_at",
-            (chat_id, edict_id, datetime.now(UTC).isoformat()),
+            (instance_id, chat_id, edict_id, datetime.now(UTC).isoformat()),
         )
         self._conn.commit()
 
-    def delete_telegram_anchor(self, chat_id: str) -> None:
+    def delete_telegram_anchor(
+        self, chat_id: str, instance_id: str = "telegram-default"
+    ) -> None:
         self._conn.execute(
-            "DELETE FROM telegram_session_anchor WHERE chat_id = ?", (chat_id,),
+            "DELETE FROM telegram_session_anchor WHERE instance_id = ? AND chat_id = ?",
+            (instance_id, chat_id),
         )
         self._conn.commit()
 
-    def list_telegram_active_anchor_chats(self) -> list[str]:
+    def list_telegram_active_anchor_chats(
+        self, instance_id: str = "telegram-default"
+    ) -> list[str]:
         rows = self._conn.execute(
             "SELECT chat_id FROM telegram_session_anchor "
-            "WHERE current_edict_id IS NOT NULL"
+            "WHERE instance_id = ? AND current_edict_id IS NOT NULL",
+            (instance_id,),
         ).fetchall()
         return [row[0] for row in rows]
 
-    def list_telegram_chats_anchored_to(self, edict_id: str) -> list[str]:
+    def list_telegram_chats_anchored_to(
+        self, edict_id: str, instance_id: str = "telegram-default"
+    ) -> list[str]:
         """反查：哪些 telegram chat 的 anchor 指向该 edict（出站定位回执目标）。"""
         rows = self._conn.execute(
-            "SELECT chat_id FROM telegram_session_anchor WHERE current_edict_id = ?",
-            (edict_id,),
+            "SELECT chat_id FROM telegram_session_anchor "
+            "WHERE instance_id = ? AND current_edict_id = ?",
+            (instance_id, edict_id),
         ).fetchall()
         return [row[0] for row in rows]
 
     # --- Telegram dedup ---
 
-    def is_telegram_update_seen(self, update_id: str) -> bool:
+    def is_telegram_update_seen(
+        self, update_id: str, instance_id: str = "telegram-default"
+    ) -> bool:
         row = self._conn.execute(
-            "SELECT 1 FROM telegram_seen_messages WHERE update_id = ?",
-            (update_id,),
+            "SELECT 1 FROM telegram_seen_messages WHERE update_id = ? AND instance_id = ?",
+            (update_id, instance_id),
         ).fetchone()
         return row is not None
 
-    def mark_telegram_update_seen(self, update_id: str, max_entries: int = 2048) -> None:
+    def mark_telegram_update_seen(
+        self, update_id: str, max_entries: int = 2048,
+        instance_id: str = "telegram-default",
+    ) -> None:
         from datetime import UTC, datetime
         now = datetime.now(UTC).isoformat()
         self._conn.execute(
-            "INSERT OR IGNORE INTO telegram_seen_messages (update_id, seen_at) VALUES (?, ?)",
-            (update_id, now),
+            "INSERT OR IGNORE INTO telegram_seen_messages (update_id, instance_id, seen_at) "
+            "VALUES (?, ?, ?)",
+            (update_id, instance_id, now),
         )
         self._conn.execute(
-            "DELETE FROM telegram_seen_messages WHERE update_id IN ("
-            "  SELECT update_id FROM telegram_seen_messages ORDER BY seen_at ASC "
-            "  LIMIT MAX(0, (SELECT COUNT(*) FROM telegram_seen_messages) - ?))",
-            (max_entries,),
+            "DELETE FROM telegram_seen_messages WHERE instance_id = ? AND update_id IN ("
+            "  SELECT update_id FROM telegram_seen_messages WHERE instance_id = ? "
+            "  ORDER BY seen_at ASC "
+            "  LIMIT MAX(0, (SELECT COUNT(*) FROM telegram_seen_messages WHERE instance_id = ?) - ?))",
+            (instance_id, instance_id, instance_id, max_entries),
         )
         self._conn.commit()
 
@@ -3182,13 +3322,15 @@ class Storage:
 
     def save_telegram_pending_button(
         self, *, approval_id: str, chat_id: str, message_id: str, kind: str,
+        instance_id: str = "telegram-default",
     ) -> None:
         from datetime import UTC, datetime
         self._conn.execute(
             "INSERT OR REPLACE INTO telegram_pending_buttons "
-            "(approval_id, chat_id, message_id, kind, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (approval_id, chat_id, message_id, kind, datetime.now(UTC).isoformat()),
+            "(approval_id, instance_id, chat_id, message_id, kind, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (approval_id, instance_id, chat_id, message_id, kind,
+             datetime.now(UTC).isoformat()),
         )
         self._conn.commit()
 
@@ -3217,13 +3359,15 @@ class Storage:
             return None
         return {"chat_id": row[0], "message_id": row[1], "kind": row[2]}
 
-    def list_telegram_pending_for_chat(self, chat_id: str) -> list[str]:
+    def list_telegram_pending_for_chat(
+        self, chat_id: str, instance_id: str = "telegram-default"
+    ) -> list[str]:
         """该 chat 下尚未响应的待审批 memorial_id（approval 文本命令用）。"""
         rows = self._conn.execute(
             "SELECT approval_id FROM telegram_pending_buttons "
-            "WHERE chat_id = ? AND kind = 'tool.approval_required' "
+            "WHERE instance_id = ? AND chat_id = ? AND kind = 'tool.approval_required' "
             "ORDER BY created_at ASC",
-            (chat_id,),
+            (instance_id, chat_id),
         ).fetchall()
         return [r[0] for r in rows]
 
@@ -3322,6 +3466,170 @@ class Storage:
                 return None  # 配了 secret 但 vault 缺失 → 视为不可用
             try:
                 cfg[secret_key] = vault.decrypt(row[1])
+            except ValueError:
+                return None
+        else:
+            cfg[secret_key] = ""
+        return cfg
+
+    # --- Channel instances（多 bot 实例）---
+
+    def list_channel_instances(self, channel_type: str | None = None) -> list[dict]:
+        """列实例（不含明文 secret）。每行展开 config + instance_id / channel_type /
+        label / enabled(bool) / _has_secret / updated_at。"""
+        import json as _json
+        sql = (
+            "SELECT instance_id, channel_type, label, enabled, config_json, "
+            "encrypted_secret, updated_at FROM channel_instances"
+        )
+        params: tuple = ()
+        if channel_type is not None:
+            sql += " WHERE channel_type = ?"
+            params = (channel_type,)
+        sql += " ORDER BY channel_type, instance_id"
+        rows = self._conn.execute(sql, params).fetchall()
+        result: list[dict] = []
+        for row in rows:
+            cfg = _json.loads(row[4])
+            cfg["instance_id"] = row[0]
+            cfg["channel_type"] = row[1]
+            cfg["label"] = row[2]
+            cfg["enabled"] = bool(row[3])
+            cfg["_has_secret"] = row[5] is not None
+            cfg["updated_at"] = row[6]
+            result.append(cfg)
+        return result
+
+    def get_channel_instance(self, instance_id: str) -> dict | None:
+        """单条实例（不含明文 secret）。None 表示不存在。"""
+        import json as _json
+        row = self._conn.execute(
+            "SELECT instance_id, channel_type, label, enabled, config_json, "
+            "encrypted_secret, updated_at FROM channel_instances WHERE instance_id = ?",
+            (instance_id,),
+        ).fetchone()
+        if not row:
+            return None
+        cfg = _json.loads(row[4])
+        cfg["instance_id"] = row[0]
+        cfg["channel_type"] = row[1]
+        cfg["label"] = row[2]
+        cfg["enabled"] = bool(row[3])
+        cfg["_has_secret"] = row[5] is not None
+        cfg["updated_at"] = row[6]
+        return cfg
+
+    def save_channel_instance(
+        self,
+        *,
+        instance_id: str,
+        channel_type: str,
+        label: str,
+        enabled: bool,
+        config: dict,
+        secret_plaintext: str | None = None,
+    ) -> None:
+        """保存实例。secret_plaintext=None 时不动 encrypted_secret，空串清空，
+        非空则 vault.encrypt（vault 缺失 raise RuntimeError）。config 去掉 _ 开头的 key。"""
+        import json as _json
+        from datetime import UTC, datetime
+
+        from tianshu.secrets.vault import get_vault
+
+        clean_config = {k: v for k, v in config.items() if not k.startswith("_")}
+        config_json_str = _json.dumps(clean_config, ensure_ascii=False)
+        now = datetime.now(UTC).isoformat()
+
+        encrypted: bytes | None = None
+        update_secret = False
+        if secret_plaintext is not None:
+            update_secret = True
+            if secret_plaintext == "":
+                encrypted = None  # 清空
+            else:
+                vault = get_vault()
+                if vault is None:
+                    raise RuntimeError(
+                        "TIANSHU_SECRET_MASTER_KEY 未设置，无法保存敏感凭证。"
+                        "请先配置主密钥后重启服务。"
+                    )
+                encrypted = vault.encrypt(secret_plaintext)
+
+        existing = self._conn.execute(
+            "SELECT 1 FROM channel_instances WHERE instance_id = ?",
+            (instance_id,),
+        ).fetchone()
+
+        if existing:
+            if update_secret:
+                self._conn.execute(
+                    "UPDATE channel_instances SET channel_type=?, label=?, enabled=?, "
+                    "config_json=?, encrypted_secret=?, updated_at=? WHERE instance_id=?",
+                    (channel_type, label, int(enabled), config_json_str, encrypted,
+                     now, instance_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE channel_instances SET channel_type=?, label=?, enabled=?, "
+                    "config_json=?, updated_at=? WHERE instance_id=?",
+                    (channel_type, label, int(enabled), config_json_str, now,
+                     instance_id),
+                )
+        else:
+            self._conn.execute(
+                "INSERT INTO channel_instances "
+                "(instance_id, channel_type, label, enabled, config_json, "
+                "encrypted_secret, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (instance_id, channel_type, label, int(enabled), config_json_str,
+                 encrypted, now),
+            )
+        self._conn.commit()
+
+    def set_channel_instance_enabled(self, instance_id: str, enabled: bool) -> None:
+        from datetime import UTC, datetime
+        self._conn.execute(
+            "UPDATE channel_instances SET enabled=?, updated_at=? WHERE instance_id=?",
+            (int(enabled), datetime.now(UTC).isoformat(), instance_id),
+        )
+        self._conn.commit()
+
+    def delete_channel_instance(self, instance_id: str) -> None:
+        self._conn.execute(
+            "DELETE FROM channel_instances WHERE instance_id = ?", (instance_id,),
+        )
+        self._conn.commit()
+
+    def load_channel_instance_runtime(self, instance_id: str) -> dict | None:
+        """返回**含明文 secret** 的运行时配置（启动/reload 用）。
+
+        返回 dict 展开 config + instance_id / channel_type / label / enabled，
+        且 secret 解密放到 bot_token(telegram) / app_secret(feishu)。
+        vault 缺失或解密失败时：若该实例确实存了 secret 则返回 None（视为不可用）；
+        无 secret 则 secret 字段填空串。
+        """
+        import json as _json
+
+        from tianshu.secrets.vault import get_vault
+        row = self._conn.execute(
+            "SELECT channel_type, label, enabled, config_json, encrypted_secret "
+            "FROM channel_instances WHERE instance_id = ?",
+            (instance_id,),
+        ).fetchone()
+        if not row:
+            return None
+        channel_type = row[0]
+        cfg = _json.loads(row[3])
+        cfg["instance_id"] = instance_id
+        cfg["channel_type"] = channel_type
+        cfg["label"] = row[1]
+        cfg["enabled"] = bool(row[2])
+        secret_key = "bot_token" if channel_type == "telegram" else "app_secret"
+        if row[4]:
+            vault = get_vault()
+            if vault is None:
+                return None  # 配了 secret 但 vault 缺失 → 视为不可用
+            try:
+                cfg[secret_key] = vault.decrypt(row[4])
             except ValueError:
                 return None
         else:

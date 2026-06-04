@@ -83,6 +83,7 @@ class EdictBridge:
         executor: Executor,
         anchor: SessionAnchor,
         channel: str = "feishu",
+        instance_id: str = "feishu-default",
         user_meta_key: str = "feishu_user",
         chat_title_prefix: str = "飞书助手对话",
     ) -> None:
@@ -93,6 +94,9 @@ class EdictBridge:
         # 渠道标识：写入 edict.metadata.channel，供出站按 channel 路由隔离
         # （feishu / telegram 等并列通道各自只投递自己的敕令）。默认 feishu 保持向后兼容。
         self._channel = channel
+        # 实例标识：写入 edict.metadata.instance_id，供出站按实例路由隔离
+        # （同一渠道可跑多个 bot 实例，各自只投递自己的敕令）。默认 feishu-default 向后兼容。
+        self._instance_id = instance_id
         self._user_meta_key = user_meta_key
         self._chat_title_prefix = chat_title_prefix
 
@@ -139,6 +143,7 @@ class EdictBridge:
             submitter="emperor",
             metadata={
                 "channel": self._channel,
+                "instance_id": self._instance_id,
                 "chat_id": chat_id,
                 self._user_meta_key: sender_open_id,
             },
@@ -153,7 +158,12 @@ class EdictBridge:
             "edict.submitted",
             edict_id=edict.id, memorial_id=memorial.id,
             producer=f"{self._channel}_bot",
-            payload={"goal": edict.goal, "channel": self._channel, "chat_id": chat_id},
+            payload={
+                "goal": edict.goal,
+                "channel": self._channel,
+                "instance_id": self._instance_id,
+                "chat_id": chat_id,
+            },
         ))
         logger.info(
             "[feishu/edict] created edict=%s chat=%s sender=%s",
@@ -212,6 +222,7 @@ class EdictBridge:
             assigned_persona_id=assistant_persona_id,
             metadata={
                 "channel": self._channel,
+                "instance_id": self._instance_id,
                 "chat_id": chat_id,
                 self._user_meta_key: sender_open_id,
                 "assistant_chat": True,

@@ -21,6 +21,7 @@ class TelegramSettings:
     assistant_persona_id: str = "tongzheng"   # 默认通政司
     disable_assistant_mode: bool = False        # 紧急逃生开关
     enable_edict_submission: bool = False       # 助手是否允许在对话中颁敕
+    instance_id: str = "telegram-default"
 
     @property
     def enabled(self) -> bool:
@@ -68,4 +69,5 @@ def from_global_settings(s) -> TelegramSettings:
         assistant_persona_id=getattr(s, "telegram_assistant_persona_id", "tongzheng"),
         disable_assistant_mode=getattr(s, "telegram_disable_assistant_mode", False),
         enable_edict_submission=getattr(s, "telegram_enable_edict_submission", False),
+        instance_id="telegram-default",
     )
