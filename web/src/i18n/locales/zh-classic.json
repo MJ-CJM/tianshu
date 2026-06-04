@@ -1153,6 +1153,46 @@
       "savedReloaded": "配置已保存并热加载完成",
       "savedNoReload": "配置已保存（{reason}）",
       "saveFailed": "保存失败"
+    },
+    "tg": {
+      "section": {
+        "bot": "Telegram 机器人",
+        "assistant": "Telegram 助手"
+      },
+      "alert": {
+        "tipTitle": "配置提示",
+        "tip1": "在 @BotFather 创建机器人获取 Bot Token",
+        "tip2": "默认长轮询（polling）无需公网；webhook 需公网 HTTPS + Secret",
+        "tip3": "allowlist 为空 = 放行任意用户，生产环境务必配置",
+        "tip4": "Home 频道用于 cron 结果 / 无源审批兜底（私聊或群 chat_id，群为负数）"
+      },
+      "field": {
+        "botToken": "Bot Token",
+        "botTokenConfigured": "（已配置）",
+        "botTokenMissing": "（未配置）",
+        "botTokenExtra": "留空 = 不修改；清空内容并保存 = 删除",
+        "connectionMode": "连接模式",
+        "allowedUsers": "允许用户（user_id，逗号分隔）",
+        "allowedUsersExtra": "Telegram 数字 user_id；空 = 放行任意",
+        "homeChannel": "Home 频道（可选）",
+        "homeChannelExtra": "cron / 无源审批兜底 chat_id",
+        "webhookPath": "Webhook 路径",
+        "webhookSecret": "Webhook Secret",
+        "pollTimeout": "长轮询超时（秒）",
+        "textBatchDelay": "文本批处理延迟（秒）",
+        "dedupCacheSize": "去重缓存大小"
+      },
+      "placeholder": {
+        "botTokenConfigured": "已配置（留空不改）",
+        "botTokenMissing": "123456:ABC-DEF...",
+        "allowedUsers": "如 123456789,987654321",
+        "homeChannel": "如 123456789 或 -1001234567890",
+        "webhookSecret": "32 字节随机串（webhook 模式必填）"
+      },
+      "option": {
+        "modePolling": "长轮询（推荐，无需公网）",
+        "modeWebhook": "Webhook（需公网 HTTPS）"
+      }
     }
   },
   "cost": {

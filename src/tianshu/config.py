@@ -53,6 +53,19 @@ class TianshuSettings(BaseSettings):
     feishu_assistant_persona_id: str = "tongzheng"
     feishu_intent_llm_enabled: bool = True
     feishu_disable_assistant_mode: bool = False
+    # Telegram Bot —— inbound + outbound（与飞书并列；空 token → 不启用，向后兼容）
+    telegram_bot_token: str = ""                  # 空 → 不启用机器人
+    telegram_connection_mode: str = "polling"     # polling | webhook
+    telegram_allowed_users: str = ""              # 逗号分隔 user_id（int）
+    telegram_home_channel: str = ""               # cron 结果 / 无源审批兜底 chat_id（群为负数）
+    telegram_webhook_path: str = "/telegram/webhook"
+    telegram_webhook_secret: str = ""             # webhook 模式 X-Telegram-Bot-Api-Secret-Token
+    telegram_poll_timeout: int = 30               # getUpdates 长轮询超时（秒）
+    telegram_text_batch_delay: float = 0.6        # 文本批处理静默期
+    telegram_dedup_cache_size: int = 2048
+    telegram_assistant_persona_id: str = "tongzheng"
+    telegram_disable_assistant_mode: bool = False
+    telegram_enable_edict_submission: bool = False
     dingtalk_webhook: str = ""
     dingtalk_secret: str = ""
     smtp_host: str = ""

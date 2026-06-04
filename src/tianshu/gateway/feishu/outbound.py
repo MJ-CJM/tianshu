@@ -310,6 +310,11 @@ class FeishuOutbound:
         edict = self._storage.get_edict(event.edict_id)
         if not edict:
             return self._settings.home_channel or None
+        # channel 路由隔离：非飞书敕令（如 telegram）不由飞书投递，避免交叉发送。
+        # 现有飞书敕令 channel="feishu"；cron 等无 channel 敕令仍走 home_channel 兜底。
+        ch = (edict.metadata or {}).get("channel")
+        if ch and ch != "feishu":
+            return None
         chat_id = (edict.metadata or {}).get("chat_id")
         if chat_id:
             return chat_id

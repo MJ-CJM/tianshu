@@ -216,3 +216,159 @@ async def feishu_status(request: Request) -> ApiResponse:
             "app_id": bot._settings.app_id,
         },
     )
+
+
+# ===================== Telegram（与飞书并列）=====================
+
+
+class TelegramChannelConfig(BaseModel):
+    """Telegram 通道配置（写入用）。bot_token 单独提交。"""
+
+    bot_token: str | None = Field(
+        default=None,
+        description="None=不修改；空串=清空；非空=替换",
+    )
+    connection_mode: str = "polling"
+    allowed_users: str = ""
+    home_channel: str = ""
+    webhook_path: str = "/telegram/webhook"
+    webhook_secret: str = ""
+    poll_timeout: int = 30
+    text_batch_delay: float = 0.6
+    dedup_cache_size: int = 2048
+    assistant_persona_id: str = "tongzheng"
+    enable_edict_submission: bool = False
+
+
+def _build_telegram_settings_from_runtime(runtime_cfg: dict):
+    """把含明文 bot_token 的 runtime dict 转为 TelegramSettings。"""
+    from tianshu.gateway.telegram.settings import (
+        TelegramSettings,
+        _parse_allowed_users,
+    )
+
+    return TelegramSettings(
+        bot_token=runtime_cfg.get("bot_token", ""),
+        connection_mode=runtime_cfg.get("connection_mode", "polling"),
+        allowed_users=_parse_allowed_users(runtime_cfg.get("allowed_users") or ""),
+        home_channel=runtime_cfg.get("home_channel", ""),
+        webhook_path=runtime_cfg.get("webhook_path", "/telegram/webhook"),
+        webhook_secret=runtime_cfg.get("webhook_secret", ""),
+        poll_timeout=int(runtime_cfg.get("poll_timeout", 30)),
+        text_batch_delay=float(runtime_cfg.get("text_batch_delay", 0.6)),
+        dedup_cache_size=int(runtime_cfg.get("dedup_cache_size", 2048)),
+        assistant_persona_id=runtime_cfg.get("assistant_persona_id", "tongzheng"),
+        disable_assistant_mode=bool(runtime_cfg.get("disable_assistant_mode", False)),
+        enable_edict_submission=bool(runtime_cfg.get("enable_edict_submission", False)),
+    )
+
+
+@tongzheng_router.get("/channels/telegram")
+async def get_telegram_channel(request: Request) -> ApiResponse:
+    """获取 Telegram 通道配置（bot_token 永远以掩码返回）。"""
+    storage: Storage = request.app.state.storage
+    cfg = storage.get_channel_config("telegram")
+    if cfg is None:
+        from tianshu.config import TianshuSettings
+        from tianshu.gateway.telegram.settings import from_global_settings
+
+        s = from_global_settings(TianshuSettings())
+        return ApiResponse(
+            success=True,
+            data={
+                "bot_token": "***" if s.bot_token else "",
+                "connection_mode": s.connection_mode,
+                "allowed_users": ",".join(str(u) for u in s.allowed_users),
+                "home_channel": s.home_channel,
+                "webhook_path": s.webhook_path,
+                "webhook_secret": s.webhook_secret,
+                "poll_timeout": s.poll_timeout,
+                "text_batch_delay": s.text_batch_delay,
+                "dedup_cache_size": s.dedup_cache_size,
+                "assistant_persona_id": s.assistant_persona_id,
+                "enable_edict_submission": s.enable_edict_submission,
+                "_source": "env",
+                "_has_secret": bool(s.bot_token),
+            },
+        )
+    cfg["bot_token"] = "***" if cfg.get("_has_secret") else ""
+    cfg["_source"] = "db"
+    cfg.setdefault("assistant_persona_id", "tongzheng")
+    cfg.setdefault("enable_edict_submission", False)
+    return ApiResponse(success=True, data=cfg)
+
+
+@tongzheng_router.put("/channels/telegram")
+async def put_telegram_channel(
+    body: TelegramChannelConfig, request: Request,
+) -> ApiResponse:
+    """保存 Telegram 配置 + 触发热加载。"""
+    storage: Storage = request.app.state.storage
+    config_dict = body.model_dump(exclude={"bot_token"})
+
+    try:
+        storage.save_channel_config(
+            "telegram",
+            config_dict,
+            secret_plaintext=body.bot_token,  # None=不动；空串=清空；非空=更新
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    bot = getattr(request.app.state, "telegram_bot", None)
+    runtime_cfg = storage.load_channel_runtime_config("telegram")
+    if runtime_cfg is None:
+        return ApiResponse(
+            success=True,
+            data={"reloaded": False, "reason": "secret_decrypt_failed_or_unset"},
+        )
+
+    reload_ok = False
+    reload_msg = ""
+    try:
+        new_settings = _build_telegram_settings_from_runtime(runtime_cfg)
+        new_settings.validate_or_raise()
+    except (RuntimeError, TypeError, ValueError) as e:
+        return ApiResponse(
+            success=True,
+            data={"reloaded": False, "reason": f"config invalid: {e}"},
+        )
+
+    if bot is not None:
+        try:
+            await bot.reload(new_settings)
+            reload_ok = True
+        except Exception as e:
+            logger.exception("[tongzheng] telegram bot reload failed")
+            reload_msg = str(e)
+    else:
+        reload_msg = "telegram bot 未运行，配置已保存，下次重启生效"
+
+    # 同步敕令管理工具集启用状态（与飞书共享同一开关语义）
+    tool_registry = getattr(request.app.state, "tool_registry", None)
+    if tool_registry is not None:
+        for tool_name in ("submit_edict", "list_edicts", "get_edict_status"):
+            if new_settings.enable_edict_submission:
+                tool_registry.enable(tool_name)
+            else:
+                tool_registry.disable(tool_name)
+
+    return ApiResponse(
+        success=True,
+        data={"reloaded": reload_ok, "reason": reload_msg or "ok"},
+    )
+
+
+@tongzheng_router.get("/channels/telegram/status")
+async def telegram_status(request: Request) -> ApiResponse:
+    """查询当前 Telegram 机器人连接状态。"""
+    bot = getattr(request.app.state, "telegram_bot", None)
+    if bot is None:
+        return ApiResponse(success=True, data={"running": False, "mode": None})
+    return ApiResponse(
+        success=True,
+        data={
+            "running": True,
+            "mode": bot._settings.connection_mode,
+        },
+    )

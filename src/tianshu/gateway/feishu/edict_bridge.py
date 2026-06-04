@@ -82,11 +82,19 @@ class EdictBridge:
         event_bus: EventBus,
         executor: Executor,
         anchor: SessionAnchor,
+        channel: str = "feishu",
+        user_meta_key: str = "feishu_user",
+        chat_title_prefix: str = "飞书助手对话",
     ) -> None:
         self._storage = storage
         self._event_bus = event_bus
         self._executor = executor
         self._anchor = anchor
+        # 渠道标识：写入 edict.metadata.channel，供出站按 channel 路由隔离
+        # （feishu / telegram 等并列通道各自只投递自己的敕令）。默认 feishu 保持向后兼容。
+        self._channel = channel
+        self._user_meta_key = user_meta_key
+        self._chat_title_prefix = chat_title_prefix
 
     async def continue_or_create(
         self, *, chat_id: str, sender_open_id: str, text: str,
@@ -130,9 +138,9 @@ class EdictBridge:
             source="channel",
             submitter="emperor",
             metadata={
-                "channel": "feishu",
+                "channel": self._channel,
                 "chat_id": chat_id,
-                "feishu_user": sender_open_id,
+                self._user_meta_key: sender_open_id,
             },
         )
         self._storage.save_edict(edict)
@@ -144,8 +152,8 @@ class EdictBridge:
         self._event_bus.fire(make_event(
             "edict.submitted",
             edict_id=edict.id, memorial_id=memorial.id,
-            producer="feishu_bot",
-            payload={"goal": edict.goal, "channel": "feishu", "chat_id": chat_id},
+            producer=f"{self._channel}_bot",
+            payload={"goal": edict.goal, "channel": self._channel, "chat_id": chat_id},
         ))
         logger.info(
             "[feishu/edict] created edict=%s chat=%s sender=%s",
@@ -197,15 +205,15 @@ class EdictBridge:
 
         # 新建（v2 fix: 用 assistant_persona_id 指派 persona，让 executor 用配置的人格）
         edict = Edict(
-            title=f"飞书助手对话 - {chat_id[:12]}",
+            title=f"{self._chat_title_prefix} - {chat_id[:12]}",
             goal="持续对话上下文",
             source="channel",
             submitter="emperor",
             assigned_persona_id=assistant_persona_id,
             metadata={
-                "channel": "feishu",
+                "channel": self._channel,
                 "chat_id": chat_id,
-                "feishu_user": sender_open_id,
+                self._user_meta_key: sender_open_id,
                 "assistant_chat": True,
             },
         )
@@ -236,8 +244,8 @@ class EdictBridge:
             edict.id, memorial.id, "followup.submitted",
             {
                 "instruction": text,
-                "channel": "feishu",
-                "feishu_user": sender_open_id,
+                "channel": self._channel,
+                self._user_meta_key: sender_open_id,
             },
         )
         task = asyncio.create_task(

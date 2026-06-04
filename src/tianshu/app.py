@@ -408,6 +408,46 @@ async def lifespan(app: FastAPI):
             )
             feishu_bot = None
 
+    # --- Telegram Bot（与飞书并列）---
+    from tianshu.gateway.telegram import TelegramBot
+    from tianshu.gateway.telegram.settings import from_global_settings as build_telegram_settings
+
+    # 加载优先级：DB > env
+    tg_db_runtime_cfg = storage.load_channel_runtime_config("telegram")
+    if tg_db_runtime_cfg and tg_db_runtime_cfg.get("bot_token"):
+        from tianshu.gateway.tongzheng_api import _build_telegram_settings_from_runtime
+        telegram_settings = _build_telegram_settings_from_runtime(tg_db_runtime_cfg)
+        logger.info("[telegram] settings loaded from DB (channel_configs)")
+    else:
+        telegram_settings = build_telegram_settings(settings)
+    telegram_settings.validate_or_raise()
+
+    telegram_bot: TelegramBot | None = None
+    if telegram_settings.enabled:
+        telegram_bot = TelegramBot(
+            storage=storage,
+            event_bus=event_bus,
+            approval_manager=approval_manager,
+            executor=executor,
+            notifier=notifier,
+            settings=telegram_settings,
+            persona_loader=persona_loader,
+            provider_manager=provider_manager,
+            cost_manager=cost_manager,
+        )
+        # degrade: telegram 启动失败（锁冲突 / 网络 / token 无效等）不阻塞 web 服务可用性
+        try:
+            await telegram_bot.start()
+            app.state.telegram_bot = telegram_bot
+            if telegram_settings.connection_mode == "webhook":
+                telegram_bot.attach_webhook_router(app)
+        except Exception:
+            logger.exception(
+                "[telegram] start failed; tianshu will run without telegram bot. "
+                "Check stale lock at ~/.tianshu/telegram_app_lock.* , bot token, or network."
+            )
+            telegram_bot = None
+
     # --- PolicyEngine + PolicyHook ---
     policy_engine = PolicyEngine(rules=build_default_rules())
     app.state.policy_engine = policy_engine
@@ -634,6 +674,8 @@ async def lifespan(app: FastAPI):
         logger.exception("[mcp] manager shutdown error")
     if feishu_bot is not None:
         await feishu_bot.stop()
+    if telegram_bot is not None:
+        await telegram_bot.stop()
     storage.close()
     logger.info("Tianshu shutdown complete")
 

@@ -50,6 +50,52 @@ export async function getFeishuStatus(): Promise<FeishuStatus> {
   return data.data;
 }
 
+// ===================== Telegram（与飞书并列）=====================
+
+export interface TelegramChannelConfig {
+  bot_token: string | null; // null=不修改；""=清空；非空=替换
+  connection_mode: string; // polling | webhook
+  allowed_users: string;
+  home_channel: string;
+  webhook_path: string;
+  webhook_secret: string;
+  poll_timeout: number;
+  text_batch_delay: number;
+  dedup_cache_size: number;
+  assistant_persona_id: string;
+  enable_edict_submission: boolean;
+}
+
+export interface TelegramChannelView
+  extends Omit<TelegramChannelConfig, "bot_token"> {
+  bot_token: string; // 总是掩码 "***" 或 ""
+  _source: "db" | "env";
+  _has_secret: boolean;
+  _updated_at?: string;
+}
+
+export interface TelegramStatus {
+  running: boolean;
+  mode: string | null;
+}
+
+export async function getTelegramChannel(): Promise<TelegramChannelView> {
+  const { data } = await apiClient.get("/tongzheng/channels/telegram");
+  return data.data;
+}
+
+export async function putTelegramChannel(
+  config: TelegramChannelConfig,
+): Promise<{ reloaded: boolean; reason: string }> {
+  const { data } = await apiClient.put("/tongzheng/channels/telegram", config);
+  return data.data;
+}
+
+export async function getTelegramStatus(): Promise<TelegramStatus> {
+  const { data } = await apiClient.get("/tongzheng/channels/telegram/status");
+  return data.data;
+}
+
 export interface PersonaSummary {
   id: string;
   name: string;

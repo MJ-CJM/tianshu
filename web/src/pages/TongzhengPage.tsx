@@ -17,6 +17,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ReloadOutlined } from "@ant-design/icons";
 import PageContainer from "../components/common/PageContainer";
+import TelegramChannelForm from "../components/config/TelegramChannelForm";
 import {
   getFeishuChannel,
   putFeishuChannel,
@@ -342,6 +343,8 @@ export default function TongzhengPage() {
           </Form.Item>
         </Card>
       </Form>
+
+      <TelegramChannelForm />
     </PageContainer>
   );
 }

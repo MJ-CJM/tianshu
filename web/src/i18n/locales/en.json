@@ -1154,6 +1154,46 @@
       "savedReloaded": "Config saved and hot-reloaded",
       "savedNoReload": "Config saved ({reason})",
       "saveFailed": "Save failed"
+    },
+    "tg": {
+      "section": {
+        "bot": "Telegram Bot",
+        "assistant": "Telegram Assistant"
+      },
+      "alert": {
+        "tipTitle": "Configuration tips",
+        "tip1": "Create a bot via @BotFather to get the Bot Token",
+        "tip2": "Default long-polling needs no public URL; webhook needs public HTTPS + secret",
+        "tip3": "Empty allowlist = anyone allowed; always configure it in production",
+        "tip4": "Home channel is the fallback chat for cron results / source-less approvals (chat_id, negative for groups)"
+      },
+      "field": {
+        "botToken": "Bot Token",
+        "botTokenConfigured": "(configured)",
+        "botTokenMissing": "(not set)",
+        "botTokenExtra": "Leave blank = keep unchanged; clear and save = delete",
+        "connectionMode": "Connection mode",
+        "allowedUsers": "Allowed users (user_id, comma-separated)",
+        "allowedUsersExtra": "Telegram numeric user_id; empty = allow anyone",
+        "homeChannel": "Home channel (optional)",
+        "homeChannelExtra": "Fallback chat_id for cron / source-less approvals",
+        "webhookPath": "Webhook path",
+        "webhookSecret": "Webhook secret",
+        "pollTimeout": "Polling timeout (s)",
+        "textBatchDelay": "Text batch delay (s)",
+        "dedupCacheSize": "Dedup cache size"
+      },
+      "placeholder": {
+        "botTokenConfigured": "configured (blank = keep)",
+        "botTokenMissing": "123456:ABC-DEF...",
+        "allowedUsers": "e.g. 123456789,987654321",
+        "homeChannel": "e.g. 123456789 or -1001234567890",
+        "webhookSecret": "random 32-byte string (required for webhook)"
+      },
+      "option": {
+        "modePolling": "Long-polling (recommended, no public URL)",
+        "modeWebhook": "Webhook (needs public HTTPS)"
+      }
     }
   },
   "cost": {
