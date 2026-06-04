@@ -229,6 +229,10 @@ def register_builtins(
     build_engines(storage=storage)
     register_hongluisi(registry, edict_getter=get_current_edict)
 
+    # 飞书 lark-cli 透传工具（写操作经 LarkCliSafetyRule 升级审批）
+    from tianshu.tools.lark_cli import register_lark_cli
+    register_lark_cli(registry)
+
     # === 敕令管理工具集：让助手 LLM 在对话中颁敕、查阅、追踪 ===
     # 默认注册到 registry，但通政司 enable_edict_submission toggle 控制启用；
     # submit_edict（写）、list_edicts / get_edict_status（读）作为同一捆绑能力。
