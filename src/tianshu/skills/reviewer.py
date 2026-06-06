@@ -56,10 +56,12 @@ class SkillReviewHandler:
         skills: SkillsLoader,
         config_manager: ConfigManager,
         validator: SkillValidator | None = None,
+        metrics_store: Any | None = None,
     ) -> None:
         self._skills = skills
         self._config = config_manager
         self._validator = validator or SkillValidator()
+        self._metrics = metrics_store
         self._tasks_since_last_review = 0
 
     async def on_agent_end(self, **context: Any) -> HookResult | None:
@@ -107,6 +109,7 @@ class SkillReviewHandler:
 
         edict = context.get("edict")
         goal = getattr(edict, "goal", "unknown") if edict else "unknown"
+        edict_id = getattr(edict, "id", None) if edict else None
 
         prompt = _REVIEW_PROMPT.format(
             goal=goal,
@@ -120,7 +123,7 @@ class SkillReviewHandler:
         if not response:
             return
 
-        self._apply_review_result(response)
+        self._apply_review_result(response, edict_id)
 
     @staticmethod
     def _build_tool_summary(events: list) -> list[str]:
@@ -168,7 +171,7 @@ class SkillReviewHandler:
         response = await litellm.acompletion(**kwargs)
         return response.choices[0].message.content or None
 
-    def _apply_review_result(self, content: str) -> None:
+    def _apply_review_result(self, content: str, edict_id: str | None = None) -> None:
         """Parse LLM JSON response and apply skill create/update."""
         try:
             cleaned = content.strip()
@@ -189,11 +192,13 @@ class SkillReviewHandler:
             return
 
         if action == "create":
-            self._handle_create(skill_name, result.get("content", ""), reason)
+            self._handle_create(skill_name, result.get("content", ""), reason, edict_id)
         elif action == "update":
             self._handle_update(skill_name, result.get("patch_old", ""), result.get("patch_new", ""), reason)
 
-    def _handle_create(self, name: str, content: str, reason: str) -> None:
+    def _handle_create(
+        self, name: str, content: str, reason: str, edict_id: str | None = None,
+    ) -> None:
         if not content:
             logger.warning("[SKILL_REVIEW] Create action but no content provided")
             return
@@ -206,6 +211,14 @@ class SkillReviewHandler:
 
         try:
             self._skills.create_skill(name, content)
+            # Tag provenance so the curator (修撰) can recognize agent-authored skills.
+            if self._metrics is not None:
+                try:
+                    self._metrics.ensure_exists(
+                        name, created_by="agent", source_edict_id=edict_id,
+                    )
+                except Exception:
+                    logger.debug("[SKILL_REVIEW] metrics ensure_exists failed", exc_info=True)
             logger.info("[SKILL_REVIEW] Created skill '%s': %s", name, reason)
         except ValueError as e:
             logger.warning("[SKILL_REVIEW] Failed to create skill '%s': %s", name, e)

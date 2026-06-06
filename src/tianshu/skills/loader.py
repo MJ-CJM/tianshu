@@ -470,6 +470,44 @@ class SkillsLoader:
             dirs.append(self._user_dir)
         return dirs
 
+    def archive_skill(self, name: str) -> bool:
+        """Move a user/workspace skill into a sibling ``.archive/`` dir (recoverable).
+
+        Builtin skills are never touched (not in writable dirs). The ``.archive``
+        dir holds no top-level SKILL.md, so archived skills are invisible to the
+        scanner. Returns True if archived.
+        """
+        for base in self._writable_dirs():
+            skill_dir = base / name
+            if skill_dir.is_dir():
+                archive_root = base / ".archive"
+                archive_root.mkdir(parents=True, exist_ok=True)
+                target = archive_root / name
+                if target.exists():
+                    from datetime import UTC, datetime
+                    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+                    target = archive_root / f"{name}__{stamp}"
+                shutil.move(str(skill_dir), str(target))
+                self._l1_cache.pop(name, None)
+                self._l2_metadata = None
+                logger.info("Archived skill '%s' → %s", name, target)
+                return True
+        return False
+
+    def restore_skill(self, name: str) -> bool:
+        """Move a skill back out of ``.archive/`` into its writable dir."""
+        for base in self._writable_dirs():
+            src = base / ".archive" / name
+            if src.is_dir():
+                target = base / name
+                if target.exists():
+                    return False
+                shutil.move(str(src), str(target))
+                self._l2_metadata = None
+                logger.info("Restored skill '%s' from archive", name)
+                return True
+        return False
+
 
 class SkillsWatcher:
     """Watch skills directories for changes and trigger reload with debounce."""

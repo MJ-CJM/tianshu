@@ -31,6 +31,12 @@ class AgentConfigState:
     skill_review_enabled: bool = True
     skill_review_interval: int = 5
     fallback_llm_config_name: str | None = None
+    # Skill curator (修撰) — periodic self-optimization of the agent skill library
+    skill_curator_enabled: bool = True
+    skill_curator_idle_hours: int = 2
+    skill_stale_after_days: int = 30
+    skill_archive_after_days: int = 90
+    skill_curator_prune_builtins: bool = False
 
 
 class ConfigManager:

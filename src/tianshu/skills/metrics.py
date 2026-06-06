@@ -17,6 +17,11 @@ class SkillMetrics:
     created_at: str | None = None
     created_by: str = "manual"
     source_edict_id: str | None = None
+    # Curator lifecycle (修撰)
+    state: str = "active"  # active | stale | archived
+    pinned: bool = False
+    archived_at: str | None = None
+    absorbed_into: str | None = None
 
     @property
     def success_rate(self) -> float | None:
@@ -110,6 +115,42 @@ class SkillMetricsStore:
         self._conn.execute("DELETE FROM skill_metrics WHERE skill_name = ?", (skill_name,))
         self._conn.commit()
 
+    # --- Curator lifecycle (修撰) ---
+
+    def set_state(self, skill_name: str, state: str) -> None:
+        """Set lifecycle state: active | stale | archived."""
+        self._conn.execute(
+            "UPDATE skill_metrics SET state = ? WHERE skill_name = ?",
+            (state, skill_name),
+        )
+        self._conn.commit()
+
+    def set_pinned(self, skill_name: str, pinned: bool) -> None:
+        """Pin/unpin a skill to exempt it from curator transitions."""
+        self._conn.execute(
+            "UPDATE skill_metrics SET pinned = ? WHERE skill_name = ?",
+            (1 if pinned else 0, skill_name),
+        )
+        self._conn.commit()
+
+    def mark_archived(self, skill_name: str, into: str | None = None) -> None:
+        """Mark a skill archived; `into` records the umbrella it was absorbed into."""
+        now = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            """UPDATE skill_metrics
+               SET state = 'archived', archived_at = ?, absorbed_into = ?
+               WHERE skill_name = ?""",
+            (now, into, skill_name),
+        )
+        self._conn.commit()
+
+    def list_agent_created(self) -> list[SkillMetrics]:
+        """Return metrics for agent-authored skills only (curator scope)."""
+        rows = self._conn.execute(
+            "SELECT * FROM skill_metrics WHERE created_by = 'agent'"
+        ).fetchall()
+        return [self._row_to_metrics(r) for r in rows]
+
     def list_for_persona(self, persona_id: str) -> list[SkillMetrics]:
         """Return skill metrics filtered by persona's skills_allowed.
 
@@ -122,6 +163,11 @@ class SkillMetricsStore:
 
     @staticmethod
     def _row_to_metrics(row: sqlite3.Row) -> SkillMetrics:
+        keys = row.keys()
+
+        def col(name: str, default: object) -> object:
+            return row[name] if name in keys else default
+
         return SkillMetrics(
             skill_name=row["skill_name"],
             usage_count=row["usage_count"],
@@ -131,4 +177,8 @@ class SkillMetricsStore:
             created_at=row["created_at"],
             created_by=row["created_by"],
             source_edict_id=row["source_edict_id"],
+            state=col("state", "active"),
+            pinned=bool(col("pinned", 0)),
+            archived_at=col("archived_at", None),
+            absorbed_into=col("absorbed_into", None),
         )
