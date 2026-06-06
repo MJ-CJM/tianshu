@@ -136,6 +136,24 @@ class SkillMetricsStore:
         )
         self._conn.commit()
 
+    def set_human_curated(self, skill_name: str, curated: bool = True) -> None:
+        """Mark a skill as human-edited (golden); curator's auto-iterate skips it."""
+        now = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            "UPDATE skill_metrics SET human_curated = ?, last_human_action = ? WHERE skill_name = ?",
+            (1 if curated else 0, now, skill_name),
+        )
+        self._conn.commit()
+
+    def touch_human_action(self, skill_name: str) -> None:
+        """Record a human action timestamp (archive/pin) without changing curated flag."""
+        now = datetime.now(UTC).isoformat()
+        self._conn.execute(
+            "UPDATE skill_metrics SET last_human_action = ? WHERE skill_name = ?",
+            (now, skill_name),
+        )
+        self._conn.commit()
+
     def mark_archived(self, skill_name: str, into: str | None = None) -> None:
         """Mark a skill archived; `into` records the umbrella it was absorbed into."""
         now = datetime.now(UTC).isoformat()
@@ -153,6 +171,24 @@ class SkillMetricsStore:
             "SELECT * FROM skill_metrics WHERE created_by = 'agent'"
         ).fetchall()
         return [self._row_to_metrics(r) for r in rows]
+
+    def list_iteration_candidates(
+        self, min_success_rate: float, min_usage: int,
+    ) -> list[SkillMetrics]:
+        """Agent skills eligible for auto-iteration:
+        active, not pinned, not human-curated, enough usage, low success rate.
+        """
+        out: list[SkillMetrics] = []
+        for m in self.list_agent_created():
+            if m.state != "active" or m.pinned or m.human_curated:
+                continue
+            if m.usage_count < min_usage:
+                continue
+            rate = m.success_rate
+            if rate is None or rate >= min_success_rate:
+                continue
+            out.append(m)
+        return out
 
     def list_for_persona(self, persona_id: str) -> list[SkillMetrics]:
         """Return skill metrics filtered by persona's skills_allowed.
