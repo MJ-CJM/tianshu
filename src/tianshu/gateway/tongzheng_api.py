@@ -349,6 +349,7 @@ def _sync_edict_tools(request: Request) -> None:
     )
     for tool_name in (
         "submit_edict",
+        "schedule_edict",
         "list_edicts",
         "get_edict_status",
         "list_personas",

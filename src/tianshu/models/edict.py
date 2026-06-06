@@ -13,9 +13,10 @@ from tianshu.models.common import EdictStatus
 
 
 class EdictSchedule(BaseModel):
-    type: Literal["immediate", "once", "cron"] = "immediate"
+    type: Literal["immediate", "once", "cron", "interval"] = "immediate"
     at: datetime | None = None
     cron: str | None = None
+    interval_seconds: int | None = None  # type=="interval": 周期间隔秒数
     timezone: str = "UTC"
 
 

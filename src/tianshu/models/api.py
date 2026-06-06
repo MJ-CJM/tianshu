@@ -10,13 +10,6 @@ from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import EdictStatus
 
 
-class EdictScheduleRequest(BaseModel):
-    type: str = "immediate"
-    cron: str | None = None
-    at: str | None = None
-    timezone: str | None = None
-
-
 class EdictRuntimeRequest(BaseModel):
     timeout_seconds: int | None = Field(default=None, ge=10, le=3600)
     max_iterations: int | None = Field(default=None, ge=1, le=200)
@@ -48,7 +41,6 @@ class EdictCreateRequest(BaseModel):
     context: str | None = None
     idempotency_key: str | None = None
     submitter: str | None = None
-    schedule: EdictScheduleRequest | None = None
     priority: str | None = None
     review_policy: str | None = None
     constraints: list[str] | None = None

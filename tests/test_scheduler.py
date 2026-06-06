@@ -74,12 +74,19 @@ class TestScheduler:
         assert len(jobs) == 0
 
     async def test_list_jobs(self, scheduler, storage):
-        edict = Edict(goal="test")
+        # list_jobs 现在只列持久化任务（once/cron/interval）；immediate 不持久化。
+        edict = Edict(
+            goal="test",
+            schedule=EdictSchedule(
+                type="once", at=datetime.now(UTC) + timedelta(hours=1),
+            ),
+        )
         storage.save_edict(edict)
         await scheduler.schedule(edict)
         jobs = await scheduler.list_jobs()
         assert len(jobs) == 1
         assert jobs[0]["edict_id"] == edict.id
+        assert jobs[0]["status"] == "active"
 
     async def test_handle_submitted(self, scheduler, event_bus, storage):
         handler = AsyncMock()
@@ -204,3 +211,76 @@ class TestSchedulerCronTimezone:
         assert next_run.minute == 20
 
         await scheduler.cancel(job_id)
+
+
+class TestSchedulerJobControl:
+    """interval / pause / resume / run_now —— 调度工具依赖的能力。"""
+
+    @pytest.fixture
+    def event_bus(self):
+        return EventBus()
+
+    @pytest.fixture
+    def scheduler(self, event_bus, storage):
+        return Scheduler(event_bus=event_bus, storage=storage)
+
+    async def test_interval_persisted_and_listed(self, scheduler, storage):
+        edict = Edict(
+            goal="周期巡检",
+            schedule=EdictSchedule(type="interval", interval_seconds=3600),
+        )
+        storage.save_edict(edict)
+        job_id = await scheduler.schedule(edict)
+        row = storage.get_scheduler_job(job_id)
+        assert row["schedule_type"] == "interval"
+        assert row["interval_seconds"] == 3600
+        jobs = await scheduler.list_jobs()
+        assert any(
+            j["job_id"] == job_id and j["schedule_type"] == "interval" for j in jobs
+        )
+        await scheduler.cancel(job_id)
+
+    async def test_pause_and_resume(self, scheduler, storage):
+        edict = Edict(
+            goal="可暂停", schedule=EdictSchedule(type="cron", cron="0 9 * * *"),
+        )
+        storage.save_edict(edict)
+        job_id = await scheduler.schedule(edict)
+
+        assert await scheduler.pause(job_id) is True
+        assert storage.get_scheduler_job(job_id)["status"] == "paused"
+        # paused 任务仍在 list_jobs 可见
+        jobs = await scheduler.list_jobs()
+        target = next(j for j in jobs if j["job_id"] == job_id)
+        assert target["status"] == "paused"
+        # 重复 pause 失败
+        assert await scheduler.pause(job_id) is False
+        # resume 恢复为 active 并重建定时器
+        assert await scheduler.resume(job_id) is True
+        assert storage.get_scheduler_job(job_id)["status"] == "active"
+
+        await scheduler.cancel(job_id)
+
+    async def test_run_now_emits_without_changing_schedule(
+        self, scheduler, event_bus, storage,
+    ):
+        handler = AsyncMock()
+        event_bus.on("edict.scheduled", handler)
+        edict = Edict(
+            goal="立即触发一次", schedule=EdictSchedule(type="cron", cron="0 9 * * *"),
+        )
+        storage.save_edict(edict)
+        job_id = await scheduler.schedule(edict)
+        handler.reset_mock()  # cron schedule 本身不 emit
+
+        assert await scheduler.run_now(job_id) is True
+        handler.assert_called_once()
+        # run_now 不改调度，任务仍 active
+        assert storage.get_scheduler_job(job_id)["status"] == "active"
+
+        await scheduler.cancel(job_id)
+
+    async def test_control_unknown_job_returns_false(self, scheduler):
+        assert await scheduler.pause("nope") is False
+        assert await scheduler.resume("nope") is False
+        assert await scheduler.run_now("nope") is False

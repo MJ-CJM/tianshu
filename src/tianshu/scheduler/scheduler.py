@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any, Callable, Coroutine
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -81,8 +81,10 @@ class Scheduler:
         self._system_jobs: list[dict] = []
         self._system_cron_tasks: list[asyncio.Task] = []
 
-    def register_system_jobs(self, profile_trigger: Any) -> None:
-        """Register built-in system cron jobs (e.g. daily profile synthesis)."""
+    def register_system_jobs(
+        self, profile_trigger: Any, skill_curator: Any = None,
+    ) -> None:
+        """Register built-in system cron jobs (daily profile synthesis, weekly skill curation)."""
         async def _fire() -> None:
             asyncio.create_task(
                 profile_trigger.run_for_all_personas(trigger_source="cron")
@@ -92,6 +94,17 @@ class Scheduler:
             {"cron": "0 3 * * *", "name": "profile.daily_synthesis", "fn": _fire}
         )
         logger.info("Registered system job: profile.daily_synthesis (0 3 * * *)")
+
+        if skill_curator is not None:
+            async def _fire_curate() -> None:
+                asyncio.create_task(
+                    skill_curator.run(trigger_source="cron")
+                )
+
+            self._system_jobs.append(
+                {"cron": "0 4 * * 0", "name": "skill.weekly_curate", "fn": _fire_curate}
+            )
+            logger.info("Registered system job: skill.weekly_curate (0 4 * * 0)")
 
     async def start(self) -> None:
         self._running = True
@@ -138,6 +151,15 @@ class Scheduler:
                     job = _Job(job_id, edict_id, "once", task=task, next_run=target)
                     self._jobs[job_id] = job
                     restored += 1
+            elif schedule_type == "interval" and row.get("interval_seconds"):
+                interval = int(row["interval_seconds"])
+                next_run = datetime.now(UTC) + timedelta(seconds=interval)
+                task = asyncio.create_task(
+                    self._interval_loop(edict, interval, job_id)
+                )
+                job = _Job(job_id, edict_id, "interval", task=task, next_run=next_run)
+                self._jobs[job_id] = job
+                restored += 1
         if restored:
             logger.info("Restored %d scheduler jobs from DB", restored)
 
@@ -269,6 +291,26 @@ class Scheduler:
                     job_id, edict.id, "cron",
                     cron_expr=schedule.cron, next_run=next_run,
                 )
+        elif schedule.type == "interval":
+            if not schedule.interval_seconds or schedule.interval_seconds < 1:
+                logger.warning(
+                    "Interval edict %s has no interval_seconds, falling back to immediate",
+                    edict.id,
+                )
+                job = _Job(job_id, edict.id, "interval")
+                self._jobs[job_id] = job
+                await self._emit_scheduled(edict, memorial_id=memorial_id)
+            else:
+                next_run = datetime.now(UTC) + timedelta(seconds=schedule.interval_seconds)
+                task = asyncio.create_task(
+                    self._interval_loop(edict, schedule.interval_seconds, job_id)
+                )
+                job = _Job(job_id, edict.id, "interval", task=task, next_run=next_run)
+                self._jobs[job_id] = job
+                self._storage.save_scheduler_job(
+                    job_id, edict.id, "interval",
+                    interval_seconds=schedule.interval_seconds, next_run=next_run,
+                )
 
         return job_id
 
@@ -278,16 +320,91 @@ class Scheduler:
             job.task.cancel()
         self._storage.delete_scheduler_job(job_id)
 
+    async def pause(self, job_id: str) -> bool:
+        """Pause an active job: cancel its timer but keep it for resume."""
+        row = self._storage.get_scheduler_job(job_id)
+        if not row or row["status"] != "active":
+            return False
+        job = self._jobs.pop(job_id, None)
+        if job and job.task and not job.task.done():
+            job.task.cancel()
+        self._storage.set_scheduler_job_status(job_id, "paused")
+        return True
+
+    async def resume(self, job_id: str) -> bool:
+        """Resume a paused job: rebuild its timer from the persisted edict schedule."""
+        row = self._storage.get_scheduler_job(job_id)
+        if not row or row["status"] != "paused":
+            return False
+        edict = self._storage.get_edict(row["edict_id"])
+        if not edict or edict.status.value != "open":
+            self._storage.delete_scheduler_job(job_id)
+            return False
+        sched = edict.schedule
+        next_run: datetime | None = None
+        if sched.type == "cron" and sched.cron:
+            tz_name = sched.timezone or "UTC"
+            next_run = _next_cron_utc(sched.cron, tz_name)
+            task = asyncio.create_task(self._cron_loop(edict, sched.cron, job_id, tz_name))
+            self._jobs[job_id] = _Job(job_id, edict.id, "cron", task=task, next_run=next_run)
+        elif sched.type == "interval" and sched.interval_seconds:
+            next_run = datetime.now(UTC) + timedelta(seconds=sched.interval_seconds)
+            task = asyncio.create_task(
+                self._interval_loop(edict, sched.interval_seconds, job_id)
+            )
+            self._jobs[job_id] = _Job(
+                job_id, edict.id, "interval", task=task, next_run=next_run,
+            )
+        elif sched.type == "once" and sched.at:
+            delay = (sched.at - datetime.now(UTC)).total_seconds()
+            if delay <= 0:
+                await self._emit_scheduled(edict)
+                self._storage.delete_scheduler_job(job_id)
+                return True
+            next_run = sched.at
+            task = asyncio.create_task(self._delayed_emit(edict, delay))
+            self._jobs[job_id] = _Job(job_id, edict.id, "once", task=task, next_run=next_run)
+        else:
+            return False
+        self._storage.set_scheduler_job_status(job_id, "active")
+        self._storage.update_scheduler_job_next_run(job_id, next_run)
+        return True
+
+    async def run_now(self, job_id: str) -> bool:
+        """Immediately fire a job's edict once, without altering its schedule."""
+        row = self._storage.get_scheduler_job(job_id)
+        edict_id = row["edict_id"] if row else (
+            self._jobs[job_id].edict_id if job_id in self._jobs else None
+        )
+        if not edict_id:
+            return False
+        edict = self._storage.get_edict(edict_id)
+        if not edict or edict.status.value != "open":
+            return False
+        await self._emit_scheduled(edict)
+        return True
+
     async def list_jobs(self) -> list[dict]:
-        return [
-            {
-                "job_id": j.job_id,
-                "edict_id": j.edict_id,
-                "schedule_type": j.schedule_type,
-                "next_run": j.next_run.isoformat() if j.next_run else None,
-            }
-            for j in self._jobs.values()
-        ]
+        """List persisted jobs (active + paused), merging live in-memory next_run."""
+        rows = self._storage.list_scheduler_jobs(statuses=("active", "paused"))
+        out: list[dict] = []
+        for row in rows:
+            jid = row["job_id"]
+            mem = self._jobs.get(jid)
+            next_run = (
+                mem.next_run.isoformat() if (mem and mem.next_run)
+                else row.get("next_run")
+            )
+            out.append({
+                "job_id": jid,
+                "edict_id": row["edict_id"],
+                "schedule_type": row["schedule_type"],
+                "status": row["status"],
+                "next_run": next_run,
+                "cron_expr": row.get("cron_expr"),
+                "interval_seconds": row.get("interval_seconds"),
+            })
+        return out
 
     async def handle_submitted(self, event: EventEnvelope) -> None:
         """EventBus handler for edict.submitted."""
@@ -348,6 +465,28 @@ class Scheduler:
                     self._storage.update_scheduler_job_next_run(job_id, next_dt)
         except asyncio.CancelledError:
             logger.info("Cron loop cancelled for edict %s", edict.id)
+
+    async def _interval_loop(
+        self, edict: Edict, interval_seconds: int, job_id: str,
+    ) -> None:
+        """Repeatedly emit edict.scheduled every interval_seconds (each fire = fresh memorial)."""
+        try:
+            while self._running:
+                await asyncio.sleep(interval_seconds)
+                fresh_edict = self._storage.get_edict(edict.id)
+                if not fresh_edict or fresh_edict.status.value != "open":
+                    logger.info(
+                        "Interval job %s stopped: edict %s is no longer open",
+                        job_id, edict.id,
+                    )
+                    break
+                await self._emit_scheduled(fresh_edict)
+                if job_id in self._jobs:
+                    next_dt = datetime.now(UTC) + timedelta(seconds=interval_seconds)
+                    self._jobs[job_id].next_run = next_dt
+                    self._storage.update_scheduler_job_next_run(job_id, next_dt)
+        except asyncio.CancelledError:
+            logger.info("Interval loop cancelled for edict %s", edict.id)
 
     async def _delayed_emit(self, edict: Edict, delay: float) -> None:
         try:

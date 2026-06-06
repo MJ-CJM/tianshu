@@ -57,73 +57,18 @@ class TestEdictEndpoints:
         assert get_resp.status_code == 200
         assert get_resp.json()["data"]["goal"] == "find me"
 
-    async def test_create_edict_with_cron_schedule_keeps_timezone(self, client):
+    async def test_create_edict_ignores_schedule_field(self, client):
+        """颁发即时化：即使带 schedule 字段也被忽略（edict 恒 immediate）；定时改用 schedule_edict。"""
         with patch("tianshu.executor.agent.LLMClient"):
             resp = await client.post(
                 "/api/edicts",
                 json={
                     "goal": "每天 11 点推送天气",
-                    "schedule": {
-                        "type": "cron",
-                        "cron": "0 11 * * *",
-                        "timezone": "Asia/Shanghai",
-                    },
+                    "schedule": {"type": "cron", "cron": "0 11 * * *"},
                 },
             )
         assert resp.status_code == 202
-        schedule = resp.json()["data"]["schedule"]
-        assert schedule["type"] == "cron"
-        assert schedule["cron"] == "0 11 * * *"
-        assert schedule["timezone"] == "Asia/Shanghai"
-
-    async def test_create_edict_with_once_schedule_keeps_at(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post(
-                "/api/edicts",
-                json={
-                    "goal": "明天 9 点提醒",
-                    "schedule": {
-                        "type": "once",
-                        "at": "2026-12-01T09:00:00+08:00",
-                    },
-                },
-            )
-        assert resp.status_code == 202
-        schedule = resp.json()["data"]["schedule"]
-        assert schedule["type"] == "once"
-        assert schedule["at"] is not None
-        assert "2026-12-01" in schedule["at"]
-
-    async def test_create_edict_once_naive_at_treated_as_shanghai(self, client):
-        """无时区偏移的 at 应按北京时间解释，而非 UTC（否则偏移 8 小时）。"""
-        from datetime import datetime
-
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post(
-                "/api/edicts",
-                json={
-                    "goal": "今天下午两点二十二",
-                    "schedule": {"type": "once", "at": "2026-05-21 14:22:00"},
-                },
-            )
-        assert resp.status_code == 202
-        at = resp.json()["data"]["schedule"]["at"]
-        # 解析回来：应等于北京时间 14:22（= UTC 06:22），不是 UTC 14:22
-        parsed = datetime.fromisoformat(at)
-        assert parsed.utcoffset().total_seconds() == 8 * 3600
-        assert parsed.hour == 14 and parsed.minute == 22
-
-    async def test_create_edict_rejects_invalid_at(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post(
-                "/api/edicts",
-                json={
-                    "goal": "x",
-                    "schedule": {"type": "once", "at": "not a datetime"},
-                },
-            )
-        assert resp.status_code == 400
-        assert "at" in resp.json()["detail"]
+        assert resp.json()["data"]["schedule"]["type"] == "immediate"
 
 
 class TestMemorialEndpoints:

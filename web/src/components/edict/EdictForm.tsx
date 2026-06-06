@@ -23,7 +23,6 @@ interface EdictFormProps {
 export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
   const t = useT();
   const [form] = Form.useForm();
-  const [scheduleType, setScheduleType] = useState("immediate");
   const [assignMode, setAssignMode] = useState<"auto" | "direct">("auto");
   const [policyProfile, setPolicyProfile] =
     useState<PolicyProfileValue | null>(null);
@@ -75,12 +74,6 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       if (draft.title) patch.title = draft.title;
       if (draft.context) patch.context = draft.context;
       if (draft.priority) patch.priority = draft.priority;
-      if (draft.schedule) {
-        patch.schedule_type = draft.schedule.type;
-        setScheduleType(draft.schedule.type);
-        if (draft.schedule.cron) patch.cron_expr = draft.schedule.cron;
-        if (draft.schedule.at) patch.schedule_at = draft.schedule.at;
-      }
       form.setFieldsValue(patch);
       if (draft.context || draft.priority) {
         setActivePanels((prev) =>
@@ -101,15 +94,6 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       title: (values.title as string) || undefined,
       context: (values.context as string) || undefined,
     };
-
-    const st = (values.schedule_type as string) ?? "immediate";
-    if (st !== "immediate") {
-      req.schedule = {
-        type: st,
-        ...(st === "cron" ? { cron: values.cron_expr as string } : {}),
-        ...(st === "once" ? { at: values.schedule_at as string } : {}),
-      };
-    }
 
     const priority = values.priority as string | undefined;
     if (priority && priority !== "normal") {
@@ -274,7 +258,6 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       onFinish={handleFinish}
       requiredMark={false}
       initialValues={{
-        schedule_type: "immediate",
         priority: "normal",
         review_policy: "always",
       }}
@@ -382,35 +365,6 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
           tooltip={t("form.edict.tooltip.planReview")}
         >
           <Switch />
-        </Form.Item>
-      )}
-
-      <Form.Item name="schedule_type" label={t("form.edict.field.scheduleType")}>
-        <Select
-          onChange={(v) => setScheduleType(v)}
-          options={[
-            { value: "immediate", label: t("form.edict.option.scheduleImmediate") },
-            { value: "once", label: t("form.edict.option.scheduleOnce") },
-            { value: "cron", label: t("form.edict.option.scheduleCron") },
-          ]}
-        />
-      </Form.Item>
-      {scheduleType === "cron" && (
-        <Form.Item
-          name="cron_expr"
-          label={t("form.edict.field.cronExpr")}
-          rules={[{ required: true, message: t("form.edict.validation.cronExprRequired") }]}
-        >
-          <Input placeholder={t("form.edict.placeholder.cronExpr")} />
-        </Form.Item>
-      )}
-      {scheduleType === "once" && (
-        <Form.Item
-          name="schedule_at"
-          label={t("form.edict.field.scheduleAt")}
-          rules={[{ required: true, message: t("form.edict.validation.scheduleAtRequired") }]}
-        >
-          <Input placeholder={t("form.edict.placeholder.scheduleAt")} />
         </Form.Item>
       )}
 
