@@ -1462,7 +1462,9 @@
           "skills": "技能",
           "tierMax": "最大工具等级",
           "canDelegate": "可委派",
-          "delegatesTo": "可委派目标"
+          "delegatesTo": "可委派目标",
+          "template": "角色模板",
+          "templateLang": "模板语言"
         },
         "placeholder": {
           "id": "如 bingbu, neige",
@@ -1473,7 +1475,8 @@
           "toolsAllowed": "选择允许使用的工具",
           "toolsDenied": "选择禁用的工具",
           "skills": "选择技能（留空 = 全部注入）",
-          "delegatesTo": "选择可委派的角色"
+          "delegatesTo": "选择可委派的角色",
+          "template": "可选：选一个角色模板自动生成人格与职责"
         },
         "validation": {
           "idRequired": "请输入 ID",
@@ -1483,11 +1486,14 @@
           "departmentRequired": "请选择部门"
         },
         "tooltip": {
-          "title": "如：主管、协助员、参谋。可选；填了之后会写入角色卡，自报家门更准确。"
+          "title": "如：主管、协助员、参谋。可选；填了之后会写入角色卡，自报家门更准确。",
+          "template": "选择后会用模板内容生成 SOUL（人格）和 ROLE（职责）并预填名称；不选则按部门生成基础骨架。"
         },
         "llmConfigGlobal": "使用全局配置（默认）",
         "mcpAllOf": "MCP server '{name}' 的全部工具",
-        "toolsWildcardHint": "可输入工具名或 fnmatch 通配符（例：mcp_context7_* 整个 server 一键授权，mcp_*_delete_* 禁所有 delete 工具）。"
+        "toolsWildcardHint": "可输入工具名或 fnmatch 通配符（例：mcp_context7_* 整个 server 一键授权，mcp_*_delete_* 禁所有 delete 工具）。",
+        "soulPreview": "SOUL · 人格预览",
+        "rolePreview": "ROLE · 职责预览"
       },
       "department": {
         "addTitle": "添加部门",

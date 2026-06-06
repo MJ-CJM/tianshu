@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Row,
   Col,
@@ -23,6 +23,8 @@ import {
   Table,
   Card,
   Tooltip,
+  Radio,
+  Collapse,
 } from "antd";
 import {
   CheckCircleOutlined,
@@ -51,6 +53,11 @@ import {
   useDeleteDepartment,
 } from "../hooks/useDepartments";
 import { useTools, useSkills } from "../hooks/useSystem";
+import {
+  usePersonaTemplates,
+  usePersonaTemplate,
+} from "../hooks/usePersonaTemplates";
+import type { TemplateLang } from "../api/personaTemplates";
 import { useRoutingRules } from "../hooks/useOps";
 import { useConfigs } from "../hooks/useConfig";
 import type {
@@ -379,6 +386,28 @@ function PersonaFormModal({
     label: `${d.name} (${d.id})`,
   }));
 
+  // 角色模板（仅创建态）：选语言 → 列模板 → 选中后预填 name 并预览 SOUL/ROLE
+  const [templateLang, setTemplateLang] = useState<TemplateLang>("zh");
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const { data: templateCats } = usePersonaTemplates(templateLang);
+  const { data: templateDetail } = usePersonaTemplate(
+    templateLang,
+    selectedTemplateId,
+  );
+  const templateOptions = (templateCats ?? []).map((cat) => ({
+    label: cat.category,
+    options: cat.templates.map((tpl) => ({
+      value: tpl.id,
+      label: `${tpl.emoji ? `${tpl.emoji} ` : ""}${tpl.name}`,
+    })),
+  }));
+
+  useEffect(() => {
+    if (templateDetail) {
+      form.setFieldsValue({ name: templateDetail.name });
+    }
+  }, [templateDetail, form]);
+
   const handleOpen = () => {
     if (editingPersona) {
       form.setFieldsValue({
@@ -391,6 +420,20 @@ function PersonaFormModal({
       });
     } else {
       form.resetFields();
+      setTemplateLang("zh");
+      setSelectedTemplateId(null);
+    }
+  };
+
+  const handleFinish = (values: PersonaCreateRequest | PersonaUpdateRequest) => {
+    if (!isEdit && selectedTemplateId) {
+      onSubmit({
+        ...(values as PersonaCreateRequest),
+        template_id: selectedTemplateId,
+        template_lang: templateLang,
+      });
+    } else {
+      onSubmit(values);
     }
   };
 
@@ -408,7 +451,7 @@ function PersonaFormModal({
       <Form
         form={form}
         layout="vertical"
-        onFinish={onSubmit}
+        onFinish={handleFinish}
         initialValues={{
           tool_tier_max: 0,
           can_delegate: false,
@@ -418,6 +461,68 @@ function PersonaFormModal({
           delegates_to: [],
         }}
       >
+        {!isEdit && (
+          <>
+            <Form.Item label={t("persona.form.persona.field.templateLang")}>
+              <Radio.Group
+                value={templateLang}
+                onChange={(e) => {
+                  setTemplateLang(e.target.value);
+                  setSelectedTemplateId(null);
+                }}
+                optionType="button"
+                options={[
+                  { value: "zh", label: "中文" },
+                  { value: "en", label: "English" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              label={t("persona.form.persona.field.template")}
+              tooltip={t("persona.form.persona.tooltip.template")}
+            >
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder={t("persona.form.persona.placeholder.template")}
+                value={selectedTemplateId ?? undefined}
+                onChange={(v) => setSelectedTemplateId(v ?? null)}
+                options={templateOptions}
+              />
+            </Form.Item>
+            {templateDetail && (
+              <Collapse
+                size="small"
+                style={{ marginBottom: 16 }}
+                items={[
+                  {
+                    key: "soul",
+                    label: t("persona.form.persona.soulPreview"),
+                    children: (
+                      <Typography.Paragraph
+                        style={{ whiteSpace: "pre-wrap", maxHeight: 220, overflow: "auto", margin: 0 }}
+                      >
+                        {templateDetail.soul_preview}
+                      </Typography.Paragraph>
+                    ),
+                  },
+                  {
+                    key: "role",
+                    label: t("persona.form.persona.rolePreview"),
+                    children: (
+                      <Typography.Paragraph
+                        style={{ whiteSpace: "pre-wrap", maxHeight: 220, overflow: "auto", margin: 0 }}
+                      >
+                        {templateDetail.role_preview}
+                      </Typography.Paragraph>
+                    ),
+                  },
+                ]}
+              />
+            )}
+          </>
+        )}
         {!isEdit && (
           <Form.Item
             name="id"

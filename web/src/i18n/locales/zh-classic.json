@@ -1462,7 +1462,9 @@
           "skills": "技能",
           "tierMax": "最大工具等级",
           "canDelegate": "可委派",
-          "delegatesTo": "可委派目标"
+          "delegatesTo": "可委派目标",
+          "template": "范本",
+          "templateLang": "范本文体"
         },
         "placeholder": {
           "id": "如 bingbu, neige",
@@ -1473,7 +1475,8 @@
           "toolsAllowed": "选择允许使用的工具",
           "toolsDenied": "选择禁用的工具",
           "skills": "选择技能（留空 = 全部注入）",
-          "delegatesTo": "选择可委派的官员"
+          "delegatesTo": "选择可委派的官员",
+          "template": "可选：择一范本，代拟魂魄与职司"
         },
         "validation": {
           "idRequired": "请输入 ID",
@@ -1483,11 +1486,14 @@
           "departmentRequired": "请选择部门"
         },
         "tooltip": {
-          "title": "如：大学士、协理通政、参谋。可选；填了之后会写入官员的身份卡，自报家门更准确。"
+          "title": "如：大学士、协理通政、参谋。可选；填了之后会写入官员的身份卡，自报家门更准确。",
+          "template": "择范本后，以其铸魂魄（SOUL）、定职司（ROLE），并代填名讳；不择则依部院授以基骨。"
         },
         "llmConfigGlobal": "使用全局配置（默认）",
         "mcpAllOf": "外援「{name}」麾下尽用",
-        "toolsWildcardHint": "可填具名兵种或通配符（例：mcp_context7_* 全军授调，mcp_*_delete_* 禁所有 delete 之兵）。"
+        "toolsWildcardHint": "可填具名兵种或通配符（例：mcp_context7_* 全军授调，mcp_*_delete_* 禁所有 delete 之兵）。",
+        "soulPreview": "魂魄 · 人格",
+        "rolePreview": "职司 · 职守"
       },
       "department": {
         "addTitle": "添加部门",

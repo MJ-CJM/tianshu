@@ -1463,7 +1463,9 @@
           "skills": "Skills",
           "tierMax": "Max tool tier",
           "canDelegate": "Can delegate",
-          "delegatesTo": "Delegation targets"
+          "delegatesTo": "Delegation targets",
+          "template": "Role template",
+          "templateLang": "Template language"
         },
         "placeholder": {
           "id": "e.g. bingbu, neige",
@@ -1474,7 +1476,8 @@
           "toolsAllowed": "Select allowed tools",
           "toolsDenied": "Select denied tools",
           "skills": "Select skills (empty = all injected)",
-          "delegatesTo": "Select delegation targets"
+          "delegatesTo": "Select delegation targets",
+          "template": "Optional: pick a role template to auto-generate persona & role"
         },
         "validation": {
           "idRequired": "ID is required",
@@ -1484,11 +1487,14 @@
           "departmentRequired": "Department is required"
         },
         "tooltip": {
-          "title": "e.g. Lead, Coordinator, Strategist. Optional; if filled, will be written into the persona card for clearer self-introduction."
+          "title": "e.g. Lead, Coordinator, Strategist. Optional; if filled, will be written into the persona card for clearer self-introduction.",
+          "template": "Selecting a template generates SOUL (persona) and ROLE from it and prefills the name; otherwise a basic skeleton is generated from the department."
         },
         "llmConfigGlobal": "Use global config (default)",
         "mcpAllOf": "All tools of MCP server '{name}'",
-        "toolsWildcardHint": "Type a tool name or fnmatch wildcard (e.g. mcp_context7_* to allow the whole MCP server, mcp_*_delete_* to deny all delete tools)."
+        "toolsWildcardHint": "Type a tool name or fnmatch wildcard (e.g. mcp_context7_* to allow the whole MCP server, mcp_*_delete_* to deny all delete tools).",
+        "soulPreview": "SOUL · persona preview",
+        "rolePreview": "ROLE · role preview"
       },
       "department": {
         "addTitle": "Add department",
