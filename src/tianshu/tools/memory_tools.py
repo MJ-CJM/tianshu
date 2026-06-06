@@ -46,7 +46,12 @@ async def _memory_search(
 
         caller = get_current_persona()
         visible_ids: list[str] | None = None
-        if caller and getattr(caller, "id", None):
+        # memory_global_read 为真：跳过限定，visible_ids 保持 None → fts_search 跨全 persona 检索
+        if (
+            caller
+            and getattr(caller, "id", None)
+            and not getattr(caller, "memory_global_read", False)
+        ):
             visible_ids = [caller.id, "court"]
             dept = getattr(caller, "department", None)
             if dept:
