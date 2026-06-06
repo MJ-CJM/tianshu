@@ -446,6 +446,56 @@ class MemoryManager:
                 return room
         return "general"
 
+    def _recall_fulltext(
+        self,
+        persona_id: str,
+        goal: str,
+        department: str | None = None,
+        limit: int = 5,
+    ) -> list[str]:
+        """执行前召回：全量 FTS5（persona + court [+ dept]）+ recency 加权。
+
+        返回注入用的 content 列表，按 BM25 位次 × 时间衰减排序，取 top-limit。
+        转义已内置于 fts_search，此处无需再转义。
+        """
+        import math
+
+        from tianshu.memory.fts import fts_search
+
+        visible_ids = [persona_id, "court"]
+        if department:
+            visible_ids.append(f"_dept_{department}")
+
+        with self._storage._lock:
+            ids = fts_search(
+                self._storage._conn, goal, persona_ids=visible_ids, limit=limit * 4,
+            )
+        if not ids:
+            return []
+
+        rank = {entry_id: i for i, entry_id in enumerate(ids)}
+        placeholders = ",".join("?" for _ in ids)
+        with self._storage._lock:
+            rows = self._storage._conn.execute(
+                f"SELECT id, content, created_at FROM memory_entries WHERE id IN ({placeholders})",
+                ids,
+            ).fetchall()
+
+        now = datetime.now(UTC)
+        scored: list[tuple[float, str]] = []
+        for row in rows:
+            bm25 = 1.0 / (1.0 + rank.get(row["id"], len(ids)))
+            try:
+                ts = datetime.fromisoformat(row["created_at"])
+                age_days = (now - ts).total_seconds() / 86400
+                recency = math.exp(-0.693 * age_days / 30)  # half-life = 30 天
+            except (TypeError, ValueError):
+                recency = 0.5
+            scored.append((bm25 * (0.5 + 0.5 * recency), row["content"]))
+
+        scored.sort(key=lambda x: -x[0])
+        return [content for _, content in scored[:limit]]
+
     async def on_before_agent_start(self, **context: object) -> object:
         """BEFORE_AGENT_START hook — inject relevant memories from Markdown + Palace."""
         from tianshu.executor.hooks import HookResult
@@ -463,13 +513,12 @@ class MemoryManager:
 
         history_messages: list[dict] = []
 
-        # Existing: search Markdown daily logs
-        md_results = self._md_backend.search_daily_logs(
-            persona_id, goal, limit=10,
-        )
-        for r in md_results[:5]:
+        # 全量 FTS5 召回（write-through 索引，任意时间 + recency 加权，已移除 30 天窗口）
+        persona = context.get("persona")
+        department = getattr(persona, "department", None) if persona else None
+        for content in self._recall_fulltext(persona_id, goal, department=department, limit=5):
             history_messages.append(
-                {"role": "user", "content": f"[Memory context — do not respond to this] {r['content']}"}
+                {"role": "user", "content": f"[Memory context — do not respond to this] {content}"}
             )
 
         # NEW: drawer-based L2 recall
