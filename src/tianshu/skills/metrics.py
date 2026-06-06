@@ -22,6 +22,9 @@ class SkillMetrics:
     pinned: bool = False
     archived_at: str | None = None
     absorbed_into: str | None = None
+    # Human-in-the-loop (前景主导)
+    human_curated: bool = False
+    last_human_action: str | None = None
 
     @property
     def success_rate(self) -> float | None:
@@ -181,4 +184,6 @@ class SkillMetricsStore:
             pinned=bool(col("pinned", 0)),
             archived_at=col("archived_at", None),
             absorbed_into=col("absorbed_into", None),
+            human_curated=bool(col("human_curated", 0)),
+            last_human_action=col("last_human_action", None),
         )
