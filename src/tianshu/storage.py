@@ -222,7 +222,8 @@ class Storage:
                     cron_expr TEXT,
                     next_run TEXT,
                     status TEXT NOT NULL DEFAULT 'active',
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    interval_seconds INTEGER
                 );
                 CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_edict
                     ON scheduler_jobs(edict_id);
@@ -277,7 +278,11 @@ class Storage:
                     last_used_at  TEXT,
                     created_at    TEXT,
                     created_by    TEXT NOT NULL DEFAULT 'manual',
-                    source_edict_id TEXT
+                    source_edict_id TEXT,
+                    state         TEXT NOT NULL DEFAULT 'active',
+                    pinned        INTEGER NOT NULL DEFAULT 0,
+                    archived_at   TEXT,
+                    absorbed_into TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS persona_metrics (
@@ -631,6 +636,13 @@ class Storage:
                       search_provider = 'duckduckgo',
                       fallback_mode = 'on_error_or_empty'
                 WHERE id = 'default' AND fetch_chain = '["jina"]'""",
+            # 2026-06-05: skill_metrics 生命周期/策展字段（修撰 SkillCurator）
+            "ALTER TABLE skill_metrics ADD COLUMN state TEXT NOT NULL DEFAULT 'active'",
+            "ALTER TABLE skill_metrics ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE skill_metrics ADD COLUMN archived_at TEXT",
+            "ALTER TABLE skill_metrics ADD COLUMN absorbed_into TEXT",
+            # 2026-06-05: scheduler_jobs 周期间隔（interval 类型，配合调度工具 schedule_edict）
+            "ALTER TABLE scheduler_jobs ADD COLUMN interval_seconds INTEGER",
         ]
         for sql in migrations:
             try:
@@ -1887,12 +1899,13 @@ class Storage:
         schedule_type: str,
         cron_expr: str | None = None,
         next_run: datetime | None = None,
+        interval_seconds: int | None = None,
     ) -> None:
         with self._lock, self._conn:
             self._conn.execute(
                 """INSERT OR REPLACE INTO scheduler_jobs
-                   (job_id, edict_id, schedule_type, cron_expr, next_run, status, created_at)
-                   VALUES (?, ?, ?, ?, ?, 'active', ?)""",
+                   (job_id, edict_id, schedule_type, cron_expr, next_run, status, created_at, interval_seconds)
+                   VALUES (?, ?, ?, ?, ?, 'active', ?, ?)""",
                 (
                     job_id,
                     edict_id,
@@ -1900,6 +1913,7 @@ class Storage:
                     cron_expr,
                     next_run.isoformat() if next_run else None,
                     datetime.now(UTC).isoformat(),
+                    interval_seconds,
                 ),
             )
 
@@ -1909,6 +1923,21 @@ class Storage:
                 "UPDATE scheduler_jobs SET next_run = ? WHERE job_id = ?",
                 (next_run.isoformat() if next_run else None, job_id),
             )
+
+    def set_scheduler_job_status(self, job_id: str, status: str) -> None:
+        """Set a job's status (active | paused | cancelled)."""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE scheduler_jobs SET status = ? WHERE job_id = ?",
+                (status, job_id),
+            )
+
+    def get_scheduler_job(self, job_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM scheduler_jobs WHERE job_id = ?", (job_id,),
+            ).fetchone()
+        return dict(row) if row else None
 
     def delete_scheduler_job(self, job_id: str) -> None:
         with self._lock, self._conn:
@@ -1921,6 +1950,21 @@ class Storage:
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM scheduler_jobs WHERE status = 'active' ORDER BY created_at ASC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_scheduler_jobs(
+        self, statuses: tuple[str, ...] = ("active", "paused"),
+    ) -> list[dict]:
+        """List scheduler jobs filtered by status (default: active + paused)."""
+        if not statuses:
+            return []
+        placeholders = ",".join("?" for _ in statuses)
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM scheduler_jobs WHERE status IN ({placeholders}) "
+                "ORDER BY created_at ASC",
+                tuple(statuses),
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -2200,6 +2244,18 @@ class Storage:
                 (persona_id,),
             )
             self._conn.commit()
+
+    def last_activity_at(self) -> str | None:
+        """Most recent event timestamp (ISO) for idle gating; None if no events.
+
+        Execution events carry an edict_id and are persisted, so MAX(created_at)
+        across the events table approximates the last real agent activity.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT MAX(created_at) AS ts FROM events"
+            ).fetchone()
+        return row["ts"] if row and row["ts"] else None
 
     def increment_persona_task_counter(self, persona_id: str) -> int:
         """Increment tasks_since_last_synthesis by 1, create row if missing; return new value."""

@@ -37,6 +37,7 @@ from tianshu.notifier.notifier import Notifier
 from tianshu.plugins.api import PluginApi
 from tianshu.plugins.loader import PluginLoader
 from tianshu.persona.loader import PersonaLoader
+from tianshu.persona.template_library import TemplateLibrary
 from tianshu.persona.profile_synthesizer import ProfileSynthesizer
 from tianshu.persona.profile_trigger import ProfileTrigger
 from tianshu.persona.prompt_builder import PromptBuilder
@@ -47,6 +48,7 @@ from tianshu.skills.loader import SkillsLoader, SkillsWatcher
 from tianshu.skills.metrics import SkillMetricsStore
 from tianshu.skills.reviewer import SkillReviewHandler
 from tianshu.skills.validator import SkillValidator
+from tianshu.skills.curator import SkillCurator
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.memory_tools import register_memory_tools
@@ -176,6 +178,12 @@ async def lifespan(app: FastAPI):
     persona_loader.load_all()
     app.state.persona_loader = persona_loader
     app.state.runtime_personas_dir = runtime_personas_dir
+
+    # 角色模板库（vendored agency-agents，见 templates/persona/）
+    templates_dir = Path(__file__).parent.parent.parent / "templates" / "persona"
+    template_library = TemplateLibrary(templates_dir)
+    template_library.load()
+    app.state.template_library = template_library
 
     # Re-register submit_edict tool now that persona_loader is available
     # （register_builtins 阶段 persona_loader 还未构造，此处覆盖以启用 persona 校验）
@@ -482,6 +490,18 @@ async def lifespan(app: FastAPI):
     )
     app.state.scheduler = scheduler
 
+    # schedule_edict tool —— 对话中安排定时/周期敕令（需 scheduler 就绪后注册）
+    # 与 submit_edict 同属"敕令工具组"，同一 enable_edict_submission toggle 控制。
+    from tianshu.tools.schedule_edict import register_schedule_edict
+    register_schedule_edict(
+        tools,
+        storage=storage,
+        scheduler=scheduler,
+        persona_loader=persona_loader,
+    )
+    if not (feishu_channel_cfg and feishu_channel_cfg.get("enable_edict_submission")):
+        tools.disable("schedule_edict")
+
     # --- EventBus subscriptions ---
     event_bus.on("edict.submitted", scheduler.handle_submitted)
     event_bus.on("edict.scheduled", planner.handle_scheduled, priority=50)
@@ -539,7 +559,9 @@ async def lifespan(app: FastAPI):
 
     # Skill review hook (learning loop)
     skill_validator = SkillValidator()
-    skill_reviewer = SkillReviewHandler(skills, config_manager, skill_validator)
+    skill_reviewer = SkillReviewHandler(
+        skills, config_manager, skill_validator, metrics_store=metrics_store,
+    )
     hook_registry.register(HookType.AGENT_END, skill_reviewer.on_agent_end, priority=200)
 
     # --- ProfileSynthesizer + ProfileTrigger ---
@@ -560,7 +582,20 @@ async def lifespan(app: FastAPI):
     app.state.profile_trigger = profile_trigger
 
     hook_registry.register(HookType.AGENT_END, profile_trigger.handle_agent_end, priority=250)
-    scheduler.register_system_jobs(profile_trigger)
+
+    # --- SkillCurator (修撰) — 周期性技能库自优化 ---
+    skill_curator = SkillCurator(
+        llm_client=provider_manager.get_client(),
+        loader=skills,
+        metrics_store=metrics_store,
+        storage=storage,
+        config_manager=config_manager,
+        runtime_dir=Path("~/.tianshu/runtime").expanduser(),
+    )
+    skill_curator.attach_event_bus(event_bus)
+    app.state.skill_curator = skill_curator
+
+    scheduler.register_system_jobs(profile_trigger, skill_curator=skill_curator)
 
     # --- DigestGenerator ---
     from tianshu.notifier.digest import DigestGenerator

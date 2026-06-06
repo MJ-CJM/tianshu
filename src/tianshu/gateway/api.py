@@ -43,6 +43,7 @@ from tianshu.executor.lanes import LaneManager
 from tianshu.executor.worker_pool import WorkerPool
 from tianshu.memory.manager import MemoryManager
 from tianshu.memory.models import MemoryEntry, MemoryQuery
+from tianshu.persona.template_library import TemplateLibrary
 from tianshu.notifier.notifier import Notifier
 from tianshu.persona.evaluator import PerformanceEvaluator
 from tianshu.persona.selector import OfficialSelector
@@ -127,34 +128,6 @@ async def create_edict(body: EdictCreateRequest, request: Request):
         edict_kwargs["priority"] = body.priority
     if body.review_policy:
         edict_kwargs["review_policy"] = body.review_policy
-    if body.schedule and body.schedule.type != "immediate":
-        from datetime import datetime
-
-        from tianshu.models.edict import EdictSchedule
-        schedule_kwargs: dict = {
-            "type": body.schedule.type,
-            "cron": body.schedule.cron,
-            "timezone": body.schedule.timezone or "UTC",
-        }
-        if body.schedule.at:
-            try:
-                at_dt = datetime.fromisoformat(body.schedule.at)
-            except (TypeError, ValueError) as exc:
-                raise HTTPException(
-                    400,
-                    f"schedule.at 不是合法 ISO 8601 datetime: {body.schedule.at!r}",
-                ) from exc
-            if at_dt.tzinfo is None:
-                # 无时区偏移的输入按调度时区解释，默认 Asia/Shanghai（北京时间）。
-                # 不再强当 UTC —— 否则用户填的本地时间会偏移 8 小时。
-                from zoneinfo import ZoneInfo
-                tz_name = body.schedule.timezone or "Asia/Shanghai"
-                try:
-                    at_dt = at_dt.replace(tzinfo=ZoneInfo(tz_name))
-                except Exception:
-                    at_dt = at_dt.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
-            schedule_kwargs["at"] = at_dt
-        edict_kwargs["schedule"] = EdictSchedule(**schedule_kwargs)
     if body.constraints:
         edict_kwargs["constraints"] = body.constraints
     if body.output_format:
@@ -185,8 +158,8 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     edict = Edict(**edict_kwargs)
     storage.save_edict(edict)
     logger.debug(
-        "[API] Edict %s: submitted goal=%.100s, priority=%s, schedule=%s, assigned=%s",
-        edict.id, edict.goal, edict.priority, edict.schedule.type, edict.assigned_persona_id,
+        "[API] Edict %s: submitted goal=%.100s, priority=%s, assigned=%s",
+        edict.id, edict.goal, edict.priority, edict.assigned_persona_id,
     )
 
     memorial = Memorial(edict_id=edict.id, instruction=edict.goal, status=TaskStatus.SUBMITTED)
@@ -1532,22 +1505,49 @@ async def create_persona(request: Request):
             detail=f"title 过长（最多 {_TITLE_MAX_LEN} 字）",
         )
 
-    # Runtime identity: 统一渲染个性化骨架 SOUL.md / ROLE.md 到 ~/.tianshu/personas/{id}/
-    # 不再无脑拷贝部门 SOUL.md（避免新建官员错认为部门主官）。
-    # 部门 SOUL/ROLE.md 作为风格指引附在末尾。
+    # Runtime identity: 选了角色模板就用模板内容生成 SOUL.md/ROLE.md；
+    # 否则渲染个性化骨架（部门 SOUL/ROLE 作为风格指引附在末尾，避免错认部门主官）。
     runtime_personas_dir: Path = request.app.state.runtime_personas_dir
     runtime_dir = runtime_personas_dir / body["id"]
-    template_dir = loader._dir / body["department"]
-    soul_path, role_path = _render_persona_identity_files(
-        runtime_dir=runtime_dir,
-        persona_id=body["id"],
-        name=body["name"],
-        department=body["department"],
-        title=title,
-        dept_label=dept.get("name") or body["department"],
-        department_template_dir=template_dir if template_dir.is_dir() else None,
-        overwrite=False,
-    )
+    template_id = body.get("template_id") or None
+    if template_id:
+        template_lang = body.get("template_lang") or "zh"
+        if template_lang not in ("zh", "en"):
+            raise HTTPException(
+                status_code=400, detail="template_lang must be 'zh' or 'en'",
+            )
+        library: TemplateLibrary = request.app.state.template_library
+        template = library.get(template_lang, template_id)
+        if not template:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Template '{template_id}' ({template_lang}) not found",
+            )
+        soul_md, role_md = library.render(
+            template,
+            name=body["name"],
+            department=body["department"],
+            title=title,
+        )
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        soul_path = runtime_dir / "SOUL.md"
+        role_path = runtime_dir / "ROLE.md"
+        if not soul_path.exists():
+            soul_path.write_text(soul_md, encoding="utf-8")
+        if not role_path.exists():
+            role_path.write_text(role_md, encoding="utf-8")
+    else:
+        template_dir = loader._dir / body["department"]
+        soul_path, role_path = _render_persona_identity_files(
+            runtime_dir=runtime_dir,
+            persona_id=body["id"],
+            name=body["name"],
+            department=body["department"],
+            title=title,
+            dept_label=dept.get("name") or body["department"],
+            department_template_dir=template_dir if template_dir.is_dir() else None,
+            overwrite=False,
+        )
 
     memory_manager = request.app.state.memory_manager
     memory_path = memory_manager.memory_dir / body["id"] / "MEMORY.md"
@@ -1582,6 +1582,73 @@ async def create_persona(request: Request):
         "delegates_to": persona.delegates_to,
         "llm_config_name": persona.llm_config_name,
     })
+
+
+@gateway_router.get("/persona-templates")
+async def list_persona_templates(
+    request: Request,
+    lang: str = Query(default="zh"),
+):
+    """List vendored role templates for a language, grouped by category."""
+    if lang not in ("zh", "en"):
+        raise HTTPException(status_code=400, detail="lang must be 'zh' or 'en'")
+    library: TemplateLibrary = request.app.state.template_library
+    grouped: dict[str, list[dict]] = {}
+    for t in library.list(lang):
+        grouped.setdefault(t.category, []).append({
+            "id": t.id,
+            "name": t.name,
+            "description": t.description,
+            "emoji": t.emoji,
+        })
+    data = [
+        {"category": category, "templates": templates}
+        for category, templates in sorted(grouped.items())
+    ]
+    return ApiResponse(success=True, data=data)
+
+
+@gateway_router.get("/persona-templates/{template_id}")
+async def get_persona_template(
+    template_id: str,
+    request: Request,
+    lang: str = Query(default="zh"),
+):
+    """Return a template's SOUL/ROLE preview (rendered with placeholder name)."""
+    if lang not in ("zh", "en"):
+        raise HTTPException(status_code=400, detail="lang must be 'zh' or 'en'")
+    library: TemplateLibrary = request.app.state.template_library
+    template = library.get(lang, template_id)
+    if not template:
+        raise HTTPException(
+            status_code=404, detail=f"Template '{template_id}' ({lang}) not found",
+        )
+    soul_md, role_md = library.render(
+        template, name=template.name, department="", title=None,
+    )
+    return ApiResponse(success=True, data={
+        "id": template.id,
+        "lang": template.lang,
+        "category": template.category,
+        "name": template.name,
+        "description": template.description,
+        "emoji": template.emoji,
+        "soul_preview": soul_md,
+        "role_preview": role_md,
+    })
+
+
+@gateway_router.post("/skills/curate")
+async def curate_skills(
+    request: Request,
+    dry_run: bool = Query(default=True),
+):
+    """Manually trigger the skill curator (修撰). dry_run=true previews without writing."""
+    curator = getattr(request.app.state, "skill_curator", None)
+    if curator is None:
+        raise HTTPException(status_code=503, detail="skill curator not available")
+    result = await curator.run(trigger_source="manual", dry_run=dry_run)
+    return ApiResponse(success=True, data=result.to_dict())
 
 
 @gateway_router.put("/personas/{persona_id}", response_model=ApiResponse)

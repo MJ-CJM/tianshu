@@ -553,6 +553,32 @@ export interface PersonaCreateRequest {
   can_delegate?: boolean;
   delegates_to?: string[];
   llm_config_name?: string | null;
+  /** Optional role-template seed (see persona-templates endpoints). */
+  template_id?: string;
+  template_lang?: "zh" | "en";
+}
+
+export interface PersonaTemplateInfo {
+  id: string;
+  name: string;
+  description: string;
+  emoji: string;
+}
+
+export interface PersonaTemplateCategory {
+  category: string;
+  templates: PersonaTemplateInfo[];
+}
+
+export interface PersonaTemplateDetail {
+  id: string;
+  lang: "zh" | "en";
+  category: string;
+  name: string;
+  description: string;
+  emoji: string;
+  soul_preview: string;
+  role_preview: string;
 }
 
 export interface PersonaUpdateRequest {
