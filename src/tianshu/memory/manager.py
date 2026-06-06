@@ -572,7 +572,7 @@ class MemoryManager:
             content=f"Task '{edict_goal[:60]}' -> {status.value}: {summary[:150]}",
             source="agent",
         )
-        self.store(entry)  # Markdown only
+        self.store(entry)  # MD (source of truth) + write-through index
 
         # Also store as drawers for Memory Palace
         if self._drawer_store and summary:

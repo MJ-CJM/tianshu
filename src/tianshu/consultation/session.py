@@ -94,7 +94,7 @@ class ConsultationSession:
                         source="agent",
                         access_level="court",
                     )
-                    self._memory_manager.store(entry)  # writes MD only
+                    self._memory_manager.store(entry)  # MD (source of truth) + write-through index
 
                     # Also append important decisions to court/MEMORY.md
                     md = self._memory_manager.md_backend
