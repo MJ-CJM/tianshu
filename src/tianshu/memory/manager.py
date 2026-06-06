@@ -340,7 +340,7 @@ class MemoryManager:
     # ------------------------------------------------------------------
 
     async def compact(self, persona_id: str) -> CompactionResult:
-        """Compact old memories into a summary, written to MEMORY.md."""
+        """Compact old memories into a summary, written to the '## 历史摘要' section of MEMORY.md."""
         # Read recent daily entries as the compaction source
         daily_entries = self._md_backend.list_daily_entries(persona_id, days=30)
         if len(daily_entries) <= 5:
@@ -371,8 +371,14 @@ class MemoryManager:
         ]
         result = await self._compactor.compact(persona_id, entries)
 
-        # Write compacted summary to MEMORY.md (overwrite)
-        self._md_backend.write_core_memory(persona_id, result.summary)
+        # 非破坏写入：只更新「## 历史摘要」section，保留 memory_write / reflect 写入的其余 section
+        try:
+            self._md_backend.write_section(
+                persona_id, "## 历史摘要", mode="set", content=result.summary,
+            )
+        except Exception:
+            # 写失败无害：daily logs 全量保留，下次 compact 会重新生成摘要
+            logger.exception("compact write_section failed for %s", persona_id)
 
         return result
 
