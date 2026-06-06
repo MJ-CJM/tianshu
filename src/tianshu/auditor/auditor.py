@@ -99,12 +99,14 @@ class Auditor:
 
         self._storage.update_memorial(memorial)
 
-        # Auto-close edict if no human review required and execution succeeded
+        # Auto-close edict if no human review required and execution succeeded.
+        # 周期性敕令（cron/interval）每次运行后必须保持 OPEN，否则 _cron_loop /
+        # _interval_loop 下一轮会因 edict 非 open 而停止、重启时 _restore_jobs 也会取消。
         if (
             memorial.status == TaskStatus.COMPLETED
             and memorial.review_status == "not_required"
             and edict.status == EdictStatus.OPEN
-            and edict.schedule.type != "cron"
+            and edict.schedule.type not in ("cron", "interval")
         ):
             edict.status = EdictStatus.COMPLETED
             self._storage.update_edict(edict)

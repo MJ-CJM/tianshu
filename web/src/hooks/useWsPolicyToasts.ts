@@ -19,7 +19,7 @@ interface ToastPayload {
 /**
  * 订阅 WebSocket 中的 policy 事件并弹出 AntD notification toast。
  *
- * - tool.approval_required → warning 提示，点击跳转到御书房
+ * - tool.approval_required → warning 提示，点击跳转到该敕令详情页就地审批
  * - policy.decision (verdict=deny) → error 提示，5 秒后自动关闭
  * - decree.approved (grant_downgraded=true) → info 提示"已降级为本次"
  *
@@ -89,7 +89,10 @@ export function useWsPolicyToasts(
           description: `${toolName || "tool"}: ${payload.reason ?? ""}`,
           duration: 0,
           onClick: () => {
-            navigate("/approvals");
+            // 跳到该敕令详情页就地审批（详情页已内联「工具待批」卡）；
+            // 仅在拿不到 edict_id 时回退到 /approvals 全局队列。
+            const eid = msg.edict_id as string | undefined;
+            navigate(eid ? `/edicts/${eid}` : "/approvals");
             notification.destroy(notifKey);
           },
         });

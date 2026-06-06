@@ -7,7 +7,7 @@ import type { Memorial } from "../../api/types";
 import { usePersonas } from "../../hooks/usePersonas";
 import GlowCard from "../common/GlowCard";
 import StatusTag from "../edict/StatusTag";
-import { formatDuration } from "../../utils/format";
+import { formatDuration, formatTime } from "../../utils/format";
 import { parseErrorMessage } from "../../utils/errorMessage";
 import { STATUS_COLORS } from "../../utils/constants";
 import { useT } from "../../i18n";
@@ -58,18 +58,17 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
             <Button
               type="link"
               size="small"
-              onClick={() => navigate("/approvals")}
+              onClick={() => navigate(`/edicts/${memorial.edict_id}`)}
               style={{ padding: 0 }}
             >
               {t("memorial.review.pending")}
             </Button>
           )}
-          {hasDuration && (
-            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
-              <ClockCircleOutlined style={{ marginRight: 4 }} />
-              {duration}
-            </Typography.Text>
-          )}
+          <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
+            <ClockCircleOutlined style={{ marginRight: 4 }} />
+            {formatTime(memorial.started_at ?? memorial.created_at)}
+            {hasDuration && ` · ${duration}`}
+          </Typography.Text>
           {memorial.persona_id && (() => {
             const persona = (personas ?? []).find((p) => p.id === memorial.persona_id);
             return (

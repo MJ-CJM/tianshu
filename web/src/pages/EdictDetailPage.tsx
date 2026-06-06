@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button, Input, Modal, Spin, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme } from "antd";
-import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { useEdictDetail } from "../hooks/useEdictDetail";
 import { followUpEdict, updateEdictStatus, updateEdict, approvePlan, rejectPlan, pauseEdict, resumeEdict } from "../api/edicts";
 import PageContainer from "../components/common/PageContainer";
@@ -15,8 +15,10 @@ import SupervisionReportCard from "../components/edict/SupervisionReportCard";
 import FollowUpOverridePanel from "../components/edict/FollowUpOverridePanel";
 import type { FollowUpOverrideValue } from "../components/edict/FollowUpOverridePanel";
 import DecreeModal from "../components/decree/DecreeModal";
+import PendingToolCallCard from "../components/decree/PendingToolCallCard";
 import { PolicyTimeline } from "../components/policy/PolicyTimeline";
 import { useDagByEdict } from "../hooks/useDag";
+import { usePendingToolCalls } from "../hooks/useApprovals";
 import { formatTime, truncateId } from "../utils/format";
 import {
   EDICT_STATUS_COLORS,
@@ -45,6 +47,13 @@ export default function EdictDetailPage() {
   const [decreeModalOpen, setDecreeModalOpen] = useState(false);
   const { data: dagExecution } = useDagByEdict(edictId);
   const hasDag = dagExecution && dagExecution.nodes && dagExecution.nodes.length > 1;
+
+  // 执行中工具待批：就地审批（无需跳转 /approvals）。按当前敕令过滤。
+  const { data: allPendingTools = [] } = usePendingToolCalls();
+  const pendingTools = useMemo(
+    () => allPendingTools.filter((p) => p.edict_id === edictId),
+    [allPendingTools, edictId],
+  );
 
   // Extract plan event for display
   const planEvent = useMemo(() => {
@@ -511,6 +520,22 @@ export default function EdictDetailPage() {
           </span>
         </Space>
       </GlowCard>
+
+      {pendingTools.length > 0 && (
+        <GlowCard
+          title={
+            <Space>
+              <ThunderboltOutlined style={{ color: "#faad14" }} />
+              {t("comp.edictActivity.pendingTool", { n: pendingTools.length })}
+            </Space>
+          }
+          style={{ marginBottom: 24, borderLeft: "3px solid #faad14" }}
+        >
+          {pendingTools.map((p) => (
+            <PendingToolCallCard key={p.memorial_id} pending={p} />
+          ))}
+        </GlowCard>
+      )}
 
       {planEvent && planTasks.length > 0 && (
         <GlowCard
