@@ -1457,6 +1457,7 @@ async def list_personas(request: Request):
             "skills_allowed": p.skills_allowed,
             "tool_tier_max": p.tool_tier_max,
             "can_delegate": p.can_delegate,
+            "memory_global_read": p.memory_global_read,
             "delegates_to": p.delegates_to,
             "llm_config_name": p.llm_config_name,
         }
@@ -1565,6 +1566,7 @@ async def create_persona(request: Request):
         skills_allowed=body.get("skills_allowed", []),
         tool_tier_max=body.get("tool_tier_max", 0),
         can_delegate=body.get("can_delegate", False),
+        memory_global_read=body.get("memory_global_read", False),
         delegates_to=body.get("delegates_to", []),
         llm_config_name=llm_config_name,
     )
@@ -1579,6 +1581,7 @@ async def create_persona(request: Request):
         "skills_allowed": persona.skills_allowed,
         "tool_tier_max": persona.tool_tier_max,
         "can_delegate": persona.can_delegate,
+        "memory_global_read": persona.memory_global_read,
         "delegates_to": persona.delegates_to,
         "llm_config_name": persona.llm_config_name,
     })
@@ -1701,6 +1704,7 @@ async def update_persona(persona_id: str, request: Request):
         "skills_allowed": updated.skills_allowed,
         "tool_tier_max": updated.tool_tier_max,
         "can_delegate": updated.can_delegate,
+        "memory_global_read": updated.memory_global_read,
         "delegates_to": updated.delegates_to,
         "llm_config_name": updated.llm_config_name,
     })
