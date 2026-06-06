@@ -645,6 +645,9 @@ class Storage:
             "ALTER TABLE scheduler_jobs ADD COLUMN interval_seconds INTEGER",
             # Phase 8: persona 全局记忆读开关
             "ALTER TABLE personas ADD COLUMN memory_global_read INTEGER DEFAULT 0",
+            # 2026-06-07: skill_metrics 人在回路字段（前景主导技能学习）
+            "ALTER TABLE skill_metrics ADD COLUMN human_curated INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE skill_metrics ADD COLUMN last_human_action TEXT",
         ]
         for sql in migrations:
             try:
