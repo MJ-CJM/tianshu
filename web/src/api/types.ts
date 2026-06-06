@@ -537,6 +537,7 @@ export interface PersonaInfo {
   skills_allowed: string[];
   tool_tier_max: number;
   can_delegate: boolean;
+  memory_global_read: boolean;
   delegates_to: string[];
   llm_config_name?: string | null;
 }
@@ -551,6 +552,7 @@ export interface PersonaCreateRequest {
   skills_allowed?: string[];
   tool_tier_max?: number;
   can_delegate?: boolean;
+  memory_global_read?: boolean;
   delegates_to?: string[];
   llm_config_name?: string | null;
   /** Optional role-template seed (see persona-templates endpoints). */
@@ -590,6 +592,7 @@ export interface PersonaUpdateRequest {
   skills_allowed?: string[];
   tool_tier_max?: number;
   can_delegate?: boolean;
+  memory_global_read?: boolean;
   delegates_to?: string[];
   llm_config_name?: string | null;
 }

@@ -1426,6 +1426,7 @@
         "toolsDenied": "禁用工具",
         "skills": "技能注入",
         "canDelegate": "可委派",
+        "memoryGlobalRead": "全局读记忆",
         "delegatesTo": "可委派至"
       },
       "value": {
@@ -1462,6 +1463,7 @@
           "skills": "技能",
           "tierMax": "最大工具等级",
           "canDelegate": "可委派",
+          "memoryGlobalRead": "全局读记忆",
           "delegatesTo": "可委派目标",
           "template": "范本",
           "templateLang": "范本文体"

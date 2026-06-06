@@ -1427,6 +1427,7 @@
         "toolsDenied": "Denied tools",
         "skills": "Injected skills",
         "canDelegate": "Can delegate",
+        "memoryGlobalRead": "Global memory read",
         "delegatesTo": "Can delegate to"
       },
       "value": {
@@ -1463,6 +1464,7 @@
           "skills": "Skills",
           "tierMax": "Max tool tier",
           "canDelegate": "Can delegate",
+          "memoryGlobalRead": "Global memory read",
           "delegatesTo": "Delegation targets",
           "template": "Role template",
           "templateLang": "Template language"

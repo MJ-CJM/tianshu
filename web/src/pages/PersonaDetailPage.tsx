@@ -226,6 +226,9 @@ function OverviewTab({
           <Descriptions.Item label={t("persona.detail.field.canDelegate")}>
             {persona.can_delegate ? <Tag color="green">{t("persona.detail.value.yes")}</Tag> : <Tag>{t("persona.detail.value.no")}</Tag>}
           </Descriptions.Item>
+          <Descriptions.Item label={t("persona.detail.field.memoryGlobalRead")}>
+            {persona.memory_global_read ? <Tag color="green">{t("persona.detail.value.yes")}</Tag> : <Tag>{t("persona.detail.value.no")}</Tag>}
+          </Descriptions.Item>
           <Descriptions.Item label={t("persona.detail.field.delegatesTo")}>
             {persona.delegates_to.length > 0 ? (
               persona.delegates_to.map((d) => (
@@ -826,6 +829,7 @@ export default function PersonaDetailPage() {
       skills_allowed: persona.skills_allowed,
       tool_tier_max: persona.tool_tier_max,
       can_delegate: persona.can_delegate,
+      memory_global_read: persona.memory_global_read,
       delegates_to: persona.delegates_to,
       llm_config_name: persona.llm_config_name ?? "",
     });
@@ -1056,6 +1060,9 @@ export default function PersonaDetailPage() {
             <InputNumber min={0} max={10} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item name="can_delegate" label={t("persona.form.persona.field.canDelegate")} valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="memory_global_read" label={t("persona.form.persona.field.memoryGlobalRead")} valuePropName="checked">
             <Switch />
           </Form.Item>
           <Form.Item name="delegates_to" label={t("persona.form.persona.field.delegatesTo")}>

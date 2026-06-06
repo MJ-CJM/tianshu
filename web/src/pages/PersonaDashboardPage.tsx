@@ -455,6 +455,7 @@ function PersonaFormModal({
         initialValues={{
           tool_tier_max: 0,
           can_delegate: false,
+          memory_global_read: false,
           tools_allowed: [],
           tools_denied: [],
           skills_allowed: [],
@@ -600,6 +601,9 @@ function PersonaFormModal({
           <InputNumber min={0} max={10} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item name="can_delegate" label={t("persona.form.persona.field.canDelegate")} valuePropName="checked">
+          <Switch />
+        </Form.Item>
+        <Form.Item name="memory_global_read" label={t("persona.form.persona.field.memoryGlobalRead")} valuePropName="checked">
           <Switch />
         </Form.Item>
         <Form.Item name="delegates_to" label={t("persona.form.persona.field.delegatesTo")}>
