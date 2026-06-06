@@ -164,8 +164,8 @@ class MarkdownMemoryBackend:
         persona_id: 写到 ~/.tianshu/memory/{persona_id}/MEMORY.md
         section:    完整的 H2 锚（如 "## 心学要旨"）；调用方应已通过
                     safety.normalize_section 归一化
-        mode:       "append" | "replace" | "remove"
-        content:    append/replace 必填
+        mode:       "append" | "replace" | "remove" | "set"
+        content:    append/replace/set 必填
         old_text:   replace/remove 必填
 
         返回
@@ -181,12 +181,12 @@ class MarkdownMemoryBackend:
         异常
         ----
         - FileNotFoundError: replace/remove 时 section 或 old_text 不存在
-        - ValueError: 参数缺失（如 append/replace 缺 content）
+        - ValueError: 参数缺失（如 append/replace/set 缺 content）
         - 调用方应在调用前用 safety.validate_content / check_file_size 做内容校验
         """
-        if mode not in ("append", "replace", "remove"):
+        if mode not in ("append", "replace", "remove", "set"):
             raise ValueError(f"unsupported write_section mode: {mode}")
-        if mode in ("append", "replace") and not content:
+        if mode in ("append", "replace", "set") and not content:
             raise ValueError(f"mode={mode} requires non-empty content")
         if mode in ("replace", "remove") and not old_text:
             raise ValueError(f"mode={mode} requires old_text")
@@ -274,7 +274,7 @@ class MarkdownMemoryBackend:
             # section 不存在
             if mode in ("replace", "remove"):
                 raise FileNotFoundError(f"section {section!r} not found in MEMORY.md")
-            # append：创建新段，追加到文件末尾
+            # append / set：创建新段，追加到文件末尾
             base = existing.rstrip()
             sep = "\n\n" if base else ""
             return f"{base}{sep}{section}\n\n{content.rstrip()}\n"
@@ -288,6 +288,9 @@ class MarkdownMemoryBackend:
                 raise ValueError("content already present in this section (dedupe)")
             new_body = section_body.rstrip() + "\n\n" + content.rstrip() + "\n"
             new_section = f"{section}\n{new_body}"
+        elif mode == "set":
+            # 整段 body 覆盖：只动本 section，其余 section 原样保留
+            new_section = f"{section}\n\n{content.rstrip()}\n"
         elif mode == "replace":
             if old_text not in section_body:
                 raise FileNotFoundError(f"old_text not found in section {section!r}")
