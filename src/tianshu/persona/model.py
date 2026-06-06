@@ -25,5 +25,6 @@ class AgentPersona(BaseModel):
     skills_allowed: list[str] = Field(default_factory=list)
     tool_tier_max: int = 0
     can_delegate: bool = False
+    memory_global_read: bool = False  # 高权限：绕过记忆访问控制，可读所有 persona 的记忆
     delegates_to: list[str] = Field(default_factory=list)
     llm_config_name: str | None = None  # references llm_configs.name; None = use global

@@ -643,6 +643,8 @@ class Storage:
             "ALTER TABLE skill_metrics ADD COLUMN absorbed_into TEXT",
             # 2026-06-05: scheduler_jobs 周期间隔（interval 类型，配合调度工具 schedule_edict）
             "ALTER TABLE scheduler_jobs ADD COLUMN interval_seconds INTEGER",
+            # Phase 8: persona 全局记忆读开关
+            "ALTER TABLE personas ADD COLUMN memory_global_read INTEGER DEFAULT 0",
         ]
         for sql in migrations:
             try:
@@ -2113,9 +2115,9 @@ class Storage:
             self._conn.execute(
                 """INSERT OR REPLACE INTO personas
                    (id, name, department, title, tools_allowed, tools_denied,
-                    skills_allowed, tool_tier_max, can_delegate, delegates_to,
+                    skills_allowed, tool_tier_max, can_delegate, memory_global_read, delegates_to,
                     soul_path, role_path, llm_config_name, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     persona["id"],
                     persona["name"],
@@ -2126,6 +2128,7 @@ class Storage:
                     json.dumps(persona.get("skills_allowed", [])),
                     persona.get("tool_tier_max", 0),
                     int(persona.get("can_delegate", False)),
+                    int(persona.get("memory_global_read", False)),
                     json.dumps(persona.get("delegates_to", [])),
                     persona.get("soul_path"),
                     persona.get("role_path"),
@@ -2152,7 +2155,7 @@ class Storage:
     def update_persona(self, persona_id: str, **fields) -> None:
         allowed = {
             "name", "department", "title", "tools_allowed", "tools_denied",
-            "skills_allowed", "tool_tier_max", "can_delegate", "delegates_to",
+            "skills_allowed", "tool_tier_max", "can_delegate", "memory_global_read", "delegates_to",
             "soul_path", "role_path", "llm_config_name",
         }
         sets: list[str] = []
@@ -2163,8 +2166,8 @@ class Storage:
             if key in ("tools_allowed", "tools_denied", "skills_allowed", "delegates_to"):
                 sets.append(f"{key} = ?")
                 params.append(json.dumps(value))
-            elif key == "can_delegate":
-                sets.append("can_delegate = ?")
+            elif key in ("can_delegate", "memory_global_read"):
+                sets.append(f"{key} = ?")
                 params.append(int(value))
             else:
                 sets.append(f"{key} = ?")
@@ -2293,6 +2296,7 @@ class Storage:
             "skills_allowed": json.loads(row["skills_allowed"]) if "skills_allowed" in keys else [],
             "tool_tier_max": row["tool_tier_max"],
             "can_delegate": bool(row["can_delegate"]),
+            "memory_global_read": bool(row["memory_global_read"]) if "memory_global_read" in keys else False,
             "delegates_to": json.loads(row["delegates_to"]),
             "soul_path": row["soul_path"],
             "role_path": row["role_path"],

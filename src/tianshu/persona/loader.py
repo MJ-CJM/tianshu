@@ -182,6 +182,7 @@ class PersonaLoader:
             tools_denied=meta.get("tools_denied", []),
             tool_tier_max=meta.get("tool_tier_max", 0),
             can_delegate=meta.get("can_delegate", False),
+            memory_global_read=meta.get("memory_global_read", False),
             delegates_to=meta.get("delegates_to", []),
             llm_config_name=meta.get("llm_config_name"),
             skills_allowed=meta.get("skills_allowed", []),
@@ -199,6 +200,7 @@ class PersonaLoader:
             "skills_allowed": persona.skills_allowed,
             "tool_tier_max": persona.tool_tier_max,
             "can_delegate": persona.can_delegate,
+            "memory_global_read": persona.memory_global_read,
             "delegates_to": persona.delegates_to,
             "soul_path": str(persona.soul_path),
             "role_path": str(persona.role_path),
@@ -238,6 +240,7 @@ class PersonaLoader:
             skills_allowed=d.get("skills_allowed", []),
             tool_tier_max=d.get("tool_tier_max", 0),
             can_delegate=d.get("can_delegate", False),
+            memory_global_read=d.get("memory_global_read", False),
             delegates_to=d.get("delegates_to", []),
             llm_config_name=d.get("llm_config_name"),
         )
