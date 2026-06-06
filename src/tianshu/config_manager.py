@@ -37,6 +37,10 @@ class AgentConfigState:
     skill_stale_after_days: int = 30
     skill_archive_after_days: int = 90
     skill_curator_prune_builtins: bool = False
+    # 前景主导技能学习
+    skill_guard_agent_created: bool = True
+    skill_iterate_min_success_rate: float = 0.5
+    skill_iterate_min_usage: int = 3
 
 
 class ConfigManager:
