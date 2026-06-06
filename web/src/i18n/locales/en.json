@@ -1320,6 +1320,7 @@
     },
     "card": {
       "delegate": "Can delegate",
+      "globalRead": "Global read",
       "toolPermission": "Tool permissions",
       "specifiedTools": "Specified tools",
       "deniedTools": "Denied tools",
@@ -1411,7 +1412,7 @@
       "section": {
         "identity": "Identity",
         "toolsSkills": "Tools & skills",
-        "delegation": "Delegation",
+        "delegation": "Access & delegation",
         "metrics": "Metrics",
         "instructionFiles": "Instruction files",
         "memoryEntries": "Memory entries"
@@ -1427,7 +1428,7 @@
         "toolsDenied": "Denied tools",
         "skills": "Injected skills",
         "canDelegate": "Can delegate",
-        "memoryGlobalRead": "Global memory read",
+        "memoryGlobalRead": "Read all personas' memory",
         "delegatesTo": "Can delegate to"
       },
       "value": {
@@ -1464,7 +1465,7 @@
           "skills": "Skills",
           "tierMax": "Max tool tier",
           "canDelegate": "Can delegate",
-          "memoryGlobalRead": "Global memory read",
+          "memoryGlobalRead": "Read all personas' memory",
           "delegatesTo": "Delegation targets",
           "template": "Role template",
           "templateLang": "Template language"
@@ -1496,7 +1497,10 @@
         "mcpAllOf": "All tools of MCP server '{name}'",
         "toolsWildcardHint": "Type a tool name or fnmatch wildcard (e.g. mcp_context7_* to allow the whole MCP server, mcp_*_delete_* to deny all delete tools).",
         "soulPreview": "SOUL · persona preview",
-        "rolePreview": "ROLE · role preview"
+        "rolePreview": "ROLE · role preview",
+        "fieldHint": {
+          "memoryGlobalRead": "High privilege: reads all personas' memory. Enable with caution."
+        }
       },
       "department": {
         "addTitle": "Add department",

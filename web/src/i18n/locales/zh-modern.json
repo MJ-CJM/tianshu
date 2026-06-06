@@ -1319,6 +1319,7 @@
     },
     "card": {
       "delegate": "可委派",
+      "globalRead": "全局读",
       "toolPermission": "工具权限",
       "specifiedTools": "指定工具",
       "deniedTools": "禁用工具",
@@ -1410,7 +1411,7 @@
       "section": {
         "identity": "身份信息",
         "toolsSkills": "工具与技能",
-        "delegation": "委派关系",
+        "delegation": "权限与委派",
         "metrics": "执行指标",
         "instructionFiles": "指令文件",
         "memoryEntries": "记忆条目"
@@ -1426,7 +1427,7 @@
         "toolsDenied": "禁用工具",
         "skills": "技能注入",
         "canDelegate": "可委派",
-        "memoryGlobalRead": "全局读记忆",
+        "memoryGlobalRead": "读取全部记忆",
         "delegatesTo": "可委派至"
       },
       "value": {
@@ -1463,7 +1464,7 @@
           "skills": "技能",
           "tierMax": "最大工具等级",
           "canDelegate": "可委派",
-          "memoryGlobalRead": "全局读记忆",
+          "memoryGlobalRead": "读取全部记忆",
           "delegatesTo": "可委派目标",
           "template": "角色模板",
           "templateLang": "模板语言"
@@ -1495,7 +1496,10 @@
         "mcpAllOf": "MCP server '{name}' 的全部工具",
         "toolsWildcardHint": "可输入工具名或 fnmatch 通配符（例：mcp_context7_* 整个 server 一键授权，mcp_*_delete_* 禁所有 delete 工具）。",
         "soulPreview": "SOUL · 人格预览",
-        "rolePreview": "ROLE · 职责预览"
+        "rolePreview": "ROLE · 职责预览",
+        "fieldHint": {
+          "memoryGlobalRead": "高权限：可读全体角色记忆，谨慎开启"
+        }
       },
       "department": {
         "addTitle": "添加部门",

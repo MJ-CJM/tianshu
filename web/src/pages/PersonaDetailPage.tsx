@@ -227,7 +227,7 @@ function OverviewTab({
             {persona.can_delegate ? <Tag color="green">{t("persona.detail.value.yes")}</Tag> : <Tag>{t("persona.detail.value.no")}</Tag>}
           </Descriptions.Item>
           <Descriptions.Item label={t("persona.detail.field.memoryGlobalRead")}>
-            {persona.memory_global_read ? <Tag color="green">{t("persona.detail.value.yes")}</Tag> : <Tag>{t("persona.detail.value.no")}</Tag>}
+            {persona.memory_global_read ? <Tag color="orange">{t("persona.detail.value.yes")}</Tag> : <Tag>{t("persona.detail.value.no")}</Tag>}
           </Descriptions.Item>
           <Descriptions.Item label={t("persona.detail.field.delegatesTo")}>
             {persona.delegates_to.length > 0 ? (
@@ -1062,7 +1062,7 @@ export default function PersonaDetailPage() {
           <Form.Item name="can_delegate" label={t("persona.form.persona.field.canDelegate")} valuePropName="checked">
             <Switch />
           </Form.Item>
-          <Form.Item name="memory_global_read" label={t("persona.form.persona.field.memoryGlobalRead")} valuePropName="checked">
+          <Form.Item name="memory_global_read" label={t("persona.form.persona.field.memoryGlobalRead")} valuePropName="checked" extra={t("persona.form.persona.fieldHint.memoryGlobalRead")}>
             <Switch />
           </Form.Item>
           <Form.Item name="delegates_to" label={t("persona.form.persona.field.delegatesTo")}>

@@ -109,6 +109,11 @@ function PersonaCard({
               {t("persona.card.delegate")}
             </Tag>
           )}
+          {persona.memory_global_read && (
+            <Tag color="orange">
+              {t("persona.card.globalRead")}
+            </Tag>
+          )}
         </Space>
       }
       extra={
@@ -603,7 +608,7 @@ function PersonaFormModal({
         <Form.Item name="can_delegate" label={t("persona.form.persona.field.canDelegate")} valuePropName="checked">
           <Switch />
         </Form.Item>
-        <Form.Item name="memory_global_read" label={t("persona.form.persona.field.memoryGlobalRead")} valuePropName="checked">
+        <Form.Item name="memory_global_read" label={t("persona.form.persona.field.memoryGlobalRead")} valuePropName="checked" extra={t("persona.form.persona.fieldHint.memoryGlobalRead")}>
           <Switch />
         </Form.Item>
         <Form.Item name="delegates_to" label={t("persona.form.persona.field.delegatesTo")}>

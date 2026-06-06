@@ -1319,6 +1319,7 @@
     },
     "card": {
       "delegate": "可委派",
+      "globalRead": "通览",
       "toolPermission": "工具权限",
       "specifiedTools": "指定工具",
       "deniedTools": "禁用工具",
@@ -1410,7 +1411,7 @@
       "section": {
         "identity": "身份信息",
         "toolsSkills": "工具与技能",
-        "delegation": "委派关系",
+        "delegation": "权柄与委派",
         "metrics": "执行指标",
         "instructionFiles": "指令文件",
         "memoryEntries": "记忆条目"
@@ -1426,7 +1427,7 @@
         "toolsDenied": "禁用工具",
         "skills": "技能注入",
         "canDelegate": "可委派",
-        "memoryGlobalRead": "全局读记忆",
+        "memoryGlobalRead": "通览百官记忆",
         "delegatesTo": "可委派至"
       },
       "value": {
@@ -1463,7 +1464,7 @@
           "skills": "技能",
           "tierMax": "最大工具等级",
           "canDelegate": "可委派",
-          "memoryGlobalRead": "全局读记忆",
+          "memoryGlobalRead": "通览百官记忆",
           "delegatesTo": "可委派目标",
           "template": "范本",
           "templateLang": "范本文体"
@@ -1495,7 +1496,10 @@
         "mcpAllOf": "外援「{name}」麾下尽用",
         "toolsWildcardHint": "可填具名兵种或通配符（例：mcp_context7_* 全军授调，mcp_*_delete_* 禁所有 delete 之兵）。",
         "soulPreview": "魂魄 · 人格",
-        "rolePreview": "职司 · 职守"
+        "rolePreview": "职司 · 职守",
+        "fieldHint": {
+          "memoryGlobalRead": "高权：可阅百官记忆，慎开"
+        }
       },
       "department": {
         "addTitle": "添加部门",
