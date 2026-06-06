@@ -1,8 +1,8 @@
-"""MemoryManager — split-write architecture (no dual-write).
+"""MemoryManager — Markdown source-of-truth + write-through index.
 
 Write routing:
-  Agent execution → Markdown only (source of truth)
-  Web/API display → SQLite (derived index, rebuilt from MD)
+  Agent execution → Markdown (source of truth) + SQLite write-through (FTS 即时可召回)
+  Web/API display → SQLite (derived index, rebuildable from MD via sync_index)
 
 Read routing:
   Agent (prompt injection) → Markdown files
@@ -39,7 +39,7 @@ _ENTITY_REF_PATTERN = re.compile(r"@([\w\-]+)")
 
 
 class MemoryManager:
-    """Unified memory management — split-write, no dual-write.
+    """Unified memory management — Markdown source-of-truth + write-through index.
 
     Markdown files = Source of Truth (under ~/.tianshu/memory/)
     SQLite = Derived search index (for API queries, Web display, FTS5)
@@ -102,7 +102,7 @@ class MemoryManager:
         return self._memory_dir
 
     # ------------------------------------------------------------------
-    # Core operations — Markdown-only write path
+    # Core operations — Markdown source-of-truth + write-through index
     # ------------------------------------------------------------------
 
     def store(
@@ -110,7 +110,7 @@ class MemoryManager:
         entry: MemoryEntry,
         writer: str | None = None,
     ) -> MemoryEntry:
-        """Store a memory entry — writes to Markdown ONLY (no SQLite).
+        """Store a memory entry — writes Markdown (source of truth) + SQLite index (write-through).
 
         Extracts @entity_name references from content.
         """
@@ -148,6 +148,17 @@ class MemoryManager:
             "[MEM] store: persona=%s, category=%s, content_len=%d",
             entry.persona_id, entry.category, len(entry.content),
         )
+
+        # write-through 索引：MD 写完后同步刷 SQLite + FTS（memory_fts trigger 自动维护）。
+        # MD 仍是唯一真相；索引写失败不阻断，可后续 sync_index 修复。
+        try:
+            self._backend.save(entry)
+        except Exception:
+            logger.exception(
+                "Index write-through failed for %s content=%.60r (MD already persisted)",
+                entry.id, entry.content,
+            )
+
         return entry
 
     async def retain_drawers(
