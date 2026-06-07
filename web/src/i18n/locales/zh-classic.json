@@ -14,7 +14,8 @@
     "scheduler": "文书房",
     "persona": "百官阁",
     "system": "藏兵阁",
-    "sessionRules": "权印司"
+    "sessionRules": "权印司",
+    "skills": "秘技台"
   },
   "sidebar": {
     "darkMode": "深色模式",
@@ -1886,6 +1887,43 @@
         "toolsFilterHint": "外援 tools/list 所列之名；剔不需要者。",
         "addRow": "增列"
       }
+    }
+  },
+  "skillsPage": {
+    "title": "秘技台",
+    "table": {
+      "name": "技名",
+      "description": "技述",
+      "source": "出处",
+      "state": "状态",
+      "usage": "调用 / 得胜率",
+      "flags": "旗令",
+      "createdAt": "录册之日",
+      "actions": "调令"
+    },
+    "badge": {
+      "autoCurated": "机器铸造",
+      "humanCurated": "人工勘校（迭代不覆）",
+      "humanCuratedShort": "人校",
+      "pinned": "钉牌（不逐）",
+      "pinnedShort": "钉牌"
+    },
+    "action": {
+      "archive": "归档",
+      "edit": "修订",
+      "pin": "钉牌",
+      "unpin": "撤牌"
+    },
+    "confirmArchive": "确认将此技归档？归档后不再生效，可随时恢复。",
+    "editDialog": {
+      "title": "修订秘技",
+      "titleWithName": "修订秘技：{name}"
+    },
+    "toast": {
+      "archived": "技能「{name}」已归档入库",
+      "pinned": "技能「{name}」已钉牌",
+      "unpinned": "技能「{name}」已撤牌",
+      "editSaved": "已录档。此技已标为人工勘校，迭代不覆。"
     }
   }
 }

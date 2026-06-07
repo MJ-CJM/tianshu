@@ -14,7 +14,8 @@
     "scheduler": "调度器",
     "persona": "角色管理",
     "system": "系统管理",
-    "sessionRules": "会话规则"
+    "sessionRules": "会话规则",
+    "skills": "技能管控"
   },
   "sidebar": {
     "darkMode": "深色模式",
@@ -1886,6 +1887,43 @@
         "toolsFilterHint": "对应 server 的 tools/list 中的名字，用来隐藏不需要的工具。",
         "addRow": "添加"
       }
+    }
+  },
+  "skillsPage": {
+    "title": "技能管控面",
+    "table": {
+      "name": "名称",
+      "description": "描述",
+      "source": "来源",
+      "state": "状态",
+      "usage": "调用 / 成功率",
+      "flags": "标记",
+      "createdAt": "创建时间",
+      "actions": "操作"
+    },
+    "badge": {
+      "autoCurated": "自动固化",
+      "humanCurated": "人工校订（不会被自动迭代覆盖）",
+      "humanCuratedShort": "人工",
+      "pinned": "已 Pin（不会被自动清理）",
+      "pinnedShort": "Pin"
+    },
+    "action": {
+      "archive": "撤销",
+      "edit": "编辑",
+      "pin": "Pin",
+      "unpin": "取消 Pin"
+    },
+    "confirmArchive": "确认撤销此技能？归档后将不再生效（可恢复）。",
+    "editDialog": {
+      "title": "编辑技能",
+      "titleWithName": "编辑技能: {name}"
+    },
+    "toast": {
+      "archived": "技能「{name}」已归档",
+      "pinned": "技能「{name}」已 Pin",
+      "unpinned": "技能「{name}」已取消 Pin",
+      "editSaved": "已保存。已标记为人工校订（不会被自动迭代覆盖）。"
     }
   }
 }

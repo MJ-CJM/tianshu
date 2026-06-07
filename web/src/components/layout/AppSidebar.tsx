@@ -23,6 +23,7 @@ import {
   SafetyOutlined,
   GlobalOutlined,
   MessageOutlined,
+  BulbOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
@@ -106,6 +107,11 @@ export default function AppSidebar() {
       key: "/session-rules",
       icon: <SafetyOutlined />,
       label: t("nav.sessionRules"),
+    },
+    {
+      key: "/skills",
+      icon: <BulbOutlined />,
+      label: t("nav.skills"),
     },
     {
       key: "/system",

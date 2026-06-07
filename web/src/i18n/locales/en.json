@@ -14,7 +14,8 @@
     "scheduler": "Scheduler",
     "persona": "Personas",
     "system": "System",
-    "sessionRules": "Session Rules"
+    "sessionRules": "Session Rules",
+    "skills": "Skills Control"
   },
   "sidebar": {
     "darkMode": "Dark Mode",
@@ -1887,6 +1888,43 @@
         "toolsFilterHint": "Names from server's tools/list. Use to hide tools you don't need.",
         "addRow": "Add"
       }
+    }
+  },
+  "skillsPage": {
+    "title": "Skills Control",
+    "table": {
+      "name": "Name",
+      "description": "Description",
+      "source": "Source",
+      "state": "State",
+      "usage": "Usage / Rate",
+      "flags": "Flags",
+      "createdAt": "Created At",
+      "actions": "Actions"
+    },
+    "badge": {
+      "autoCurated": "Auto",
+      "humanCurated": "Human-reviewed (won't be auto-overwritten)",
+      "humanCuratedShort": "Human",
+      "pinned": "Pinned (protected from pruning)",
+      "pinnedShort": "Pinned"
+    },
+    "action": {
+      "archive": "Archive",
+      "edit": "Edit",
+      "pin": "Pin",
+      "unpin": "Unpin"
+    },
+    "confirmArchive": "Archive this skill? It will be removed from active use (recoverable).",
+    "editDialog": {
+      "title": "Edit skill",
+      "titleWithName": "Edit skill: {name}"
+    },
+    "toast": {
+      "archived": "Skill \"{name}\" archived",
+      "pinned": "Skill \"{name}\" pinned",
+      "unpinned": "Skill \"{name}\" unpinned",
+      "editSaved": "Saved. Marked as human-reviewed — auto-iteration will not overwrite it."
     }
   }
 }
