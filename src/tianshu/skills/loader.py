@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 _MAX_FILE_SIZE = 256 * 1024  # 256KB
 _MAX_CANDIDATES_PER_DIR = 300
 _L1_MAX_ENTRIES = 8
+_SKILL_RESOURCE_DIRS = ("scripts", "references", "assets", "templates")
+_MAX_RESOURCE_BYTES = 1024 * 1024  # 1 MiB per resource file
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -452,6 +454,51 @@ class SkillsLoader:
         _atomic_write(skill_file, content)
         self._l2_metadata = None  # Invalidate metadata cache
         return self.get_skill(name)  # type: ignore[return-value]
+
+    def _resolve_skill_resource(self, name: str, rel_path: str) -> Path:
+        """Resolve a resource path INSIDE an existing skill dir, safely.
+
+        Rejects absolute paths, traversal, and non-whitelisted top dirs.
+        Returns the absolute target path (parent may not exist yet).
+        """
+        if not rel_path or rel_path.startswith("/") or "\\" in rel_path:
+            raise ValueError(f"invalid resource path: {rel_path!r}")
+        parts = Path(rel_path).parts
+        if ".." in parts:
+            raise ValueError(f"path traversal not allowed: {rel_path!r}")
+        if parts[0] not in _SKILL_RESOURCE_DIRS:
+            raise ValueError(
+                f"top dir must be one of {_SKILL_RESOURCE_DIRS}, got {parts[0]!r}"
+            )
+        for base, _src in self._search_dirs():
+            skill_dir = base / name
+            if (skill_dir / "SKILL.md").is_file():
+                target = (skill_dir / rel_path).resolve()
+                if not str(target).startswith(str(skill_dir.resolve()) + "/"):
+                    raise ValueError(f"resolved path escapes skill dir: {rel_path!r}")
+                return target
+        raise FileNotFoundError(f"Skill '{name}' not found")
+
+    def write_skill_file(self, name: str, rel_path: str, content: str) -> dict:
+        """Write a resource file inside a skill dir. Invalidates caches."""
+        if len(content.encode("utf-8")) > _MAX_RESOURCE_BYTES:
+            raise ValueError(f"resource exceeds {_MAX_RESOURCE_BYTES} bytes")
+        target = self._resolve_skill_resource(name, rel_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(target, content)
+        self._l1_cache.pop(name, None)
+        self._l2_metadata = None
+        return {"name": name, "file": rel_path, "bytes": len(content.encode("utf-8"))}
+
+    def remove_skill_file(self, name: str, rel_path: str) -> bool:
+        """Remove a resource file inside a skill dir. Invalidates caches."""
+        target = self._resolve_skill_resource(name, rel_path)
+        if target.is_file():
+            target.unlink()
+            self._l1_cache.pop(name, None)
+            self._l2_metadata = None
+            return True
+        return False
 
     def delete_skill(self, name: str) -> bool:
         """Delete a user/workspace skill. Builtin skills cannot be deleted."""
