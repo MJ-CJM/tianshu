@@ -14,8 +14,7 @@
     "scheduler": "Scheduler",
     "persona": "Personas",
     "system": "System",
-    "sessionRules": "Session Rules",
-    "skills": "Skills Control"
+    "sessionRules": "Session Rules"
   },
   "sidebar": {
     "darkMode": "Dark Mode",
@@ -1628,6 +1627,7 @@
     "title": "System",
     "tab": {
       "skills": "Skills",
+      "secretSkills": "Learned Skills",
       "tools": "Tools",
       "prompt": "Prompts",
       "providers": "Providers",

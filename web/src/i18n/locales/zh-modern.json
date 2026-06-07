@@ -14,8 +14,7 @@
     "scheduler": "调度器",
     "persona": "角色管理",
     "system": "系统管理",
-    "sessionRules": "会话规则",
-    "skills": "技能管控"
+    "sessionRules": "会话规则"
   },
   "sidebar": {
     "darkMode": "深色模式",
@@ -1627,6 +1626,7 @@
     "title": "系统管理",
     "tab": {
       "skills": "技能库",
+      "secretSkills": "习得技能",
       "tools": "工具箱",
       "prompt": "Prompt 模板",
       "providers": "模型供应",

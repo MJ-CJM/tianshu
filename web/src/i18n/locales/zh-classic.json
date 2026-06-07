@@ -14,8 +14,7 @@
     "scheduler": "文书房",
     "persona": "百官阁",
     "system": "藏兵阁",
-    "sessionRules": "权印司",
-    "skills": "秘技台"
+    "sessionRules": "权印司"
   },
   "sidebar": {
     "darkMode": "深色模式",
@@ -1627,6 +1626,7 @@
     "title": "藏兵阁",
     "tab": {
       "skills": "技能库",
+      "secretSkills": "秘技",
       "tools": "工具箱",
       "prompt": "Prompt 模板",
       "providers": "模型供应",
