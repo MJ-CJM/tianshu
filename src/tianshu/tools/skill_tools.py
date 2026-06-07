@@ -123,7 +123,7 @@ async def _handle_create(
     try:
         result = skills.create_skill(name, content)
         if metrics_store:
-            metrics_store.ensure_exists(name)
+            metrics_store.ensure_exists(name, created_by="agent")
         bus = kwargs.get("event_bus")
         if bus is not None:
             try:
