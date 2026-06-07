@@ -58,6 +58,11 @@ class SkillsLoader:
         self._l2_stats: dict[str, tuple[int, int]] = {}
         self._l2_metadata: list[dict] | None = None
 
+    def repoint_user_dir(self, new_user_dir: Path) -> None:
+        """切换 user 技能根目录（位面切换时调用）并失效所有缓存。"""
+        self._user_dir = Path(new_user_dir).expanduser()
+        self.invalidate_cache()
+
     def set_char_budget(self, budget: int) -> None:
         self._char_budget = budget
 

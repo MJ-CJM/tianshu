@@ -49,6 +49,12 @@ class PersonaLoader:
     def runtime_dir(self) -> Path:
         return self._runtime_dir
 
+    def repoint_runtime(self, new_runtime_dir: Path) -> None:
+        """切换 runtime 人格根目录（位面切换时调用）并重载内存中的人格。"""
+        self._runtime_dir = Path(new_runtime_dir).expanduser()
+        self._personas.clear()
+        self.load_all()
+
     def ensure_runtime_identity(
         self,
         persona_id: str,
