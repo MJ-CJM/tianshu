@@ -49,6 +49,8 @@ from tianshu.skills.metrics import SkillMetricsStore
 from tianshu.skills.reviewer import SkillReviewHandler
 from tianshu.skills.validator import SkillValidator
 from tianshu.skills.curator import SkillCurator
+from tianshu.universe.store import UniverseStore
+from tianshu.universe.manager import UniverseManager
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.memory_tools import register_memory_tools
@@ -604,6 +606,38 @@ async def lifespan(app: FastAPI):
     )
     skill_curator.attach_event_bus(event_bus)
     app.state.skill_curator = skill_curator
+
+    # --- 平行位面（parallel universe）---
+    def _universe_config_snapshot() -> dict:
+        from dataclasses import asdict
+        return {"agent_config": asdict(config_manager.agent_config)}
+
+    def _universe_config_apply(manifest: dict) -> None:
+        ac = manifest.get("agent_config") or {}
+        if ac:
+            config_manager.update_agent_config(**{
+                k: ac[k] for k in ("agent_max_iterations", "agent_timeout_seconds",
+                                   "skills_char_budget") if k in ac
+            })
+
+    universe_store = UniverseStore(
+        root=Path("~/.tianshu/universes").expanduser(),
+        live_personas_dir=persona_loader.runtime_dir,
+        live_skills_dir=skills.user_dir,
+    )
+    universe_manager = UniverseManager(
+        storage=storage,
+        store=universe_store,
+        persona_loader=persona_loader,
+        skills_loader=skills,
+        config_snapshot=_universe_config_snapshot,
+        config_apply=_universe_config_apply,
+        event_bus=event_bus,
+    )
+    if config_manager.agent_config.parallel_universe_enabled:
+        universe_manager.ensure_genesis()
+    executor.set_universe_manager(universe_manager)
+    app.state.universe_manager = universe_manager
 
     scheduler.register_system_jobs(profile_trigger, skill_curator=skill_curator)
 

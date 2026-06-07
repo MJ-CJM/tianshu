@@ -117,6 +117,8 @@ class UniverseManager:
 
         # 还原运行态目录 + 取回 config 快照
         manifest = self._store.restore_to_live(universe_id)
+        # live 目录路径固定；restore_to_live 已就地覆盖其内容，
+        # 这两行让 loader 清缓存并从磁盘重新加载新内容。
         self._personas.repoint_runtime(self._personas.runtime_dir)
         self._skills.repoint_user_dir(self._skills_user_dir())
         self._config_apply(manifest)
@@ -195,7 +197,7 @@ class UniverseManager:
             self._store.snapshot_live(champ["id"], self._config_snapshot())
 
     def _skills_user_dir(self) -> Path:
-        return Path(self._skills._user_dir)  # noqa: SLF001 — loader 未暴露 property
+        return Path(self._skills.user_dir)
 
     def _emit(self, event_type: str, payload: dict) -> None:
         if not self._bus:
