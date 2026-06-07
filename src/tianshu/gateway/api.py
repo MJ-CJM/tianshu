@@ -1960,7 +1960,22 @@ async def get_profile_history(persona_id: str, version: int, request: Request):
 async def list_skills(request: Request):
     from tianshu.skills.loader import SkillsLoader
     loader: SkillsLoader = request.app.state.skills_loader
-    skills = loader.list_all_metadata()
+    metrics = getattr(request.app.state, "skill_metrics_store", None)
+    # 用 dict(s) 拷贝，避免污染 loader 内部可能缓存的 metadata dict
+    skills = [dict(s) for s in loader.list_all_metadata()]
+    if metrics is not None:
+        for s in skills:
+            m = metrics.get(s.get("name", ""))
+            if m:
+                s.update({
+                    "created_by": m.created_by,
+                    "state": m.state,
+                    "pinned": m.pinned,
+                    "human_curated": m.human_curated,
+                    "usage_count": m.usage_count,
+                    "success_rate": m.success_rate,
+                    "created_at": m.created_at,
+                })
     return ApiResponse(success=True, data=skills)
 
 
