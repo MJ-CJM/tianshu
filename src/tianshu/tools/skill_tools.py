@@ -180,6 +180,13 @@ async def _handle_write_file(skills: SkillsLoader, name: str, **kwargs: Any) -> 
     file_content = kwargs.get("file_content")
     if not file_path or file_content is None:
         return error_result("'file_path' and 'file_content' are required for write_file")
+    if kwargs.get("_guard_enabled") and file_content is not None:
+        from tianshu.skills.guard import SkillsGuard, TrustLevel
+        guard = SkillsGuard()
+        gres = guard.scan_content(file_content, TrustLevel.AGENT_CREATED)
+        if not SkillsGuard.should_allow(gres, TrustLevel.AGENT_CREATED):
+            findings = "; ".join(f.message for f in gres.findings)
+            return error_result(f"guard blocked resource: {findings}")
     try:
         result = skills.write_skill_file(name, file_path, file_content)
         return ok_result(json.dumps({"status": "file_written", **result}, ensure_ascii=False))
@@ -238,6 +245,8 @@ def register_skill_tools(
     registry: ToolRegistry,
     skills: SkillsLoader,
     metrics_store: MetricsStore | None = None,
+    guard_agent_created: bool = True,
+    event_bus: Any | None = None,
 ) -> None:
     """Register skill_list, skill_view, and skill_manage tools."""
 
@@ -302,6 +311,8 @@ def register_skill_tools(
         lambda **kwargs: _skill_manage(
             skills,
             metrics_store=metrics_store,
+            _guard_enabled=guard_agent_created,
+            event_bus=event_bus,
             **kwargs,
         ),
         ToolDefinition(
