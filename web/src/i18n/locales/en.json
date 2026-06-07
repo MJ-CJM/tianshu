@@ -14,7 +14,8 @@
     "scheduler": "Scheduler",
     "persona": "Personas",
     "system": "System",
-    "sessionRules": "Session Rules"
+    "sessionRules": "Session Rules",
+    "universe": "Universes"
   },
   "sidebar": {
     "darkMode": "Dark Mode",

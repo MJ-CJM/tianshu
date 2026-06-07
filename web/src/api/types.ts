@@ -884,6 +884,20 @@ export interface ReflectionResult {
   insights?: string[];
 }
 
+// --- Universe types (平行位面 Phase 8) ---
+
+export interface Universe {
+  id: string;
+  name: string;
+  parent_universe_id: string | null;
+  status: "champion" | "challenger" | "archived";
+  origin: "genesis" | "manual_branch" | "mutation" | "code_variant";
+  mutation_reason: string | null;
+  description: string;
+  fitness: Record<string, number>;
+  created_at: string;
+}
+
 // --- External Network Credentials (Spec 2026-04-22 §4) ---
 export interface Credential {
   id: string;

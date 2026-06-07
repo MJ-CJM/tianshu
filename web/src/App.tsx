@@ -24,6 +24,7 @@ import PersonaDashboardPage from "./pages/PersonaDashboardPage";
 import PersonaDetailPage from "./pages/PersonaDetailPage";
 import SystemManagementPage from "./pages/SystemManagementPage";
 import SessionRulesPage from "./pages/SessionRulesPage";
+import UniversePage from "./pages/UniversePage";
 // Lazy-loaded DAG Battle Map (heavy @xyflow/react dependency)
 const DagBattleMapPage = React.lazy(() => import("./pages/DagBattleMapPage"));
 
@@ -66,6 +67,7 @@ function ThemedApp() {
                 <Route path="/personas/:personaId" element={<PersonaDetailPage />} />
                 <Route path="/system" element={<SystemManagementPage />} />
                 <Route path="/session-rules" element={<SessionRulesPage />} />
+                <Route path="/universes" element={<UniversePage />} />
                 <Route
                   path="/dag/:dagId"
                   element={

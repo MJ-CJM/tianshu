@@ -14,7 +14,8 @@
     "scheduler": "调度器",
     "persona": "角色管理",
     "system": "系统管理",
-    "sessionRules": "会话规则"
+    "sessionRules": "会话规则",
+    "universe": "位面"
   },
   "sidebar": {
     "darkMode": "深色模式",
