@@ -54,3 +54,5 @@ class Memorial(BaseModel):
     # DeepSeek reasoner / 新版 thinking-mode 模型要求多轮对话回传上一轮 reasoning_content；
     # 这里持久化最终 final response 的 reasoning，供 follow_up 重建 history 时回传。
     reasoning_content: str | None = None
+    # 平行位面归因（2026-06-07）
+    universe_id: str | None = None

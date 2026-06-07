@@ -285,6 +285,20 @@ class Storage:
                     absorbed_into TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS universes (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    parent_universe_id TEXT,
+                    status TEXT NOT NULL DEFAULT 'challenger',
+                    origin TEXT NOT NULL DEFAULT 'manual_branch',
+                    mutation_reason TEXT,
+                    description TEXT NOT NULL DEFAULT '',
+                    fitness_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_universe_single_champion
+                    ON universes(status) WHERE status = 'champion';
+
                 CREATE TABLE IF NOT EXISTS persona_metrics (
                     persona_id TEXT PRIMARY KEY,
                     total_executions INTEGER NOT NULL DEFAULT 0,
@@ -648,6 +662,8 @@ class Storage:
             # 2026-06-07: skill_metrics 人在回路字段（前景主导技能学习）
             "ALTER TABLE skill_metrics ADD COLUMN human_curated INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE skill_metrics ADD COLUMN last_human_action TEXT",
+            # 2026-06-07: 平行位面 — memorial 归因到所在位面
+            "ALTER TABLE memorials ADD COLUMN universe_id TEXT",
         ]
         for sql in migrations:
             try:
@@ -938,8 +954,8 @@ class Storage:
                     attempt, parent_memorial_id, review_status, audit_json,
                     artifacts_json, timeline_json, dag_node_id, persona_id,
                     runtime_override_json, acceptance_override_json,
-                    reasoning_content, final_output)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    reasoning_content, final_output, universe_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 self._memorial_to_params(memorial),
             )
 
@@ -953,7 +969,7 @@ class Storage:
                    artifacts_json=?, timeline_json=?,
                    dag_node_id=?, persona_id=?,
                    runtime_override_json=?, acceptance_override_json=?,
-                   reasoning_content=?, final_output=?
+                   reasoning_content=?, final_output=?, universe_id=?
                    WHERE id=?""",
                 (
                     memorial.status.value,
@@ -974,6 +990,7 @@ class Storage:
                     memorial.acceptance_override.model_dump_json() if memorial.acceptance_override else None,
                     memorial.reasoning_content,
                     memorial.final_output,
+                    memorial.universe_id,
                     memorial.id,
                 ),
             )
@@ -2308,6 +2325,73 @@ class Storage:
             "updated_at": row["updated_at"],
         }
 
+    # --- Universes (平行位面) ---
+
+    def save_universe(self, uni: dict) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO universes
+                   (id, name, parent_universe_id, status, origin,
+                    mutation_reason, description, fitness_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    uni["id"], uni["name"], uni.get("parent_universe_id"),
+                    uni["status"], uni["origin"], uni.get("mutation_reason"),
+                    uni.get("description", ""),
+                    json.dumps(uni.get("fitness", {}), ensure_ascii=False),
+                    uni["created_at"],
+                ),
+            )
+
+    def get_universe(self, universe_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM universes WHERE id = ?", (universe_id,)
+            ).fetchone()
+        return self._row_to_universe(row) if row else None
+
+    def list_universes(self, *, include_archived: bool = True) -> list[dict]:
+        with self._lock:
+            sql = "SELECT * FROM universes"
+            if not include_archived:
+                sql += " WHERE status != 'archived'"
+            sql += " ORDER BY created_at DESC"
+            return [self._row_to_universe(r) for r in self._conn.execute(sql).fetchall()]
+
+    def get_champion_universe(self) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM universes WHERE status = 'champion'"
+            ).fetchone()
+        return self._row_to_universe(row) if row else None
+
+    def set_universe_status(self, universe_id: str, status: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE universes SET status = ? WHERE id = ?", (status, universe_id)
+            )
+
+    def update_universe_fitness(self, universe_id: str, fitness: dict) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE universes SET fitness_json = ? WHERE id = ?",
+                (json.dumps(fitness, ensure_ascii=False), universe_id),
+            )
+
+    @staticmethod
+    def _row_to_universe(row: sqlite3.Row) -> dict:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "parent_universe_id": row["parent_universe_id"],
+            "status": row["status"],
+            "origin": row["origin"],
+            "mutation_reason": row["mutation_reason"],
+            "description": row["description"],
+            "fitness": json.loads(row["fitness_json"] or "{}"),
+            "created_at": row["created_at"],
+        }
+
     # --- Memorials by Persona ---
 
     def list_memorials_by_persona(
@@ -2493,6 +2577,7 @@ class Storage:
                 if "final_output" in keys
                 else None
             ),
+            universe_id=row["universe_id"] if "universe_id" in keys else None,
         )
 
     @staticmethod
@@ -2542,6 +2627,7 @@ class Storage:
             m.acceptance_override.model_dump_json() if m.acceptance_override else None,
             m.reasoning_content,
             m.final_output,
+            m.universe_id,
         )
 
     def insert_credential(
