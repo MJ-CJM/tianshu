@@ -41,6 +41,16 @@ class AgentConfigState:
     skill_guard_agent_created: bool = True
     skill_iterate_min_success_rate: float = 0.5
     skill_iterate_min_usage: int = 3
+    # 平行位面（parallel universe）
+    parallel_universe_enabled: bool = False
+    universe_explore_ratio: float = 0.1
+    universe_min_samples: int = 20
+    universe_promote_margin: float = 0.05
+    universe_auto_promote: bool = False
+    universe_evolver_idle_hours: int = 2
+    universe_challenger_fail_limit: int = 5
+    # fitness 权重（success/cost/audit/retry/feedback）
+    universe_fitness_weights: tuple[float, ...] = (0.4, 0.15, 0.2, 0.1, 0.15)
 
 
 class ConfigManager:
