@@ -470,6 +470,8 @@ class SkillsLoader:
             raise ValueError(
                 f"top dir must be one of {_SKILL_RESOURCE_DIRS}, got {parts[0]!r}"
             )
+        if len(parts) < 2:
+            raise ValueError(f"resource path must include a filename under the top dir: {rel_path!r}")
         for base, _src in self._search_dirs():
             skill_dir = base / name
             if (skill_dir / "SKILL.md").is_file():

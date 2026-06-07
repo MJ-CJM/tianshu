@@ -190,7 +190,7 @@ async def _handle_write_file(skills: SkillsLoader, name: str, **kwargs: Any) -> 
     try:
         result = skills.write_skill_file(name, file_path, file_content)
         return ok_result(json.dumps({"status": "file_written", **result}, ensure_ascii=False))
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, OSError) as e:
         return error_result(str(e))
 
 
@@ -203,7 +203,7 @@ async def _handle_remove_file(skills: SkillsLoader, name: str, **kwargs: Any) ->
         if removed:
             return ok_result(json.dumps({"status": "file_removed", "file": file_path}))
         return error_result(f"File '{file_path}' not found in skill '{name}'")
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, OSError) as e:
         return error_result(str(e))
 
 
