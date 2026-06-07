@@ -152,7 +152,11 @@ async def lifespan(app: FastAPI):
         char_budget=settings.skills_char_budget,
     )
     metrics_store = SkillMetricsStore(storage._conn)
-    register_skill_tools(tools, skills, metrics_store=metrics_store)
+    register_skill_tools(
+        tools, skills, metrics_store=metrics_store,
+        guard_agent_created=config_manager.agent_config.skill_guard_agent_created,
+        event_bus=event_bus,
+    )
 
     # --- Memory dir ---
     memory_dir = Path(settings.memory_dir).expanduser()
@@ -280,6 +284,7 @@ async def lifespan(app: FastAPI):
     )
     app.state.agent = agent
     app.state.skills_loader = skills
+    app.state.skill_metrics_store = metrics_store
     app.state.tool_registry = tools
     app.state.prompt_builder = prompt_builder
     app.state.personas_dir = personas_dir
@@ -563,6 +568,7 @@ async def lifespan(app: FastAPI):
         skills, config_manager, skill_validator, metrics_store=metrics_store,
     )
     hook_registry.register(HookType.AGENT_END, skill_reviewer.on_agent_end, priority=200)
+    skill_reviewer.attach_event_bus(event_bus)
 
     # --- ProfileSynthesizer + ProfileTrigger ---
     profile_synthesizer = ProfileSynthesizer(
