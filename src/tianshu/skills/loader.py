@@ -113,8 +113,11 @@ class SkillsLoader:
         footer = (
             "\n</skills_index>\n\n"
             "If a skill matches your current task, load it with skill_view().\n"
-            "After completing a difficult task, consider saving reusable approaches "
-            "as a new skill with skill_manage()."
+            "When you discover a non-obvious, reusable approach or a script you had "
+            "to figure out, save it RIGHT THEN with skill_manage(action='create') — "
+            "don't wait until the task ends. It becomes available to you immediately "
+            "via skill_view. Bundle helper scripts with "
+            "skill_manage(action='write_file')."
         )
         return header + "\n".join(lines) + footer
 
