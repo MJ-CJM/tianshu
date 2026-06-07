@@ -175,12 +175,39 @@ async def _handle_activate(
     return error_result("Metrics store not available, cannot activate")
 
 
+async def _handle_write_file(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
+    file_path = kwargs.get("file_path")
+    file_content = kwargs.get("file_content")
+    if not file_path or file_content is None:
+        return error_result("'file_path' and 'file_content' are required for write_file")
+    try:
+        result = skills.write_skill_file(name, file_path, file_content)
+        return ok_result(json.dumps({"status": "file_written", **result}, ensure_ascii=False))
+    except (FileNotFoundError, ValueError) as e:
+        return error_result(str(e))
+
+
+async def _handle_remove_file(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
+    file_path = kwargs.get("file_path")
+    if not file_path:
+        return error_result("'file_path' is required for remove_file")
+    try:
+        removed = skills.remove_skill_file(name, file_path)
+        if removed:
+            return ok_result(json.dumps({"status": "file_removed", "file": file_path}))
+        return error_result(f"File '{file_path}' not found in skill '{name}'")
+    except (FileNotFoundError, ValueError) as e:
+        return error_result(str(e))
+
+
 _ACTION_HANDLERS = {
     "create": _handle_create,
     "edit": _handle_edit,
     "patch": _handle_patch,
     "delete": _handle_delete,
     "activate": _handle_activate,
+    "write_file": _handle_write_file,
+    "remove_file": _handle_remove_file,
 }
 
 
@@ -194,7 +221,7 @@ async def _skill_manage(
     """Create, edit, patch, delete, or activate a skill."""
     handler = _ACTION_HANDLERS.get(action)
     if not handler:
-        return error_result(f"Invalid action: {action}. Must be create/edit/patch/delete/activate")
+        return error_result(f"Invalid action: {action}. Must be create/edit/patch/delete/activate/write_file/remove_file")
 
     if not _NAME_RE.match(name):
         return error_result(
@@ -280,15 +307,16 @@ def register_skill_tools(
         ToolDefinition(
             name="skill_manage",
             description=(
-                "Create, edit, patch, or delete a skill. "
-                "Use after completing a difficult task to save reusable approaches."
+                "Create, edit, patch, delete a skill, or write/remove a bundled "
+                "resource file (scripts/references/assets/templates). "
+                "Use after figuring out a reusable approach to save it for reuse."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["create", "edit", "patch", "delete", "activate"],
+                        "enum": ["create", "edit", "patch", "delete", "activate", "write_file", "remove_file"],
                         "description": "The action to perform",
                     },
                     "name": {
@@ -306,6 +334,16 @@ def register_skill_tools(
                     "patch_new": {
                         "type": "string",
                         "description": "Replacement text (required for patch)",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Resource path inside the skill dir "
+                                       "(top dir: scripts/references/assets/templates). "
+                                       "Required for write_file/remove_file.",
+                    },
+                    "file_content": {
+                        "type": "string",
+                        "description": "Resource file content (required for write_file).",
                     },
                 },
                 "required": ["action", "name"],
