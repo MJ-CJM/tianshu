@@ -152,11 +152,7 @@ async def lifespan(app: FastAPI):
         char_budget=settings.skills_char_budget,
     )
     metrics_store = SkillMetricsStore(storage._conn)
-    register_skill_tools(
-        tools, skills, metrics_store=metrics_store,
-        guard_agent_created=config_manager.agent_config.skill_guard_agent_created,
-        event_bus=event_bus,
-    )
+    # register_skill_tools 移到 config_manager 定义之后（它依赖 config_manager.agent_config）
 
     # --- Memory dir ---
     memory_dir = Path(settings.memory_dir).expanduser()
@@ -258,6 +254,14 @@ async def lifespan(app: FastAPI):
     )
     config_manager = ConfigManager(initial_state, agent_config=agent_config, storage=storage)
     app.state.config_manager = config_manager
+
+    # skill 工具注册：依赖 config_manager.agent_config（guard 开关）；
+    # tools / skills / metrics_store / event_bus 均已在前面定义
+    register_skill_tools(
+        tools, skills, metrics_store=metrics_store,
+        guard_agent_created=config_manager.agent_config.skill_guard_agent_created,
+        event_bus=event_bus,
+    )
 
     # --- ProviderManager ---
     provider_manager = ProviderManager(storage=storage, config_manager=config_manager)
