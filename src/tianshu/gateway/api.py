@@ -614,6 +614,62 @@ async def cancel_scheduler_job(job_id: str, request: Request):
     return ApiResponse(success=True, data={"job_id": job_id})
 
 
+# --- Universe (平行位面) endpoints ---
+
+
+@gateway_router.get("/universes")
+async def list_universes(request: Request):
+    mgr = request.app.state.universe_manager
+    return ApiResponse(success=True, data=mgr.list())
+
+
+@gateway_router.get("/universes/_diff")
+async def diff_universes(request: Request, a: str = Query(...), b: str = Query(...)):
+    mgr = request.app.state.universe_manager
+    return ApiResponse(success=True, data=mgr.diff(a, b))
+
+
+@gateway_router.get("/universes/{universe_id}")
+async def get_universe(universe_id: str, request: Request):
+    storage: Storage = request.app.state.storage
+    uni = storage.get_universe(universe_id)
+    if not uni:
+        raise HTTPException(status_code=404, detail="universe not found")
+    return ApiResponse(success=True, data=uni)
+
+
+@gateway_router.post("/universes/{universe_id}/branch", response_model=ApiResponse)
+async def branch_universe(universe_id: str, request: Request):
+    mgr = request.app.state.universe_manager
+    body = await request.json()
+    name = (body or {}).get("name") or "新位面"
+    try:
+        uni = mgr.branch(universe_id, name, description=(body or {}).get("description", ""))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return ApiResponse(success=True, data=uni)
+
+
+@gateway_router.post("/universes/{universe_id}/switch", response_model=ApiResponse)
+async def switch_universe(universe_id: str, request: Request):
+    mgr = request.app.state.universe_manager
+    try:
+        uni = mgr.switch(universe_id)
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return ApiResponse(success=True, data=uni)
+
+
+@gateway_router.post("/universes/{universe_id}/archive", response_model=ApiResponse)
+async def archive_universe(universe_id: str, request: Request):
+    mgr = request.app.state.universe_manager
+    try:
+        uni = mgr.archive(universe_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return ApiResponse(success=True, data=uni)
+
+
 # --- Audit endpoints ---
 
 
