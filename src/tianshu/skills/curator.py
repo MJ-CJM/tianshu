@@ -61,6 +61,20 @@ _USER = """\
 """
 
 
+_ITERATE_SYSTEM = (
+    "你是「修撰」——技能库质量校理。给定一个低效技能的 SKILL.md 与其指标，"
+    "产出一份改进后的完整 SKILL.md（含 YAML frontmatter: name/description，name 不变）。"
+    "聚焦：让指令更清晰、解释 why、去掉拖累执行的部分。只输出 SKILL.md 全文，不要代码块标记。"
+)
+
+_ITERATE_USER = """\
+技能 `{name}` 成功率偏低（usage={usage} success_rate={rate}）。当前 SKILL.md：
+
+{content}
+
+请产出改进后的完整 SKILL.md（name 必须仍是 `{name}`）。"""
+
+
 @dataclass
 class CuratePlan:
     consolidations: list[dict] = field(default_factory=list)
@@ -76,6 +90,7 @@ class CurateResult:
     created: list[str] = field(default_factory=list)
     archived: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    iterated: list[str] = field(default_factory=list)
     dry_run: bool = False
     report_dir: str | None = None
 
@@ -91,6 +106,7 @@ class CurateResult:
             "created": self.created,
             "archived": self.archived,
             "errors": self.errors,
+            "iterated": self.iterated,
             "dry_run": self.dry_run,
             "report_dir": self.report_dir,
         }
@@ -267,6 +283,39 @@ class SkillCurator:
 
         return created, archived, errors
 
+    async def _iterate_pass(self) -> list[str]:
+        """Auto-improve low-success agent skills (not pinned/human-curated)."""
+        cfg = self._config.agent_config
+        improved: list[str] = []
+        candidates = self._metrics.list_iteration_candidates(
+            min_success_rate=getattr(cfg, "skill_iterate_min_success_rate", 0.5),
+            min_usage=getattr(cfg, "skill_iterate_min_usage", 3),
+        )
+        for m in candidates:
+            skill = self._loader.get_skill(m.skill_name)
+            if not skill:
+                continue
+            try:
+                resp = await self._llm.chat(messages=[
+                    {"role": "system", "content": _ITERATE_SYSTEM},
+                    {"role": "user", "content": _ITERATE_USER.format(
+                        name=m.skill_name, usage=m.usage_count,
+                        rate=m.success_rate, content=skill.get("content", ""))},
+                ])
+                new_md = (getattr(resp, "content", None) or "").strip()
+                if new_md.startswith("```") and "\n" in new_md:
+                    new_md = new_md.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+                if not new_md:
+                    continue
+                v = self._validator.validate(m.skill_name, new_md, source="agent-created")
+                if not v.valid:
+                    continue
+                self._loader.save_skill(m.skill_name, new_md)
+                improved.append(m.skill_name)
+            except Exception:  # noqa: BLE001
+                logger.debug("[CURATOR] iterate failed for %s", m.skill_name, exc_info=True)
+        return improved
+
     # --- audit ---
 
     async def _emit(self, event_type: str, payload: dict) -> None:
@@ -299,6 +348,7 @@ class SkillCurator:
             f"- 新建/合并伞技能: {result.created or '(无)'}",
             f"- 归档: {result.archived or '(无)'}",
             f"- 错误: {result.errors or '(无)'}",
+            f"- 单条迭代: {result.iterated or '(无)'}",
         ]
         (d / "REPORT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
         return str(d)
@@ -347,6 +397,7 @@ class SkillCurator:
                     result.created, result.archived, result.errors = created, archived, errors
 
             if not dry_run:
+                result.iterated = await self._iterate_pass()
                 result.report_dir = self._write_report(result, trigger_source)
 
             await self._emit("curate.completed", {
