@@ -39,6 +39,7 @@ import {
 } from "@ant-design/icons";
 import PageContainer from "../components/common/PageContainer";
 import MCPTab from "../components/system/MCPTab";
+import SecretSkillsTab from "../components/system/SecretSkillsTab";
 import {
   useSkills,
   useSkillDetail,
@@ -95,6 +96,8 @@ function SkillsTab() {
   const t = useT();
   const { token } = theme.useToken();
   const { data: skills, isLoading } = useSkills();
+  // 技能库只展示原本加载进来的技能；agent 生成的归"习得技能" tab
+  const loadedSkills = (skills ?? []).filter((s) => s.created_by !== "agent");
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
@@ -147,7 +150,7 @@ function SkillsTab() {
   };
 
   // Compute char budget stats
-  const totalChars = (skills ?? []).reduce(
+  const totalChars = loadedSkills.reduce(
     (acc, s) => acc + s.content_length,
     0,
   );
@@ -247,7 +250,7 @@ function SkillsTab() {
       </div>
 
       <Table
-        dataSource={skills}
+        dataSource={loadedSkills}
         columns={columns}
         rowKey="name"
         loading={isLoading}
@@ -1988,6 +1991,11 @@ export default function SystemManagementPage() {
             key: "skills",
             label: t("system.tab.skills"),
             children: <SkillsTab />,
+          },
+          {
+            key: "secret-skills",
+            label: t("system.tab.secretSkills"),
+            children: <SecretSkillsTab />,
           },
           {
             key: "tools",
