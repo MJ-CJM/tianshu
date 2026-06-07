@@ -63,6 +63,10 @@ class SkillReviewHandler:
         self._validator = validator or SkillValidator()
         self._metrics = metrics_store
         self._tasks_since_last_review = 0
+        self._event_bus: Any = None
+
+    def attach_event_bus(self, bus: Any) -> None:
+        self._event_bus = bus
 
     async def on_agent_end(self, **context: Any) -> HookResult | None:
         """AGENT_END hook handler. Triggers skill review if conditions are met."""
@@ -220,8 +224,25 @@ class SkillReviewHandler:
                 except Exception:
                     logger.debug("[SKILL_REVIEW] metrics ensure_exists failed", exc_info=True)
             logger.info("[SKILL_REVIEW] Created skill '%s': %s", name, reason)
+            self._emit_learned(name, reason, edict_id, created_by="reviewer")
         except ValueError as e:
             logger.warning("[SKILL_REVIEW] Failed to create skill '%s': %s", name, e)
+
+    def _emit_learned(self, name: str, reason: str, edict_id: str | None, created_by: str) -> None:
+        if not self._event_bus:
+            return
+        try:
+            from tianshu.models.events import make_event
+            ev = make_event(
+                event_type="skill.learned",
+                edict_id=edict_id,
+                memorial_id=None,
+                producer="skill_reviewer",
+                payload={"name": name, "reason": reason, "created_by": created_by},
+            )
+            self._event_bus.fire(ev)
+        except Exception:
+            logger.debug("[SKILL_REVIEW] emit skill.learned failed", exc_info=True)
 
     def _handle_update(self, name: str, patch_old: str, patch_new: str, reason: str) -> None:
         if not patch_old or not patch_new:
