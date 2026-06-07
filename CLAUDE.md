@@ -1,46 +1,65 @@
-# Tianshu Project Instructions
+# CLAUDE.md
 
-> **项目定位**：天枢是一座会与你共同成长的宫殿。内有用户分身（emperor），外有辅佐的六部官员。任何重构 / 新特性都应服务"共生成长"这一核心叙事 —— 不是再造一个聊天工具，而是沉淀长期关系。
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-## gstack
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-Use the `/browse` skill from gstack for all web browsing tasks. **Never use `mcp__claude-in-chrome__*` tools.**
+## 1. Think Before Coding
 
-### Available Skills
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-| Skill | Purpose |
-|-------|---------|
-| `/office-hours` | Brainstorming and idea validation |
-| `/plan-ceo-review` | CEO/founder-mode plan review |
-| `/plan-eng-review` | Engineering architecture plan review |
-| `/plan-design-review` | Designer's eye plan review |
-| `/design-consultation` | Create design system and DESIGN.md |
-| `/review` | Pre-landing PR code review |
-| `/ship` | Ship workflow: tests, review, PR creation |
-| `/land-and-deploy` | Merge PR, wait for CI, verify production |
-| `/canary` | Post-deploy canary monitoring |
-| `/benchmark` | Performance regression detection |
-| `/browse` | Headless browser for QA and dogfooding |
-| `/qa` | Systematic QA testing + bug fixing |
-| `/qa-only` | Report-only QA testing (no fixes) |
-| `/design-review` | Visual design audit on live site |
-| `/setup-browser-cookies` | Import cookies for authenticated testing |
-| `/setup-deploy` | Configure deployment settings |
-| `/retro` | Weekly engineering retrospective |
-| `/investigate` | Systematic debugging with root cause analysis |
-| `/document-release` | Post-ship documentation updates |
-| `/codex` | Second opinion / adversarial code review |
-| `/cso` | Chief Security Officer audit |
-| `/careful` | Safety guardrails for destructive commands |
-| `/freeze` | Restrict edits to a specific directory |
-| `/guard` | Maximum safety mode (careful + freeze) |
-| `/unfreeze` | Remove edit restrictions |
-| `/gstack-upgrade` | Upgrade gstack to latest version |
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-### Troubleshooting
+## 2. Simplicity First
 
-If gstack skills aren't working, rebuild the binary and re-register skills:
+**Minimum code that solves the problem. Nothing speculative.**
 
-```bash
-cd .claude/skills/gstack && ./setup
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
 ```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
