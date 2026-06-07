@@ -45,6 +45,7 @@ class Executor:
         self._dag_scheduler = None  # set via set_dag_scheduler()
         self._lane_manager = None  # set via set_lane_manager()
         self._persona_loader = None  # set via set_persona_loader()
+        self._universe_manager = None  # set via set_universe_manager()
         self._running_tasks: set[asyncio.Task] = set()
         self._orchestrator_ctx = None  # set via set_orchestrator_context()
 
@@ -59,6 +60,9 @@ class Executor:
 
     def set_persona_loader(self, persona_loader: object) -> None:
         self._persona_loader = persona_loader
+
+    def set_universe_manager(self, manager: object) -> None:
+        self._universe_manager = manager
 
     def set_orchestrator_context(self, orch_ctx: object) -> None:
         """注入 orchestrator 依赖（agent/storage/bus/llms/...）。"""
@@ -125,6 +129,7 @@ class Executor:
             root_memorial = memorial
             root_memorial.status = TaskStatus.RUNNING
             root_memorial.started_at = datetime.now(UTC)
+            self._stamp_universe(root_memorial)
             self._storage.update_memorial(root_memorial)
         else:
             root_memorial = Memorial(
@@ -133,6 +138,7 @@ class Executor:
                 status=TaskStatus.RUNNING,
                 started_at=datetime.now(UTC),
             )
+            self._stamp_universe(root_memorial)
             self._storage.save_memorial(root_memorial)
         execution.root_memorial_id = root_memorial.id
 
@@ -155,6 +161,11 @@ class Executor:
         finally:
             if self._lane_manager:
                 self._lane_manager.remove_session(edict.id)
+
+    def _stamp_universe(self, memorial: Memorial) -> None:
+        """执行开始时固化 memorial 所属位面（一旦设定，本次运行内不变）。"""
+        if self._universe_manager is not None and memorial.universe_id is None:
+            memorial.universe_id = self._universe_manager.champion_id()
 
     def _apply_memorial_override(
         self, edict: Edict, memorial: Memorial | None,
@@ -203,10 +214,12 @@ class Executor:
                 status=TaskStatus.RUNNING,
                 started_at=datetime.now(UTC),
             )
+            self._stamp_universe(memorial)
             self._storage.save_memorial(memorial)
         else:
             memorial.status = TaskStatus.RUNNING
             memorial.started_at = datetime.now(UTC)
+            self._stamp_universe(memorial)
             self._storage.update_memorial(memorial)
 
         try:
@@ -285,6 +298,7 @@ class Executor:
         )
         memorial.status = TaskStatus.RUNNING
         memorial.started_at = datetime.now(UTC)
+        self._stamp_universe(memorial)
         self._storage.update_memorial(memorial)
 
         await self._bus.emit(
