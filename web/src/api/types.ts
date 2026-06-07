@@ -689,11 +689,22 @@ export interface SkillInfo {
   tool_tier: string | null;
   path: string;
   content_length: number;
+  // Phase 8 metrics fields (agent-created skills only)
+  created_by?: string;
+  state?: string;
+  pinned?: boolean;
+  human_curated?: boolean;
+  usage_count?: number;
+  success_rate?: number | null;
+  created_at?: string;
 }
 
 export interface SkillDetail extends SkillInfo {
   content: string;
 }
+
+// Alias used by the skills control panel (Phase 8)
+export type SkillMeta = SkillInfo;
 
 export interface ToolInfo {
   name: string;

@@ -53,6 +53,26 @@ export async function deleteSkill(
   return data;
 }
 
+export async function archiveSkill(
+  name: string,
+): Promise<ApiResponse<{ name: string }>> {
+  const { data } = await apiClient.post<ApiResponse<{ name: string }>>(
+    `/skills/${encodeURIComponent(name)}/archive`,
+  );
+  return data;
+}
+
+export async function pinSkill(
+  name: string,
+  pinned: boolean,
+): Promise<ApiResponse<{ name: string; pinned: boolean }>> {
+  const { data } = await apiClient.post<ApiResponse<{ name: string; pinned: boolean }>>(
+    `/skills/${encodeURIComponent(name)}/pin`,
+    { pinned },
+  );
+  return data;
+}
+
 // --- Tools ---
 
 export async function listTools(): Promise<ApiResponse<ToolInfo[]>> {
