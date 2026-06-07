@@ -124,6 +124,17 @@ async def _handle_create(
         result = skills.create_skill(name, content)
         if metrics_store:
             metrics_store.ensure_exists(name)
+        bus = kwargs.get("event_bus")
+        if bus is not None:
+            try:
+                from tianshu.models.events import make_event
+                bus.fire(make_event(
+                    event_type="skill.learned",
+                    edict_id=None, memorial_id=None, producer="skill_manage",
+                    payload={"name": name, "created_by": "agent"},
+                ))
+            except Exception:
+                pass
         return ok_result(json.dumps({"status": "created", "skill": result}, ensure_ascii=False))
     except ValueError as e:
         return error_result(str(e))
