@@ -1976,8 +1976,10 @@ async def get_skill(name: str, request: Request):
 
 @gateway_router.put("/skills/{name}", response_model=ApiResponse)
 async def update_skill(name: str, request: Request):
+    """Human edit: save SKILL.md content + mark as golden (human_curated)."""
     from tianshu.skills.loader import SkillsLoader
     loader: SkillsLoader = request.app.state.skills_loader
+    metrics = getattr(request.app.state, "skill_metrics_store", None)
     body = await request.json()
     content = body.get("content")
     if content is None:
@@ -1986,7 +1988,36 @@ async def update_skill(name: str, request: Request):
         skill = loader.save_skill(name, content)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
-    return ApiResponse(success=True, data=skill)
+    if metrics is not None:
+        metrics.ensure_exists(name)
+        metrics.set_human_curated(name, True)
+    return ApiResponse(success=True, data={**skill, "human_curated": True})
+
+
+@gateway_router.post("/skills/{name}/archive")
+async def archive_skill(name: str, request: Request):
+    """Human undo: archive an agent-created skill (recoverable)."""
+    loader = request.app.state.skills_loader
+    metrics = getattr(request.app.state, "skill_metrics_store", None)
+    ok = loader.archive_skill(name)
+    if ok and metrics is not None:
+        metrics.mark_archived(name)
+        metrics.touch_human_action(name)
+    return ApiResponse(success=ok, data={"name": name, "archived": ok})
+
+
+@gateway_router.post("/skills/{name}/pin")
+async def pin_skill(name: str, request: Request):
+    """Pin/unpin: exempt from curator transitions."""
+    metrics = getattr(request.app.state, "skill_metrics_store", None)
+    if metrics is None:
+        raise HTTPException(status_code=503, detail="metrics store unavailable")
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    pinned = bool(body.get("pinned", True))
+    metrics.ensure_exists(name)
+    metrics.set_pinned(name, pinned)
+    metrics.touch_human_action(name)
+    return ApiResponse(success=True, data={"name": name, "pinned": pinned})
 
 
 @gateway_router.post("/skills", response_model=ApiResponse, status_code=201)
