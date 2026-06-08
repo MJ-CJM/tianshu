@@ -526,6 +526,27 @@ async def lifespan(app: FastAPI):
     event_bus.on("audit.completed", notifier.handle_audit_completed)
     event_bus.on("audit.completed", memory_manager.handle_audit_completed, priority=200)
     event_bus.on("cost.budget_exceeded", notifier.handle_execution_failed)
+
+    # 平行位面：memorial 完成 → 重算其所属位面的适应度
+    from tianshu.universe.fitness import compute_fitness
+
+    async def _update_universe_fitness(event) -> None:
+        if not config_manager.agent_config.parallel_universe_enabled:
+            return
+        memorial_id = event.memorial_id
+        if not memorial_id:
+            return
+        memorial = storage.get_memorial(memorial_id)
+        universe_id = getattr(memorial, "universe_id", None) if memorial else None
+        if not universe_id:
+            return
+        stats = storage.universe_memorial_stats(universe_id)
+        weights = config_manager.agent_config.universe_fitness_weights
+        storage.update_universe_fitness(universe_id, compute_fitness(stats, weights=weights))
+
+    event_bus.on("execution.completed", _update_universe_fitness, priority=250)
+    event_bus.on("execution.failed", _update_universe_fitness, priority=250)
+    event_bus.on("audit.completed", _update_universe_fitness, priority=250)
     # 长任务 outer loop 事件实时广播到 WebSocket
     for outer_loop_event in (
         "outer_loop.started",
