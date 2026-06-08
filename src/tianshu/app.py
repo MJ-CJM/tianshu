@@ -657,7 +657,10 @@ async def lifespan(app: FastAPI):
         event_bus=event_bus,
         agent_config=lambda: config_manager.agent_config,
     )
-    if config_manager.agent_config.parallel_universe_enabled:
+    # opt-in 持久化：env 开启，或库中已存在 champion 位面（此前已开启过）→ 续上开启状态，
+    # 避免"重启后位面数据还在、功能却悄悄关闭"的困惑态。
+    if config_manager.agent_config.parallel_universe_enabled or storage.get_champion_universe():
+        config_manager.update_agent_config(parallel_universe_enabled=True)
         universe_manager.ensure_genesis()
     executor.set_universe_manager(universe_manager)
     app.state.universe_manager = universe_manager

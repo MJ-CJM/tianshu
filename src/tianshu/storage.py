@@ -672,6 +672,8 @@ class Storage:
             "ALTER TABLE memorials ADD COLUMN universe_id TEXT",
             # 2026-06-08: 平行位面 1b — 诏令结果显式反馈分（+1 赞 / -1 踩 / 0 无）
             "ALTER TABLE memorials ADD COLUMN feedback_score INTEGER NOT NULL DEFAULT 0",
+            # 2026-06-08: 平行位面 1b — universe_id 索引（fitness 聚合按 universe_id 扫描）
+            "CREATE INDEX IF NOT EXISTS idx_memorials_universe_id ON memorials(universe_id)",
         ]
         for sql in migrations:
             try:
