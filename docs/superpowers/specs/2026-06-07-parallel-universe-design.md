@@ -104,9 +104,10 @@
 
 ### 5.2 切换 / 分支 / 回滚语义
 
-- **切换**：把目标位面 `status` 置 `champion`、原冠军降级（候选/归档）→ 重新指向各 loader 根目录（PersonaLoader runtime 根、SkillsLoader user 根）+ 重载 ConfigManager + 清相关缓存（参照 loader 既有缓存失效路径）。**新诏令立即采用**；在途诏令在其 `universe_id` 标记位面内跑完。
-- **分支**：拷贝父位面目录 + manifest → 新 `universe_id`，`status=challenger`、`origin=manual_branch`。
-- **回滚**：语义上等同"切换到某历史位面"。历史位面是不可变快照的活拷贝，回滚不破坏任何全局共享数据。
+- **冠军=工作副本（关键细化）**：在役期间，自进化（修撰/人格合成/记忆）持续写 **live 运行态目录**，使冠军的**存盘快照与 live 漂移**。因此约定：**非冠军位面是冻结快照；冠军位面是"工作副本"**，在需要其存盘状态准确的时刻（branch-from-it / diff-it / switch-away）先用 `snapshot_live` 把 live 漂移回写进冠军目录。这保证 `branch_from(parent)` 对**任意**父位面（含历史/归档）都正确，且回滚能拿回该位面被切走时持久化的漂移状态。
+- **切换**：先把**原冠军的 live 漂移回写**进其目录（持久化）→ 把目标位面目录 `restore_to_live` 覆盖回 live → 重新指向各 loader 根目录 + 重载 ConfigManager + 清缓存 → 把目标 `status` 置 `champion`、原冠军降级。**新诏令立即采用**；在途诏令在其 `universe_id` 标记位面内跑完。切换到自身为 no-op。
+- **分支**：先回写冠军 live（若父是冠军）→ 拷贝**父位面目录** + manifest → 新 `universe_id`，`status=challenger`、`origin=manual_branch`。
+- **回滚**：语义上等同"切换到某历史位面"。历史位面是冻结快照的活拷贝，回滚不破坏任何全局共享数据。
 
 ### 5.3 诏令归属与适应度归因
 
