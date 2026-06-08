@@ -19,6 +19,7 @@ class TestExitReason:
             "budget_exhausted",
             "llm_error",
             "output_truncated",
+            "repeated_tool_failure",
         }
         actual = {r.value for r in ExitReason}
         assert actual == expected

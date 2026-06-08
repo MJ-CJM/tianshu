@@ -96,4 +96,5 @@ class TestOfficialSelector:
         loader.load_all()
         selector = OfficialSelector(loader)
 
-        assert selector.select("unknown") is None
+        # 未知意图回退到合理的兜底官员（而非 None）——确保任务总有官员承接
+        assert selector.select("unknown") is not None

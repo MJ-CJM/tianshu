@@ -43,6 +43,21 @@ class TestEdictCRUD:
             resp = await client.post("/api/edicts", json={"goal": "delete me"})
         edict_id = resp.json()["data"]["id"]
 
+        # 提交后 edict 会自动进入执行并产生活跃 memorial，按设计此时删除返回 409。
+        # 等后台产生 memorial 后将其置为完成，模拟"已结束、可删除"状态，确定性验证删除。
+        from tianshu.models.common import TaskStatus
+
+        storage = client._transport.app.state.storage
+        mems = []
+        for _ in range(50):
+            mems = storage.list_memorials_by_edict(edict_id)
+            if mems:
+                break
+            await asyncio.sleep(0.02)
+        for m in mems:
+            m.status = TaskStatus.COMPLETED
+            storage.update_memorial(m)
+
         resp = await client.delete(f"/api/edicts/{edict_id}")
         assert resp.status_code == 200
 
