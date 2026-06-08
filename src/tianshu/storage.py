@@ -28,6 +28,12 @@ from tianshu.models.acceptance import AcceptanceCriteria
 
 logger = logging.getLogger(__name__)
 
+
+def _audit_passed(a: dict) -> bool:
+    """AuditResult.verdict == 'pass' を「合格」とみなす（conservative: 不明は不合格）。"""
+    return a.get("verdict") == "pass"
+
+
 # Deferred import to avoid circular deps
 _MemoryEntry = None
 
@@ -664,6 +670,8 @@ class Storage:
             "ALTER TABLE skill_metrics ADD COLUMN last_human_action TEXT",
             # 2026-06-07: 平行位面 — memorial 归因到所在位面
             "ALTER TABLE memorials ADD COLUMN universe_id TEXT",
+            # 2026-06-08: 平行位面 1b — 诏令结果显式反馈分（+1 赞 / -1 踩 / 0 无）
+            "ALTER TABLE memorials ADD COLUMN feedback_score INTEGER NOT NULL DEFAULT 0",
         ]
         for sql in migrations:
             try:
@@ -2378,6 +2386,51 @@ class Storage:
                 (json.dumps(fitness, ensure_ascii=False), universe_id),
             )
 
+    def set_memorial_feedback(self, memorial_id: str, score: int) -> None:
+        """设置某 memorial 的显式反馈分（-1/0/1）。"""
+        score = max(-1, min(1, int(score)))
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE memorials SET feedback_score = ? WHERE id = ?",
+                (score, memorial_id),
+            )
+
+    def universe_memorial_stats(self, universe_id: str) -> dict:
+        """聚合某位面下 memorial 的成功/失败/重试/成本/审计/反馈。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT status, attempt, usage_json, audit_json, feedback_score "
+                "FROM memorials WHERE universe_id = ?",
+                (universe_id,),
+            ).fetchall()
+        total = len(rows)
+        success = sum(1 for r in rows if r["status"] in ("completed", "approved"))
+        retries = sum(max(0, (r["attempt"] or 1) - 1) for r in rows)
+        feedback = sum((r["feedback_score"] or 0) for r in rows)
+        audited = 0
+        audit_pass = 0
+        cost = 0.0
+        for r in rows:
+            try:
+                u = json.loads(r["usage_json"] or "{}")
+                cost += float(u.get("cost_cny", 0.0) or 0.0)
+            except (ValueError, TypeError):
+                pass
+            aj = r["audit_json"]
+            if aj:
+                audited += 1
+                try:
+                    a = json.loads(aj)
+                    if _audit_passed(a):
+                        audit_pass += 1
+                except (ValueError, TypeError):
+                    pass
+        return {
+            "total": total, "success": success, "retries": retries,
+            "audited": audited, "audit_pass": audit_pass,
+            "cost": round(cost, 6), "feedback": feedback,
+        }
+
     @staticmethod
     def _row_to_universe(row: sqlite3.Row) -> dict:
         return {
@@ -2578,6 +2631,7 @@ class Storage:
                 else None
             ),
             universe_id=row["universe_id"] if "universe_id" in keys else None,
+            feedback_score=row["feedback_score"] if "feedback_score" in keys else 0,
         )
 
     @staticmethod

@@ -56,3 +56,5 @@ class Memorial(BaseModel):
     reasoning_content: str | None = None
     # 平行位面归因（2026-06-07）
     universe_id: str | None = None
+    # 显式反馈分（2026-06-08）：+1 赞 / -1 踩 / 0 无
+    feedback_score: int = 0
