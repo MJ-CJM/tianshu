@@ -71,3 +71,40 @@ def test_branch_code_variant_creates_universe_and_worktree(mgr: UniverseManager)
 def test_branch_code_variant_nonexistent_parent_raises(mgr: UniverseManager):
     with pytest.raises(ValueError, match="not found"):
         mgr.branch_code_variant("ghost", "x")
+
+
+def test_code_diff_returns_git_diff(mgr: UniverseManager):
+    g = mgr.ensure_genesis()
+    cv = mgr.branch_code_variant(g["id"], "exp")
+    wt = mgr._code_store.worktree_dir(cv["id"])  # noqa: SLF001
+    (wt / "src.txt").write_text("v2\n")
+    assert "+v2" in mgr.code_diff(cv["id"])
+
+
+def test_code_diff_on_data_universe_raises(mgr: UniverseManager):
+    g = mgr.ensure_genesis()
+    with pytest.raises(ValueError, match="code variant"):
+        mgr.code_diff(g["id"])
+
+
+def test_switch_to_code_variant_raises(mgr: UniverseManager):
+    g = mgr.ensure_genesis()
+    cv = mgr.branch_code_variant(g["id"], "exp")
+    with pytest.raises(ValueError, match="Deployer"):
+        mgr.switch(cv["id"])
+
+
+def test_archive_code_variant_gcs_worktree(mgr: UniverseManager):
+    g = mgr.ensure_genesis()
+    cv = mgr.branch_code_variant(g["id"], "exp")
+    assert mgr._code_store.exists(cv["id"])  # noqa: SLF001
+    mgr.archive(cv["id"])
+    assert not mgr._code_store.exists(cv["id"])  # noqa: SLF001
+
+
+def test_restore_code_variant_rebuilds_worktree(mgr: UniverseManager):
+    g = mgr.ensure_genesis()
+    cv = mgr.branch_code_variant(g["id"], "exp")
+    mgr.archive(cv["id"])
+    mgr.restore(cv["id"])
+    assert mgr._code_store.exists(cv["id"])  # noqa: SLF001

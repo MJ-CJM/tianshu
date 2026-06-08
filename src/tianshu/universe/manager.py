@@ -164,6 +164,11 @@ class UniverseManager:
         target = self._storage.get_universe(universe_id)
         if not target:
             raise ValueError(f"universe not found: {universe_id}")
+        if target.get("code_ref"):
+            raise ValueError(
+                "code variant switch/promotion requires the Deployer "
+                "(Phase 2 increment 2d)"
+            )
         if target["status"] == UniverseStatus.ARCHIVED.value:
             raise ValueError("cannot switch to an archived universe")
         if not self._store.exists(universe_id):
@@ -206,6 +211,8 @@ class UniverseManager:
         if target["status"] == UniverseStatus.CHAMPION.value:
             raise ValueError("cannot archive the champion (switch away first)")
         self._storage.set_universe_status(universe_id, UniverseStatus.ARCHIVED.value)
+        if target.get("code_ref") and self._code_store:
+            self._code_store.gc_worktree(universe_id)
         self._emit("universe.archived", {"universe_id": universe_id})
         return self._storage.get_universe(universe_id)
 
@@ -219,6 +226,8 @@ class UniverseManager:
         if target["status"] != UniverseStatus.ARCHIVED.value:
             raise ValueError("only archived universes can be restored")
         self._storage.set_universe_status(universe_id, UniverseStatus.CHALLENGER.value)
+        if target.get("code_ref") and self._code_store:
+            self._code_store.restore_worktree(universe_id)
         self._emit("universe.restored", {"universe_id": universe_id})
         return self._storage.get_universe(universe_id)
 
@@ -238,6 +247,17 @@ class UniverseManager:
                 self._store.read_manifest(a_id), self._store.read_manifest(b_id)
             ),
         }
+
+    def code_diff(self, universe_id: str) -> str:
+        """返回代码变体位面相对其 fork 起点的 git diff。"""
+        if not self._code_store:
+            raise RuntimeError("code variant store not configured")
+        target = self._storage.get_universe(universe_id)
+        if not target:
+            raise ValueError(f"universe not found: {universe_id}")
+        if not target.get("code_ref"):
+            raise ValueError("not a code variant universe")
+        return self._code_store.diff(universe_id)
 
     @staticmethod
     def _diff_dir(a: Path, b: Path) -> dict:
