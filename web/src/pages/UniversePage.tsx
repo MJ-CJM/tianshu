@@ -21,6 +21,12 @@ const STATUS_COLOR: Record<string, string> = {
   archived: "default",
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  champion: "在役",
+  challenger: "候选",
+  archived: "已归档",
+};
+
 export default function UniversePage() {
   const t = useT();
   const [rows, setRows] = useState<Universe[]>([]);
@@ -106,12 +112,24 @@ export default function UniversePage() {
   };
 
   const columns: ColumnsType<Universe> = [
-    { title: "名称", dataIndex: "name" },
+    {
+      title: "名称",
+      dataIndex: "name",
+      render: (name: string, u: Universe) =>
+        u.status === "champion" ? (
+          <Space>
+            <span style={{ fontWeight: 600 }}>{name}</span>
+            <Tag color="gold">当前</Tag>
+          </Space>
+        ) : (
+          name
+        ),
+    },
     {
       title: "状态",
       dataIndex: "status",
       render: (s: string) => (
-        <Tag color={STATUS_COLOR[s] ?? "default"}>{s}</Tag>
+        <Tag color={STATUS_COLOR[s] ?? "default"}>{STATUS_LABEL[s] ?? s}</Tag>
       ),
     },
     { title: "来源", dataIndex: "origin" },
