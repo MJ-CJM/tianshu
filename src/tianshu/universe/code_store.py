@@ -69,6 +69,14 @@ class CodeVariantStore:
         logger.info("Code variant worktree created: %s @ %s", branch, start_sha[:8])
         return branch
 
+    def diff(self, universe_id: str) -> str:
+        """返回变体 worktree 相对 fork 起点的 git diff（含已提交与未提交改动）。"""
+        meta = self._read_meta(universe_id)
+        wt = self.worktree_dir(universe_id)
+        if not wt.is_dir():
+            raise FileNotFoundError(f"worktree missing: {wt}")
+        return self._git("diff", meta["start_ref"], cwd=wt)
+
     def _read_meta(self, universe_id: str) -> dict:
         p = self._meta_path(universe_id)
         if not p.exists():

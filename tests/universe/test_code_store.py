@@ -39,3 +39,21 @@ def test_branch_twice_raises(store: CodeVariantStore):
 
 def test_exists_false_before_branch(store: CodeVariantStore):
     assert not store.exists("ghost")
+
+
+def test_diff_shows_changes(store: CodeVariantStore):
+    store.branch_code_variant("u1")
+    wt = store.worktree_dir("u1")
+    (wt / "src.txt").write_text("v2\n")
+    out = store.diff("u1")
+    assert "-v1" in out and "+v2" in out
+
+
+def test_diff_empty_when_unchanged(store: CodeVariantStore):
+    store.branch_code_variant("u1")
+    assert store.diff("u1").strip() == ""
+
+
+def test_diff_missing_raises(store: CodeVariantStore):
+    with pytest.raises(FileNotFoundError):
+        store.diff("never")
