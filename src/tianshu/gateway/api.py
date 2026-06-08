@@ -686,6 +686,16 @@ async def archive_universe(universe_id: str, request: Request):
     return ApiResponse(success=True, data=uni)
 
 
+@gateway_router.post("/universes/{universe_id}/restore", response_model=ApiResponse)
+async def restore_universe(universe_id: str, request: Request):
+    mgr = request.app.state.universe_manager
+    try:
+        uni = mgr.restore(universe_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return ApiResponse(success=True, data=uni)
+
+
 # --- Audit endpoints ---
 
 

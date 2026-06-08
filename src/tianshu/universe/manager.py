@@ -147,6 +147,19 @@ class UniverseManager:
         self._emit("universe.archived", {"universe_id": universe_id})
         return self._storage.get_universe(universe_id)
 
+    # --- restore ---
+
+    def restore(self, universe_id: str) -> dict:
+        """把已归档位面恢复为候选位面（archived → challenger）。"""
+        target = self._storage.get_universe(universe_id)
+        if not target:
+            raise ValueError(f"universe not found: {universe_id}")
+        if target["status"] != UniverseStatus.ARCHIVED.value:
+            raise ValueError("only archived universes can be restored")
+        self._storage.set_universe_status(universe_id, UniverseStatus.CHALLENGER.value)
+        self._emit("universe.restored", {"universe_id": universe_id})
+        return self._storage.get_universe(universe_id)
+
     # --- diff ---
 
     def diff(self, a_id: str, b_id: str) -> dict:

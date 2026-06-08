@@ -8,6 +8,7 @@ import {
   enableParallelUniverse,
   getUniverseStatus,
   listUniverses,
+  restoreUniverse,
   switchUniverse,
 } from "../api/universe";
 import type { Universe } from "../api/types";
@@ -96,6 +97,14 @@ export default function UniversePage() {
     }
   };
 
+  const onRestore = async (u: Universe) => {
+    const res = await restoreUniverse(u.id);
+    if (res.success) {
+      void message.success("已恢复");
+      void load();
+    }
+  };
+
   const columns: ColumnsType<Universe> = [
     { title: "名称", dataIndex: "name" },
     {
@@ -117,9 +126,9 @@ export default function UniversePage() {
       title: "操作",
       render: (_: unknown, u: Universe) => (
         <Space>
-          <Button size="small" onClick={() => onBranch(u)}>
-            分支
-          </Button>
+          {u.status !== "archived" && (
+            <Button size="small" onClick={() => onBranch(u)}>分支</Button>
+          )}
           {u.status === "challenger" && (
             <Button
               size="small"
@@ -133,6 +142,9 @@ export default function UniversePage() {
             <Button size="small" danger onClick={() => void onArchive(u)}>
               归档
             </Button>
+          )}
+          {u.status === "archived" && (
+            <Button size="small" onClick={() => void onRestore(u)}>恢复</Button>
           )}
         </Space>
       ),

@@ -164,3 +164,17 @@ def test_list_exclude_archived(mgr: UniverseManager):
     ids = {u["id"] for u in active}
     assert ch["id"] not in ids
     assert g["id"] in ids
+
+
+def test_restore_archived_to_challenger(mgr: UniverseManager):
+    g = mgr.ensure_genesis()
+    ch = mgr.branch(g["id"], "exp")
+    mgr.archive(ch["id"])
+    restored = mgr.restore(ch["id"])
+    assert restored["status"] == "challenger"
+
+
+def test_restore_non_archived_raises(mgr: UniverseManager):
+    g = mgr.ensure_genesis()
+    with pytest.raises(ValueError):
+        mgr.restore(g["id"])  # champion is not archived
