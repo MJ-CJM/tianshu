@@ -102,6 +102,12 @@ def _extract_model_echo(response: object) -> tuple[str | None, str | None]:
     provider = None
     if isinstance(hidden, dict):
         provider = hidden.get("custom_llm_provider") or hidden.get("model_id")
+    # 边界防御：回显字段须为 str|None（异常类型 → None），避免污染 UsageSummary
+    # 的 str|None 校验（如测试 mock 或畸形上游响应）。
+    if not isinstance(actual_model, str):
+        actual_model = None
+    if not isinstance(provider, str):
+        provider = None
     return actual_model, provider
 
 

@@ -329,6 +329,8 @@ async def resume_edict(edict_id: str, request: Request):
 @gateway_router.get("/edicts/{edict_id}/memorial")
 async def get_memorial_by_edict(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
+    if not storage.get_edict(edict_id):
+        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
     memorial = storage.get_memorial_by_edict(edict_id)
     return ApiResponse(
         success=True,
