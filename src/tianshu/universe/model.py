@@ -30,6 +30,7 @@ class Universe:
     id: str = field(default_factory=lambda: str(ULID()))
     parent_universe_id: str | None = None
     mutation_reason: str | None = None
+    code_ref: str | None = None
     description: str = ""
     fitness: dict = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -42,6 +43,7 @@ class Universe:
             "status": self.status.value,
             "origin": self.origin.value,
             "mutation_reason": self.mutation_reason,
+            "code_ref": self.code_ref,
             "description": self.description,
             "fitness": self.fitness,
             "created_at": self.created_at,
@@ -56,6 +58,7 @@ class Universe:
             status=UniverseStatus(row["status"]),
             origin=UniverseOrigin(row["origin"]),
             mutation_reason=row.get("mutation_reason"),
+            code_ref=row.get("code_ref"),
             description=row.get("description", ""),
             fitness=row.get("fitness", {}),
             created_at=row["created_at"],
