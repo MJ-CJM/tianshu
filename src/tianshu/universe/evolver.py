@@ -31,12 +31,12 @@ _SYSTEM = (
 _USER = """\
 冠军位面适应度：{champion_fitness}
 各候选位面适应度：{challenger_fitness}
-冠军行为概要（人格/技能/策略要点）：
+冠军行为概要（可改写的官员人格）：
 {summary}
 
-请提出【一处】可能提升贴合度的定向变异，输出 JSON：
-{{"target": "persona:bingbu/ROLE.md | policy | config | skillset",
-  "reason": "为何这样改可能更好",
+请提出【一处】可能让宫殿更贴合主上的人格改写，输出 JSON：
+{{"target": "persona:<官员id>/ROLE.md 或 persona:<官员id>/SOUL.md（官员id 必须取自上面列出的官员）",
+  "reason": "改这个文件的哪一点、为何可能更贴合",
   "name": "候选位面名称（简短中文）"}}
 若当前无明确可改之处，输出 {{"target": null, "reason": "...", "name": null}}。"""
 
@@ -46,6 +46,8 @@ class EvolveResult:
     skipped: str | None = None
     created_challenger: str | None = None
     mutation_reason: str | None = None
+    mutation_applied: bool = False
+    mutation_detail: str | None = None
     retired: list[str] = field(default_factory=list)
     promotion_recommended: str | None = None
     errors: list[str] = field(default_factory=list)
@@ -55,6 +57,8 @@ class EvolveResult:
             "skipped": self.skipped,
             "created_challenger": self.created_challenger,
             "mutation_reason": self.mutation_reason,
+            "mutation_applied": self.mutation_applied,
+            "mutation_detail": self.mutation_detail,
             "retired": self.retired,
             "promotion_recommended": self.promotion_recommended,
             "errors": self.errors,
@@ -112,6 +116,12 @@ class UniverseEvolver:
                 )
                 result.created_challenger = child["id"]
                 result.mutation_reason = mutation.get("reason")
+                from tianshu.universe.mutator import apply_mutation
+                applied = await apply_mutation(
+                    self._mgr._store, child["id"], mutation, self._llm,  # noqa: SLF001
+                )
+                result.mutation_applied = bool(applied.get("applied"))
+                result.mutation_detail = applied.get("detail")
 
             await self._emit("universe.evolved", result.to_dict())
             return result
