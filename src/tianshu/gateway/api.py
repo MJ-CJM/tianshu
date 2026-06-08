@@ -629,6 +629,22 @@ async def diff_universes(request: Request, a: str = Query(...), b: str = Query(.
     return ApiResponse(success=True, data=mgr.diff(a, b))
 
 
+@gateway_router.get("/universes/_status")
+async def universe_status(request: Request):
+    config_manager = request.app.state.config_manager
+    enabled = config_manager.agent_config.parallel_universe_enabled
+    return ApiResponse(success=True, data={"enabled": enabled})
+
+
+@gateway_router.post("/universes/enable", response_model=ApiResponse)
+async def enable_parallel_universe(request: Request):
+    config_manager = request.app.state.config_manager
+    mgr = request.app.state.universe_manager
+    config_manager.update_agent_config(parallel_universe_enabled=True)
+    genesis = mgr.ensure_genesis()
+    return ApiResponse(success=True, data=genesis)
+
+
 @gateway_router.get("/universes/{universe_id}")
 async def get_universe(universe_id: str, request: Request):
     storage: Storage = request.app.state.storage

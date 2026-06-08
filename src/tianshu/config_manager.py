@@ -191,19 +191,11 @@ class ConfigManager:
             return self._agent_config
 
     def update_agent_config(self, **kwargs: object) -> AgentConfigState:
+        from dataclasses import fields, replace
         with self._lock:
-            current = self._agent_config
-            self._agent_config = AgentConfigState(
-                agent_max_iterations=kwargs.get(
-                    "agent_max_iterations", current.agent_max_iterations
-                ),
-                agent_timeout_seconds=kwargs.get(
-                    "agent_timeout_seconds", current.agent_timeout_seconds
-                ),
-                skills_char_budget=kwargs.get(
-                    "skills_char_budget", current.skills_char_budget
-                ),
-            )
+            valid = {f.name for f in fields(AgentConfigState)}
+            filtered = {k: v for k, v in kwargs.items() if k in valid}
+            self._agent_config = replace(self._agent_config, **filtered)
             return self._agent_config
 
     @staticmethod

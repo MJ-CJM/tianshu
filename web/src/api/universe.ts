@@ -34,6 +34,16 @@ export async function archiveUniverse(id: string): Promise<ApiResponse<Universe>
   return data;
 }
 
+export async function enableParallelUniverse(): Promise<ApiResponse<Universe>> {
+  const { data } = await apiClient.post<ApiResponse<Universe>>("/universes/enable", {});
+  return data;
+}
+
+export async function getUniverseStatus(): Promise<ApiResponse<{ enabled: boolean }>> {
+  const { data } = await apiClient.get<ApiResponse<{ enabled: boolean }>>("/universes/_status");
+  return data;
+}
+
 export async function diffUniverses(
   a: string,
   b: string,

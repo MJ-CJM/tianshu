@@ -253,6 +253,7 @@ async def lifespan(app: FastAPI):
         agent_max_iterations=settings.agent_max_iterations,
         agent_timeout_seconds=settings.agent_timeout_seconds,
         skills_char_budget=settings.skills_char_budget,
+        parallel_universe_enabled=settings.parallel_universe_enabled,
     )
     config_manager = ConfigManager(initial_state, agent_config=agent_config, storage=storage)
     app.state.config_manager = config_manager

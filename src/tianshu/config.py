@@ -74,3 +74,4 @@ class TianshuSettings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
     smtp_to: str = ""
+    parallel_universe_enabled: bool = False

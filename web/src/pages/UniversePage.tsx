@@ -5,6 +5,8 @@ import type { ColumnsType } from "antd/es/table";
 import {
   archiveUniverse,
   branchUniverse,
+  enableParallelUniverse,
+  getUniverseStatus,
   listUniverses,
   switchUniverse,
 } from "../api/universe";
@@ -22,12 +24,18 @@ export default function UniversePage() {
   const t = useT();
   const [rows, setRows] = useState<Universe[]>([]);
   const [loading, setLoading] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [enabling, setEnabling] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const res = await listUniverses();
-      if (res.success && res.data) setRows(res.data);
+      const [listRes, statusRes] = await Promise.all([
+        listUniverses(),
+        getUniverseStatus(),
+      ]);
+      if (listRes.success && listRes.data) setRows(listRes.data);
+      if (statusRes.success && statusRes.data) setEnabled(statusRes.data.enabled);
     } finally {
       setLoading(false);
     }
@@ -36,6 +44,19 @@ export default function UniversePage() {
   useEffect(() => {
     void load();
   }, []);
+
+  const onEnable = async () => {
+    setEnabling(true);
+    try {
+      const res = await enableParallelUniverse();
+      if (res.success) {
+        void message.success("已开启平行位面，已创建创世位面");
+        void load();
+      }
+    } finally {
+      setEnabling(false);
+    }
+  };
 
   const onBranch = (u: Universe) => {
     let name = "";
@@ -122,9 +143,16 @@ export default function UniversePage() {
     <PageContainer
       title={t("nav.universe")}
       extra={
-        <Button icon={<ReloadOutlined />} onClick={() => void load()}>
-          {t("action.refresh")}
-        </Button>
+        <Space>
+          {!enabled && (
+            <Button type="primary" loading={enabling} onClick={() => void onEnable()}>
+              开启平行位面
+            </Button>
+          )}
+          <Button icon={<ReloadOutlined />} onClick={() => void load()}>
+            {t("action.refresh")}
+          </Button>
+        </Space>
       }
     >
       <Table<Universe>
@@ -134,6 +162,7 @@ export default function UniversePage() {
         pagination={false}
         columns={columns}
         size="middle"
+        locale={{ emptyText: enabled ? "暂无位面" : "平行位面未开启，点击「开启平行位面」按钮开始" }}
       />
     </PageContainer>
   );
