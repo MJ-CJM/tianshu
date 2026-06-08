@@ -3,9 +3,13 @@
 骨架对齐 SkillCurator：gate(idle + lock) → 采信号 → ONE LLM 变异 →
 分支候选位面 → 熔断下线劣质候选 → 晋升推荐（默认人工确认）。
 
-§限制（有意分步）：本轮完成"采信号→提变异意图→分支候选→熔断→晋升推荐/自动晋升"
-的闭环骨架，但【不】把变异意图实际改写进候选位面的 SOUL/ROLE/policy 文件——候选先以
-"冠军全量拷贝 + 记录 mutation_reason"存在，承接探索流量做对照基线。改写器留作后续增量。
+变异落地（mutator）：分支候选后，调 universe.mutator.apply_mutation 把变异意图真正
+改写进候选位面文件。当前 cut 仅支持【人格文件】(SOUL.md / ROLE.md) 改写——人格目录被
+位面完整快照、切换时 restore+reload，零改造即端到端生效。变异提示也已收窄为只提人格 target。
+
+§限制（待后续）：policy / config / skillset 类变异尚未落地——它们需要先扩展位面快照范围
+（把 session_rules、完整 config、技能状态纳入 snapshot/restore）。在此之前这些 target 走
+"只记录不改写"兜底（mutation_applied=False）。
 """
 
 from __future__ import annotations

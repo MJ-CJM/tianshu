@@ -1965,7 +1965,9 @@ git commit -m "test(universe): Phase 1b fitness/routing/evolver 测试"
 
 ## §限制（有意的分步，写入实现说明）
 
-- **演化变异改写器**：1b 完成演化闭环骨架（采信号→变异意图→分支候选→熔断→晋升推荐/自动晋升）。把变异意图**实际改写进候选位面文件**（按 target 类型的安全改写器：persona ROLE/SOUL、policy、config、skillset）留作 1b 增量后续。改写器落地前候选≈冠军，承接探索流量做对照基线，晋升无害。
+- **演化变异改写器**：1b 完成演化闭环骨架（采信号→变异意图→分支候选→熔断→晋升推荐/自动晋升）。
+  - ✅ **已落地（B cut 1）**：`universe/mutator.py` 人格文件改写器——分支候选后调 `apply_mutation` 用 LLM 改写候选的 `SOUL.md`/`ROLE.md`，候选从此与冠军真正行为分叉；变异提示已收窄为只提人格 target；白名单 + 大小 + 穿越防护 + 失败安全 no-op。
+  - ⏳ **待后续**：`policy` / `config` / `skillset` 类变异需先扩展位面快照范围（session_rules、完整 config、技能状态纳入 snapshot/restore），落地前走"只记录不改写"兜底。
 - **cost fitness 分项**：缺绝对基线，v1 用弱代理刻度；后续可接 `cost_ledger` 真实成本做归一。
 - **影子重放评估**：不做（§4 非目标），仅小流量真实探索。
 
