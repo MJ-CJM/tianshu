@@ -88,7 +88,7 @@ class UniverseEvolver:
         cfg = self._config.agent_config
         if not getattr(cfg, "parallel_universe_enabled", False):
             return EvolveResult(skipped="disabled")
-        if not self._idle_ok(getattr(cfg, "universe_evolver_idle_hours", 2)):
+        if trigger_source != "manual" and not self._idle_ok(getattr(cfg, "universe_evolver_idle_hours", 2)):
             return EvolveResult(skipped="not_idle")
         if not self._storage.try_acquire_synthesis_lock(_LOCK_KEY):
             return EvolveResult(skipped="lock_held")

@@ -645,6 +645,34 @@ async def enable_parallel_universe(request: Request):
     return ApiResponse(success=True, data=genesis)
 
 
+@gateway_router.post("/universes/feedback", response_model=ApiResponse)
+async def universe_feedback(request: Request):
+    storage: Storage = request.app.state.storage
+    body = await request.json()
+    memorial_id = body.get("memorial_id")
+    score = int(body.get("score", 0))
+    if not memorial_id:
+        raise HTTPException(status_code=400, detail="memorial_id required")
+    storage.set_memorial_feedback(memorial_id, score)
+    mem = storage.get_memorial(memorial_id)
+    uid = getattr(mem, "universe_id", None) if mem else None
+    if uid:
+        from tianshu.universe.fitness import compute_fitness
+        cm = request.app.state.config_manager
+        stats = storage.universe_memorial_stats(uid)
+        storage.update_universe_fitness(
+            uid, compute_fitness(stats, weights=cm.agent_config.universe_fitness_weights),
+        )
+    return ApiResponse(success=True, data={"universe_id": uid, "score": max(-1, min(1, score))})
+
+
+@gateway_router.post("/universes/evolve", response_model=ApiResponse)
+async def trigger_evolve(request: Request):
+    evolver = request.app.state.universe_evolver
+    result = await evolver.run(trigger_source="manual")
+    return ApiResponse(success=True, data=result.to_dict())
+
+
 @gateway_router.get("/universes/{universe_id}")
 async def get_universe(universe_id: str, request: Request):
     storage: Storage = request.app.state.storage

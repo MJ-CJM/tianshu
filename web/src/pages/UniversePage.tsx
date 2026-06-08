@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Input, Modal, Space, Table, Tag, message } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import {
   archiveUniverse,
@@ -10,6 +10,7 @@ import {
   listUniverses,
   restoreUniverse,
   switchUniverse,
+  triggerEvolve,
 } from "../api/universe";
 import type { Universe } from "../api/types";
 import PageContainer from "../components/common/PageContainer";
@@ -33,6 +34,7 @@ export default function UniversePage() {
   const [loading, setLoading] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [enabling, setEnabling] = useState(false);
+  const [evolving, setEvolving] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -111,6 +113,26 @@ export default function UniversePage() {
     }
   };
 
+  const onEvolve = async () => {
+    setEvolving(true);
+    try {
+      const res = await triggerEvolve();
+      if (res.success && res.data) {
+        const d = res.data;
+        if (d.created_challenger) {
+          void message.success("已演化出候选位面");
+        } else if (d.promotion_recommended) {
+          void message.info("有候选位面建议晋升");
+        } else {
+          void message.info("本轮无变更");
+        }
+        void load();
+      }
+    } finally {
+      setEvolving(false);
+    }
+  };
+
   const columns: ColumnsType<Universe> = [
     {
       title: "名称",
@@ -177,6 +199,15 @@ export default function UniversePage() {
           {!enabled && (
             <Button type="primary" loading={enabling} onClick={() => void onEnable()}>
               开启平行位面
+            </Button>
+          )}
+          {enabled && (
+            <Button
+              icon={<ThunderboltOutlined />}
+              loading={evolving}
+              onClick={() => void onEvolve()}
+            >
+              演化
             </Button>
           )}
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>

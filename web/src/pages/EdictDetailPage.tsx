@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Button, Input, Modal, Spin, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme } from "antd";
-import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined, ThunderboltOutlined } from "@ant-design/icons";
+import { Button, Input, Modal, Spin, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme, Tooltip } from "antd";
+import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined, ThunderboltOutlined, LikeOutlined, DislikeOutlined } from "@ant-design/icons";
 import { useEdictDetail } from "../hooks/useEdictDetail";
 import { followUpEdict, updateEdictStatus, updateEdict, approvePlan, rejectPlan, pauseEdict, resumeEdict } from "../api/edicts";
+import { submitUniverseFeedback } from "../api/universe";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
 import MonoText from "../components/common/MonoText";
@@ -82,6 +83,7 @@ export default function EdictDetailPage() {
   }, [events, planEvent]);
 
   const [planApproving, setPlanApproving] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState<Record<string, number>>({});
 
   const handleApprovePlan = async () => {
     if (!edictId) return;
@@ -612,6 +614,35 @@ export default function EdictDetailPage() {
           <MemorialCard memorial={memorial} index={index} />
           {edictId && edict?.acceptance && (
             <SupervisionReportCard edictId={edictId} memorialId={memorial.id} />
+          )}
+          {(memorial.status === "completed" || memorial.status === "failed") && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8, gap: 6 }}>
+              <Tooltip title="好结果">
+                <Button
+                  size="small"
+                  type={feedbackSent[memorial.id] === 1 ? "primary" : "text"}
+                  icon={<LikeOutlined />}
+                  onClick={async () => {
+                    await submitUniverseFeedback(memorial.id, 1);
+                    setFeedbackSent((prev) => ({ ...prev, [memorial.id]: 1 }));
+                    void message.success("已反馈");
+                  }}
+                />
+              </Tooltip>
+              <Tooltip title="差结果">
+                <Button
+                  size="small"
+                  type={feedbackSent[memorial.id] === -1 ? "primary" : "text"}
+                  danger={feedbackSent[memorial.id] === -1}
+                  icon={<DislikeOutlined />}
+                  onClick={async () => {
+                    await submitUniverseFeedback(memorial.id, -1);
+                    setFeedbackSent((prev) => ({ ...prev, [memorial.id]: -1 }));
+                    void message.success("已反馈");
+                  }}
+                />
+              </Tooltip>
+            </div>
           )}
         </div>
       ))}

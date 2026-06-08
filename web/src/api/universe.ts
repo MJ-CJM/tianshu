@@ -52,6 +52,20 @@ export async function getUniverseStatus(): Promise<ApiResponse<{ enabled: boolea
   return data;
 }
 
+export async function submitUniverseFeedback(
+  memorialId: string, score: number,
+): Promise<ApiResponse<{ universe_id: string | null; score: number }>> {
+  const { data } = await apiClient.post<ApiResponse<{ universe_id: string | null; score: number }>>(
+    "/universes/feedback", { memorial_id: memorialId, score },
+  );
+  return data;
+}
+
+export async function triggerEvolve(): Promise<ApiResponse<Record<string, unknown>>> {
+  const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>("/universes/evolve", {});
+  return data;
+}
+
 export async function diffUniverses(
   a: string,
   b: string,
