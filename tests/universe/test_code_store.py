@@ -57,3 +57,36 @@ def test_diff_empty_when_unchanged(store: CodeVariantStore):
 def test_diff_missing_raises(store: CodeVariantStore):
     with pytest.raises(FileNotFoundError):
         store.diff("never")
+
+
+def test_gc_removes_worktree_keeps_branch(store: CodeVariantStore):
+    store.branch_code_variant("u1")
+    store.gc_worktree("u1")
+    assert not store.exists("u1")
+    out = subprocess.run(
+        ["git", "branch", "--list", "universe/u1"],
+        cwd=str(store._repo), capture_output=True, text=True,  # noqa: SLF001
+    ).stdout
+    assert "universe/u1" in out
+
+
+def test_restore_rebuilds_worktree_with_committed_work(store: CodeVariantStore):
+    store.branch_code_variant("u1")
+    wt = store.worktree_dir("u1")
+    (wt / "src.txt").write_text("v2\n")
+    subprocess.run(["git", "add", "-A"], cwd=str(wt), check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t.test", "-c", "user.name=t",
+         "commit", "-q", "-m", "edit"],
+        cwd=str(wt), check=True,
+    )
+    store.gc_worktree("u1")
+    store.restore_worktree("u1")
+    assert store.exists("u1")
+    assert (wt / "src.txt").read_text() == "v2\n"
+
+
+def test_restore_noop_when_present(store: CodeVariantStore):
+    store.branch_code_variant("u1")
+    store.restore_worktree("u1")  # 已存在 → 不报错
+    assert store.exists("u1")

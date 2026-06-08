@@ -77,6 +77,20 @@ class CodeVariantStore:
             raise FileNotFoundError(f"worktree missing: {wt}")
         return self._git("diff", meta["start_ref"], cwd=wt)
 
+    def gc_worktree(self, universe_id: str) -> None:
+        """删除 worktree 工作文件（保留分支/commit/meta，可 restore）。"""
+        wt = self.worktree_dir(universe_id)
+        if wt.is_dir():
+            self._git("worktree", "remove", "--force", str(wt))
+
+    def restore_worktree(self, universe_id: str) -> None:
+        """从保留的分支重建 worktree（已存在则 no-op）。"""
+        wt = self.worktree_dir(universe_id)
+        if wt.is_dir():
+            return
+        branch = self._read_meta(universe_id)["branch"]
+        self._git("worktree", "add", str(wt), branch)
+
     def _read_meta(self, universe_id: str) -> dict:
         p = self._meta_path(universe_id)
         if not p.exists():
