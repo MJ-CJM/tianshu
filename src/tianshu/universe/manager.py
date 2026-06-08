@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import logging
 from pathlib import Path
@@ -24,6 +25,7 @@ class UniverseManager:
         config_apply: Callable[[dict], None],
         event_bus: Any | None = None,
         agent_config: Callable[[], Any] | None = None,
+        code_store: Any | None = None,
     ) -> None:
         self._storage = storage
         self._store = store
@@ -33,6 +35,7 @@ class UniverseManager:
         self._config_apply = config_apply        # (dict) -> None
         self._bus = event_bus
         self._agent_config = agent_config or (lambda: None)
+        self._code_store = code_store
 
     def attach_event_bus(self, bus: Any) -> None:
         self._bus = bus
@@ -119,6 +122,38 @@ class UniverseManager:
         self._storage.save_universe(child.to_row())
         self._emit("universe.created", {
             "universe_id": child.id, "parent": parent_id, "origin": origin.value,
+        })
+        return self._storage.get_universe(child.id)
+
+    # --- code variant branch ---
+
+    def branch_code_variant(
+        self,
+        parent_id: str,
+        name: str,
+        *,
+        start_ref: str = "HEAD",
+        description: str = "",
+    ) -> dict:
+        """从父位面分出一份代码变体（git worktree + 分支）；不复制行为配置数据层。"""
+        if not self._code_store:
+            raise RuntimeError("code variant store not configured")
+        parent = self._storage.get_universe(parent_id)
+        if not parent:
+            raise ValueError(f"parent universe not found: {parent_id}")
+        child = Universe(
+            name=name,
+            status=UniverseStatus.CHALLENGER,
+            origin=UniverseOrigin.CODE_VARIANT,
+            parent_universe_id=parent_id,
+            description=description,
+        )
+        code_ref = self._code_store.branch_code_variant(child.id, start_ref=start_ref)
+        child = dataclasses.replace(child, code_ref=code_ref)
+        self._storage.save_universe(child.to_row())
+        self._emit("universe.created", {
+            "universe_id": child.id, "parent": parent_id,
+            "origin": UniverseOrigin.CODE_VARIANT.value, "code_ref": code_ref,
         })
         return self._storage.get_universe(child.id)
 
