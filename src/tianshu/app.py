@@ -662,7 +662,19 @@ async def lifespan(app: FastAPI):
     executor.set_universe_manager(universe_manager)
     app.state.universe_manager = universe_manager
 
-    scheduler.register_system_jobs(profile_trigger, skill_curator=skill_curator)
+    from tianshu.universe.evolver import UniverseEvolver
+    universe_evolver = UniverseEvolver(
+        llm_client=provider_manager.get_client(),
+        manager=universe_manager,
+        storage=storage,
+        config_manager=config_manager,
+    )
+    universe_evolver.attach_event_bus(event_bus)
+    app.state.universe_evolver = universe_evolver
+
+    scheduler.register_system_jobs(
+        profile_trigger, skill_curator=skill_curator, universe_evolver=universe_evolver,
+    )
 
     # --- DigestGenerator ---
     from tianshu.notifier.digest import DigestGenerator

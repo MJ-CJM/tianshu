@@ -82,7 +82,7 @@ class Scheduler:
         self._system_cron_tasks: list[asyncio.Task] = []
 
     def register_system_jobs(
-        self, profile_trigger: Any, skill_curator: Any = None,
+        self, profile_trigger: Any, skill_curator: Any = None, universe_evolver: Any = None,
     ) -> None:
         """Register built-in system cron jobs (daily profile synthesis, weekly skill curation)."""
         async def _fire() -> None:
@@ -105,6 +105,15 @@ class Scheduler:
                 {"cron": "0 4 * * 0", "name": "skill.weekly_curate", "fn": _fire_curate}
             )
             logger.info("Registered system job: skill.weekly_curate (0 4 * * 0)")
+
+        if universe_evolver is not None:
+            async def _fire_evolve() -> None:
+                asyncio.create_task(universe_evolver.run(trigger_source="cron"))
+
+            self._system_jobs.append(
+                {"cron": "0 5 * * *", "name": "universe.daily_evolve", "fn": _fire_evolve}
+            )
+            logger.info("Registered system job: universe.daily_evolve (0 5 * * *)")
 
     async def start(self) -> None:
         self._running = True
