@@ -120,7 +120,7 @@ export default function UniversePage() {
           <Button size="small" onClick={() => onBranch(u)}>
             分支
           </Button>
-          {u.status !== "champion" && (
+          {u.status === "challenger" && (
             <Button
               size="small"
               type="primary"
