@@ -103,3 +103,27 @@ def test_universe_roundtrip_optional_fields(tmp_path):
     u = s.get_universe("u1")
     assert u["parent_universe_id"] == "parent-1"
     assert u["description"] == "desc"
+
+
+def test_universe_code_ref_roundtrip(tmp_path):
+    s = Storage(str(tmp_path / "t.db"))
+    s.init_db()
+    s.save_universe({
+        "id": "cv1", "name": "code-variant",
+        "status": "challenger", "origin": "code_variant",
+        "code_ref": "universe/cv1",
+        "created_at": "2026-06-08T00:00:00+00:00",
+    })
+    u = s.get_universe("cv1")
+    assert u["code_ref"] == "universe/cv1"
+    assert u["origin"] == "code_variant"
+
+
+def test_universe_code_ref_defaults_none(tmp_path):
+    s = Storage(str(tmp_path / "t.db"))
+    s.init_db()
+    s.save_universe({
+        "id": "d1", "name": "data", "status": "challenger",
+        "origin": "manual_branch", "created_at": "2026-06-08T00:00:00+00:00",
+    })
+    assert s.get_universe("d1")["code_ref"] is None

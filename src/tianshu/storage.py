@@ -300,6 +300,7 @@ class Storage:
                     mutation_reason TEXT,
                     description TEXT NOT NULL DEFAULT '',
                     fitness_json TEXT NOT NULL DEFAULT '{}',
+                    code_ref TEXT,
                     created_at TEXT NOT NULL
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_universe_single_champion
@@ -674,6 +675,8 @@ class Storage:
             "ALTER TABLE memorials ADD COLUMN feedback_score INTEGER NOT NULL DEFAULT 0",
             # 2026-06-08: 平行位面 1b — universe_id 索引（fitness 聚合按 universe_id 扫描）
             "CREATE INDEX IF NOT EXISTS idx_memorials_universe_id ON memorials(universe_id)",
+            # 2026-06-08: 代码变体位面 2a — worktree 分支引用
+            "ALTER TABLE universes ADD COLUMN code_ref TEXT",
         ]
         for sql in migrations:
             try:
@@ -2342,13 +2345,14 @@ class Storage:
             self._conn.execute(
                 """INSERT OR REPLACE INTO universes
                    (id, name, parent_universe_id, status, origin,
-                    mutation_reason, description, fitness_json, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    mutation_reason, description, fitness_json, code_ref, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     uni["id"], uni["name"], uni.get("parent_universe_id"),
                     uni["status"], uni["origin"], uni.get("mutation_reason"),
                     uni.get("description", ""),
                     json.dumps(uni.get("fitness", {}), ensure_ascii=False),
+                    uni.get("code_ref"),
                     uni["created_at"],
                 ),
             )
@@ -2444,6 +2448,7 @@ class Storage:
             "mutation_reason": row["mutation_reason"],
             "description": row["description"],
             "fitness": json.loads(row["fitness_json"] or "{}"),
+            "code_ref": row["code_ref"],
             "created_at": row["created_at"],
         }
 
