@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 from typing import Any, Callable
@@ -22,6 +23,7 @@ class UniverseManager:
         config_snapshot: Callable[[], dict],
         config_apply: Callable[[dict], None],
         event_bus: Any | None = None,
+        agent_config: Callable[[], Any] | None = None,
     ) -> None:
         self._storage = storage
         self._store = store
@@ -30,6 +32,7 @@ class UniverseManager:
         self._config_snapshot = config_snapshot  # () -> dict
         self._config_apply = config_apply        # (dict) -> None
         self._bus = event_bus
+        self._agent_config = agent_config or (lambda: None)
 
     def attach_event_bus(self, bus: Any) -> None:
         self._bus = bus
@@ -42,6 +45,30 @@ class UniverseManager:
     def champion_id(self) -> str | None:
         champ = self.champion()
         return champ["id"] if champ else None
+
+    def route_for_memorial(self, memorial_id: str) -> str | None:
+        """返回本 memorial 应归属的位面：默认冠军；按 explore_ratio 概率分给在线候选。
+
+        用 memorial_id 的稳定哈希做确定性分桶（无随机源、可复现；ULID 安全）。
+        """
+        champ_id = self.champion_id()
+        cfg = self._agent_config()
+        if not getattr(cfg, "parallel_universe_enabled", False):
+            return champ_id
+        ratio = getattr(cfg, "universe_explore_ratio", 0.1)
+        if ratio <= 0:
+            return champ_id
+        challengers = [
+            u for u in self.list(include_archived=False)
+            if u["status"] == "challenger"
+        ]
+        if not challengers:
+            return champ_id
+        h = int(hashlib.sha256((memorial_id or "").encode()).hexdigest(), 16)
+        if (h % 100) < int(ratio * 100):
+            idx = (h // 100) % len(challengers)
+            return challengers[idx]["id"]
+        return champ_id
 
     def list(self, *, include_archived: bool = True) -> list[dict]:
         return self._storage.list_universes(include_archived=include_archived)

@@ -165,7 +165,7 @@ class Executor:
     def _stamp_universe(self, memorial: Memorial) -> None:
         """执行开始时固化 memorial 所属位面（一旦设定，本次运行内不变）。"""
         if self._universe_manager is not None and memorial.universe_id is None:
-            memorial.universe_id = self._universe_manager.champion_id()
+            memorial.universe_id = self._universe_manager.route_for_memorial(memorial.id)
 
     def _apply_memorial_override(
         self, edict: Edict, memorial: Memorial | None,

@@ -655,6 +655,7 @@ async def lifespan(app: FastAPI):
         config_snapshot=_universe_config_snapshot,
         config_apply=_universe_config_apply,
         event_bus=event_bus,
+        agent_config=lambda: config_manager.agent_config,
     )
     if config_manager.agent_config.parallel_universe_enabled:
         universe_manager.ensure_genesis()
