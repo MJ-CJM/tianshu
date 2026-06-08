@@ -120,3 +120,55 @@ def test_cron_respects_idle():
     ev = _evolver(_cfg(universe_evolver_idle_hours=999), MagicMock(), st)
     r = asyncio.run(ev.run(trigger_source="cron"))
     assert r.skipped == "not_idle"
+
+
+def test_evolver_lands_persona_mutation(tmp_path):
+    from pathlib import Path
+    from tianshu.storage import Storage
+    from tianshu.universe.store import UniverseStore
+    from tianshu.universe.manager import UniverseManager
+
+    # Set up live personas/skills dirs
+    (p := tmp_path / "personas" / "bingbu").mkdir(parents=True)
+    (p / "ROLE.md").write_text("原始职责")
+    (tmp_path / "skills").mkdir()
+
+    s = Storage(str(tmp_path / "t.db"))
+    s.init_db()
+    store = UniverseStore(tmp_path / "universes", tmp_path / "personas", tmp_path / "skills")
+
+    class FP:
+        runtime_dir = tmp_path / "personas"
+        def repoint_runtime(self, _): pass
+
+    class FS:
+        _user_dir = tmp_path / "skills"
+        @property
+        def user_dir(self): return self._user_dir
+        def repoint_user_dir(self, _): pass
+
+    mgr = UniverseManager(
+        s, store, FP(), FS(),
+        config_snapshot=lambda: {"agent_config": {}},
+        config_apply=lambda m: None,
+    )
+    g = mgr.ensure_genesis()
+
+    cfg = _cfg()
+    cm = MagicMock(); cm.agent_config = cfg
+
+    llm = AsyncMock()
+    llm.chat.side_effect = [
+        type("R", (), {"content": '{"target": "persona:bingbu/ROLE.md", "reason": "更主动", "name": "实验"}'})(),
+        type("R", (), {"content": "改写后的职责：主动协同"})(),
+    ]
+
+    ev = UniverseEvolver(llm, mgr, s, cm)
+    r = asyncio.run(ev.run(trigger_source="manual"))
+
+    assert r.created_challenger is not None
+    assert r.mutation_applied is True
+    child_role = (store.personas_dir(r.created_challenger) / "bingbu" / "ROLE.md").read_text()
+    champ_role = (store.personas_dir(g["id"]) / "bingbu" / "ROLE.md").read_text()
+    assert child_role != champ_role
+    assert child_role == "改写后的职责：主动协同"
