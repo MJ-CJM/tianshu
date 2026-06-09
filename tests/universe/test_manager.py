@@ -178,3 +178,40 @@ def test_restore_non_archived_raises(mgr: UniverseManager):
     g = mgr.ensure_genesis()
     with pytest.raises(ValueError):
         mgr.restore(g["id"])  # champion is not archived
+
+
+# --- delete tests ---
+
+def test_delete_data_universe_removes_from_list_and_snapshot(mgr: UniverseManager, tmp_path: Path):
+    g = mgr.ensure_genesis()
+    ch = mgr.branch(g["id"], "exp")
+    ch_id = ch["id"]
+    # Snapshot dir exists before delete
+    assert mgr._store.universe_dir(ch_id).exists()  # noqa: SLF001
+    result = mgr.delete(ch_id)
+    assert result == {"id": ch_id}
+    # Gone from DB
+    ids = {u["id"] for u in mgr.list()}
+    assert ch_id not in ids
+    # Snapshot dir removed
+    assert not mgr._store.universe_dir(ch_id).exists()  # noqa: SLF001
+
+
+def test_cannot_delete_champion(mgr: UniverseManager):
+    g = mgr.ensure_genesis()
+    with pytest.raises(ValueError, match="champion"):
+        mgr.delete(g["id"])
+
+
+def test_delete_nonexistent_raises(mgr: UniverseManager):
+    with pytest.raises(ValueError, match="not found"):
+        mgr.delete("ghost-id")
+
+
+def test_delete_archived_data_universe(mgr: UniverseManager):
+    g = mgr.ensure_genesis()
+    ch = mgr.branch(g["id"], "exp")
+    mgr.archive(ch["id"])
+    result = mgr.delete(ch["id"])
+    assert result["id"] == ch["id"]
+    assert ch["id"] not in {u["id"] for u in mgr.list()}

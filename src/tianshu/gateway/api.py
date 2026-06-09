@@ -675,6 +675,31 @@ async def trigger_evolve(request: Request):
     return ApiResponse(success=True, data=result.to_dict())
 
 
+@gateway_router.post("/universes/propose-code", response_model=ApiResponse)
+async def propose_code_variant(request: Request):
+    evolver = request.app.state.universe_evolver
+    body = await request.json()
+    target_path = (body or {}).get("target_path")
+    hypothesis = (body or {}).get("hypothesis")
+    if not target_path or not hypothesis:
+        raise HTTPException(status_code=400, detail="target_path and hypothesis required")
+    result = await evolver.propose_code_variant(
+        target_path=target_path, hypothesis=hypothesis,
+        parent_id=(body or {}).get("parent_id"),
+    )
+    return ApiResponse(success=True, data=result)
+
+
+@gateway_router.delete("/universes/{universe_id}", response_model=ApiResponse)
+async def delete_universe(universe_id: str, request: Request):
+    mgr = request.app.state.universe_manager
+    try:
+        result = mgr.delete(universe_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return ApiResponse(success=True, data=result)
+
+
 @gateway_router.get("/universes/{universe_id}")
 async def get_universe(universe_id: str, request: Request):
     storage: Storage = request.app.state.storage
@@ -724,6 +749,32 @@ async def restore_universe(universe_id: str, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return ApiResponse(success=True, data=uni)
+
+
+@gateway_router.post("/universes/{universe_id}/promote-code", response_model=ApiResponse)
+async def promote_code_variant(universe_id: str, request: Request):
+    mgr = request.app.state.universe_manager
+    try:
+        uni = mgr.promote_code_variant(universe_id)
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return ApiResponse(success=True, data=uni)
+
+
+@gateway_router.get("/universes/{universe_id}/code-diff", response_model=ApiResponse)
+async def code_diff_universe(universe_id: str, request: Request):
+    mgr = request.app.state.universe_manager
+    try:
+        diff = mgr.code_diff(universe_id)
+    except (ValueError, RuntimeError, FileNotFoundError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return ApiResponse(success=True, data={"diff": diff})
+
+
+@gateway_router.get("/universes/{universe_id}/eval-runs", response_model=ApiResponse)
+async def list_eval_runs(universe_id: str, request: Request):
+    storage: Storage = request.app.state.storage
+    return ApiResponse(success=True, data=storage.list_variant_eval_runs(universe_id))
 
 
 # --- Audit endpoints ---

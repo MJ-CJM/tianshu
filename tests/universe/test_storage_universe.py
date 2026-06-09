@@ -127,3 +127,34 @@ def test_universe_code_ref_defaults_none(tmp_path):
         "origin": "manual_branch", "created_at": "2026-06-08T00:00:00+00:00",
     })
     assert s.get_universe("d1")["code_ref"] is None
+
+
+def test_delete_universe_removes_row_and_eval_runs(tmp_path):
+    s = Storage(str(tmp_path / "t.db"))
+    s.init_db()
+    s.save_universe({
+        "id": "u1", "name": "test", "status": "challenger",
+        "origin": "manual_branch", "created_at": "2026-06-08T00:00:00+00:00",
+    })
+    from datetime import UTC, datetime
+    s.save_variant_eval_run({
+        "id": "r1", "universe_id": "u1",
+        "gate_passed": True, "gate_detail": None,
+        "fitness": {"score": 0.9}, "eval_set_version": "v1",
+        "cost": 0.01,
+        "created_at": datetime.now(UTC).isoformat(),
+    })
+    assert s.get_universe("u1") is not None
+    assert len(s.list_variant_eval_runs("u1")) == 1
+
+    s.delete_universe("u1")
+
+    assert s.get_universe("u1") is None
+    assert s.list_variant_eval_runs("u1") == []
+
+
+def test_delete_universe_nonexistent_is_noop(tmp_path):
+    s = Storage(str(tmp_path / "t.db"))
+    s.init_db()
+    # Should not raise
+    s.delete_universe("ghost-id")

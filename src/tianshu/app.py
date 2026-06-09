@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -50,7 +51,13 @@ from tianshu.skills.reviewer import SkillReviewHandler
 from tianshu.skills.validator import SkillValidator
 from tianshu.skills.curator import SkillCurator
 from tianshu.universe.store import UniverseStore
+from tianshu.universe.code_store import CodeVariantStore
+from tianshu.universe.deployer import DeployPointer, Deployer
 from tianshu.universe.manager import UniverseManager
+from tianshu.universe.gate import Gate
+from tianshu.universe.sandbox import SandboxRunner
+from tianshu.universe.eval_harness import EvalHarness
+from tianshu.universe.code_mutator import CodeMutator
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.memory_tools import register_memory_tools
@@ -315,30 +322,34 @@ async def lifespan(app: FastAPI):
     channel_registry = ChannelRegistry()
     app.state.channel_registry = channel_registry
 
-    # Register channels from environment
-    if settings.feishu_app_id:
-        # app bot 模式：FeishuOutbound 在 FeishuBot.start() 内部直接订阅 EventBus，
-        # 不通过 ChannelRegistry。互斥：旧 incoming webhook URL 完全跳过。
-        pass
-    elif settings.feishu_webhook:
-        from tianshu.notifier.channels.feishu import FeishuChannel
-        channel_registry.register(FeishuChannel(settings.feishu_webhook))
-    if settings.dingtalk_webhook:
-        from tianshu.notifier.channels.dingtalk import DingTalkChannel
-        channel_registry.register(DingTalkChannel(
-            settings.dingtalk_webhook,
-            secret=settings.dingtalk_secret,
-        ))
-    if settings.smtp_host:
-        from tianshu.notifier.channels.email import EmailChannel
-        channel_registry.register(EmailChannel(
-            smtp_host=settings.smtp_host,
-            smtp_port=settings.smtp_port,
-            username=settings.smtp_username,
-            password=settings.smtp_password,
-            from_addr=settings.smtp_from,
-            to_addrs=settings.smtp_to.split(",") if settings.smtp_to else [],
-        ))
+    # EVAL_MODE：沙箱评估时不挂真实外发渠道，避免评估副作用
+    if not settings.eval_mode:
+        # Register channels from environment
+        if settings.feishu_app_id:
+            # app bot 模式：FeishuOutbound 在 FeishuBot.start() 内部直接订阅 EventBus，
+            # 不通过 ChannelRegistry。互斥：旧 incoming webhook URL 完全跳过。
+            pass
+        elif settings.feishu_webhook:
+            from tianshu.notifier.channels.feishu import FeishuChannel
+            channel_registry.register(FeishuChannel(settings.feishu_webhook))
+        if settings.dingtalk_webhook:
+            from tianshu.notifier.channels.dingtalk import DingTalkChannel
+            channel_registry.register(DingTalkChannel(
+                settings.dingtalk_webhook,
+                secret=settings.dingtalk_secret,
+            ))
+        if settings.smtp_host:
+            from tianshu.notifier.channels.email import EmailChannel
+            channel_registry.register(EmailChannel(
+                smtp_host=settings.smtp_host,
+                smtp_port=settings.smtp_port,
+                username=settings.smtp_username,
+                password=settings.smtp_password,
+                from_addr=settings.smtp_from,
+                to_addrs=settings.smtp_to.split(",") if settings.smtp_to else [],
+            ))
+    else:
+        logger.info("[eval_mode] skipping real outbound channel registration (feishu/dingtalk/smtp)")
 
     # --- Notifier ---
     notifier = Notifier(storage=storage, channel_registry=channel_registry)
@@ -404,10 +415,14 @@ async def lifespan(app: FastAPI):
         app=app,
     )
     app.state.bot_manager = bot_manager
-    try:
-        await bot_manager.start_all()
-    except Exception:
-        logger.exception("[gateway] bot_manager.start_all failed; web stays up")
+    # EVAL_MODE：沙箱评估时不启动 bot（Feishu/Telegram），避免真实消息推送副作用
+    if not settings.eval_mode:
+        try:
+            await bot_manager.start_all()
+        except Exception:
+            logger.exception("[gateway] bot_manager.start_all failed; web stays up")
+    else:
+        logger.info("[eval_mode] skipping bot startup (feishu/telegram bots not started)")
     # 向后兼容别名：部分代码/测试读取 app.state.feishu_bot / telegram_bot（默认实例）。
     app.state.feishu_bot = bot_manager.get("feishu-default")
     app.state.telegram_bot = bot_manager.get("telegram-default")
@@ -647,6 +662,12 @@ async def lifespan(app: FastAPI):
         live_personas_dir=persona_loader.runtime_dir,
         live_skills_dir=skills.user_dir,
     )
+    code_variant_store = CodeVariantStore(
+        repo_root=Path(__file__).resolve().parents[2],
+        worktrees_root=Path("~/.tianshu/universes/worktrees").expanduser(),
+    )
+    deploy_pointer = DeployPointer(Path("~/.tianshu/universes/deploy_ptr.json").expanduser())
+    code_deployer = Deployer(deploy_pointer)
     universe_manager = UniverseManager(
         storage=storage,
         store=universe_store,
@@ -656,6 +677,8 @@ async def lifespan(app: FastAPI):
         config_apply=_universe_config_apply,
         event_bus=event_bus,
         agent_config=lambda: config_manager.agent_config,
+        code_store=code_variant_store,
+        deployer=code_deployer,
     )
     # opt-in 持久化：env 开启，或库中已存在 champion 位面（此前已开启过）→ 续上开启状态，
     # 避免"重启后位面数据还在、功能却悄悄关闭"的困惑态。
@@ -664,6 +687,17 @@ async def lifespan(app: FastAPI):
         universe_manager.ensure_genesis()
     executor.set_universe_manager(universe_manager)
     app.state.universe_manager = universe_manager
+    app.state.code_deployer = code_deployer
+
+    _cfg = config_manager.agent_config
+    code_gate = Gate(python_exe=sys.executable, timeout_s=_cfg.code_variant_sandbox_timeout_s)
+    code_sandbox = SandboxRunner(mem_mb=_cfg.code_variant_sandbox_mem_mb)
+    code_eval_harness = EvalHarness(
+        storage, code_sandbox, fitness_weights=_cfg.universe_fitness_weights,
+    )
+    code_mutator = CodeMutator(
+        provider_manager.get_client(), evolvable_paths=_cfg.code_variant_evolvable_paths,
+    )
 
     from tianshu.universe.evolver import UniverseEvolver
     universe_evolver = UniverseEvolver(
@@ -671,6 +705,11 @@ async def lifespan(app: FastAPI):
         manager=universe_manager,
         storage=storage,
         config_manager=config_manager,
+        code_store=code_variant_store,
+        gate=code_gate,
+        sandbox=code_sandbox,
+        eval_harness=code_eval_harness,
+        code_mutator=code_mutator,
     )
     universe_evolver.attach_event_bus(event_bus)
     app.state.universe_evolver = universe_evolver

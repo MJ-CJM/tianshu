@@ -306,6 +306,19 @@ class Storage:
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_universe_single_champion
                     ON universes(status) WHERE status = 'champion';
 
+                CREATE TABLE IF NOT EXISTS variant_eval_runs (
+                    id TEXT PRIMARY KEY,
+                    universe_id TEXT NOT NULL,
+                    gate_passed INTEGER NOT NULL DEFAULT 0,
+                    gate_detail TEXT,
+                    fitness_json TEXT NOT NULL DEFAULT '{}',
+                    eval_set_version TEXT,
+                    cost REAL NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_variant_eval_runs_universe
+                    ON variant_eval_runs(universe_id);
+
                 CREATE TABLE IF NOT EXISTS persona_metrics (
                     persona_id TEXT PRIMARY KEY,
                     total_executions INTEGER NOT NULL DEFAULT 0,
@@ -2392,6 +2405,13 @@ class Storage:
                 (json.dumps(fitness, ensure_ascii=False), universe_id),
             )
 
+    def delete_universe(self, universe_id: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "DELETE FROM variant_eval_runs WHERE universe_id = ?", (universe_id,)
+            )
+            self._conn.execute("DELETE FROM universes WHERE id = ?", (universe_id,))
+
     def set_memorial_feedback(self, memorial_id: str, score: int) -> None:
         """设置某 memorial 的显式反馈分（-1/0/1）。"""
         score = max(-1, min(1, int(score)))
@@ -2435,6 +2455,47 @@ class Storage:
             "total": total, "success": success, "retries": retries,
             "audited": audited, "audit_pass": audit_pass,
             "cost": round(cost, 6), "feedback": feedback,
+        }
+
+    def save_variant_eval_run(self, run: dict) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO variant_eval_runs
+                   (id, universe_id, gate_passed, gate_detail,
+                    fitness_json, eval_set_version, cost, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    run["id"], run["universe_id"],
+                    1 if run.get("gate_passed") else 0,
+                    json.dumps(run.get("gate_detail"), ensure_ascii=False)
+                    if run.get("gate_detail") is not None else None,
+                    json.dumps(run.get("fitness", {}), ensure_ascii=False),
+                    run.get("eval_set_version"),
+                    float(run.get("cost", 0.0)),
+                    run["created_at"],
+                ),
+            )
+
+    def list_variant_eval_runs(self, universe_id: str) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM variant_eval_runs WHERE universe_id = ? "
+                "ORDER BY created_at DESC",
+                (universe_id,),
+            ).fetchall()
+        return [self._row_to_eval_run(r) for r in rows]
+
+    @staticmethod
+    def _row_to_eval_run(row) -> dict:
+        return {
+            "id": row["id"],
+            "universe_id": row["universe_id"],
+            "gate_passed": bool(row["gate_passed"]),
+            "gate_detail": json.loads(row["gate_detail"]) if row["gate_detail"] else None,
+            "fitness": json.loads(row["fitness_json"] or "{}"),
+            "eval_set_version": row["eval_set_version"],
+            "cost": row["cost"],
+            "created_at": row["created_at"],
         }
 
     @staticmethod

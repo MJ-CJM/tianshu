@@ -91,6 +91,18 @@ class CodeVariantStore:
         branch = self._read_meta(universe_id)["branch"]
         self._git("worktree", "add", str(wt), branch)
 
+    def remove(self, universe_id: str) -> None:
+        """彻底删除：worktree 工作文件 + 分支 + sidecar meta（不可恢复，区别于 gc_worktree 保留分支）。"""
+        wt = self.worktree_dir(universe_id)
+        if wt.is_dir():
+            self._git("worktree", "remove", "--force", str(wt))
+        branch = self.branch_name(universe_id)
+        try:
+            self._git("branch", "-D", branch)
+        except RuntimeError:
+            pass
+        self._meta_path(universe_id).unlink(missing_ok=True)
+
     def _read_meta(self, universe_id: str) -> dict:
         p = self._meta_path(universe_id)
         if not p.exists():

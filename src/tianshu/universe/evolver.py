@@ -76,12 +76,22 @@ class UniverseEvolver:
         manager: Any,
         storage: Any,
         config_manager: Any,
+        code_store: Any = None,
+        gate: Any = None,
+        sandbox: Any = None,
+        eval_harness: Any = None,
+        code_mutator: Any = None,
     ) -> None:
         self._llm = llm_client
         self._mgr = manager
         self._storage = storage
         self._config = config_manager
         self._bus: Any | None = None
+        self._code_store = code_store
+        self._gate = gate
+        self._sandbox = sandbox
+        self._eval_harness = eval_harness
+        self._code_mutator = code_mutator
 
     def attach_event_bus(self, bus: Any) -> None:
         self._bus = bus
@@ -208,6 +218,90 @@ class UniverseEvolver:
         pdir = store.personas_dir(champ["id"])
         personas = sorted(p.name for p in pdir.glob("*")) if pdir.exists() else []
         return f"人格: {personas}; config: {list(store.read_manifest(champ['id']).keys())}"
+
+    async def propose_code_variant(
+        self,
+        *,
+        target_path: str,
+        hypothesis: str,
+        parent_id: str | None = None,
+    ) -> dict:
+        """代码变体提案：分支→变异→门禁→评估→记录→推荐（默认不自动晋升）。失败安全。
+
+        返回 {"status","universe_id","fitness","detail"}（按需）。
+        status ∈ {"disabled","no_collaborators","no_champion","no_mutation",
+                  "gate_failed","evaluated","recommended","error"}。
+        """
+        try:
+            cfg = self._config.agent_config
+            if not getattr(cfg, "code_variant_enabled", False):
+                return {"status": "disabled"}
+
+            if any(c is None for c in (self._code_store, self._gate, self._eval_harness, self._code_mutator)):
+                return {"status": "no_collaborators"}
+
+            parent = parent_id or self._mgr.champion_id()
+            if not parent:
+                return {"status": "no_champion"}
+
+            from datetime import UTC, datetime
+            from ulid import ULID
+
+            child = self._mgr.branch_code_variant(
+                parent,
+                name=f"code:{target_path}",
+                description=hypothesis,
+            )
+            uid = child["id"]
+            worktree = self._code_store.worktree_dir(uid)
+
+            m = await self._code_mutator.mutate(
+                worktree, target_path=target_path, hypothesis=hypothesis,
+            )
+            if not m["applied"]:
+                self._mgr.archive(uid)
+                return {"status": "no_mutation", "universe_id": uid, "detail": m["reason"]}
+
+            g = self._gate.run(worktree)
+            if not g.passed:
+                self._storage.save_variant_eval_run({
+                    "id": str(ULID()),
+                    "universe_id": uid,
+                    "gate_passed": False,
+                    "gate_detail": {"stage": g.stage, "detail": g.detail[:1000]},
+                    "fitness": {},
+                    "created_at": datetime.now(UTC).isoformat(),
+                })
+                return {"status": "gate_failed", "universe_id": uid, "detail": g.stage}
+
+            eval_set_size = getattr(cfg, "code_variant_eval_set_size", 20)
+            es = self._eval_harness.select_eval_set(eval_set_size)
+            ev = self._eval_harness.evaluate(worktree, eval_set=es)
+            fitness = ev["fitness"]
+
+            self._storage.save_variant_eval_run({
+                "id": str(ULID()),
+                "universe_id": uid,
+                "gate_passed": True,
+                "fitness": fitness,
+                "eval_set_version": str(len(es)),
+                "cost": ev["stats"].get("cost", 0),
+                "created_at": datetime.now(UTC).isoformat(),
+            })
+            self._storage.update_universe_fitness(uid, fitness)
+
+            champ = self._storage.get_champion_universe()
+            champ_score = (champ.get("fitness") or {}).get("score", 0.0) if champ else 0.0
+            variant_score = fitness.get("score", 0.0)
+            margin = getattr(cfg, "universe_promote_margin", 0.05)
+
+            if variant_score >= champ_score + margin:
+                return {"status": "recommended", "universe_id": uid, "fitness": fitness}
+            return {"status": "evaluated", "universe_id": uid, "fitness": fitness}
+
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[EVOLVER] propose_code_variant failed")
+            return {"status": "error", "detail": str(e)}
 
     async def _emit(self, event_type: str, payload: dict) -> None:
         if not self._bus:

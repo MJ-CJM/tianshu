@@ -75,3 +75,5 @@ class TianshuSettings(BaseSettings):
     smtp_from: str = ""
     smtp_to: str = ""
     parallel_universe_enabled: bool = False
+    code_variant_enabled: bool = False
+    eval_mode: bool = False  # 沙箱评估模式：外发副作用（通知/webhook）应被 stub

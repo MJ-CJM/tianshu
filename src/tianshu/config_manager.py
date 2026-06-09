@@ -51,6 +51,17 @@ class AgentConfigState:
     universe_challenger_fail_limit: int = 5
     # fitness 权重（success/cost/audit/retry/feedback）
     universe_fitness_weights: tuple[float, ...] = (0.4, 0.15, 0.2, 0.1, 0.15)
+    # Phase 2 / 2b — 代码变体
+    code_variant_enabled: bool = False
+    code_variant_evolvable_paths: tuple[str, ...] = (
+        "src/tianshu/persona/selector.py",
+        "src/tianshu/planner/",
+        "src/tianshu/tools/",
+    )
+    code_variant_auto_promote: bool = False
+    code_variant_sandbox_timeout_s: int = 900
+    code_variant_sandbox_mem_mb: int = 2048
+    code_variant_eval_set_size: int = 20
 
 
 class ConfigManager:

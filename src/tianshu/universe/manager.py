@@ -26,6 +26,7 @@ class UniverseManager:
         event_bus: Any | None = None,
         agent_config: Callable[[], Any] | None = None,
         code_store: Any | None = None,
+        deployer: Any | None = None,
     ) -> None:
         self._storage = storage
         self._store = store
@@ -36,6 +37,7 @@ class UniverseManager:
         self._bus = event_bus
         self._agent_config = agent_config or (lambda: None)
         self._code_store = code_store
+        self._deployer = deployer
 
     def attach_event_bus(self, bus: Any) -> None:
         self._bus = bus
@@ -157,6 +159,26 @@ class UniverseManager:
         })
         return self._storage.get_universe(child.id)
 
+    # --- promote code variant ---
+
+    def promote_code_variant(self, universe_id: str) -> dict:
+        """人工批准晋升代码变体：翻状态为冠军 + 暂存 deploy 指针（不自动重启；重启是单独受控步骤）。"""
+        if not self._deployer:
+            raise RuntimeError("deployer not configured")
+        target = self._storage.get_universe(universe_id)
+        if not target:
+            raise ValueError(f"universe not found: {universe_id}")
+        if not target.get("code_ref"):
+            raise ValueError("not a code variant universe")
+        prev = self.champion()
+        if prev and prev["id"] != universe_id:
+            self._storage.set_universe_status(prev["id"], UniverseStatus.CHALLENGER.value)
+        self._storage.set_universe_status(universe_id, UniverseStatus.CHAMPION.value)
+        worktree = str(self._code_store.worktree_dir(universe_id)) if self._code_store else None
+        self._deployer.stage(ref=target["code_ref"], worktree=worktree)
+        self._emit("universe.promoted", {"universe_id": universe_id, "code_ref": target["code_ref"]})
+        return self._storage.get_universe(universe_id)
+
     # --- switch / rollback ---
 
     def switch(self, universe_id: str) -> dict:
@@ -201,6 +223,23 @@ class UniverseManager:
 
     # rollback 语义等同 switch 到历史位面
     rollback = switch
+
+    # --- delete ---
+
+    def delete(self, universe_id: str) -> dict:
+        """彻底删除一个位面（不可恢复）。冠军不可删（先切走）。返回 {"id": ...}。"""
+        target = self._storage.get_universe(universe_id)
+        if not target:
+            raise ValueError(f"universe not found: {universe_id}")
+        if target["status"] == UniverseStatus.CHAMPION.value:
+            raise ValueError("cannot delete the champion (switch away first)")
+        if target.get("code_ref") and self._code_store:
+            self._code_store.remove(universe_id)
+        else:
+            self._store.remove(universe_id)
+        self._storage.delete_universe(universe_id)
+        self._emit("universe.deleted", {"universe_id": universe_id})
+        return {"id": universe_id}
 
     # --- archive ---
 

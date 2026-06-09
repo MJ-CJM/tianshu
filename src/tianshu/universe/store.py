@@ -71,6 +71,12 @@ class UniverseStore:
         self._copy_tree(src / _SKILLS, self._live_skills)
         return self.read_manifest(universe_id)
 
+    def remove(self, universe_id: str) -> None:
+        """删除该位面的落盘目录（personas/skills/manifest）。不存在则忽略。"""
+        d = self.universe_dir(universe_id)
+        if d.exists():
+            shutil.rmtree(d)
+
     def write_manifest(self, universe_id: str, config_snapshot: dict) -> None:
         path = self.universe_dir(universe_id) / _MANIFEST
         path.write_text(
