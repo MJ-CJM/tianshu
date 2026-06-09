@@ -1,5 +1,5 @@
 import apiClient from "./client";
-import type { ApiResponse, Universe } from "./types";
+import type { ApiResponse, Universe, VariantEvalRun } from "./types";
 
 export async function listUniverses(): Promise<ApiResponse<Universe[]>> {
   const { data } = await apiClient.get<ApiResponse<Universe[]>>("/universes");
@@ -73,5 +73,41 @@ export async function diffUniverses(
   const { data } = await apiClient.get<
     ApiResponse<{ personas: unknown; skills: unknown; config: unknown }>
   >("/universes/_diff", { params: { a, b } });
+  return data;
+}
+
+export async function proposeCodeVariant(
+  targetPath: string, hypothesis: string, parentId?: string,
+): Promise<ApiResponse<Record<string, unknown>>> {
+  const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
+    "/universes/propose-code",
+    { target_path: targetPath, hypothesis, parent_id: parentId },
+  );
+  return data;
+}
+
+export async function promoteCodeVariant(id: string): Promise<ApiResponse<Universe>> {
+  const { data } = await apiClient.post<ApiResponse<Universe>>(
+    `/universes/${id}/promote-code`, {},
+  );
+  return data;
+}
+
+export async function getCodeDiff(id: string): Promise<ApiResponse<{ diff: string }>> {
+  const { data } = await apiClient.get<ApiResponse<{ diff: string }>>(
+    `/universes/${id}/code-diff`,
+  );
+  return data;
+}
+
+export async function listEvalRuns(id: string): Promise<ApiResponse<VariantEvalRun[]>> {
+  const { data } = await apiClient.get<ApiResponse<VariantEvalRun[]>>(
+    `/universes/${id}/eval-runs`,
+  );
+  return data;
+}
+
+export async function deleteUniverse(id: string): Promise<ApiResponse<{ id: string }>> {
+  const { data } = await apiClient.delete<ApiResponse<{ id: string }>>(`/universes/${id}`);
   return data;
 }

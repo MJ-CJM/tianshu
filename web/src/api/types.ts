@@ -896,6 +896,18 @@ export interface Universe {
   description: string;
   fitness: Record<string, number>;
   created_at: string;
+  code_ref: string | null;
+}
+
+export interface VariantEvalRun {
+  id: string;
+  universe_id: string;
+  gate_passed: boolean;
+  gate_detail: { stage?: string; detail?: string } | null;
+  fitness: Record<string, number>;
+  eval_set_version: string | null;
+  cost: number;
+  created_at: string;
 }
 
 // --- External Network Credentials (Spec 2026-04-22 §4) ---
