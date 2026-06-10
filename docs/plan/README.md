@@ -1,6 +1,6 @@
 # 天枢（Tianshu）分阶段实施计划
 
-> 本目录将 `docs/design/architecture.md` 的架构设计转化为可直接执行的分阶段实施计划。
+> 本目录将 [`../design/architecture.md`](../design/architecture.md) 的架构设计转化为可直接执行的分阶段实施计划（**路线图**）。具体特性如何一步步落地，见 [`../superpowers/INDEX.md`](../superpowers/INDEX.md)。
 
 ---
 
@@ -112,6 +112,6 @@ A --x B    表示 A 和 B 无依赖，可并行
 
 | 文件 | 说明 |
 |------|------|
-| `docs/design/architecture.md` | 架构设计（设计真相来源） |
-| `docs/design/project-analysis.md` | 项目分析 |
-| `docs/design/reference-projects.md` | 参考项目分析 |
+| [`../design/architecture.md`](../design/architecture.md) | 架构设计（设计真相来源） |
+| [`../design/project-analysis.md`](../design/project-analysis.md) | 项目背景与需求分析 |
+| [`../reference/reference-projects.md`](../reference/reference-projects.md) | 参考项目分析 |
