@@ -14,22 +14,6 @@ memory_router = APIRouter(tags=["memory"])
 # --- Memory endpoints ---
 
 
-@memory_router.get("/memory/{persona_id}")
-async def get_persona_memory(
-    persona_id: str,
-    request: Request,
-    limit: int = Query(default=50, ge=1, le=200),
-):
-    mm: MemoryManager = request.app.state.memory_manager
-    # Auto-sync once per persona per session (won't re-sync after user deletes)
-    mm.auto_sync_if_needed(persona_id)
-    entries = mm.list_by_persona(persona_id, limit=limit)
-    return ApiResponse(
-        success=True,
-        data=[e.model_dump(mode="json") for e in entries],
-    )
-
-
 @memory_router.post("/memory/recall", response_model=ApiResponse)
 async def recall_memory(request: Request):
     mm: MemoryManager = request.app.state.memory_manager
@@ -222,6 +206,24 @@ async def get_memory_stats(request: Request):
             "markdown_size_bytes": md_size,
         }
     return ApiResponse(success=True, data=stats)
+
+
+# NOTE: 参数路由必须注册在 /memory/policies、/memory/stats 等静态段之后，
+# 否则 {persona_id} 会把它们全部吞掉（历史 bug：stats/policies 曾不可达）。
+@memory_router.get("/memory/{persona_id}")
+async def get_persona_memory(
+    persona_id: str,
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+):
+    mm: MemoryManager = request.app.state.memory_manager
+    # Auto-sync once per persona per session (won't re-sync after user deletes)
+    mm.auto_sync_if_needed(persona_id)
+    entries = mm.list_by_persona(persona_id, limit=limit)
+    return ApiResponse(
+        success=True,
+        data=[e.model_dump(mode="json") for e in entries],
+    )
 
 
 # ---- Memory Palace API ----
