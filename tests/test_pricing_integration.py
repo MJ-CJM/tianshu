@@ -8,7 +8,7 @@ import pytest
 
 from tianshu.config_manager import ConfigManager, LLMConfigState
 from tianshu.providers.manager import ProviderManager
-from tianshu.providers.protocol import ProviderInfo
+from tianshu.providers.capabilities import ProviderInfo
 from tianshu.storage import Storage
 
 

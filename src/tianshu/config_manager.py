@@ -6,8 +6,12 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from tianshu.config import TianshuSettings
+
 if TYPE_CHECKING:
     from tianshu.storage import Storage
+
+_SETTINGS_DEFAULTS = TianshuSettings.model_fields
 
 
 @dataclass(frozen=True)
@@ -17,17 +21,17 @@ class LLMConfigState:
     api_key: str
     api_base: str = ""
     max_retries: int = 3
-    temperature: float = 0.7
-    top_p: float = 1.0
-    max_tokens: int = 4096
+    temperature: float = _SETTINGS_DEFAULTS["llm_temperature"].default
+    top_p: float = _SETTINGS_DEFAULTS["llm_top_p"].default
+    max_tokens: int = _SETTINGS_DEFAULTS["llm_max_tokens"].default
     enabled: bool = True
 
 
 @dataclass(frozen=True)
 class AgentConfigState:
-    agent_max_iterations: int = 20
-    agent_timeout_seconds: int = 300
-    skills_char_budget: int = 30000
+    agent_max_iterations: int = _SETTINGS_DEFAULTS["agent_max_iterations"].default
+    agent_timeout_seconds: int = _SETTINGS_DEFAULTS["agent_timeout_seconds"].default
+    skills_char_budget: int = _SETTINGS_DEFAULTS["skills_char_budget"].default
     skill_review_enabled: bool = True
     skill_review_interval: int = 5
     fallback_llm_config_name: str | None = None

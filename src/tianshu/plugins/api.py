@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from tianshu.notifier.channel_registry import ChannelRegistry
     from tianshu.notifier.channels.base import NotificationChannel
     from tianshu.providers.manager import ProviderManager
-    from tianshu.providers.protocol import ProviderInfo
+    from tianshu.providers.capabilities import ProviderInfo
     from tianshu.skills.loader import SkillsLoader
     from tianshu.storage import Storage
     from tianshu.tools.registry import ToolRegistry
