@@ -736,7 +736,7 @@ async def lifespan(app: FastAPI):
                 await notifier.broadcast_ws(digest)
                 # Dispatch to all registered external channels
                 await channel_registry.send_all(digest, str(digest))
-                archived = archive_old_iterations(storage)
+                archive_old_iterations(storage)
             except asyncio.CancelledError:
                 break
             except Exception:

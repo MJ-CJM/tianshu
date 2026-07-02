@@ -696,12 +696,6 @@
     "en": "English"
   },
   "ops": {
-    "title": "Ops Monitor",
-    "tab": {
-      "eventbus": "Event bus",
-      "workers": "Concurrency",
-      "hooks": "Hooks & Notifications"
-    },
     "eventbus": {
       "stat": {
         "total": "Total events",

@@ -696,12 +696,6 @@
     "en": "English"
   },
   "ops": {
-    "title": "运维监控台",
-    "tab": {
-      "eventbus": "事件流",
-      "workers": "并发控制",
-      "hooks": "Hooks & 通知"
-    },
     "eventbus": {
       "stat": {
         "total": "事件总数",
