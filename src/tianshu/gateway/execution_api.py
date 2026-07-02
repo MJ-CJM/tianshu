@@ -8,7 +8,7 @@ from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.executor.lanes import LaneManager
 from tianshu.executor.worker_pool import WorkerPool
-from tianshu.models import ApiResponse, Decree, DecreeCreateRequest, TaskStatus
+from tianshu.models import ApiResponse, Decree, DecreeCreateRequest, TaskStatus, ToolDecisionRequest
 from tianshu.scheduler.scheduler import Scheduler
 from tianshu.storage import Storage
 
@@ -96,6 +96,31 @@ async def list_pending_tool_calls(request: Request):
     approval_manager: ApprovalManager = request.app.state.approval_manager
     items = approval_manager.list_pending_tool_calls()
     return ApiResponse(success=True, data={"items": items})
+
+
+# --- Mid-execution tool approval endpoints (PolicyHook integration) ---
+
+
+@execution_router.post(
+    "/approvals/tool_decision",
+    response_model=ApiResponse,
+    status_code=201,
+)
+async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
+    """Approve or reject a pending tool-call without mutating memorial status."""
+    approval_manager: ApprovalManager = request.app.state.approval_manager
+    try:
+        decree = await approval_manager.submit_tool_decision(
+            memorial_id=body.memorial_id,
+            action=body.action,
+            comment=body.comment,
+            grant_scope=body.grant_scope,
+            grant_reason=body.grant_reason,
+            actor=body.actor,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return ApiResponse(success=True, data=decree.model_dump(mode="json"))
 
 
 # --- DAG endpoints (Phase 3) ---
