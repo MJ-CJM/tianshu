@@ -690,6 +690,20 @@ class Storage:
             "CREATE INDEX IF NOT EXISTS idx_memorials_universe_id ON memorials(universe_id)",
             # 2026-06-08: 代码变体位面 2a — worktree 分支引用
             "ALTER TABLE universes ADD COLUMN code_ref TEXT",
+            # 2026-07-02: Multica 借鉴 #1 —— 孤儿任务回收心跳字段
+            "ALTER TABLE memorials ADD COLUMN last_heartbeat_at TEXT",
+            # 2026-07-02: Multica 借鉴 #2 —— 调度触发台账（cron/interval + 系统 job）
+            """CREATE TABLE IF NOT EXISTS schedule_run (
+                id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                edict_id TEXT,
+                error TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT
+            )""",
+            "CREATE INDEX IF NOT EXISTS idx_schedule_run_source ON schedule_run(source)",
         ]
         for sql in migrations:
             try:
@@ -980,8 +994,8 @@ class Storage:
                     attempt, parent_memorial_id, review_status, audit_json,
                     artifacts_json, timeline_json, dag_node_id, persona_id,
                     runtime_override_json, acceptance_override_json,
-                    reasoning_content, final_output, universe_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    reasoning_content, final_output, universe_id, last_heartbeat_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 self._memorial_to_params(memorial),
             )
 
@@ -995,7 +1009,8 @@ class Storage:
                    artifacts_json=?, timeline_json=?,
                    dag_node_id=?, persona_id=?,
                    runtime_override_json=?, acceptance_override_json=?,
-                   reasoning_content=?, final_output=?, universe_id=?
+                   reasoning_content=?, final_output=?, universe_id=?,
+                   last_heartbeat_at=?
                    WHERE id=?""",
                 (
                     memorial.status.value,
@@ -1017,6 +1032,7 @@ class Storage:
                     memorial.reasoning_content,
                     memorial.final_output,
                     memorial.universe_id,
+                    memorial.last_heartbeat_at.isoformat() if memorial.last_heartbeat_at else None,
                     memorial.id,
                 ),
             )
@@ -1074,6 +1090,30 @@ class Storage:
                 ).fetchall()
                 total = self._conn.execute("SELECT COUNT(*) FROM memorials").fetchone()[0]
         return [self._row_to_memorial(r) for r in rows], total
+
+    def list_stale_memorials(
+        self,
+        idle_seconds: int,
+        statuses: tuple[str, ...] = ("running", "planning", "auditing"),
+        limit: int = 100,
+    ) -> list[Memorial]:
+        """活跃态但超过 idle_seconds 无心跳的 memorial（孤儿任务候选，Multica 借鉴 #1）。
+
+        无心跳判定用 COALESCE(last_heartbeat_at, started_at, created_at)，
+        兼容尚未打过心跳（刚 RUNNING）与存量无该列的行。
+        """
+        cutoff = (datetime.now(UTC) - timedelta(seconds=idle_seconds)).isoformat()
+        placeholders = ", ".join("?" * len(statuses))
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM memorials "
+                f"WHERE status IN ({placeholders}) "
+                f"AND COALESCE(last_heartbeat_at, started_at, created_at) < ? "
+                f"ORDER BY COALESCE(last_heartbeat_at, started_at, created_at) ASC "
+                f"LIMIT ?",
+                (*statuses, cutoff, limit),
+            ).fetchall()
+        return [self._row_to_memorial(r) for r in rows]
 
     # --- Decree ---
 
@@ -1136,6 +1176,14 @@ class Storage:
                     datetime.now(UTC).isoformat(),
                 ),
             )
+            # 心跳（Multica 借鉴 #1）：活跃 memorial 每次有事件即刷新，供 sweeper 判活。
+            # 仅活跃态更新，避免复活已终态/暂停的 memorial。
+            if memorial_id:
+                self._conn.execute(
+                    "UPDATE memorials SET last_heartbeat_at = ? "
+                    "WHERE id = ? AND status IN ('running', 'planning', 'auditing')",
+                    (datetime.now(UTC).isoformat(), memorial_id),
+                )
 
     def get_events(self, edict_id: str) -> list[dict]:
         with self._lock:
@@ -2046,6 +2094,72 @@ class Storage:
             ).fetchone()
         return row[0] > 0
 
+    def has_unfinished_memorials(self, edict_id: str) -> bool:
+        """edict 是否有未结束（非终态）的 memorial —— 周期任务并发去重用（Multica 借鉴 #2-A）。
+
+        终态 = completed / failed / cancelled；其余（submitted/running/planning/
+        auditing/needs_review/scheduled）都视为进行中，比 has_active_memorials 更全，
+        避免 planning/auditing 期间被重复触发而叠罗汉。
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM memorials WHERE edict_id = ? "
+                "AND status NOT IN ('completed', 'failed', 'cancelled')",
+                (edict_id,),
+            ).fetchone()
+        return row[0] > 0
+
+    # --- Schedule run 台账（Multica 借鉴 #2）---
+
+    def create_schedule_run(
+        self, source: str, kind: str, status: str, edict_id: str | None = None,
+    ) -> str:
+        """记一次调度触发。source=系统 job 名 或 edict_id；kind=cron/interval/system。"""
+        run_id = str(ULID())
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO schedule_run (id, source, kind, status, edict_id, started_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (run_id, source, kind, status, edict_id, datetime.now(UTC).isoformat()),
+            )
+        return run_id
+
+    def finish_schedule_run(
+        self, run_id: str, status: str, error: str | None = None,
+    ) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE schedule_run SET status = ?, error = ?, finished_at = ? WHERE id = ?",
+                (status, error, datetime.now(UTC).isoformat(), run_id),
+            )
+
+    def has_running_system_job(self, source: str) -> bool:
+        """系统 job 是否有上一次仍在 running 的触发（Multica 借鉴 #2-B 去重）。"""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM schedule_run "
+                "WHERE source = ? AND kind = 'system' AND status = 'running'",
+                (source,),
+            ).fetchone()
+        return row[0] > 0
+
+    def list_schedule_runs(
+        self, source: str | None = None, limit: int = 50,
+    ) -> list[dict]:
+        with self._lock:
+            if source:
+                rows = self._conn.execute(
+                    "SELECT * FROM schedule_run WHERE source = ? "
+                    "ORDER BY started_at DESC LIMIT ?",
+                    (source, limit),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM schedule_run ORDER BY started_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
     # --- Persona Stats (Phase 3.12) ---
 
     def get_persona_stats(self, persona_id: str) -> dict:
@@ -2672,6 +2786,11 @@ class Storage:
             usage=UsageSummary(**usage_data),
             error=row["error"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            last_heartbeat_at=(
+                datetime.fromisoformat(row["last_heartbeat_at"])
+                if "last_heartbeat_at" in keys and row["last_heartbeat_at"]
+                else None
+            ),
             started_at=(
                 datetime.fromisoformat(row["started_at"]) if row["started_at"] else None
             ),
@@ -2750,6 +2869,7 @@ class Storage:
             m.reasoning_content,
             m.final_output,
             m.universe_id,
+            m.last_heartbeat_at.isoformat() if m.last_heartbeat_at else None,
         )
 
     def insert_credential(

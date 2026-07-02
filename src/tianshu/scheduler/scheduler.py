@@ -12,6 +12,7 @@ from croniter import croniter
 from ulid import ULID
 
 from tianshu.bus.event_bus import EventBus
+from tianshu.models.common import TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.storage import Storage
@@ -19,6 +20,10 @@ from tianshu.storage import Storage
 logger = logging.getLogger(__name__)
 
 _AsyncFn = Callable[[], Coroutine[Any, Any, None]]
+
+# 孤儿任务回收（Multica 借鉴 #1）
+ORPHAN_SWEEP_INTERVAL_SECONDS = 120
+ORPHAN_IDLE_THRESHOLD_SECONDS = 900  # 15min 无心跳视为孤儿
 
 
 def _resolve_tz(tz_name: str | None) -> tzinfo:
@@ -86,9 +91,7 @@ class Scheduler:
     ) -> None:
         """Register built-in system cron jobs (daily profile synthesis, weekly skill curation)."""
         async def _fire() -> None:
-            asyncio.create_task(
-                profile_trigger.run_for_all_personas(trigger_source="cron")
-            )
+            await profile_trigger.run_for_all_personas(trigger_source="cron")
 
         self._system_jobs.append(
             {"cron": "0 3 * * *", "name": "profile.daily_synthesis", "fn": _fire}
@@ -97,9 +100,7 @@ class Scheduler:
 
         if skill_curator is not None:
             async def _fire_curate() -> None:
-                asyncio.create_task(
-                    skill_curator.run(trigger_source="cron")
-                )
+                await skill_curator.run(trigger_source="cron")
 
             self._system_jobs.append(
                 {"cron": "0 4 * * 0", "name": "skill.weekly_curate", "fn": _fire_curate}
@@ -108,7 +109,7 @@ class Scheduler:
 
         if universe_evolver is not None:
             async def _fire_evolve() -> None:
-                asyncio.create_task(universe_evolver.run(trigger_source="cron"))
+                await universe_evolver.run(trigger_source="cron")
 
             self._system_jobs.append(
                 {"cron": "0 5 * * *", "name": "universe.daily_evolve", "fn": _fire_evolve}
@@ -119,6 +120,7 @@ class Scheduler:
         self._running = True
         await self._restore_jobs()
         self._review_timeout_task = asyncio.create_task(self._review_timeout_loop())
+        self._orphan_sweep_task = asyncio.create_task(self._orphan_sweep_loop())
         for job in self._system_jobs:
             task = asyncio.create_task(
                 self._system_cron_loop(job["cron"], job["name"], job["fn"])
@@ -212,6 +214,82 @@ class Scheduler:
         except asyncio.CancelledError:
             pass
 
+    async def _orphan_sweep_loop(self) -> None:
+        """周期回收孤儿任务：活跃态但长时间无心跳的 memorial（Multica 借鉴 #1）。
+
+        触发场景：进程崩溃/重启后遗留在 running/planning/auditing 的 memorial，
+        或执行体挂起（如外部调用无限等待）。心跳由 storage.append_event 刷新，
+        故正常产生事件的任务不会被误判为孤儿。
+        """
+        try:
+            while self._running:
+                await asyncio.sleep(ORPHAN_SWEEP_INTERVAL_SECONDS)
+                try:
+                    stale = self._storage.list_stale_memorials(
+                        idle_seconds=ORPHAN_IDLE_THRESHOLD_SECONDS,
+                    )
+                    for memorial in stale:
+                        await self._recover_orphan(memorial)
+                except Exception:
+                    logger.exception("Orphan sweep failed")
+        except asyncio.CancelledError:
+            pass
+
+    async def _recover_orphan(self, memorial) -> None:
+        """回收单个孤儿 memorial：可续跑的长任务发 edict.resume，否则判失败。"""
+        last = memorial.last_heartbeat_at or memorial.started_at or memorial.created_at
+        idle = (datetime.now(UTC) - last).total_seconds() if last else 0.0
+        edict = self._storage.get_edict(memorial.edict_id)
+
+        # 安全排除 1：用户主动暂停的长任务（合法无心跳，不回收）
+        if edict and edict.runtime.lifecycle_phase == "paused":
+            return
+        # 安全排除 2：归属活跃 DAG 的 memorial 由 DAG 自身（CascadeCanceller/retry）管理
+        if edict:
+            dag = self._storage.get_dag_by_edict(edict.id)
+            if dag and dag.status in ("pending", "running"):
+                return
+
+        # 可续跑：长任务 outer loop（有 acceptance + checkpoint 型 profile）→ 发 resume
+        if (
+            edict
+            and edict.acceptance is not None
+            and edict.execution_profile in ("checkpointed", "background")
+        ):
+            logger.warning(
+                "Orphan memorial %s idle %.0fs, resuming outer loop", memorial.id, idle,
+            )
+            await self._bus.emit(make_event(
+                "edict.resume",
+                edict_id=edict.id,
+                memorial_id=memorial.id,
+                producer="scheduler",
+                payload={"reason": "orphan_recovery", "idle_seconds": idle},
+            ))
+            # 刷新心跳（append_event 对活跃 memorial 顺带打心跳）：给 executor 一个
+            # idle 周期接管，避免每次 sweep 都重发 resume（防 resume 风暴），同时留审计痕迹。
+            self._storage.append_event(
+                edict.id, memorial.id, "orphan.resume_requested",
+                {"idle_seconds": idle},
+            )
+            return
+
+        # 否则：标记失败，交由现有 auditor/notifier/retry 收尾
+        logger.warning(
+            "Orphan memorial %s idle %.0fs, marking FAILED", memorial.id, idle,
+        )
+        memorial.status = TaskStatus.FAILED
+        memorial.error = f"orphaned: no heartbeat for {idle:.0f}s"
+        memorial.completed_at = datetime.now(UTC)
+        self._storage.update_memorial(memorial)
+        await self._bus.emit(make_event(
+            "execution.failed",
+            edict_id=memorial.edict_id,
+            memorial_id=memorial.id,
+            producer="scheduler",
+            payload={"status": "failed", "error": memorial.error},
+        ))
+
     async def _system_cron_loop(self, cron_expr: str, name: str, fn: _AsyncFn) -> None:
         """Run a system cron job on the given expression until stopped (UTC)."""
         try:
@@ -222,10 +300,22 @@ class Scheduler:
                     await asyncio.sleep(delay)
                 if not self._running:
                     break
+                # 去重（Multica 借鉴 #2-B）：上次同名 job 仍 running 则跳过本次
+                if self._storage.has_running_system_job(name):
+                    logger.info("System job %s: skip, previous run still running", name)
+                    self._storage.create_schedule_run(
+                        source=name, kind="system", status="skipped",
+                    )
+                    continue
                 logger.info("Firing system job: %s", name)
+                run_id = self._storage.create_schedule_run(
+                    source=name, kind="system", status="running",
+                )
                 try:
                     await fn()
-                except Exception:
+                    self._storage.finish_schedule_run(run_id, "completed")
+                except Exception as e:
+                    self._storage.finish_schedule_run(run_id, "failed", str(e))
                     logger.exception("System cron job %s failed", name)
         except asyncio.CancelledError:
             logger.info("System cron loop cancelled: %s", name)
@@ -243,6 +333,8 @@ class Scheduler:
         self._system_cron_tasks.clear()
         if hasattr(self, "_review_timeout_task") and not self._review_timeout_task.done():
             self._review_timeout_task.cancel()
+        if hasattr(self, "_orphan_sweep_task") and not self._orphan_sweep_task.done():
+            self._orphan_sweep_task.cancel()
         self._jobs.clear()
         logger.info("Scheduler stopped")
 
@@ -426,6 +518,29 @@ class Scheduler:
             return
         await self.schedule(edict, memorial_id=event.memorial_id)
 
+    def _skip_for_concurrency(self, edict: Edict) -> bool:
+        """周期任务并发去重（Multica 借鉴 #2-A）：policy=skip 且上次未结束 → 跳过本次。"""
+        policy = edict.schedule.concurrency_policy if edict.schedule else "skip"
+        if policy == "allow":
+            return False
+        return self._storage.has_unfinished_memorials(edict.id)
+
+    async def _fire_scheduled(self, edict: Edict, kind: str) -> None:
+        """周期任务单次触发：并发去重 + 记录 schedule_run 台账（Multica 借鉴 #2-A/C）。"""
+        if self._skip_for_concurrency(edict):
+            logger.info(
+                "%s job: skip fire, edict %s still has unfinished run (policy=skip)",
+                kind, edict.id,
+            )
+            self._storage.create_schedule_run(
+                source=edict.id, kind=kind, status="skipped", edict_id=edict.id,
+            )
+            return
+        await self._emit_scheduled(edict)
+        self._storage.create_schedule_run(
+            source=edict.id, kind=kind, status="fired", edict_id=edict.id,
+        )
+
     async def _emit_scheduled(self, edict: Edict, memorial_id: str | None = None) -> None:
         # Set SCHEDULED status on memorial
         if memorial_id:
@@ -467,7 +582,7 @@ class Scheduler:
                         edict.id,
                     )
                     break
-                await self._emit_scheduled(fresh_edict)
+                await self._fire_scheduled(fresh_edict, "cron")
                 if job_id in self._jobs:
                     next_dt = _next_cron_utc(cron_expr, tz_name)
                     self._jobs[job_id].next_run = next_dt
@@ -489,7 +604,7 @@ class Scheduler:
                         job_id, edict.id,
                     )
                     break
-                await self._emit_scheduled(fresh_edict)
+                await self._fire_scheduled(fresh_edict, "interval")
                 if job_id in self._jobs:
                     next_dt = datetime.now(UTC) + timedelta(seconds=interval_seconds)
                     self._jobs[job_id].next_run = next_dt

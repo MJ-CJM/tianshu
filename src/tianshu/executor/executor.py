@@ -117,6 +117,36 @@ class Executor:
         self._running_tasks.add(task)
         task.add_done_callback(self._running_tasks.discard)
 
+    async def handle_resume(self, event: EventEnvelope) -> None:
+        """EventBus handler for edict.resume —— 续跑被 sweeper 判为孤儿的长任务（Multica 借鉴 #1）。
+
+        仅长任务 outer loop（edict.acceptance 不为 None）可续跑：orchestrator 会
+        _load_checkpoint 从断点恢复；无 checkpoint 时从头跑一遍（幂等）。
+        """
+        edict_id = event.edict_id
+        if not edict_id:
+            return
+        edict = self._storage.get_edict(edict_id)
+        memorial = (
+            self._storage.get_memorial(event.memorial_id)
+            if event.memorial_id else None
+        )
+        if not edict or not memorial:
+            logger.error("Resume: edict/memorial not found for %s", edict_id)
+            return
+        if edict.acceptance is None or self._orchestrator_ctx is None:
+            logger.warning(
+                "Resume ignored for edict %s: no acceptance / orchestrator ctx", edict_id,
+            )
+            return
+        edict = self._apply_memorial_override(edict, memorial)
+        logger.info(
+            "[EXEC] Resuming outer loop for edict %s (memorial %s)", edict_id, memorial.id,
+        )
+        task = asyncio.create_task(self._execute_outer_loop(edict, memorial))
+        self._running_tasks.add(task)
+        task.add_done_callback(self._running_tasks.discard)
+
     async def _execute_dag(
         self, edict: Edict, plan: Plan, memorial: Memorial | None = None,
     ) -> None:

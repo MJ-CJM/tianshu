@@ -34,6 +34,8 @@ class Memorial(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    # 活跃执行心跳（Multica 借鉴 #1）：每次 append_event 刷新，sweeper 据此回收孤儿任务
+    last_heartbeat_at: datetime | None = None
     # Phase 1 fields
     attempt: int = 1
     parent_memorial_id: str | None = None

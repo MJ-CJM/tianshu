@@ -18,6 +18,9 @@ class EdictSchedule(BaseModel):
     cron: str | None = None
     interval_seconds: int | None = None  # type=="interval": 周期间隔秒数
     timezone: str = "UTC"
+    # 周期任务并发去重（Multica 借鉴 #2-A）：skip=上次未结束则跳过本次；allow=放行并发。
+    # queue/replace 语义需任务队列基础设施，收敛到 #3 Worker 队列。
+    concurrency_policy: Literal["skip", "allow"] = "skip"
 
 
 class EdictDispatch(BaseModel):

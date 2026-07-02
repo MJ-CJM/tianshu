@@ -533,6 +533,7 @@ async def lifespan(app: FastAPI):
     event_bus.on("edict.submitted", scheduler.handle_submitted)
     event_bus.on("edict.scheduled", planner.handle_scheduled, priority=50)
     event_bus.on("plan.completed", executor.handle_plan_completed, priority=100)
+    event_bus.on("edict.resume", executor.handle_resume)
     event_bus.on("execution.completed", auditor.handle_execution_completed)
     event_bus.on("execution.completed", cost_manager.handle_execution_completed, priority=150)
     event_bus.on("execution.completed", memory_manager.handle_execution_completed, priority=200)
