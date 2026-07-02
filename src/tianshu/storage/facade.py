@@ -10,21 +10,31 @@ from pathlib import Path
 from ulid import ULID
 
 from tianshu.models import (
-    AuditResult,
     DAGExecution,
     DAGNode,
-    DAGNodeStatus,
     Decree,
     Edict,
-    EdictDispatch,
-    EdictRuntime,
-    EdictSchedule,
-    EdictStatus,
     Memorial,
-    TaskStatus,
     UsageSummary,
 )
-from tianshu.models.acceptance import AcceptanceCriteria
+from tianshu.storage.mappers import (
+    _memorial_to_params,
+    _row_to_dag_execution,
+    _row_to_dag_node,
+    _row_to_edict,
+    _row_to_eval_run,
+    _row_to_memorial,
+    _row_to_memory_entry,
+    _row_to_persona_dict,
+    _row_to_universe,
+)
+from tianshu.storage.migrations import run_migrations
+from tianshu.storage.schema import (
+    SCHEMA_SQL_CHANNELS,
+    SCHEMA_SQL_CORE,
+    SCHEMA_SQL_FEISHU,
+    SCHEMA_SQL_TELEGRAM,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,28 +42,6 @@ logger = logging.getLogger(__name__)
 def _audit_passed(a: dict) -> bool:
     """AuditResult.verdict == 'pass' を「合格」とみなす（conservative: 不明は不合格）。"""
     return a.get("verdict") == "pass"
-
-
-def _load_json_field(raw: str, loader, field: str, entity_id: str, default):
-    """反序列化行 JSON 字段；失败时 warning 并返回 default（容忍历史脏数据）。"""
-    try:
-        return loader(raw)
-    except Exception as exc:
-        logger.warning("Failed to deserialize %s for %s: %s", field, entity_id, exc)
-        return default
-
-
-# Deferred import to avoid circular deps
-_MemoryEntry = None
-
-
-def _get_memory_entry():
-    global _MemoryEntry
-    if _MemoryEntry is None:
-        from tianshu.memory.models import MemoryEntry
-
-        _MemoryEntry = MemoryEntry
-    return _MemoryEntry
 
 
 class Storage:
@@ -81,660 +69,13 @@ class Storage:
 
     def _create_tables(self) -> None:
         with self._conn:
-            self._conn.executescript("""
-                CREATE TABLE IF NOT EXISTS edicts (
-                    id TEXT PRIMARY KEY,
-                    goal TEXT NOT NULL,
-                    context TEXT,
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS memorials (
-                    id TEXT PRIMARY KEY,
-                    edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE CASCADE,
-                    status TEXT NOT NULL,
-                    summary TEXT,
-                    result TEXT,
-                    final_output TEXT,
-                    usage_json TEXT NOT NULL DEFAULT '{}',
-                    error TEXT,
-                    created_at TEXT NOT NULL,
-                    started_at TEXT,
-                    completed_at TEXT,
-                    runtime_override_json TEXT,
-                    acceptance_override_json TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS events (
-                    id TEXT PRIMARY KEY,
-                    edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE CASCADE,
-                    memorial_id TEXT,
-                    event_type TEXT NOT NULL,
-                    payload_json TEXT NOT NULL DEFAULT '{}',
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS decrees (
-                    id TEXT PRIMARY KEY,
-                    memorial_id TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    comment TEXT,
-                    amended_goal TEXT,
-                    actor TEXT NOT NULL DEFAULT 'human',
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_memorials_edict_id
-                    ON memorials(edict_id);
-                CREATE INDEX IF NOT EXISTS idx_events_edict_id
-                    ON events(edict_id);
-                CREATE INDEX IF NOT EXISTS idx_decrees_memorial_id
-                    ON decrees(memorial_id);
-
-                CREATE TABLE IF NOT EXISTS memory_entries (
-                    id TEXT PRIMARY KEY,
-                    persona_id TEXT NOT NULL,
-                    edict_id TEXT,
-                    memorial_id TEXT,
-                    category TEXT NOT NULL DEFAULT 'observation',
-                    content TEXT NOT NULL,
-                    source TEXT NOT NULL DEFAULT 'agent',
-                    confidence REAL NOT NULL DEFAULT 1.0,
-                    entity_refs_json TEXT NOT NULL DEFAULT '[]',
-                    created_at TEXT NOT NULL,
-                    expires_at TEXT,
-                    access_level TEXT NOT NULL DEFAULT 'private'
-                );
-                CREATE INDEX IF NOT EXISTS idx_memory_persona
-                    ON memory_entries(persona_id);
-                CREATE INDEX IF NOT EXISTS idx_memory_category
-                    ON memory_entries(category);
-
-                CREATE TABLE IF NOT EXISTS cost_ledger (
-                    id TEXT PRIMARY KEY,
-                    edict_id TEXT NOT NULL,
-                    memorial_id TEXT,
-                    provider_name TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
-                    completion_tokens INTEGER NOT NULL DEFAULT 0,
-                    total_tokens INTEGER NOT NULL DEFAULT 0,
-                    cost_cny REAL NOT NULL DEFAULT 0.0,
-                    created_at TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_cost_edict
-                    ON cost_ledger(edict_id);
-                CREATE INDEX IF NOT EXISTS idx_cost_created
-                    ON cost_ledger(created_at);
-
-                CREATE TABLE IF NOT EXISTS cost_budgets (
-                    id TEXT PRIMARY KEY,
-                    scope TEXT NOT NULL,
-                    budget_cny REAL NOT NULL,
-                    spent_cny REAL NOT NULL DEFAULT 0.0,
-                    period TEXT NOT NULL DEFAULT 'monthly',
-                    reset_at TEXT,
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS providers (
-                    name TEXT PRIMARY KEY,
-                    model TEXT NOT NULL,
-                    api_base TEXT,
-                    capabilities_json TEXT NOT NULL DEFAULT '[]',
-                    rpm_limit INTEGER,
-                    tpm_limit INTEGER,
-                    rpm_current INTEGER NOT NULL DEFAULT 0,
-                    tpm_current INTEGER NOT NULL DEFAULT 0,
-                    rpm_window_start TEXT,
-                    status TEXT NOT NULL DEFAULT 'active',
-                    priority INTEGER NOT NULL DEFAULT 100,
-                    cost_per_1k_prompt REAL,
-                    cost_per_1k_completion REAL,
-                    cost_per_1k_cache_read REAL,
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS plugins (
-                    name TEXT PRIMARY KEY,
-                    version TEXT NOT NULL DEFAULT '0.0.0',
-                    manifest_json TEXT NOT NULL DEFAULT '{}',
-                    status TEXT NOT NULL DEFAULT 'active',
-                    sha256 TEXT,
-                    installed_at TEXT NOT NULL,
-                    updated_at TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS llm_configs (
-                    name TEXT PRIMARY KEY,
-                    model TEXT NOT NULL,
-                    api_key TEXT NOT NULL,
-                    api_base TEXT NOT NULL DEFAULT '',
-                    max_retries INTEGER NOT NULL DEFAULT 3,
-                    temperature REAL NOT NULL DEFAULT 0.7,
-                    top_p REAL NOT NULL DEFAULT 1.0,
-                    max_tokens INTEGER NOT NULL DEFAULT 4096,
-                    enabled INTEGER NOT NULL DEFAULT 1,
-                    is_active INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS dag_executions (
-                    id TEXT PRIMARY KEY,
-                    edict_id TEXT NOT NULL,
-                    plan_json TEXT NOT NULL DEFAULT '{}',
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    root_memorial_id TEXT,
-                    max_concurrency INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    completed_at TEXT
-                );
-                CREATE INDEX IF NOT EXISTS idx_dag_edict
-                    ON dag_executions(edict_id);
-
-                CREATE TABLE IF NOT EXISTS scheduler_jobs (
-                    job_id TEXT PRIMARY KEY,
-                    edict_id TEXT NOT NULL,
-                    schedule_type TEXT NOT NULL,
-                    cron_expr TEXT,
-                    next_run TEXT,
-                    status TEXT NOT NULL DEFAULT 'active',
-                    created_at TEXT NOT NULL,
-                    interval_seconds INTEGER
-                );
-                CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_edict
-                    ON scheduler_jobs(edict_id);
-                CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_status
-                    ON scheduler_jobs(status);
-
-                CREATE TABLE IF NOT EXISTS departments (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    description TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS personas (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    department TEXT NOT NULL,
-                    title TEXT,
-                    tools_allowed TEXT DEFAULT '[]',
-                    tools_denied TEXT DEFAULT '[]',
-                    tool_tier_max INTEGER DEFAULT 0,
-                    can_delegate INTEGER DEFAULT 0,
-                    delegates_to TEXT DEFAULT '[]',
-                    soul_path TEXT,
-                    role_path TEXT,
-                    created_at TEXT,
-                    updated_at TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS dag_nodes (
-                    node_id TEXT NOT NULL,
-                    dag_execution_id TEXT NOT NULL,
-                    description TEXT NOT NULL,
-                    depends_on_json TEXT NOT NULL DEFAULT '[]',
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    assigned_official TEXT,
-                    assigned_worker TEXT,
-                    tools_required_json TEXT NOT NULL DEFAULT '[]',
-                    memorial_id TEXT,
-                    checkpoint_json TEXT,
-                    started_at TEXT,
-                    completed_at TEXT,
-                    error TEXT,
-                    PRIMARY KEY (dag_execution_id, node_id)
-                );
-
-                CREATE TABLE IF NOT EXISTS skill_metrics (
-                    skill_name    TEXT PRIMARY KEY,
-                    usage_count   INTEGER NOT NULL DEFAULT 0,
-                    success_count INTEGER NOT NULL DEFAULT 0,
-                    failure_count INTEGER NOT NULL DEFAULT 0,
-                    last_used_at  TEXT,
-                    created_at    TEXT,
-                    created_by    TEXT NOT NULL DEFAULT 'manual',
-                    source_edict_id TEXT,
-                    state         TEXT NOT NULL DEFAULT 'active',
-                    pinned        INTEGER NOT NULL DEFAULT 0,
-                    archived_at   TEXT,
-                    absorbed_into TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS universes (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    parent_universe_id TEXT,
-                    status TEXT NOT NULL DEFAULT 'challenger',
-                    origin TEXT NOT NULL DEFAULT 'manual_branch',
-                    mutation_reason TEXT,
-                    description TEXT NOT NULL DEFAULT '',
-                    fitness_json TEXT NOT NULL DEFAULT '{}',
-                    code_ref TEXT,
-                    created_at TEXT NOT NULL
-                );
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_universe_single_champion
-                    ON universes(status) WHERE status = 'champion';
-
-                CREATE TABLE IF NOT EXISTS variant_eval_runs (
-                    id TEXT PRIMARY KEY,
-                    universe_id TEXT NOT NULL,
-                    gate_passed INTEGER NOT NULL DEFAULT 0,
-                    gate_detail TEXT,
-                    fitness_json TEXT NOT NULL DEFAULT '{}',
-                    eval_set_version TEXT,
-                    cost REAL NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_variant_eval_runs_universe
-                    ON variant_eval_runs(universe_id);
-
-                CREATE TABLE IF NOT EXISTS persona_metrics (
-                    persona_id TEXT PRIMARY KEY,
-                    total_executions INTEGER NOT NULL DEFAULT 0,
-                    completed INTEGER NOT NULL DEFAULT 0,
-                    failed INTEGER NOT NULL DEFAULT 0,
-                    cancelled INTEGER NOT NULL DEFAULT 0,
-                    success_rate REAL NOT NULL DEFAULT 0.0,
-                    total_tokens INTEGER NOT NULL DEFAULT 0,
-                    avg_tokens_per_execution REAL NOT NULL DEFAULT 0.0,
-                    total_cost_cny REAL NOT NULL DEFAULT 0.0,
-                    avg_duration_seconds REAL NOT NULL DEFAULT 0.0,
-                    synthesis_in_progress INTEGER NOT NULL DEFAULT 0,
-                    synthesis_started_at TEXT,
-                    tasks_since_last_synthesis INTEGER NOT NULL DEFAULT 0,
-                    updated_at TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS session_rules (
-                    rule_id              TEXT PRIMARY KEY,
-                    tool_name            TEXT NOT NULL,
-                    arg_fingerprint      TEXT NOT NULL,
-                    scope                TEXT NOT NULL CHECK (scope IN ('edict', 'always')),
-                    edict_id             TEXT,
-                    granted_at           TEXT NOT NULL,
-                    granted_by_decree_id TEXT,
-                    source               TEXT NOT NULL CHECK (source IN ('approval', 'profile', 'manual')),
-                    reason               TEXT,
-                    expires_at           TEXT
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_session_rules_tool_scope
-                    ON session_rules(tool_name, scope, arg_fingerprint);
-
-                CREATE INDEX IF NOT EXISTS idx_session_rules_edict
-                    ON session_rules(edict_id);
-
-                CREATE TABLE IF NOT EXISTS network_credentials (
-                    id              TEXT PRIMARY KEY,
-                    name            TEXT NOT NULL UNIQUE,
-                    host_pattern    TEXT NOT NULL,
-                    header_template TEXT NOT NULL,
-                    extra_headers   TEXT NOT NULL DEFAULT '{}',
-                    encrypted_value BLOB NOT NULL,
-                    created_at      TEXT NOT NULL,
-                    updated_at      TEXT NOT NULL,
-                    last_used_at    TEXT,
-                    deleted_at      TEXT,
-                    kind            TEXT NOT NULL DEFAULT 'edict_auth',
-                    provider_name   TEXT,
-                    enabled         INTEGER NOT NULL DEFAULT 1
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_netcreds_host ON network_credentials(host_pattern);
-                CREATE INDEX IF NOT EXISTS idx_netcreds_name ON network_credentials(name);
-                -- 注意：idx_netcreds_provider 需要 provider_name 列；老库迁移在 _migrate() 后建
-
-                CREATE TABLE IF NOT EXISTS tool_switches (
-                    tool_name  TEXT PRIMARY KEY,
-                    enabled    INTEGER NOT NULL DEFAULT 1,
-                    updated_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS engine_preferences (
-                    id              TEXT PRIMARY KEY DEFAULT 'default',
-                    fetch_chain     TEXT NOT NULL DEFAULT '[]',   -- JSON array, 空数组 = 不覆盖
-                    search_provider TEXT,                          -- nullable, 空 = 不覆盖
-                    fallback_mode   TEXT,                          -- nullable ("none" / "on_error_or_empty"), 空 = 不覆盖
-                    updated_at      TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS outer_loop_iterations (
-                    id              TEXT PRIMARY KEY,
-                    edict_id        TEXT NOT NULL,
-                    iteration       INTEGER NOT NULL,
-                    level           TEXT NOT NULL,
-                    actor_output    TEXT,
-                    checks_result   TEXT,
-                    critic_result   TEXT,
-                    cost_cny        REAL DEFAULT 0,
-                    started_at      TEXT NOT NULL,
-                    finished_at     TEXT NOT NULL,
-                    archived_at     TEXT,
-                    UNIQUE (edict_id, iteration)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_outer_loop_archive
-                    ON outer_loop_iterations(finished_at) WHERE archived_at IS NULL;
-
-                CREATE TABLE IF NOT EXISTS outer_loop_checkpoints (
-                    edict_id    TEXT PRIMARY KEY,
-                    data_json   TEXT NOT NULL,
-                    saved_at    TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS supervision_reports (
-                    edict_id          TEXT NOT NULL,
-                    memorial_id       TEXT NOT NULL,
-                    persona_id        TEXT NOT NULL,
-                    persona_name      TEXT NOT NULL,
-                    final_status      TEXT NOT NULL,
-                    iterations_count  INTEGER NOT NULL,
-                    total_cost_cny    REAL NOT NULL,
-                    report_json       TEXT NOT NULL,
-                    created_at        TEXT NOT NULL,
-                    PRIMARY KEY (memorial_id, persona_id)
-                );
-                CREATE INDEX IF NOT EXISTS idx_supervision_edict
-                    ON supervision_reports(edict_id);
-            """)
-            self._conn.executescript("""
-                CREATE TABLE IF NOT EXISTS feishu_session_anchor (
-                    instance_id      TEXT NOT NULL,
-                    chat_id          TEXT NOT NULL,
-                    current_edict_id TEXT,
-                    updated_at       TIMESTAMP NOT NULL,
-                    PRIMARY KEY (instance_id, chat_id)
-                );
-                CREATE TABLE IF NOT EXISTS feishu_seen_messages (
-                    message_id  TEXT PRIMARY KEY,
-                    instance_id TEXT NOT NULL DEFAULT 'feishu-default',
-                    seen_at     TIMESTAMP NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_feishu_seen_at ON feishu_seen_messages(seen_at);
-                CREATE TABLE IF NOT EXISTS feishu_pending_cards (
-                    approval_id TEXT PRIMARY KEY,
-                    instance_id TEXT NOT NULL DEFAULT 'feishu-default',
-                    chat_id     TEXT NOT NULL,
-                    message_id  TEXT NOT NULL,
-                    kind        TEXT NOT NULL,
-                    created_at  TIMESTAMP NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS feishu_thinking_messages (
-                    memorial_id        TEXT PRIMARY KEY,
-                    chat_id            TEXT NOT NULL,
-                    message_id         TEXT NOT NULL,
-                    source_message_id  TEXT NOT NULL DEFAULT '',
-                    created_at         TIMESTAMP NOT NULL
-                );
-            """)
-            # --- Telegram（与飞书并列；表结构对应飞书，message_id 语义不同）---
-            self._conn.executescript("""
-                CREATE TABLE IF NOT EXISTS telegram_session_anchor (
-                    instance_id      TEXT NOT NULL,
-                    chat_id          TEXT NOT NULL,
-                    current_edict_id TEXT,
-                    updated_at       TIMESTAMP NOT NULL,
-                    PRIMARY KEY (instance_id, chat_id)
-                );
-                CREATE TABLE IF NOT EXISTS telegram_seen_messages (
-                    update_id   TEXT PRIMARY KEY,
-                    instance_id TEXT NOT NULL DEFAULT 'telegram-default',
-                    seen_at     TIMESTAMP NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_tg_seen_at ON telegram_seen_messages(seen_at);
-                CREATE TABLE IF NOT EXISTS telegram_pending_buttons (
-                    approval_id TEXT PRIMARY KEY,
-                    instance_id TEXT NOT NULL DEFAULT 'telegram-default',
-                    chat_id     TEXT NOT NULL,
-                    message_id  TEXT NOT NULL,
-                    kind        TEXT NOT NULL,
-                    created_at  TIMESTAMP NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS telegram_thinking_messages (
-                    memorial_id TEXT PRIMARY KEY,
-                    chat_id     TEXT NOT NULL,
-                    message_id  TEXT NOT NULL,
-                    created_at  TIMESTAMP NOT NULL
-                );
-            """)
-            self._conn.executescript("""
-                CREATE TABLE IF NOT EXISTS channel_configs (
-                    channel_type     TEXT PRIMARY KEY,
-                    config_json      TEXT NOT NULL,
-                    encrypted_secret BLOB,
-                    updated_at       TIMESTAMP NOT NULL
-                );
-
-                -- 多 bot 实例：每个实例独立的 channel 配置 + 凭证（instance_id 维度）。
-                CREATE TABLE IF NOT EXISTS channel_instances (
-                    instance_id      TEXT PRIMARY KEY,
-                    channel_type     TEXT NOT NULL,
-                    label            TEXT NOT NULL DEFAULT '',
-                    enabled          INTEGER NOT NULL DEFAULT 1,
-                    config_json      TEXT NOT NULL,
-                    encrypted_secret BLOB,
-                    updated_at       TIMESTAMP NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_channel_instances_type ON channel_instances(channel_type);
-
-                -- 藏兵阁 · MCP server DB 配置（既能 override YAML 种子，也能完整定义新 server）。
-                -- nullable 字段语义：
-                --   * 若 YAML 中存在同名 server：NULL = 沿用 YAML；非 NULL = 覆写
-                --   * 若 YAML 中无同名 server：DB 必须填够 transport + 主字段，merge 时晋级为完整 server
-                CREATE TABLE IF NOT EXISTS mcp_server_overrides (
-                    name                 TEXT PRIMARY KEY,
-                    enabled              INTEGER,
-                    env_json             TEXT,
-                    tools_include_json   TEXT,
-                    tools_exclude_json   TEXT,
-                    transport            TEXT,           -- "stdio" | "streamable_http"
-                    command              TEXT,
-                    args_json            TEXT,
-                    url                  TEXT,
-                    headers_json         TEXT,
-                    default_tier         INTEGER,
-                    timeout              INTEGER,
-                    connect_timeout      INTEGER,
-                    tool_overrides_json  TEXT,
-                    updated_at           TEXT NOT NULL
-                );
-            """)
+            self._conn.executescript(SCHEMA_SQL_CORE)
+            self._conn.executescript(SCHEMA_SQL_FEISHU)
+            self._conn.executescript(SCHEMA_SQL_TELEGRAM)
+            self._conn.executescript(SCHEMA_SQL_CHANNELS)
 
     def _migrate(self) -> None:
-        migrations = [
-            # Phase 0 migrations
-            "ALTER TABLE edicts ADD COLUMN status TEXT NOT NULL DEFAULT 'open'",
-            "ALTER TABLE memorials ADD COLUMN instruction TEXT",
-            "ALTER TABLE edicts ADD COLUMN title TEXT NOT NULL DEFAULT ''",
-            # Phase 1 edict migrations
-            "ALTER TABLE edicts ADD COLUMN idempotency_key TEXT",
-            "ALTER TABLE edicts ADD COLUMN source TEXT NOT NULL DEFAULT 'api'",
-            "ALTER TABLE edicts ADD COLUMN submitter TEXT",
-            "ALTER TABLE edicts ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'",
-            "ALTER TABLE edicts ADD COLUMN review_policy TEXT NOT NULL DEFAULT 'never'",
-            "ALTER TABLE edicts ADD COLUMN output_format TEXT",
-            "ALTER TABLE edicts ADD COLUMN constraints_json TEXT NOT NULL DEFAULT '[]'",
-            "ALTER TABLE edicts ADD COLUMN schedule_json TEXT NOT NULL DEFAULT '{}'",
-            "ALTER TABLE edicts ADD COLUMN dispatch_json TEXT",
-            "ALTER TABLE edicts ADD COLUMN runtime_json TEXT NOT NULL DEFAULT '{}'",
-            "ALTER TABLE edicts ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
-            # Phase 1 memorial migrations
-            "ALTER TABLE memorials ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1",
-            "ALTER TABLE memorials ADD COLUMN parent_memorial_id TEXT",
-            "ALTER TABLE memorials ADD COLUMN review_status TEXT NOT NULL DEFAULT 'not_required'",
-            "ALTER TABLE memorials ADD COLUMN audit_json TEXT",
-            "ALTER TABLE memorials ADD COLUMN artifacts_json TEXT NOT NULL DEFAULT '[]'",
-            "ALTER TABLE memorials ADD COLUMN timeline_json TEXT NOT NULL DEFAULT '[]'",
-            # Phase 3 memorial migrations
-            "ALTER TABLE memorials ADD COLUMN dag_node_id TEXT",
-            "ALTER TABLE memorials ADD COLUMN persona_id TEXT",
-            # USD → CNY column renames
-            "ALTER TABLE cost_ledger RENAME COLUMN cost_usd TO cost_cny",
-            "ALTER TABLE cost_budgets RENAME COLUMN budget_usd TO budget_cny",
-            "ALTER TABLE cost_budgets RENAME COLUMN spent_usd TO spent_cny",
-            # Phase 2: persona skills_allowed
-            "ALTER TABLE personas ADD COLUMN skills_allowed TEXT DEFAULT '[]'",
-            # Phase 2: persona → LLM config binding
-            "ALTER TABLE personas ADD COLUMN llm_config_name TEXT",
-            # Phase 2.1: edict → assigned persona
-            "ALTER TABLE edicts ADD COLUMN assigned_persona_id TEXT",
-            # Planner persona: use a specific cabinet persona's LLM config for planning
-            "ALTER TABLE edicts ADD COLUMN planner_persona_id TEXT",
-            # Phase 2.2: plan review — require human approval before execution
-            "ALTER TABLE edicts ADD COLUMN plan_review INTEGER DEFAULT 0",
-            # 2026-04-22: network_credentials 加 kind/provider_name 区分 edict_auth vs engine_provider
-            "ALTER TABLE network_credentials ADD COLUMN kind TEXT NOT NULL DEFAULT 'edict_auth'",
-            "ALTER TABLE network_credentials ADD COLUMN provider_name TEXT",
-            # 2026-04-22: provider_name 列就绪后建 partial index（必须放在 ALTER 之后）
-            "CREATE INDEX IF NOT EXISTS idx_netcreds_provider "
-            "ON network_credentials(provider_name) WHERE provider_name IS NOT NULL",
-            # 2026-04-22: 为存量软删除记录让出 name（防止新建同名凭证时 IntegrityError）
-            "UPDATE network_credentials "
-            "SET name = name || '__deleted_' || id "
-            "WHERE deleted_at IS NOT NULL AND name NOT LIKE '%__deleted_%'",
-            # 2026-04-22: network_credentials 加 enabled 列（启停开关；disabled 视为未配置）
-            "ALTER TABLE network_credentials ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
-            # 2026-04-26: 长任务 outer loop 字段
-            "ALTER TABLE edicts ADD COLUMN acceptance_json TEXT",
-            "ALTER TABLE edicts ADD COLUMN execution_profile TEXT NOT NULL DEFAULT 'foreground'",
-            # 2026-04-27: providers 加 cache 命中价（NULL = fallback 到 cost_per_1k_prompt）
-            "ALTER TABLE providers ADD COLUMN cost_per_1k_cache_read REAL",
-            # 2026-04-27: supervision_reports PK 从 (edict_id) 改为 (edict_id, persona_id) 支持多监督官
-            "DROP TABLE IF EXISTS supervision_reports",
-            """CREATE TABLE supervision_reports (
-                edict_id          TEXT NOT NULL,
-                persona_id        TEXT NOT NULL,
-                persona_name      TEXT NOT NULL,
-                final_status      TEXT NOT NULL,
-                iterations_count  INTEGER NOT NULL,
-                total_cost_cny    REAL NOT NULL,
-                report_json       TEXT NOT NULL,
-                created_at        TEXT NOT NULL,
-                PRIMARY KEY (edict_id, persona_id)
-            )""",
-            # 2026-04-28: supervision_reports 加 memorial_id 列；
-            # PK 改为 (memorial_id, persona_id)，让 follow-up 多条奏折各有独立报告。
-            "ALTER TABLE supervision_reports ADD COLUMN memorial_id TEXT",
-            # 老行回填：取该 edict 最新 memorial 的 id
-            """UPDATE supervision_reports
-                  SET memorial_id = (
-                      SELECT id FROM memorials
-                       WHERE memorials.edict_id = supervision_reports.edict_id
-                       ORDER BY created_at DESC LIMIT 1
-                  )
-                  WHERE memorial_id IS NULL""",
-            # 重建表 (SQLite 不支持改 PK) — 拷贝 + drop + rename
-            """CREATE TABLE IF NOT EXISTS _supervision_reports_new (
-                edict_id          TEXT NOT NULL,
-                memorial_id       TEXT NOT NULL,
-                persona_id        TEXT NOT NULL,
-                persona_name      TEXT NOT NULL,
-                final_status      TEXT NOT NULL,
-                iterations_count  INTEGER NOT NULL,
-                total_cost_cny    REAL NOT NULL,
-                report_json       TEXT NOT NULL,
-                created_at        TEXT NOT NULL,
-                PRIMARY KEY (memorial_id, persona_id)
-            )""",
-            """INSERT OR IGNORE INTO _supervision_reports_new
-                   (edict_id, memorial_id, persona_id, persona_name, final_status,
-                    iterations_count, total_cost_cny, report_json, created_at)
-                   SELECT edict_id, memorial_id, persona_id, persona_name, final_status,
-                          iterations_count, total_cost_cny, report_json, created_at
-                     FROM supervision_reports
-                    WHERE memorial_id IS NOT NULL""",
-            "DROP TABLE supervision_reports",
-            "ALTER TABLE _supervision_reports_new RENAME TO supervision_reports",
-            "CREATE INDEX IF NOT EXISTS idx_supervision_edict ON supervision_reports(edict_id)",
-            # 2026-04-28: follow-up 时本次 memorial 单独覆盖 edict.runtime / acceptance
-            "ALTER TABLE memorials ADD COLUMN runtime_override_json TEXT",
-            "ALTER TABLE memorials ADD COLUMN acceptance_override_json TEXT",
-            # 2026-04-30: DeepSeek reasoner / 新版 thinking-mode 模型 follow_up 时
-            # 必须把上一轮 reasoning_content 一起回传，否则 400 invalid_request_error
-            "ALTER TABLE memorials ADD COLUMN reasoning_content TEXT",
-            # 2026-04-30: 飞书 typing reaction 替代 thinking 卡片
-            "ALTER TABLE feishu_thinking_messages ADD COLUMN source_message_id TEXT NOT NULL DEFAULT ''",
-            # 2026-04-30: persona 加 title（部门内职务，例：大学士、协理通政）
-            "ALTER TABLE personas ADD COLUMN title TEXT",
-            # 2026-05-07: MCP server DB 配置升级 — 让 DB 能完整定义新 server，不再仅 override YAML
-            "ALTER TABLE mcp_server_overrides ADD COLUMN transport TEXT",
-            "ALTER TABLE mcp_server_overrides ADD COLUMN command TEXT",
-            "ALTER TABLE mcp_server_overrides ADD COLUMN args_json TEXT",
-            "ALTER TABLE mcp_server_overrides ADD COLUMN url TEXT",
-            "ALTER TABLE mcp_server_overrides ADD COLUMN headers_json TEXT",
-            "ALTER TABLE mcp_server_overrides ADD COLUMN default_tier INTEGER",
-            "ALTER TABLE mcp_server_overrides ADD COLUMN timeout INTEGER",
-            "ALTER TABLE mcp_server_overrides ADD COLUMN connect_timeout INTEGER",
-            "ALTER TABLE mcp_server_overrides ADD COLUMN tool_overrides_json TEXT",
-            # 2026-05-09: 最终交付物字段 —— 与 result（含中间过程）分离，
-            # 外发渠道（飞书/邮件等）优先用此字段，只呈现"用户关心的产物"。
-            "ALTER TABLE memorials ADD COLUMN final_output TEXT",
-            # 2026-05-19: engine_preferences 加浏览器引擎启停开关
-            "ALTER TABLE engine_preferences ADD COLUMN scrapling_dynamic_enabled INTEGER NOT NULL DEFAULT 0",
-            "ALTER TABLE engine_preferences ADD COLUMN scrapling_stealthy_enabled INTEGER NOT NULL DEFAULT 0",
-            # 2026-05-19: 纠正存量 jina-only override（欠费 key 导致定时任务连续失败）
-            """UPDATE engine_preferences
-                  SET fetch_chain = '["scrapling", "local"]',
-                      search_provider = 'duckduckgo',
-                      fallback_mode = 'on_error_or_empty'
-                WHERE id = 'default' AND fetch_chain = '["jina"]'""",
-            # 2026-06-05: skill_metrics 生命周期/策展字段（修撰 SkillCurator）
-            "ALTER TABLE skill_metrics ADD COLUMN state TEXT NOT NULL DEFAULT 'active'",
-            "ALTER TABLE skill_metrics ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
-            "ALTER TABLE skill_metrics ADD COLUMN archived_at TEXT",
-            "ALTER TABLE skill_metrics ADD COLUMN absorbed_into TEXT",
-            # 2026-06-05: scheduler_jobs 周期间隔（interval 类型，配合调度工具 schedule_edict）
-            "ALTER TABLE scheduler_jobs ADD COLUMN interval_seconds INTEGER",
-            # Phase 8: persona 全局记忆读开关
-            "ALTER TABLE personas ADD COLUMN memory_global_read INTEGER DEFAULT 0",
-            # 2026-06-07: skill_metrics 人在回路字段（前景主导技能学习）
-            "ALTER TABLE skill_metrics ADD COLUMN human_curated INTEGER NOT NULL DEFAULT 0",
-            "ALTER TABLE skill_metrics ADD COLUMN last_human_action TEXT",
-            # 2026-06-07: 平行位面 — memorial 归因到所在位面
-            "ALTER TABLE memorials ADD COLUMN universe_id TEXT",
-            # 2026-06-08: 平行位面 1b — 诏令结果显式反馈分（+1 赞 / -1 踩 / 0 无）
-            "ALTER TABLE memorials ADD COLUMN feedback_score INTEGER NOT NULL DEFAULT 0",
-            # 2026-06-08: 平行位面 1b — universe_id 索引（fitness 聚合按 universe_id 扫描）
-            "CREATE INDEX IF NOT EXISTS idx_memorials_universe_id ON memorials(universe_id)",
-            # 2026-06-08: 代码变体位面 2a — worktree 分支引用
-            "ALTER TABLE universes ADD COLUMN code_ref TEXT",
-            # 2026-07-02: Multica 借鉴 #1 —— 孤儿任务回收心跳字段
-            "ALTER TABLE memorials ADD COLUMN last_heartbeat_at TEXT",
-            # 2026-07-02: Multica 借鉴 #2 —— 调度触发台账（cron/interval + 系统 job）
-            """CREATE TABLE IF NOT EXISTS schedule_run (
-                id TEXT PRIMARY KEY,
-                source TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                status TEXT NOT NULL,
-                edict_id TEXT,
-                error TEXT,
-                started_at TEXT NOT NULL,
-                finished_at TEXT
-            )""",
-            "CREATE INDEX IF NOT EXISTS idx_schedule_run_source ON schedule_run(source)",
-        ]
-        for sql in migrations:
-            try:
-                self._conn.execute(sql)
-                self._conn.commit()
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e) and "no such column" not in str(e):
-                    raise
-
-        # persona_metrics columns for PROFILE synthesis locking (2026-04-18)
-        for col, ddl in [
-            ("synthesis_in_progress", "INTEGER NOT NULL DEFAULT 0"),
-            ("synthesis_started_at", "TEXT"),
-            ("tasks_since_last_synthesis", "INTEGER NOT NULL DEFAULT 0"),
-        ]:
-            try:
-                self._conn.execute(f"ALTER TABLE persona_metrics ADD COLUMN {col} {ddl}")
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e) and "no such column" not in str(e):
-                    raise
-        self._conn.commit()
+        run_migrations(self._conn)
 
         # 2026-06-04: 多 bot 实例 —— 会话/审批表加 instance_id 维度（幂等）
         self._migrate_session_tables_add_instance()
@@ -871,7 +212,7 @@ class Storage:
     def get_edict(self, edict_id: str) -> Edict | None:
         with self._lock:
             row = self._conn.execute("SELECT * FROM edicts WHERE id = ?", (edict_id,)).fetchone()
-        return self._row_to_edict(row) if row else None
+        return _row_to_edict(row) if row else None
 
     def list_edicts(
         self,
@@ -928,7 +269,7 @@ class Storage:
                 f"SELECT COUNT(*) FROM edicts{where}",
                 params,
             ).fetchone()[0]
-        return [self._row_to_edict(r) for r in rows], total
+        return [_row_to_edict(r) for r in rows], total
 
     def update_edict(
         self,
@@ -1001,7 +342,7 @@ class Storage:
                     runtime_override_json, acceptance_override_json,
                     reasoning_content, final_output, universe_id, last_heartbeat_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                self._memorial_to_params(memorial),
+                _memorial_to_params(memorial),
             )
 
     def update_memorial(self, memorial: Memorial) -> None:
@@ -1060,7 +401,7 @@ class Storage:
             row = self._conn.execute(
                 "SELECT * FROM memorials WHERE id = ?", (memorial_id,)
             ).fetchone()
-        return self._row_to_memorial(row) if row else None
+        return _row_to_memorial(row) if row else None
 
     def get_memorial_by_edict(self, edict_id: str) -> Memorial | None:
         with self._lock:
@@ -1068,7 +409,7 @@ class Storage:
                 "SELECT * FROM memorials WHERE edict_id = ? ORDER BY created_at DESC LIMIT 1",
                 (edict_id,),
             ).fetchone()
-        return self._row_to_memorial(row) if row else None
+        return _row_to_memorial(row) if row else None
 
     def list_memorials_by_edict(self, edict_id: str) -> list[Memorial]:
         with self._lock:
@@ -1076,7 +417,7 @@ class Storage:
                 "SELECT * FROM memorials WHERE edict_id = ? ORDER BY created_at ASC",
                 (edict_id,),
             ).fetchall()
-        return [self._row_to_memorial(r) for r in rows]
+        return [_row_to_memorial(r) for r in rows]
 
     def list_memorials(
         self, status: str | None = None, limit: int = 50, offset: int = 0
@@ -1096,7 +437,7 @@ class Storage:
                     (limit, offset),
                 ).fetchall()
                 total = self._conn.execute("SELECT COUNT(*) FROM memorials").fetchone()[0]
-        return [self._row_to_memorial(r) for r in rows], total
+        return [_row_to_memorial(r) for r in rows], total
 
     def list_stale_memorials(
         self,
@@ -1120,7 +461,7 @@ class Storage:
                 f"LIMIT ?",
                 (*statuses, cutoff, limit),
             ).fetchall()
-        return [self._row_to_memorial(r) for r in rows]
+        return [_row_to_memorial(r) for r in rows]
 
     # --- Decree ---
 
@@ -1435,7 +776,7 @@ class Storage:
                         f"SELECT * FROM memory_entries WHERE id IN ({placeholders}){where_extra} ORDER BY created_at DESC LIMIT ?",
                         (*extra_params, limit),
                     ).fetchall()
-                return [self._row_to_memory_entry(r) for r in rows]
+                return [_row_to_memory_entry(r) for r in rows]
 
         # Fallback to LIKE search
         conditions = []
@@ -1461,7 +802,7 @@ class Storage:
                 f"SELECT * FROM memory_entries{where} ORDER BY created_at DESC LIMIT ?",
                 (*params, limit),
             ).fetchall()
-        return [self._row_to_memory_entry(r) for r in rows]
+        return [_row_to_memory_entry(r) for r in rows]
 
     def list_memory_by_persona(self, persona_id: str, limit: int = 50) -> list:
         with self._lock:
@@ -1469,7 +810,7 @@ class Storage:
                 "SELECT * FROM memory_entries WHERE persona_id = ? ORDER BY created_at DESC LIMIT ?",
                 (persona_id, limit),
             ).fetchall()
-        return [self._row_to_memory_entry(r) for r in rows]
+        return [_row_to_memory_entry(r) for r in rows]
 
     def delete_memory_entry(self, entry_id: str) -> bool:
         with self._lock, self._conn:
@@ -1487,24 +828,6 @@ class Storage:
                 entry_ids,
             )
             return cursor.rowcount
-
-    @staticmethod
-    def _row_to_memory_entry(row: sqlite3.Row):
-        MemoryEntry = _get_memory_entry()
-        return MemoryEntry(
-            id=row["id"],
-            persona_id=row["persona_id"],
-            edict_id=row["edict_id"],
-            memorial_id=row["memorial_id"],
-            category=row["category"],
-            content=row["content"],
-            source=row["source"],
-            confidence=row["confidence"],
-            entity_refs=json.loads(row["entity_refs_json"]),
-            created_at=datetime.fromisoformat(row["created_at"]),
-            expires_at=datetime.fromisoformat(row["expires_at"]) if row["expires_at"] else None,
-            access_level=row["access_level"],
-        )
 
     # --- Cost Ledger ---
 
@@ -1851,7 +1174,7 @@ class Storage:
             if not row:
                 return None
             nodes = self._get_dag_nodes_internal(dag_id)
-        return self._row_to_dag_execution(row, nodes)
+        return _row_to_dag_execution(row, nodes)
 
     def get_dag_by_edict(self, edict_id: str) -> DAGExecution | None:
         with self._lock:
@@ -1862,7 +1185,7 @@ class Storage:
             if not row:
                 return None
             nodes = self._get_dag_nodes_internal(row["id"])
-        return self._row_to_dag_execution(row, nodes)
+        return _row_to_dag_execution(row, nodes)
 
     def get_dag_nodes(self, dag_execution_id: str) -> list[DAGNode]:
         with self._lock:
@@ -1873,7 +1196,7 @@ class Storage:
             "SELECT * FROM dag_nodes WHERE dag_execution_id = ?",
             (dag_execution_id,),
         ).fetchall()
-        return [self._row_to_dag_node(r) for r in rows]
+        return [_row_to_dag_node(r) for r in rows]
 
     def update_dag_execution_status(
         self,
@@ -1955,42 +1278,6 @@ class Storage:
                     node.error,
                 ),
             )
-
-    @staticmethod
-    def _row_to_dag_execution(row: sqlite3.Row, nodes: list[DAGNode]) -> DAGExecution:
-        return DAGExecution(
-            id=row["id"],
-            edict_id=row["edict_id"],
-            plan_json=row["plan_json"],
-            status=row["status"],
-            root_memorial_id=row["root_memorial_id"],
-            max_concurrency=row["max_concurrency"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            completed_at=datetime.fromisoformat(row["completed_at"])
-            if row["completed_at"]
-            else None,
-            nodes=nodes,
-        )
-
-    @staticmethod
-    def _row_to_dag_node(row: sqlite3.Row) -> DAGNode:
-        return DAGNode(
-            node_id=row["node_id"],
-            dag_execution_id=row["dag_execution_id"],
-            description=row["description"],
-            depends_on=json.loads(row["depends_on_json"]),
-            status=DAGNodeStatus(row["status"]),
-            assigned_official=row["assigned_official"],
-            assigned_worker=row["assigned_worker"],
-            tools_required=json.loads(row["tools_required_json"]),
-            memorial_id=row["memorial_id"],
-            checkpoint_json=row["checkpoint_json"],
-            started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
-            completed_at=datetime.fromisoformat(row["completed_at"])
-            if row["completed_at"]
-            else None,
-            error=row["error"],
-        )
 
     # --- Scheduler Jobs ---
 
@@ -2091,7 +1378,7 @@ class Storage:
                     "SELECT * FROM edicts WHERE idempotency_key = ?",
                     (idempotency_key,),
                 ).fetchone()
-        return self._row_to_edict(row) if row else None
+        return _row_to_edict(row) if row else None
 
     # --- Edict active memorial check ---
 
@@ -2321,14 +1608,14 @@ class Storage:
     def list_personas(self) -> list[dict]:
         with self._lock:
             rows = self._conn.execute("SELECT * FROM personas ORDER BY department, name").fetchall()
-        return [self._row_to_persona_dict(r) for r in rows]
+        return [_row_to_persona_dict(r) for r in rows]
 
     def get_persona(self, persona_id: str) -> dict | None:
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM personas WHERE id = ?", (persona_id,)
             ).fetchone()
-        return self._row_to_persona_dict(row) if row else None
+        return _row_to_persona_dict(row) if row else None
 
     def update_persona(self, persona_id: str, **fields) -> None:
         allowed = {
@@ -2463,30 +1750,6 @@ class Storage:
             self._conn.commit()
             return int(row[0]) if row else 0
 
-    @staticmethod
-    def _row_to_persona_dict(row: sqlite3.Row) -> dict:
-        keys = row.keys()
-        return {
-            "id": row["id"],
-            "name": row["name"],
-            "department": row["department"],
-            "title": row["title"] if "title" in keys else None,
-            "tools_allowed": json.loads(row["tools_allowed"]),
-            "tools_denied": json.loads(row["tools_denied"]),
-            "skills_allowed": json.loads(row["skills_allowed"]) if "skills_allowed" in keys else [],
-            "tool_tier_max": row["tool_tier_max"],
-            "can_delegate": bool(row["can_delegate"]),
-            "memory_global_read": bool(row["memory_global_read"])
-            if "memory_global_read" in keys
-            else False,
-            "delegates_to": json.loads(row["delegates_to"]),
-            "soul_path": row["soul_path"],
-            "role_path": row["role_path"],
-            "llm_config_name": row["llm_config_name"] if "llm_config_name" in keys else None,
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
-
     # --- Universes (平行位面) ---
 
     def save_universe(self, uni: dict) -> None:
@@ -2515,7 +1778,7 @@ class Storage:
             row = self._conn.execute(
                 "SELECT * FROM universes WHERE id = ?", (universe_id,)
             ).fetchone()
-        return self._row_to_universe(row) if row else None
+        return _row_to_universe(row) if row else None
 
     def list_universes(self, *, include_archived: bool = True) -> list[dict]:
         with self._lock:
@@ -2523,12 +1786,12 @@ class Storage:
             if not include_archived:
                 sql += " WHERE status != 'archived'"
             sql += " ORDER BY created_at DESC"
-            return [self._row_to_universe(r) for r in self._conn.execute(sql).fetchall()]
+            return [_row_to_universe(r) for r in self._conn.execute(sql).fetchall()]
 
     def get_champion_universe(self) -> dict | None:
         with self._lock:
             row = self._conn.execute("SELECT * FROM universes WHERE status = 'champion'").fetchone()
-        return self._row_to_universe(row) if row else None
+        return _row_to_universe(row) if row else None
 
     def set_universe_status(self, universe_id: str, status: str) -> None:
         with self._lock, self._conn:
@@ -2626,35 +1889,7 @@ class Storage:
                 "SELECT * FROM variant_eval_runs WHERE universe_id = ? ORDER BY created_at DESC",
                 (universe_id,),
             ).fetchall()
-        return [self._row_to_eval_run(r) for r in rows]
-
-    @staticmethod
-    def _row_to_eval_run(row) -> dict:
-        return {
-            "id": row["id"],
-            "universe_id": row["universe_id"],
-            "gate_passed": bool(row["gate_passed"]),
-            "gate_detail": json.loads(row["gate_detail"]) if row["gate_detail"] else None,
-            "fitness": json.loads(row["fitness_json"] or "{}"),
-            "eval_set_version": row["eval_set_version"],
-            "cost": row["cost"],
-            "created_at": row["created_at"],
-        }
-
-    @staticmethod
-    def _row_to_universe(row: sqlite3.Row) -> dict:
-        return {
-            "id": row["id"],
-            "name": row["name"],
-            "parent_universe_id": row["parent_universe_id"],
-            "status": row["status"],
-            "origin": row["origin"],
-            "mutation_reason": row["mutation_reason"],
-            "description": row["description"],
-            "fitness": json.loads(row["fitness_json"] or "{}"),
-            "code_ref": row["code_ref"],
-            "created_at": row["created_at"],
-        }
+        return [_row_to_eval_run(r) for r in rows]
 
     # --- Memorials by Persona ---
 
@@ -2719,199 +1954,6 @@ class Storage:
         return list(edicts_map.values()), total
 
     # --- Helpers ---
-
-    @staticmethod
-    def _row_to_edict(row: sqlite3.Row) -> Edict:
-        # Handle optional Phase 1 columns gracefully
-        keys = row.keys()
-
-        schedule = EdictSchedule()
-        if "schedule_json" in keys and row["schedule_json"]:
-            schedule = _load_json_field(
-                row["schedule_json"],
-                EdictSchedule.model_validate_json,
-                "schedule_json",
-                row["id"],
-                schedule,
-            )
-
-        dispatch = None
-        if "dispatch_json" in keys and row["dispatch_json"]:
-            dispatch = _load_json_field(
-                row["dispatch_json"],
-                EdictDispatch.model_validate_json,
-                "dispatch_json",
-                row["id"],
-                dispatch,
-            )
-
-        runtime = EdictRuntime()
-        if "runtime_json" in keys and row["runtime_json"]:
-            runtime = _load_json_field(
-                row["runtime_json"],
-                EdictRuntime.model_validate_json,
-                "runtime_json",
-                row["id"],
-                runtime,
-            )
-
-        constraints = []
-        if "constraints_json" in keys and row["constraints_json"]:
-            constraints = _load_json_field(
-                row["constraints_json"],
-                json.loads,
-                "constraints_json",
-                row["id"],
-                constraints,
-            )
-
-        metadata = {}
-        if "metadata_json" in keys and row["metadata_json"]:
-            metadata = _load_json_field(
-                row["metadata_json"],
-                json.loads,
-                "metadata_json",
-                row["id"],
-                metadata,
-            )
-
-        acceptance = None
-        if "acceptance_json" in keys and row["acceptance_json"]:
-            acceptance = _load_json_field(
-                row["acceptance_json"],
-                AcceptanceCriteria.model_validate_json,
-                "acceptance_json",
-                row["id"],
-                acceptance,
-            )
-
-        return Edict(
-            id=row["id"],
-            title=row["title"] if "title" in keys else "",
-            goal=row["goal"],
-            context=row["context"],
-            status=EdictStatus(row["status"]) if "status" in keys else EdictStatus.OPEN,
-            created_at=datetime.fromisoformat(row["created_at"]),
-            idempotency_key=row["idempotency_key"] if "idempotency_key" in keys else None,
-            source=row["source"] if "source" in keys else "api",
-            submitter=row["submitter"] if "submitter" in keys else None,
-            priority=row["priority"] if "priority" in keys else "normal",
-            review_policy=row["review_policy"] if "review_policy" in keys else "never",
-            output_format=row["output_format"] if "output_format" in keys else None,
-            assigned_persona_id=row["assigned_persona_id"]
-            if "assigned_persona_id" in keys
-            else None,
-            planner_persona_id=row["planner_persona_id"] if "planner_persona_id" in keys else None,
-            plan_review=bool(row["plan_review"]) if "plan_review" in keys else False,
-            acceptance=acceptance,
-            execution_profile=row["execution_profile"]
-            if "execution_profile" in keys
-            else "foreground",
-            constraints=constraints,
-            schedule=schedule,
-            dispatch=dispatch,
-            runtime=runtime,
-            metadata=metadata,
-        )
-
-    @staticmethod
-    def _row_to_memorial(row: sqlite3.Row) -> Memorial:
-        keys = row.keys()
-        usage_data = json.loads(row["usage_json"]) if row["usage_json"] else {}
-
-        audit = None
-        if "audit_json" in keys and row["audit_json"]:
-            audit = _load_json_field(
-                row["audit_json"],
-                AuditResult.model_validate_json,
-                "audit_json",
-                row["id"],
-                audit,
-            )
-
-        return Memorial(
-            id=row["id"],
-            edict_id=row["edict_id"],
-            instruction=row["instruction"] if "instruction" in keys else None,
-            status=TaskStatus(row["status"]),
-            summary=row["summary"],
-            result=row["result"],
-            usage=UsageSummary(**usage_data),
-            error=row["error"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            last_heartbeat_at=(
-                datetime.fromisoformat(row["last_heartbeat_at"])
-                if "last_heartbeat_at" in keys and row["last_heartbeat_at"]
-                else None
-            ),
-            started_at=(datetime.fromisoformat(row["started_at"]) if row["started_at"] else None),
-            completed_at=(
-                datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None
-            ),
-            attempt=row["attempt"] if "attempt" in keys else 1,
-            parent_memorial_id=row["parent_memorial_id"] if "parent_memorial_id" in keys else None,
-            review_status=row["review_status"] if "review_status" in keys else "not_required",
-            audit=audit,
-            dag_node_id=row["dag_node_id"] if "dag_node_id" in keys else None,
-            persona_id=row["persona_id"] if "persona_id" in keys else None,
-            runtime_override=Storage._parse_runtime_override(row, keys),
-            acceptance_override=Storage._parse_acceptance_override(row, keys),
-            reasoning_content=(row["reasoning_content"] if "reasoning_content" in keys else None),
-            final_output=(row["final_output"] if "final_output" in keys else None),
-            universe_id=row["universe_id"] if "universe_id" in keys else None,
-            feedback_score=row["feedback_score"] if "feedback_score" in keys else 0,
-        )
-
-    @staticmethod
-    def _parse_runtime_override(row: sqlite3.Row, keys) -> dict | None:
-        if "runtime_override_json" not in keys or not row["runtime_override_json"]:
-            return None
-        try:
-            data = json.loads(row["runtime_override_json"])
-            return data if isinstance(data, dict) else None
-        except Exception:
-            logger.warning("invalid runtime_override_json for memorial %s", row["id"])
-            return None
-
-    @staticmethod
-    def _parse_acceptance_override(row: sqlite3.Row, keys) -> "AcceptanceCriteria | None":
-        if "acceptance_override_json" not in keys or not row["acceptance_override_json"]:
-            return None
-        try:
-            return AcceptanceCriteria.model_validate_json(row["acceptance_override_json"])
-        except Exception:
-            logger.warning("invalid acceptance_override_json for memorial %s", row["id"])
-            return None
-
-    @staticmethod
-    def _memorial_to_params(m: Memorial) -> tuple:
-        return (
-            m.id,
-            m.edict_id,
-            m.instruction,
-            m.status.value,
-            m.summary,
-            m.result,
-            m.usage.model_dump_json(),
-            m.error,
-            m.created_at.isoformat(),
-            m.started_at.isoformat() if m.started_at else None,
-            m.completed_at.isoformat() if m.completed_at else None,
-            m.attempt,
-            m.parent_memorial_id,
-            m.review_status,
-            m.audit.model_dump_json() if m.audit else None,
-            json.dumps([a.model_dump() for a in m.artifacts], default=str),
-            json.dumps([t.model_dump() for t in m.timeline], default=str),
-            m.dag_node_id,
-            m.persona_id,
-            json.dumps(m.runtime_override) if m.runtime_override else None,
-            m.acceptance_override.model_dump_json() if m.acceptance_override else None,
-            m.reasoning_content,
-            m.final_output,
-            m.universe_id,
-            m.last_heartbeat_at.isoformat() if m.last_heartbeat_at else None,
-        )
 
     def insert_credential(
         self,
