@@ -86,7 +86,7 @@ async def create_decree(body: DecreeCreateRequest, request: Request):
 
 
 @execution_router.get("/approvals/pending_tool_calls", response_model=ApiResponse)
-def list_pending_tool_calls(request: Request):
+async def list_pending_tool_calls(request: Request):
     """Return in-memory pending tool-call approvals awaited by PolicyHook.
 
     Used by 御书房 to render mid-execution approval cards. The state is sourced
@@ -174,13 +174,13 @@ async def retry_dag(dag_id: str, request: Request):
 
 
 @execution_router.get("/workers")
-def list_workers(request: Request):
+async def list_workers(request: Request):
     pool: WorkerPool = request.app.state.worker_pool
     return ApiResponse(success=True, data={"active": pool.list_active()})
 
 
 @execution_router.get("/workers/status")
-def get_workers_status(request: Request):
+async def get_workers_status(request: Request):
     pool: WorkerPool = request.app.state.worker_pool
     lane_manager: LaneManager = request.app.state.lane_manager
     pool_status = pool.status()

@@ -480,7 +480,7 @@ class OuterLoopDecisionRequest(BaseModel):
 
 
 @edicts_router.get("/outer-loop/pending")
-def list_outer_loop_pending(request: Request):
+async def list_outer_loop_pending(request: Request):
     """所有 L3 待审批的长任务列表（含 best_output / critic_feedback / 轮数等）。"""
     am = request.app.state.approval_manager
     items = am.list_pending_outer_loop()
@@ -488,7 +488,7 @@ def list_outer_loop_pending(request: Request):
 
 
 @edicts_router.post("/{edict_id}/outer-loop/decide")
-def submit_outer_loop_decision_api(
+async def submit_outer_loop_decision_api(
     edict_id: str,
     body: OuterLoopDecisionRequest,
     request: Request,
