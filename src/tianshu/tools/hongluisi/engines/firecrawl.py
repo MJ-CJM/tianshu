@@ -47,9 +47,7 @@ class FirecrawlEngine:
             "Content-Type": "application/json",
         }
         try:
-            data, http_status = await client.post_json(
-                FIRECRAWL_ENDPOINT, body, headers=headers
-            )
+            data, http_status = await client.post_json(FIRECRAWL_ENDPOINT, body, headers=headers)
         except httpx.TimeoutException:
             return FetchOutcome(
                 content="",
@@ -94,9 +92,7 @@ def build_firecrawl(store=None) -> FirecrawlEngine | None:
     """DB-first / env fallback；无 key 时返回 None，上层不注册该引擎。"""
     from tianshu.secrets import resolve_provider_key
 
-    key, _source = resolve_provider_key(
-        store, "firecrawl", "TIANSHU_FIRECRAWL_API_KEY"
-    )
+    key, _source = resolve_provider_key(store, "firecrawl", "TIANSHU_FIRECRAWL_API_KEY")
     if not key:
         return None
     return FirecrawlEngine(api_key=key)

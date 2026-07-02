@@ -65,12 +65,8 @@ class MCPServerSession:
         False 表示彻底失败（``status == "error"``）。
         """
         if self._task is not None:
-            raise RuntimeError(
-                f"MCPServerSession({self.config.name}) already started"
-            )
-        self._task = asyncio.create_task(
-            self._run(), name=f"mcp-session-{self.config.name}"
-        )
+            raise RuntimeError(f"MCPServerSession({self.config.name}) already started")
+        self._task = asyncio.create_task(self._run(), name=f"mcp-session-{self.config.name}")
         await self._ready_event.wait()
         return self.status == "connected"
 
@@ -96,9 +92,7 @@ class MCPServerSession:
                         # 否则是 _reconnect_event 触发：清状态，外层循环重连
                         self._reconnect_event.clear()
                         self.status = "reconnecting"
-                        logger.info(
-                            "[mcp] reconnect requested for %s", self.config.name
-                        )
+                        logger.info("[mcp] reconnect requested for %s", self.config.name)
                         continue
                 except asyncio.CancelledError:
                     raise
@@ -172,13 +166,9 @@ class MCPServerSession:
         """触发一次重连（非阻塞）。"""
         self._reconnect_event.set()
 
-    async def call_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> Any:
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         if self._session is None:
-            raise RuntimeError(
-                f"MCP session {self.config.name!r} not connected"
-            )
+            raise RuntimeError(f"MCP session {self.config.name!r} not connected")
         try:
             return await self._session.call_tool(tool_name, arguments)
         except Exception as exc:

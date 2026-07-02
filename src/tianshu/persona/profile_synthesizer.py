@@ -66,13 +66,12 @@ class ProfileSynthesizer:
         self._model = model_name
         # 用于 piggyback memory review：在 PROFILE 合成同周期把"值得长期记住的事"写入私有 MEMORY.md
         # 任一为 None 则跳过 review，不影响主合成流程
-        self._memory_dir = (
-            Path(memory_dir).expanduser() if memory_dir else None
-        )
+        self._memory_dir = Path(memory_dir).expanduser() if memory_dir else None
         self._personas_dir = personas_dir
 
     class _SkippedError(RuntimeError):
         """Sentinel: synthesis skipped due to lock contention."""
+
         pass
 
     def _acquire_lock(self, persona_id: str) -> bool:
@@ -86,9 +85,7 @@ class ProfileSynthesizer:
     def _profile_path(self, persona_id: str) -> Path:
         return self._runtime_dir / persona_id / "PROFILE.md"
 
-    async def collect_inputs(
-        self, persona_id: str, window_days: int = 14
-    ) -> ProfileSynthesisInput:
+    async def collect_inputs(self, persona_id: str, window_days: int = 14) -> ProfileSynthesisInput:
         """Collect 14-day window data for synthesis.
 
         Async because DrawerStore.get_drawers is async. Callers (run, API) are
@@ -104,21 +101,22 @@ class ProfileSynthesizer:
             if hasattr(self._drawers, "get_drawers")
             else []
         )
-        drawers = tuple(
-            d for d in raw_drawers
-            if getattr(d, "timestamp", "") >= since_iso
-        )
+        drawers = tuple(d for d in raw_drawers if getattr(d, "timestamp", "") >= since_iso)
         events = tuple(self._storage.list_persona_events(persona_id, since_iso))
         raw_metrics = self._skill_metrics.list_for_persona(persona_id)
         metrics = tuple(
-            ({
-                "skill_name": m.skill_name,
-                "usage_count": m.usage_count,
-                "success_count": m.success_count,
-                "failure_count": m.failure_count,
-                "status": m.status,
-                "last_used_at": m.last_used_at,
-            } if hasattr(m, "skill_name") else m)
+            (
+                {
+                    "skill_name": m.skill_name,
+                    "usage_count": m.usage_count,
+                    "success_count": m.success_count,
+                    "failure_count": m.failure_count,
+                    "status": m.status,
+                    "last_used_at": m.last_used_at,
+                }
+                if hasattr(m, "skill_name")
+                else m
+            )
             for m in raw_metrics
         )
 
@@ -177,9 +175,7 @@ class ProfileSynthesizer:
             if s in status_counts:
                 status_counts[s] += 1
         active_drawers = len(drawers)
-        since_iso = (
-            datetime.now(UTC) - timedelta(days=window_days)
-        ).isoformat()
+        since_iso = (datetime.now(UTC) - timedelta(days=window_days)).isoformat()
         recent = sum(1 for d in drawers if d.timestamp >= since_iso)
         activity_level = (
             "active" if events_total >= 10 else ("low" if events_total < 3 else "normal")
@@ -232,9 +228,7 @@ class ProfileSynthesizer:
         degradations: list[dict],
     ) -> bool:
         """Degraded when data was sufficient but LLM returned nothing for both."""
-        opinion_count = sum(
-            1 for d in inputs.drawers if getattr(d, "category", "") == "O"
-        )
+        opinion_count = sum(1 for d in inputs.drawers if getattr(d, "category", "") == "O")
         data_sufficient = opinion_count >= 5
         return data_sufficient and not specialties and not degradations
 
@@ -267,22 +261,20 @@ class ProfileSynthesizer:
         "{events_block}\n\n"
         "请从中提取最多 5 条 **值得长期记住** 的洞见或事实。"
         "只输出以下两类:\n"
-        "1) 用户透露的稳定偏好/约定（如\"用户偏好功能优先，测试最后补\"）\n"
-        "2) 你发现的环境稳定事实（如\"X 部门用 Y 工具\"、\"特定 API 行为\"）\n\n"
+        '1) 用户透露的稳定偏好/约定（如"用户偏好功能优先，测试最后补"）\n'
+        '2) 你发现的环境稳定事实（如"X 部门用 Y 工具"、"特定 API 行为"）\n\n'
         "**绝对不要输出**:\n"
         "- 任务进度/已完成的工作日志\n"
         "- 临时 TODO 状态\n"
         "- 不确定的猜测\n"
         "- 与上次反思重复的内容（语义重复也算）\n\n"
-        "section 用简短 H2 标题（如\"用户偏好\"、\"环境约定\"）。content ≤ 200 字，简短可检索。\n"
+        'section 用简短 H2 标题（如"用户偏好"、"环境约定"）。content ≤ 200 字，简短可检索。\n'
         "若没有合适条目，items 留空数组。\n"
         "输出 JSON:\n"
         '{{"items": [{{"section": "...", "content": "..."}}]}}'
     )
 
-    async def llm_memory_review(
-        self, inputs: ProfileSynthesisInput
-    ) -> list[dict[str, str]]:
+    async def llm_memory_review(self, inputs: ProfileSynthesisInput) -> list[dict[str, str]]:
         """从近期 events 提炼可写入 MEMORY.md 的长期洞见。无可摘录条目时返回空列表。"""
         if not inputs.recent_events:
             return []
@@ -293,8 +285,11 @@ class ProfileSynthesizer:
             kind = ev.get("kind") or ev.get("type") or "?"
             payload = ev.get("payload") or {}
             summary = (
-                payload.get("summary") or payload.get("goal") or payload.get("title")
-                or payload.get("instruction") or ""
+                payload.get("summary")
+                or payload.get("goal")
+                or payload.get("title")
+                or payload.get("instruction")
+                or ""
             )
             lines.append(f"- [{kind}] {str(summary)[:120]}")
         events_block = "\n".join(lines) if lines else "(no events)"
@@ -324,9 +319,7 @@ class ProfileSynthesizer:
                 cleaned.append({"section": sec.strip(), "content": con.strip()})
         return cleaned[:5]
 
-    async def _persist_memory_review(
-        self, persona_id: str, items: list[dict[str, str]]
-    ) -> int:
+    async def _persist_memory_review(self, persona_id: str, items: list[dict[str, str]]) -> int:
         """把 review items 写入 ~/.tianshu/memory/{persona_id}/MEMORY.md + FTS 索引。
 
         返回成功写入的条数。单条失败 continue，不影响其他。
@@ -343,7 +336,8 @@ class ProfileSynthesizer:
         )
 
         backend = MarkdownMemoryBackend(
-            memory_dir=self._memory_dir, personas_dir=self._personas_dir,
+            memory_dir=self._memory_dir,
+            personas_dir=self._personas_dir,
         )
         written = 0
         for item in items:
@@ -351,47 +345,50 @@ class ProfileSynthesizer:
                 section = normalize_section(item["section"])
                 validate_content(item["content"])
                 backend.write_section(
-                    persona_id, section,
-                    mode="append", content=item["content"],
+                    persona_id,
+                    section,
+                    mode="append",
+                    content=item["content"],
                 )
             except (MemorySafetyError, ValueError, FileNotFoundError) as e:
                 logger.info(
-                    "memory_review skip item for %s: %s", persona_id, e,
+                    "memory_review skip item for %s: %s",
+                    persona_id,
+                    e,
                 )
                 continue
             except Exception:
                 logger.warning(
-                    "memory_review write_section failed for %s", persona_id,
+                    "memory_review write_section failed for %s",
+                    persona_id,
                     exc_info=True,
                 )
                 continue
             # 同步索引
             try:
-                self._storage.save_memory_entry(MemoryEntry(
-                    persona_id=persona_id,
-                    category="insight",
-                    content=item["content"],
-                    source="reflection",
-                ))
+                self._storage.save_memory_entry(
+                    MemoryEntry(
+                        persona_id=persona_id,
+                        category="insight",
+                        content=item["content"],
+                        source="reflection",
+                    )
+                )
             except Exception:
                 logger.debug("save_memory_entry failed (non-fatal)")
             written += 1
         return written
 
-    async def llm_specialties(
-        self, inputs: ProfileSynthesisInput
-    ) -> list[dict[str, str]]:
+    async def llm_specialties(self, inputs: ProfileSynthesisInput) -> list[dict[str, str]]:
         """Extract specialties from drawer opinions using LLM analysis."""
         opinions = [
-            d for d in inputs.drawers
-            if getattr(d, "category", "") == "O"
-            and getattr(d, "confidence", 0.0) > 0.7
+            d
+            for d in inputs.drawers
+            if getattr(d, "category", "") == "O" and getattr(d, "confidence", 0.0) > 0.7
         ][:30]
         if len(opinions) < 5:
             return []
-        drawer_block = "\n".join(
-            f"- [{d.room}] {d.content[:200]}" for d in opinions
-        )
+        drawer_block = "\n".join(f"- [{d.room}] {d.content[:200]}" for d in opinions)
         system = self._SPECIALTIES_SYSTEM.format(persona_name=inputs.persona_name)
         user = self._SPECIALTIES_USER.format(
             window=inputs.data_window_days,
@@ -435,9 +432,7 @@ class ProfileSynthesizer:
                 return json.loads(text)
             except (json.JSONDecodeError, ValueError) as e:
                 last_err = e
-                prompt_user = (
-                    user + "\n\n上次输出不是合法 JSON,严格只输出 JSON 对象,禁止其他字符。"
-                )
+                prompt_user = user + "\n\n上次输出不是合法 JSON,严格只输出 JSON 对象,禁止其他字符。"
             except Exception as e:
                 last_err = e
                 await asyncio.sleep(1)
@@ -463,9 +458,7 @@ class ProfileSynthesizer:
         prune_history(path.parent / "profile_history")
         return path
 
-    def detect_conflict(
-        self, prev_markdown: str | None, new_auto_section: str
-    ) -> bool:
+    def detect_conflict(self, prev_markdown: str | None, new_auto_section: str) -> bool:
         """True when user-edited auto section diverges >= 30% from previous."""
         from tianshu.persona.profile_renderer import (
             MANUAL_DIFF_CONFLICT_THRESHOLD,
@@ -479,8 +472,7 @@ class ProfileSynthesizer:
         if not prev_auto:
             return False
         return (
-            auto_section_diff_ratio(prev_auto, new_auto_section)
-            >= MANUAL_DIFF_CONFLICT_THRESHOLD
+            auto_section_diff_ratio(prev_auto, new_auto_section) >= MANUAL_DIFF_CONFLICT_THRESHOLD
         )
 
     PROFILE_EVENTS = (
@@ -491,12 +483,11 @@ class ProfileSynthesizer:
         "profile.synthesis.degraded",
     )
 
-    async def _emit(
-        self, event_type: str, persona_id: str, payload: dict[str, Any]
-    ) -> None:
+    async def _emit(self, event_type: str, persona_id: str, payload: dict[str, Any]) -> None:
         if not getattr(self, "_event_bus", None):
             return
         from tianshu.models.events import make_event
+
         ev = make_event(
             event_type=event_type,
             edict_id=None,
@@ -531,9 +522,7 @@ class ProfileSynthesizer:
         )
         try:
             inputs = await self.collect_inputs(persona_id, window_days)
-            task_dist = self.aggregate_task_distribution(
-                inputs.recent_events, window_days
-            )
+            task_dist = self.aggregate_task_distribution(inputs.recent_events, window_days)
             health = self.aggregate_health(
                 inputs.drawers,
                 inputs.skill_metrics,
@@ -543,9 +532,7 @@ class ProfileSynthesizer:
             candidates = self.pick_degradation_candidates(inputs.skill_metrics)
 
             specialties_task = asyncio.create_task(self.llm_specialties(inputs))
-            degradations_task = asyncio.create_task(
-                self.llm_degradations(inputs, candidates)
-            )
+            degradations_task = asyncio.create_task(self.llm_degradations(inputs, candidates))
             # piggyback memory review：与主合成并发跑，失败不影响 PROFILE 主流程
             memory_review_task = asyncio.create_task(self.llm_memory_review(inputs))
             specialties, degradations, review_raw = await asyncio.gather(
@@ -560,9 +547,7 @@ class ProfileSynthesizer:
             if isinstance(degradations, Exception):
                 logger.warning("llm_degradations raised: %s", degradations)
                 degradations = []
-            review_items: list[dict[str, str]] = (
-                review_raw if isinstance(review_raw, list) else []
-            )
+            review_items: list[dict[str, str]] = review_raw if isinstance(review_raw, list) else []
             if isinstance(review_raw, Exception):
                 logger.warning("llm_memory_review raised: %s", review_raw)
 
@@ -638,7 +623,8 @@ class ProfileSynthesizer:
             if review_items:
                 try:
                     review_written = await self._persist_memory_review(
-                        persona_id, review_items,
+                        persona_id,
+                        review_items,
                     )
                 except Exception:
                     logger.exception("memory_review persist failed for %s", persona_id)
@@ -654,17 +640,14 @@ class ProfileSynthesizer:
                 )
 
             await self._emit(
-                "profile.synthesis.degraded" if degraded
-                else "profile.synthesis.completed",
+                "profile.synthesis.degraded" if degraded else "profile.synthesis.completed",
                 persona_id,
                 {
                     "version": new_version,
                     "data_sources": fm.data_sources,
                     "conflict_skipped_write": conflict,
                     "memory_review_written": review_written,
-                    "duration_ms": int(
-                        (datetime.now(UTC) - started_ms).total_seconds() * 1000
-                    ),
+                    "duration_ms": int((datetime.now(UTC) - started_ms).total_seconds() * 1000),
                 },
             )
             return result
@@ -685,8 +668,7 @@ def _format_specialties(items: list[dict[str, str]]) -> str:
     if not items:
         return "(数据不足或 LLM 未返回,下次重试)"
     return "\n".join(
-        f"- **{i.get('title', '').strip()}**:{i.get('detail', '').strip()}"
-        for i in items
+        f"- **{i.get('title', '').strip()}**:{i.get('detail', '').strip()}" for i in items
     )
 
 
@@ -715,9 +697,7 @@ def _format_health(h: dict[str, Any]) -> str:
     )
 
 
-def _format_degradations(
-    candidates: list[dict], reasons: list[dict[str, str]]
-) -> str:
+def _format_degradations(candidates: list[dict], reasons: list[dict[str, str]]) -> str:
     if not candidates:
         return "(暂无)"
     reason_map = {r.get("skill"): r.get("reason", "") for r in reasons}

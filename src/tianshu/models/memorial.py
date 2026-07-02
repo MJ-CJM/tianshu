@@ -39,9 +39,7 @@ class Memorial(BaseModel):
     # Phase 1 fields
     attempt: int = 1
     parent_memorial_id: str | None = None
-    review_status: Literal[
-        "not_required", "pending", "approved", "rejected"
-    ] = "not_required"
+    review_status: Literal["not_required", "pending", "approved", "rejected"] = "not_required"
     audit: AuditResult | None = None
     artifacts: list[ArtifactRef] = Field(default_factory=list)
     timeline: list[TimelineItem] = Field(default_factory=list)

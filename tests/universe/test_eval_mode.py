@@ -37,9 +37,7 @@ async def test_eval_mode_no_outbound_channels_registered(monkeypatch):
     app = create_app()
     async with lifespan(app):
         channels = app.state.channel_registry.list_channels()
-        assert channels == [], (
-            f"Expected no outbound channels in eval mode, got: {channels}"
-        )
+        assert channels == [], f"Expected no outbound channels in eval mode, got: {channels}"
 
 
 @pytest.mark.asyncio
@@ -52,9 +50,7 @@ async def test_normal_mode_registers_channels(monkeypatch):
     app = create_app()
     async with lifespan(app):
         channels = app.state.channel_registry.list_channels()
-        assert "feishu" in channels, (
-            f"Expected feishu channel in normal mode, got: {channels}"
-        )
+        assert "feishu" in channels, f"Expected feishu channel in normal mode, got: {channels}"
 
 
 @pytest.mark.asyncio

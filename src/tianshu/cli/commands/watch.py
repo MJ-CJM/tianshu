@@ -78,7 +78,9 @@ def watch(
         with ws_client.connect(ws_url) as ws:
             console.print("[green]Connected. Watching...[/green]  (Ctrl+C to quit)\n")
 
-            with Live(_make_status_table(edict_id, events, True), console=console, refresh_per_second=2) as live:
+            with Live(
+                _make_status_table(edict_id, events, True), console=console, refresh_per_second=2
+            ) as live:
                 while not done:
                     try:
                         raw = ws.recv(timeout=1.0)

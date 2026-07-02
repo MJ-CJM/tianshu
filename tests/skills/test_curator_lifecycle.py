@@ -21,7 +21,8 @@ def env(tmp_path: Path):
     db.init_db()
     ms = SkillMetricsStore(db._conn)
     loader = SkillsLoader(
-        builtin_dir=tmp_path / "builtin", user_dir=tmp_path / "user",
+        builtin_dir=tmp_path / "builtin",
+        user_dir=tmp_path / "user",
     )
     (tmp_path / "builtin").mkdir()
     (tmp_path / "user").mkdir()
@@ -54,7 +55,10 @@ def test_archive_stale_reactivate(env):
     _add(loader, ms, "ancient", last_used_days_ago=200)
 
     counts = apply_automatic_transitions(
-        ms, loader, stale_after_days=30, archive_after_days=90,
+        ms,
+        loader,
+        stale_after_days=30,
+        archive_after_days=90,
     )
 
     assert counts["archived"] == 1

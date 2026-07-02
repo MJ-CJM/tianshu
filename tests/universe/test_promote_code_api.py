@@ -3,6 +3,7 @@
 Only error-path coverage: no real worktree / code variant is created.
 Both cases error out before any deploy/restart side effects.
 """
+
 from __future__ import annotations
 
 import pytest

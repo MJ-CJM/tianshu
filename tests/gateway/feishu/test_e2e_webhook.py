@@ -1,4 +1,5 @@
 """端到端：Webhook 模式下，POST /feishu/webhook → Edict 创建/续接。"""
+
 from __future__ import annotations
 
 import json
@@ -24,6 +25,7 @@ def app_with_feishu(monkeypatch):
     monkeypatch.setenv("TIANSHU_LLM_API_KEY", "fake")
     monkeypatch.setenv("TIANSHU_LLM_API_BASE", "http://localhost:9999")
     from tianshu.app import create_app
+
     app = create_app()
     with TestClient(app) as client:
         yield client, app
@@ -59,8 +61,10 @@ def test_message_creates_edict(app_with_feishu):
     storage = app.state.storage
 
     payload = _build_msg_payload(
-        event_id="evt_1", chat_id="oc_chat",
-        sender_open_id="ou_test", text="帮我看看进度",
+        event_id="evt_1",
+        chat_id="oc_chat",
+        sender_open_id="ou_test",
+        text="帮我看看进度",
     )
     resp = client.post("/feishu/webhook", json=payload)
     assert resp.status_code == 200
@@ -79,8 +83,10 @@ def test_dedup_repeated_event_id(app_with_feishu):
     storage = app.state.storage
 
     payload = _build_msg_payload(
-        event_id="evt_dup", chat_id="oc_x",
-        sender_open_id="ou_test", text="一次任务",
+        event_id="evt_dup",
+        chat_id="oc_x",
+        sender_open_id="ou_test",
+        text="一次任务",
     )
     r1 = client.post("/feishu/webhook", json=payload)
     assert r1.status_code == 200
@@ -100,7 +106,8 @@ def test_message_from_non_allowlisted_user_ignored(app_with_feishu):
     storage = app.state.storage
 
     payload = _build_msg_payload(
-        event_id="evt_evil", chat_id="oc_x",
+        event_id="evt_evil",
+        chat_id="oc_x",
         sender_open_id="ou_attacker",  # 不在 allowlist
         text="malicious",
     )

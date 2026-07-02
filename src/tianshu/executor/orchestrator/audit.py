@@ -3,6 +3,7 @@
 Audit 是 critic pass 后的「覆盖审」：核实 acceptance 每条要求都有具体证据。
 执行者优先复用 critic LLM；critic 不在场时由 caller 传入 actor LLM 自审。
 """
+
 from __future__ import annotations
 
 import json
@@ -56,12 +57,14 @@ def parse_audit_response(raw: str) -> AuditResult:
     if not candidate:
         return AuditResult(
             passed=False,
-            gaps=(AuditGap(
-                check_name="_meta",
-                requirement="审计 JSON 解析失败",
-                evidence_status="missing",
-                suggested_action="重新执行审计并严格按 schema 输出 JSON",
-            ),),
+            gaps=(
+                AuditGap(
+                    check_name="_meta",
+                    requirement="审计 JSON 解析失败",
+                    evidence_status="missing",
+                    suggested_action="重新执行审计并严格按 schema 输出 JSON",
+                ),
+            ),
         )
     try:
         data = json.loads(candidate)
@@ -69,12 +72,14 @@ def parse_audit_response(raw: str) -> AuditResult:
         logger.warning("audit json parse failed: %s; raw=%r", e, candidate[:200])
         return AuditResult(
             passed=False,
-            gaps=(AuditGap(
-                check_name="_meta",
-                requirement="审计 JSON parse 失败",
-                evidence_status="missing",
-                suggested_action="重新执行审计并严格按 schema 输出 JSON",
-            ),),
+            gaps=(
+                AuditGap(
+                    check_name="_meta",
+                    requirement="审计 JSON parse 失败",
+                    evidence_status="missing",
+                    suggested_action="重新执行审计并严格按 schema 输出 JSON",
+                ),
+            ),
         )
     passed = bool(data.get("passed", False))
     gaps_raw = data.get("gaps") or []

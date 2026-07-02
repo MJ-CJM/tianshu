@@ -29,12 +29,14 @@ class ChecksResult:
 @dataclass(frozen=True)
 class CriticResult:
     verdict: Literal["pass", "fail"]
-    issue_class: str | None = None         # FAIL 时必填
+    issue_class: str | None = None  # FAIL 时必填
     feedback: str = ""
     suggested_fix: str | None = None
-    cost_cny: float = 0.0                  # 多 critic 时为聚合后总成本
-    improvement_hints: str | None = None   # PASS 时也可给改进建议（持续优化模式注入下一轮 actor）
-    usage: UsageSummary | None = None      # critic LLM 完整用量；多 critic 时为聚合值；用于回写 memorial.usage
+    cost_cny: float = 0.0  # 多 critic 时为聚合后总成本
+    improvement_hints: str | None = None  # PASS 时也可给改进建议（持续优化模式注入下一轮 actor）
+    usage: UsageSummary | None = (
+        None  # critic LLM 完整用量；多 critic 时为聚合值；用于回写 memorial.usage
+    )
 
 
 @dataclass(frozen=True)

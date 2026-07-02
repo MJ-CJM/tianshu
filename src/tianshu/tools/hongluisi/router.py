@@ -30,17 +30,13 @@ class FetchRouter:
             self._fallback_mode = policy.fallback_mode
         self._max_depth = policy.max_fallback_depth
 
-    async def dispatch(
-        self, url: str
-    ) -> tuple[FetchOutcome, list[FetchAttempt]]:
+    async def dispatch(self, url: str) -> tuple[FetchOutcome, list[FetchAttempt]]:
         attempts: list[FetchAttempt] = []
         outcome: FetchOutcome | None = None
         for engine_name in self._chain[: self._max_depth]:
             engine = self._engines.get(engine_name)
             if engine is None:
-                attempts.append(
-                    FetchAttempt(engine_name, "skipped", "not registered")
-                )
+                attempts.append(FetchAttempt(engine_name, "skipped", "not registered"))
                 continue
             try:
                 outcome = await engine.fetch(url)
@@ -54,9 +50,7 @@ class FetchRouter:
                     bytes_fetched=0,
                     final_url=None,
                 )
-            attempts.append(
-                FetchAttempt(engine_name, outcome.status, outcome.reason)
-            )
+            attempts.append(FetchAttempt(engine_name, outcome.status, outcome.reason))
             if outcome.status == "ok":
                 return outcome, attempts
             if self._fallback_mode == "none":

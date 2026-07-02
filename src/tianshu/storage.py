@@ -51,6 +51,7 @@ def _get_memory_entry():
     global _MemoryEntry
     if _MemoryEntry is None:
         from tianshu.memory.models import MemoryEntry
+
         _MemoryEntry = MemoryEntry
     return _MemoryEntry
 
@@ -75,6 +76,7 @@ class Storage:
     def _init_fts(self) -> None:
         """Initialize FTS5 full-text search for memory entries."""
         from tianshu.memory.fts import create_fts_table
+
         self._fts_available = create_fts_table(self._conn)
 
     def _create_tables(self) -> None:
@@ -645,8 +647,7 @@ class Storage:
                     WHERE memorial_id IS NOT NULL""",
             "DROP TABLE supervision_reports",
             "ALTER TABLE _supervision_reports_new RENAME TO supervision_reports",
-            "CREATE INDEX IF NOT EXISTS idx_supervision_edict "
-            "ON supervision_reports(edict_id)",
+            "CREATE INDEX IF NOT EXISTS idx_supervision_edict ON supervision_reports(edict_id)",
             # 2026-04-28: follow-up 时本次 memorial 单独覆盖 edict.runtime / acceptance
             "ALTER TABLE memorials ADD COLUMN runtime_override_json TEXT",
             "ALTER TABLE memorials ADD COLUMN acceptance_override_json TEXT",
@@ -729,9 +730,7 @@ class Storage:
             ("tasks_since_last_synthesis", "INTEGER NOT NULL DEFAULT 0"),
         ]:
             try:
-                self._conn.execute(
-                    f"ALTER TABLE persona_metrics ADD COLUMN {col} {ddl}"
-                )
+                self._conn.execute(f"ALTER TABLE persona_metrics ADD COLUMN {col} {ddl}")
             except sqlite3.OperationalError as e:
                 if "duplicate column name" not in str(e) and "no such column" not in str(e):
                     raise
@@ -752,9 +751,7 @@ class Storage:
         """
         cols = {
             r[1]
-            for r in self._conn.execute(
-                "PRAGMA table_info(telegram_session_anchor)"
-            ).fetchall()
+            for r in self._conn.execute("PRAGMA table_info(telegram_session_anchor)").fetchall()
         }
         if "instance_id" in cols:
             return  # 已迁移
@@ -814,9 +811,7 @@ class Storage:
 
         now = datetime.now(UTC).isoformat()
         # Collect distinct departments from personas
-        rows = self._conn.execute(
-            "SELECT DISTINCT department FROM personas"
-        ).fetchall()
+        rows = self._conn.execute("SELECT DISTINCT department FROM personas").fetchall()
         dept_ids = {r[0] for r in rows}
         # Merge with known defaults
         dept_ids.update(KNOWN.keys())
@@ -837,9 +832,7 @@ class Storage:
     # --- Edict ---
 
     def save_edict(self, edict: Edict) -> None:
-        acceptance_json = (
-            edict.acceptance.model_dump_json() if edict.acceptance else None
-        )
+        acceptance_json = edict.acceptance.model_dump_json() if edict.acceptance else None
         with self._lock, self._conn:
             self._conn.execute(
                 """INSERT INTO edicts
@@ -877,9 +870,7 @@ class Storage:
 
     def get_edict(self, edict_id: str) -> Edict | None:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT * FROM edicts WHERE id = ?", (edict_id,)
-            ).fetchone()
+            row = self._conn.execute("SELECT * FROM edicts WHERE id = ?", (edict_id,)).fetchone()
         return self._row_to_edict(row) if row else None
 
     def list_edicts(
@@ -940,7 +931,11 @@ class Storage:
         return [self._row_to_edict(r) for r in rows], total
 
     def update_edict(
-        self, edict_id: str, title: str | None = None, goal: str | None = None, context: str | None = None,
+        self,
+        edict_id: str,
+        title: str | None = None,
+        goal: str | None = None,
+        context: str | None = None,
     ) -> None:
         sets: list[str] = []
         params: list[str] = []
@@ -981,7 +976,8 @@ class Storage:
             raise ValueError(f"unknown lifecycle_phase: {phase}")
         with self._lock, self._conn:
             row = self._conn.execute(
-                "SELECT runtime_json FROM edicts WHERE id = ?", (edict_id,),
+                "SELECT runtime_json FROM edicts WHERE id = ?",
+                (edict_id,),
             ).fetchone()
             if not row:
                 return
@@ -1037,7 +1033,9 @@ class Storage:
                     memorial.dag_node_id,
                     memorial.persona_id,
                     json.dumps(memorial.runtime_override) if memorial.runtime_override else None,
-                    memorial.acceptance_override.model_dump_json() if memorial.acceptance_override else None,
+                    memorial.acceptance_override.model_dump_json()
+                    if memorial.acceptance_override
+                    else None,
                     memorial.reasoning_content,
                     memorial.final_output,
                     memorial.universe_id,
@@ -1311,7 +1309,8 @@ class Storage:
             }
 
             # Query B — per-edict token usage
-            per_edict_rows = self._conn.execute("""
+            per_edict_rows = self._conn.execute(
+                """
                 SELECT
                     m.edict_id,
                     e.title as edict_title,
@@ -1326,7 +1325,9 @@ class Storage:
                 GROUP BY m.edict_id
                 ORDER BY total_tokens DESC
                 LIMIT ?
-            """, (top_n,)).fetchall()
+            """,
+                (top_n,),
+            ).fetchall()
 
             per_edict = [
                 {
@@ -1357,17 +1358,19 @@ class Storage:
             recent_audits = []
             for r in audit_rows:
                 audit_data = json.loads(r["audit_json"]) if r["audit_json"] else {}
-                recent_audits.append({
-                    "memorial_id": r["id"],
-                    "edict_id": r["edict_id"],
-                    "edict_title": r["edict_title"],
-                    "verdict": audit_data.get("verdict"),
-                    "reasons": audit_data.get("reasons", []),
-                    "rules_checked": audit_data.get("rules_checked", 0),
-                    "llm_reviewed": audit_data.get("llm_reviewed", False),
-                    "review_status": r["review_status"],
-                    "completed_at": r["completed_at"],
-                })
+                recent_audits.append(
+                    {
+                        "memorial_id": r["id"],
+                        "edict_id": r["edict_id"],
+                        "edict_title": r["edict_title"],
+                        "verdict": audit_data.get("verdict"),
+                        "reasons": audit_data.get("reasons", []),
+                        "rules_checked": audit_data.get("rules_checked", 0),
+                        "llm_reviewed": audit_data.get("llm_reviewed", False),
+                        "review_status": r["review_status"],
+                        "completed_at": r["completed_at"],
+                    }
+                )
 
         return {
             "summary": summary,
@@ -1411,6 +1414,7 @@ class Storage:
         # Try FTS5 first if available and query is provided
         if query and getattr(self, "_fts_available", False):
             from tianshu.memory.fts import fts_search
+
             with self._lock:
                 fts_ids = fts_search(self._conn, query, persona_id=persona_id, limit=limit)
             if fts_ids:
@@ -1425,9 +1429,7 @@ class Storage:
                 if category:
                     extra_conditions.append("category = ?")
                     extra_params.append(category)
-                where_extra = (
-                    f" AND {' AND '.join(extra_conditions)}" if extra_conditions else ""
-                )
+                where_extra = f" AND {' AND '.join(extra_conditions)}" if extra_conditions else ""
                 with self._lock:
                     rows = self._conn.execute(
                         f"SELECT * FROM memory_entries WHERE id IN ({placeholders}){where_extra} ORDER BY created_at DESC LIMIT ?",
@@ -1471,9 +1473,7 @@ class Storage:
 
     def delete_memory_entry(self, entry_id: str) -> bool:
         with self._lock, self._conn:
-            cursor = self._conn.execute(
-                "DELETE FROM memory_entries WHERE id = ?", (entry_id,)
-            )
+            cursor = self._conn.execute("DELETE FROM memory_entries WHERE id = ?", (entry_id,))
             return cursor.rowcount > 0
 
     def delete_memory_entries_batch(self, entry_ids: list[str]) -> int:
@@ -1658,24 +1658,18 @@ class Storage:
 
     def get_llm_config(self, name: str) -> dict | None:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT * FROM llm_configs WHERE name = ?", (name,)
-            ).fetchone()
+            row = self._conn.execute("SELECT * FROM llm_configs WHERE name = ?", (name,)).fetchone()
         return dict(row) if row else None
 
     def delete_llm_config(self, name: str) -> bool:
         with self._lock, self._conn:
-            cursor = self._conn.execute(
-                "DELETE FROM llm_configs WHERE name = ?", (name,)
-            )
+            cursor = self._conn.execute("DELETE FROM llm_configs WHERE name = ?", (name,))
             return cursor.rowcount > 0
 
     def set_active_llm_config(self, name: str) -> None:
         with self._lock, self._conn:
             self._conn.execute("UPDATE llm_configs SET is_active = 0")
-            self._conn.execute(
-                "UPDATE llm_configs SET is_active = 1 WHERE name = ?", (name,)
-            )
+            self._conn.execute("UPDATE llm_configs SET is_active = 1 WHERE name = ?", (name,))
 
     # --- Providers ---
 
@@ -1709,9 +1703,7 @@ class Storage:
 
     def get_provider(self, name: str) -> dict | None:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT * FROM providers WHERE name = ?", (name,)
-            ).fetchone()
+            row = self._conn.execute("SELECT * FROM providers WHERE name = ?", (name,)).fetchone()
         if not row:
             return None
         d = dict(row)
@@ -1720,9 +1712,7 @@ class Storage:
 
     def list_providers(self) -> list[dict]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM providers ORDER BY priority ASC"
-            ).fetchall()
+            rows = self._conn.execute("SELECT * FROM providers ORDER BY priority ASC").fetchall()
         result = []
         for r in rows:
             d = dict(r)
@@ -1732,9 +1722,7 @@ class Storage:
 
     def delete_provider(self, name: str) -> bool:
         with self._lock, self._conn:
-            cursor = self._conn.execute(
-                "DELETE FROM providers WHERE name = ?", (name,)
-            )
+            cursor = self._conn.execute("DELETE FROM providers WHERE name = ?", (name,))
             return cursor.rowcount > 0
 
     def update_provider(self, name: str, updates: dict) -> None:
@@ -1744,18 +1732,24 @@ class Storage:
             if key == "capabilities":
                 sets.append("capabilities_json = ?")
                 params.append(json.dumps(value))
-            elif key in ("model", "api_base", "status", "rpm_limit", "tpm_limit",
-                         "priority", "cost_per_1k_prompt", "cost_per_1k_completion",
-                         "cost_per_1k_cache_read"):
+            elif key in (
+                "model",
+                "api_base",
+                "status",
+                "rpm_limit",
+                "tpm_limit",
+                "priority",
+                "cost_per_1k_prompt",
+                "cost_per_1k_completion",
+                "cost_per_1k_cache_read",
+            ):
                 sets.append(f"{key} = ?")
                 params.append(value)
         if not sets:
             return
         params.append(name)
         with self._lock, self._conn:
-            self._conn.execute(
-                f"UPDATE providers SET {', '.join(sets)} WHERE name = ?", params
-            )
+            self._conn.execute(f"UPDATE providers SET {', '.join(sets)} WHERE name = ?", params)
 
     # --- Plugins ---
 
@@ -1779,9 +1773,7 @@ class Storage:
 
     def list_plugins(self) -> list[dict]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM plugins ORDER BY name ASC"
-            ).fetchall()
+            rows = self._conn.execute("SELECT * FROM plugins ORDER BY name ASC").fetchall()
         result = []
         for r in rows:
             d = dict(r)
@@ -1791,9 +1783,7 @@ class Storage:
 
     def get_plugin(self, name: str) -> dict | None:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT * FROM plugins WHERE name = ?", (name,)
-            ).fetchone()
+            row = self._conn.execute("SELECT * FROM plugins WHERE name = ?", (name,)).fetchone()
         if not row:
             return None
         d = dict(row)
@@ -1886,7 +1876,10 @@ class Storage:
         return [self._row_to_dag_node(r) for r in rows]
 
     def update_dag_execution_status(
-        self, dag_id: str, status: str, completed_at: datetime | None = None,
+        self,
+        dag_id: str,
+        status: str,
+        completed_at: datetime | None = None,
     ) -> None:
         with self._lock, self._conn:
             if completed_at:
@@ -1926,7 +1919,10 @@ class Storage:
                 )
 
     def update_dag_node_checkpoint(
-        self, dag_execution_id: str, node_id: str, checkpoint_json: str | None,
+        self,
+        dag_execution_id: str,
+        node_id: str,
+        checkpoint_json: str | None,
     ) -> None:
         with self._lock, self._conn:
             self._conn.execute(
@@ -1970,7 +1966,9 @@ class Storage:
             root_memorial_id=row["root_memorial_id"],
             max_concurrency=row["max_concurrency"],
             created_at=datetime.fromisoformat(row["created_at"]),
-            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+            completed_at=datetime.fromisoformat(row["completed_at"])
+            if row["completed_at"]
+            else None,
             nodes=nodes,
         )
 
@@ -1988,7 +1986,9 @@ class Storage:
             memorial_id=row["memorial_id"],
             checkpoint_json=row["checkpoint_json"],
             started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
-            completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+            completed_at=datetime.fromisoformat(row["completed_at"])
+            if row["completed_at"]
+            else None,
             error=row["error"],
         )
 
@@ -2037,7 +2037,8 @@ class Storage:
     def get_scheduler_job(self, job_id: str) -> dict | None:
         with self._lock:
             row = self._conn.execute(
-                "SELECT * FROM scheduler_jobs WHERE job_id = ?", (job_id,),
+                "SELECT * FROM scheduler_jobs WHERE job_id = ?",
+                (job_id,),
             ).fetchone()
         return dict(row) if row else None
 
@@ -2056,7 +2057,8 @@ class Storage:
         return [dict(r) for r in rows]
 
     def list_scheduler_jobs(
-        self, statuses: tuple[str, ...] = ("active", "paused"),
+        self,
+        statuses: tuple[str, ...] = ("active", "paused"),
     ) -> list[dict]:
         """List scheduler jobs filtered by status (default: active + paused)."""
         if not statuses:
@@ -2073,7 +2075,9 @@ class Storage:
     # --- Idempotency ---
 
     def find_edict_by_idempotency_key(
-        self, submitter: str | None, idempotency_key: str,
+        self,
+        submitter: str | None,
+        idempotency_key: str,
     ) -> Edict | None:
         """Find an existing edict by (submitter, idempotency_key) pair."""
         with self._lock:
@@ -2118,7 +2122,11 @@ class Storage:
     # --- Schedule run 台账（Multica 借鉴 #2）---
 
     def create_schedule_run(
-        self, source: str, kind: str, status: str, edict_id: str | None = None,
+        self,
+        source: str,
+        kind: str,
+        status: str,
+        edict_id: str | None = None,
     ) -> str:
         """记一次调度触发。source=系统 job 名 或 edict_id；kind=cron/interval/system。"""
         run_id = str(ULID())
@@ -2131,7 +2139,10 @@ class Storage:
         return run_id
 
     def finish_schedule_run(
-        self, run_id: str, status: str, error: str | None = None,
+        self,
+        run_id: str,
+        status: str,
+        error: str | None = None,
     ) -> None:
         with self._lock, self._conn:
             self._conn.execute(
@@ -2150,13 +2161,14 @@ class Storage:
         return row[0] > 0
 
     def list_schedule_runs(
-        self, source: str | None = None, limit: int = 50,
+        self,
+        source: str | None = None,
+        limit: int = 50,
     ) -> list[dict]:
         with self._lock:
             if source:
                 rows = self._conn.execute(
-                    "SELECT * FROM schedule_run WHERE source = ? "
-                    "ORDER BY started_at DESC LIMIT ?",
+                    "SELECT * FROM schedule_run WHERE source = ? ORDER BY started_at DESC LIMIT ?",
                     (source, limit),
                 ).fetchall()
             else:
@@ -2170,7 +2182,8 @@ class Storage:
 
     def get_persona_stats(self, persona_id: str) -> dict:
         with self._lock:
-            row = self._conn.execute("""
+            row = self._conn.execute(
+                """
                 SELECT
                     COUNT(*) as total_executions,
                     COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
@@ -2184,7 +2197,9 @@ class Storage:
                     ), 0.0) as avg_duration_seconds
                 FROM memorials
                 WHERE persona_id = ?
-            """, (persona_id,)).fetchone()
+            """,
+                (persona_id,),
+            ).fetchone()
 
         total = row["total_executions"] or 0
         completed = row["completed"] or 0
@@ -2193,12 +2208,15 @@ class Storage:
         avg_tokens = (total_tokens / total) if total > 0 else 0.0
 
         # Cost from cost_ledger (join via memorial_id)
-        cost_row = self._conn.execute("""
+        cost_row = self._conn.execute(
+            """
             SELECT COALESCE(SUM(cl.cost_cny), 0.0) as total_cost
             FROM cost_ledger cl
             JOIN memorials m ON cl.memorial_id = m.id
             WHERE m.persona_id = ?
-        """, (persona_id,)).fetchone()
+        """,
+            (persona_id,),
+        ).fetchone()
 
         return {
             "total_executions": total,
@@ -2229,9 +2247,7 @@ class Storage:
 
     def list_departments(self) -> list[dict]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM departments ORDER BY id"
-            ).fetchall()
+            rows = self._conn.execute("SELECT * FROM departments ORDER BY id").fetchall()
         return [dict(r) for r in rows]
 
     def get_department(self, dept_id: str) -> dict | None:
@@ -2268,9 +2284,7 @@ class Storage:
             if ref_count > 0:
                 return False
             with self._conn:
-                cursor = self._conn.execute(
-                    "DELETE FROM departments WHERE id = ?", (dept_id,)
-                )
+                cursor = self._conn.execute("DELETE FROM departments WHERE id = ?", (dept_id,))
                 return cursor.rowcount > 0
 
     # --- Persona CRUD ---
@@ -2306,9 +2320,7 @@ class Storage:
 
     def list_personas(self) -> list[dict]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM personas ORDER BY department, name"
-            ).fetchall()
+            rows = self._conn.execute("SELECT * FROM personas ORDER BY department, name").fetchall()
         return [self._row_to_persona_dict(r) for r in rows]
 
     def get_persona(self, persona_id: str) -> dict | None:
@@ -2320,9 +2332,19 @@ class Storage:
 
     def update_persona(self, persona_id: str, **fields) -> None:
         allowed = {
-            "name", "department", "title", "tools_allowed", "tools_denied",
-            "skills_allowed", "tool_tier_max", "can_delegate", "memory_global_read", "delegates_to",
-            "soul_path", "role_path", "llm_config_name",
+            "name",
+            "department",
+            "title",
+            "tools_allowed",
+            "tools_denied",
+            "skills_allowed",
+            "tool_tier_max",
+            "can_delegate",
+            "memory_global_read",
+            "delegates_to",
+            "soul_path",
+            "role_path",
+            "llm_config_name",
         }
         sets: list[str] = []
         params: list = []
@@ -2351,21 +2373,15 @@ class Storage:
 
     def delete_persona(self, persona_id: str) -> bool:
         with self._lock, self._conn:
-            cursor = self._conn.execute(
-                "DELETE FROM personas WHERE id = ?", (persona_id,)
-            )
+            cursor = self._conn.execute("DELETE FROM personas WHERE id = ?", (persona_id,))
             return cursor.rowcount > 0
 
     # --- Persona Metrics / Profile Synthesis ---
 
-    def try_acquire_synthesis_lock(
-        self, persona_id: str, stale_timeout_sec: int = 600
-    ) -> bool:
+    def try_acquire_synthesis_lock(self, persona_id: str, stale_timeout_sec: int = 600) -> bool:
         """Return True if lock acquired. Reclaims stale locks > stale_timeout_sec."""
         now_iso = datetime.now(UTC).isoformat()
-        stale_cutoff = (
-            datetime.now(UTC) - timedelta(seconds=stale_timeout_sec)
-        ).isoformat()
+        stale_cutoff = (datetime.now(UTC) - timedelta(seconds=stale_timeout_sec)).isoformat()
         with self._lock:
             cur = self._conn.execute(
                 """
@@ -2421,9 +2437,7 @@ class Storage:
         across the events table approximates the last real agent activity.
         """
         with self._lock:
-            row = self._conn.execute(
-                "SELECT MAX(created_at) AS ts FROM events"
-            ).fetchone()
+            row = self._conn.execute("SELECT MAX(created_at) AS ts FROM events").fetchone()
         return row["ts"] if row and row["ts"] else None
 
     def increment_persona_task_counter(self, persona_id: str) -> int:
@@ -2462,7 +2476,9 @@ class Storage:
             "skills_allowed": json.loads(row["skills_allowed"]) if "skills_allowed" in keys else [],
             "tool_tier_max": row["tool_tier_max"],
             "can_delegate": bool(row["can_delegate"]),
-            "memory_global_read": bool(row["memory_global_read"]) if "memory_global_read" in keys else False,
+            "memory_global_read": bool(row["memory_global_read"])
+            if "memory_global_read" in keys
+            else False,
             "delegates_to": json.loads(row["delegates_to"]),
             "soul_path": row["soul_path"],
             "role_path": row["role_path"],
@@ -2481,8 +2497,12 @@ class Storage:
                     mutation_reason, description, fitness_json, code_ref, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    uni["id"], uni["name"], uni.get("parent_universe_id"),
-                    uni["status"], uni["origin"], uni.get("mutation_reason"),
+                    uni["id"],
+                    uni["name"],
+                    uni.get("parent_universe_id"),
+                    uni["status"],
+                    uni["origin"],
+                    uni.get("mutation_reason"),
                     uni.get("description", ""),
                     json.dumps(uni.get("fitness", {}), ensure_ascii=False),
                     uni.get("code_ref"),
@@ -2507,9 +2527,7 @@ class Storage:
 
     def get_champion_universe(self) -> dict | None:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT * FROM universes WHERE status = 'champion'"
-            ).fetchone()
+            row = self._conn.execute("SELECT * FROM universes WHERE status = 'champion'").fetchone()
         return self._row_to_universe(row) if row else None
 
     def set_universe_status(self, universe_id: str, status: str) -> None:
@@ -2572,9 +2590,13 @@ class Storage:
                 except (ValueError, TypeError):
                     pass
         return {
-            "total": total, "success": success, "retries": retries,
-            "audited": audited, "audit_pass": audit_pass,
-            "cost": round(cost, 6), "feedback": feedback,
+            "total": total,
+            "success": success,
+            "retries": retries,
+            "audited": audited,
+            "audit_pass": audit_pass,
+            "cost": round(cost, 6),
+            "feedback": feedback,
         }
 
     def save_variant_eval_run(self, run: dict) -> None:
@@ -2585,10 +2607,12 @@ class Storage:
                     fitness_json, eval_set_version, cost, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    run["id"], run["universe_id"],
+                    run["id"],
+                    run["universe_id"],
                     1 if run.get("gate_passed") else 0,
                     json.dumps(run.get("gate_detail"), ensure_ascii=False)
-                    if run.get("gate_detail") is not None else None,
+                    if run.get("gate_detail") is not None
+                    else None,
                     json.dumps(run.get("fitness", {}), ensure_ascii=False),
                     run.get("eval_set_version"),
                     float(run.get("cost", 0.0)),
@@ -2599,8 +2623,7 @@ class Storage:
     def list_variant_eval_runs(self, universe_id: str) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM variant_eval_runs WHERE universe_id = ? "
-                "ORDER BY created_at DESC",
+                "SELECT * FROM variant_eval_runs WHERE universe_id = ? ORDER BY created_at DESC",
                 (universe_id,),
             ).fetchall()
         return [self._row_to_eval_run(r) for r in rows]
@@ -2679,17 +2702,19 @@ class Storage:
                     "edict_status": r["edict_status"],
                     "memorials": [],
                 }
-            edicts_map[eid]["memorials"].append({
-                "id": r["id"],
-                "instruction": r["instruction"],
-                "status": r["status"],
-                "result": r["result"],
-                "summary": r["summary"],
-                "error": r["error"],
-                "created_at": r["created_at"],
-                "started_at": r["started_at"],
-                "completed_at": r["completed_at"],
-            })
+            edicts_map[eid]["memorials"].append(
+                {
+                    "id": r["id"],
+                    "instruction": r["instruction"],
+                    "status": r["status"],
+                    "result": r["result"],
+                    "summary": r["summary"],
+                    "error": r["error"],
+                    "created_at": r["created_at"],
+                    "started_at": r["started_at"],
+                    "completed_at": r["completed_at"],
+                }
+            )
 
         return list(edicts_map.values()), total
 
@@ -2703,43 +2728,61 @@ class Storage:
         schedule = EdictSchedule()
         if "schedule_json" in keys and row["schedule_json"]:
             schedule = _load_json_field(
-                row["schedule_json"], EdictSchedule.model_validate_json,
-                "schedule_json", row["id"], schedule,
+                row["schedule_json"],
+                EdictSchedule.model_validate_json,
+                "schedule_json",
+                row["id"],
+                schedule,
             )
 
         dispatch = None
         if "dispatch_json" in keys and row["dispatch_json"]:
             dispatch = _load_json_field(
-                row["dispatch_json"], EdictDispatch.model_validate_json,
-                "dispatch_json", row["id"], dispatch,
+                row["dispatch_json"],
+                EdictDispatch.model_validate_json,
+                "dispatch_json",
+                row["id"],
+                dispatch,
             )
 
         runtime = EdictRuntime()
         if "runtime_json" in keys and row["runtime_json"]:
             runtime = _load_json_field(
-                row["runtime_json"], EdictRuntime.model_validate_json,
-                "runtime_json", row["id"], runtime,
+                row["runtime_json"],
+                EdictRuntime.model_validate_json,
+                "runtime_json",
+                row["id"],
+                runtime,
             )
 
         constraints = []
         if "constraints_json" in keys and row["constraints_json"]:
             constraints = _load_json_field(
-                row["constraints_json"], json.loads,
-                "constraints_json", row["id"], constraints,
+                row["constraints_json"],
+                json.loads,
+                "constraints_json",
+                row["id"],
+                constraints,
             )
 
         metadata = {}
         if "metadata_json" in keys and row["metadata_json"]:
             metadata = _load_json_field(
-                row["metadata_json"], json.loads,
-                "metadata_json", row["id"], metadata,
+                row["metadata_json"],
+                json.loads,
+                "metadata_json",
+                row["id"],
+                metadata,
             )
 
         acceptance = None
         if "acceptance_json" in keys and row["acceptance_json"]:
             acceptance = _load_json_field(
-                row["acceptance_json"], AcceptanceCriteria.model_validate_json,
-                "acceptance_json", row["id"], acceptance,
+                row["acceptance_json"],
+                AcceptanceCriteria.model_validate_json,
+                "acceptance_json",
+                row["id"],
+                acceptance,
             )
 
         return Edict(
@@ -2755,11 +2798,15 @@ class Storage:
             priority=row["priority"] if "priority" in keys else "normal",
             review_policy=row["review_policy"] if "review_policy" in keys else "never",
             output_format=row["output_format"] if "output_format" in keys else None,
-            assigned_persona_id=row["assigned_persona_id"] if "assigned_persona_id" in keys else None,
+            assigned_persona_id=row["assigned_persona_id"]
+            if "assigned_persona_id" in keys
+            else None,
             planner_persona_id=row["planner_persona_id"] if "planner_persona_id" in keys else None,
             plan_review=bool(row["plan_review"]) if "plan_review" in keys else False,
             acceptance=acceptance,
-            execution_profile=row["execution_profile"] if "execution_profile" in keys else "foreground",
+            execution_profile=row["execution_profile"]
+            if "execution_profile" in keys
+            else "foreground",
             constraints=constraints,
             schedule=schedule,
             dispatch=dispatch,
@@ -2775,8 +2822,11 @@ class Storage:
         audit = None
         if "audit_json" in keys and row["audit_json"]:
             audit = _load_json_field(
-                row["audit_json"], AuditResult.model_validate_json,
-                "audit_json", row["id"], audit,
+                row["audit_json"],
+                AuditResult.model_validate_json,
+                "audit_json",
+                row["id"],
+                audit,
             )
 
         return Memorial(
@@ -2794,13 +2844,9 @@ class Storage:
                 if "last_heartbeat_at" in keys and row["last_heartbeat_at"]
                 else None
             ),
-            started_at=(
-                datetime.fromisoformat(row["started_at"]) if row["started_at"] else None
-            ),
+            started_at=(datetime.fromisoformat(row["started_at"]) if row["started_at"] else None),
             completed_at=(
-                datetime.fromisoformat(row["completed_at"])
-                if row["completed_at"]
-                else None
+                datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None
             ),
             attempt=row["attempt"] if "attempt" in keys else 1,
             parent_memorial_id=row["parent_memorial_id"] if "parent_memorial_id" in keys else None,
@@ -2810,16 +2856,8 @@ class Storage:
             persona_id=row["persona_id"] if "persona_id" in keys else None,
             runtime_override=Storage._parse_runtime_override(row, keys),
             acceptance_override=Storage._parse_acceptance_override(row, keys),
-            reasoning_content=(
-                row["reasoning_content"]
-                if "reasoning_content" in keys
-                else None
-            ),
-            final_output=(
-                row["final_output"]
-                if "final_output" in keys
-                else None
-            ),
+            reasoning_content=(row["reasoning_content"] if "reasoning_content" in keys else None),
+            final_output=(row["final_output"] if "final_output" in keys else None),
             universe_id=row["universe_id"] if "universe_id" in keys else None,
             feedback_score=row["feedback_score"] if "feedback_score" in keys else 0,
         )
@@ -2894,9 +2932,18 @@ class Storage:
                    (id, name, host_pattern, header_template, extra_headers,
                     encrypted_value, created_at, updated_at, kind, provider_name)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (cred_id, name, host_pattern, header_template,
-                 extra_headers_json, encrypted_value, now_iso, now_iso,
-                 kind, provider_name),
+                (
+                    cred_id,
+                    name,
+                    host_pattern,
+                    header_template,
+                    extra_headers_json,
+                    encrypted_value,
+                    now_iso,
+                    now_iso,
+                    kind,
+                    provider_name,
+                ),
             )
 
     def list_credentials(self, kind: str | None = None) -> list[sqlite3.Row]:
@@ -2910,9 +2957,7 @@ class Storage:
                 )
             else:
                 cur = self._conn.execute(
-                    "SELECT * FROM network_credentials "
-                    "WHERE deleted_at IS NULL "
-                    "ORDER BY name"
+                    "SELECT * FROM network_credentials WHERE deleted_at IS NULL ORDER BY name"
                 )
             return cur.fetchall()
 
@@ -3069,24 +3114,26 @@ class Storage:
             if status == "error" and not row_is_error:
                 continue
 
-            out.append({
-                "event_id": r["id"],
-                "created_at": r["created_at"],
-                "edict_id": r["edict_id"],
-                "edict_title": r["edict_title"],
-                "tool": row_tool,
-                "host": network.get("host"),
-                "method": network.get("method"),
-                "http_status": network.get("http_status"),
-                "bytes_out": network.get("bytes_out"),
-                "credential_name": network.get("credential_name"),
-                "cached": bool(network.get("cached", False)),
-                "is_error": row_is_error,
-                "reason": payload.get("result_preview") if row_is_error else None,
-                "provider": network.get("provider"),            # web_search
-                "result_count": network.get("result_count"),    # web_search
-                "truncated": bool(network.get("truncated", False)),  # api_request
-            })
+            out.append(
+                {
+                    "event_id": r["id"],
+                    "created_at": r["created_at"],
+                    "edict_id": r["edict_id"],
+                    "edict_title": r["edict_title"],
+                    "tool": row_tool,
+                    "host": network.get("host"),
+                    "method": network.get("method"),
+                    "http_status": network.get("http_status"),
+                    "bytes_out": network.get("bytes_out"),
+                    "credential_name": network.get("credential_name"),
+                    "cached": bool(network.get("cached", False)),
+                    "is_error": row_is_error,
+                    "reason": payload.get("result_preview") if row_is_error else None,
+                    "provider": network.get("provider"),  # web_search
+                    "result_count": network.get("result_count"),  # web_search
+                    "truncated": bool(network.get("truncated", False)),  # api_request
+                }
+            )
             if len(out) >= limit:
                 break
         return out
@@ -3102,6 +3149,7 @@ class Storage:
 
     def set_tool_enabled(self, tool_name: str, enabled: bool) -> None:
         from datetime import UTC, datetime
+
         now = datetime.now(UTC).isoformat()
         with self._lock, self._conn:
             self._conn.execute(
@@ -3134,33 +3182,30 @@ class Storage:
             ).fetchall()
         out: list[dict] = []
         for r in rows:
-            out.append({
-                "name": r["name"],
-                "enabled": None if r["enabled"] is None else bool(r["enabled"]),
-                "env": json.loads(r["env_json"]) if r["env_json"] else None,
-                "tools_include": (
-                    json.loads(r["tools_include_json"])
-                    if r["tools_include_json"] else None
-                ),
-                "tools_exclude": (
-                    json.loads(r["tools_exclude_json"])
-                    if r["tools_exclude_json"] else None
-                ),
-                "transport": r["transport"],
-                "command": r["command"],
-                "args": json.loads(r["args_json"]) if r["args_json"] else None,
-                "url": r["url"],
-                "headers": (
-                    json.loads(r["headers_json"]) if r["headers_json"] else None
-                ),
-                "default_tier": r["default_tier"],
-                "timeout": r["timeout"],
-                "connect_timeout": r["connect_timeout"],
-                "tool_overrides": (
-                    json.loads(r["tool_overrides_json"])
-                    if r["tool_overrides_json"] else None
-                ),
-            })
+            out.append(
+                {
+                    "name": r["name"],
+                    "enabled": None if r["enabled"] is None else bool(r["enabled"]),
+                    "env": json.loads(r["env_json"]) if r["env_json"] else None,
+                    "tools_include": (
+                        json.loads(r["tools_include_json"]) if r["tools_include_json"] else None
+                    ),
+                    "tools_exclude": (
+                        json.loads(r["tools_exclude_json"]) if r["tools_exclude_json"] else None
+                    ),
+                    "transport": r["transport"],
+                    "command": r["command"],
+                    "args": json.loads(r["args_json"]) if r["args_json"] else None,
+                    "url": r["url"],
+                    "headers": (json.loads(r["headers_json"]) if r["headers_json"] else None),
+                    "default_tier": r["default_tier"],
+                    "timeout": r["timeout"],
+                    "connect_timeout": r["connect_timeout"],
+                    "tool_overrides": (
+                        json.loads(r["tool_overrides_json"]) if r["tool_overrides_json"] else None
+                    ),
+                }
+            )
         return out
 
     def upsert_mcp_override(
@@ -3183,6 +3228,7 @@ class Storage:
     ) -> None:
         """upsert 一行 server 配置；None 字段写入 NULL（= 沿用 YAML 或不指定）。"""
         from datetime import UTC, datetime
+
         now = datetime.now(UTC).isoformat()
         with self._lock, self._conn:
             self._conn.execute(
@@ -3231,9 +3277,7 @@ class Storage:
 
     def delete_mcp_override(self, name: str) -> None:
         with self._lock, self._conn:
-            self._conn.execute(
-                "DELETE FROM mcp_server_overrides WHERE name = ?", (name,)
-            )
+            self._conn.execute("DELETE FROM mcp_server_overrides WHERE name = ?", (name,))
 
     # --- engine preferences ---------------------------------------------
 
@@ -3274,6 +3318,7 @@ class Storage:
         scrapling_stealthy_enabled: bool = False,
     ) -> None:
         from datetime import UTC, datetime
+
         now = datetime.now(UTC).isoformat()
         with self._lock, self._conn:
             self._conn.execute(
@@ -3289,7 +3334,9 @@ class Storage:
                      scrapling_stealthy_enabled = excluded.scrapling_stealthy_enabled,
                      updated_at = excluded.updated_at""",
                 (
-                    json.dumps(fetch_chain), search_provider, fallback_mode,
+                    json.dumps(fetch_chain),
+                    search_provider,
+                    fallback_mode,
                     1 if scrapling_dynamic_enabled else 0,
                     1 if scrapling_stealthy_enabled else 0,
                     now,
@@ -3301,56 +3348,77 @@ class Storage:
     def save_outer_loop_iteration(self, record: dict) -> None:
         """写入一条 outer loop iteration（dict 形式以避免循环 import）。"""
         with self._lock, self._conn:
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 INSERT INTO outer_loop_iterations
                 (id, edict_id, iteration, level, actor_output, checks_result,
                  critic_result, cost_cny, started_at, finished_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(edict_id, iteration) DO NOTHING
-            """, (
-                record["id"], record["edict_id"], record["iteration"],
-                record["level"], record["actor_output"],
-                record["checks_result"], record["critic_result"],
-                record["cost_cny"], record["started_at"], record["finished_at"],
-            ))
+            """,
+                (
+                    record["id"],
+                    record["edict_id"],
+                    record["iteration"],
+                    record["level"],
+                    record["actor_output"],
+                    record["checks_result"],
+                    record["critic_result"],
+                    record["cost_cny"],
+                    record["started_at"],
+                    record["finished_at"],
+                ),
+            )
 
     def get_outer_loop_iterations(self, edict_id: str) -> list[dict]:
         """按 iteration 升序返回所有迭代记录。"""
-        rows = self._conn.execute("""
+        rows = self._conn.execute(
+            """
             SELECT id, edict_id, iteration, level, actor_output, checks_result,
                    critic_result, cost_cny, started_at, finished_at, archived_at
             FROM outer_loop_iterations
             WHERE edict_id = ?
             ORDER BY iteration ASC
-        """, (edict_id,)).fetchall()
+        """,
+            (edict_id,),
+        ).fetchall()
         return [dict(r) for r in rows]
 
     def list_iterations_to_archive(self, before: str) -> list[str]:
         """返回 finished_at < before 且未归档的 iteration id 列表。"""
-        rows = self._conn.execute("""
+        rows = self._conn.execute(
+            """
             SELECT id FROM outer_loop_iterations
             WHERE finished_at < ? AND archived_at IS NULL
-        """, (before,)).fetchall()
+        """,
+            (before,),
+        ).fetchall()
         return [r["id"] for r in rows]
 
     def archive_iteration(self, iteration_id: str, archived_at: str) -> None:
         """归档：actor_output 置 NULL，archived_at 写时间戳。"""
         with self._lock, self._conn:
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 UPDATE outer_loop_iterations
                 SET actor_output = NULL, archived_at = ?
                 WHERE id = ?
-            """, (archived_at, iteration_id))
+            """,
+                (archived_at, iteration_id),
+            )
 
     # --- outer loop checkpoints ------------------------------------------
 
     def save_outer_loop_checkpoint(self, edict_id: str, data_json: str, saved_at: str) -> None:
         with self._lock, self._conn:
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 INSERT INTO outer_loop_checkpoints (edict_id, data_json, saved_at)
                 VALUES (?, ?, ?)
                 ON CONFLICT(edict_id) DO UPDATE SET data_json=excluded.data_json, saved_at=excluded.saved_at
-            """, (edict_id, data_json, saved_at))
+            """,
+                (edict_id, data_json, saved_at),
+            )
 
     def get_outer_loop_checkpoint(self, edict_id: str) -> str | None:
         row = self._conn.execute(
@@ -3362,7 +3430,8 @@ class Storage:
     def clear_outer_loop_checkpoint(self, edict_id: str) -> None:
         with self._lock, self._conn:
             self._conn.execute(
-                "DELETE FROM outer_loop_checkpoints WHERE edict_id = ?", (edict_id,),
+                "DELETE FROM outer_loop_checkpoints WHERE edict_id = ?",
+                (edict_id,),
             )
 
     # --- Supervision report (long task 终态总评) ---
@@ -3379,10 +3448,14 @@ class Storage:
                     iterations_count, total_cost_cny, report_json, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    record["edict_id"], record["memorial_id"],
-                    record["persona_id"], record["persona_name"],
-                    record["final_status"], record["iterations_count"],
-                    record["total_cost_cny"], record["report_json"],
+                    record["edict_id"],
+                    record["memorial_id"],
+                    record["persona_id"],
+                    record["persona_name"],
+                    record["final_status"],
+                    record["iterations_count"],
+                    record["total_cost_cny"],
+                    record["report_json"],
                     record["created_at"],
                 ),
             )
@@ -3390,8 +3463,7 @@ class Storage:
     def get_supervision_report(self, edict_id: str) -> dict | None:
         """单监督官兼容入口；返同 edict 最新一行。"""
         row = self._conn.execute(
-            "SELECT * FROM supervision_reports WHERE edict_id = ? "
-            "ORDER BY created_at DESC LIMIT 1",
+            "SELECT * FROM supervision_reports WHERE edict_id = ? ORDER BY created_at DESC LIMIT 1",
             (edict_id,),
         ).fetchone()
         return dict(row) if row else None
@@ -3408,17 +3480,14 @@ class Storage:
     def get_supervision_reports_by_memorial(self, memorial_id: str) -> list[dict]:
         """按 memorial 维度返回报告（每条奏折独立的监督报告）。"""
         rows = self._conn.execute(
-            "SELECT * FROM supervision_reports WHERE memorial_id = ? "
-            "ORDER BY persona_id ASC",
+            "SELECT * FROM supervision_reports WHERE memorial_id = ? ORDER BY persona_id ASC",
             (memorial_id,),
         ).fetchall()
         return [dict(r) for r in rows]
 
     # --- Feishu session anchor ---
 
-    def get_feishu_anchor(
-        self, chat_id: str, instance_id: str = "feishu-default"
-    ) -> str | None:
+    def get_feishu_anchor(self, chat_id: str, instance_id: str = "feishu-default") -> str | None:
         row = self._conn.execute(
             "SELECT current_edict_id FROM feishu_session_anchor "
             "WHERE instance_id = ? AND chat_id = ?",
@@ -3430,6 +3499,7 @@ class Storage:
         self, chat_id: str, edict_id: str, instance_id: str = "feishu-default"
     ) -> None:
         from datetime import UTC, datetime
+
         self._conn.execute(
             "INSERT INTO feishu_session_anchor (instance_id, chat_id, current_edict_id, updated_at) "
             "VALUES (?, ?, ?, ?) "
@@ -3440,9 +3510,7 @@ class Storage:
         )
         self._conn.commit()
 
-    def delete_feishu_anchor(
-        self, chat_id: str, instance_id: str = "feishu-default"
-    ) -> None:
+    def delete_feishu_anchor(self, chat_id: str, instance_id: str = "feishu-default") -> None:
         """`/exit` 用：清除该 chat 的 anchor，回到助手模式。"""
         self._conn.execute(
             "DELETE FROM feishu_session_anchor WHERE instance_id = ? AND chat_id = ?",
@@ -3453,8 +3521,7 @@ class Storage:
     def has_sent_upgrade_notice(self, chat_id: str, version_tag: str) -> bool:
         """幂等检查：是否已对此 chat 发过该版本的升级通告。"""
         row = self._conn.execute(
-            "SELECT 1 FROM feishu_pending_cards "
-            "WHERE approval_id = ? AND kind = ?",
+            "SELECT 1 FROM feishu_pending_cards WHERE approval_id = ? AND kind = ?",
             (chat_id, f"upgrade_notice_{version_tag}"),
         ).fetchone()
         return row is not None
@@ -3462,18 +3529,16 @@ class Storage:
     def mark_upgrade_notice_sent(self, chat_id: str, version_tag: str) -> None:
         """标记已发送升级通告（用于幂等）。"""
         from datetime import UTC, datetime
+
         self._conn.execute(
             "INSERT OR IGNORE INTO feishu_pending_cards "
             "(approval_id, chat_id, message_id, kind, created_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            (chat_id, chat_id, "", f"upgrade_notice_{version_tag}",
-             datetime.now(UTC).isoformat()),
+            (chat_id, chat_id, "", f"upgrade_notice_{version_tag}", datetime.now(UTC).isoformat()),
         )
         self._conn.commit()
 
-    def list_active_anchor_chats(
-        self, instance_id: str = "feishu-default"
-    ) -> list[str]:
+    def list_active_anchor_chats(self, instance_id: str = "feishu-default") -> list[str]:
         """列出所有有活跃 anchor 的 chat（用于升级通告下发）。"""
         rows = self._conn.execute(
             "SELECT chat_id FROM feishu_session_anchor "
@@ -3488,17 +3553,21 @@ class Storage:
     # `source_message_id` 列存用户原消息 id（reaction API 必需）。
 
     def save_feishu_thinking(
-        self, *, memorial_id: str, chat_id: str, reaction_id: str,
+        self,
+        *,
+        memorial_id: str,
+        chat_id: str,
+        reaction_id: str,
         source_message_id: str,
     ) -> None:
         """登记一条 typing reaction，等 execution 完成时 remove。"""
         from datetime import UTC, datetime
+
         self._conn.execute(
             "INSERT OR REPLACE INTO feishu_thinking_messages "
             "(memorial_id, chat_id, message_id, source_message_id, created_at) "
             "VALUES (?, ?, ?, ?, ?)",
-            (memorial_id, chat_id, reaction_id, source_message_id,
-             datetime.now(UTC).isoformat()),
+            (memorial_id, chat_id, reaction_id, source_message_id, datetime.now(UTC).isoformat()),
         )
         self._conn.commit()
 
@@ -3538,9 +3607,7 @@ class Storage:
 
     # --- Feishu dedup ---
 
-    def is_feishu_message_seen(
-        self, message_id: str, instance_id: str = "feishu-default"
-    ) -> bool:
+    def is_feishu_message_seen(self, message_id: str, instance_id: str = "feishu-default") -> bool:
         row = self._conn.execute(
             "SELECT 1 FROM feishu_seen_messages WHERE message_id = ? AND instance_id = ?",
             (message_id, instance_id),
@@ -3548,10 +3615,13 @@ class Storage:
         return row is not None
 
     def mark_feishu_message_seen(
-        self, message_id: str, max_entries: int = 2048,
+        self,
+        message_id: str,
+        max_entries: int = 2048,
         instance_id: str = "feishu-default",
     ) -> None:
         from datetime import UTC, datetime
+
         now = datetime.now(UTC).isoformat()
         self._conn.execute(
             "INSERT OR IGNORE INTO feishu_seen_messages (message_id, instance_id, seen_at) "
@@ -3570,16 +3640,20 @@ class Storage:
     # --- Feishu pending cards (Step 5 用) ---
 
     def save_feishu_pending_card(
-        self, approval_id: str, chat_id: str, message_id: str, kind: str,
+        self,
+        approval_id: str,
+        chat_id: str,
+        message_id: str,
+        kind: str,
         instance_id: str = "feishu-default",
     ) -> None:
         from datetime import UTC, datetime
+
         self._conn.execute(
             "INSERT OR REPLACE INTO feishu_pending_cards "
             "(approval_id, instance_id, chat_id, message_id, kind, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (approval_id, instance_id, chat_id, message_id, kind,
-             datetime.now(UTC).isoformat()),
+            (approval_id, instance_id, chat_id, message_id, kind, datetime.now(UTC).isoformat()),
         )
         self._conn.commit()
 
@@ -3591,7 +3665,8 @@ class Storage:
         if not row:
             return None
         self._conn.execute(
-            "DELETE FROM feishu_pending_cards WHERE approval_id = ?", (approval_id,),
+            "DELETE FROM feishu_pending_cards WHERE approval_id = ?",
+            (approval_id,),
         )
         self._conn.commit()
         return {"chat_id": row[0], "message_id": row[1], "kind": row[2]}
@@ -3612,6 +3687,7 @@ class Storage:
         self, chat_id: str, edict_id: str, instance_id: str = "telegram-default"
     ) -> None:
         from datetime import UTC, datetime
+
         self._conn.execute(
             "INSERT INTO telegram_session_anchor (instance_id, chat_id, current_edict_id, updated_at) "
             "VALUES (?, ?, ?, ?) "
@@ -3622,18 +3698,14 @@ class Storage:
         )
         self._conn.commit()
 
-    def delete_telegram_anchor(
-        self, chat_id: str, instance_id: str = "telegram-default"
-    ) -> None:
+    def delete_telegram_anchor(self, chat_id: str, instance_id: str = "telegram-default") -> None:
         self._conn.execute(
             "DELETE FROM telegram_session_anchor WHERE instance_id = ? AND chat_id = ?",
             (instance_id, chat_id),
         )
         self._conn.commit()
 
-    def list_telegram_active_anchor_chats(
-        self, instance_id: str = "telegram-default"
-    ) -> list[str]:
+    def list_telegram_active_anchor_chats(self, instance_id: str = "telegram-default") -> list[str]:
         rows = self._conn.execute(
             "SELECT chat_id FROM telegram_session_anchor "
             "WHERE instance_id = ? AND current_edict_id IS NOT NULL",
@@ -3664,10 +3736,13 @@ class Storage:
         return row is not None
 
     def mark_telegram_update_seen(
-        self, update_id: str, max_entries: int = 2048,
+        self,
+        update_id: str,
+        max_entries: int = 2048,
         instance_id: str = "telegram-default",
     ) -> None:
         from datetime import UTC, datetime
+
         now = datetime.now(UTC).isoformat()
         self._conn.execute(
             "INSERT OR IGNORE INTO telegram_seen_messages (update_id, instance_id, seen_at) "
@@ -3686,10 +3761,15 @@ class Storage:
     # --- Telegram thinking 占位消息（替代飞书 typing reaction）---
 
     def save_telegram_thinking(
-        self, *, memorial_id: str, chat_id: str, message_id: str,
+        self,
+        *,
+        memorial_id: str,
+        chat_id: str,
+        message_id: str,
     ) -> None:
         """登记一条 ⏳ 占位消息，等 execution 完成时 delete。"""
         from datetime import UTC, datetime
+
         self._conn.execute(
             "INSERT OR REPLACE INTO telegram_thinking_messages "
             "(memorial_id, chat_id, message_id, created_at) "
@@ -3715,29 +3795,34 @@ class Storage:
     # --- Telegram pending buttons（审批 inline keyboard 反查）---
 
     def save_telegram_pending_button(
-        self, *, approval_id: str, chat_id: str, message_id: str, kind: str,
+        self,
+        *,
+        approval_id: str,
+        chat_id: str,
+        message_id: str,
+        kind: str,
         instance_id: str = "telegram-default",
     ) -> None:
         from datetime import UTC, datetime
+
         self._conn.execute(
             "INSERT OR REPLACE INTO telegram_pending_buttons "
             "(approval_id, instance_id, chat_id, message_id, kind, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (approval_id, instance_id, chat_id, message_id, kind,
-             datetime.now(UTC).isoformat()),
+            (approval_id, instance_id, chat_id, message_id, kind, datetime.now(UTC).isoformat()),
         )
         self._conn.commit()
 
     def pop_telegram_pending_button(self, approval_id: str) -> dict | None:
         row = self._conn.execute(
-            "SELECT chat_id, message_id, kind FROM telegram_pending_buttons "
-            "WHERE approval_id = ?",
+            "SELECT chat_id, message_id, kind FROM telegram_pending_buttons WHERE approval_id = ?",
             (approval_id,),
         ).fetchone()
         if not row:
             return None
         self._conn.execute(
-            "DELETE FROM telegram_pending_buttons WHERE approval_id = ?", (approval_id,),
+            "DELETE FROM telegram_pending_buttons WHERE approval_id = ?",
+            (approval_id,),
         )
         self._conn.commit()
         return {"chat_id": row[0], "message_id": row[1], "kind": row[2]}
@@ -3745,8 +3830,7 @@ class Storage:
     def get_telegram_pending_button(self, approval_id: str) -> dict | None:
         """只读查询（不删除）：callback 处理时先看 pending 是否还在。"""
         row = self._conn.execute(
-            "SELECT chat_id, message_id, kind FROM telegram_pending_buttons "
-            "WHERE approval_id = ?",
+            "SELECT chat_id, message_id, kind FROM telegram_pending_buttons WHERE approval_id = ?",
             (approval_id,),
         ).fetchone()
         if not row:
@@ -3777,6 +3861,7 @@ class Storage:
         if not row:
             return None
         import json as _json
+
         cfg = _json.loads(row[0])
         cfg["_has_secret"] = row[1] is not None
         cfg["_updated_at"] = row[2]
@@ -3828,8 +3913,7 @@ class Storage:
                 )
             else:
                 self._conn.execute(
-                    "UPDATE channel_configs SET config_json=?, updated_at=? "
-                    "WHERE channel_type=?",
+                    "UPDATE channel_configs SET config_json=?, updated_at=? WHERE channel_type=?",
                     (config_json_str, now, channel_type),
                 )
         else:
@@ -3851,6 +3935,7 @@ class Storage:
         import json as _json
 
         from tianshu.secrets.vault import get_vault
+
         cfg = _json.loads(row[0])
         # 解密后的 secret 放到 channel 对应的字段：飞书=app_secret，telegram=bot_token
         secret_key = "bot_token" if channel_type == "telegram" else "app_secret"
@@ -3872,6 +3957,7 @@ class Storage:
         """列实例（不含明文 secret）。每行展开 config + instance_id / channel_type /
         label / enabled(bool) / _has_secret / updated_at。"""
         import json as _json
+
         sql = (
             "SELECT instance_id, channel_type, label, enabled, config_json, "
             "encrypted_secret, updated_at FROM channel_instances"
@@ -3897,6 +3983,7 @@ class Storage:
     def get_channel_instance(self, instance_id: str) -> dict | None:
         """单条实例（不含明文 secret）。None 表示不存在。"""
         import json as _json
+
         row = self._conn.execute(
             "SELECT instance_id, channel_type, label, enabled, config_json, "
             "encrypted_secret, updated_at FROM channel_instances WHERE instance_id = ?",
@@ -3959,28 +4046,34 @@ class Storage:
                 self._conn.execute(
                     "UPDATE channel_instances SET channel_type=?, label=?, enabled=?, "
                     "config_json=?, encrypted_secret=?, updated_at=? WHERE instance_id=?",
-                    (channel_type, label, int(enabled), config_json_str, encrypted,
-                     now, instance_id),
+                    (
+                        channel_type,
+                        label,
+                        int(enabled),
+                        config_json_str,
+                        encrypted,
+                        now,
+                        instance_id,
+                    ),
                 )
             else:
                 self._conn.execute(
                     "UPDATE channel_instances SET channel_type=?, label=?, enabled=?, "
                     "config_json=?, updated_at=? WHERE instance_id=?",
-                    (channel_type, label, int(enabled), config_json_str, now,
-                     instance_id),
+                    (channel_type, label, int(enabled), config_json_str, now, instance_id),
                 )
         else:
             self._conn.execute(
                 "INSERT INTO channel_instances "
                 "(instance_id, channel_type, label, enabled, config_json, "
                 "encrypted_secret, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (instance_id, channel_type, label, int(enabled), config_json_str,
-                 encrypted, now),
+                (instance_id, channel_type, label, int(enabled), config_json_str, encrypted, now),
             )
         self._conn.commit()
 
     def set_channel_instance_enabled(self, instance_id: str, enabled: bool) -> None:
         from datetime import UTC, datetime
+
         self._conn.execute(
             "UPDATE channel_instances SET enabled=?, updated_at=? WHERE instance_id=?",
             (int(enabled), datetime.now(UTC).isoformat(), instance_id),
@@ -3989,7 +4082,8 @@ class Storage:
 
     def delete_channel_instance(self, instance_id: str) -> None:
         self._conn.execute(
-            "DELETE FROM channel_instances WHERE instance_id = ?", (instance_id,),
+            "DELETE FROM channel_instances WHERE instance_id = ?",
+            (instance_id,),
         )
         self._conn.commit()
 
@@ -4004,6 +4098,7 @@ class Storage:
         import json as _json
 
         from tianshu.secrets.vault import get_vault
+
         row = self._conn.execute(
             "SELECT channel_type, label, enabled, config_json, encrypted_secret "
             "FROM channel_instances WHERE instance_id = ?",

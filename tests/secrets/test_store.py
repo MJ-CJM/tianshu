@@ -72,9 +72,7 @@ def test_find_for_host_no_match(store: CredentialStore) -> None:
     assert store.find_for_host("unknown.example.com") is None
 
 
-def test_update_changes_encrypted_value(
-    store: CredentialStore, vault: SecretVault
-) -> None:
+def test_update_changes_encrypted_value(store: CredentialStore, vault: SecretVault) -> None:
     cred = store.create(_mk("gh", "api.github.com", value="v1"))
     original_ct = cred.encrypted_value
 
@@ -86,9 +84,7 @@ def test_update_changes_encrypted_value(
 
 def test_update_changes_extra_headers(store: CredentialStore) -> None:
     cred = store.create(_mk("gh", "api.github.com"))
-    updated = store.update(
-        cred.id, CredentialUpdate(extra_headers={"X-Custom": "yes"})
-    )
+    updated = store.update(cred.id, CredentialUpdate(extra_headers={"X-Custom": "yes"}))
     assert updated is not None
     assert updated.extra_headers == {"X-Custom": "yes"}
 

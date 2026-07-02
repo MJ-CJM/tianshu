@@ -175,7 +175,9 @@ class SkillsLoader:
 
         if strategy != "exact":
             logger.info(
-                "patch_skill('%s'): matched via '%s' strategy", name, strategy,
+                "patch_skill('%s'): matched via '%s' strategy",
+                name,
+                strategy,
             )
         return self.save_skill(name, updated_content)
 
@@ -303,15 +305,17 @@ class SkillsLoader:
         # Injected
         if hasattr(self, "_injected_skills"):
             for name, content in self._injected_skills.items():
-                result.append({
-                    "name": name,
-                    "description": "",
-                    "source": "injected",
-                    "always": False,
-                    "tool_tier": None,
-                    "path": "",
-                    "content_length": len(content),
-                })
+                result.append(
+                    {
+                        "name": name,
+                        "description": "",
+                        "source": "injected",
+                        "always": False,
+                        "tool_tier": None,
+                        "path": "",
+                        "content_length": len(content),
+                    }
+                )
 
         # Populate L2
         self._l2_metadata = result
@@ -351,15 +355,17 @@ class SkillsLoader:
                     post = frontmatter.load(str(skill_file))
                     meta = post.metadata or {}
                     oc = meta.get("metadata", {}).get("openclaw", {})
-                    out.append({
-                        "name": entry.name,
-                        "description": meta.get("description", ""),
-                        "source": source,
-                        "always": oc.get("always", False),
-                        "tool_tier": oc.get("toolTier"),
-                        "path": str(skill_file),
-                        "content_length": len(post.content),
-                    })
+                    out.append(
+                        {
+                            "name": entry.name,
+                            "description": meta.get("description", ""),
+                            "source": source,
+                            "always": oc.get("always", False),
+                            "tool_tier": oc.get("toolTier"),
+                            "path": str(skill_file),
+                            "content_length": len(post.content),
+                        }
+                    )
                 except Exception:
                     logger.warning("Failed to read metadata for skill '%s'", entry.name)
 
@@ -475,11 +481,11 @@ class SkillsLoader:
         if ".." in parts:
             raise ValueError(f"path traversal not allowed: {rel_path!r}")
         if parts[0] not in _SKILL_RESOURCE_DIRS:
-            raise ValueError(
-                f"top dir must be one of {_SKILL_RESOURCE_DIRS}, got {parts[0]!r}"
-            )
+            raise ValueError(f"top dir must be one of {_SKILL_RESOURCE_DIRS}, got {parts[0]!r}")
         if len(parts) < 2:
-            raise ValueError(f"resource path must include a filename under the top dir: {rel_path!r}")
+            raise ValueError(
+                f"resource path must include a filename under the top dir: {rel_path!r}"
+            )
         for base, _src in self._search_dirs():
             skill_dir = base / name
             if (skill_dir / "SKILL.md").is_file():
@@ -516,6 +522,7 @@ class SkillsLoader:
             skill_dir = base / name
             if skill_dir.is_dir():
                 import shutil as _shutil
+
                 _shutil.rmtree(skill_dir)
                 self._l1_cache.pop(name, None)
                 self._l2_metadata = None
@@ -545,6 +552,7 @@ class SkillsLoader:
                 target = archive_root / name
                 if target.exists():
                     from datetime import UTC, datetime
+
                     stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
                     target = archive_root / f"{name}__{stamp}"
                 shutil.move(str(skill_dir), str(target))

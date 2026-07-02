@@ -1,4 +1,5 @@
 """Edict lifecycle_phase 字段与 storage 持久化测试。"""
+
 from __future__ import annotations
 
 import tempfile

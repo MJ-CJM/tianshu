@@ -8,6 +8,7 @@
 - GFM 表格 Telegram 无原生语法 → 用 ``` 包裹成等宽预格式；
 - 消息长度上限 4096 按 **UTF-16 码元** 计（emoji 占 2 单元），分片须按 UTF-16。
 """
+
 from __future__ import annotations
 
 import re
@@ -32,9 +33,7 @@ def strip_mdv2(text: str) -> str:
 
 # --- GFM 表格 → 代码块 ---
 
-_TABLE_SEPARATOR_RE = re.compile(
-    r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*){1,}\|?\s*$"
-)
+_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*){1,}\|?\s*$")
 
 
 def _is_table_row(line: str) -> bool:
@@ -62,11 +61,7 @@ def wrap_markdown_tables(text: str) -> str:
             out.append(line)
             i += 1
             continue
-        if (
-            "|" in line
-            and i + 1 < len(lines)
-            and _TABLE_SEPARATOR_RE.match(lines[i + 1])
-        ):
+        if "|" in line and i + 1 < len(lines) and _TABLE_SEPARATOR_RE.match(lines[i + 1]):
             table_block = [line, lines[i + 1]]
             j = i + 2
             while j < len(lines) and _is_table_row(lines[j]):
@@ -170,9 +165,7 @@ def format_message(content: str) -> str:
             return _ph(f"{prefix} {escape_mdv2(body[:-2])}||")
         return _ph(f"{prefix} {escape_mdv2(body)}")
 
-    text = re.sub(
-        r"^((?:\*\*)?>{1,3}) (.+)$", _convert_blockquote, text, flags=re.MULTILINE
-    )
+    text = re.sub(r"^((?:\*\*)?>{1,3}) (.+)$", _convert_blockquote, text, flags=re.MULTILINE)
 
     # 10) 转义其余
     text = escape_mdv2(text)

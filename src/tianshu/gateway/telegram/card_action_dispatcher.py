@@ -5,6 +5,7 @@
   "cmd:list" / "cmd:budget" / "cmd:clear" / "cmd:help" / "cmd:select:<id8>"  合成命令
 所有分支结束都 answer_callback 消除 loading。
 """
+
 from __future__ import annotations
 
 import logging
@@ -47,7 +48,7 @@ class CallbackDispatcher:
             if data.startswith("ea:"):
                 popup = await self._approval_kb.handle_callback(cb)
             elif data.startswith("cmd:"):
-                await self._handle_command(cb, data[len("cmd:"):])
+                await self._handle_command(cb, data[len("cmd:") :])
             else:
                 logger.debug("[telegram/callback] unknown data=%s", data)
         except Exception:
@@ -60,7 +61,7 @@ class CallbackDispatcher:
         from tianshu.gateway.telegram.dispatcher import TelegramMessage
 
         if rest.startswith("select:"):
-            short_id = rest[len("select:"):]
+            short_id = rest[len("select:") :]
             text = f"/select {short_id}"
         else:
             text = _CMD_TEXT.get(rest, "")

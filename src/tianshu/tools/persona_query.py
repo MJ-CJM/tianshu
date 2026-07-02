@@ -8,6 +8,7 @@
 数据源是 storage.list_personas（DB personas 表），与 persona_loader.load_all
 读的是同一份数据。
 """
+
 from __future__ import annotations
 
 import logging
@@ -61,8 +62,9 @@ def register_list_personas(
 
         if not items:
             hint = (
-                "DB personas 表为空" if not department else
-                f"DB 中无 department={department!r} 的 persona"
+                "DB personas 表为空"
+                if not department
+                else f"DB 中无 department={department!r} 的 persona"
             )
             return ok_result(
                 f"{hint}。请勿凭推测/翻代码模板编造官员名册。",

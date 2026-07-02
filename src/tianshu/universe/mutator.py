@@ -38,7 +38,7 @@ def parse_persona_target(target: str) -> tuple[str, str] | None:
     """解析 'persona:<id>/<FILE>' → (persona_id, filename)；非法/越白名单/穿越 → None。"""
     if not target or not target.startswith(_PERSONA_PREFIX):
         return None
-    rest = target[len(_PERSONA_PREFIX):].strip()
+    rest = target[len(_PERSONA_PREFIX) :].strip()
     if "/" not in rest:
         return None
     pid, _, fname = rest.partition("/")
@@ -58,21 +58,33 @@ async def apply_mutation(store: Any, child_id: str, mutation: dict, llm: Any) ->
     target = (mutation or {}).get("target") or ""
     parsed = parse_persona_target(target)
     if not parsed:
-        return {"applied": False, "target": target,
-                "detail": "unsupported target (only persona SOUL.md/ROLE.md in this cut)"}
+        return {
+            "applied": False,
+            "target": target,
+            "detail": "unsupported target (only persona SOUL.md/ROLE.md in this cut)",
+        }
     persona_id, filename = parsed
     pfile = store.personas_dir(child_id) / persona_id / filename
     if not pfile.exists():
-        return {"applied": False, "target": target,
-                "detail": f"file not found: {persona_id}/{filename}"}
+        return {
+            "applied": False,
+            "target": target,
+            "detail": f"file not found: {persona_id}/{filename}",
+        }
     current = pfile.read_text(encoding="utf-8")
     reason = (mutation.get("reason") or "").strip()
     try:
-        resp = await llm.chat(messages=[
-            {"role": "system", "content": _SYSTEM},
-            {"role": "user", "content": _USER.format(
-                persona_id=persona_id, filename=filename, reason=reason, content=current)},
-        ])
+        resp = await llm.chat(
+            messages=[
+                {"role": "system", "content": _SYSTEM},
+                {
+                    "role": "user",
+                    "content": _USER.format(
+                        persona_id=persona_id, filename=filename, reason=reason, content=current
+                    ),
+                },
+            ]
+        )
         new_text = (getattr(resp, "content", None) or "").strip()
         if new_text.startswith("```") and "\n" in new_text:
             new_text = new_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()

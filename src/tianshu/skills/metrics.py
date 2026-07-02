@@ -79,7 +79,10 @@ class SkillMetricsStore:
         return [self._row_to_metrics(r) for r in rows]
 
     def ensure_exists(
-        self, skill_name: str, created_by: str = "manual", source_edict_id: str | None = None,
+        self,
+        skill_name: str,
+        created_by: str = "manual",
+        source_edict_id: str | None = None,
     ) -> None:
         """Create metrics row if it doesn't exist."""
         now = datetime.now(UTC).isoformat()
@@ -173,7 +176,9 @@ class SkillMetricsStore:
         return [self._row_to_metrics(r) for r in rows]
 
     def list_iteration_candidates(
-        self, min_success_rate: float, min_usage: int,
+        self,
+        min_success_rate: float,
+        min_usage: int,
     ) -> list[SkillMetrics]:
         """Agent skills eligible for auto-iteration:
         active, not pinned, not human-curated, enough usage, low success rate.

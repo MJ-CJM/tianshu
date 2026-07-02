@@ -231,6 +231,7 @@ def register_builtins(
 
     # 飞书 lark-cli 透传工具（写操作经 LarkCliSafetyRule 升级审批）
     from tianshu.tools.lark_cli import register_lark_cli
+
     register_lark_cli(registry)
 
     # === 敕令管理工具集：让助手 LLM 在对话中颁敕、查阅、追踪 ===
@@ -238,6 +239,7 @@ def register_builtins(
     # submit_edict（写）、list_edicts / get_edict_status（读）作为同一捆绑能力。
     if storage is not None and event_bus is not None:
         from tianshu.tools.submit_edict import register_submit_edict
+
         register_submit_edict(
             registry,
             storage=storage,
@@ -246,4 +248,5 @@ def register_builtins(
         )
     if storage is not None:
         from tianshu.tools.edict_query import register_edict_query
+
         register_edict_query(registry, storage=storage)

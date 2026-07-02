@@ -39,6 +39,7 @@ class SessionRule:
 def fingerprint_edit_file(args: dict) -> str:
     """edit_file 指纹 = dirname(path)。覆盖同目录下所有编辑。"""
     import os
+
     path = args.get("path") or args.get("file_path") or ""
     return f"dir:{os.path.dirname(path) or '.'}"
 
@@ -89,11 +90,16 @@ class SessionRuleStore(Protocol):
     async def create(self, rule: SessionRule) -> None: ...
 
     async def find_match(
-        self, tool_name: str, args: dict, edict_id: str | None,
+        self,
+        tool_name: str,
+        args: dict,
+        edict_id: str | None,
     ) -> SessionRule | None: ...
 
     async def list_by_scope(
-        self, scope: str, edict_id: str | None = None,
+        self,
+        scope: str,
+        edict_id: str | None = None,
     ) -> list[SessionRule]: ...
 
     async def revoke(self, rule_id: str) -> None: ...
@@ -114,7 +120,10 @@ class InMemorySessionRuleStore:
         self._rules[rule.rule_id] = rule
 
     async def find_match(
-        self, tool_name: str, args: dict, edict_id: str | None,
+        self,
+        tool_name: str,
+        args: dict,
+        edict_id: str | None,
     ) -> SessionRule | None:
         fp = compute_fingerprint(tool_name, args)
         now = datetime.now(UTC)
@@ -132,7 +141,9 @@ class InMemorySessionRuleStore:
         return None
 
     async def list_by_scope(
-        self, scope: str, edict_id: str | None = None,
+        self,
+        scope: str,
+        edict_id: str | None = None,
     ) -> list[SessionRule]:
         out = []
         for rule in self._rules.values():
@@ -147,9 +158,7 @@ class InMemorySessionRuleStore:
         self._rules.pop(rule_id, None)
 
     async def clear_edict(self, edict_id: str) -> None:
-        self._rules = {
-            rid: r for rid, r in self._rules.items() if r.edict_id != edict_id
-        }
+        self._rules = {rid: r for rid, r in self._rules.items() if r.edict_id != edict_id}
 
 
 # ---------- Composite（InMemory + Sqlite） ----------
@@ -169,7 +178,10 @@ class CompositeSessionRuleStore:
             await self.in_memory.create(rule)
 
     async def find_match(
-        self, tool_name: str, args: dict, edict_id: str | None,
+        self,
+        tool_name: str,
+        args: dict,
+        edict_id: str | None,
     ) -> SessionRule | None:
         hit = await self.in_memory.find_match(tool_name, args, edict_id)
         if hit is not None:
@@ -177,7 +189,9 @@ class CompositeSessionRuleStore:
         return await self.sqlite.find_match(tool_name, args, edict_id)
 
     async def list_by_scope(
-        self, scope: str, edict_id: str | None = None,
+        self,
+        scope: str,
+        edict_id: str | None = None,
     ) -> list[SessionRule]:
         if scope == "always":
             return await self.sqlite.list_by_scope(scope, edict_id)
@@ -231,9 +245,7 @@ def assert_can_grant(tool_name: str, scope: str) -> None:
     调用方在 create 前调用；违规抛 ValueError 上层捕获并降级。
     """
     if scope == "always" and tool_name in {"shell_exec", "bash"}:
-        raise ValueError(
-            f"Cannot grant 'always' scope to bash-family tool {tool_name!r}"
-        )
+        raise ValueError(f"Cannot grant 'always' scope to bash-family tool {tool_name!r}")
 
 
 # ---------- SQLite 实现 ----------
@@ -270,7 +282,10 @@ class SqliteSessionRuleStore:
         conn.commit()
 
     async def find_match(
-        self, tool_name: str, args: dict, edict_id: str | None,
+        self,
+        tool_name: str,
+        args: dict,
+        edict_id: str | None,
     ) -> SessionRule | None:
         conn = self.storage._conn  # type: ignore[attr-defined]
         fp = compute_fingerprint(tool_name, args)
@@ -294,7 +309,9 @@ class SqliteSessionRuleStore:
         return _row_to_rule(row)
 
     async def list_by_scope(
-        self, scope: str, edict_id: str | None = None,
+        self,
+        scope: str,
+        edict_id: str | None = None,
     ) -> list[SessionRule]:
         conn = self.storage._conn  # type: ignore[attr-defined]
         if edict_id is not None:
@@ -327,8 +344,16 @@ class SqliteSessionRuleStore:
 
 def _row_to_rule(row) -> SessionRule:
     (
-        rule_id, tool_name, arg_fingerprint, scope, edict_id,
-        granted_at, granted_by_decree_id, source, reason, expires_at,
+        rule_id,
+        tool_name,
+        arg_fingerprint,
+        scope,
+        edict_id,
+        granted_at,
+        granted_by_decree_id,
+        source,
+        reason,
+        expires_at,
     ) = row
     return SessionRule(
         rule_id=rule_id,

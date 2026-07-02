@@ -1,4 +1,5 @@
 """Tests for CodeMutator — allowlist, failure-safe, fence-strip, git commit."""
+
 from __future__ import annotations
 
 import subprocess
@@ -12,7 +13,7 @@ from tianshu.universe.code_mutator import CodeMutator
 # ---------------------------------------------------------------------------
 
 _EVOLVABLE = (
-    "src/tianshu/planner/",   # dir prefix
+    "src/tianshu/planner/",  # dir prefix
     "src/tianshu/config.py",  # exact file
 )
 
@@ -33,23 +34,39 @@ def _git_worktree(tmp_path: Path) -> Path:
     wt = tmp_path / "wt"
     wt.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=str(wt), check=True)
-    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
-                    "commit", "--allow-empty", "-q", "-m", "init"],
-                   cwd=str(wt), check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "--allow-empty",
+            "-q",
+            "-m",
+            "init",
+        ],
+        cwd=str(wt),
+        check=True,
+    )
 
     target_dir = wt / "src" / "tianshu" / "planner"
     target_dir.mkdir(parents=True)
     (target_dir / "foo.py").write_text("X = 1\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=str(wt), check=True)
-    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
-                    "commit", "-q", "-m", "add file"],
-                   cwd=str(wt), check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "add file"],
+        cwd=str(wt),
+        check=True,
+    )
     return wt
 
 
 # ---------------------------------------------------------------------------
 # allowlist unit tests
 # ---------------------------------------------------------------------------
+
 
 def test_within_evolvable_matches_file_and_dir():
     m = CodeMutator(_make_llm(""), evolvable_paths=_EVOLVABLE)
@@ -71,13 +88,14 @@ def test_within_evolvable_matches_file_and_dir():
 # mutate() tests
 # ---------------------------------------------------------------------------
 
+
 async def test_mutate_rejects_out_of_allowlist(tmp_path):
     wt = _git_worktree(tmp_path)
     original = (wt / "src" / "tianshu" / "planner" / "foo.py").read_text()
 
     result = await _mutator("NEW = 99\n").mutate(
         wt,
-        target_path="src/tianshu/llm.py",   # NOT in allowlist
+        target_path="src/tianshu/llm.py",  # NOT in allowlist
         hypothesis="some change",
     )
 
@@ -91,7 +109,9 @@ async def test_mutate_rejects_out_of_allowlist(tmp_path):
 async def test_mutate_applies_and_commits(tmp_path):
     wt = _git_worktree(tmp_path)
     before_sha = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=str(wt), text=True,
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(wt),
+        text=True,
     ).strip()
 
     result = await _mutator("X = 42\n").mutate(
@@ -109,7 +129,9 @@ async def test_mutate_applies_and_commits(tmp_path):
 async def test_mutate_noop_on_empty_llm(tmp_path):
     wt = _git_worktree(tmp_path)
     before_sha = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=str(wt), text=True,
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(wt),
+        text=True,
     ).strip()
     original = (wt / "src" / "tianshu" / "planner" / "foo.py").read_text()
 
@@ -123,7 +145,9 @@ async def test_mutate_noop_on_empty_llm(tmp_path):
     assert result["commit"] is None
     assert (wt / "src" / "tianshu" / "planner" / "foo.py").read_text() == original
     after_sha = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=str(wt), text=True,
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(wt),
+        text=True,
     ).strip()
     assert after_sha == before_sha
 
@@ -131,7 +155,9 @@ async def test_mutate_noop_on_empty_llm(tmp_path):
 async def test_mutate_noop_on_unchanged_llm(tmp_path):
     wt = _git_worktree(tmp_path)
     before_sha = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=str(wt), text=True,
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(wt),
+        text=True,
     ).strip()
 
     # LLM returns same content as original file
@@ -144,7 +170,9 @@ async def test_mutate_noop_on_unchanged_llm(tmp_path):
     assert result["applied"] is False
     assert result["commit"] is None
     after_sha = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=str(wt), text=True,
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(wt),
+        text=True,
     ).strip()
     assert after_sha == before_sha
 

@@ -4,6 +4,7 @@ AgentPersona 实际字段：id / name / department / soul_path / role_path /
                         llm_config_name / tools_allowed / ... （无 emoji / title 字段）
 本模块用 department → emoji 映射表和 name 作为称呼。
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,13 +19,13 @@ logger = logging.getLogger(__name__)
 
 # Department 到 emoji 的映射（与百官阁视觉一致）
 _DEPT_EMOJI: dict[str, str] = {
-    "tongzheng": "📜",   # 通政司：对外通信
-    "binbu": "⚔️",       # 兵部：奉敕调用工具
-    "hubu": "💰",        # 户部：成本与预算
-    "libu": "🎓",        # 礼部：技能/培训
-    "ducha": "⚖️",       # 都察院：审计
-    "cabinet": "🏛️",     # 内阁：决策
-    "neishi": "📖",      # 内侍/侍读
+    "tongzheng": "📜",  # 通政司：对外通信
+    "binbu": "⚔️",  # 兵部：奉敕调用工具
+    "hubu": "💰",  # 户部：成本与预算
+    "libu": "🎓",  # 礼部：技能/培训
+    "ducha": "⚖️",  # 都察院：审计
+    "cabinet": "🏛️",  # 内阁：决策
+    "neishi": "📖",  # 内侍/侍读
 }
 
 DEFAULT_EMOJI = "🏛️"
@@ -34,6 +35,7 @@ DEFAULT_NAME = "侍读"
 @dataclass(frozen=True)
 class RenderedPersona:
     """简化的 persona 视图，仅含飞书回信渲染需要的字段。"""
+
     name: str
     emoji: str
     department: str
@@ -128,7 +130,9 @@ class PersonaRenderer:
         return f"{mode_tag} 未识此令「{cmd}」，输入 /help 查看可用命令"
 
     def assistant_silent_reply(self) -> str:
-        return f"{self.assistant_tag()} {self.name} 待命中。请用 /help 查看命令，或 /menu 打开菜单。"
+        return (
+            f"{self.assistant_tag()} {self.name} 待命中。请用 /help 查看命令，或 /menu 打开菜单。"
+        )
 
     def llm_intent_hint(self, intent: str) -> str:
         return f"💡 我理解你想：{intent}"

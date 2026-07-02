@@ -3,6 +3,7 @@
 纯逻辑部分（score / select_eval_set / aggregate_db_stats）用真实 Storage；
 evaluate() orchestration 用 fake sandbox + monkeypatch。
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -20,6 +21,7 @@ from tianshu.universe.fitness import compute_fitness
 # 辅助：临时 Storage
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def tmp_storage(tmp_path):
     db = tmp_path / "test.db"
@@ -33,13 +35,19 @@ def tmp_storage(tmp_path):
 # test_score_uses_compute_fitness
 # ---------------------------------------------------------------------------
 
+
 def test_score_uses_compute_fitness():
     """EvalHarness.score() 应与直接调用 compute_fitness 结果一致。"""
     default_weights = (0.4, 0.15, 0.2, 0.1, 0.15)
     harness = EvalHarness(None, None, fitness_weights=default_weights)
     stats = {
-        "total": 10, "success": 8, "retries": 2,
-        "audited": 5, "audit_pass": 4, "cost": 0.5, "feedback": 2,
+        "total": 10,
+        "success": 8,
+        "retries": 2,
+        "audited": 5,
+        "audit_pass": 4,
+        "cost": 0.5,
+        "feedback": 2,
     }
     assert harness.score(stats) == compute_fitness(stats, weights=default_weights)
 
@@ -47,6 +55,7 @@ def test_score_uses_compute_fitness():
 # ---------------------------------------------------------------------------
 # test_select_eval_set_from_storage
 # ---------------------------------------------------------------------------
+
 
 def test_select_eval_set_from_storage(tmp_storage):
     """从 completed edict 中选出 goal 列表，不超过 size，去重。"""
@@ -87,6 +96,7 @@ def test_select_eval_set_respects_size(tmp_storage):
 # ---------------------------------------------------------------------------
 # test_aggregate_db_stats
 # ---------------------------------------------------------------------------
+
 
 def test_aggregate_db_stats(tmp_storage, tmp_path):
     """aggregate_db_stats 聚合沙箱 DB 中所有 memorial，不按 universe_id 过滤。"""
@@ -129,14 +139,20 @@ def test_aggregate_db_stats_empty(tmp_storage):
     harness = EvalHarness(None, None)
     stats = harness.aggregate_db_stats(db_path)
     assert stats == {
-        "total": 0, "success": 0, "retries": 0,
-        "audited": 0, "audit_pass": 0, "cost": 0.0, "feedback": 0,
+        "total": 0,
+        "success": 0,
+        "retries": 0,
+        "audited": 0,
+        "audit_pass": 0,
+        "cost": 0.0,
+        "feedback": 0,
     }
 
 
 # ---------------------------------------------------------------------------
 # test_evaluate_orchestration_with_fakes
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _FakeHandle:
@@ -165,6 +181,7 @@ def test_evaluate_orchestration_with_fakes(tmp_path, tmp_storage, monkeypatch):
     iso_db = tmp_path / "_eval.db"
     # 把 tmp_storage 的 db 拷过去，再插 memorial
     import shutil
+
     shutil.copy(tmp_storage._db_path, iso_db)
     seeded = Storage(str(iso_db))
     seeded.init_db()

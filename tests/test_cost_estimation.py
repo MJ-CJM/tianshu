@@ -76,7 +76,11 @@ def test_estimate_cost_cache_exceeds_prompt_clamped_to_zero():
 def test_estimate_cost_2tuple_compat():
     """旧 2-tuple 入参兼容：hit 价默认 = miss（无折扣）。"""
     cost = estimate_cost(
-        "any", 1000, 500, cache_read_tokens=500, provider_pricing=(0.01, 0.02),
+        "any",
+        1000,
+        500,
+        cache_read_tokens=500,
+        provider_pricing=(0.01, 0.02),
     )
     # miss = 0.01, hit = miss = 0.01, out = 0.02
     # (1000-500)/1000×0.01 + 500/1000×0.01 + 500/1000×0.02 = 0.005 + 0.005 + 0.01 = 0.02
@@ -87,7 +91,10 @@ def test_estimate_cost_2tuple_compat():
 def test_estimate_cost_3tuple_provider_override():
     """3-tuple provider_pricing 完全覆盖默认表。"""
     cost = estimate_cost(
-        "ignored", 1000, 500, cache_read_tokens=600,
+        "ignored",
+        1000,
+        500,
+        cache_read_tokens=600,
         provider_pricing=(0.01, 0.0001, 0.02),
     )
     # 400/1000×0.01 + 600/1000×0.0001 + 500/1000×0.02 = 0.004 + 0.00006 + 0.01 = 0.01406
@@ -99,8 +106,11 @@ def test_cost_tracker_accumulate_with_cache():
     """accumulate 接受 cache_read_tokens + provider_name。"""
     t = CostTracker()
     incr = t.accumulate(
-        "deepseek-chat", 1000, 500,
-        cache_read_tokens=600, provider_name="test-pn",
+        "deepseek-chat",
+        1000,
+        500,
+        cache_read_tokens=600,
+        provider_name="test-pn",
     )
     assert abs(incr - 0.001412) < 1e-6
     assert abs(t.cost_cny - 0.001412) < 1e-6
@@ -138,11 +148,13 @@ def test_usage_summary_default_fields():
 @pytest.mark.unit
 def test_usage_summary_old_json_no_cache_field_compat():
     """老 JSON 缺 cache_read_tokens 也能反序列化。"""
-    u = UsageSummary.model_validate({
-        "prompt_tokens": 100,
-        "completion_tokens": 50,
-        "total_tokens": 150,
-    })
+    u = UsageSummary.model_validate(
+        {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+        }
+    )
     assert u.cost_cny == 0.0
     assert u.cache_read_tokens == 0
 
@@ -150,8 +162,11 @@ def test_usage_summary_old_json_no_cache_field_compat():
 @pytest.mark.unit
 def test_usage_summary_round_trip_with_cache():
     u = UsageSummary(
-        prompt_tokens=100, completion_tokens=50, total_tokens=150,
-        cache_read_tokens=80, cost_cny=0.123,
+        prompt_tokens=100,
+        completion_tokens=50,
+        total_tokens=150,
+        cache_read_tokens=80,
+        cost_cny=0.123,
     )
     data = u.model_dump_json()
     u2 = UsageSummary.model_validate_json(data)

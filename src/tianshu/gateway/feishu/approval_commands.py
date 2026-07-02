@@ -11,6 +11,7 @@
   /approve <ID> edict /准敕 <ID>（也支持反序）
   /reject  <ID>       /驳  <ID>
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,7 +45,7 @@ _MIN_PREFIX_LEN = 6
 class ApprovalCommand:
     action: ApprovalAction
     scope: ApprovalScope | None  # reject 时为 None
-    target_prefix: str | None    # memorial_id 前缀，≥6 字符；None 表示不指定
+    target_prefix: str | None  # memorial_id 前缀，≥6 字符；None 表示不指定
 
 
 def parse_approval_command(text: str) -> ApprovalCommand | None:
@@ -72,7 +73,7 @@ def parse_approval_command(text: str) -> ApprovalCommand | None:
         scope = "once"
     elif head.startswith("/准"):
         action = "approve"
-        suffix = head[len("/准"):]
+        suffix = head[len("/准") :]
         if suffix == "":
             scope = "once"
         elif suffix in _ZH_SCOPE_SUFFIX:
@@ -163,7 +164,9 @@ class ApprovalCommandHandler:
         # 避免用户以为永久放行了，下次又遇到同一审批时困惑
         if command.scope and command.scope != actual_scope:
             requested_label = {
-                "once": "单次", "edict": "本敕令", "always": "总是",
+                "once": "单次",
+                "edict": "本敕令",
+                "always": "总是",
             }.get(command.scope, command.scope)
             return (
                 f"✅ 已批准 #{memorial_id[:8]}（{scope_label}，"

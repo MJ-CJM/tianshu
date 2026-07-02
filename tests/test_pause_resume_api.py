@@ -1,4 +1,5 @@
 """Edict pause/resume API 测试。"""
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -20,10 +21,13 @@ async def client():
 
 async def _create_edict(client) -> str:
     with patch("tianshu.executor.agent.LLMClient"):
-        resp = await client.post("/api/edicts", json={
-            "goal": "test goal",
-            "acceptance": {"max_outer_iterations": 3},
-        })
+        resp = await client.post(
+            "/api/edicts",
+            json={
+                "goal": "test goal",
+                "acceptance": {"max_outer_iterations": 3},
+            },
+        )
     assert resp.status_code in (200, 201, 202)
     return resp.json()["data"]["id"]
 

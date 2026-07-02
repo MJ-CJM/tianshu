@@ -67,6 +67,7 @@ gateway_router = APIRouter()
 
 # --- Helper to build history from previous memorials ---
 
+
 def _build_history(edict: Edict, memorials: list[Memorial]) -> list[dict]:
     """构建给 executor 的多轮对话历史。
 
@@ -88,11 +89,13 @@ def _build_history(edict: Edict, memorials: list[Memorial]) -> list[dict]:
         if not m.reasoning_content:
             # 老 memorial：assistant 整条跳过，避免触发 thinking-mode 校验
             continue
-        history.append({
-            "role": "assistant",
-            "content": m.result,
-            "reasoning_content": m.reasoning_content,
-        })
+        history.append(
+            {
+                "role": "assistant",
+                "content": m.result,
+                "reasoning_content": m.reasoning_content,
+            }
+        )
     return history
 
 
@@ -119,7 +122,8 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     # Idempotency check: (submitter, idempotency_key) dedup
     if body.idempotency_key:
         existing = storage.find_edict_by_idempotency_key(
-            body.submitter, body.idempotency_key,
+            body.submitter,
+            body.idempotency_key,
         )
         if existing:
             return ApiResponse(
@@ -146,6 +150,7 @@ async def create_edict(body: EdictCreateRequest, request: Request):
         _validate_network_runtime(body.runtime)
     if body.runtime:
         from tianshu.models.edict import EdictRuntime
+
         rt_data = {k: v for k, v in body.runtime.model_dump().items() if v is not None}
         if rt_data:
             edict_kwargs["runtime"] = EdictRuntime(**rt_data)
@@ -168,7 +173,10 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     edict = Edict(**edict_kwargs)
     logger.debug(
         "[API] Edict %s: submitted goal=%.100s, priority=%s, assigned=%s",
-        edict.id, edict.goal, edict.priority, edict.assigned_persona_id,
+        edict.id,
+        edict.goal,
+        edict.priority,
+        edict.assigned_persona_id,
     )
 
     # Fire-and-forget: 不阻塞 API 响应，事件链在后台异步执行
@@ -249,9 +257,15 @@ async def update_edict(edict_id: str, body: EdictUpdateRequest, request: Request
     if edict.status != EdictStatus.OPEN:
         raise HTTPException(status_code=400, detail="只有进行中的敕令可以编辑")
     storage.update_edict(edict_id, title=body.title, goal=body.goal, context=body.context)
-    storage.append_event(edict_id, None, "edict.updated", {
-        "goal": body.goal, "context": body.context,
-    })
+    storage.append_event(
+        edict_id,
+        None,
+        "edict.updated",
+        {
+            "goal": body.goal,
+            "context": body.context,
+        },
+    )
     updated = storage.get_edict(edict_id)
     return ApiResponse(success=True, data=updated.model_dump(mode="json"))
 
@@ -290,11 +304,16 @@ async def pause_edict(edict_id: str, request: Request):
     if phase == "paused":
         return ApiResponse(success=True, data={"id": edict_id, "lifecycle_phase": "paused"})
     storage.update_edict_lifecycle_phase(edict_id, "paused")
-    storage.append_event(edict_id, None, "edict.lifecycle.changed", {
-        "from_phase": phase,
-        "to_phase": "paused",
-        "reason": "user_request",
-    })
+    storage.append_event(
+        edict_id,
+        None,
+        "edict.lifecycle.changed",
+        {
+            "from_phase": phase,
+            "to_phase": "paused",
+            "reason": "user_request",
+        },
+    )
     return ApiResponse(success=True, data={"id": edict_id, "lifecycle_phase": "paused"})
 
 
@@ -316,11 +335,16 @@ async def resume_edict(edict_id: str, request: Request):
     if phase == "active":
         return ApiResponse(success=True, data={"id": edict_id, "lifecycle_phase": "active"})
     storage.update_edict_lifecycle_phase(edict_id, "active")
-    storage.append_event(edict_id, None, "edict.lifecycle.changed", {
-        "from_phase": phase,
-        "to_phase": "active",
-        "reason": "user_request",
-    })
+    storage.append_event(
+        edict_id,
+        None,
+        "edict.lifecycle.changed",
+        {
+            "from_phase": phase,
+            "to_phase": "active",
+            "reason": "user_request",
+        },
+    )
     return ApiResponse(success=True, data={"id": edict_id, "lifecycle_phase": "active"})
 
 
@@ -372,10 +396,15 @@ async def approve_plan(edict_id: str, request: Request):
             storage.update_memorial(memorial)
 
     # Record approval event
-    storage.append_event(edict_id, memorial_id, "plan.approved", {
-        "actor": "human",
-        "plan": plan_payload.get("plan", {}),
-    })
+    storage.append_event(
+        edict_id,
+        memorial_id,
+        "plan.approved",
+        {
+            "actor": "human",
+            "plan": plan_payload.get("plan", {}),
+        },
+    )
 
     # Fire-and-forget: 不阻塞 API 响应
     event_bus.fire(
@@ -415,9 +444,14 @@ async def reject_plan(edict_id: str, request: Request):
             memorial.error = "规划方案被驳回"
             storage.update_memorial(memorial)
 
-    storage.append_event(edict_id, memorial_id, "plan.rejected", {
-        "actor": "human",
-    })
+    storage.append_event(
+        edict_id,
+        memorial_id,
+        "plan.rejected",
+        {
+            "actor": "human",
+        },
+    )
     return ApiResponse(success=True, data={"status": "rejected"})
 
 
@@ -453,7 +487,9 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
     )
     storage.save_memorial(memorial)
     storage.append_event(
-        edict.id, memorial.id, "followup.submitted",
+        edict.id,
+        memorial.id,
+        "followup.submitted",
         {
             "instruction": body.instruction,
             "has_runtime_override": runtime_override_dict is not None,
@@ -462,6 +498,7 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
     )
 
     import asyncio
+
     task = asyncio.create_task(
         executor.execute_edict(
             edict, memorial=memorial, history=history, user_content=body.instruction
@@ -518,18 +555,22 @@ async def list_outer_loop_pending(request: Request):
 
 @gateway_router.post("/edicts/{edict_id}/outer-loop/decide")
 async def submit_outer_loop_decision_api(
-    edict_id: str, body: OuterLoopDecisionRequest, request: Request,
+    edict_id: str,
+    body: OuterLoopDecisionRequest,
+    request: Request,
 ):
     """前端 L3 审批 Modal 提交决策入口。"""
     from tianshu.executor.orchestrator.human_decision import HumanDecision
     from tianshu.models.acceptance import AcceptanceCriteria
+
     am = request.app.state.approval_manager
     new_acceptance = (
-        AcceptanceCriteria.model_validate(body.new_acceptance)
-        if body.new_acceptance else None
+        AcceptanceCriteria.model_validate(body.new_acceptance) if body.new_acceptance else None
     )
     decision = HumanDecision(
-        action=body.action, feedback=body.feedback, new_acceptance=new_acceptance,
+        action=body.action,
+        feedback=body.feedback,
+        new_acceptance=new_acceptance,
     )
     triggered = am.submit_outer_loop_decision(edict_id, decision)
     if not triggered:
@@ -548,6 +589,7 @@ async def get_supervision_reports(edict_id: str, request: Request):
     if not rows:
         return ApiResponse(success=True, data=[])
     import json
+
     reports = [json.loads(r["report_json"]) for r in rows]
     return ApiResponse(success=True, data=reports)
 
@@ -560,6 +602,7 @@ async def get_supervision_report_legacy(edict_id: str, request: Request):
     if not row:
         raise HTTPException(status_code=404, detail="supervision report not found")
     import json
+
     report = json.loads(row["report_json"])
     return ApiResponse(success=True, data=report)
 
@@ -590,9 +633,7 @@ async def get_memorial(memorial_id: str, request: Request):
     storage: Storage = request.app.state.storage
     memorial = storage.get_memorial(memorial_id)
     if not memorial:
-        raise HTTPException(
-            status_code=404, detail=f"Memorial '{memorial_id}' not found"
-        )
+        raise HTTPException(status_code=404, detail=f"Memorial '{memorial_id}' not found")
     return ApiResponse(success=True, data=memorial.model_dump(mode="json"))
 
 
@@ -657,10 +698,12 @@ async def universe_feedback(request: Request):
     uid = getattr(mem, "universe_id", None) if mem else None
     if uid:
         from tianshu.universe.fitness import compute_fitness
+
         cm = request.app.state.config_manager
         stats = storage.universe_memorial_stats(uid)
         storage.update_universe_fitness(
-            uid, compute_fitness(stats, weights=cm.agent_config.universe_fitness_weights),
+            uid,
+            compute_fitness(stats, weights=cm.agent_config.universe_fitness_weights),
         )
     return ApiResponse(success=True, data={"universe_id": uid, "score": max(-1, min(1, score))})
 
@@ -681,7 +724,8 @@ async def propose_code_variant(request: Request):
     if not target_path or not hypothesis:
         raise HTTPException(status_code=400, detail="target_path and hypothesis required")
     result = await evolver.propose_code_variant(
-        target_path=target_path, hypothesis=hypothesis,
+        target_path=target_path,
+        hypothesis=hypothesis,
         parent_id=(body or {}).get("parent_id"),
     )
     return ApiResponse(success=True, data=result)
@@ -798,7 +842,10 @@ async def get_network_events(
     """
     storage: Storage = request.app.state.storage
     return storage.list_network_events(
-        limit=limit, tool=tool, host=host, status=status,
+        limit=limit,
+        tool=tool,
+        host=host,
+        status=status,
     )
 
 
@@ -914,7 +961,11 @@ async def recall_memory(request: Request):
 async def sync_memory_index(request: Request):
     """Manually trigger SQLite index rebuild from Markdown files."""
     mm: MemoryManager = request.app.state.memory_manager
-    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    body = (
+        await request.json()
+        if request.headers.get("content-type", "").startswith("application/json")
+        else {}
+    )
     persona_id = body.get("persona_id")
     if persona_id:
         count = mm.sync_index(persona_id)
@@ -963,6 +1014,7 @@ async def update_memory_policy(persona_id: str, request: Request):
     mm: MemoryManager = request.app.state.memory_manager
     body = await request.json()
     from tianshu.memory.access_control import MemoryAccessPolicy
+
     policy = MemoryAccessPolicy(
         persona_id=persona_id,
         can_read=body.get("can_read", []),
@@ -970,12 +1022,15 @@ async def update_memory_policy(persona_id: str, request: Request):
         share_level=body.get("share_level", "private"),
     )
     mm._access_control.set_policy(policy)
-    return ApiResponse(success=True, data={
-        "persona_id": persona_id,
-        "can_read": policy.can_read,
-        "can_write": policy.can_write,
-        "share_level": policy.share_level,
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "persona_id": persona_id,
+            "can_read": policy.can_read,
+            "can_write": policy.can_write,
+            "share_level": policy.share_level,
+        },
+    )
 
 
 # --- Cost endpoints ---
@@ -1061,6 +1116,7 @@ async def create_provider(request: Request):
     if not body.get("name") or not body.get("model"):
         raise HTTPException(status_code=400, detail="name and model are required")
     from datetime import UTC, datetime
+
     body.setdefault("created_at", datetime.now(UTC).isoformat())
     storage.save_provider(body)
     return ApiResponse(success=True, data=body)
@@ -1107,16 +1163,16 @@ class ProviderPricingUpdateRequest(BaseModel):
 
 @gateway_router.put("/providers/{name}/pricing", response_model=ApiResponse)
 async def update_provider_pricing(
-    name: str, body: ProviderPricingUpdateRequest, request: Request,
+    name: str,
+    body: ProviderPricingUpdateRequest,
+    request: Request,
 ):
     """部分更新 provider 三维价格。body 里的 None 字段保持不变（不清零）。"""
     storage: Storage = request.app.state.storage
     provider = storage.get_provider(name)
     if not provider:
         raise HTTPException(status_code=404, detail=f"Provider '{name}' not found")
-    updates = {
-        k: v for k, v in body.model_dump().items() if v is not None
-    }
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if updates:
         storage.update_provider(name, updates)
     pm = request.app.state.provider_manager
@@ -1130,11 +1186,14 @@ async def reset_provider_pricing(name: str, request: Request):
     provider = storage.get_provider(name)
     if not provider:
         raise HTTPException(status_code=404, detail=f"Provider '{name}' not found")
-    storage.update_provider(name, {
-        "cost_per_1k_prompt": None,
-        "cost_per_1k_cache_read": None,
-        "cost_per_1k_completion": None,
-    })
+    storage.update_provider(
+        name,
+        {
+            "cost_per_1k_prompt": None,
+            "cost_per_1k_cache_read": None,
+            "cost_per_1k_completion": None,
+        },
+    )
     pm = request.app.state.provider_manager
     return ApiResponse(success=True, data=pm.get_pricing_with_source(name))
 
@@ -1143,14 +1202,22 @@ async def reset_provider_pricing(name: str, request: Request):
 async def get_default_pricing_table(request: Request):
     """返回 _DEFAULT_PRICING 全部条目（用于户部账房"查看默认价表"展示）。"""
     from tianshu.cost.tracker import _DEFAULT_PRICING, _FALLBACK_PRICING
+
     rows = [
         {"model": model, "miss": p[0], "hit": p[1], "out": p[2]}
         for model, p in _DEFAULT_PRICING.items()
     ]
-    return ApiResponse(success=True, data={
-        "entries": rows,
-        "fallback": {"miss": _FALLBACK_PRICING[0], "hit": _FALLBACK_PRICING[1], "out": _FALLBACK_PRICING[2]},
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "entries": rows,
+            "fallback": {
+                "miss": _FALLBACK_PRICING[0],
+                "hit": _FALLBACK_PRICING[1],
+                "out": _FALLBACK_PRICING[2],
+            },
+        },
+    )
 
 
 @gateway_router.get("/providers/{name}/pricing/effective", response_model=ApiResponse)
@@ -1385,7 +1452,11 @@ async def cancel_dag(dag_id: str, request: Request):
 @gateway_router.post("/dag/{dag_id}/retry", response_model=ApiResponse)
 async def retry_dag(dag_id: str, request: Request):
     executor: Executor = request.app.state.executor
-    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    body = (
+        await request.json()
+        if request.headers.get("content-type", "").startswith("application/json")
+        else {}
+    )
     from_node_ids = body.get("from_node_ids")
     try:
         reset_ids = await executor.retry_dag(dag_id, from_node_ids=from_node_ids)
@@ -1408,16 +1479,19 @@ async def get_workers_status(request: Request):
     pool: WorkerPool = request.app.state.worker_pool
     lane_manager: LaneManager = request.app.state.lane_manager
     pool_status = pool.status()
-    return ApiResponse(success=True, data={
-        "pool": {
-            "active_count": pool_status.active_count,
-            "max_concurrency": pool_status.max_concurrency,
-            "pending_count": pool_status.pending_count,
-            "completed_count": pool_status.completed_count,
-            "failed_count": pool_status.failed_count,
+    return ApiResponse(
+        success=True,
+        data={
+            "pool": {
+                "active_count": pool_status.active_count,
+                "max_concurrency": pool_status.max_concurrency,
+                "pending_count": pool_status.pending_count,
+                "completed_count": pool_status.completed_count,
+                "failed_count": pool_status.failed_count,
+            },
+            "lanes": lane_manager.status(),
         },
-        "lanes": lane_manager.status(),
-    })
+    )
 
 
 # --- Consultation endpoints (Phase 3) ---
@@ -1497,7 +1571,9 @@ async def delete_department(dept_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Department '{dept_id}' not found")
     deleted = storage.delete_department(dept_id)
     if not deleted:
-        raise HTTPException(status_code=409, detail="Cannot delete department with assigned personas")
+        raise HTTPException(
+            status_code=409, detail="Cannot delete department with assigned personas"
+        )
     return ApiResponse(success=True, data={"id": dept_id})
 
 
@@ -1542,7 +1618,7 @@ def _render_persona_identity_files(
                 if raw.startswith("---"):
                     try:
                         end = raw.index("---", 3)
-                        raw = raw[end + 3:].strip()
+                        raw = raw[end + 3 :].strip()
                     except ValueError:
                         pass
                 dept_soul_text = raw.strip()
@@ -1554,7 +1630,7 @@ def _render_persona_identity_files(
                 if raw.startswith("---"):
                     try:
                         end = raw.index("---", 3)
-                        raw = raw[end + 3:].strip()
+                        raw = raw[end + 3 :].strip()
                     except ValueError:
                         pass
                 dept_role_text = raw.strip()
@@ -1585,10 +1661,7 @@ def _render_persona_identity_files(
         f"并参考本部门职责描述行事。\n"
     )
     if dept_role_text:
-        role_content += (
-            "\n## 部门职责参考\n\n"
-            f"{dept_role_text}\n"
-        )
+        role_content += f"\n## 部门职责参考\n\n{dept_role_text}\n"
 
     if overwrite or not soul_path.exists():
         soul_path.write_text(soul_content, encoding="utf-8")
@@ -1606,24 +1679,27 @@ async def list_personas(request: Request):
     # Build department name lookup
     departments = storage.list_departments()
     dept_name_map = {d["id"]: d["name"] for d in departments}
-    return ApiResponse(success=True, data=[
-        {
-            "id": p.id,
-            "name": p.name,
-            "department": p.department,
-            "department_name": dept_name_map.get(p.department),
-            "title": p.title,
-            "tools_allowed": p.tools_allowed,
-            "tools_denied": p.tools_denied,
-            "skills_allowed": p.skills_allowed,
-            "tool_tier_max": p.tool_tier_max,
-            "can_delegate": p.can_delegate,
-            "memory_global_read": p.memory_global_read,
-            "delegates_to": p.delegates_to,
-            "llm_config_name": p.llm_config_name,
-        }
-        for p in personas
-    ])
+    return ApiResponse(
+        success=True,
+        data=[
+            {
+                "id": p.id,
+                "name": p.name,
+                "department": p.department,
+                "department_name": dept_name_map.get(p.department),
+                "title": p.title,
+                "tools_allowed": p.tools_allowed,
+                "tools_denied": p.tools_denied,
+                "skills_allowed": p.skills_allowed,
+                "tool_tier_max": p.tool_tier_max,
+                "can_delegate": p.can_delegate,
+                "memory_global_read": p.memory_global_read,
+                "delegates_to": p.delegates_to,
+                "llm_config_name": p.llm_config_name,
+            }
+            for p in personas
+        ],
+    )
 
 
 @gateway_router.post("/personas", response_model=ApiResponse, status_code=201)
@@ -1644,7 +1720,9 @@ async def create_persona(request: Request):
     storage: Storage = request.app.state.storage
     dept = storage.get_department(body["department"])
     if not dept:
-        raise HTTPException(status_code=400, detail=f"Department '{body['department']}' does not exist")
+        raise HTTPException(
+            status_code=400, detail=f"Department '{body['department']}' does not exist"
+        )
 
     # Validate llm_config_name FK if provided
     llm_config_name = body.get("llm_config_name") or None
@@ -1675,7 +1753,8 @@ async def create_persona(request: Request):
         template_lang = body.get("template_lang") or "zh"
         if template_lang not in ("zh", "en"):
             raise HTTPException(
-                status_code=400, detail="template_lang must be 'zh' or 'en'",
+                status_code=400,
+                detail="template_lang must be 'zh' or 'en'",
             )
         library: TemplateLibrary = request.app.state.template_library
         template = library.get(template_lang, template_id)
@@ -1731,20 +1810,23 @@ async def create_persona(request: Request):
         llm_config_name=llm_config_name,
     )
     loader.save(persona)
-    return ApiResponse(success=True, data={
-        "id": persona.id,
-        "name": persona.name,
-        "department": persona.department,
-        "title": persona.title,
-        "tools_allowed": persona.tools_allowed,
-        "tools_denied": persona.tools_denied,
-        "skills_allowed": persona.skills_allowed,
-        "tool_tier_max": persona.tool_tier_max,
-        "can_delegate": persona.can_delegate,
-        "memory_global_read": persona.memory_global_read,
-        "delegates_to": persona.delegates_to,
-        "llm_config_name": persona.llm_config_name,
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "id": persona.id,
+            "name": persona.name,
+            "department": persona.department,
+            "title": persona.title,
+            "tools_allowed": persona.tools_allowed,
+            "tools_denied": persona.tools_denied,
+            "skills_allowed": persona.skills_allowed,
+            "tool_tier_max": persona.tool_tier_max,
+            "can_delegate": persona.can_delegate,
+            "memory_global_read": persona.memory_global_read,
+            "delegates_to": persona.delegates_to,
+            "llm_config_name": persona.llm_config_name,
+        },
+    )
 
 
 @gateway_router.get("/persona-templates")
@@ -1758,12 +1840,14 @@ async def list_persona_templates(
     library: TemplateLibrary = request.app.state.template_library
     grouped: dict[str, list[dict]] = {}
     for t in library.list(lang):
-        grouped.setdefault(t.category, []).append({
-            "id": t.id,
-            "name": t.name,
-            "description": t.description,
-            "emoji": t.emoji,
-        })
+        grouped.setdefault(t.category, []).append(
+            {
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "emoji": t.emoji,
+            }
+        )
     data = [
         {"category": category, "templates": templates}
         for category, templates in sorted(grouped.items())
@@ -1784,21 +1868,28 @@ async def get_persona_template(
     template = library.get(lang, template_id)
     if not template:
         raise HTTPException(
-            status_code=404, detail=f"Template '{template_id}' ({lang}) not found",
+            status_code=404,
+            detail=f"Template '{template_id}' ({lang}) not found",
         )
     soul_md, role_md = library.render(
-        template, name=template.name, department="", title=None,
+        template,
+        name=template.name,
+        department="",
+        title=None,
     )
-    return ApiResponse(success=True, data={
-        "id": template.id,
-        "lang": template.lang,
-        "category": template.category,
-        "name": template.name,
-        "description": template.description,
-        "emoji": template.emoji,
-        "soul_preview": soul_md,
-        "role_preview": role_md,
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "id": template.id,
+            "lang": template.lang,
+            "category": template.category,
+            "name": template.name,
+            "description": template.description,
+            "emoji": template.emoji,
+            "soul_preview": soul_md,
+            "role_preview": role_md,
+        },
+    )
 
 
 @gateway_router.post("/skills/curate")
@@ -1828,7 +1919,9 @@ async def update_persona(persona_id: str, request: Request):
     body = await request.json()
     # Validate department FK if changing department
     if "department" in body and not storage.get_department(body["department"]):
-        raise HTTPException(status_code=400, detail=f"Department '{body['department']}' does not exist")
+        raise HTTPException(
+            status_code=400, detail=f"Department '{body['department']}' does not exist"
+        )
     # Validate llm_config_name FK if provided
     if "llm_config_name" in body and body["llm_config_name"]:
         config_manager: ConfigManager = request.app.state.config_manager
@@ -1853,20 +1946,23 @@ async def update_persona(persona_id: str, request: Request):
     loader.load_all()
 
     updated = loader.get(persona_id)
-    return ApiResponse(success=True, data={
-        "id": updated.id,
-        "name": updated.name,
-        "department": updated.department,
-        "title": updated.title,
-        "tools_allowed": updated.tools_allowed,
-        "tools_denied": updated.tools_denied,
-        "skills_allowed": updated.skills_allowed,
-        "tool_tier_max": updated.tool_tier_max,
-        "can_delegate": updated.can_delegate,
-        "memory_global_read": updated.memory_global_read,
-        "delegates_to": updated.delegates_to,
-        "llm_config_name": updated.llm_config_name,
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "id": updated.id,
+            "name": updated.name,
+            "department": updated.department,
+            "title": updated.title,
+            "tools_allowed": updated.tools_allowed,
+            "tools_denied": updated.tools_denied,
+            "skills_allowed": updated.skills_allowed,
+            "tool_tier_max": updated.tool_tier_max,
+            "can_delegate": updated.can_delegate,
+            "memory_global_read": updated.memory_global_read,
+            "delegates_to": updated.delegates_to,
+            "llm_config_name": updated.llm_config_name,
+        },
+    )
 
 
 @gateway_router.post(
@@ -1905,11 +2001,14 @@ async def regenerate_persona_identity(persona_id: str, request: Request):
         department_template_dir=template_dir if template_dir.is_dir() else None,
         overwrite=True,
     )
-    return ApiResponse(success=True, data={
-        "id": persona_id,
-        "soul_path": str(soul_path),
-        "role_path": str(role_path),
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "id": persona_id,
+            "soul_path": str(soul_path),
+            "role_path": str(role_path),
+        },
+    )
 
 
 @gateway_router.delete("/personas/{persona_id}", response_model=ApiResponse)
@@ -2003,6 +2102,7 @@ async def trigger_profile_synthesis(persona_id: str, request: Request):
     async def event_stream():
         import asyncio
         import json
+
         queue: asyncio.Queue = asyncio.Queue()
 
         async def _listener(ev):
@@ -2019,9 +2119,7 @@ async def trigger_profile_synthesis(persona_id: str, request: Request):
         ]:
             event_bus.on(et, _listener, priority=10)
 
-        task = asyncio.create_task(
-            syn.run(persona_id, trigger_source="api_manual")
-        )
+        task = asyncio.create_task(syn.run(persona_id, trigger_source="api_manual"))
         try:
             while True:
                 try:
@@ -2063,9 +2161,7 @@ class _ProfileManualUpdate(BaseModel):
 
 
 @gateway_router.put("/personas/{persona_id}/profile/manual", response_model=ApiResponse)
-async def update_profile_manual(
-    persona_id: str, body: _ProfileManualUpdate, request: Request
-):
+async def update_profile_manual(persona_id: str, body: _ProfileManualUpdate, request: Request):
     persona_loader = request.app.state.persona_loader
     if not persona_loader.get(persona_id):
         raise HTTPException(404, f"Persona '{persona_id}' not found")
@@ -2116,6 +2212,7 @@ async def get_profile_history(persona_id: str, version: int, request: Request):
 @gateway_router.get("/skills")
 async def list_skills(request: Request):
     from tianshu.skills.loader import SkillsLoader
+
     loader: SkillsLoader = request.app.state.skills_loader
     metrics = getattr(request.app.state, "skill_metrics_store", None)
     # 用 dict(s) 拷贝，避免污染 loader 内部可能缓存的 metadata dict
@@ -2124,21 +2221,24 @@ async def list_skills(request: Request):
         for s in skills:
             m = metrics.get(s.get("name", ""))
             if m:
-                s.update({
-                    "created_by": m.created_by,
-                    "state": m.state,
-                    "pinned": m.pinned,
-                    "human_curated": m.human_curated,
-                    "usage_count": m.usage_count,
-                    "success_rate": m.success_rate,
-                    "created_at": m.created_at,
-                })
+                s.update(
+                    {
+                        "created_by": m.created_by,
+                        "state": m.state,
+                        "pinned": m.pinned,
+                        "human_curated": m.human_curated,
+                        "usage_count": m.usage_count,
+                        "success_rate": m.success_rate,
+                        "created_at": m.created_at,
+                    }
+                )
     return ApiResponse(success=True, data=skills)
 
 
 @gateway_router.get("/skills/{name}")
 async def get_skill(name: str, request: Request):
     from tianshu.skills.loader import SkillsLoader
+
     loader: SkillsLoader = request.app.state.skills_loader
     skill = loader.get_skill(name)
     if not skill:
@@ -2150,6 +2250,7 @@ async def get_skill(name: str, request: Request):
 async def update_skill(name: str, request: Request):
     """Human edit: save SKILL.md content + mark as golden (human_curated)."""
     from tianshu.skills.loader import SkillsLoader
+
     loader: SkillsLoader = request.app.state.skills_loader
     metrics = getattr(request.app.state, "skill_metrics_store", None)
     body = await request.json()
@@ -2184,7 +2285,11 @@ async def pin_skill(name: str, request: Request):
     metrics = getattr(request.app.state, "skill_metrics_store", None)
     if metrics is None:
         raise HTTPException(status_code=503, detail="metrics store unavailable")
-    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    body = (
+        await request.json()
+        if request.headers.get("content-type", "").startswith("application/json")
+        else {}
+    )
     pinned = bool(body.get("pinned", True))
     metrics.ensure_exists(name)
     metrics.set_pinned(name, pinned)
@@ -2195,6 +2300,7 @@ async def pin_skill(name: str, request: Request):
 @gateway_router.post("/skills", response_model=ApiResponse, status_code=201)
 async def create_skill(request: Request):
     from tianshu.skills.loader import SkillsLoader
+
     loader: SkillsLoader = request.app.state.skills_loader
     body = await request.json()
     name = body.get("name")
@@ -2211,6 +2317,7 @@ async def create_skill(request: Request):
 @gateway_router.delete("/skills/{name}", response_model=ApiResponse)
 async def delete_skill(name: str, request: Request):
     from tianshu.skills.loader import SkillsLoader
+
     loader: SkillsLoader = request.app.state.skills_loader
     # Check if it's a builtin skill
     skill = loader.get_skill(name)
@@ -2230,6 +2337,7 @@ async def delete_skill(name: str, request: Request):
 @gateway_router.get("/tools")
 async def list_tools(request: Request):
     from tianshu.tools.registry import ToolRegistry
+
     registry: ToolRegistry = request.app.state.tool_registry
     persona_loader = request.app.state.persona_loader
     definitions = registry.list_definitions()
@@ -2244,14 +2352,16 @@ async def list_tools(request: Request):
     result = []
     for defn in definitions:
         personas = [p.id for p in all_personas if persona_can_use(p, defn.name, defn.tier)]
-        result.append({
-            "name": defn.name,
-            "description": defn.description,
-            "tier": defn.tier,
-            "parameters": defn.parameters,
-            "personas": personas,
-            "enabled": defn.name not in disabled,
-        })
+        result.append(
+            {
+                "name": defn.name,
+                "description": defn.description,
+                "tier": defn.tier,
+                "parameters": defn.parameters,
+                "personas": personas,
+                "enabled": defn.name not in disabled,
+            }
+        )
     return ApiResponse(success=True, data=result)
 
 
@@ -2260,10 +2370,9 @@ class _ToolEnabledPatch(BaseModel):
 
 
 @gateway_router.patch("/tools/{tool_name}")
-async def update_tool_enabled(
-    tool_name: str, body: _ToolEnabledPatch, request: Request
-):
+async def update_tool_enabled(tool_name: str, body: _ToolEnabledPatch, request: Request):
     from tianshu.tools.registry import ToolRegistry
+
     registry: ToolRegistry = request.app.state.tool_registry
     # 未注册直接 404
     defn = registry.get_definition(tool_name)
@@ -2276,9 +2385,7 @@ async def update_tool_enabled(
         registry.enable(tool_name)
     else:
         registry.disable(tool_name)
-    return ApiResponse(
-        success=True, data={"name": tool_name, "enabled": body.enabled}
-    )
+    return ApiResponse(success=True, data={"name": tool_name, "enabled": body.enabled})
 
 
 # --- MCP servers endpoints (藏兵阁外援) ---
@@ -2310,10 +2417,7 @@ def _mcp_server_to_dict(name: str, cfg, session=None) -> dict:
     if session is not None:
         out["status"] = session.status
         out["last_error"] = session.last_error
-        out["tools"] = [
-            {"name": t.name, "description": t.description}
-            for t in session.tools
-        ]
+        out["tools"] = [{"name": t.name, "description": t.description} for t in session.tools]
     else:
         out["status"] = "disabled" if not cfg.enabled else "unknown"
         out["last_error"] = None
@@ -2334,11 +2438,13 @@ async def list_mcp_servers(request: Request):
                 data.append(_mcp_server_to_dict(name, cfg, sessions.get(name)))
             except Exception as exc:
                 logger.exception("[mcp] failed to serialize server %s", name)
-                data.append({
-                    "name": name,
-                    "status": "error",
-                    "last_error": f"serialization error: {exc}",
-                })
+                data.append(
+                    {
+                        "name": name,
+                        "status": "error",
+                        "last_error": f"serialization error: {exc}",
+                    }
+                )
         return ApiResponse(success=True, data=data)
     except Exception as exc:
         logger.exception("[mcp] list servers failed")
@@ -2364,17 +2470,20 @@ async def list_mcp_server_tools(name: str, request: Request):
     if session is None:
         return ApiResponse(success=True, data=[])
     from tianshu.tools.mcp.naming import encode_tool_name
+
     cfg = manager.config.mcp_servers[name]
     data = []
     for t in session.tools:
         full_name = encode_tool_name(name, t.name)
         tier = cfg.tool_overrides.get(t.name, cfg.default_tier)
-        data.append({
-            "name": t.name,
-            "full_name": full_name,
-            "description": t.description,
-            "tier": tier,
-        })
+        data.append(
+            {
+                "name": t.name,
+                "full_name": full_name,
+                "description": t.description,
+                "tier": tier,
+            }
+        )
     return ApiResponse(success=True, data=data)
 
 
@@ -2469,9 +2578,7 @@ async def create_mcp_server(
     if not name:
         raise HTTPException(400, "name is required")
     if "_" in name:
-        raise HTTPException(
-            400, "name must not contain underscore (mcp_<server>_<tool> uses it)"
-        )
+        raise HTTPException(400, "name must not contain underscore (mcp_<server>_<tool> uses it)")
     if body.transport not in ("stdio", "streamable_http"):
         raise HTTPException(
             400, f"transport must be 'stdio' or 'streamable_http', got {body.transport!r}"
@@ -2549,6 +2656,7 @@ async def _restart_mcp_sessions(manager, registry) -> None:
     session restart 单独走后台（npx 拉包 / 远端握手可能 30s+，不能让 HTTP 等）。
     """
     from tianshu.tools.mcp.naming import is_mcp_tool
+
     if hasattr(registry, "_tools"):
         for name in list(registry._tools.keys()):
             if is_mcp_tool(name):
@@ -2595,6 +2703,7 @@ _PROMPT_FILE_WHITELIST = {"SOUL.md", "ROLE.md", "COURT.md", "MEMORY.md"}
 def _read_dept_display_name(persona_dir) -> str:
     """Read department display name from SOUL.md or COURT.md frontmatter."""
     import yaml
+
     # Try SOUL.md first, then COURT.md (for court directory)
     for fname in ("SOUL.md", "COURT.md"):
         md_path = persona_dir / fname
@@ -2610,7 +2719,7 @@ def _read_dept_display_name(persona_dir) -> str:
                     continue
                 # Use the Chinese portion before the English parenthetical
                 if "(" in raw:
-                    raw = raw[:raw.index("(")].strip()
+                    raw = raw[: raw.index("(")].strip()
                 # Map well-known English names to Chinese
                 if raw == "Imperial Court":
                     return "朝廷"
@@ -2657,6 +2766,7 @@ def _prompt_file_path(request: Request, persona_id: str, filename: str):
 @gateway_router.get("/system-prompt/files")
 async def list_prompt_files(request: Request):
     from datetime import UTC, datetime
+
     personas_dir: Path = request.app.state.personas_dir
     memory_manager = request.app.state.memory_manager
     memory_dir: Path = memory_manager.memory_dir
@@ -2684,24 +2794,28 @@ async def list_prompt_files(request: Request):
                 target = md_file
             stat = target.stat()
             seen_files.add(md_file.name)
-            result.append({
-                "persona_id": persona_id,
-                "filename": md_file.name,
-                "path": str(target),
-                "size": stat.st_size,
-                "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
-            })
+            result.append(
+                {
+                    "persona_id": persona_id,
+                    "filename": md_file.name,
+                    "path": str(target),
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                }
+            )
         # Surface runtime-only files for personas without a template entry
         runtime_memory = memory_dir / persona_id / "MEMORY.md"
         if "MEMORY.md" not in seen_files and runtime_memory.is_file():
             stat = runtime_memory.stat()
-            result.append({
-                "persona_id": persona_id,
-                "filename": "MEMORY.md",
-                "path": str(runtime_memory),
-                "size": stat.st_size,
-                "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
-            })
+            result.append(
+                {
+                    "persona_id": persona_id,
+                    "filename": "MEMORY.md",
+                    "path": str(runtime_memory),
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                }
+            )
     return ApiResponse(success=True, data={"files": result, "departments": departments})
 
 
@@ -2716,7 +2830,9 @@ async def get_prompt_file(persona_id: str, filename: str, request: Request):
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail=f"File not found: {persona_id}/{filename}")
     content = file_path.read_text(encoding="utf-8")
-    return ApiResponse(success=True, data={"persona_id": persona_id, "filename": filename, "content": content})
+    return ApiResponse(
+        success=True, data={"persona_id": persona_id, "filename": filename, "content": content}
+    )
 
 
 @gateway_router.put("/system-prompt/files/{persona_id}/{filename}", response_model=ApiResponse)
@@ -2730,20 +2846,29 @@ async def update_prompt_file(persona_id: str, filename: str, request: Request):
     if filename == "MEMORY.md":
         memory_manager = request.app.state.memory_manager
         memory_manager.md_backend.write_core_memory(persona_id, content)
-        return ApiResponse(success=True, data={"persona_id": persona_id, "filename": filename, "size": len(content)})
+        return ApiResponse(
+            success=True,
+            data={"persona_id": persona_id, "filename": filename, "size": len(content)},
+        )
     if filename in ("SOUL.md", "ROLE.md"):
         _resolve_runtime_identity_seed(request, persona_id)
     file_path = _prompt_file_path(request, persona_id, filename)
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding="utf-8")
-    return ApiResponse(success=True, data={"persona_id": persona_id, "filename": filename, "size": len(content)})
+    return ApiResponse(
+        success=True, data={"persona_id": persona_id, "filename": filename, "size": len(content)}
+    )
 
 
-@gateway_router.post("/system-prompt/files/{persona_id}/{filename}/reset", response_model=ApiResponse)
+@gateway_router.post(
+    "/system-prompt/files/{persona_id}/{filename}/reset", response_model=ApiResponse
+)
 async def reset_prompt_file(persona_id: str, filename: str, request: Request):
     """Reset a runtime identity file (SOUL.md / ROLE.md / MEMORY.md) to its department template."""
     if filename not in ("SOUL.md", "ROLE.md", "MEMORY.md"):
-        raise HTTPException(status_code=400, detail=f"File '{filename}' cannot be reset (not runtime-backed)")
+        raise HTTPException(
+            status_code=400, detail=f"File '{filename}' cannot be reset (not runtime-backed)"
+        )
     persona_loader = request.app.state.persona_loader
     personas_dir = request.app.state.personas_dir
     persona = persona_loader.get(persona_id)
@@ -2760,7 +2885,9 @@ async def reset_prompt_file(persona_id: str, filename: str, request: Request):
         target = _prompt_file_path(request, persona_id, filename)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
-    return ApiResponse(success=True, data={"persona_id": persona_id, "filename": filename, "size": len(content)})
+    return ApiResponse(
+        success=True, data={"persona_id": persona_id, "filename": filename, "size": len(content)}
+    )
 
 
 def _resolve_persona(persona_loader, persona_id: str):
@@ -2778,6 +2905,7 @@ def _resolve_persona(persona_loader, persona_id: str):
 @gateway_router.get("/system-prompt/preview/{persona_id}")
 async def preview_system_prompt(persona_id: str, request: Request):
     from tianshu.persona.prompt_builder import PromptBuilder
+
     prompt_builder: PromptBuilder = request.app.state.prompt_builder
     persona_loader = request.app.state.persona_loader
     persona = _resolve_persona(persona_loader, persona_id)
@@ -2785,12 +2913,14 @@ async def preview_system_prompt(persona_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
     # Build a dummy edict for preview
     from tianshu.models.edict import Edict
+
     dummy_edict = Edict(title="Preview", goal="System prompt preview")
     preview = await prompt_builder.build(dummy_edict, persona=persona)
     return ApiResponse(success=True, data={"persona_id": persona_id, "prompt": preview})
 
 
 # --- EventBus introspection endpoints (运维监控台) ---
+
 
 @gateway_router.get("/event-bus/handlers")
 async def list_event_bus_handlers(request: Request):
@@ -2799,8 +2929,7 @@ async def list_event_bus_handlers(request: Request):
     result = {}
     for event_type, entries in event_bus._handlers.items():
         result[event_type] = [
-            {"handler": e.handler.__qualname__, "priority": e.priority}
-            for e in entries
+            {"handler": e.handler.__qualname__, "priority": e.priority} for e in entries
         ]
     return ApiResponse(success=True, data=result)
 
@@ -2826,42 +2955,48 @@ async def get_recent_events(
 
 # --- Hooks introspection endpoints (运维监控台) ---
 
+
 @gateway_router.get("/hooks/registry")
 async def list_hooks_registry(request: Request):
     """List all registered hooks with handler info and priorities."""
     from tianshu.executor.hooks import HookRegistry
+
     hook_registry: HookRegistry = request.app.state.hook_registry
     result = {}
     for hook_type, entries in hook_registry._hooks.items():
         result[hook_type.value] = [
-            {"handler": e.handler.__qualname__, "priority": e.priority}
-            for e in entries
+            {"handler": e.handler.__qualname__, "priority": e.priority} for e in entries
         ]
     return ApiResponse(success=True, data=result)
 
 
 # --- Notification channel endpoints (通政司·驿传) ---
 
+
 @gateway_router.get("/notifications/channels")
 async def list_notification_channels(request: Request):
     """List registered notification channels with rate limit info."""
     from tianshu.notifier.channel_registry import ChannelRegistry
+
     registry: ChannelRegistry = request.app.state.channel_registry
     channels = []
     for name in registry.list_channels():
         channel = registry.get(name)
         rpm = registry._rate_limits.get(name, 10)
         recent_sends = len(registry._send_log.get(name, []))
-        channels.append({
-            "name": name,
-            "type": type(channel).__name__,
-            "rpm_limit": rpm,
-            "recent_sends": recent_sends,
-        })
+        channels.append(
+            {
+                "name": name,
+                "type": type(channel).__name__,
+                "rpm_limit": rpm,
+                "recent_sends": recent_sends,
+            }
+        )
     return ApiResponse(success=True, data=channels)
 
 
 # --- Memory maintenance endpoints (文渊阁·整编) ---
+
 
 @gateway_router.post("/memory/compact", response_model=ApiResponse)
 async def compact_memory(request: Request):
@@ -2874,21 +3009,28 @@ async def compact_memory(request: Request):
     max_age_days = body.get("max_age_days", 7)
     entries = mm.list_by_persona(persona_id, limit=200)
     from datetime import UTC, datetime, timedelta
+
     cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
     old_entries = [e for e in entries if e.created_at < cutoff.isoformat()]
     if len(old_entries) <= 3:
-        return ApiResponse(success=True, data={
-            "status": "skipped",
-            "reason": f"Only {len(old_entries)} entries older than {max_age_days} days (need >3)",
-        })
+        return ApiResponse(
+            success=True,
+            data={
+                "status": "skipped",
+                "reason": f"Only {len(old_entries)} entries older than {max_age_days} days (need >3)",
+            },
+        )
     result = await mm._compactor.compact(persona_id, old_entries)
-    return ApiResponse(success=True, data={
-        "status": "completed",
-        "original_count": result.original_count,
-        "compacted_count": result.compacted_count,
-        "summary": result.summary,
-        "tokens_saved": result.tokens_saved,
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "status": "completed",
+            "original_count": result.original_count,
+            "compacted_count": result.compacted_count,
+            "summary": result.summary,
+            "tokens_saved": result.tokens_saved,
+        },
+    )
 
 
 @gateway_router.post("/memory/reflect", response_model=ApiResponse)
@@ -2900,27 +3042,35 @@ async def trigger_reflection(request: Request):
     if not persona_id:
         raise HTTPException(status_code=400, detail="persona_id is required")
     if not mm._reflector.can_reflect(persona_id):
-        return ApiResponse(success=True, data={
-            "status": "cooldown",
-            "reason": "Reflection cooldown active (1 hour between reflections)",
-        })
+        return ApiResponse(
+            success=True,
+            data={
+                "status": "cooldown",
+                "reason": "Reflection cooldown active (1 hour between reflections)",
+            },
+        )
     observations = [
-        e for e in mm.list_by_persona(persona_id, limit=50)
-        if e.category == "observation"
+        e for e in mm.list_by_persona(persona_id, limit=50) if e.category == "observation"
     ]
     if not observations:
-        return ApiResponse(success=True, data={
-            "status": "skipped",
-            "reason": "No observations to reflect on",
-        })
+        return ApiResponse(
+            success=True,
+            data={
+                "status": "skipped",
+                "reason": "No observations to reflect on",
+            },
+        )
     insights = await mm._reflector.reflect(persona_id, observations)
     for insight in insights:
         mm.store_to_index(insight)
-    return ApiResponse(success=True, data={
-        "status": "completed",
-        "insights_generated": len(insights),
-        "insights": [i.content for i in insights],
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "status": "completed",
+            "insights_generated": len(insights),
+            "insights": [i.content for i in insights],
+        },
+    )
 
 
 @gateway_router.get("/memory/stats")
@@ -2952,22 +3102,26 @@ async def get_memory_stats(request: Request):
 
 # --- Prompt layer visualization (翰林院·拟旨) ---
 
+
 @gateway_router.get("/system-prompt/layers/{persona_id}")
 async def get_prompt_layers(persona_id: str, request: Request):
     """Get system prompt breakdown by layer."""
     from tianshu.persona.prompt_builder import PromptBuilder
+
     prompt_builder: PromptBuilder = request.app.state.prompt_builder
     persona_loader = request.app.state.persona_loader
     persona = _resolve_persona(persona_loader, persona_id)
     if not persona:
         raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found")
     from tianshu.models.edict import Edict
+
     dummy_edict = Edict(title="Preview", goal="Layer analysis")
     layers = await prompt_builder.build_layers(dummy_edict, persona=persona)
     return ApiResponse(success=True, data=layers)
 
 
 # --- Official routing rules (吏部·铨选) ---
+
 
 @gateway_router.get("/routing/rules")
 async def get_routing_rules(request: Request):
@@ -2977,19 +3131,25 @@ async def get_routing_rules(request: Request):
     delegation = []
     for p in personas:
         if p.can_delegate and p.delegates_to:
-            delegation.append({
-                "from_id": p.id,
-                "from_name": p.name,
-                "delegates_to": p.delegates_to,
-            })
-    return ApiResponse(success=True, data={
-        "default_map": selector.get_default_map(),
-        "keyword_map": selector.get_keyword_map(),
-        "delegation_chains": delegation,
-    })
+            delegation.append(
+                {
+                    "from_id": p.id,
+                    "from_name": p.name,
+                    "delegates_to": p.delegates_to,
+                }
+            )
+    return ApiResponse(
+        success=True,
+        data={
+            "default_map": selector.get_default_map(),
+            "keyword_map": selector.get_keyword_map(),
+            "delegation_chains": delegation,
+        },
+    )
 
 
 # --- Audit rules management (刑部·律典) ---
+
 
 @gateway_router.get("/audit/rules")
 async def get_audit_rules(request: Request):
@@ -3023,10 +3183,13 @@ async def get_audit_rules(request: Request):
         {"value": "on_flag", "label": "标记时审计", "description": "规则标记后触发 LLM 深度审阅"},
         {"value": "always", "label": "始终审计", "description": "无论结果如何都强制人工复核"},
     ]
-    return ApiResponse(success=True, data={
-        "rules": rules,
-        "review_policies": review_policies,
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "rules": rules,
+            "review_policies": review_policies,
+        },
+    )
 
 
 # --- Planner stats ---
@@ -3060,24 +3223,33 @@ async def get_planner_stats(request: Request):
     history = []
     for r in recent_rows:
         keys = r.keys()
-        history.append({
-            "edict_id": r["id"],
-            "title": r["title"],
-            "goal": r["goal"],
-            "assigned_persona_id": r["assigned_persona_id"] if "assigned_persona_id" in keys else None,
-            "planner_persona_id": r["planner_persona_id"] if "planner_persona_id" in keys else None,
-            "plan_type": "dag" if r["dag_id"] else "passthrough",
-            "task_count": r["node_count"] or 1,
-            "created_at": r["created_at"],
-        })
+        history.append(
+            {
+                "edict_id": r["id"],
+                "title": r["title"],
+                "goal": r["goal"],
+                "assigned_persona_id": r["assigned_persona_id"]
+                if "assigned_persona_id" in keys
+                else None,
+                "planner_persona_id": r["planner_persona_id"]
+                if "planner_persona_id" in keys
+                else None,
+                "plan_type": "dag" if r["dag_id"] else "passthrough",
+                "task_count": r["node_count"] or 1,
+                "created_at": r["created_at"],
+            }
+        )
 
-    return ApiResponse(success=True, data={
-        "total_edicts": total_edicts,
-        "passthrough_count": passthrough_count,
-        "dag_count": dag_count,
-        "avg_tasks_per_dag": avg_tasks,
-        "recent_history": history,
-    })
+    return ApiResponse(
+        success=True,
+        data={
+            "total_edicts": total_edicts,
+            "passthrough_count": passthrough_count,
+            "dag_count": dag_count,
+            "avg_tasks_per_dag": avg_tasks,
+            "recent_history": history,
+        },
+    )
 
 
 # --- Policy endpoints (Spec Section 6) ---
@@ -3098,13 +3270,15 @@ async def list_policy_events(edict_id: str, request: Request):
             or typ.startswith("decree.")
         ):
             continue
-        data.append({
-            "id": row.get("id"),
-            "memorial_id": row.get("memorial_id"),
-            "type": typ,
-            "payload": row.get("payload") or {},
-            "created_at": row.get("created_at"),
-        })
+        data.append(
+            {
+                "id": row.get("id"),
+                "memorial_id": row.get("memorial_id"),
+                "type": typ,
+                "payload": row.get("payload") or {},
+                "created_at": row.get("created_at"),
+            }
+        )
     return ApiResponse(success=True, data={"events": data})
 
 

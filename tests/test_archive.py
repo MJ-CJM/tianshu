@@ -19,11 +19,20 @@ def storage(tmp_path):
 
 
 def _save_iter(s, id_: str, edict_id: str, iteration: int, finished_at: str):
-    s.save_outer_loop_iteration({
-        "id": id_, "edict_id": edict_id, "iteration": iteration, "level": "L0",
-        "actor_output": f"data-{id_}", "checks_result": "{}", "critic_result": None,
-        "cost_cny": 0.1, "started_at": finished_at, "finished_at": finished_at,
-    })
+    s.save_outer_loop_iteration(
+        {
+            "id": id_,
+            "edict_id": edict_id,
+            "iteration": iteration,
+            "level": "L0",
+            "actor_output": f"data-{id_}",
+            "checks_result": "{}",
+            "critic_result": None,
+            "cost_cny": 0.1,
+            "started_at": finished_at,
+            "finished_at": finished_at,
+        }
+    )
 
 
 @pytest.mark.unit

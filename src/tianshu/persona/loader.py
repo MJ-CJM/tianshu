@@ -76,7 +76,10 @@ class PersonaLoader:
             if template.exists():
                 shutil.copy2(template, target)
                 logger.info(
-                    "Seeded %s/%s from %s", persona_id, fname, template,
+                    "Seeded %s/%s from %s",
+                    persona_id,
+                    fname,
+                    template,
                 )
         return target_dir / "SOUL.md", target_dir / "ROLE.md"
 
@@ -110,6 +113,7 @@ class PersonaLoader:
         persona_dir = self._dir / persona_id
         if persona_dir.is_dir():
             import shutil
+
             shutil.rmtree(persona_dir)
             logger.info("Removed persona directory: %s", persona_dir)
         return deleted
@@ -162,7 +166,9 @@ class PersonaLoader:
             logger.warning(
                 "Persona '%s' missing %s — skipping. "
                 "Create these files in %s to activate this persona.",
-                persona_dir.name, " and ".join(missing), persona_dir,
+                persona_dir.name,
+                " and ".join(missing),
+                persona_dir,
             )
             return None
 
@@ -172,7 +178,8 @@ class PersonaLoader:
 
         # Seed runtime identity from this template dir (persona_id == dir name here)
         soul_path, role_path = self.ensure_runtime_identity(
-            persona_dir.name, persona_dir,
+            persona_dir.name,
+            persona_dir,
         )
 
         return AgentPersona(

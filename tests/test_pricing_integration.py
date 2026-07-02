@@ -41,17 +41,20 @@ async def test_llmclient_uses_custom_pricing_with_cache_hit(provider_manager):
     """LLMClient 用自定义价 + cache 折扣。"""
     pm = provider_manager
     # 注册 provider + 自定义 3 维价
-    pm.register(ProviderInfo(
-        name="my-deepseek",
-        model="deepseek-v4-flash",
-        cost_per_1k_prompt=0.001,
-        cost_per_1k_cache_read=0.00002,
-        cost_per_1k_completion=0.002,
-    ))
+    pm.register(
+        ProviderInfo(
+            name="my-deepseek",
+            model="deepseek-v4-flash",
+            cost_per_1k_prompt=0.001,
+            cost_per_1k_cache_read=0.00002,
+            cost_per_1k_completion=0.002,
+        )
+    )
 
     # 通过 ProviderManager.get_client 拿 LLMClient（应注入 pricing_override + provider_name）
     # 这里直接构造方便 mock；底层路径已在 ProviderManager 单测覆盖
     from tianshu.llm import LLMClient
+
     pricing = pm.get_effective_pricing("my-deepseek")
     client = LLMClient(
         model="deepseek-v4-flash",
@@ -62,10 +65,12 @@ async def test_llmclient_uses_custom_pricing_with_cache_hit(provider_manager):
 
     # mock litellm 返回带 deepseek cache hit 的 usage
     fake_response = MagicMock()
-    fake_response.choices = [MagicMock(
-        message=MagicMock(content="hi", tool_calls=None),
-        finish_reason="stop",
-    )]
+    fake_response.choices = [
+        MagicMock(
+            message=MagicMock(content="hi", tool_calls=None),
+            finish_reason="stop",
+        )
+    ]
     fake_response.usage = _FakeUsage(
         prompt_tokens=1000,
         completion_tokens=500,
@@ -96,10 +101,12 @@ async def test_anthropic_cache_field_extraction(provider_manager):
 
     client = LLMClient(model="claude-sonnet-4-6", api_key="x")
     fake_response = MagicMock()
-    fake_response.choices = [MagicMock(
-        message=MagicMock(content="hi", tool_calls=None),
-        finish_reason="stop",
-    )]
+    fake_response.choices = [
+        MagicMock(
+            message=MagicMock(content="hi", tool_calls=None),
+            finish_reason="stop",
+        )
+    ]
     fake_response.usage = _FakeUsage(
         prompt_tokens=1000,
         completion_tokens=500,
@@ -125,10 +132,12 @@ async def test_openai_cache_field_extraction(provider_manager):
 
     client = LLMClient(model="gpt-4o", api_key="x")
     fake_response = MagicMock()
-    fake_response.choices = [MagicMock(
-        message=MagicMock(content="hi", tool_calls=None),
-        finish_reason="stop",
-    )]
+    fake_response.choices = [
+        MagicMock(
+            message=MagicMock(content="hi", tool_calls=None),
+            finish_reason="stop",
+        )
+    ]
     fake_response.usage = _FakeUsage(
         prompt_tokens=1000,
         completion_tokens=500,
@@ -150,12 +159,16 @@ async def test_no_cache_field_falls_back_to_zero(provider_manager):
 
     client = LLMClient(model="unknown-model", api_key="x")
     fake_response = MagicMock()
-    fake_response.choices = [MagicMock(
-        message=MagicMock(content="hi", tool_calls=None),
-        finish_reason="stop",
-    )]
+    fake_response.choices = [
+        MagicMock(
+            message=MagicMock(content="hi", tool_calls=None),
+            finish_reason="stop",
+        )
+    ]
     fake_response.usage = _FakeUsage(
-        prompt_tokens=1000, completion_tokens=500, total_tokens=1500,
+        prompt_tokens=1000,
+        completion_tokens=500,
+        total_tokens=1500,
     )
 
     with patch("tianshu.llm.litellm.acompletion", return_value=fake_response):
@@ -179,11 +192,19 @@ async def test_cost_manager_tracker_uses_provider_name(storage):
     # 模拟 LLM_OUTPUT hook 调用
     edict = MagicMock()
     edict.id = "e1"
-    usage = UsageSummary(prompt_tokens=1000, completion_tokens=500, total_tokens=1500, cache_read_tokens=600, cost_cny=0.001412)
+    usage = UsageSummary(
+        prompt_tokens=1000,
+        completion_tokens=500,
+        total_tokens=1500,
+        cache_read_tokens=600,
+        cost_cny=0.001412,
+    )
     config_state = MagicMock()
     config_state.model = "deepseek-v4-flash"
     await cm.on_llm_output(
-        edict=edict, usage=usage, config_state=config_state,
+        edict=edict,
+        usage=usage,
+        config_state=config_state,
         provider_name="my-deepseek",
     )
     # finalize（模拟 execution.completed）
@@ -198,6 +219,8 @@ async def test_cost_manager_tracker_uses_provider_name(storage):
     records, total = storage.list_cost_records(edict_id="e1")
     assert total == 1
     rec = records[0]
-    assert rec["provider_name"] == "my-deepseek", f"expected 'my-deepseek', got {rec['provider_name']}"
+    assert rec["provider_name"] == "my-deepseek", (
+        f"expected 'my-deepseek', got {rec['provider_name']}"
+    )
     # 注：cache_read_tokens 当前不入 cost_ledger 表（schema 未加列）。
     # 跨 edict 聚合不需要这一维度；单 edict 内的 cache 数据看 outer_loop_iterations 表。

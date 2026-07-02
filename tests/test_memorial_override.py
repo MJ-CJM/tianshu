@@ -35,6 +35,7 @@ def _make_executor(storage: Storage) -> Executor:
 
 # ---------- Storage round-trip ----------
 
+
 def test_memorial_persists_runtime_override():
     s = _make_storage()
     e = Edict(goal="g")
@@ -84,6 +85,7 @@ def test_memorial_default_overrides_are_none():
 
 
 # ---------- Executor merge ----------
+
 
 def test_apply_override_returns_same_edict_when_empty():
     """情况 1：override 全空 → 返回原 edict（identity，不复制）。"""

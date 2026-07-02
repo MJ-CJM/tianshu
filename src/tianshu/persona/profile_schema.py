@@ -8,9 +8,7 @@ from typing import Any
 
 import yaml
 
-AUTO_SECTION_MARKER = (
-    "<!-- Auto-generated section ends. Manual notes below preserved. -->"
-)
+AUTO_SECTION_MARKER = "<!-- Auto-generated section ends. Manual notes below preserved. -->"
 
 
 @dataclass
@@ -58,6 +56,7 @@ class ProfileFrontmatter:
 @dataclass
 class ProfileSections:
     """Four rendered sections of PROFILE.md."""
+
     specialties_md: str = ""
     task_distribution_md: str = ""
     health_md: str = ""

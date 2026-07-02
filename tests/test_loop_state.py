@@ -61,17 +61,17 @@ class TestLoopState:
 
     def test_with_compacted_increments_count(self):
         state = LoopState(messages=(), iteration=0, total_compact_count=1)
-        compacted = state.with_compacted(
-            [{"role": "user", "content": "summary"}]
-        )
+        compacted = state.with_compacted([{"role": "user", "content": "summary"}])
         assert compacted.total_compact_count == 2
         assert compacted.compact_attempted is True
         assert compacted.transition_reason == "auto_compact"
 
     def test_accumulate_usage(self):
         state = LoopState(
-            messages=(), iteration=0,
-            total_prompt_tokens=50, total_completion_tokens=30,
+            messages=(),
+            iteration=0,
+            total_prompt_tokens=50,
+            total_completion_tokens=30,
         )
         updated = state.accumulate_usage(prompt=100, completion=60)
         assert updated.total_prompt_tokens == 150

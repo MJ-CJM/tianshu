@@ -68,8 +68,7 @@ def _register_web_fetch(registry, edict_getter):
             "cached": outcome.cached,
             "final_url": outcome.final_url,
             "attempts": [
-                {"engine": a.engine, "status": a.status, "reason": a.reason}
-                for a in attempts
+                {"engine": a.engine, "status": a.status, "reason": a.reason} for a in attempts
             ],
         }
         if outcome.status == "ok":
@@ -132,7 +131,9 @@ def _register_web_search(registry, edict_getter):
         if not outcome.results:
             return ToolResult(
                 content="search_empty",
-                details={"network": {"tool": "web_search", "provider": provider_name, "result_count": 0}},
+                details={
+                    "network": {"tool": "web_search", "provider": provider_name, "result_count": 0}
+                },
                 is_error=True,
             )
 
@@ -162,9 +163,7 @@ def _register_web_search(registry, edict_getter):
                 "type": "object",
                 "properties": {
                     "query": {"type": "string"},
-                    "max_results": {
-                        "type": "integer", "minimum": 1, "maximum": 10, "default": 5
-                    },
+                    "max_results": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
                 },
                 "required": ["query"],
             },
@@ -202,9 +201,7 @@ def _register_api_request(registry, edict_getter):
             return error_result("host_not_whitelisted")
 
         if method.upper() in WRITE_METHODS:
-            write_hosts = tuple(
-                getattr(edict.runtime, "api_request_write_hosts", ()) or ()
-            )
+            write_hosts = tuple(getattr(edict.runtime, "api_request_write_hosts", ()) or ())
             if host not in write_hosts:
                 return error_result("write_method_host_not_whitelisted")
             # 写方法审批路径由 NetworkSafetyRule 拦截 (Task 13-14)，到达此处即已批
@@ -224,13 +221,15 @@ def _register_api_request(registry, edict_getter):
         if resp.status != "ok":
             return ToolResult(
                 content=resp.reason or "api_request_failed",
-                details={"network": {
-                    "tool": "api_request",
-                    "host": host,
-                    "method": method.upper(),
-                    "credential_name": resp.credential_name,
-                    "http_status": resp.http_status,
-                }},
+                details={
+                    "network": {
+                        "tool": "api_request",
+                        "host": host,
+                        "method": method.upper(),
+                        "credential_name": resp.credential_name,
+                        "http_status": resp.http_status,
+                    }
+                },
                 is_error=True,
             )
 
@@ -295,9 +294,7 @@ def _register_api_request(registry, edict_getter):
 
 
 def _register_web_extract(registry, edict_getter):
-    async def web_extract(
-        url: str, schema: dict, prompt: str | None = None
-    ) -> ToolResult:
+    async def web_extract(url: str, schema: dict, prompt: str | None = None) -> ToolResult:
         edict_id, net, _, _ = _resolve_edict_context(edict_getter)
         if "firecrawl" not in net.fetch_engines:
             return error_result("web_extract_not_allowed_in_profile")

@@ -14,7 +14,9 @@ from tianshu.skills.loader import SkillsLoader
 from tianshu.skills.metrics import SkillMetrics, SkillMetricsStore
 from tianshu.storage import Storage
 
-_SKILL_MD = "---\nname: {name}\ndescription: test skill for iteration\n---\n\n# {name}\n\nbody for {name}"
+_SKILL_MD = (
+    "---\nname: {name}\ndescription: test skill for iteration\n---\n\n# {name}\n\nbody for {name}"
+)
 
 
 @pytest.fixture
@@ -165,7 +167,6 @@ class TestIteratePass:
         mock_llm = MagicMock()
         mock_llm.chat = MagicMock(return_value=_Resp(llm_resp))
 
-
         async def async_chat(**kwargs):
             return _Resp(llm_resp)
 
@@ -190,7 +191,9 @@ class TestIteratePass:
         _add_agent_skill(loader, ms, "improve-me")
         _set_counters(ms, "improve-me", usage=5, success=1)
 
-        improved_md = "---\nname: improve-me\ndescription: improved skill\n---\n\n# Improved\n\nbetter body"
+        improved_md = (
+            "---\nname: improve-me\ndescription: improved skill\n---\n\n# Improved\n\nbetter body"
+        )
         curator = self._make_curator(env, improved_md)
         improved = await curator._iterate_pass()
 

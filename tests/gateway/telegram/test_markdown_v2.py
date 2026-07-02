@@ -1,4 +1,5 @@
 """MarkdownV2 转换 + UTF-16 分片。"""
+
 from __future__ import annotations
 
 from tianshu.gateway.telegram.markdown_v2 import (

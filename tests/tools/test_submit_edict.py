@@ -1,4 +1,5 @@
 """submit_edict tool 单元测试。"""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -50,6 +51,7 @@ async def test_submit_edict_fires_event(setup):
     _, func = registry._tools["submit_edict"]
     res = await func(goal="x", priority="urgent")
     import asyncio
+
     await asyncio.sleep(0.05)
     assert any(e.edict_id == res.details["edict_id"] for e in received)
 
@@ -199,6 +201,7 @@ async def test_submit_edict_rejects_invalid_profile(setup):
 
 # ── review_policy / output_format / acceptance_rubric ────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_submit_edict_default_review_policy_never(setup):
     registry, storage, _ = setup
@@ -279,7 +282,10 @@ async def test_submit_edict_schema_exposes_extended_fields(setup):
     props = defn.parameters["properties"]
     assert "review_policy" in props
     assert set(props["review_policy"]["enum"]) == {
-        "never", "on_failure", "on_flag", "always",
+        "never",
+        "on_failure",
+        "on_flag",
+        "always",
     }
     assert "output_format" in props
     assert "acceptance_rubric" in props

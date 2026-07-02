@@ -256,17 +256,13 @@ class TestAgentIntegration:
                             "args": '{"pattern": "bug"}',
                         }
                     ],
-                    usage=UsageSummary(
-                        prompt_tokens=50, completion_tokens=50, total_tokens=100
-                    ),
+                    usage=UsageSummary(prompt_tokens=50, completion_tokens=50, total_tokens=100),
                     finish_reason="tool_calls",
                 )
             return MagicMock(
                 content="Found 2 bugs in main.py",
                 tool_calls=None,
-                usage=UsageSummary(
-                    prompt_tokens=100, completion_tokens=100, total_tokens=200
-                ),
+                usage=UsageSummary(prompt_tokens=100, completion_tokens=100, total_tokens=200),
                 finish_reason="stop",
             )
 

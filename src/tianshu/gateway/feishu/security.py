@@ -1,4 +1,5 @@
 """Feishu webhook 安全：签名 / token / allowlist / dedup。"""
+
 from __future__ import annotations
 
 import hashlib
@@ -25,7 +26,9 @@ def verify_signature(headers: dict[str, str], body_bytes: bytes, encrypt_key: st
     encrypt_key 为空时跳过校验（dev 模式）。"""
     if not encrypt_key:
         return True
-    timestamp = headers.get("x-lark-request-timestamp") or headers.get("X-Lark-Request-Timestamp", "")
+    timestamp = headers.get("x-lark-request-timestamp") or headers.get(
+        "X-Lark-Request-Timestamp", ""
+    )
     nonce = headers.get("x-lark-request-nonce") or headers.get("X-Lark-Request-Nonce", "")
     expected_sig = headers.get("x-lark-signature") or headers.get("X-Lark-Signature", "")
     if not (timestamp and nonce and expected_sig):

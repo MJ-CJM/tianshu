@@ -21,9 +21,11 @@ def _edict() -> Edict:
 @pytest.mark.unit
 async def test_critic_pass():
     llm = MagicMock()
-    llm.chat = AsyncMock(return_value=MagicMock(
-        content='{"verdict": "pass", "feedback": "great"}',
-    ))
+    llm.chat = AsyncMock(
+        return_value=MagicMock(
+            content='{"verdict": "pass", "feedback": "great"}',
+        )
+    )
     r = await review("poem text", _edict(), AcceptanceCriteria(), llm)
     assert r.verdict == "pass"
     assert r.issue_class is None
@@ -32,9 +34,11 @@ async def test_critic_pass():
 @pytest.mark.unit
 async def test_critic_fail_with_issue_class():
     llm = MagicMock()
-    llm.chat = AsyncMock(return_value=MagicMock(
-        content='{"verdict": "fail", "issue_class": "tone_mismatch", "feedback": "too dry"}',
-    ))
+    llm.chat = AsyncMock(
+        return_value=MagicMock(
+            content='{"verdict": "fail", "issue_class": "tone_mismatch", "feedback": "too dry"}',
+        )
+    )
     r = await review("dry text", _edict(), AcceptanceCriteria(), llm)
     assert r.verdict == "fail"
     assert r.issue_class == "tone_mismatch"
@@ -43,9 +47,11 @@ async def test_critic_fail_with_issue_class():
 @pytest.mark.unit
 async def test_critic_invalid_issue_class_normalized_to_other():
     llm = MagicMock()
-    llm.chat = AsyncMock(return_value=MagicMock(
-        content='{"verdict": "fail", "issue_class": "made_up_class", "feedback": "x"}',
-    ))
+    llm.chat = AsyncMock(
+        return_value=MagicMock(
+            content='{"verdict": "fail", "issue_class": "made_up_class", "feedback": "x"}',
+        )
+    )
     r = await review("text", _edict(), AcceptanceCriteria(), llm)
     assert r.issue_class == "other"
 
@@ -63,9 +69,12 @@ async def test_critic_fallback_used_after_primary_fails():
     primary = MagicMock()
     primary.chat = AsyncMock(side_effect=RuntimeError("primary down"))
     fallback = MagicMock()
-    fallback.chat = AsyncMock(return_value=MagicMock(
-        content='{"verdict": "pass", "feedback": "ok"}',
-    ))
-    r = await review("text", _edict(), AcceptanceCriteria(),
-                     primary, fallback_llm=fallback, max_retries=2)
+    fallback.chat = AsyncMock(
+        return_value=MagicMock(
+            content='{"verdict": "pass", "feedback": "ok"}',
+        )
+    )
+    r = await review(
+        "text", _edict(), AcceptanceCriteria(), primary, fallback_llm=fallback, max_retries=2
+    )
     assert r.verdict == "pass"

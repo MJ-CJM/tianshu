@@ -6,6 +6,7 @@
 - audit 在 critic skip 时退化为 actor 自审
 - 模板反代理信号守则覆盖
 """
+
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
@@ -34,20 +35,27 @@ from tianshu.models.acceptance import AcceptanceCriteria, CheckSpec
 
 # ---------- 预算阈值 ----------
 
+
 def test_soft_landing_threshold_triggers_at_90_percent():
     snap = BudgetSnapshot(
-        tokens_used=900, token_budget=1000,
-        cost_used_cny=0, cost_budget_cny=None,
-        time_used_seconds=0, deadline_seconds=None,
+        tokens_used=900,
+        token_budget=1000,
+        cost_used_cny=0,
+        cost_budget_cny=None,
+        time_used_seconds=0,
+        deadline_seconds=None,
     )
     assert compute_usage_ratio(snap) == pytest.approx(SOFT_LANDING_THRESHOLD)
 
 
 def test_hard_limit_triggers_at_100_percent():
     snap = BudgetSnapshot(
-        tokens_used=1000, token_budget=1000,
-        cost_used_cny=0, cost_budget_cny=None,
-        time_used_seconds=0, deadline_seconds=None,
+        tokens_used=1000,
+        token_budget=1000,
+        cost_used_cny=0,
+        cost_budget_cny=None,
+        time_used_seconds=0,
+        deadline_seconds=None,
     )
     assert compute_usage_ratio(snap) == pytest.approx(HARD_LIMIT)
 
@@ -55,9 +63,12 @@ def test_hard_limit_triggers_at_100_percent():
 def test_budget_ratio_takes_max_across_dimensions():
     """token / cost / time 任一维度先到阈值都应触发。"""
     snap = BudgetSnapshot(
-        tokens_used=100, token_budget=1000,           # 0.10
-        cost_used_cny=0.92, cost_budget_cny=1.0,       # 0.92  ← 触发软着陆
-        time_used_seconds=10, deadline_seconds=300,    # 0.033
+        tokens_used=100,
+        token_budget=1000,  # 0.10
+        cost_used_cny=0.92,
+        cost_budget_cny=1.0,  # 0.92  ← 触发软着陆
+        time_used_seconds=10,
+        deadline_seconds=300,  # 0.033
     )
     ratio = compute_usage_ratio(snap)
     assert ratio >= SOFT_LANDING_THRESHOLD
@@ -67,9 +78,12 @@ def test_budget_ratio_takes_max_across_dimensions():
 def test_budget_ratio_below_soft_landing_does_not_trigger():
     """低于 90% 时不应触发软着陆。"""
     snap = BudgetSnapshot(
-        tokens_used=500, token_budget=1000,   # 0.50
-        cost_used_cny=0.4, cost_budget_cny=1.0,  # 0.40
-        time_used_seconds=100, deadline_seconds=300,  # 0.33
+        tokens_used=500,
+        token_budget=1000,  # 0.50
+        cost_used_cny=0.4,
+        cost_budget_cny=1.0,  # 0.40
+        time_used_seconds=100,
+        deadline_seconds=300,  # 0.33
     )
     ratio = compute_usage_ratio(snap)
     assert ratio < SOFT_LANDING_THRESHOLD
@@ -78,14 +92,18 @@ def test_budget_ratio_below_soft_landing_does_not_trigger():
 def test_budget_ratio_no_budgets_returns_zero():
     """无预算配置时 ratio 为 0。"""
     snap = BudgetSnapshot(
-        tokens_used=500, token_budget=None,
-        cost_used_cny=1.0, cost_budget_cny=None,
-        time_used_seconds=100, deadline_seconds=None,
+        tokens_used=500,
+        token_budget=None,
+        cost_used_cny=1.0,
+        cost_budget_cny=None,
+        time_used_seconds=100,
+        deadline_seconds=None,
     )
     assert compute_usage_ratio(snap) == pytest.approx(0.0)
 
 
 # ---------- prompt injection 防御 ----------
+
 
 def test_untrusted_objective_blocks_injection_via_close_tag():
     """注入恶意 goal 含闭合标签时不能逃逸 untrusted_objective 容器。"""
@@ -150,6 +168,7 @@ def test_wind_down_template_forbids_side_effect_tools():
 
 # ---------- audit 在 critic 不在场时用 actor 自审 ----------
 
+
 @pytest.mark.asyncio
 async def test_audit_runs_with_actor_llm_when_critic_absent():
     """run_completion_audit 接受任意 LLM 实例（actor 或 critic）。"""
@@ -178,15 +197,18 @@ async def test_audit_handles_realistic_llm_response_with_fenced_json():
         '{"passed": false, "gaps": ['
         '{"check_name": "tests", "requirement": "pytest 全绿", '
         '"evidence_status": "missing", "suggested_action": "运行 pytest"}'
-        ']}\n```\n\n以上。'
+        "]}\n```\n\n以上。"
     )
     fake_llm.chat.return_value = fake_resp
 
     result = await run_completion_audit(
-        actor_output="output", objective="g",
-        acceptance=AcceptanceCriteria(checks=[
-            CheckSpec(kind="bash", name="tests", command="pytest"),
-        ]),
+        actor_output="output",
+        objective="g",
+        acceptance=AcceptanceCriteria(
+            checks=[
+                CheckSpec(kind="bash", name="tests", command="pytest"),
+            ]
+        ),
         llm=fake_llm,
     )
     assert result.passed is False
@@ -216,6 +238,7 @@ async def test_audit_prompt_contains_untrusted_objective_wrapper():
 
 
 # ---------- audit gaps 反哺到 continuation ----------
+
 
 def test_audit_gaps_render_into_continuation_prompt():
     """完整链路：audit fail 输出 gaps → format → render continuation prompt。"""
@@ -254,6 +277,7 @@ def test_format_gaps_contains_all_fields():
 
 # ---------- AuditResult 不变性 ----------
 
+
 def test_audit_result_is_immutable():
     """AuditResult / AuditGap 是 frozen dataclass。"""
     result = AuditResult(passed=False, gaps=(AuditGap("x", "y", "ok", "z"),))
@@ -273,9 +297,12 @@ def test_audit_gap_is_immutable():
 def test_budget_snapshot_is_immutable():
     """BudgetSnapshot 是 frozen dataclass。"""
     snap = BudgetSnapshot(
-        tokens_used=100, token_budget=1000,
-        cost_used_cny=0.0, cost_budget_cny=None,
-        time_used_seconds=0, deadline_seconds=None,
+        tokens_used=100,
+        token_budget=1000,
+        cost_used_cny=0.0,
+        cost_budget_cny=None,
+        time_used_seconds=0,
+        deadline_seconds=None,
     )
     with pytest.raises(FrozenInstanceError):
         snap.tokens_used = 200  # type: ignore[misc]

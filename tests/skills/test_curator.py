@@ -85,12 +85,14 @@ async def test_consolidation_and_archival(env):
     _add_agent_skill(loader, ms, "obsolete-thing", "no longer useful")
 
     plan = {
-        "consolidations": [{
-            "into": "web-scraping",
-            "into_content": _SKILL.format(name="web-scraping", desc="unified scraping"),
-            "absorb": ["scrape-react", "scrape-vue"],
-            "reason": "merge",
-        }],
+        "consolidations": [
+            {
+                "into": "web-scraping",
+                "into_content": _SKILL.format(name="web-scraping", desc="unified scraping"),
+                "absorb": ["scrape-react", "scrape-vue"],
+                "reason": "merge",
+            }
+        ],
         "archivals": [{"name": "obsolete-thing", "reason": "stale"}],
     }
     curator, llm = _make_curator(env, plan)
@@ -118,12 +120,14 @@ async def test_dry_run_makes_no_changes(env):
     _add_agent_skill(loader, ms, "alpha")
     _add_agent_skill(loader, ms, "beta")
     plan = {
-        "consolidations": [{
-            "into": "merged",
-            "into_content": _SKILL.format(name="merged", desc="m"),
-            "absorb": ["alpha", "beta"],
-            "reason": "r",
-        }],
+        "consolidations": [
+            {
+                "into": "merged",
+                "into_content": _SKILL.format(name="merged", desc="m"),
+                "absorb": ["alpha", "beta"],
+                "reason": "r",
+            }
+        ],
         "archivals": [],
     }
     curator, _ = _make_curator(env, plan)
@@ -144,12 +148,14 @@ async def test_invalid_umbrella_is_skipped(env):
     _add_agent_skill(loader, ms, "one")
     _add_agent_skill(loader, ms, "two")
     plan = {
-        "consolidations": [{
-            "into": "BadName",  # uppercase → fails name validation
-            "into_content": _SKILL.format(name="BadName", desc="x"),
-            "absorb": ["one", "two"],
-            "reason": "r",
-        }],
+        "consolidations": [
+            {
+                "into": "BadName",  # uppercase → fails name validation
+                "into_content": _SKILL.format(name="BadName", desc="x"),
+                "absorb": ["one", "two"],
+                "reason": "r",
+            }
+        ],
         "archivals": [],
     }
     curator, _ = _make_curator(env, plan)
@@ -194,8 +200,9 @@ async def test_disabled_returns_skipped(env):
     loader, ms, _, _ = env
     _add_agent_skill(loader, ms, "x")
     _add_agent_skill(loader, ms, "y")
-    curator, llm = _make_curator(env, {"consolidations": [], "archivals": []},
-                                 skill_curator_enabled=False)
+    curator, llm = _make_curator(
+        env, {"consolidations": [], "archivals": []}, skill_curator_enabled=False
+    )
 
     result = await curator.run(trigger_source="test", dry_run=False)
 

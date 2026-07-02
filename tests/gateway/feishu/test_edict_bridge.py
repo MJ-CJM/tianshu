@@ -1,4 +1,5 @@
 """EdictBridge：续接 / 自动新建（X1） / EdictBusyError 单元测试。"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -20,7 +21,10 @@ def bridge(storage):
     executor.running_tasks = set()
     return (
         EdictBridge(
-            storage=storage, event_bus=bus, executor=executor, anchor=anchor,
+            storage=storage,
+            event_bus=bus,
+            executor=executor,
+            anchor=anchor,
         ),
         bus,
         anchor,
@@ -31,7 +35,9 @@ def bridge(storage):
 async def test_create_new_when_no_anchor(bridge, storage):
     b, _, anchor = bridge
     result = await b.continue_or_create(
-        chat_id="oc_x", sender_open_id="ou_a", text="帮我查最近 3 天天气",
+        chat_id="oc_x",
+        sender_open_id="ou_a",
+        text="帮我查最近 3 天天气",
     )
     assert result.edict_id and result.memorial_id
     edict = storage.get_edict(result.edict_id)
@@ -111,5 +117,6 @@ async def test_create_new_emits_edict_submitted_event(bridge, storage):
     result = await b.create_new(chat_id="oc_z", sender_open_id="ou_c", goal="x")
     # EventBus.fire 是同步派发到 handler（asyncio.create_task），等一拍
     import asyncio
+
     await asyncio.sleep(0.05)
     assert any(e.edict_id == result.edict_id for e in received)

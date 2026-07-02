@@ -65,9 +65,17 @@ class DrawerStore:
                 """INSERT OR REPLACE INTO drawers
                    (id, wing, room, content, source_edict_id, timestamp, category, confidence, chunk_index)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (drawer.id, drawer.wing, drawer.room, drawer.content,
-                 drawer.source_edict_id, drawer.timestamp, drawer.category,
-                 drawer.confidence, drawer.chunk_index),
+                (
+                    drawer.id,
+                    drawer.wing,
+                    drawer.room,
+                    drawer.content,
+                    drawer.source_edict_id,
+                    drawer.timestamp,
+                    drawer.category,
+                    drawer.confidence,
+                    drawer.chunk_index,
+                ),
             )
             # Sync to FTS
             with contextlib.suppress(sqlite3.OperationalError):
@@ -92,7 +100,11 @@ class DrawerStore:
             return self._fallback_search(query, wing, room, n_results)
 
     def _fts5_search(
-        self, query: str, wing: str | None, room: str | None, n: int,
+        self,
+        query: str,
+        wing: str | None,
+        room: str | None,
+        n: int,
     ) -> list[DrawerResult]:
         fts_query = _escape_fts5_query(query)
         if not fts_query:
@@ -128,18 +140,24 @@ class DrawerStore:
         for row in rows:
             raw_rank = abs(row["fts_rank"]) if row["fts_rank"] else 0
             score = 1.0 / (1.0 + raw_rank) if raw_rank else 0.5
-            results.append(DrawerResult(
-                drawer_id=row["id"],
-                content=row["content"],
-                wing=row["wing"],
-                room=row["room"],
-                score=score,
-                matched_via="bm25",
-            ))
+            results.append(
+                DrawerResult(
+                    drawer_id=row["id"],
+                    content=row["content"],
+                    wing=row["wing"],
+                    room=row["room"],
+                    score=score,
+                    matched_via="bm25",
+                )
+            )
         return results
 
     def _fallback_search(
-        self, query: str, wing: str | None, room: str | None, n: int,
+        self,
+        query: str,
+        wing: str | None,
+        room: str | None,
+        n: int,
     ) -> list[DrawerResult]:
         where_parts = ["content LIKE ?"]
         params: list[str] = [f"%{query}%"]
@@ -153,7 +171,7 @@ class DrawerStore:
         sql = f"""
             SELECT id, content, wing, room
             FROM drawers
-            WHERE {' AND '.join(where_parts)}
+            WHERE {" AND ".join(where_parts)}
             ORDER BY timestamp DESC
             LIMIT ?
         """
@@ -162,9 +180,12 @@ class DrawerStore:
             rows = self._conn.execute(sql, params).fetchall()
         return [
             DrawerResult(
-                drawer_id=row["id"], content=row["content"],
-                wing=row["wing"], room=row["room"],
-                score=0.5, matched_via="fallback",
+                drawer_id=row["id"],
+                content=row["content"],
+                wing=row["wing"],
+                room=row["room"],
+                score=0.5,
+                matched_via="fallback",
             )
             for row in rows
         ]

@@ -65,6 +65,7 @@ class SandboxRunner:
     def _preexec(self):
         try:
             import resource
+
             limit = self._mem_mb * 1024 * 1024
             resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
         except Exception:  # noqa: BLE001
@@ -77,10 +78,22 @@ class SandboxRunner:
         env = self._build_env(wt, db_path, port)
         preexec = self._preexec if os.name == "posix" else None
         proc = subprocess.Popen(
-            [self._py, "-m", "uvicorn", "tianshu.app:create_app",
-             "--factory", "--host", self._host, "--port", str(port)],
-            cwd=str(wt), env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            [
+                self._py,
+                "-m",
+                "uvicorn",
+                "tianshu.app:create_app",
+                "--factory",
+                "--host",
+                self._host,
+                "--port",
+                str(port),
+            ],
+            cwd=str(wt),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
             preexec_fn=preexec,
         )
         base_url = f"http://{self._host}:{port}"

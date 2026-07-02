@@ -116,7 +116,9 @@ class MemoryManager:
         """
         if writer and not self._access_control.can_store(writer, entry):
             logger.warning(
-                "Access denied: %s cannot write to %s", writer, entry.persona_id,
+                "Access denied: %s cannot write to %s",
+                writer,
+                entry.persona_id,
             )
             return entry
 
@@ -146,7 +148,9 @@ class MemoryManager:
 
         logger.debug(
             "[MEM] store: persona=%s, category=%s, content_len=%d",
-            entry.persona_id, entry.category, len(entry.content),
+            entry.persona_id,
+            entry.category,
+            len(entry.content),
         )
 
         # write-through 索引：MD 写完后同步刷 SQLite + FTS（memory_fts trigger 自动维护）。
@@ -156,7 +160,8 @@ class MemoryManager:
         except Exception:
             logger.exception(
                 "Index write-through failed for %s content=%.60r (MD already persisted)",
-                entry.id, entry.content,
+                entry.id,
+                entry.content,
             )
 
         return entry
@@ -173,7 +178,6 @@ class MemoryManager:
         """Chunk content into drawers and store them. Returns drawer IDs."""
         if not self._drawer_store or not self._memory_config.enabled:
             return []
-
 
         from ulid import ULID
 
@@ -223,11 +227,15 @@ class MemoryManager:
         """
         logger.debug(
             "[MEM] recall: persona=%s, query=%.80s, source=%s",
-            query.persona_id, query.query, source,
+            query.persona_id,
+            query.query,
+            source,
         )
         if source == "markdown" and query.query:
             md_results = self._md_backend.search_daily_logs(
-                query.persona_id, query.query, limit=query.limit,
+                query.persona_id,
+                query.query,
+                limit=query.limit,
             )
             entries = [
                 MemoryEntry(
@@ -348,6 +356,7 @@ class MemoryManager:
         # BEFORE_COMPACTION hook
         if self._hooks and hasattr(self._hooks, "run"):
             from tianshu.executor.hooks import HookType
+
             await self._hooks.run(
                 HookType.BEFORE_COMPACTION,
                 persona_id=persona_id,
@@ -369,7 +378,10 @@ class MemoryManager:
         # 非破坏写入：只更新「## 历史摘要」section，保留 memory_write / reflect 写入的其余 section
         try:
             self._md_backend.write_section(
-                persona_id, "## 历史摘要", mode="set", content=result.summary,
+                persona_id,
+                "## 历史摘要",
+                mode="set",
+                content=result.summary,
             )
         except Exception:
             # 写失败无害：daily logs 全量保留，下次 compact 会重新生成摘要
@@ -424,7 +436,11 @@ class MemoryManager:
             return persona.id
         if plan and hasattr(plan, "tasks") and plan.tasks:
             first_task = plan.tasks[0]
-            if first_task and hasattr(first_task, "assigned_official") and first_task.assigned_official:
+            if (
+                first_task
+                and hasattr(first_task, "assigned_official")
+                and first_task.assigned_official
+            ):
                 return first_task.assigned_official
         return DEFAULT_EXECUTOR_ID
 
@@ -469,7 +485,10 @@ class MemoryManager:
 
         with self._storage._lock:
             ids = fts_search(
-                self._storage._conn, goal, persona_ids=visible_ids, limit=limit * 4,
+                self._storage._conn,
+                goal,
+                persona_ids=visible_ids,
+                limit=limit * 4,
             )
         if not ids:
             return []
@@ -526,13 +545,16 @@ class MemoryManager:
         if self._drawer_store and self._memory_config.l2_recall_enabled:
             try:
                 from tianshu.memory.layers import MemoryStack
+
                 stack = MemoryStack(store=self._drawer_store, config=self._memory_config)
                 results = await stack.recall(goal, wing=persona_id, include_court=True)
                 for r in results[:5]:
-                    history_messages.append({
-                        "role": "user",
-                        "content": f"[Palace 记忆 | {r.wing}/{r.room}] {r.content}",
-                    })
+                    history_messages.append(
+                        {
+                            "role": "user",
+                            "content": f"[Palace 记忆 | {r.wing}/{r.room}] {r.content}",
+                        }
+                    )
             except Exception:
                 logger.exception("Failed to recall drawers for %s", persona_id)
 

@@ -89,9 +89,7 @@ def test_no_credential_passthrough(store_with_github: CredentialStore) -> None:
     assert r.merged_headers == {"Accept": "text/plain"}
 
 
-def test_credential_conflict_with_extra_headers(
-    storage, vault: SecretVault
-) -> None:
+def test_credential_conflict_with_extra_headers(storage, vault: SecretVault) -> None:
     store = CredentialStore(storage, vault)
     store.create(
         CredentialCreate(

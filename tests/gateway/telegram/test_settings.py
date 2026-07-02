@@ -1,4 +1,5 @@
 """TelegramSettings 校验 + from_global_settings 解析。"""
+
 from __future__ import annotations
 
 import pytest

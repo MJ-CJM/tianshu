@@ -1,4 +1,5 @@
 """schedule_edict tool 单元测试（用 FakeScheduler 隔离工具分发逻辑）。"""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -19,10 +20,15 @@ class FakeScheduler:
         return "job-" + edict.id[:6]
 
     async def list_jobs(self):
-        return [{
-            "job_id": "j1", "edict_id": "e1", "schedule_type": "cron",
-            "status": "active", "next_run": None,
-        }]
+        return [
+            {
+                "job_id": "j1",
+                "edict_id": "e1",
+                "schedule_type": "cron",
+                "status": "active",
+                "next_run": None,
+            }
+        ]
 
     async def cancel(self, job_id):
         self.calls.append(("cancel", job_id))
@@ -146,11 +152,17 @@ async def test_create_rejects_unknown_persona(storage):
     loader = MagicMock()
     loader.get.return_value = None
     register_schedule_edict(
-        registry, storage=storage, scheduler=sched, persona_loader=loader,
+        registry,
+        storage=storage,
+        scheduler=sched,
+        persona_loader=loader,
     )
     _, func = registry._tools["schedule_edict"]
     result = await func(
-        action="create", goal="x", schedule="30m", assigned_persona_id="ghost",
+        action="create",
+        goal="x",
+        schedule="30m",
+        assigned_persona_id="ghost",
     )
     assert result.is_error is True
     assert "ghost" in result.content
@@ -160,6 +172,7 @@ async def test_create_rejects_unknown_persona(storage):
 async def test_any_official_can_use_not_assistant_only(setup):
     """schedule_edict 应可被任何官员使用（不在 ASSISTANT_ONLY_TOOLS 内）；submit_edict 仍受限。"""
     from tianshu.executor.agent import ASSISTANT_ONLY_TOOLS
+
     assert "schedule_edict" not in ASSISTANT_ONLY_TOOLS
     assert "submit_edict" in ASSISTANT_ONLY_TOOLS
 
@@ -203,6 +216,7 @@ async def test_no_origin_metadata_when_no_current_edict(setup):
 def test_resolve_delivery_forms():
     """deliver 解析（参考 hermes cronjob 的 deliver 形式）。"""
     from tianshu.tools.schedule_edict import _resolve_delivery
+
     assert _resolve_delivery(None) == "origin"
     assert _resolve_delivery("origin") == "origin"
     assert _resolve_delivery("local") == {}
@@ -211,7 +225,8 @@ def test_resolve_delivery_forms():
     assert _resolve_delivery("feishu:oc_abc") == {"channel": "feishu", "chat_id": "oc_abc"}
     assert _resolve_delivery("oc_bare") == {"channel": "feishu", "chat_id": "oc_bare"}
     assert _resolve_delivery("telegram:-100123") == {
-        "channel": "telegram", "chat_id": "-100123",
+        "channel": "telegram",
+        "chat_id": "-100123",
     }
 
 
@@ -219,7 +234,10 @@ def test_resolve_delivery_forms():
 async def test_deliver_explicit_feishu_chat(setup):
     func, storage, _ = setup
     result = await func(
-        action="create", goal="x", schedule="0 9 * * *", deliver="feishu:oc_target",
+        action="create",
+        goal="x",
+        schedule="0 9 * * *",
+        deliver="feishu:oc_target",
     )
     e = storage.get_edict(result.details["edict_id"])
     assert e.metadata.get("channel") == "feishu"
@@ -231,7 +249,10 @@ async def test_deliver_explicit_feishu_chat(setup):
 async def test_deliver_local_no_push(setup):
     func, storage, _ = setup
     result = await func(
-        action="create", goal="x", schedule="0 9 * * *", deliver="local",
+        action="create",
+        goal="x",
+        schedule="0 9 * * *",
+        deliver="local",
     )
     e = storage.get_edict(result.details["edict_id"])
     assert e.metadata == {}
@@ -248,7 +269,9 @@ async def test_deliver_explicit_overrides_origin(setup):
     chat_edict = _Edict(goal="chat", metadata={"channel": "feishu", "chat_id": "oc_origin"})
     with bind_edict(chat_edict):
         result = await func(
-            action="create", goal="x", schedule="0 9 * * *",
+            action="create",
+            goal="x",
+            schedule="0 9 * * *",
             deliver="feishu:oc_explicit",
         )
     e = storage.get_edict(result.details["edict_id"])
@@ -265,6 +288,11 @@ async def test_schema_and_tier(setup):
     assert defn.side_effect is True
     props = defn.parameters["properties"]
     assert set(props["action"]["enum"]) == {
-        "create", "list", "cancel", "pause", "resume", "run_now",
+        "create",
+        "list",
+        "cancel",
+        "pause",
+        "resume",
+        "run_now",
     }
     assert defn.parameters["required"] == ["action"]

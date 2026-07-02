@@ -1,6 +1,5 @@
 """Tests for compaction strategies."""
 
-
 from tianshu.executor.compaction.micro import micro_compact
 from tianshu.executor.compaction.token_estimator import estimate_tokens
 from tianshu.executor.loop_state import LoopState

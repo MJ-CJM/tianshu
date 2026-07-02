@@ -5,6 +5,7 @@
 - read_file 支持 offset/limit 行切片
 - agent 连续同错 break 提前终止
 """
+
 from __future__ import annotations
 
 import pytest
@@ -34,6 +35,7 @@ async def test_registry_drops_extra_kwargs_silently(registry, caplog):
     """LLM 传 schema 未声明的额外字段（如 read_file 的 limit/offset 幻觉）
     应该被静默过滤 + warn，而不是抛 TypeError 让 LLM 死循环。"""
     import logging
+
     caplog.set_level(logging.WARNING)
     # 注意：read_file 现在真的支持 offset/limit 了，所以用一个明确不存在的字段
     result = await registry.execute(
@@ -74,7 +76,8 @@ async def test_read_file_default_reads_all(registry):
 async def test_read_file_with_offset_only(registry):
     """offset 单独使用：从某行读到结尾。"""
     result = await registry.execute(
-        "read_file", {"path": "demo.txt", "offset": 18},
+        "read_file",
+        {"path": "demo.txt", "offset": 18},
     )
     assert "line 18" in result.content
     assert "line 20" in result.content
@@ -87,7 +90,8 @@ async def test_read_file_with_offset_only(registry):
 async def test_read_file_with_limit_only(registry):
     """limit 单独使用：从第 1 行读 N 行。"""
     result = await registry.execute(
-        "read_file", {"path": "demo.txt", "limit": 2},
+        "read_file",
+        {"path": "demo.txt", "limit": 2},
     )
     assert "line 1" in result.content
     assert "line 2" in result.content
@@ -98,7 +102,8 @@ async def test_read_file_with_limit_only(registry):
 async def test_read_file_offset_past_end(registry):
     """offset 超过总行数 → 返回空（不报错）。"""
     result = await registry.execute(
-        "read_file", {"path": "demo.txt", "offset": 999},
+        "read_file",
+        {"path": "demo.txt", "offset": 999},
     )
     assert result.is_error is False
     assert result.details["lines_returned"] == 0
@@ -117,6 +122,7 @@ async def test_read_file_nonexistent(registry):
 def test_exit_reason_repeated_tool_failure_exists():
     """ExitReason 枚举里应该有 REPEATED_TOOL_FAILURE，供熔断退出使用。"""
     from tianshu.executor.exit_reason import ExitReason
+
     assert ExitReason.REPEATED_TOOL_FAILURE == "repeated_tool_failure"
     # 应该是与 LLM_ERROR 区分开的独立 reason
     assert ExitReason.REPEATED_TOOL_FAILURE != ExitReason.LLM_ERROR
@@ -137,9 +143,7 @@ async def test_repeated_tool_failure_triggers_break_logic():
             state["failures"][key] = state["failures"].get(key, 0) + 1
             return state["failures"][key] >= LIMIT
         # 成功：清掉该 tool 所有签名
-        state["failures"] = {
-            k: v for k, v in state["failures"].items() if k[0] != tool
-        }
+        state["failures"] = {k: v for k, v in state["failures"].items() if k[0] != tool}
         return False
 
     # 同 tool 同错连续 3 次 → 第 3 次触发
@@ -159,9 +163,7 @@ async def test_success_resets_failure_counter():
             key = (tool, err)
             state["failures"][key] = state["failures"].get(key, 0) + 1
             return state["failures"][key] >= LIMIT
-        state["failures"] = {
-            k: v for k, v in state["failures"].items() if k[0] != tool
-        }
+        state["failures"] = {k: v for k, v in state["failures"].items() if k[0] != tool}
         return False
 
     assert record("read_file", "err A", True) is False
@@ -219,24 +221,26 @@ def test_agent_accepts_no_provider_default_none():
 def test_assistant_only_tools_constant_includes_edict_group():
     """ASSISTANT_ONLY_TOOLS 常量必须含 4 个颁敕辅助工具，防执行 persona 递归颁敕。"""
     from tianshu.executor.agent import ASSISTANT_ONLY_TOOLS
+
     assert "submit_edict" in ASSISTANT_ONLY_TOOLS
     assert "list_edicts" in ASSISTANT_ONLY_TOOLS
     assert "get_edict_status" in ASSISTANT_ONLY_TOOLS
     assert "list_personas" in ASSISTANT_ONLY_TOOLS
     # 必须是 frozenset / 不可变（防运行时被意外修改）
     import collections.abc
+
     assert not isinstance(ASSISTANT_ONLY_TOOLS, collections.abc.MutableSet)
 
 
-def _filter_assistant_only(tools: list[dict], persona_id: str | None, assistant_id: str | None) -> list[dict]:
+def _filter_assistant_only(
+    tools: list[dict], persona_id: str | None, assistant_id: str | None
+) -> list[dict]:
     """复制 agent.execute() 里的过滤逻辑核心 —— 单测算法不要全 fixture。"""
     from tianshu.executor.agent import ASSISTANT_ONLY_TOOLS
+
     if not assistant_id or persona_id == assistant_id:
         return tools
-    return [
-        t for t in tools
-        if t.get("function", {}).get("name") not in ASSISTANT_ONLY_TOOLS
-    ]
+    return [t for t in tools if t.get("function", {}).get("name") not in ASSISTANT_ONLY_TOOLS]
 
 
 def test_filter_keeps_all_for_assistant_persona():
@@ -262,11 +266,11 @@ def test_filter_strips_edict_tools_from_executor_persona():
     ]
     out = _filter_assistant_only(tools, "tbh", "wym")
     names = [t["function"]["name"] for t in out]
-    assert "submit_edict" not in names      # 防递归颁敕
+    assert "submit_edict" not in names  # 防递归颁敕
     assert "list_personas" not in names
     assert "list_edicts" not in names
     assert "get_edict_status" not in names
-    assert "read_file" in names              # 普通工具保留
+    assert "read_file" in names  # 普通工具保留
     assert "shell_exec" in names
 
 

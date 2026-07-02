@@ -16,7 +16,9 @@ from tianshu.executor.orchestrator.state import (
 
 def _record(level="L0", issue_class="factual_error", verdict="fail", cost=0.1) -> IterationRecord:
     return IterationRecord(
-        iteration=0, level=level, actor_output="x",
+        iteration=0,
+        level=level,
+        actor_output="x",
         checks_result=ChecksResult(all_passed=True),
         critic_result=CriticResult(verdict=verdict, issue_class=issue_class, feedback="f"),
         started_at=datetime.now(UTC),

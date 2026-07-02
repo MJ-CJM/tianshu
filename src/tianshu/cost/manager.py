@@ -97,7 +97,9 @@ class CostManager:
             model = getattr(state, "model", "")
 
         tracker.accumulate(
-            model, prompt_tokens, completion_tokens,
+            model,
+            prompt_tokens,
+            completion_tokens,
             cache_read_tokens=cache_read_tokens,
             provider_name=provider_name,
         )
@@ -126,6 +128,7 @@ class CostManager:
                     # Emit budget exceeded event
                     if self._event_bus:
                         from tianshu.models.events import make_event
+
                         await self._event_bus.emit(
                             make_event(
                                 "cost.budget_exceeded",
@@ -177,5 +180,7 @@ class CostManager:
         self.record(record)
         logger.info(
             "Cost recorded for edict %s: %d tokens, ¥%.4f",
-            edict_id, tracker.total_tokens, tracker.cost_cny,
+            edict_id,
+            tracker.total_tokens,
+            tracker.cost_cny,
         )

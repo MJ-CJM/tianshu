@@ -29,15 +29,18 @@ def render_auto_section(
         f"最后更新:{last_synthesized}。\n"
     )
     return "\n\n".join(
-        p for p in [
+        p
+        for p in [
             header,
             "## 擅长领域\n" + (sections.specialties_md or "(数据不足)"),
-            "## 近期任务分布(" + str(window_days) + " 天)\n" + (
-                sections.task_distribution_md or "(数据不足)"
-            ),
+            "## 近期任务分布("
+            + str(window_days)
+            + " 天)\n"
+            + (sections.task_distribution_md or "(数据不足)"),
             "## 健康度\n" + (sections.health_md or "(数据不足)"),
             "## 退化迹象\n" + (sections.degradations_md or "(暂无)"),
-        ] if p
+        ]
+        if p
     )
 
 

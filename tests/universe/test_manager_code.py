@@ -1,4 +1,5 @@
 """Tests for UniverseManager — 代码变体路径。"""
+
 import subprocess
 from pathlib import Path
 
@@ -53,8 +54,13 @@ def mgr(tmp_path: Path) -> UniverseManager:
     code_store = CodeVariantStore(repo, tmp_path / "worktrees")
     cfg = {"agent_config": {}}
     return UniverseManager(
-        s, store, _FakePersona(tmp_path / "personas"), _FakeSkills(tmp_path / "skills"),
-        config_snapshot=lambda: cfg, config_apply=lambda m: None, code_store=code_store,
+        s,
+        store,
+        _FakePersona(tmp_path / "personas"),
+        _FakeSkills(tmp_path / "skills"),
+        config_snapshot=lambda: cfg,
+        config_apply=lambda m: None,
+        code_store=code_store,
     )
 
 
@@ -114,8 +120,10 @@ def test_restore_code_variant_rebuilds_worktree(mgr: UniverseManager):
 # promote_code_variant tests (uses a fake deployer)
 # ---------------------------------------------------------------------------
 
+
 class _FakeDeployer:
     """Records stage() calls; does not relaunch."""
+
     def __init__(self):
         self.stage_calls: list[dict] = []
 
@@ -131,11 +139,17 @@ def _make_mgr_with_deployer(tmp_path: Path) -> tuple[UniverseManager, _FakeDeplo
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=str(repo), capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.email", "t@t.test"], cwd=str(repo), capture_output=True, check=True)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=str(repo), capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "t@t.test"], cwd=str(repo), capture_output=True, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "t"], cwd=str(repo), capture_output=True, check=True
+    )
     (repo / "src.txt").write_text("v1\n")
     subprocess.run(["git", "add", "-A"], cwd=str(repo), capture_output=True, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=str(repo), capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "init"], cwd=str(repo), capture_output=True, check=True
+    )
     s = Storage(str(tmp_path / "t.db"))
     s.init_db()
     store = UniverseStore(tmp_path / "universes", tmp_path / "personas", tmp_path / "skills")
@@ -143,10 +157,14 @@ def _make_mgr_with_deployer(tmp_path: Path) -> tuple[UniverseManager, _FakeDeplo
     cfg = {"agent_config": {}}
     fake_deployer = _FakeDeployer()
     mgr = UniverseManager(
-        s, store,
-        _FakePersona(tmp_path / "personas"), _FakeSkills(tmp_path / "skills"),
-        config_snapshot=lambda: cfg, config_apply=lambda m: None,
-        code_store=code_store, deployer=fake_deployer,
+        s,
+        store,
+        _FakePersona(tmp_path / "personas"),
+        _FakeSkills(tmp_path / "skills"),
+        config_snapshot=lambda: cfg,
+        config_apply=lambda m: None,
+        code_store=code_store,
+        deployer=fake_deployer,
     )
     return mgr, fake_deployer
 
@@ -192,6 +210,7 @@ def test_promote_code_variant_rejects_data_universe(tmp_path: Path):
 
 # --- delete tests for code variant ---
 
+
 def test_delete_code_variant_removes_universe_and_worktree_and_branch(mgr: UniverseManager):
     g = mgr.ensure_genesis()
     cv = mgr.branch_code_variant(g["id"], "perf-exp")
@@ -209,6 +228,7 @@ def test_delete_code_variant_removes_universe_and_worktree_and_branch(mgr: Unive
     branch_list = subprocess.run(
         ["git", "branch", "--list", f"universe/{cv_id}"],
         cwd=str(mgr._code_store._repo),  # noqa: SLF001
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     ).stdout
     assert f"universe/{cv_id}" not in branch_list

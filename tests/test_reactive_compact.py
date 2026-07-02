@@ -12,16 +12,26 @@ class TestReactiveCompact:
     def _make_state_with_tools(self, tool_count: int, content_size: int) -> LoopState:
         msgs: list[dict] = [{"role": "system", "content": "sys"}]
         for i in range(tool_count):
-            msgs.append({
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{"id": f"tc_{i}", "type": "function", "function": {"name": "grep", "arguments": "{}"}}],
-            })
-            msgs.append({
-                "role": "tool",
-                "tool_call_id": f"tc_{i}",
-                "content": "X" * content_size,
-            })
+            msgs.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": f"tc_{i}",
+                            "type": "function",
+                            "function": {"name": "grep", "arguments": "{}"},
+                        }
+                    ],
+                }
+            )
+            msgs.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": f"tc_{i}",
+                    "content": "X" * content_size,
+                }
+            )
         return LoopState(messages=tuple(msgs), iteration=5)
 
     @pytest.mark.asyncio

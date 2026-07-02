@@ -35,7 +35,8 @@ def _resolve_tz(tz_name: str | None) -> tzinfo:
         return ZoneInfo(tz_name)
     except ZoneInfoNotFoundError:
         logger.warning(
-            "Unknown timezone %r in cron schedule, falling back to UTC", tz_name,
+            "Unknown timezone %r in cron schedule, falling back to UTC",
+            tz_name,
         )
         return UTC
 
@@ -88,9 +89,13 @@ class Scheduler:
         self._system_cron_tasks: list[asyncio.Task] = []
 
     def register_system_jobs(
-        self, profile_trigger: Any, skill_curator: Any = None, universe_evolver: Any = None,
+        self,
+        profile_trigger: Any,
+        skill_curator: Any = None,
+        universe_evolver: Any = None,
     ) -> None:
         """Register built-in system cron jobs (daily profile synthesis, weekly skill curation)."""
+
         async def _fire() -> None:
             await profile_trigger.run_for_all_personas(trigger_source="cron")
 
@@ -100,6 +105,7 @@ class Scheduler:
         logger.info("Registered system job: profile.daily_synthesis (0 3 * * *)")
 
         if skill_curator is not None:
+
             async def _fire_curate() -> None:
                 await skill_curator.run(trigger_source="cron")
 
@@ -109,6 +115,7 @@ class Scheduler:
             logger.info("Registered system job: skill.weekly_curate (0 4 * * 0)")
 
         if universe_evolver is not None:
+
             async def _fire_evolve() -> None:
                 await universe_evolver.run(trigger_source="cron")
 
@@ -123,9 +130,7 @@ class Scheduler:
         self._review_timeout_task = asyncio.create_task(self._review_timeout_loop())
         self._orphan_sweep_task = asyncio.create_task(self._orphan_sweep_loop())
         for job in self._system_jobs:
-            task = asyncio.create_task(
-                self._system_cron_loop(job["cron"], job["name"], job["fn"])
-            )
+            task = asyncio.create_task(self._system_cron_loop(job["cron"], job["name"], job["fn"]))
             self._system_cron_tasks.append(task)
         logger.info("Scheduler started")
 
@@ -142,9 +147,7 @@ class Scheduler:
                 self._storage.delete_scheduler_job(job_id)
                 continue
             if schedule_type == "cron" and row.get("cron_expr"):
-                tz_name = (
-                    edict.schedule.timezone if edict.schedule else "UTC"
-                )
+                tz_name = edict.schedule.timezone if edict.schedule else "UTC"
                 task = asyncio.create_task(
                     self._cron_loop(edict, row["cron_expr"], job_id, tz_name)
                 )
@@ -166,9 +169,7 @@ class Scheduler:
             elif schedule_type == "interval" and row.get("interval_seconds"):
                 interval = int(row["interval_seconds"])
                 next_run = datetime.now(UTC) + timedelta(seconds=interval)
-                task = asyncio.create_task(
-                    self._interval_loop(edict, interval, job_id)
-                )
+                task = asyncio.create_task(self._interval_loop(edict, interval, job_id))
                 job = _Job(job_id, edict_id, "interval", task=task, next_run=next_run)
                 self._jobs[job_id] = job
                 restored += 1
@@ -182,7 +183,8 @@ class Scheduler:
                 await asyncio.sleep(300)  # Check every 5 minutes
                 try:
                     memorials, _ = self._storage.list_memorials(
-                        status="needs_review", limit=100,
+                        status="needs_review",
+                        limit=100,
                     )
                     now = datetime.now(UTC)
                     for memorial in memorials:
@@ -258,38 +260,48 @@ class Scheduler:
             and edict.execution_profile in ("checkpointed", "background")
         ):
             logger.warning(
-                "Orphan memorial %s idle %.0fs, resuming outer loop", memorial.id, idle,
+                "Orphan memorial %s idle %.0fs, resuming outer loop",
+                memorial.id,
+                idle,
             )
-            await self._bus.emit(make_event(
-                "edict.resume",
-                edict_id=edict.id,
-                memorial_id=memorial.id,
-                producer="scheduler",
-                payload={"reason": "orphan_recovery", "idle_seconds": idle},
-            ))
+            await self._bus.emit(
+                make_event(
+                    "edict.resume",
+                    edict_id=edict.id,
+                    memorial_id=memorial.id,
+                    producer="scheduler",
+                    payload={"reason": "orphan_recovery", "idle_seconds": idle},
+                )
+            )
             # 刷新心跳（append_event 对活跃 memorial 顺带打心跳）：给 executor 一个
             # idle 周期接管，避免每次 sweep 都重发 resume（防 resume 风暴），同时留审计痕迹。
             self._storage.append_event(
-                edict.id, memorial.id, "orphan.resume_requested",
+                edict.id,
+                memorial.id,
+                "orphan.resume_requested",
                 {"idle_seconds": idle},
             )
             return
 
         # 否则：标记失败，交由现有 auditor/notifier/retry 收尾
         logger.warning(
-            "Orphan memorial %s idle %.0fs, marking FAILED", memorial.id, idle,
+            "Orphan memorial %s idle %.0fs, marking FAILED",
+            memorial.id,
+            idle,
         )
         memorial.status = TaskStatus.FAILED
         memorial.error = f"orphaned: no heartbeat for {idle:.0f}s"
         memorial.completed_at = datetime.now(UTC)
         self._storage.update_memorial(memorial)
-        await self._bus.emit(make_event(
-            "execution.failed",
-            edict_id=memorial.edict_id,
-            memorial_id=memorial.id,
-            producer="scheduler",
-            payload={"status": "failed", "error": memorial.error},
-        ))
+        await self._bus.emit(
+            make_event(
+                "execution.failed",
+                edict_id=memorial.edict_id,
+                memorial_id=memorial.id,
+                producer="scheduler",
+                payload={"status": "failed", "error": memorial.error},
+            )
+        )
 
     async def _system_cron_loop(self, cron_expr: str, name: str, fn: _AsyncFn) -> None:
         """Run a system cron job on the given expression until stopped (UTC)."""
@@ -305,12 +317,16 @@ class Scheduler:
                 if self._storage.has_running_system_job(name):
                     logger.info("System job %s: skip, previous run still running", name)
                     self._storage.create_schedule_run(
-                        source=name, kind="system", status="skipped",
+                        source=name,
+                        kind="system",
+                        status="skipped",
                     )
                     continue
                 logger.info("Firing system job: %s", name)
                 run_id = self._storage.create_schedule_run(
-                    source=name, kind="system", status="running",
+                    source=name,
+                    kind="system",
+                    status="running",
                 )
                 try:
                     await fn()
@@ -360,16 +376,15 @@ class Scheduler:
                     job = _Job(job_id, edict.id, "once")
                     self._jobs[job_id] = job
                 else:
-                    task = asyncio.create_task(
-                        self._delayed_emit(edict, delay)
-                    )
-                    job = _Job(
-                        job_id, edict.id, "once", task=task, next_run=schedule.at
-                    )
+                    task = asyncio.create_task(self._delayed_emit(edict, delay))
+                    job = _Job(job_id, edict.id, "once", task=task, next_run=schedule.at)
                     self._jobs[job_id] = job
                     # Persist for restart recovery
                     self._storage.save_scheduler_job(
-                        job_id, edict.id, "once", next_run=schedule.at,
+                        job_id,
+                        edict.id,
+                        "once",
+                        next_run=schedule.at,
                     )
         elif schedule.type == "cron":
             if not schedule.cron:
@@ -383,15 +398,16 @@ class Scheduler:
             else:
                 tz_name = schedule.timezone or "UTC"
                 next_run = _next_cron_utc(schedule.cron, tz_name)
-                task = asyncio.create_task(
-                    self._cron_loop(edict, schedule.cron, job_id, tz_name)
-                )
+                task = asyncio.create_task(self._cron_loop(edict, schedule.cron, job_id, tz_name))
                 job = _Job(job_id, edict.id, "cron", task=task, next_run=next_run)
                 self._jobs[job_id] = job
                 # Persist cron jobs for restart recovery
                 self._storage.save_scheduler_job(
-                    job_id, edict.id, "cron",
-                    cron_expr=schedule.cron, next_run=next_run,
+                    job_id,
+                    edict.id,
+                    "cron",
+                    cron_expr=schedule.cron,
+                    next_run=next_run,
                 )
         elif schedule.type == "interval":
             if not schedule.interval_seconds or schedule.interval_seconds < 1:
@@ -410,8 +426,11 @@ class Scheduler:
                 job = _Job(job_id, edict.id, "interval", task=task, next_run=next_run)
                 self._jobs[job_id] = job
                 self._storage.save_scheduler_job(
-                    job_id, edict.id, "interval",
-                    interval_seconds=schedule.interval_seconds, next_run=next_run,
+                    job_id,
+                    edict.id,
+                    "interval",
+                    interval_seconds=schedule.interval_seconds,
+                    next_run=next_run,
                 )
 
         return job_id
@@ -451,11 +470,13 @@ class Scheduler:
             self._jobs[job_id] = _Job(job_id, edict.id, "cron", task=task, next_run=next_run)
         elif sched.type == "interval" and sched.interval_seconds:
             next_run = datetime.now(UTC) + timedelta(seconds=sched.interval_seconds)
-            task = asyncio.create_task(
-                self._interval_loop(edict, sched.interval_seconds, job_id)
-            )
+            task = asyncio.create_task(self._interval_loop(edict, sched.interval_seconds, job_id))
             self._jobs[job_id] = _Job(
-                job_id, edict.id, "interval", task=task, next_run=next_run,
+                job_id,
+                edict.id,
+                "interval",
+                task=task,
+                next_run=next_run,
             )
         elif sched.type == "once" and sched.at:
             delay = (sched.at - datetime.now(UTC)).total_seconds()
@@ -475,8 +496,10 @@ class Scheduler:
     async def run_now(self, job_id: str) -> bool:
         """Immediately fire a job's edict once, without altering its schedule."""
         row = self._storage.get_scheduler_job(job_id)
-        edict_id = row["edict_id"] if row else (
-            self._jobs[job_id].edict_id if job_id in self._jobs else None
+        edict_id = (
+            row["edict_id"]
+            if row
+            else (self._jobs[job_id].edict_id if job_id in self._jobs else None)
         )
         if not edict_id:
             return False
@@ -493,19 +516,18 @@ class Scheduler:
         for row in rows:
             jid = row["job_id"]
             mem = self._jobs.get(jid)
-            next_run = (
-                mem.next_run.isoformat() if (mem and mem.next_run)
-                else row.get("next_run")
+            next_run = mem.next_run.isoformat() if (mem and mem.next_run) else row.get("next_run")
+            out.append(
+                {
+                    "job_id": jid,
+                    "edict_id": row["edict_id"],
+                    "schedule_type": row["schedule_type"],
+                    "status": row["status"],
+                    "next_run": next_run,
+                    "cron_expr": row.get("cron_expr"),
+                    "interval_seconds": row.get("interval_seconds"),
+                }
             )
-            out.append({
-                "job_id": jid,
-                "edict_id": row["edict_id"],
-                "schedule_type": row["schedule_type"],
-                "status": row["status"],
-                "next_run": next_run,
-                "cron_expr": row.get("cron_expr"),
-                "interval_seconds": row.get("interval_seconds"),
-            })
         return out
 
     async def handle_submitted(self, event: EventEnvelope) -> None:
@@ -531,15 +553,22 @@ class Scheduler:
         if self._skip_for_concurrency(edict):
             logger.info(
                 "%s job: skip fire, edict %s still has unfinished run (policy=skip)",
-                kind, edict.id,
+                kind,
+                edict.id,
             )
             self._storage.create_schedule_run(
-                source=edict.id, kind=kind, status="skipped", edict_id=edict.id,
+                source=edict.id,
+                kind=kind,
+                status="skipped",
+                edict_id=edict.id,
             )
             return
         await self._emit_scheduled(edict)
         self._storage.create_schedule_run(
-            source=edict.id, kind=kind, status="fired", edict_id=edict.id,
+            source=edict.id,
+            kind=kind,
+            status="fired",
+            edict_id=edict.id,
         )
 
     async def _emit_scheduled(self, edict: Edict, memorial_id: str | None = None) -> None:
@@ -548,6 +577,7 @@ class Scheduler:
             memorial = self._storage.get_memorial(memorial_id)
             if memorial and memorial.status.value == "submitted":
                 from tianshu.models.common import TaskStatus
+
                 memorial.status = TaskStatus.SCHEDULED
                 self._storage.update_memorial(memorial)
         payload: dict = {"goal": edict.goal}
@@ -592,7 +622,10 @@ class Scheduler:
             logger.info("Cron loop cancelled for edict %s", edict.id)
 
     async def _interval_loop(
-        self, edict: Edict, interval_seconds: int, job_id: str,
+        self,
+        edict: Edict,
+        interval_seconds: int,
+        job_id: str,
     ) -> None:
         """Repeatedly emit edict.scheduled every interval_seconds (each fire = fresh memorial)."""
         try:
@@ -602,7 +635,8 @@ class Scheduler:
                 if not fresh_edict or fresh_edict.status.value != "open":
                     logger.info(
                         "Interval job %s stopped: edict %s is no longer open",
-                        job_id, edict.id,
+                        job_id,
+                        edict.id,
                     )
                     break
                 await self._fire_scheduled(fresh_edict, "interval")

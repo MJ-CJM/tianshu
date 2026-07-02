@@ -1,4 +1,5 @@
 """ModeRouter 单元测试：状态机判定 + 分发（v2 极简模型）。"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -86,7 +87,8 @@ def test_resolve_mode_business_edict_returns_edict():
 async def test_dispatch_to_assistant_when_chat_anchor():
     """v2: anchor 指向 chat 敕令 → 调 ensure_chat_edict + 走 assistant 分支。"""
     router, _, _, bridge, assistant, edict_branch = _make_router(
-        anchor_value="ed_chat", chat_edict=True,
+        anchor_value="ed_chat",
+        chat_edict=True,
     )
     await router.dispatch(_make_msg(text="/menu"))
     bridge.ensure_chat_edict.assert_awaited_once()
@@ -98,7 +100,8 @@ async def test_dispatch_to_assistant_when_chat_anchor():
 async def test_dispatch_to_edict_when_business_anchor():
     """v2: anchor 指向业务敕令 → 走 edict 分支。"""
     router, _, _, bridge, assistant, edict_branch = _make_router(
-        anchor_value="ed_biz", biz_edict=True,
+        anchor_value="ed_biz",
+        biz_edict=True,
     )
     await router.dispatch(_make_msg(text="hi"))
     bridge.ensure_chat_edict.assert_awaited_once()

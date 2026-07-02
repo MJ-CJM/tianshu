@@ -4,6 +4,7 @@
 callback_data 协议（≤64 字节）：
   "cmd:list" | "cmd:budget" | "cmd:clear" | "cmd:help" | "cmd:select:<id8>"
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,7 +38,9 @@ class TelegramCardBuilder:
     # --- /list ---
 
     def build_list_card(
-        self, edicts: list[Edict], current_anchor: str | None = None,
+        self,
+        edicts: list[Edict],
+        current_anchor: str | None = None,
     ) -> TelegramCard:
         rows: list[str] = []
         buttons: list[list[InlineKeyboardButton]] = []
@@ -47,11 +50,14 @@ class TelegramCardBuilder:
             status_label = format_status_label(e.status)
             short_id = e.id[:8]
             rows.append(f"{star}**#{short_id}** · {status_label} · {title_short}")
-            buttons.append([
-                InlineKeyboardButton(
-                    f"切到 #{short_id}", callback_data=f"cmd:select:{short_id}",
-                )
-            ])
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        f"切到 #{short_id}",
+                        callback_data=f"cmd:select:{short_id}",
+                    )
+                ]
+            )
         body = f"📋 **最近敕令（{len(edicts)} 条）**\n\n" + "\n".join(rows)
         kb = InlineKeyboardMarkup(buttons) if buttons else None
         return body, kb
@@ -70,16 +76,18 @@ class TelegramCardBuilder:
             "❓ `/help` 完整帮助\n\n"
             "_直接输入命令即可。纯文本会进入助手对话。_"
         )
-        kb = InlineKeyboardMarkup([
+        kb = InlineKeyboardMarkup(
             [
-                InlineKeyboardButton("📋 列表", callback_data="cmd:list"),
-                InlineKeyboardButton("💰 预算", callback_data="cmd:budget"),
-            ],
-            [
-                InlineKeyboardButton("🧹 新会话", callback_data="cmd:clear"),
-                InlineKeyboardButton("❓ 帮助", callback_data="cmd:help"),
-            ],
-        ])
+                [
+                    InlineKeyboardButton("📋 列表", callback_data="cmd:list"),
+                    InlineKeyboardButton("💰 预算", callback_data="cmd:budget"),
+                ],
+                [
+                    InlineKeyboardButton("🧹 新会话", callback_data="cmd:clear"),
+                    InlineKeyboardButton("❓ 帮助", callback_data="cmd:help"),
+                ],
+            ]
+        )
         return text, kb
 
     # --- /budget ---

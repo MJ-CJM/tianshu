@@ -78,7 +78,8 @@ class TestScheduler:
         edict = Edict(
             goal="test",
             schedule=EdictSchedule(
-                type="once", at=datetime.now(UTC) + timedelta(hours=1),
+                type="once",
+                at=datetime.now(UTC) + timedelta(hours=1),
             ),
         )
         storage.save_edict(edict)
@@ -123,6 +124,7 @@ class TestNextCronUtc:
     def test_shanghai_offset_8h_from_utc(self):
         """Asia/Shanghai 16:20 → UTC 08:20（同一天或次日，差 8 小时）。"""
         from tianshu.scheduler.scheduler import _next_cron_utc
+
         sh = _next_cron_utc("20 16 * * *", "Asia/Shanghai")
         utc = _next_cron_utc("20 16 * * *", "UTC")
         # 同一表达式，两种时区下解释，UTC 时刻应差 8 小时（取绝对值，跨日时为 16h）
@@ -136,12 +138,14 @@ class TestNextCronUtc:
     def test_shanghai_cron_hour_in_utc(self):
         """16:20 北京时间 = 08:20 UTC，结果的 UTC 小时应为 8。"""
         from tianshu.scheduler.scheduler import _next_cron_utc
+
         result = _next_cron_utc("20 16 * * *", "Asia/Shanghai")
         assert result.hour == 8
         assert result.minute == 20
 
     def test_utc_explicit(self):
         from tianshu.scheduler.scheduler import _next_cron_utc
+
         result = _next_cron_utc("20 16 * * *", "UTC")
         assert result.hour == 16
         assert result.minute == 20
@@ -151,6 +155,7 @@ class TestNextCronUtc:
         import logging
 
         from tianshu.scheduler.scheduler import _next_cron_utc
+
         caplog.set_level(logging.WARNING)
         result = _next_cron_utc("20 16 * * *", "Bogus/Zone")
         assert result.hour == 16  # 退化为 UTC 行为
@@ -158,11 +163,13 @@ class TestNextCronUtc:
 
     def test_none_timezone_treated_as_utc(self):
         from tianshu.scheduler.scheduler import _next_cron_utc
+
         result = _next_cron_utc("20 16 * * *", None)
         assert result.hour == 16
 
     def test_returns_aware_utc_datetime(self):
         from tianshu.scheduler.scheduler import _next_cron_utc
+
         result = _next_cron_utc("0 0 * * *", "Asia/Shanghai")
         assert result.tzinfo is UTC
 
@@ -181,7 +188,9 @@ class TestSchedulerCronTimezone:
         edict = Edict(
             goal="每天 16:20 北京时间推送",
             schedule=EdictSchedule(
-                type="cron", cron="20 16 * * *", timezone="Asia/Shanghai",
+                type="cron",
+                cron="20 16 * * *",
+                timezone="Asia/Shanghai",
             ),
         )
         storage.save_edict(edict)
@@ -236,14 +245,13 @@ class TestSchedulerJobControl:
         assert row["schedule_type"] == "interval"
         assert row["interval_seconds"] == 3600
         jobs = await scheduler.list_jobs()
-        assert any(
-            j["job_id"] == job_id and j["schedule_type"] == "interval" for j in jobs
-        )
+        assert any(j["job_id"] == job_id and j["schedule_type"] == "interval" for j in jobs)
         await scheduler.cancel(job_id)
 
     async def test_pause_and_resume(self, scheduler, storage):
         edict = Edict(
-            goal="可暂停", schedule=EdictSchedule(type="cron", cron="0 9 * * *"),
+            goal="可暂停",
+            schedule=EdictSchedule(type="cron", cron="0 9 * * *"),
         )
         storage.save_edict(edict)
         job_id = await scheduler.schedule(edict)
@@ -263,12 +271,16 @@ class TestSchedulerJobControl:
         await scheduler.cancel(job_id)
 
     async def test_run_now_emits_without_changing_schedule(
-        self, scheduler, event_bus, storage,
+        self,
+        scheduler,
+        event_bus,
+        storage,
     ):
         handler = AsyncMock()
         event_bus.on("edict.scheduled", handler)
         edict = Edict(
-            goal="立即触发一次", schedule=EdictSchedule(type="cron", cron="0 9 * * *"),
+            goal="立即触发一次",
+            schedule=EdictSchedule(type="cron", cron="0 9 * * *"),
         )
         storage.save_edict(edict)
         job_id = await scheduler.schedule(edict)

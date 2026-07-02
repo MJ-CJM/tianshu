@@ -1,4 +1,5 @@
 """Feishu 会话锚 (chat_id → current_edict_id) 的薄封装。"""
+
 from __future__ import annotations
 
 from tianshu.storage import Storage

@@ -39,13 +39,16 @@ class MemoryStack:
             return []
 
         results = await self._store.search(
-            query, wing=wing, room=room,
+            query,
+            wing=wing,
+            room=room,
             n_results=self._config.l2_n_results,
         )
 
         if include_court and wing != "court":
             court_results = await self._store.search(
-                query, wing="court",
+                query,
+                wing="court",
                 n_results=self._config.l2_n_results,
             )
             results = self._merge_results(results, court_results)

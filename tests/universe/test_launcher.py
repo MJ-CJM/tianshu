@@ -1,4 +1,5 @@
 """Unit tests for launcher.resolve_boot_plan — pure function, no execvpe."""
+
 from __future__ import annotations
 
 import os

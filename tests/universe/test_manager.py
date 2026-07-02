@@ -1,4 +1,5 @@
 """Tests for UniverseManager — genesis / branch / switch / archive / diff."""
+
 from pathlib import Path
 
 import pytest
@@ -181,6 +182,7 @@ def test_restore_non_archived_raises(mgr: UniverseManager):
 
 
 # --- delete tests ---
+
 
 def test_delete_data_universe_removes_from_list_and_snapshot(mgr: UniverseManager, tmp_path: Path):
     g = mgr.ensure_genesis()

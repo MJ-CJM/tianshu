@@ -31,13 +31,15 @@ async def _run_bash(spec: CheckSpec) -> CheckOutcome:
         )
         try:
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=spec.timeout_seconds,
+                proc.communicate(),
+                timeout=spec.timeout_seconds,
             )
         except TimeoutError:
             proc.kill()
             await proc.wait()
             return CheckOutcome(
-                name=spec.name, passed=False,
+                name=spec.name,
+                passed=False,
                 detail=f"timeout after {spec.timeout_seconds}s",
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
@@ -51,7 +53,10 @@ async def _run_bash(spec: CheckSpec) -> CheckOutcome:
     if not passed:
         detail = (stderr or stdout or b"").decode("utf-8", errors="replace")[:1000]
     return CheckOutcome(
-        name=spec.name, passed=passed, detail=detail, duration_ms=duration_ms,
+        name=spec.name,
+        passed=passed,
+        detail=detail,
+        duration_ms=duration_ms,
     )
 
 
@@ -95,7 +100,8 @@ async def _run_rubric(
     except Exception as e:
         logger.warning("rubric LLM call failed for check %s: %s", spec.name, e)
         return CheckOutcome(
-            name=spec.name, passed=False,
+            name=spec.name,
+            passed=False,
             detail=f"rubric LLM 调用失败: {e}",
             duration_ms=int((time.monotonic() - start) * 1000),
         )
@@ -106,7 +112,8 @@ async def _run_rubric(
         reasoning = str(data.get("reasoning", ""))
     except (ValueError, json.JSONDecodeError, TypeError) as e:
         return CheckOutcome(
-            name=spec.name, passed=False,
+            name=spec.name,
+            passed=False,
             detail=f"rubric LLM 输出解析失败: {e}",
             duration_ms=duration_ms,
         )

@@ -157,15 +157,19 @@ def register_schedule_edict(
 
         job_row = storage.get_scheduler_job(job_id)
         next_run = (
-            job_row.get("next_run") if job_row
-            else (parsed.at.isoformat() if parsed.at else None)
+            job_row.get("next_run") if job_row else (parsed.at.isoformat() if parsed.at else None)
         )
         logger.info(
             "[tools/schedule_edict] scheduled edict=%s job=%s type=%s goal=%.50s",
-            edict.id, job_id, parsed.type, goal,
+            edict.id,
+            job_id,
+            parsed.type,
+            goal,
         )
         type_label = {
-            "once": "定时一次", "cron": "周期(cron)", "interval": "周期(间隔)",
+            "once": "定时一次",
+            "cron": "周期(cron)",
+            "interval": "周期(间隔)",
         }.get(parsed.type, parsed.type)
         meta = edict_kwargs.get("metadata") or {}
         if meta.get("chat_id"):
@@ -207,8 +211,7 @@ def register_schedule_edict(
         act = (action or "create").strip().lower()
         if act not in _VALID_ACTIONS:
             return error_result(
-                f"schedule_edict: 未知 action={action!r}"
-                f"（{'|'.join(_VALID_ACTIONS)}）",
+                f"schedule_edict: 未知 action={action!r}（{'|'.join(_VALID_ACTIONS)}）",
             )
 
         if act == "list":
@@ -228,24 +231,34 @@ def register_schedule_edict(
                 ok = await scheduler.pause(job_id)
                 return (
                     ok_result(f"已暂停任务 {job_id[:8]}", details={"job_id": job_id})
-                    if ok else error_result("无法暂停：任务不存在或非运行中")
+                    if ok
+                    else error_result("无法暂停：任务不存在或非运行中")
                 )
             if act == "resume":
                 ok = await scheduler.resume(job_id)
                 return (
                     ok_result(f"已恢复任务 {job_id[:8]}", details={"job_id": job_id})
-                    if ok else error_result("无法恢复：任务不存在或非暂停态")
+                    if ok
+                    else error_result("无法恢复：任务不存在或非暂停态")
                 )
             # run_now
             ok = await scheduler.run_now(job_id)
             return (
                 ok_result(f"已立即触发任务 {job_id[:8]} 一次", details={"job_id": job_id})
-                if ok else error_result("无法触发：任务/敕令不存在或已关闭")
+                if ok
+                else error_result("无法触发：任务/敕令不存在或已关闭")
             )
 
         return await _create(
-            goal, schedule, context, priority,
-            assigned_persona_id, title, execution_profile, timezone, deliver,
+            goal,
+            schedule,
+            context,
+            priority,
+            assigned_persona_id,
+            title,
+            execution_profile,
+            timezone,
+            deliver,
         )
 
     registry.register(

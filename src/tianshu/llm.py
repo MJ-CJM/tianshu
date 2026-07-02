@@ -78,7 +78,9 @@ def _add_cache_control(content: str | list | dict, marker: dict) -> list[dict]:
     if isinstance(content, str):
         blocks = [{"type": "text", "text": content}]
     elif isinstance(content, list):
-        blocks = [dict(b) if isinstance(b, dict) else {"type": "text", "text": str(b)} for b in content]
+        blocks = [
+            dict(b) if isinstance(b, dict) else {"type": "text", "text": str(b)} for b in content
+        ]
     elif isinstance(content, dict):
         blocks = [dict(content)]
     else:
@@ -152,23 +154,29 @@ def _log_model_echo(
         logger.warning(
             "[LLM] model mismatch%s: requested=%s actual=%s provider=%s api_base=%s "
             "（上游可能改写或降级了模型，请核查网关配置）",
-            suffix, *msg_args,
+            suffix,
+            *msg_args,
         )
     elif cached is None:
         logger.info(
             "[LLM] model echo%s: requested=%s actual=%s provider=%s api_base=%s",
-            suffix, *msg_args,
+            suffix,
+            *msg_args,
         )
     elif cached != new_value:
         logger.info(
             "[LLM] model echo changed%s: requested=%s actual=%s provider=%s api_base=%s "
             "(was actual=%s provider=%s)",
-            suffix, *msg_args, cached[0], cached[1],
+            suffix,
+            *msg_args,
+            cached[0],
+            cached[1],
         )
     else:
         logger.debug(
             "[LLM] model echo%s: requested=%s actual=%s provider=%s api_base=%s",
-            suffix, *msg_args,
+            suffix,
+            *msg_args,
         )
 
     _MODEL_ECHO_CACHE[key] = new_value
@@ -276,7 +284,10 @@ class LLMClient:
 
         logger.debug(
             "[LLM] request: model=%s, messages=%d, tools=%d, temperature=%.1f",
-            model, len(messages), len(tools or []), self._temperature,
+            model,
+            len(messages),
+            len(tools or []),
+            self._temperature,
         )
         response = await litellm.acompletion(**kwargs)
         actual_model, upstream_provider = _extract_model_echo(response)
@@ -298,7 +309,9 @@ class LLMClient:
                 total_tokens=response.usage.total_tokens or 0,
                 cache_read_tokens=cr,
                 cost_cny=estimate_cost(
-                    model, pt, ct,
+                    model,
+                    pt,
+                    ct,
                     cache_read_tokens=cr,
                     provider_pricing=self._pricing_override,
                 ),
@@ -319,8 +332,12 @@ class LLMClient:
 
         logger.debug(
             "[LLM] response: model=%s, tokens=%d/%d/%d, tool_calls=%d, has_reasoning=%s",
-            model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
-            len(tool_calls or []), bool(getattr(message, "reasoning_content", None)),
+            model,
+            usage.prompt_tokens,
+            usage.completion_tokens,
+            usage.total_tokens,
+            len(tool_calls or []),
+            bool(getattr(message, "reasoning_content", None)),
         )
         return LLMResponse(
             content=message.content,
@@ -370,7 +387,9 @@ class LLMClient:
             if not echoed:
                 actual_model, upstream_provider = _extract_model_echo(chunk)
                 if actual_model or upstream_provider:
-                    _log_model_echo(model, actual_model, upstream_provider, api_base, streaming=True)
+                    _log_model_echo(
+                        model, actual_model, upstream_provider, api_base, streaming=True
+                    )
                     echoed_actual = actual_model
                     echoed_provider = upstream_provider
                     echoed = True
@@ -413,7 +432,9 @@ class LLMClient:
                     total_tokens=chunk.usage.total_tokens or 0,
                     cache_read_tokens=cr,
                     cost_cny=estimate_cost(
-                        model, pt, ct,
+                        model,
+                        pt,
+                        ct,
                         cache_read_tokens=cr,
                         provider_pricing=self._pricing_override,
                     ),

@@ -52,12 +52,14 @@ class PluginApi:
     def register_plugin(self, manifest: PluginManifest) -> None:
         """Register a plugin and persist its metadata."""
         self._registered_plugins[manifest.name] = manifest
-        self._storage.save_plugin({
-            "name": manifest.name,
-            "version": manifest.version,
-            "manifest": manifest.model_dump(),
-            "sha256": manifest.sha256,
-        })
+        self._storage.save_plugin(
+            {
+                "name": manifest.name,
+                "version": manifest.version,
+                "manifest": manifest.model_dump(),
+                "sha256": manifest.sha256,
+            }
+        )
         logger.info("Plugin registered: %s v%s", manifest.name, manifest.version)
 
     def register_tool(self, name: str, handler, schema: dict | None = None) -> None:

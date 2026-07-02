@@ -12,9 +12,9 @@ class Credential(BaseModel):
     id: str
     name: str
     host_pattern: str
-    header_template: str      # 例: "Authorization: Bearer {value}"
+    header_template: str  # 例: "Authorization: Bearer {value}"
     extra_headers: dict[str, str] = Field(default_factory=dict)
-    encrypted_value: bytes    # ciphertext
+    encrypted_value: bytes  # ciphertext
     created_at: datetime
     updated_at: datetime
     last_used_at: datetime | None = None
@@ -25,7 +25,7 @@ class Credential(BaseModel):
 
 class CredentialCreate(BaseModel):
     name: str
-    value: str                # plaintext，加密后丢
+    value: str  # plaintext，加密后丢
     kind: Literal["edict_auth", "engine_provider"] = "edict_auth"
     # edict_auth required fields（engine_provider 忽略）
     host_pattern: str = ""
@@ -43,6 +43,7 @@ class CredentialUpdate(BaseModel):
 
 class CredentialView(BaseModel):
     """返回给前端用，不包含 encrypted_value / value。"""
+
     id: str
     name: str
     host_pattern: str

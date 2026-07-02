@@ -84,7 +84,11 @@ class PolicyHook:
                     verdict="allow",
                     rule_id=f"session_rule:{rule.rule_id}",
                     reason=f"matched session rule (scope={rule.scope}, source={rule.source})",
-                    metadata={"session_rule_id": rule.rule_id, "scope": rule.scope, "source": rule.source},
+                    metadata={
+                        "session_rule_id": rule.rule_id,
+                        "scope": rule.scope,
+                        "source": rule.source,
+                    },
                 )
                 self._emit_event(ctx, "policy.session_rule_matched", decision)
 
@@ -102,7 +106,9 @@ class PolicyHook:
         return None
 
     async def _request_approval(
-        self, ctx: PolicyContext, decision: PolicyDecision,
+        self,
+        ctx: PolicyContext,
+        decision: PolicyDecision,
     ) -> HookResult | None:
         """走已有 ApprovalManager UI 流 —— 写 tool.approval_required 事件并 wait。"""
         if self._approval_manager is None:
@@ -134,6 +140,7 @@ class PolicyHook:
         if self._event_bus is not None:
             try:
                 from tianshu.models.events import make_event
+
                 self._event_bus.fire(  # type: ignore[attr-defined]
                     make_event(
                         "tool.approval_required",
@@ -150,12 +157,15 @@ class PolicyHook:
         if self._notifier is not None:
             try:
                 import asyncio
-                coro = self._notifier.broadcast_ws({  # type: ignore[attr-defined]
-                    "type": "tool.approval_required",
-                    "edict_id": edict_id,
-                    "memorial_id": memorial_id,
-                    "payload": approval_payload,
-                })
+
+                coro = self._notifier.broadcast_ws(
+                    {  # type: ignore[attr-defined]
+                        "type": "tool.approval_required",
+                        "edict_id": edict_id,
+                        "memorial_id": memorial_id,
+                        "payload": approval_payload,
+                    }
+                )
                 asyncio.create_task(coro)
             except Exception:
                 logger.exception("policy_hook: failed to broadcast tool.approval_required")
@@ -211,12 +221,15 @@ class PolicyHook:
         ):
             try:
                 import asyncio
-                coro = self._notifier.broadcast_ws({  # type: ignore[attr-defined]
-                    "type": "policy.decision",
-                    "edict_id": edict_id,
-                    "memorial_id": memorial_id,
-                    "payload": payload,
-                })
+
+                coro = self._notifier.broadcast_ws(
+                    {  # type: ignore[attr-defined]
+                        "type": "policy.decision",
+                        "edict_id": edict_id,
+                        "memorial_id": memorial_id,
+                        "payload": payload,
+                    }
+                )
                 asyncio.create_task(coro)
             except Exception:
                 logger.exception("policy_hook: failed to broadcast policy.decision")

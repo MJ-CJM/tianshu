@@ -6,6 +6,7 @@
 - **channel 路由隔离**：仅投递 edict.metadata.channel == "telegram" 的敕令（+ home_channel 兜底）
 - MarkdownV2 发送，解析失败回退纯文本；UTF-16 ≤4096 分片
 """
+
 from __future__ import annotations
 
 import logging
@@ -65,12 +66,8 @@ class TelegramOutbound:
     def start(self) -> None:
         """构造 Bot + 注册 EventBus 订阅（仅 TelegramBot.start 调用一次）。"""
         self._bot = Bot(self._settings.bot_token)
-        self._event_bus.on(
-            "execution.completed", self._sub_completed, priority=200
-        )
-        self._event_bus.on(
-            "execution.failed", self._sub_failed, priority=200
-        )
+        self._event_bus.on("execution.completed", self._sub_completed, priority=200)
+        self._event_bus.on("execution.failed", self._sub_failed, priority=200)
 
     def stop(self) -> None:
         """取消 EventBus 订阅（实例停止时调用，避免已停实例继续投递）。"""
@@ -138,8 +135,11 @@ class TelegramOutbound:
             return None
 
     async def edit_message(
-        self, chat_id: str, message_id: str,
-        text: str, reply_markup: InlineKeyboardMarkup | None = None,
+        self,
+        chat_id: str,
+        message_id: str,
+        text: str,
+        reply_markup: InlineKeyboardMarkup | None = None,
     ) -> bool:
         if self._bot is None:
             return False
@@ -181,7 +181,8 @@ class TelegramOutbound:
             return False
         try:
             await self._bot.delete_message(
-                chat_id=_to_chat_id(chat_id), message_id=int(message_id),
+                chat_id=_to_chat_id(chat_id),
+                message_id=int(message_id),
             )
             return True
         except Exception:
@@ -205,7 +206,11 @@ class TelegramOutbound:
     # --- 内部发送 ---
 
     async def _send_one(
-        self, chat_id: str, text: str, *, parse: bool = True,
+        self,
+        chat_id: str,
+        text: str,
+        *,
+        parse: bool = True,
     ) -> str | None:
         if self._bot is None:
             logger.warning("[telegram/outbound] bot not initialized, skipping send")
@@ -243,11 +248,7 @@ class TelegramOutbound:
         chat_id = self._lookup_chat_id(event)
         if not chat_id:
             return
-        memorial = (
-            self._storage.get_memorial(event.memorial_id)
-            if event.memorial_id
-            else None
-        )
+        memorial = self._storage.get_memorial(event.memorial_id) if event.memorial_id else None
         delivery = (memorial.final_output or memorial.result) if memorial else None
 
         # 先清掉 ⏳ 占位
@@ -276,7 +277,8 @@ class TelegramOutbound:
         pending = self._storage.pop_telegram_thinking(memorial_id)
         if pending and pending.get("message_id"):
             await self.delete_message(
-                pending.get("chat_id") or chat_id, pending["message_id"],
+                pending.get("chat_id") or chat_id,
+                pending["message_id"],
             )
 
     def _lookup_chat_id(self, event: EventEnvelope) -> str | None:

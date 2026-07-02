@@ -113,7 +113,5 @@ class WorkerPool:
         for task in list(self._active_tasks.values()):
             task.cancel()
         if self._active_tasks:
-            await asyncio.gather(
-                *self._active_tasks.values(), return_exceptions=True
-            )
+            await asyncio.gather(*self._active_tasks.values(), return_exceptions=True)
         self._active_tasks.clear()

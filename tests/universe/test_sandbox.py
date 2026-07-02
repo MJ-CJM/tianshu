@@ -1,4 +1,5 @@
 """Tests for SandboxRunner."""
+
 import os
 from pathlib import Path
 
@@ -29,6 +30,7 @@ def test_sandbox_boots_real_app_and_health_ok(tmp_path: Path):
     db = tmp_path / "iso.db"
     with runner.session(repo_root, db_path=db) as h:
         import urllib.request
+
         with urllib.request.urlopen(f"{h.base_url}/health", timeout=5) as resp:
             assert resp.status == 200
     assert h.proc.poll() is not None

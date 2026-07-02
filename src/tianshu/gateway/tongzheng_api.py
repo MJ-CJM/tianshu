@@ -4,6 +4,7 @@ v1 仅支持飞书。配置加载优先级：DB > env > 不启用。
 保存敏感凭证需要 TIANSHU_SECRET_MASTER_KEY 环境变量（Fernet 主密钥）。
 保存后自动热加载，不重启服务。
 """
+
 from __future__ import annotations
 
 import logging
@@ -56,9 +57,7 @@ def _build_feishu_settings_from_runtime(runtime_cfg: dict):
         domain=runtime_cfg.get("domain", "feishu"),
         connection_mode=runtime_cfg.get("connection_mode", "websocket"),
         allowed_users=tuple(
-            u.strip()
-            for u in (runtime_cfg.get("allowed_users") or "").split(",")
-            if u.strip()
+            u.strip() for u in (runtime_cfg.get("allowed_users") or "").split(",") if u.strip()
         ),
         home_channel=runtime_cfg.get("home_channel", ""),
         encrypt_key=runtime_cfg.get("encrypt_key", ""),
@@ -125,7 +124,8 @@ async def get_feishu_channel(request: Request) -> ApiResponse:
 
 @tongzheng_router.put("/channels/feishu")
 async def put_feishu_channel(
-    body: FeishuChannelConfig, request: Request,
+    body: FeishuChannelConfig,
+    request: Request,
 ) -> ApiResponse:
     """保存飞书默认实例配置 + 触发热加载（薄封装到实例代码路径）。"""
     storage: Storage = request.app.state.storage
@@ -162,11 +162,13 @@ async def list_personas(request: Request) -> ApiResponse:
         items = list(getattr(loader, "_personas", {}).values())
     personas = []
     for p in items:
-        personas.append({
-            "id": getattr(p, "id", ""),
-            "name": getattr(p, "name", ""),
-            "department": getattr(p, "department", ""),
-        })
+        personas.append(
+            {
+                "id": getattr(p, "id", ""),
+                "name": getattr(p, "name", ""),
+                "department": getattr(p, "department", ""),
+            }
+        )
     return ApiResponse(success=True, data={"personas": personas})
 
 
@@ -174,11 +176,7 @@ async def list_personas(request: Request) -> ApiResponse:
 async def feishu_status(request: Request) -> ApiResponse:
     """查询飞书默认实例连接状态。"""
     bot_manager = getattr(request.app.state, "bot_manager", None)
-    bot = (
-        bot_manager.get(default_instance_id("feishu"))
-        if bot_manager is not None
-        else None
-    )
+    bot = bot_manager.get(default_instance_id("feishu")) if bot_manager is not None else None
     if bot is None:
         return ApiResponse(success=True, data={"running": False, "mode": None})
     return ApiResponse(
@@ -276,7 +274,8 @@ async def get_telegram_channel(request: Request) -> ApiResponse:
 
 @tongzheng_router.put("/channels/telegram")
 async def put_telegram_channel(
-    body: TelegramChannelConfig, request: Request,
+    body: TelegramChannelConfig,
+    request: Request,
 ) -> ApiResponse:
     """保存 Telegram 默认实例配置 + 触发热加载（薄封装到实例代码路径）。"""
     storage: Storage = request.app.state.storage
@@ -304,11 +303,7 @@ async def put_telegram_channel(
 async def telegram_status(request: Request) -> ApiResponse:
     """查询 Telegram 默认实例连接状态。"""
     bot_manager = getattr(request.app.state, "bot_manager", None)
-    bot = (
-        bot_manager.get(default_instance_id("telegram"))
-        if bot_manager is not None
-        else None
-    )
+    bot = bot_manager.get(default_instance_id("telegram")) if bot_manager is not None else None
     if bot is None:
         return ApiResponse(success=True, data={"running": False, "mode": None})
     return ApiResponse(
@@ -344,8 +339,7 @@ def _sync_edict_tools(request: Request) -> None:
     if tool_registry is None:
         return
     any_enabled = any(
-        bool(inst.get("enable_edict_submission"))
-        for inst in storage.list_channel_instances()
+        bool(inst.get("enable_edict_submission")) for inst in storage.list_channel_instances()
     )
     for tool_name in (
         "submit_edict",
@@ -394,11 +388,11 @@ async def _bring_instance_live(request: Request, instance_id: str) -> dict:
 class InstanceCreate(BaseModel):
     """新建 bot 实例。"""
 
-    channel_type: str                            # "feishu" | "telegram"
+    channel_type: str  # "feishu" | "telegram"
     label: str = ""
     enabled: bool = True
-    config: dict = Field(default_factory=dict)   # 非敏感配置字段
-    secret: str = ""                             # bot_token / app_secret（空=未配）
+    config: dict = Field(default_factory=dict)  # 非敏感配置字段
+    secret: str = ""  # bot_token / app_secret（空=未配）
 
 
 class InstanceUpdate(BaseModel):
@@ -407,7 +401,7 @@ class InstanceUpdate(BaseModel):
     label: str | None = None
     enabled: bool | None = None
     config: dict | None = None
-    secret: str | None = None                    # None=不改; ""=清空; 非空=替换
+    secret: str | None = None  # None=不改; ""=清空; 非空=替换
 
 
 @tongzheng_router.get("/instances")
@@ -415,11 +409,7 @@ async def list_instances(request: Request) -> ApiResponse:
     """列所有实例，合并运行状态；secret 掩码。"""
     storage: Storage = request.app.state.storage
     bot_manager = getattr(request.app.state, "bot_manager", None)
-    running = (
-        {s["instance_id"]: s for s in bot_manager.status()}
-        if bot_manager is not None
-        else {}
-    )
+    running = {s["instance_id"]: s for s in bot_manager.status()} if bot_manager is not None else {}
     instances = []
     for row in storage.list_channel_instances():
         item = _mask_instance(row)
@@ -476,7 +466,9 @@ async def create_instance(body: InstanceCreate, request: Request) -> ApiResponse
 
 @tongzheng_router.put("/instances/{instance_id}")
 async def update_instance(
-    instance_id: str, body: InstanceUpdate, request: Request,
+    instance_id: str,
+    body: InstanceUpdate,
+    request: Request,
 ) -> ApiResponse:
     """更新实例 + 同步运行态（启用→reload/start，禁用→stop）。"""
     storage: Storage = request.app.state.storage
@@ -517,7 +509,9 @@ class _EnabledBody(BaseModel):
 
 @tongzheng_router.patch("/instances/{instance_id}/enabled")
 async def patch_instance_enabled(
-    instance_id: str, body: _EnabledBody, request: Request,
+    instance_id: str,
+    body: _EnabledBody,
+    request: Request,
 ) -> ApiResponse:
     """启停实例。"""
     storage: Storage = request.app.state.storage

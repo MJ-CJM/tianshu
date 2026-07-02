@@ -19,7 +19,7 @@ FIRECRAWL_EXTRACT_URL = "https://api.firecrawl.dev/v1/extract"
 @dataclass(frozen=True)
 class ExtractOutcome:
     data: dict | None
-    status: str           # "ok" | "error"
+    status: str  # "ok" | "error"
     reason: str | None
     http_status: int | None
 
@@ -30,9 +30,7 @@ class FirecrawlExtractEngine:
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
 
-    async def extract(
-        self, url: str, schema: dict, prompt: str | None = None
-    ) -> ExtractOutcome:
+    async def extract(self, url: str, schema: dict, prompt: str | None = None) -> ExtractOutcome:
         try:
             clean_url = await validate_url(url)
         except SSRFViolation as v:
@@ -60,9 +58,7 @@ class FirecrawlExtractEngine:
             )
         body = resp.json()
         if not body.get("success"):
-            return ExtractOutcome(
-                None, "error", "firecrawl_unsuccess", resp.status_code
-            )
+            return ExtractOutcome(None, "error", "firecrawl_unsuccess", resp.status_code)
         return ExtractOutcome(body.get("data"), "ok", None, resp.status_code)
 
 
@@ -70,9 +66,7 @@ def build_firecrawl_extract(store=None) -> FirecrawlExtractEngine | None:
     """DB-first / env fallback；与 firecrawl fetch 共用一把 key。"""
     from tianshu.secrets import resolve_provider_key
 
-    key, _source = resolve_provider_key(
-        store, "firecrawl", "TIANSHU_FIRECRAWL_API_KEY"
-    )
+    key, _source = resolve_provider_key(store, "firecrawl", "TIANSHU_FIRECRAWL_API_KEY")
     if not key:
         return None
     return FirecrawlExtractEngine(api_key=key)

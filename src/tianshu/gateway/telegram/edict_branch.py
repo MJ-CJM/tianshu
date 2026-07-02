@@ -2,6 +2,7 @@
 
 适配点同 assistant_branch：thinking 占位消息、anchor.delete、查询类委托 AssistantBranch。
 """
+
 from __future__ import annotations
 
 import logging
@@ -62,7 +63,8 @@ class EdictBranch:
         approval_cmd = parse_approval_command(text)
         if approval_cmd is not None and self._approval_commands is not None:
             reply = await self._approval_commands.handle(
-                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
                 command=approval_cmd,
             )
             await self._reply(msg.chat_id, reply)
@@ -91,7 +93,8 @@ class EdictBranch:
             await self._reply(
                 msg.chat_id,
                 self._renderer.unknown_command_reply(
-                    self._renderer.edict_tag(edict_id), cmd,
+                    self._renderer.edict_tag(edict_id),
+                    cmd,
                 ),
             )
         else:
@@ -102,7 +105,8 @@ class EdictBranch:
     async def _cmd_exit(self, msg, ctx) -> None:
         self._anchor.delete(msg.chat_id)
         new_eid = await self._edict_bridge.ensure_chat_edict(
-            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+            chat_id=msg.chat_id,
+            sender_open_id=msg.sender_open_id,
             assistant_persona_id=self._assistant_persona_id,
         )
         await self._reply(
@@ -116,7 +120,9 @@ class EdictBranch:
             return
         self._anchor.delete(msg.chat_id)
         result = await self._edict_bridge.create_new(
-            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, goal=goal,
+            chat_id=msg.chat_id,
+            sender_open_id=msg.sender_open_id,
+            goal=goal,
         )
         await self._send_thinking(msg, result.edict_id, result.memorial_id, goal)
 
@@ -161,7 +167,9 @@ class EdictBranch:
     async def _continue_edict(self, msg, ctx, text: str) -> None:
         try:
             result = await self._edict_bridge.continue_or_create(
-                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, text=text,
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
+                text=text,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))
@@ -172,12 +180,18 @@ class EdictBranch:
         await self._outbound.send_text(chat_id, text)
 
     async def _send_thinking(
-        self, msg: TelegramMessage, edict_id: str, memorial_id: str, instruction: str,
+        self,
+        msg: TelegramMessage,
+        edict_id: str,
+        memorial_id: str,
+        instruction: str,
     ) -> None:
         mid = await self._outbound.send_thinking(msg.chat_id)
         if mid:
             self._storage.save_telegram_thinking(
-                memorial_id=memorial_id, chat_id=msg.chat_id, message_id=mid,
+                memorial_id=memorial_id,
+                chat_id=msg.chat_id,
+                message_id=mid,
             )
 
 

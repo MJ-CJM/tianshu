@@ -16,9 +16,7 @@ class ToolResult:
     is_error: bool = False
 
 
-def ok_result(
-    content: str, details: dict[str, Any] | None = None
-) -> ToolResult:
+def ok_result(content: str, details: dict[str, Any] | None = None) -> ToolResult:
     return ToolResult(content=content, details=details)
 
 
@@ -27,9 +25,7 @@ def error_result(message: str) -> ToolResult:
 
 
 class ToolHook(Protocol):
-    async def before_tool_call(
-        self, name: str, args: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    async def before_tool_call(self, name: str, args: dict[str, Any]) -> dict[str, Any] | None:
         """Return modified args or None to keep original."""
         ...
 
@@ -47,8 +43,8 @@ class ToolTier(IntEnum):
     由 PolicyEngine 决策。spec: Section 2 + 2026-04-21 web access。
     """
 
-    T0_READONLY = 0          # 只读 / 无副作用
-    T1_WORKSPACE = 1         # workspace 内写
-    T2_NETWORK = 2           # 外部读（SSRF 风险）
-    T3_WRITE = 3             # 外部写 / 可逆副作用（原 T2_WRITE）
-    T4_DANGEROUS = 4         # 危险 / 不可逆（原 T3_DANGEROUS）
+    T0_READONLY = 0  # 只读 / 无副作用
+    T1_WORKSPACE = 1  # workspace 内写
+    T2_NETWORK = 2  # 外部读（SSRF 风险）
+    T3_WRITE = 3  # 外部写 / 可逆副作用（原 T2_WRITE）
+    T4_DANGEROUS = 4  # 危险 / 不可逆（原 T3_DANGEROUS）

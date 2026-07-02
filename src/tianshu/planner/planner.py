@@ -51,7 +51,8 @@ class Planner:
         if edict.assigned_persona_id:
             logger.info(
                 "Edict %s: direct assignment to %s, skipping LLM planning",
-                edict.id, edict.assigned_persona_id,
+                edict.id,
+                edict.assigned_persona_id,
             )
             return self._passthrough_plan(edict, persona_id=edict.assigned_persona_id)
 
@@ -69,25 +70,33 @@ class Planner:
                 else:
                     logger.warning(
                         "Edict %s: planner persona %s config '%s' not found or disabled, using global",
-                        edict.id, edict.planner_persona_id, persona.llm_config_name,
+                        edict.id,
+                        edict.planner_persona_id,
+                        persona.llm_config_name,
                     )
             else:
                 logger.warning(
                     "Edict %s: planner persona %s has no llm_config_name",
-                    edict.id, edict.planner_persona_id,
+                    edict.id,
+                    edict.planner_persona_id,
                 )
 
         if not state.enabled:
-            logger.warning("Edict %s: LLM config disabled (%s), using passthrough", edict.id, config_source)
+            logger.warning(
+                "Edict %s: LLM config disabled (%s), using passthrough", edict.id, config_source
+            )
             return self._passthrough_plan(edict)
 
         logger.debug(
             "[PLAN] Edict %s: start planning, planner_persona=%s",
-            edict.id, edict.planner_persona_id,
+            edict.id,
+            edict.planner_persona_id,
         )
         logger.info(
             "Edict %s: LLM planning with config=%s model=%s",
-            edict.id, config_source, state.model,
+            edict.id,
+            config_source,
+            state.model,
         )
 
         llm = LLMClient(
@@ -107,7 +116,9 @@ class Planner:
             if planner_persona:
                 try:
                     persona_context = await self._prompt_builder.build(
-                        edict, persona=planner_persona, skills_char_budget=5000,
+                        edict,
+                        persona=planner_persona,
+                        skills_char_budget=5000,
                     )
                 except Exception:
                     logger.warning("Failed to build planner persona context, using base prompt")
@@ -116,6 +127,7 @@ class Planner:
         officials_roster = ""
         if self._selector:
             from tianshu.persona.selector import OfficialSelector
+
             selector: OfficialSelector = self._selector
             executors = [p for p in selector.list_all() if p.department != "neige"]
             officials_roster = format_officials_roster(executors)
@@ -128,7 +140,8 @@ class Planner:
 
         logger.debug(
             "[PLAN] Edict %s: prompt built, persona_ctx=%d chars, roster=%d officials, tools=%d",
-            edict.id, len(persona_context),
+            edict.id,
+            len(persona_context),
             len(executors) if officials_roster else 0,
             len(tool_names) if tools_list else 0,
         )
@@ -165,13 +178,17 @@ class Planner:
             if plan_data is None:
                 logger.warning(
                     "Edict %s: could not parse JSON from LLM response (len=%d), using passthrough. Response: %.500s",
-                    edict.id, len(raw), raw,
+                    edict.id,
+                    len(raw),
+                    raw,
                 )
                 return self._passthrough_plan(edict)
 
             logger.debug(
                 "[PLAN] Edict %s: LLM response len=%d, parsed=%s",
-                edict.id, len(raw), plan_data is not None,
+                edict.id,
+                len(raw),
+                plan_data is not None,
             )
 
             tasks = [PlanTask(**t) for t in plan_data.get("tasks", [])]
@@ -182,7 +199,8 @@ class Planner:
             self._validate_assignments(tasks)
             logger.info(
                 "Edict %s: LLM planning produced %d tasks",
-                edict.id, len(tasks),
+                edict.id,
+                len(tasks),
             )
             return Plan(
                 tasks=tasks,
@@ -207,6 +225,7 @@ class Planner:
         memorial_id = event.memorial_id
         if memorial_id:
             from tianshu.models.common import TaskStatus
+
             memorial = self._storage.get_memorial(memorial_id)
             if memorial and memorial.status.value in ("submitted", "scheduled"):
                 memorial.status = TaskStatus.PLANNING
@@ -221,6 +240,7 @@ class Planner:
             # 需要审批 → 发 plan.pending_review，不触发执行
             if memorial_id:
                 from tianshu.models.common import TaskStatus as _TS
+
                 memorial = self._storage.get_memorial(memorial_id)
                 if memorial:
                     memorial.status = _TS.NEEDS_REVIEW
@@ -302,7 +322,9 @@ class Planner:
                 t.assigned_official = DEFAULT_EXECUTOR_ID
             logger.info(
                 "Task %s: persona reassigned %s → %s (selector match on description)",
-                t.task_id, old_id, t.assigned_official,
+                t.task_id,
+                old_id,
+                t.assigned_official,
             )
 
         # Log final assignments for debugging

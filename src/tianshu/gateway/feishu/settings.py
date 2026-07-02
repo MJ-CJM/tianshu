@@ -1,4 +1,5 @@
 """FeishuSettings：从全局 TianshuSettings 抽取飞书相关字段，附启动校验。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,10 +21,10 @@ class FeishuSettings:
     ws_reconnect_interval: int
     text_batch_delay: float
     dedup_cache_size: int
-    assistant_persona_id: str = "tongzheng"   # 默认通政司
-    intent_llm_enabled: bool = True   # DEPRECATED v2: 极简模型不再使用 IntentParser；保留为向后兼容
-    disable_assistant_mode: bool = False       # 紧急逃生开关
-    enable_edict_submission: bool = False      # 助手是否允许在对话中颁敕（调 submit_edict tool）
+    assistant_persona_id: str = "tongzheng"  # 默认通政司
+    intent_llm_enabled: bool = True  # DEPRECATED v2: 极简模型不再使用 IntentParser；保留为向后兼容
+    disable_assistant_mode: bool = False  # 紧急逃生开关
+    enable_edict_submission: bool = False  # 助手是否允许在对话中颁敕（调 submit_edict tool）
     instance_id: str = "feishu-default"
 
     @property

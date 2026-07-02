@@ -38,8 +38,7 @@ def get_vault() -> SecretVault | None:
     key = os.getenv("TIANSHU_SECRET_MASTER_KEY")
     if not key:
         logger.warning(
-            "[secrets] TIANSHU_SECRET_MASTER_KEY unset; "
-            "api_request / credentials store disabled"
+            "[secrets] TIANSHU_SECRET_MASTER_KEY unset; api_request / credentials store disabled"
         )
         return None
     with _vault_lock:

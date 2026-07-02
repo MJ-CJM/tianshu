@@ -1,4 +1,5 @@
 """EdictBranch 单元测试：敕令模式命令 + /exit + 续接。"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -42,6 +43,7 @@ def _renderer():
 @pytest.fixture
 def branch():
     from tianshu.gateway.feishu.edict_bridge import EdictBridgeResult
+
     storage = MagicMock()
     anchor = MagicMock()
     anchor.get.return_value = None

@@ -32,6 +32,7 @@ class ProviderInfo(BaseModel):
 
 class TaskRequirements(BaseModel):
     """Requirements for selecting a provider."""
+
     capabilities: list[ProviderCapability] = Field(default_factory=list)
     strategy: Literal["cheapest", "fastest", "priority", "round_robin"] = "priority"
     max_cost_per_1k: float | None = None

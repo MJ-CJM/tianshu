@@ -1,4 +1,5 @@
 """#2 并发去重 + schedule_run 台账 —— 回归测试（Multica 借鉴）。"""
+
 import pytest
 
 from tianshu.bus.event_bus import EventBus
@@ -33,10 +34,12 @@ def test_terminal_memorial_not_unfinished(storage):
 
 def test_skip_for_concurrency(storage):
     sched = Scheduler(EventBus(), storage)
-    e_skip = Edict(goal="s", schedule=EdictSchedule(
-        type="cron", cron="* * * * *", concurrency_policy="skip"))
-    e_allow = Edict(goal="a", schedule=EdictSchedule(
-        type="cron", cron="* * * * *", concurrency_policy="allow"))
+    e_skip = Edict(
+        goal="s", schedule=EdictSchedule(type="cron", cron="* * * * *", concurrency_policy="skip")
+    )
+    e_allow = Edict(
+        goal="a", schedule=EdictSchedule(type="cron", cron="* * * * *", concurrency_policy="allow")
+    )
     storage.save_edict(e_skip)
     storage.save_edict(e_allow)
     storage.save_memorial(Memorial(edict_id=e_skip.id, status=TaskStatus.RUNNING))
@@ -70,8 +73,9 @@ async def test_fire_scheduled_skips_when_unfinished(storage):
 
     bus.on("edict.scheduled", _cap)
     sched = Scheduler(bus, storage)
-    e = Edict(goal="x", schedule=EdictSchedule(
-        type="cron", cron="* * * * *", concurrency_policy="skip"))
+    e = Edict(
+        goal="x", schedule=EdictSchedule(type="cron", cron="* * * * *", concurrency_policy="skip")
+    )
     storage.save_edict(e)
     storage.save_memorial(Memorial(edict_id=e.id, status=TaskStatus.RUNNING))
     await sched._fire_scheduled(e, "cron")

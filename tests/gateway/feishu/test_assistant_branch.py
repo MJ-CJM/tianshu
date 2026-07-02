@@ -1,4 +1,5 @@
 """AssistantBranch 单元测试：助手模式命令路由（v2 极简模型）。"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -11,7 +12,9 @@ from tianshu.gateway.feishu.mode_router import ModeContext
 
 
 def _msg(
-    text: str = "hi", chat: str = "oc_x", sender: str = "ou_a",
+    text: str = "hi",
+    chat: str = "oc_x",
+    sender: str = "ou_a",
     message_id: str = "om_user_1",
 ) -> FeishuMessage:
     return FeishuMessage(
@@ -45,6 +48,7 @@ def _renderer():
 @pytest.fixture
 def branch():
     from tianshu.gateway.feishu.edict_bridge import EdictBridgeResult
+
     storage = MagicMock()
     anchor = MagicMock()
     bridge = MagicMock()
@@ -220,7 +224,9 @@ async def test_natural_language_calls_continue_or_create(branch):
     b, _, _, _, _, bridge = branch
     await b.handle(_msg("你是谁?"), _ctx())
     bridge.continue_or_create.assert_awaited_once_with(
-        chat_id="oc_x", sender_open_id="ou_a", text="你是谁?",
+        chat_id="oc_x",
+        sender_open_id="ou_a",
+        text="你是谁?",
     )
 
 
@@ -241,6 +247,7 @@ async def test_natural_language_adds_typing_reaction(branch):
 async def test_natural_language_busy_replies_with_error(branch):
     """v2: 纯文本时 EdictBusyError 应回错误提示。"""
     from tianshu.gateway.feishu.edict_bridge import EdictBusyError
+
     b, _, _, outbound, _, bridge = branch
     bridge.continue_or_create = AsyncMock(side_effect=EdictBusyError("敕令处理中"))
     await b.handle(_msg("你好"), _ctx())
@@ -303,6 +310,7 @@ async def test_cancel_with_id_not_found(branch):
 def test_parse_filter_all_branches():
     """覆盖 _parse_filter 全部分支。"""
     from tianshu.models.common import EdictStatus
+
     pf = AssistantBranch._parse_filter
     assert pf("open") == EdictStatus.OPEN
     assert pf("active") == EdictStatus.OPEN
@@ -324,7 +332,9 @@ async def test_clear_archives_chat_edict_and_creates_new(branch):
     bridge.ensure_chat_edict = AsyncMock(return_value="ed_chat_new")
 
     ctx = ModeContext(
-        mode="assistant", chat_id="oc_x", sender_open_id="ou_a",
+        mode="assistant",
+        chat_id="oc_x",
+        sender_open_id="ou_a",
         edict_id="ed_chat_old",
     )
     await b.handle(_msg("/clear"), ctx)
@@ -345,7 +355,10 @@ async def test_clear_rejected_in_business_edict(branch):
     storage.get_edict.return_value = e_biz
 
     ctx = ModeContext(
-        mode="edict", chat_id="oc_x", sender_open_id="ou_a", edict_id="ed_biz",
+        mode="edict",
+        chat_id="oc_x",
+        sender_open_id="ou_a",
+        edict_id="ed_biz",
     )
     await b.handle(_msg("/clear"), ctx)
 
@@ -359,7 +372,10 @@ async def test_clear_without_active_chat(branch):
     """v2: /clear 在无 anchor 时回提示。"""
     b, storage, _, outbound, _, _ = branch
     ctx = ModeContext(
-        mode="assistant", chat_id="oc_x", sender_open_id="ou_a", edict_id=None,
+        mode="assistant",
+        chat_id="oc_x",
+        sender_open_id="ou_a",
+        edict_id=None,
     )
     await b.handle(_msg("/clear"), ctx)
     assert "无活跃" in outbound.send_text.await_args.args[1]

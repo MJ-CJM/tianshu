@@ -1,4 +1,5 @@
 """Test Memorial.universe_id roundtrip through Storage."""
+
 from tianshu.models import Edict, Memorial
 
 

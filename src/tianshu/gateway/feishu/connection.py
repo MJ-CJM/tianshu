@@ -1,4 +1,5 @@
 """Feishu 连接层：WebSocket (Step 6) + Webhook (本步)。共享 inbound_queue。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -79,7 +80,8 @@ async def _patched_handle_data_frame(self, frame):  # type: ignore[no-untyped-de
     message_type = _LarkMessageType(type_)
     logger.debug(
         "[feishu/ws] data frame message_type=%s msg_id=%s",
-        message_type.value, msg_id,
+        message_type.value,
+        msg_id,
     )
 
     resp = _LarkResponse(code=_http.HTTPStatus.OK)
@@ -101,7 +103,9 @@ async def _patched_handle_data_frame(self, frame):  # type: ignore[no-untyped-de
     except Exception as exc:
         logger.exception(
             "[feishu/ws] _handle_data_frame failed msg_id=%s trace=%s err=%s",
-            msg_id, trace_id, exc,
+            msg_id,
+            trace_id,
+            exc,
         )
         resp = _LarkResponse(code=_http.HTTPStatus.INTERNAL_SERVER_ERROR)
 
@@ -119,6 +123,7 @@ logger.info(
 
 class FeishuConnection(Protocol):
     inbound_queue: asyncio.Queue
+
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
 
@@ -229,10 +234,7 @@ class WebSocketConnection:
 
     async def start(self) -> None:
         # domain 是 string URL（不是 lark.Client 那种 builder 风格）
-        domain = (
-            lark.LARK_DOMAIN if self._settings.domain == "lark"
-            else lark.FEISHU_DOMAIN
-        )
+        domain = lark.LARK_DOMAIN if self._settings.domain == "lark" else lark.FEISHU_DOMAIN
         handler = (
             lark.EventDispatcherHandler.builder(
                 self._settings.encrypt_key,
@@ -254,12 +256,15 @@ class WebSocketConnection:
         # ⚠️ 必须在线程内新建独立 event loop，否则 lark.ws.Client 会拿到主线程
         # uvloop（已在 running）导致 RuntimeError: this event loop is already running
         self._thread = threading.Thread(
-            target=self._run_client_in_thread, daemon=True, name="feishu-ws-client",
+            target=self._run_client_in_thread,
+            daemon=True,
+            name="feishu-ws-client",
         )
         self._thread.start()
         logger.info(
             "[feishu/ws] started (app=%s, domain=%s)",
-            self._settings.app_id, self._settings.domain,
+            self._settings.app_id,
+            self._settings.domain,
         )
         self._last_event_at = time.monotonic()
         self._watchdog_task = asyncio.create_task(self._watchdog())
@@ -276,10 +281,12 @@ class WebSocketConnection:
         全局变量为本线程 loop。
         """
         import asyncio as _asyncio
+
         new_loop = _asyncio.new_event_loop()
         _asyncio.set_event_loop(new_loop)
         try:
             import lark_oapi.ws.client as _lark_ws_client
+
             _lark_ws_client.loop = new_loop  # 关键：替换模块全局 loop
         except Exception:
             logger.exception("[feishu/ws] failed to patch lark client loop")
@@ -309,7 +316,8 @@ class WebSocketConnection:
             if idle > threshold:
                 logger.warning(
                     "[feishu/ws] no events for %ds (>%ds threshold), possible disconnection",
-                    int(idle), threshold,
+                    int(idle),
+                    threshold,
                 )
 
     def _on_message(self, event: P2ImMessageReceiveV1) -> None:
@@ -318,7 +326,8 @@ class WebSocketConnection:
         try:
             payload = self._sdk_message_to_payload(event)
             asyncio.run_coroutine_threadsafe(
-                self.inbound_queue.put(payload), self._loop,
+                self.inbound_queue.put(payload),
+                self._loop,
             )
         except Exception:
             logger.exception("[feishu/ws] _on_message failed")
@@ -329,7 +338,8 @@ class WebSocketConnection:
         try:
             payload = self._sdk_card_to_payload(event)
             asyncio.run_coroutine_threadsafe(
-                self.inbound_queue.put(payload), self._loop,
+                self.inbound_queue.put(payload),
+                self._loop,
             )
         except Exception:
             logger.exception("[feishu/ws] _on_card failed")
@@ -355,11 +365,13 @@ class WebSocketConnection:
                 "event_id": getattr(getattr(event, "header", None), "event_id", ""),
             },
             "event": {
-                "sender": {"sender_id": {
-                    "open_id": getattr(sender_id, "open_id", "") or "",
-                    "user_id": getattr(sender_id, "user_id", "") or "",
-                    "union_id": getattr(sender_id, "union_id", "") or "",
-                }},
+                "sender": {
+                    "sender_id": {
+                        "open_id": getattr(sender_id, "open_id", "") or "",
+                        "user_id": getattr(sender_id, "user_id", "") or "",
+                        "union_id": getattr(sender_id, "union_id", "") or "",
+                    }
+                },
                 "message": {
                     "message_id": getattr(msg, "message_id", "") or "",
                     "chat_id": getattr(msg, "chat_id", "") or "",

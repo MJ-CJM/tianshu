@@ -6,6 +6,7 @@
 - 命令含写动词（send/create/update/delete…）→ **require_approval**。
 - 其余（读操作）→ 弃权（None），落 DefaultTierRule：lark_cli 基础 tier=T2 → 放行。
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,13 +16,44 @@ from tianshu.tools.policy import PolicyContext, PolicyDecision
 LARK_TOOL_NAMES = {"lark_cli"}
 
 # 写动词：任一非 flag token 命中即需审批（大小写不敏感，去前导 +/-）。
-WRITE_VERBS = frozenset({
-    "send", "reply", "create", "update", "delete", "remove", "add", "set",
-    "edit", "patch", "post", "upload", "import", "complete", "cancel",
-    "move", "copy", "share", "grant", "revoke", "archive", "rename",
-    "invite", "kick", "transfer", "approve", "reject", "submit", "publish",
-    "write", "insert", "append", "modify", "comment",
-})
+WRITE_VERBS = frozenset(
+    {
+        "send",
+        "reply",
+        "create",
+        "update",
+        "delete",
+        "remove",
+        "add",
+        "set",
+        "edit",
+        "patch",
+        "post",
+        "upload",
+        "import",
+        "complete",
+        "cancel",
+        "move",
+        "copy",
+        "share",
+        "grant",
+        "revoke",
+        "archive",
+        "rename",
+        "invite",
+        "kick",
+        "transfer",
+        "approve",
+        "reject",
+        "submit",
+        "publish",
+        "write",
+        "insert",
+        "append",
+        "modify",
+        "comment",
+    }
+)
 
 # 交互 / 认证类命令前缀（按非 flag token 比对）→ deny。
 BLOCKED_PREFIXES: tuple[tuple[str, ...], ...] = (

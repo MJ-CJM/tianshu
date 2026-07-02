@@ -5,6 +5,7 @@
 - 清 anchor：anchor.delete（而非 storage.delete_feishu_anchor）
 - send_card：card 为 (text, InlineKeyboardMarkup) 元组
 """
+
 from __future__ import annotations
 
 import logging
@@ -66,7 +67,8 @@ class AssistantBranch:
         approval_cmd = parse_approval_command(text)
         if approval_cmd is not None and self._approval_commands is not None:
             reply = await self._approval_commands.handle(
-                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
                 command=approval_cmd,
             )
             await self._reply(msg.chat_id, reply)
@@ -119,7 +121,9 @@ class AssistantBranch:
             await self._reply(msg.chat_id, "用法：/new <目标描述>")
             return
         result = await self._edict_bridge.create_new(
-            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, goal=goal,
+            chat_id=msg.chat_id,
+            sender_open_id=msg.sender_open_id,
+            goal=goal,
         )
         await self._send_thinking(msg, result.edict_id, result.memorial_id, goal)
 
@@ -127,7 +131,10 @@ class AssistantBranch:
         status_filter = self._parse_filter(filter_arg)
         status_value = status_filter.value if status_filter is not None else None
         edicts, _total = self._storage.list_edicts(
-            status=status_value, limit=10, offset=0, exclude_assistant_chat=True,
+            status=status_value,
+            limit=10,
+            offset=0,
+            exclude_assistant_chat=True,
             instance_id=self._instance_id,
         )
         if not edicts:
@@ -147,7 +154,9 @@ class AssistantBranch:
             await self._reply(msg.chat_id, "ID 前缀至少 6 字符以避免歧义")
             return
         edicts, _total = self._storage.list_edicts(
-            limit=200, offset=0, exclude_assistant_chat=True,
+            limit=200,
+            offset=0,
+            exclude_assistant_chat=True,
             instance_id=self._instance_id,
         )
         matches = [e for e in edicts if e.id.startswith(target)]
@@ -157,7 +166,8 @@ class AssistantBranch:
         if len(matches) > 1:
             ids_preview = ", ".join(f"#{e.id[:12]}" for e in matches[:5])
             await self._reply(
-                msg.chat_id, f"短 ID '{target}' 有多个匹配：{ids_preview}，请用更长前缀",
+                msg.chat_id,
+                f"短 ID '{target}' 有多个匹配：{ids_preview}，请用更长前缀",
             )
             return
         edict = matches[0]
@@ -178,7 +188,8 @@ class AssistantBranch:
     async def _cmd_status(self, msg: TelegramMessage, ctx: ModeContext, target: str) -> None:
         if not target:
             await self._reply(
-                msg.chat_id, "助手模式下 /status 需要指定敕令 ID。用法：/status <id>",
+                msg.chat_id,
+                "助手模式下 /status 需要指定敕令 ID。用法：/status <id>",
             )
             return
         edict = self._find_by_prefix(target)
@@ -193,7 +204,8 @@ class AssistantBranch:
     async def _cmd_cancel(self, msg: TelegramMessage, ctx: ModeContext, target: str) -> None:
         if not target:
             await self._reply(
-                msg.chat_id, "助手模式下 /cancel 需要指定敕令 ID。用法：/cancel <id>",
+                msg.chat_id,
+                "助手模式下 /cancel 需要指定敕令 ID。用法：/cancel <id>",
             )
             return
         edict = self._find_by_prefix(target)
@@ -213,7 +225,8 @@ class AssistantBranch:
     async def _cmd_clear(self, msg: TelegramMessage, ctx: ModeContext) -> None:
         if not ctx.edict_id:
             await self._reply(
-                msg.chat_id, f"{self._renderer.assistant_tag()} 当前无活跃聊天会话",
+                msg.chat_id,
+                f"{self._renderer.assistant_tag()} 当前无活跃聊天会话",
             )
             return
         edict = self._storage.get_edict(ctx.edict_id)
@@ -226,7 +239,8 @@ class AssistantBranch:
         self._storage.update_edict_status(edict.id, EdictStatus.COMPLETED.value)
         self._anchor.delete(msg.chat_id)
         new_eid = await self._edict_bridge.ensure_chat_edict(
-            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+            chat_id=msg.chat_id,
+            sender_open_id=msg.sender_open_id,
             assistant_persona_id=self._assistant_persona_id,
         )
         await self._reply(
@@ -237,12 +251,18 @@ class AssistantBranch:
     # --- 纯文本（自然语言）---
 
     async def _handle_natural_language(
-        self, msg: TelegramMessage, ctx: ModeContext, text: str,
+        self,
+        msg: TelegramMessage,
+        ctx: ModeContext,
+        text: str,
     ) -> None:
         from tianshu.gateway.feishu.edict_bridge import EdictBusyError
+
         try:
             result = await self._edict_bridge.continue_or_create(
-                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, text=text,
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
+                text=text,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))
@@ -268,7 +288,9 @@ class AssistantBranch:
         if len(prefix) < 6:
             return None
         edicts, _total = self._storage.list_edicts(
-            limit=200, offset=0, exclude_assistant_chat=True,
+            limit=200,
+            offset=0,
+            exclude_assistant_chat=True,
             instance_id=self._instance_id,
         )
         for e in edicts:
@@ -280,13 +302,19 @@ class AssistantBranch:
         await self._outbound.send_text(chat_id, text)
 
     async def _send_thinking(
-        self, msg: TelegramMessage, edict_id: str, memorial_id: str, instruction: str,
+        self,
+        msg: TelegramMessage,
+        edict_id: str,
+        memorial_id: str,
+        instruction: str,
     ) -> None:
         """发 ⏳ 占位消息，execution 完成时由 outbound 删除。"""
         mid = await self._outbound.send_thinking(msg.chat_id)
         if mid:
             self._storage.save_telegram_thinking(
-                memorial_id=memorial_id, chat_id=msg.chat_id, message_id=mid,
+                memorial_id=memorial_id,
+                chat_id=msg.chat_id,
+                message_id=mid,
             )
 
 

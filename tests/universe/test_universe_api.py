@@ -1,4 +1,5 @@
 """Integration tests for /api/universes endpoints."""
+
 from __future__ import annotations
 
 import pytest

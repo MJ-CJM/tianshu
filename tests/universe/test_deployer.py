@@ -1,4 +1,5 @@
 """Unit tests for Deployer — injected fake relaunch, no real os.execv."""
+
 from __future__ import annotations
 
 from tianshu.universe.deployer import Deployer, DeployPointer, DeployRecord
@@ -6,6 +7,7 @@ from tianshu.universe.deployer import Deployer, DeployPointer, DeployRecord
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 class FakeRelaunch:
     def __init__(self):
@@ -23,6 +25,7 @@ def make_deployer(tmp_path, fake_relaunch, health_timeout_s=30):
 # ---------------------------------------------------------------------------
 # DeployPointer tests
 # ---------------------------------------------------------------------------
+
 
 def test_pointer_empty_when_missing(tmp_path):
     pointer = DeployPointer(tmp_path / "deploy.json")
@@ -44,6 +47,7 @@ def test_pointer_roundtrip(tmp_path):
 # ---------------------------------------------------------------------------
 # Deployer.promote
 # ---------------------------------------------------------------------------
+
 
 def test_promote_writes_pointer_and_relaunches(tmp_path):
     fake = FakeRelaunch()
@@ -79,6 +83,7 @@ def test_promote_pushes_old_current_to_previous(tmp_path):
 # Deployer.stage
 # ---------------------------------------------------------------------------
 
+
 def test_stage_writes_pointer_no_relaunch(tmp_path):
     fake = FakeRelaunch()
     deployer, pointer = make_deployer(tmp_path, fake)
@@ -103,6 +108,7 @@ def test_stage_writes_pointer_no_relaunch(tmp_path):
 # ---------------------------------------------------------------------------
 # Deployer.rollback
 # ---------------------------------------------------------------------------
+
 
 def test_rollback_restores_previous(tmp_path):
     fake = FakeRelaunch()
@@ -141,6 +147,7 @@ def test_rollback_noop_without_previous(tmp_path):
 # ---------------------------------------------------------------------------
 # Deployer.verify_or_rollback
 # ---------------------------------------------------------------------------
+
 
 def test_verify_or_rollback_healthy(tmp_path, monkeypatch):
     fake = FakeRelaunch()

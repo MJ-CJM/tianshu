@@ -2,6 +2,7 @@
 
 设计文档：docs/superpowers/specs/2026-04-28-feishu-bot-design.md
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -110,7 +111,8 @@ class FeishuBot:
 
         # CardBuilder：cost_manager 缺失会显示降级卡片
         self._card_builder = CardBuilder(
-            storage=storage, cost_manager=cost_manager,
+            storage=storage,
+            cost_manager=cost_manager,
         )
 
         # 分支
@@ -217,8 +219,10 @@ class FeishuBot:
         """
         logger.info(
             "[feishu] reloading (old_mode=%s old_app=%s -> new_mode=%s new_app=%s)",
-            self._settings.connection_mode, self._settings.app_id,
-            new_settings.connection_mode, new_settings.app_id,
+            self._settings.connection_mode,
+            self._settings.app_id,
+            new_settings.connection_mode,
+            new_settings.app_id,
         )
 
         # 1. 停掉 connection（dispatcher / outbound 保持，避免丢入站队列消息）
@@ -282,7 +286,8 @@ class FeishuBot:
 
         logger.info(
             "[feishu] reload complete (mode=%s, app=%s, persona=%s, disable_assistant=%s)",
-            new_settings.connection_mode, new_settings.app_id,
+            new_settings.connection_mode,
+            new_settings.app_id,
             new_settings.assistant_persona_id,
             new_settings.disable_assistant_mode,
         )
@@ -310,7 +315,7 @@ class FeishuBot:
                             "content": (
                                 "**新功能**：\n"
                                 "- 助手模式（无敕令时输入 `/menu` `/list` `/budget`）\n"
-                                "- 自然语言识别（如 \"显示我的列表\"）\n\n"
+                                '- 自然语言识别（如 "显示我的列表"）\n\n'
                                 "**现有敕令绑定保持不变**\n"
                                 "输入 `/help` 查看完整命令列表"
                             ),
@@ -327,9 +332,7 @@ class FeishuBot:
                         chat_id,
                     )
             except Exception:
-                logger.exception(
-                    "[feishu] upgrade notice send failed for chat=%s", chat_id
-                )
+                logger.exception("[feishu] upgrade notice send failed for chat=%s", chat_id)
 
     def _acquire_app_lock(self) -> None:
         """启动时占进程锁，避免双开同一 app_id。"""
@@ -373,7 +376,9 @@ class FeishuBot:
     async def _on_message(self, msg: FeishuMessage) -> None:
         logger.info(
             "[feishu/inbound] chat=%s sender=%s text=%.80s",
-            msg.chat_id, msg.sender_open_id, msg.text,
+            msg.chat_id,
+            msg.sender_open_id,
+            msg.text,
         )
         # 紧急逃生：disable_assistant_mode=True → 走 v1 legacy 行为
         if self._settings.disable_assistant_mode:
@@ -405,7 +410,9 @@ class FeishuBot:
                 await self._reply(msg.chat_id, "用法：/new <目标描述>")
                 return
             result = await self._edict_bridge.create_new(
-                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, goal=goal,
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
+                goal=goal,
             )
             await self._reply(msg.chat_id, f"✅ 新敕令 #{result.edict_id[:8]} 已创建")
             return
@@ -467,7 +474,9 @@ class FeishuBot:
         # 默认：续接或自动新建
         try:
             result = await self._edict_bridge.continue_or_create(
-                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, text=text,
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
+                text=text,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))

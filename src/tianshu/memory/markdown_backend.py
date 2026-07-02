@@ -58,12 +58,14 @@ class MarkdownMemoryBackend:
                 if template.exists():
                     shutil.copy2(template, target_memory)
                     logger.info(
-                        "Seeded %s/MEMORY.md from template", pid,
+                        "Seeded %s/MEMORY.md from template",
+                        pid,
                     )
                 else:
                     # Create empty MEMORY.md
                     target_memory.write_text(
-                        f"# {pid} Memory\n\n", encoding="utf-8",
+                        f"# {pid} Memory\n\n",
+                        encoding="utf-8",
                     )
 
     # ------------------------------------------------------------------
@@ -204,7 +206,11 @@ class MarkdownMemoryBackend:
 
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
         new_text = self._mutate_section(
-            existing, section, mode=mode, content=content, old_text=old_text,
+            existing,
+            section,
+            mode=mode,
+            content=content,
+            old_text=old_text,
         )
 
         # 整文件上限：前置检查并附 trim 建议
@@ -217,7 +223,7 @@ class MarkdownMemoryBackend:
                 for h, c in top:
                     hint_lines.append(f"  - {h}：{c} 字")
                 hint_lines.append(
-                    f"示例：memory_write(action=\"remove\", scope=…, section=\"{top[0][0]}\", old_text=\"…要删的旧文本…\")",
+                    f'示例：memory_write(action="remove", scope=…, section="{top[0][0]}", old_text="…要删的旧文本…")',
                 )
                 hint = "\n".join(hint_lines)
             else:
@@ -278,7 +284,7 @@ class MarkdownMemoryBackend:
             sep = "\n\n" if base else ""
             return f"{base}{sep}{section}\n\n{content.rstrip()}\n"
 
-        section_body = "".join(lines[start + 1:end])
+        section_body = "".join(lines[start + 1 : end])
         before = "".join(lines[:start])
         # 保留 section header 与 body
         if mode == "append":
@@ -340,11 +346,13 @@ class MarkdownMemoryBackend:
 
             for line in text.splitlines():
                 if query_lower in line.lower():
-                    results.append({
-                        "file": log_file.name,
-                        "date": log_file.stem,
-                        "content": line.strip(),
-                    })
+                    results.append(
+                        {
+                            "file": log_file.name,
+                            "date": log_file.stem,
+                            "content": line.strip(),
+                        }
+                    )
                     if len(results) >= limit:
                         return results
 
@@ -369,9 +377,7 @@ class MarkdownMemoryBackend:
             try:
                 text = log_file.read_text(encoding="utf-8")
                 entries.extend(
-                    line.strip()
-                    for line in text.splitlines()
-                    if line.strip().startswith("- ")
+                    line.strip() for line in text.splitlines() if line.strip().startswith("- ")
                 )
             except Exception:
                 continue
@@ -432,7 +438,9 @@ class MarkdownMemoryBackend:
     # Delete operations
     # ------------------------------------------------------------------
 
-    def delete_line(self, persona_id: str, content: str, created_at: datetime | None = None) -> bool:
+    def delete_line(
+        self, persona_id: str, content: str, created_at: datetime | None = None
+    ) -> bool:
         """Delete a matching line from the daily log file.
 
         Matches by content substring. If created_at is provided, narrows to
@@ -532,7 +540,8 @@ class MarkdownMemoryBackend:
                 time_str, cat_code, content = m.groups()
                 try:
                     ts = datetime.strptime(
-                        f"{date_str} {time_str}", "%Y-%m-%d %H:%M",
+                        f"{date_str} {time_str}",
+                        "%Y-%m-%d %H:%M",
                     ).replace(tzinfo=UTC)
                 except ValueError:
                     ts = datetime.now(UTC)

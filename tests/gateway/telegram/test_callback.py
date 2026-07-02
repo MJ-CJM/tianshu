@@ -1,4 +1,5 @@
 """CallbackDispatcher：ea: → 审批；cmd: → 合成命令；始终 answer。"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
@@ -11,8 +12,12 @@ from tianshu.gateway.telegram.dispatcher import TelegramCallback
 
 def _cb(data: str) -> TelegramCallback:
     return TelegramCallback(
-        update_id="u", callback_id="q", chat_id="c1",
-        sender_id="7", message_id="9", data=data,
+        update_id="u",
+        callback_id="q",
+        chat_id="c1",
+        sender_id="7",
+        message_id="9",
+        data=data,
     )
 
 
@@ -22,7 +27,9 @@ def _mk(monkeypatch=None):
     approval_kb.handle_callback = AsyncMock(return_value="✅ 已批准")
     outbound = AsyncMock()
     disp = CallbackDispatcher(
-        mode_router=mode_router, approval_kb=approval_kb, outbound=outbound,
+        mode_router=mode_router,
+        approval_kb=approval_kb,
+        outbound=outbound,
     )
     return disp, mode_router, approval_kb, outbound
 

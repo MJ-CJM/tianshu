@@ -7,14 +7,16 @@ from dataclasses import dataclass
 from tianshu.secrets.store import CredentialStore
 
 # 敏感 header 黑名单：用户 api_request(headers=) 传这些直接拒绝
-FORBIDDEN_USER_HEADERS = frozenset({
-    "authorization",
-    "cookie",
-    "set-cookie",
-    "x-api-key",
-    "x-auth-token",
-    "proxy-authorization",
-})
+FORBIDDEN_USER_HEADERS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "x-auth-token",
+        "proxy-authorization",
+    }
+)
 
 
 class CredentialConflict(Exception):
@@ -36,7 +38,7 @@ class ForbiddenHeader(Exception):
 @dataclass(frozen=True)
 class InjectionResult:
     merged_headers: dict[str, str]
-    credential_name: str | None   # None 表示没命中凭证
+    credential_name: str | None  # None 表示没命中凭证
 
 
 class CredentialInjector:
@@ -48,9 +50,7 @@ class CredentialInjector:
             if name.lower() in FORBIDDEN_USER_HEADERS:
                 raise ForbiddenHeader(name)
 
-    def inject(
-        self, url_host: str, user_headers: dict[str, str]
-    ) -> InjectionResult:
+    def inject(self, url_host: str, user_headers: dict[str, str]) -> InjectionResult:
         self.validate_user_headers(user_headers)
         cred = self._store.find_for_host(url_host)
         if cred is None:
@@ -80,6 +80,5 @@ class CredentialInjector:
 def redact_sensitive_headers(headers: dict[str, str]) -> dict[str, str]:
     """打日志/审计前过一遍。"""
     return {
-        k: ("<redacted>" if k.lower() in FORBIDDEN_USER_HEADERS else v)
-        for k, v in headers.items()
+        k: ("<redacted>" if k.lower() in FORBIDDEN_USER_HEADERS else v) for k, v in headers.items()
     }

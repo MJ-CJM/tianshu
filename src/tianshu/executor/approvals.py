@@ -39,7 +39,7 @@ class ApprovalManager:
         # 长任务 outer loop L3 审批（独立队列，与 tool-call 审批并存）
         self._outer_loop_pending: dict[str, asyncio.Event] = {}
         self._outer_loop_results: dict[str, object] = {}  # HumanDecision
-        self._outer_loop_payload: dict[str, dict] = {}    # 等审批时附带的展示数据（for UI）
+        self._outer_loop_payload: dict[str, dict] = {}  # 等审批时附带的展示数据（for UI）
 
     async def on_before_tool_call(self, **context: object) -> object:
         """Deprecated pre-Step-2 entry point.
@@ -98,7 +98,11 @@ class ApprovalManager:
         self._outer_loop_pending[edict_id] = evt
         if payload is not None:
             self._outer_loop_payload[edict_id] = payload
-        logger.info("Waiting for outer-loop approval on edict %s (timeout=%ds)", edict_id, int(timeout_seconds))
+        logger.info(
+            "Waiting for outer-loop approval on edict %s (timeout=%ds)",
+            edict_id,
+            int(timeout_seconds),
+        )
         try:
             await asyncio.wait_for(evt.wait(), timeout=timeout_seconds)
             return self._outer_loop_results.pop(edict_id, None)
@@ -113,7 +117,8 @@ class ApprovalManager:
         """前端 POST 决策时调；返 True 表示真触发了等待中的 wait_for_outer_loop_decision。"""
         if edict_id not in self._outer_loop_pending:
             logger.warning(
-                "submit_outer_loop_decision: no edict '%s' is awaiting decision", edict_id,
+                "submit_outer_loop_decision: no edict '%s' is awaiting decision",
+                edict_id,
             )
             return False
         self._outer_loop_results[edict_id] = decision
@@ -124,10 +129,12 @@ class ApprovalManager:
         """列出所有等审批的 outer-loop edict 及附带 payload。前端御书房用。"""
         out: list[dict] = []
         for edict_id, payload in self._outer_loop_payload.items():
-            out.append({
-                "edict_id": edict_id,
-                **payload,
-            })
+            out.append(
+                {
+                    "edict_id": edict_id,
+                    **payload,
+                }
+            )
         return out
 
     def list_pending_tool_calls(self) -> list[dict]:
@@ -208,13 +215,15 @@ class ApprovalManager:
         if action == "approve" and grant_scope == "always":
             try:
                 from tianshu.tools.policy_store import assert_can_grant
+
                 assert_can_grant(tool_name, "always")
             except ValueError as e:
                 downgrade_reason = str(e)
                 grant_scope = "once"
                 logger.info(
                     "submit_tool_decision: downgrading grant_scope always→once for %r — %s",
-                    tool_name, e,
+                    tool_name,
+                    e,
                 )
 
         decree = Decree(
@@ -397,7 +406,9 @@ class ApprovalManager:
         )
 
     async def _write_session_rule_from_decree(
-        self, memorial: Memorial, decree: Decree,
+        self,
+        memorial: Memorial,
+        decree: Decree,
     ) -> None:
         """根据 decree.grant_scope 写 session rule，供后续调用直接命中。"""
         from tianshu.tools.policy_store import (
@@ -410,7 +421,8 @@ class ApprovalManager:
         if not tool_name:
             logger.warning(
                 "decree %s: no tool_name recorded for memorial %s, skip session rule",
-                decree.id, decree.memorial_id,
+                decree.id,
+                decree.memorial_id,
             )
             return
 
@@ -454,7 +466,10 @@ class ApprovalManager:
         )
 
     def _fetch_latest_approval_args(
-        self, memorial_id: str, edict_id: str, tool_name: str,
+        self,
+        memorial_id: str,
+        edict_id: str,
+        tool_name: str,
     ) -> dict:
         """从 events 表反查最近一次 tool.approval_required 的 args_summary。"""
         try:

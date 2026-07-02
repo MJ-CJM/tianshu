@@ -23,9 +23,7 @@ def plugin_api(storage, tool_registry):
 
 
 class TestRegisterTool:
-    def test_register_tool_with_schema_builds_tool_definition(
-        self, plugin_api, tool_registry
-    ):
+    def test_register_tool_with_schema_builds_tool_definition(self, plugin_api, tool_registry):
         schema = {
             "description": "d",
             "parameters": {
@@ -42,9 +40,7 @@ class TestRegisterTool:
         assert definition.description == "d"
         assert definition.parameters == schema["parameters"]
 
-    def test_register_tool_with_none_schema_uses_defaults(
-        self, plugin_api, tool_registry
-    ):
+    def test_register_tool_with_none_schema_uses_defaults(self, plugin_api, tool_registry):
         plugin_api.register_tool("t2", _handler)
 
         definition = tool_registry.get_definition("t2")

@@ -23,6 +23,7 @@ class TestExecutor:
     @pytest.fixture
     def mock_agent(self):
         from tianshu.executor.agent import AgentResult
+
         agent = AsyncMock()
         agent.execute.return_value = AgentResult(
             status=TaskStatus.COMPLETED,
@@ -80,6 +81,7 @@ class TestExecutor:
 
         # Wait for background task
         import asyncio
+
         await asyncio.sleep(0.1)
 
         memorials = storage.list_memorials_by_edict(edict.id)

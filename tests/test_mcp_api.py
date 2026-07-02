@@ -17,6 +17,7 @@ from tianshu.tools.mcp.config import MCPConfig, MCPServerConfig
 async def client(monkeypatch):
     # 测试期把 MCP 重连参数压到最小，避免 broken stub 触发 60s 退避
     from tianshu.tools.mcp import client as mcp_client_module
+
     monkeypatch.setattr(mcp_client_module, "MAX_RECONNECT_ATTEMPTS", 1)
     monkeypatch.setattr(mcp_client_module, "MAX_BACKOFF_SECONDS", 0)
 
@@ -96,16 +97,12 @@ class TestGetMCPServer:
 
 class TestPatchMCPServer:
     async def test_disable_via_override(self, client):
-        resp = await client.patch(
-            "/api/mcp/servers/fixture", json={"enabled": False}
-        )
+        resp = await client.patch("/api/mcp/servers/fixture", json={"enabled": False})
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
     async def test_patch_missing_404(self, client):
-        resp = await client.patch(
-            "/api/mcp/servers/nonexistent", json={"enabled": False}
-        )
+        resp = await client.patch("/api/mcp/servers/nonexistent", json={"enabled": False})
         assert resp.status_code == 404
 
 

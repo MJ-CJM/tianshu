@@ -27,11 +27,15 @@ def test_drawer_is_frozen():
     from tianshu.memory.drawer import Drawer
 
     d = Drawer(
-        id="drw_002", wing="neige", room="planning",
+        id="drw_002",
+        wing="neige",
+        room="planning",
         content="Task decomposition strategy worked well.",
         source_edict_id="edict_xyz",
         timestamp="2026-04-16T00:00:00+00:00",
-        category="O", confidence=0.8, chunk_index=0,
+        category="O",
+        confidence=0.8,
+        chunk_index=0,
     )
     with pytest.raises(AttributeError):
         d.content = "modified"
@@ -57,4 +61,9 @@ def test_memory_backend_protocol():
     import typing
 
     from tianshu.memory.drawer import MemoryBackend
-    assert typing.runtime_checkable(MemoryBackend) or hasattr(MemoryBackend, '__protocol_attrs__') or True
+
+    assert (
+        typing.runtime_checkable(MemoryBackend)
+        or hasattr(MemoryBackend, "__protocol_attrs__")
+        or True
+    )

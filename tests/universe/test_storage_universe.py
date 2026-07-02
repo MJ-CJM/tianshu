@@ -1,4 +1,5 @@
 """Tests for Storage universe CRUD methods."""
+
 from tianshu.storage import Storage
 
 
@@ -108,12 +109,16 @@ def test_universe_roundtrip_optional_fields(tmp_path):
 def test_universe_code_ref_roundtrip(tmp_path):
     s = Storage(str(tmp_path / "t.db"))
     s.init_db()
-    s.save_universe({
-        "id": "cv1", "name": "code-variant",
-        "status": "challenger", "origin": "code_variant",
-        "code_ref": "universe/cv1",
-        "created_at": "2026-06-08T00:00:00+00:00",
-    })
+    s.save_universe(
+        {
+            "id": "cv1",
+            "name": "code-variant",
+            "status": "challenger",
+            "origin": "code_variant",
+            "code_ref": "universe/cv1",
+            "created_at": "2026-06-08T00:00:00+00:00",
+        }
+    )
     u = s.get_universe("cv1")
     assert u["code_ref"] == "universe/cv1"
     assert u["origin"] == "code_variant"
@@ -122,28 +127,44 @@ def test_universe_code_ref_roundtrip(tmp_path):
 def test_universe_code_ref_defaults_none(tmp_path):
     s = Storage(str(tmp_path / "t.db"))
     s.init_db()
-    s.save_universe({
-        "id": "d1", "name": "data", "status": "challenger",
-        "origin": "manual_branch", "created_at": "2026-06-08T00:00:00+00:00",
-    })
+    s.save_universe(
+        {
+            "id": "d1",
+            "name": "data",
+            "status": "challenger",
+            "origin": "manual_branch",
+            "created_at": "2026-06-08T00:00:00+00:00",
+        }
+    )
     assert s.get_universe("d1")["code_ref"] is None
 
 
 def test_delete_universe_removes_row_and_eval_runs(tmp_path):
     s = Storage(str(tmp_path / "t.db"))
     s.init_db()
-    s.save_universe({
-        "id": "u1", "name": "test", "status": "challenger",
-        "origin": "manual_branch", "created_at": "2026-06-08T00:00:00+00:00",
-    })
+    s.save_universe(
+        {
+            "id": "u1",
+            "name": "test",
+            "status": "challenger",
+            "origin": "manual_branch",
+            "created_at": "2026-06-08T00:00:00+00:00",
+        }
+    )
     from datetime import UTC, datetime
-    s.save_variant_eval_run({
-        "id": "r1", "universe_id": "u1",
-        "gate_passed": True, "gate_detail": None,
-        "fitness": {"score": 0.9}, "eval_set_version": "v1",
-        "cost": 0.01,
-        "created_at": datetime.now(UTC).isoformat(),
-    })
+
+    s.save_variant_eval_run(
+        {
+            "id": "r1",
+            "universe_id": "u1",
+            "gate_passed": True,
+            "gate_detail": None,
+            "fitness": {"score": 0.9},
+            "eval_set_version": "v1",
+            "cost": 0.01,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+    )
     assert s.get_universe("u1") is not None
     assert len(s.list_variant_eval_runs("u1")) == 1
 

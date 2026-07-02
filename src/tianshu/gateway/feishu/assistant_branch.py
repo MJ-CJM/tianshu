@@ -3,6 +3,7 @@
 支持命令：/new /list /select /budget /menu /help /status /cancel /clear
 不支持的纯文本：续接当前 anchor 敕令（让 executor + persona LLM 自然处理）。
 """
+
 from __future__ import annotations
 
 import logging
@@ -124,7 +125,9 @@ class AssistantBranch:
             await self._reply(msg.chat_id, "用法：/new <目标描述>")
             return
         result = await self._edict_bridge.create_new(
-            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, goal=goal,
+            chat_id=msg.chat_id,
+            sender_open_id=msg.sender_open_id,
+            goal=goal,
         )
         await self._send_thinking(msg, result.edict_id, result.memorial_id, goal)
 
@@ -132,8 +135,10 @@ class AssistantBranch:
         status_filter = self._parse_filter(filter_arg)
         status_value = status_filter.value if status_filter is not None else None
         edicts, _total = self._storage.list_edicts(
-            status=status_value, limit=10, offset=0,
-            exclude_assistant_chat=True,   # v2: 隐藏聊天敕令
+            status=status_value,
+            limit=10,
+            offset=0,
+            exclude_assistant_chat=True,  # v2: 隐藏聊天敕令
             instance_id=self._instance_id,
         )
         if not edicts:
@@ -143,7 +148,8 @@ class AssistantBranch:
             )
             return
         card = self._card_builder.build_list_card(
-            edicts=edicts, current_anchor=ctx.edict_id,
+            edicts=edicts,
+            current_anchor=ctx.edict_id,
         )
         await self._outbound.send_card(msg.chat_id, card)
 
@@ -155,7 +161,9 @@ class AssistantBranch:
             await self._reply(msg.chat_id, "ID 前缀至少 6 字符以避免歧义")
             return
         edicts, _total = self._storage.list_edicts(
-            limit=200, offset=0, exclude_assistant_chat=True,
+            limit=200,
+            offset=0,
+            exclude_assistant_chat=True,
             instance_id=self._instance_id,
         )
         matches = [e for e in edicts if e.id.startswith(target)]
@@ -213,7 +221,8 @@ class AssistantBranch:
             return
         if edict.status in (EdictStatus.COMPLETED.value, EdictStatus.CANCELLED.value):
             await self._reply(
-                msg.chat_id, f"敕令 #{edict.id[:8]} 已 {format_status_label(edict.status)}，无需取消",
+                msg.chat_id,
+                f"敕令 #{edict.id[:8]} 已 {format_status_label(edict.status)}，无需取消",
             )
             return
         self._storage.update_edict_status(edict.id, EdictStatus.CANCELLED.value)
@@ -243,7 +252,8 @@ class AssistantBranch:
         # 清 anchor 让 ensure_chat_edict 自然新建
         self._anchor.delete(msg.chat_id)
         new_eid = await self._edict_bridge.ensure_chat_edict(
-            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+            chat_id=msg.chat_id,
+            sender_open_id=msg.sender_open_id,
             assistant_persona_id=self._assistant_persona_id,
         )
         await self._reply(
@@ -254,7 +264,10 @@ class AssistantBranch:
     # --- 纯文本（自然语言）---
 
     async def _handle_natural_language(
-        self, msg: FeishuMessage, ctx: ModeContext, text: str,
+        self,
+        msg: FeishuMessage,
+        ctx: ModeContext,
+        text: str,
     ) -> None:
         """纯文本（无 / 前缀）→ 续接当前 anchor 敕令，让 executor + persona LLM 自然处理。
 
@@ -262,9 +275,12 @@ class AssistantBranch:
         所以等价于 EdictBridge.continue_or_create 行为。
         """
         from tianshu.gateway.feishu.edict_bridge import EdictBusyError
+
         try:
             result = await self._edict_bridge.continue_or_create(
-                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, text=text,
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
+                text=text,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))
@@ -290,7 +306,9 @@ class AssistantBranch:
         if len(prefix) < 6:
             return None
         edicts, _total = self._storage.list_edicts(
-            limit=200, offset=0, exclude_assistant_chat=True,
+            limit=200,
+            offset=0,
+            exclude_assistant_chat=True,
             instance_id=self._instance_id,
         )
         for e in edicts:
@@ -302,7 +320,11 @@ class AssistantBranch:
         await self._outbound.send_text(chat_id, text)
 
     async def _send_thinking(
-        self, msg: FeishuMessage, edict_id: str, memorial_id: str, instruction: str,
+        self,
+        msg: FeishuMessage,
+        edict_id: str,
+        memorial_id: str,
+        instruction: str,
     ) -> None:
         """给用户原消息加 typing reaction 表示"正在思考"，登记到 db。
 
@@ -314,8 +336,10 @@ class AssistantBranch:
         reaction_id = await self._outbound.add_reaction(msg.message_id, "Typing")
         if reaction_id:
             self._storage.save_feishu_thinking(
-                memorial_id=memorial_id, chat_id=msg.chat_id,
-                reaction_id=reaction_id, source_message_id=msg.message_id,
+                memorial_id=memorial_id,
+                chat_id=msg.chat_id,
+                reaction_id=reaction_id,
+                source_message_id=msg.message_id,
             )
 
 

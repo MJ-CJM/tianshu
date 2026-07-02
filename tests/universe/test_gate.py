@@ -1,4 +1,5 @@
 """Tests for Gate — static / import / test 门禁。"""
+
 from pathlib import Path
 
 from tianshu.universe.gate import Gate, GateResult

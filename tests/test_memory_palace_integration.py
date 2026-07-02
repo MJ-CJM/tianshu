@@ -68,10 +68,15 @@ async def test_ablation_memory_off(store):
     stack = MemoryStack(store=store, config=config)
 
     d = Drawer(
-        id="drw_abl_001", wing="bingbu", room="execution",
-        content="Important lesson", source_edict_id="edict_002",
+        id="drw_abl_001",
+        wing="bingbu",
+        room="execution",
+        content="Important lesson",
+        source_edict_id="edict_002",
         timestamp="2026-04-16T12:00:00+00:00",
-        category="W", confidence=1.0, chunk_index=0,
+        category="W",
+        confidence=1.0,
+        chunk_index=0,
     )
     await store.store_drawer(d)
 

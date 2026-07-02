@@ -1,6 +1,5 @@
 """Tests for PersonaMemoryManager."""
 
-
 import pytest
 
 from tianshu.models import Edict, Memorial, TaskStatus

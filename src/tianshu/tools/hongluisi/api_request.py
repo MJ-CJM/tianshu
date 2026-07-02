@@ -28,7 +28,7 @@ MAX_BODY_TEXT_CHARS = 16000
 
 @dataclass(frozen=True)
 class ApiResponse:
-    status: str           # "ok" | "error"
+    status: str  # "ok" | "error"
     http_status: int | None
     headers: dict[str, str]
     body: str

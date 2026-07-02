@@ -2,6 +2,7 @@
 
 任一字段缺省（None / 0 / 负）则该维度不计入 max。全部缺省返回 0.0。
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

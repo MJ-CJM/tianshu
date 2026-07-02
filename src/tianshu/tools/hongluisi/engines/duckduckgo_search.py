@@ -27,9 +27,7 @@ class DuckDuckGoSearchEngine:
         client = SharedHttpClient.instance()
         url = f"{DDG_HTML_ENDPOINT}?q={quote_plus(query)}"
         try:
-            resp = await client._client.get(
-                url, headers={"User-Agent": _UA}
-            )
+            resp = await client._client.get(url, headers={"User-Agent": _UA})
         except httpx.HTTPError as e:
             raise RuntimeError(f"duckduckgo_http_error:{type(e).__name__}") from e
         if resp.status_code >= 400:
@@ -71,7 +69,10 @@ def _parse(html_text: str) -> list[SearchResult]:
         snippet = snippet_els[0].text_content().strip() if snippet_els else ""
         out.append(
             SearchResult(
-                title=title, url=real_url, snippet=snippet[:1000], score=None,
+                title=title,
+                url=real_url,
+                snippet=snippet[:1000],
+                score=None,
             )
         )
     return out

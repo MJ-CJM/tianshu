@@ -1,4 +1,5 @@
 """CardActionDispatcher 单元测试：按钮 value → 文本命令合成。"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock

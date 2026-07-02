@@ -34,7 +34,7 @@ class UniverseManager:
         self._personas = persona_loader
         self._skills = skills_loader
         self._config_snapshot = config_snapshot  # () -> dict
-        self._config_apply = config_apply        # (dict) -> None
+        self._config_apply = config_apply  # (dict) -> None
         self._bus = event_bus
         self._agent_config = agent_config or (lambda: None)
         self._code_store = code_store
@@ -64,10 +64,7 @@ class UniverseManager:
         ratio = getattr(cfg, "universe_explore_ratio", 0.1)
         if ratio <= 0:
             return champ_id
-        challengers = [
-            u for u in self.list(include_archived=False)
-            if u["status"] == "challenger"
-        ]
+        challengers = [u for u in self.list(include_archived=False) if u["status"] == "challenger"]
         if not challengers:
             return champ_id
         h = int(hashlib.sha256((memorial_id or "").encode()).hexdigest(), 16)
@@ -123,9 +120,14 @@ class UniverseManager:
         )
         self._store.branch_from(parent_id, child.id)
         self._storage.save_universe(child.to_row())
-        self._emit("universe.created", {
-            "universe_id": child.id, "parent": parent_id, "origin": origin.value,
-        })
+        self._emit(
+            "universe.created",
+            {
+                "universe_id": child.id,
+                "parent": parent_id,
+                "origin": origin.value,
+            },
+        )
         return self._storage.get_universe(child.id)
 
     # --- code variant branch ---
@@ -154,10 +156,15 @@ class UniverseManager:
         code_ref = self._code_store.branch_code_variant(child.id, start_ref=start_ref)
         child = dataclasses.replace(child, code_ref=code_ref)
         self._storage.save_universe(child.to_row())
-        self._emit("universe.created", {
-            "universe_id": child.id, "parent": parent_id,
-            "origin": UniverseOrigin.CODE_VARIANT.value, "code_ref": code_ref,
-        })
+        self._emit(
+            "universe.created",
+            {
+                "universe_id": child.id,
+                "parent": parent_id,
+                "origin": UniverseOrigin.CODE_VARIANT.value,
+                "code_ref": code_ref,
+            },
+        )
         return self._storage.get_universe(child.id)
 
     # --- promote code variant ---
@@ -177,7 +184,9 @@ class UniverseManager:
         self._storage.set_universe_status(universe_id, UniverseStatus.CHAMPION.value)
         worktree = str(self._code_store.worktree_dir(universe_id)) if self._code_store else None
         self._deployer.stage(ref=target["code_ref"], worktree=worktree)
-        self._emit("universe.promoted", {"universe_id": universe_id, "code_ref": target["code_ref"]})
+        self._emit(
+            "universe.promoted", {"universe_id": universe_id, "code_ref": target["code_ref"]}
+        )
         return self._storage.get_universe(universe_id)
 
     # --- switch / rollback ---
@@ -189,8 +198,7 @@ class UniverseManager:
             raise ValueError(f"universe not found: {universe_id}")
         if target.get("code_ref"):
             raise ValueError(
-                "code variant switch/promotion requires the Deployer "
-                "(Phase 2 increment 2d)"
+                "code variant switch/promotion requires the Deployer (Phase 2 increment 2d)"
             )
         if target["status"] == UniverseStatus.ARCHIVED.value:
             raise ValueError("cannot switch to an archived universe")
@@ -217,9 +225,13 @@ class UniverseManager:
         if prev:
             self._storage.set_universe_status(prev["id"], UniverseStatus.CHALLENGER.value)
         self._storage.set_universe_status(universe_id, UniverseStatus.CHAMPION.value)
-        self._emit("universe.switched", {
-            "from": prev["id"] if prev else None, "to": universe_id,
-        })
+        self._emit(
+            "universe.switched",
+            {
+                "from": prev["id"] if prev else None,
+                "to": universe_id,
+            },
+        )
         return self._storage.get_universe(universe_id)
 
     # rollback 语义等同 switch 到历史位面
@@ -280,9 +292,7 @@ class UniverseManager:
             "personas": self._diff_dir(
                 self._store.personas_dir(a_id), self._store.personas_dir(b_id)
             ),
-            "skills": self._diff_dir(
-                self._store.skills_dir(a_id), self._store.skills_dir(b_id)
-            ),
+            "skills": self._diff_dir(self._store.skills_dir(a_id), self._store.skills_dir(b_id)),
             "config": self._diff_config(
                 self._store.read_manifest(a_id), self._store.read_manifest(b_id)
             ),
@@ -310,6 +320,7 @@ class UniverseManager:
                             encoding="utf-8", errors="replace"
                         )
             return out
+
         fa, fb = files(a), files(b)
         keys = set(fa) | set(fb)
         return {
@@ -338,7 +349,13 @@ class UniverseManager:
         if not self._bus:
             return
         from tianshu.models.events import make_event
-        self._bus.fire(make_event(
-            event_type=event_type, edict_id=None, memorial_id=None,
-            producer="universe_manager", payload=payload,
-        ))
+
+        self._bus.fire(
+            make_event(
+                event_type=event_type,
+                edict_id=None,
+                memorial_id=None,
+                producer="universe_manager",
+                payload=payload,
+            )
+        )

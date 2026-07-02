@@ -77,7 +77,11 @@ def _normalize_heading(line: str) -> str:
     """Lowercase a heading line with leading #'s and emoji/punctuation stripped."""
     stripped = line.lstrip("#").strip()
     # Drop a leading emoji/symbol token if present (e.g. "🎯 Your Core Mission").
-    return "".join(ch for ch in stripped if ch.isalnum() or ch.isspace() or "一" <= ch <= "鿿").strip().lower()
+    return (
+        "".join(ch for ch in stripped if ch.isalnum() or ch.isspace() or "一" <= ch <= "鿿")
+        .strip()
+        .lower()
+    )
 
 
 def _find_split_index(lines: list[str]) -> int | None:
@@ -169,7 +173,10 @@ class TemplateLibrary:
         logger.info("Loaded %d persona templates", total)
 
     def _parse_template(
-        self, lang: str, category: str, path: Path,
+        self,
+        lang: str,
+        category: str,
+        path: Path,
     ) -> PersonaTemplate | None:
         try:
             fm, _ = _parse_frontmatter(path.read_text(encoding="utf-8"))
@@ -206,5 +213,8 @@ class TemplateLibrary:
         """Read the template file and return (soul_md, role_md)."""
         markdown = template.path.read_text(encoding="utf-8")
         return split_template(
-            markdown, name=name, department=department, title=title,
+            markdown,
+            name=name,
+            department=department,
+            title=title,
         )

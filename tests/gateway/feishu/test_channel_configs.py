@@ -1,4 +1,5 @@
 """通政司 channel_configs 表 + Storage 加密读写测试。"""
+
 from __future__ import annotations
 
 import pytest
@@ -9,6 +10,7 @@ def _master_key(monkeypatch):
     from cryptography.fernet import Fernet
 
     from tianshu.secrets.vault import reset_vault
+
     monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", Fernet.generate_key().decode())
     reset_vault()
     yield
@@ -49,6 +51,7 @@ def test_save_clear_secret(storage):
 def test_save_without_master_key_raises(storage, monkeypatch):
     monkeypatch.delenv("TIANSHU_SECRET_MASTER_KEY", raising=False)
     from tianshu.secrets.vault import reset_vault
+
     reset_vault()
     with pytest.raises(RuntimeError, match="MASTER_KEY"):
         storage.save_channel_config("feishu", {"app_id": "x"}, secret_plaintext="s")

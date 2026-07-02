@@ -7,12 +7,12 @@ def _mgr(enabled, ratio, challengers):
     m = UniverseManager.__new__(UniverseManager)
     m._storage = MagicMock()
     m._storage.get_champion_universe.return_value = {"id": "champ"}
-    m._storage.list_universes.return_value = (
-        [{"id": "champ", "status": "champion"}]
-        + [{"id": f"c{i}", "status": "challenger"} for i in range(challengers)]
-    )
-    m._agent_config = lambda: type("C", (), {
-        "parallel_universe_enabled": enabled, "universe_explore_ratio": ratio})()
+    m._storage.list_universes.return_value = [{"id": "champ", "status": "champion"}] + [
+        {"id": f"c{i}", "status": "challenger"} for i in range(challengers)
+    ]
+    m._agent_config = lambda: type(
+        "C", (), {"parallel_universe_enabled": enabled, "universe_explore_ratio": ratio}
+    )()
     return m
 
 

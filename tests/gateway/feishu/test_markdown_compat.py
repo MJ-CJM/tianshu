@@ -1,4 +1,5 @@
 """markdown_compat 单元测试。"""
+
 from __future__ import annotations
 
 from tianshu.gateway.feishu.markdown_compat import (
@@ -9,13 +10,7 @@ from tianshu.gateway.feishu.markdown_compat import (
 
 
 def test_convert_two_column_table():
-    md = (
-        "概况：\n\n"
-        "| 项目 | 值 |\n"
-        "|------|-----|\n"
-        "| 标题 | demo |\n"
-        "| 总页数 | 26 页 |\n"
-    )
+    md = "概况：\n\n| 项目 | 值 |\n|------|-----|\n| 标题 | demo |\n| 总页数 | 26 页 |\n"
     out = convert_tables_to_lists(md)
     assert "- **标题**：demo" in out
     assert "- **总页数**：26 页" in out
@@ -24,11 +19,7 @@ def test_convert_two_column_table():
 
 
 def test_convert_three_column_table_keeps_all_columns():
-    md = (
-        "| A | B | C |\n"
-        "|---|---|---|\n"
-        "| 1 | 2 | 3 |\n"
-    )
+    md = "| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n"
     out = convert_tables_to_lists(md)
     assert "1" in out and "2" in out and "3" in out
     # 多列用斜杠分隔

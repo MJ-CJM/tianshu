@@ -14,9 +14,7 @@ _MAX_OUTPUT_BYTES = 50_000
 
 
 def register_find_files(registry: ToolRegistry, workspace: Path) -> None:
-    async def find_files(
-        pattern: str, path: str = ".", limit: int = 1000
-    ) -> ToolResult:
+    async def find_files(pattern: str, path: str = ".", limit: int = 1000) -> ToolResult:
         search_path = safe_path(workspace, path)
         if not search_path.is_dir():
             return error_result(f"Error: '{path}' is not a directory")

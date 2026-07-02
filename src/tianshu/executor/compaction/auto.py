@@ -124,10 +124,12 @@ def _pre_compress_tool_results(messages: list[dict]) -> list[dict]:
             tool_id = msg.get("tool_call_id", "?")
             line_count = content.count("\n") + 1
             preview = content[:80].replace("\n", " ")
-            compressed.append({
-                **msg,
-                "content": f"[tool:{tool_id}] {preview}... ({line_count} lines, {len(content)} chars)",
-            })
+            compressed.append(
+                {
+                    **msg,
+                    "content": f"[tool:{tool_id}] {preview}... ({line_count} lines, {len(content)} chars)",
+                }
+            )
         else:
             compressed.append(msg)
     return compressed
@@ -138,7 +140,7 @@ def _extract_existing_summary(middle: list[dict]) -> str | None:
     for msg in middle:
         content = str(msg.get("content", ""))
         if content.startswith(_SUMMARY_PREFIX):
-            return content[len(_SUMMARY_PREFIX):].strip()
+            return content[len(_SUMMARY_PREFIX) :].strip()
     return None
 
 

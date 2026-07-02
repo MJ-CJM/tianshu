@@ -66,9 +66,9 @@ BUILTIN_TEMPLATES: dict[str, PolicyProfile] = {
 # 模块级缓存 —— 运行时由 app.state / API PATCH 更新；resolve_network_for_edict 读
 # 启动时 app.py 从 DB 加载一次；PATCH 时更新。
 _system_engine_overrides: dict = {
-    "fetch_chain": [],       # list[str]; 空数组 = 不覆盖
+    "fetch_chain": [],  # list[str]; 空数组 = 不覆盖
     "search_provider": None,  # str|None; None = 不覆盖
-    "fallback_mode": None,   # str|None; None = 不覆盖
+    "fallback_mode": None,  # str|None; None = 不覆盖
 }
 
 
@@ -124,6 +124,7 @@ def resolve_network_for_edict(edict: object) -> NetworkPolicy:
 
     # 只覆盖非空字段；保持 dataclass frozen 用 replace
     from dataclasses import replace
+
     patch: dict = {}
     if sys_chain:
         patch["fetch_engines"] = tuple(sys_chain)
@@ -149,9 +150,7 @@ async def expand_profile_to_rules(
 
     created = 0
     expires_after = (
-        timedelta(seconds=profile.expires_after_seconds)
-        if profile.expires_after_seconds
-        else None
+        timedelta(seconds=profile.expires_after_seconds) if profile.expires_after_seconds else None
     )
 
     # 1. allowed_paths → edit_file / write_file rules

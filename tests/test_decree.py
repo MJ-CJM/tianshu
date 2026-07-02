@@ -95,7 +95,10 @@ class TestApprovalManager:
             await manager.submit_decree(decree)
 
     async def test_tool_decision_downgrades_always_for_shell_exec(
-        self, manager, storage, event_bus,
+        self,
+        manager,
+        storage,
+        event_bus,
     ):
         """Bug A 回归：shell_exec + always 应被前置降级为 once，且事件 payload
         透出 grant_downgraded=true，前端可以提示用户'已降级为本次'。"""
@@ -111,8 +114,10 @@ class TestApprovalManager:
         manager._pending_tool[memorial.id] = "shell_exec"
 
         captured: list = []
+
         async def collect(evt):
             captured.append(evt)
+
         event_bus.on("decree.approved", collect)
 
         decree = await manager.submit_tool_decision(
@@ -134,7 +139,10 @@ class TestApprovalManager:
         assert "shell_exec" in (payload["grant_downgrade_reason"] or "")
 
     async def test_tool_decision_keeps_always_for_non_bash_tool(
-        self, manager, storage, event_bus,
+        self,
+        manager,
+        storage,
+        event_bus,
     ):
         """非 bash 类工具不会被降级 — always 正常生效。"""
         import asyncio
@@ -148,8 +156,10 @@ class TestApprovalManager:
         manager._pending_tool[memorial.id] = "read_file"
 
         captured: list = []
+
         async def collect(evt):
             captured.append(evt)
+
         event_bus.on("decree.approved", collect)
 
         decree = await manager.submit_tool_decision(

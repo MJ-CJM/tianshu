@@ -2,6 +2,7 @@
 
 与飞书 SessionAnchor 并列；额外把 delete 收进类（分支统一走 anchor.delete）。
 """
+
 from __future__ import annotations
 
 from tianshu.storage import Storage

@@ -1,4 +1,5 @@
 """TelegramOutbound：发送、send_card、完成投递 + thinking 占位删除。"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -50,6 +51,7 @@ async def test_send_text_none_when_no_bot(storage):
 @pytest.mark.asyncio
 async def test_send_card_with_keyboard(storage):
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
     out, bot = _outbound(storage)
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("x", callback_data="cmd:list")]])
     mid = await out.send_card("555", ("菜单", kb))
@@ -60,17 +62,18 @@ async def test_send_card_with_keyboard(storage):
 @pytest.mark.asyncio
 async def test_execution_completed_delivers_and_clears_thinking(storage):
     out, bot = _outbound(storage)
-    edict = Edict(title="t", goal="g", source="channel",
-                  metadata={"channel": "telegram", "chat_id": "555"})
+    edict = Edict(
+        title="t", goal="g", source="channel", metadata={"channel": "telegram", "chat_id": "555"}
+    )
     storage.save_edict(edict)
-    memorial = Memorial(edict_id=edict.id, instruction="hi",
-                        status=TaskStatus.COMPLETED, result="最终结果")
+    memorial = Memorial(
+        edict_id=edict.id, instruction="hi", status=TaskStatus.COMPLETED, result="最终结果"
+    )
     storage.save_memorial(memorial)
     # 登记 thinking 占位
     storage.save_telegram_thinking(memorial_id=memorial.id, chat_id="555", message_id="9")
 
-    ev = EventEnvelope(event_type="execution.completed",
-                       edict_id=edict.id, memorial_id=memorial.id)
+    ev = EventEnvelope(event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id)
     await out._on_execution_completed(ev)
 
     # 删除了 thinking 占位
@@ -84,8 +87,9 @@ async def test_execution_completed_delivers_and_clears_thinking(storage):
 @pytest.mark.asyncio
 async def test_execution_completed_skips_non_telegram(storage):
     out, bot = _outbound(storage)
-    edict = Edict(title="t", goal="g", source="channel",
-                  metadata={"channel": "feishu", "chat_id": "oc_x"})
+    edict = Edict(
+        title="t", goal="g", source="channel", metadata={"channel": "feishu", "chat_id": "oc_x"}
+    )
     storage.save_edict(edict)
     ev = EventEnvelope(event_type="execution.completed", edict_id=edict.id)
     await out._on_execution_completed(ev)

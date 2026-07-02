@@ -128,7 +128,8 @@ class PromptBuilder:
                 )
                 logger.warning(
                     "SOUL.md not found for persona %s (%s), using fallback identity",
-                    persona.id, persona.soul_path,
+                    persona.id,
+                    persona.soul_path,
                 )
 
             # Layer 4: ROLE.md (persona role specifics) — from personas/
@@ -149,7 +150,9 @@ class PromptBuilder:
 
             # Layer 5.5: Recent Activity (last 2 days logs)
             recent_logs = self._md_backend.read_recent_logs(
-                persona.id, days=2, char_budget=2000,
+                persona.id,
+                days=2,
+                char_budget=2000,
             )
             if recent_logs:
                 parts.append(f"# Recent Activity\n\n{recent_logs}")
@@ -207,121 +210,145 @@ class PromptBuilder:
         layers: list[dict] = []
 
         # Layer 1: Base Identity
-        layers.append({
-            "layer": 1,
-            "name": "Base Identity",
-            "source": "(builtin)",
-            "chars": len(_BASE_IDENTITY),
-            "tokens_est": len(_BASE_IDENTITY) // 4,
-        })
+        layers.append(
+            {
+                "layer": 1,
+                "name": "Base Identity",
+                "source": "(builtin)",
+                "chars": len(_BASE_IDENTITY),
+                "tokens_est": len(_BASE_IDENTITY) // 4,
+            }
+        )
 
         if persona:
             # Layer 2: COURT.md
             court_path = self._personas_dir / "court" / "COURT.md"
             court_text = self._read_file(court_path)
-            layers.append({
-                "layer": 2,
-                "name": "COURT.md",
-                "source": str(court_path),
-                "chars": len(court_text),
-                "tokens_est": len(court_text) // 4,
-            })
+            layers.append(
+                {
+                    "layer": 2,
+                    "name": "COURT.md",
+                    "source": str(court_path),
+                    "chars": len(court_text),
+                    "tokens_est": len(court_text) // 4,
+                }
+            )
 
             # Layer 2.5: Identity Card
             id_card = self._build_identity_card(persona)
-            layers.append({
-                "layer": 2.5,
-                "name": "Identity Card",
-                "source": "(persona name + department + title)",
-                "chars": len(id_card),
-                "tokens_est": len(id_card) // 4,
-            })
+            layers.append(
+                {
+                    "layer": 2.5,
+                    "name": "Identity Card",
+                    "source": "(persona name + department + title)",
+                    "chars": len(id_card),
+                    "tokens_est": len(id_card) // 4,
+                }
+            )
 
             # Layer 3: SOUL.md
             soul_text = self._read_file(persona.soul_path)
-            layers.append({
-                "layer": 3,
-                "name": "SOUL.md",
-                "source": str(persona.soul_path),
-                "chars": len(soul_text),
-                "tokens_est": len(soul_text) // 4,
-            })
+            layers.append(
+                {
+                    "layer": 3,
+                    "name": "SOUL.md",
+                    "source": str(persona.soul_path),
+                    "chars": len(soul_text),
+                    "tokens_est": len(soul_text) // 4,
+                }
+            )
 
             # Layer 4: ROLE.md
             role_text = self._read_file(persona.role_path)
-            layers.append({
-                "layer": 4,
-                "name": "ROLE.md",
-                "source": str(persona.role_path),
-                "chars": len(role_text),
-                "tokens_est": len(role_text) // 4,
-            })
+            layers.append(
+                {
+                    "layer": 4,
+                    "name": "ROLE.md",
+                    "source": str(persona.role_path),
+                    "chars": len(role_text),
+                    "tokens_est": len(role_text) // 4,
+                }
+            )
 
             # Layer 5: MEMORY.md
             memory_text = self._md_backend.read_core_memory(persona.id)
-            layers.append({
-                "layer": 5,
-                "name": "MEMORY.md",
-                "source": f"~/.tianshu/memory/{persona.id}/MEMORY.md",
-                "chars": len(memory_text),
-                "tokens_est": len(memory_text) // 4,
-            })
+            layers.append(
+                {
+                    "layer": 5,
+                    "name": "MEMORY.md",
+                    "source": f"~/.tianshu/memory/{persona.id}/MEMORY.md",
+                    "chars": len(memory_text),
+                    "tokens_est": len(memory_text) // 4,
+                }
+            )
 
             # Layer 5.1: L1 Critical Facts (Memory Palace)
             l1_text = ""
             if self._drawer_store and self._memory_config.l1_enabled:
                 l1_text = await self._get_l1(persona.id)
-            layers.append({
-                "layer": 5.1,
-                "name": "L1 Critical Facts",
-                "source": "(Memory Palace)",
-                "chars": len(l1_text),
-                "tokens_est": len(l1_text) // 4,
-            })
+            layers.append(
+                {
+                    "layer": 5.1,
+                    "name": "L1 Critical Facts",
+                    "source": "(Memory Palace)",
+                    "chars": len(l1_text),
+                    "tokens_est": len(l1_text) // 4,
+                }
+            )
 
             # Layer 5.5: Recent Activity
             recent_logs = self._md_backend.read_recent_logs(
-                persona.id, days=2, char_budget=2000,
+                persona.id,
+                days=2,
+                char_budget=2000,
             )
-            layers.append({
-                "layer": 5.5,
-                "name": "Recent Activity",
-                "source": f"~/.tianshu/memory/{persona.id}/logs/",
-                "chars": len(recent_logs),
-                "tokens_est": len(recent_logs) // 4,
-            })
+            layers.append(
+                {
+                    "layer": 5.5,
+                    "name": "Recent Activity",
+                    "source": f"~/.tianshu/memory/{persona.id}/logs/",
+                    "chars": len(recent_logs),
+                    "tokens_est": len(recent_logs) // 4,
+                }
+            )
 
             # Layer 5.6: Department MEMORY.md
             dept_mem = self._md_backend.read_core_memory(
                 f"_dept/{persona.department}",
             )
-            layers.append({
-                "layer": 5.6,
-                "name": "Department MEMORY.md",
-                "source": f"~/.tianshu/memory/_dept/{persona.department}/MEMORY.md",
-                "chars": len(dept_mem),
-                "tokens_est": len(dept_mem) // 4,
-            })
+            layers.append(
+                {
+                    "layer": 5.6,
+                    "name": "Department MEMORY.md",
+                    "source": f"~/.tianshu/memory/_dept/{persona.department}/MEMORY.md",
+                    "chars": len(dept_mem),
+                    "tokens_est": len(dept_mem) // 4,
+                }
+            )
 
             # Layer 6: Court MEMORY.md
             court_mem = self._md_backend.read_core_memory("court")
-            layers.append({
-                "layer": 6,
-                "name": "Court MEMORY.md",
-                "source": "~/.tianshu/memory/court/MEMORY.md",
-                "chars": len(court_mem),
-                "tokens_est": len(court_mem) // 4,
-            })
+            layers.append(
+                {
+                    "layer": 6,
+                    "name": "Court MEMORY.md",
+                    "source": "~/.tianshu/memory/court/MEMORY.md",
+                    "chars": len(court_mem),
+                    "tokens_est": len(court_mem) // 4,
+                }
+            )
 
             # Layer 6.5: Peer Profiles (同僚近况)
             peer_text = await self._build_peer_profiles(persona.id, edict)
-            layers.append({
-                "layer": 6.5,
-                "name": "Peer Profiles (同僚近况)",
-                "source": "~/.tianshu/personas/{peer}/PROFILE.md",
-                "chars": len(peer_text),
-                "tokens_est": len(peer_text) // 4,
-            })
+            layers.append(
+                {
+                    "layer": 6.5,
+                    "name": "Peer Profiles (同僚近况)",
+                    "source": "~/.tianshu/personas/{peer}/PROFILE.md",
+                    "chars": len(peer_text),
+                    "tokens_est": len(peer_text) // 4,
+                }
+            )
 
         # Layer 7: Skills — index + always-on
         self._skills.set_char_budget(skills_char_budget)
@@ -332,25 +359,29 @@ class PromptBuilder:
         )
         always_text = self._skills.load_always(filter_names=filter_names)
         skills_total = len(index_text) + len(always_text)
-        layers.append({
-            "layer": 7,
-            "name": "Skills (index + always)",
-            "source": "(skills loader)",
-            "chars": skills_total,
-            "tokens_est": skills_total // 4,
-            "char_budget": skills_char_budget,
-            "filtered_by": filter_names,
-        })
+        layers.append(
+            {
+                "layer": 7,
+                "name": "Skills (index + always)",
+                "source": "(skills loader)",
+                "chars": skills_total,
+                "tokens_est": skills_total // 4,
+                "char_budget": skills_char_budget,
+                "filtered_by": filter_names,
+            }
+        )
 
         # Layer 8: Task Context
         task_ctx = f"Current task ID: {edict.id}"
-        layers.append({
-            "layer": 8,
-            "name": "Task Context",
-            "source": "(runtime)",
-            "chars": len(task_ctx),
-            "tokens_est": len(task_ctx) // 4,
-        })
+        layers.append(
+            {
+                "layer": 8,
+                "name": "Task Context",
+                "source": "(runtime)",
+                "chars": len(task_ctx),
+                "tokens_est": len(task_ctx) // 4,
+            }
+        )
 
         total_chars = sum(layer["chars"] for layer in layers)
         total_tokens = sum(layer["tokens_est"] for layer in layers)
@@ -362,9 +393,7 @@ class PromptBuilder:
             "layers": layers,
         }
 
-    async def _build_peer_profiles(
-        self, self_persona_id: str, edict
-    ) -> str:
+    async def _build_peer_profiles(self, self_persona_id: str, edict) -> str:
         """Layer 6.5: inject other in-session personas' PROFILE excerpts."""
         if not self._include_peer_profiles:
             return ""
@@ -397,9 +426,7 @@ class PromptBuilder:
     def _read_peer_profile(self, persona_id: str) -> str:
         from tianshu.persona.profile_schema import parse_profile
 
-        path = (
-            self._memory_dir.parent / "personas" / persona_id / "PROFILE.md"
-        )
+        path = self._memory_dir.parent / "personas" / persona_id / "PROFILE.md"
         if not path.exists():
             return ""
         try:
@@ -412,14 +439,10 @@ class PromptBuilder:
             return ""
         return self._extract_peer_summary(fm, auto)
 
-    def _extract_peer_summary(
-        self, frontmatter, auto_section: str
-    ) -> str:
+    def _extract_peer_summary(self, frontmatter, auto_section: str) -> str:
         """Return ≤ peer_profile_max_chars summary, no degradation, sanitized."""
         specialties = self._slice_section(auto_section, "## 擅长领域")
-        distribution = self._slice_section(
-            auto_section, "## 近期任务分布"
-        )
+        distribution = self._slice_section(auto_section, "## 近期任务分布")
         health = self._slice_section(auto_section, "## 健康度")
         # NEVER include "## 退化迹象"
         body = (
@@ -442,7 +465,7 @@ class PromptBuilder:
         rest = text[start:]
         # stop at next top-level heading
         for i, ch in enumerate(rest):
-            if ch == "#" and rest[i:i + 3] == "## " and i != 0:
+            if ch == "#" and rest[i : i + 3] == "## " and i != 0:
                 return rest[:i].strip()
         return rest.strip()
 
@@ -527,7 +550,7 @@ class PromptBuilder:
             if text.startswith("---"):
                 try:
                     end = text.index("---", 3)
-                    text = text[end + 3:].strip()
+                    text = text[end + 3 :].strip()
                 except ValueError:
                     pass
             return text

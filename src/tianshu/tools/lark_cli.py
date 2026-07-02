@@ -9,6 +9,7 @@
 - **认证**：由人工在 tianshu 主机上 ``lark-cli auth login`` 完成一次（凭证落 keychain），
   本工具只复用会话、不处理登录；检测到未登录时返回友好提示。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,8 +37,15 @@ _BLOCKED_PREFIXES: tuple[tuple[str, ...], ...] = (
 
 # 未登录 / 会话失效的特征串（命中即给人工登录提示）
 _AUTH_HINTS: tuple[str, ...] = (
-    "not logged in", "unauthorized", "login required", "please login",
-    "auth required", "未登录", "请登录", "登录已过期", "token expired",
+    "not logged in",
+    "unauthorized",
+    "login required",
+    "please login",
+    "auth required",
+    "未登录",
+    "请登录",
+    "登录已过期",
+    "token expired",
 )
 
 
@@ -70,9 +78,7 @@ def _is_blocked(args: list[str]) -> bool:
 
 async def lark_cli(args: list[str], timeout: int = _DEFAULT_TIMEOUT) -> ToolResult:
     if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
-        return error_result(
-            'lark_cli: 参数 args 必须是字符串列表，如 ["message", "list"]'
-        )
+        return error_result('lark_cli: 参数 args 必须是字符串列表，如 ["message", "list"]')
     if not args:
         return error_result("lark_cli: args 不能为空")
     if _is_blocked(args):

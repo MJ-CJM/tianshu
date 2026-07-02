@@ -38,13 +38,14 @@ class Auditor:
 
         # Layer 2: LLM review only if rules flagged
         if result.verdict == "flag" and edict.review_policy != "never":
-            result = await self._reviewer.review(
-                edict, memorial, result.reasons
-            )
+            result = await self._reviewer.review(edict, memorial, result.reasons)
 
         logger.debug(
             "[AUDIT] Edict %s: verdict=%s, reasons=%s, llm_reviewed=%s",
-            edict.id, result.verdict, result.reasons, result.verdict == "flag" and edict.review_policy != "never",
+            edict.id,
+            result.verdict,
+            result.reasons,
+            result.verdict == "flag" and edict.review_policy != "never",
         )
         return result
 
@@ -73,7 +74,12 @@ class Auditor:
         # Skip audit if policy is "never"
         if edict.review_policy == "never":
             audit_result = AuditResult(verdict="pass", rules_checked=0)
-        elif edict.review_policy == "always" or edict.review_policy == "on_failure" and memorial.status == TaskStatus.FAILED or edict.review_policy == "on_flag":
+        elif (
+            edict.review_policy == "always"
+            or edict.review_policy == "on_failure"
+            and memorial.status == TaskStatus.FAILED
+            or edict.review_policy == "on_flag"
+        ):
             audit_result = await self.audit(edict, memorial)
         else:
             audit_result = AuditResult(verdict="pass", rules_checked=0)

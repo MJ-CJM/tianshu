@@ -11,14 +11,14 @@ class Drawer:
     """Minimum memory unit — stores a verbatim content chunk."""
 
     id: str
-    wing: str                  # Owner wing (persona ID, "court", or "emperor")
-    room: str                  # Topic room within the wing
-    content: str               # Verbatim content (max ~800 chars)
-    source_edict_id: str       # Edict that produced this memory
-    timestamp: str             # ISO 8601 UTC
-    category: str              # W(world) / B(biographical) / O(opinion) / D(decision)
-    confidence: float          # 0.0–1.0
-    chunk_index: int           # Position within multi-chunk source
+    wing: str  # Owner wing (persona ID, "court", or "emperor")
+    room: str  # Topic room within the wing
+    content: str  # Verbatim content (max ~800 chars)
+    source_edict_id: str  # Edict that produced this memory
+    timestamp: str  # ISO 8601 UTC
+    category: str  # W(world) / B(biographical) / O(opinion) / D(decision)
+    confidence: float  # 0.0–1.0
+    chunk_index: int  # Position within multi-chunk source
 
 
 @dataclass(frozen=True)
@@ -29,8 +29,8 @@ class DrawerResult:
     content: str
     wing: str
     room: str
-    score: float               # 0.0–1.0 relevance
-    matched_via: str           # "bm25" | "fts5" | "exact"
+    score: float  # 0.0–1.0 relevance
+    matched_via: str  # "bm25" | "fts5" | "exact"
 
 
 @dataclass(frozen=True)

@@ -5,9 +5,14 @@ from tianshu.universe.evolver import UniverseEvolver
 
 
 def _cfg(**over):
-    d = dict(parallel_universe_enabled=True, universe_evolver_idle_hours=0,
-             universe_challenger_fail_limit=3, universe_min_samples=10,
-             universe_promote_margin=0.05, universe_auto_promote=False)
+    d = dict(
+        parallel_universe_enabled=True,
+        universe_evolver_idle_hours=0,
+        universe_challenger_fail_limit=3,
+        universe_min_samples=10,
+        universe_promote_margin=0.05,
+        universe_auto_promote=False,
+    )
     d.update(over)
     return type("C", (), d)()
 
@@ -51,8 +56,10 @@ def test_retires_failing_challenger():
     champ = {"id": "champ", "fitness": {"score": 0.5}}
     mgr = MagicMock()
     mgr.champion.return_value = champ
-    mgr.list.return_value = [dict(champ, status="champion"),
-                             {"id": "bad", "status": "challenger", "fitness": {}}]
+    mgr.list.return_value = [
+        dict(champ, status="champion"),
+        {"id": "bad", "status": "challenger", "fitness": {}},
+    ]
     llm = AsyncMock()
     llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
     ev = _evolver(_cfg(), mgr, st, llm)
@@ -68,9 +75,10 @@ def test_recommends_promotion_without_switch():
     champ = {"id": "champ", "fitness": {"score": 0.4}}
     mgr = MagicMock()
     mgr.champion.return_value = champ
-    mgr.list.return_value = [dict(champ, status="champion"),
-                             {"id": "win", "status": "challenger",
-                              "fitness": {"score": 0.9, "samples": 50}}]
+    mgr.list.return_value = [
+        dict(champ, status="champion"),
+        {"id": "win", "status": "challenger", "fitness": {"score": 0.9, "samples": 50}},
+    ]
     llm = AsyncMock()
     llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
     ev = _evolver(_cfg(), mgr, st, llm)
@@ -87,9 +95,10 @@ def test_auto_promote_switches():
     champ = {"id": "champ", "fitness": {"score": 0.4}}
     mgr = MagicMock()
     mgr.champion.return_value = champ
-    mgr.list.return_value = [dict(champ, status="champion"),
-                             {"id": "win", "status": "challenger",
-                              "fitness": {"score": 0.9, "samples": 50}}]
+    mgr.list.return_value = [
+        dict(champ, status="champion"),
+        {"id": "win", "status": "challenger", "fitness": {"score": 0.9, "samples": 50}},
+    ]
     llm = AsyncMock()
     llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
     ev = _evolver(_cfg(universe_auto_promote=True), mgr, st, llm)
@@ -108,7 +117,9 @@ def test_mutation_branches_challenger():
     mgr.list.return_value = [dict(champ, status="champion")]
     mgr.branch.return_value = {"id": "newch"}
     llm = AsyncMock()
-    llm.chat.return_value = type("R", (), {"content": '{"target": "policy", "reason": "r", "name": "n"}'})()
+    llm.chat.return_value = type(
+        "R", (), {"content": '{"target": "policy", "reason": "r", "name": "n"}'}
+    )()
     ev = _evolver(_cfg(), mgr, st, llm)
     r = asyncio.run(ev.run())
     assert r.created_challenger == "newch"
@@ -120,6 +131,7 @@ def test_manual_bypasses_idle():
     st = MagicMock()
     st.try_acquire_synthesis_lock.return_value = True
     from datetime import UTC, datetime
+
     st.last_activity_at.return_value = datetime.now(UTC).isoformat()
     champ = {"id": "champ", "fitness": {"score": 0.5}}
     mgr = MagicMock()
@@ -136,6 +148,7 @@ def test_cron_respects_idle():
     st = MagicMock()
     st.try_acquire_synthesis_lock.return_value = True
     from datetime import UTC, datetime
+
     st.last_activity_at.return_value = datetime.now(UTC).isoformat()
     ev = _evolver(_cfg(universe_evolver_idle_hours=999), MagicMock(), st)
     r = asyncio.run(ev.run(trigger_source="cron"))
@@ -158,16 +171,25 @@ def test_evolver_lands_persona_mutation(tmp_path):
 
     class FP:
         runtime_dir = tmp_path / "personas"
-        def repoint_runtime(self, _): pass
+
+        def repoint_runtime(self, _):
+            pass
 
     class FS:
         _user_dir = tmp_path / "skills"
+
         @property
-        def user_dir(self): return self._user_dir
-        def repoint_user_dir(self, _): pass
+        def user_dir(self):
+            return self._user_dir
+
+        def repoint_user_dir(self, _):
+            pass
 
     mgr = UniverseManager(
-        s, store, FP(), FS(),
+        s,
+        store,
+        FP(),
+        FS(),
         config_snapshot=lambda: {"agent_config": {}},
         config_apply=lambda m: None,
     )
@@ -179,7 +201,11 @@ def test_evolver_lands_persona_mutation(tmp_path):
 
     llm = AsyncMock()
     llm.chat.side_effect = [
-        type("R", (), {"content": '{"target": "persona:bingbu/ROLE.md", "reason": "更主动", "name": "实验"}'})(),
+        type(
+            "R",
+            (),
+            {"content": '{"target": "persona:bingbu/ROLE.md", "reason": "更主动", "name": "实验"}'},
+        )(),
         type("R", (), {"content": "改写后的职责：主动协同"})(),
     ]
 

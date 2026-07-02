@@ -3,6 +3,7 @@
 镜像 feishu/dispatcher.py。归一化由 connection 层完成（Update → TelegramMessage/TelegramCallback），
 本模块负责去重、白名单、群 @ 门控、命令直发 vs 文本批处理合并。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -22,14 +23,15 @@ _GROUP_TYPES = ("group", "supergroup")
 @dataclass
 class TelegramMessage:
     """归一化后的入站文本消息。"""
+
     update_id: str
     chat_id: str
-    chat_type: str           # private | group | supergroup | channel
-    sender_id: str           # Telegram user_id（str 归一，内部转 int 校验）
+    chat_type: str  # private | group | supergroup | channel
+    sender_id: str  # Telegram user_id（str 归一，内部转 int 校验）
     text: str
     raw: dict = field(default_factory=dict)
-    message_id: str = ""     # 原消息 id（用于回复/编辑）
-    directed: bool = True    # 群里是否 @bot 或回复 bot（私聊恒 True）
+    message_id: str = ""  # 原消息 id（用于回复/编辑）
+    directed: bool = True  # 群里是否 @bot 或回复 bot（私聊恒 True）
 
     # 与飞书 FeishuMessage 字段对齐（branch 复用时读 sender_open_id）
     @property
@@ -40,12 +42,13 @@ class TelegramMessage:
 @dataclass
 class TelegramCallback:
     """inline keyboard 按钮点击（callback_query）。"""
+
     update_id: str
-    callback_id: str         # answerCallbackQuery 用
+    callback_id: str  # answerCallbackQuery 用
     chat_id: str
     sender_id: str
-    message_id: str          # 按钮所在消息 id（编辑/去按钮用）
-    data: str                # callback_data 字符串
+    message_id: str  # 按钮所在消息 id（编辑/去按钮用）
+    data: str  # callback_data 字符串
 
     @property
     def sender_open_id(self) -> str:
@@ -85,9 +88,7 @@ class Dispatcher:
         if msg.update_id and self._storage.is_telegram_update_seen(msg.update_id):
             return
         if msg.update_id:
-            self._storage.mark_telegram_update_seen(
-                msg.update_id, self._settings.dedup_cache_size
-            )
+            self._storage.mark_telegram_update_seen(msg.update_id, self._settings.dedup_cache_size)
 
         if not self._allowed(msg.sender_id):
             logger.info("[telegram/inbound] rejected non-allowlist sender=%s", msg.sender_id)
@@ -102,7 +103,9 @@ class Dispatcher:
 
         logger.info(
             "[telegram/inbound] chat=%s sender=%s text=%.80s",
-            msg.chat_id, msg.sender_id, msg.text,
+            msg.chat_id,
+            msg.sender_id,
+            msg.text,
         )
 
         # 命令（/ 开头）跳过批处理直接派发；纯文本走批处理合并
@@ -131,9 +134,14 @@ class Dispatcher:
             if not merged:
                 return
             merged_msg = TelegramMessage(
-                update_id=msg.update_id, chat_id=msg.chat_id, chat_type=msg.chat_type,
-                sender_id=msg.sender_id, text=merged, raw=msg.raw,
-                message_id=msg.message_id, directed=msg.directed,
+                update_id=msg.update_id,
+                chat_id=msg.chat_id,
+                chat_type=msg.chat_type,
+                sender_id=msg.sender_id,
+                text=merged,
+                raw=msg.raw,
+                message_id=msg.message_id,
+                directed=msg.directed,
             )
             lock = self._chat_locks.setdefault(msg.chat_id, asyncio.Lock())
             async with lock:
@@ -147,9 +155,7 @@ class Dispatcher:
         if cb.update_id and self._storage.is_telegram_update_seen(cb.update_id):
             return
         if cb.update_id:
-            self._storage.mark_telegram_update_seen(
-                cb.update_id, self._settings.dedup_cache_size
-            )
+            self._storage.mark_telegram_update_seen(cb.update_id, self._settings.dedup_cache_size)
         if not self._allowed(cb.sender_id):
             logger.info("[telegram/callback] rejected non-allowlist sender=%s", cb.sender_id)
             return

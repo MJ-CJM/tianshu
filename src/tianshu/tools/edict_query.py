@@ -7,6 +7,7 @@
 权限模型与 ``submit_edict`` 一致：默认在 startup 时禁用，由通政司
 ``enable_edict_submission`` toggle 统一启用/禁用，构成"敕令管理"工具集。
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _VALID_LIST_STATUS = ("open", "completed", "cancelled", "all")
-_MIN_PREFIX_LEN = 6   # 与 feishu 助手 /select /status 命令保持一致
+_MIN_PREFIX_LEN = 6  # 与 feishu 助手 /select /status 命令保持一致
 
 
 def _label_edict_status(value: str) -> str:
@@ -105,7 +106,7 @@ def register_edict_query(
             search=search,
             limit=limit,
             offset=0,
-            exclude_assistant_chat=True,   # 隐藏聊天敕令，仅列业务敕令
+            exclude_assistant_chat=True,  # 隐藏聊天敕令，仅列业务敕令
         )
 
         if not edicts:
@@ -123,8 +124,7 @@ def register_edict_query(
             memorial = storage.get_memorial_by_edict(e.id)
             items.append(_edict_brief(e, memorial))
             mem_label = (
-                f" · 进度：{_label_memorial_status(memorial.status.value)}"
-                if memorial else ""
+                f" · 进度：{_label_memorial_status(memorial.status.value)}" if memorial else ""
             )
             persona_label = f" · 执行：{e.assigned_persona_id}" if e.assigned_persona_id else ""
             lines.append(
@@ -196,7 +196,9 @@ def register_edict_query(
         if edict is None:
             # 前缀匹配：扫一定范围（含已完成/已取消，以便用户能查历史敕令）
             candidates, _ = storage.list_edicts(
-                limit=500, offset=0, exclude_assistant_chat=True,
+                limit=500,
+                offset=0,
+                exclude_assistant_chat=True,
             )
             matches = [e for e in candidates if e.id.startswith(prefix)]
             if not matches:
@@ -235,14 +237,14 @@ def register_edict_query(
             )
             if memorial.summary:
                 summary_preview = (
-                    memorial.summary if len(memorial.summary) <= 300
+                    memorial.summary
+                    if len(memorial.summary) <= 300
                     else memorial.summary[:300] + "…"
                 )
                 lines.append(f"- 摘要：{summary_preview}")
             if memorial.error:
                 err_preview = (
-                    memorial.error if len(memorial.error) <= 200
-                    else memorial.error[:200] + "…"
+                    memorial.error if len(memorial.error) <= 200 else memorial.error[:200] + "…"
                 )
                 lines.append(f"- 错误：{err_preview}")
             if memorial.usage and memorial.usage.total_tokens:

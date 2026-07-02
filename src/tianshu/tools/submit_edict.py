@@ -10,6 +10,7 @@ executor 接管后续执行。
 - 需要 persona 把 ``submit_edict`` 加入 ``tools_allowed`` 才能调用；
 - 通政司 ``enable_edict_submission`` toggle 控制启动时是否注入到助手 persona。
 """
+
 from __future__ import annotations
 
 import logging
@@ -107,7 +108,9 @@ def register_submit_edict(
             edict_kwargs["assigned_persona_id"] = assigned_persona_id
         edict = Edict(**edict_kwargs)
         submit_new_edict(
-            storage, event_bus, edict,
+            storage,
+            event_bus,
+            edict,
             producer="submit_edict_tool",
             extra_payload={
                 "priority": edict.priority,
@@ -118,8 +121,11 @@ def register_submit_edict(
         )
         logger.info(
             "[tools/submit_edict] new edict=%s goal=%.60s assigned=%s priority=%s profile=%s",
-            edict.id, edict.goal, edict.assigned_persona_id,
-            edict.priority, edict.execution_profile,
+            edict.id,
+            edict.goal,
+            edict.assigned_persona_id,
+            edict.priority,
+            edict.execution_profile,
         )
 
         profile_hint = {

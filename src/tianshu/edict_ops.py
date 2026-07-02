@@ -17,11 +17,13 @@ def submit_new_edict(
     storage.save_edict(edict)
     memorial = Memorial(edict_id=edict.id, instruction=edict.goal, status=TaskStatus.SUBMITTED)
     storage.save_memorial(memorial)
-    event_bus.fire(make_event(
-        "edict.submitted",
-        edict_id=edict.id,
-        memorial_id=memorial.id,
-        producer=producer,
-        payload={"goal": edict.goal, **(extra_payload or {})},
-    ))
+    event_bus.fire(
+        make_event(
+            "edict.submitted",
+            edict_id=edict.id,
+            memorial_id=memorial.id,
+            producer=producer,
+            payload={"goal": edict.goal, **(extra_payload or {})},
+        )
+    )
     return memorial

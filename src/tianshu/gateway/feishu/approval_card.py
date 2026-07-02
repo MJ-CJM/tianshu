@@ -1,4 +1,5 @@
 """出站审批卡片 + 入站 card.action.trigger 处理 + 双通道作废。"""
+
 from __future__ import annotations
 
 import logging
@@ -139,14 +140,13 @@ class ApprovalCardHandler:
         chat_id = (edict.metadata or {}).get("chat_id") or self._settings.home_channel
         if not chat_id:
             # 精准反查：哪个 chat 当前 anchor 指向这个 edict（web 创建 + 飞书 /select 场景）
-            anchored = self._storage.list_chats_anchored_to(
-                edict_id, instance_id=self._instance_id
-            )
+            anchored = self._storage.list_chats_anchored_to(edict_id, instance_id=self._instance_id)
             if anchored:
                 chat_id = anchored[0]
                 logger.info(
                     "[feishu/approval] edict %s has no chat_id, fallback to anchored chat=%s",
-                    edict_id, chat_id,
+                    edict_id,
+                    chat_id,
                 )
         if not chat_id:
             logger.warning(
@@ -166,12 +166,19 @@ class ApprovalCardHandler:
         message_id = await self._outbound.send_card(chat_id, card)
         if message_id:
             self._storage.save_feishu_pending_card(
-                approval_id=memorial_id, chat_id=chat_id,
-                message_id=message_id, kind="tool.approval_required",
+                approval_id=memorial_id,
+                chat_id=chat_id,
+                message_id=message_id,
+                kind="tool.approval_required",
                 instance_id=self._instance_id,
             )
-            logger.info("[feishu/approval] card sent edict=%s memorial=%s chat=%s msg=%s",
-                        edict_id, memorial_id, chat_id, message_id)
+            logger.info(
+                "[feishu/approval] card sent edict=%s memorial=%s chat=%s msg=%s",
+                edict_id,
+                memorial_id,
+                chat_id,
+                message_id,
+            )
 
     async def handle_button_click(self, action: FeishuCardAction) -> None:
         """入站按钮点击 → submit_tool_decision。
@@ -197,8 +204,9 @@ class ApprovalCardHandler:
                 grant_scope=scope if act == "approve" else None,
                 actor=f"feishu:{action.sender_open_id}",
             )
-            logger.info("[feishu/approval] resolved memorial=%s action=%s scope=%s",
-                        memorial_id, act, scope)
+            logger.info(
+                "[feishu/approval] resolved memorial=%s action=%s scope=%s", memorial_id, act, scope
+            )
         except ValueError as e:
             # 没有 pending → 已被 web 端响应（幂等场景）
             logger.info("[feishu/card] submit_tool_decision skipped: %s", e)
@@ -219,5 +227,9 @@ class ApprovalCardHandler:
         tool_name = payload.get("tool_name", "")
         new_card = build_resolved_card(tool_name=tool_name, source=source, action=action)
         await self._outbound.update_card(pending["message_id"], new_card)
-        logger.info("[feishu/approval] card refreshed memorial=%s source=%s action=%s",
-                    memorial_id, source, action)
+        logger.info(
+            "[feishu/approval] card refreshed memorial=%s source=%s action=%s",
+            memorial_id,
+            source,
+            action,
+        )

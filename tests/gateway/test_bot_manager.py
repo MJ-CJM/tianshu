@@ -6,6 +6,7 @@
 - 旧单配置迁移：channel_configs 有凭证 → 首次 _build 时迁移成 *-default 实例。
 - outbound.stop() → EventBus.off → 已停实例不再收事件。
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -27,6 +28,7 @@ def _master_key(monkeypatch):
     from cryptography.fernet import Fernet
 
     from tianshu.secrets.vault import reset_vault
+
     monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", Fernet.generate_key().decode())
     reset_vault()
     yield
@@ -52,6 +54,7 @@ def _manager(storage) -> ChannelBotManager:
 # 1) env 兜底
 # --------------------------------------------------------------------------
 
+
 def test_env_fallback_two_disabled_instances(storage):
     mgr = _manager(storage)
     instances = mgr._build_instances()
@@ -72,6 +75,7 @@ async def test_start_all_with_env_fallback_starts_none(storage):
 # --------------------------------------------------------------------------
 # 2) DB 实例
 # --------------------------------------------------------------------------
+
 
 def test_db_instance_built_with_decrypted_token(storage, _master_key):
     storage.save_channel_instance(
@@ -104,12 +108,14 @@ def test_db_instance_construct_returns_telegram_bot(storage, _master_key):
     tg = next(i for i in mgr._build_instances() if i.channel_type == "telegram")
     bot = mgr._construct(tg)
     from tianshu.gateway.telegram import TelegramBot
+
     assert isinstance(bot, TelegramBot)
 
 
 # --------------------------------------------------------------------------
 # 3) 旧单配置迁移
 # --------------------------------------------------------------------------
+
 
 def test_legacy_config_migrated_to_default_instance(storage, _master_key):
     # 仅有旧单配置，无 channel_instances 行
@@ -136,18 +142,31 @@ def test_legacy_config_migrated_to_default_instance(storage, _master_key):
 # 4) outbound 退订（stop() → EventBus.off）
 # --------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_outbound_stop_unsubscribes_from_event_bus(storage):
     bus = EventBus(storage=storage)
     settings = FeishuSettings(
-        app_id="x", app_secret="y", domain="feishu", connection_mode="webhook",
-        allowed_users=(), home_channel="", encrypt_key="", verification_token="",
-        bot_open_id="", bot_name="", webhook_path="/feishu/webhook",
-        ws_reconnect_interval=120, text_batch_delay=0.6, dedup_cache_size=2048,
+        app_id="x",
+        app_secret="y",
+        domain="feishu",
+        connection_mode="webhook",
+        allowed_users=(),
+        home_channel="",
+        encrypt_key="",
+        verification_token="",
+        bot_open_id="",
+        bot_name="",
+        webhook_path="/feishu/webhook",
+        ws_reconnect_interval=120,
+        text_batch_delay=0.6,
+        dedup_cache_size=2048,
         instance_id="feishu-default",
     )
     out = FeishuOutbound(
-        settings=settings, storage=storage, event_bus=bus,
+        settings=settings,
+        storage=storage,
+        event_bus=bus,
         instance_id="feishu-default",
     )
 
@@ -161,7 +180,9 @@ async def test_outbound_stop_unsubscribes_from_event_bus(storage):
     out._lookup_chat_id = _spy  # type: ignore[assignment]
 
     edict = Edict(
-        title="t", goal="g", source="channel",
+        title="t",
+        goal="g",
+        source="channel",
         metadata={"channel": "feishu", "instance_id": "feishu-default", "chat_id": "oc"},
     )
     storage.save_edict(edict)

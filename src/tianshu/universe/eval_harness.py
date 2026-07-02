@@ -2,6 +2,7 @@
 
 纯逻辑（选集/打分/聚合）可单测；evaluate() 是活路径（起沙箱 + HTTP 提交 + 轮询），需 live 验证。
 """
+
 from __future__ import annotations
 
 import json
@@ -165,5 +166,7 @@ class EvalHarness:
                 return
         logger.warning(
             "eval: timeout waiting for edict %s (goal=%r) after %ss",
-            edict_id, goal[:60], timeout_s,
+            edict_id,
+            goal[:60],
+            timeout_s,
         )

@@ -25,9 +25,7 @@ class ToolDefinition(BaseModel):
 
 class ToolRegistry:
     def __init__(self) -> None:
-        self._tools: dict[
-            str, tuple[ToolDefinition, Callable[..., Awaitable[ToolResult]]]
-        ] = {}
+        self._tools: dict[str, tuple[ToolDefinition, Callable[..., Awaitable[ToolResult]]]] = {}
         self._hooks: list[ToolHook] = []
         self._disabled: set[str] = set()
 
@@ -99,7 +97,8 @@ class ToolRegistry:
         if defn.tier is None or defn.tier not in (0, 1, 2, 3, 4):
             logger.error(
                 "[TOOL] %s has invalid tier=%r, downgrading to T4_DANGEROUS",
-                name, defn.tier,
+                name,
+                defn.tier,
             )
             # 动态覆盖这一次调用的 tier（不改 registry 里的定义，避免副作用）
             defn = defn.model_copy(update={"tier": ToolTier.T4_DANGEROUS.value})
@@ -136,13 +135,16 @@ class ToolRegistry:
                 logger.warning(
                     "[TOOL] %s: dropping unexpected args %s "
                     "(LLM may be hallucinating params from training data)",
-                    name, extra,
+                    name,
+                    extra,
                 )
                 args = {k: v for k, v in args.items() if k in declared}
 
         logger.debug(
             "[TOOL] execute: name=%s, tier=%d, args_keys=%s",
-            name, defn.tier, list(args.keys()) if isinstance(args, dict) else "raw",
+            name,
+            defn.tier,
+            list(args.keys()) if isinstance(args, dict) else "raw",
         )
 
         # Spec Section 2: T0_READONLY 工具走快路径 — 跳过 _hooks 链
@@ -169,7 +171,9 @@ class ToolRegistry:
 
         logger.debug(
             "[TOOL] result: name=%s, success=%s, output_len=%d",
-            name, not result.is_error, len(result.content or ""),
+            name,
+            not result.is_error,
+            len(result.content or ""),
         )
 
         # After hooks

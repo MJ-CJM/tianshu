@@ -25,9 +25,7 @@ def matches_any(patterns: list[str], tool_name: str) -> bool:
     return any(fnmatchcase(tool_name, pat) for pat in patterns)
 
 
-def persona_can_use(
-    persona: AgentPersona, tool_name: str, tool_tier: int
-) -> bool:
+def persona_can_use(persona: AgentPersona, tool_name: str, tool_tier: int) -> bool:
     """判断给定 persona 能否调用名为 ``tool_name`` (tier=``tool_tier``) 的工具。
 
     决策顺序：

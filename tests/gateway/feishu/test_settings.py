@@ -1,4 +1,5 @@
 """FeishuSettings 单元测试。"""
+
 from __future__ import annotations
 
 import pytest
@@ -60,6 +61,7 @@ def test_validate_rejects_invalid_modes():
 
 def test_from_global_settings_parses_csv():
     """from_global_settings 把逗号分隔字符串拆为 tuple，并保留默认值。"""
+
     class FakeSettings:
         feishu_app_id = "x"
         feishu_app_secret = "y"

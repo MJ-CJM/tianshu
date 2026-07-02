@@ -58,8 +58,10 @@ class TestToolRegistry:
             description="desc",
             parameters={"type": "object", "properties": {}},
         )
+
         async def dummy() -> ToolResult:
             return ok_result("ok")
+
         registry.register("t1", dummy, defn)
 
         tools = registry.get_openai_tools()

@@ -48,9 +48,11 @@ async def test_bash_timeout():
 @pytest.mark.integration
 async def test_rubric_pass():
     llm = MagicMock()
-    llm.chat = AsyncMock(return_value=MagicMock(
-        content='{"score": 0.9, "reasoning": "looks good"}',
-    ))
+    llm.chat = AsyncMock(
+        return_value=MagicMock(
+            content='{"score": 0.9, "reasoning": "looks good"}',
+        )
+    )
     r = await run_checks(
         [CheckSpec(kind="rubric", name="tone", rubric="be friendly")],
         actor_output="hello!",
@@ -63,9 +65,11 @@ async def test_rubric_pass():
 @pytest.mark.integration
 async def test_rubric_fail_on_low_score():
     llm = MagicMock()
-    llm.chat = AsyncMock(return_value=MagicMock(
-        content='{"score": 0.3, "reasoning": "meh"}',
-    ))
+    llm.chat = AsyncMock(
+        return_value=MagicMock(
+            content='{"score": 0.3, "reasoning": "meh"}',
+        )
+    )
     r = await run_checks(
         [CheckSpec(kind="rubric", name="tone", rubric="be friendly", pass_threshold=0.8)],
         actor_output="meh.",

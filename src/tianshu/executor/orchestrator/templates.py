@@ -3,6 +3,7 @@
 模板文件位于 src/tianshu/executor/templates/edict/{name}.md。
 模板使用 Python `str.format` 替换 `{key}` 占位符。
 """
+
 from __future__ import annotations
 
 import logging
@@ -33,7 +34,7 @@ TEMPLATE_FALLBACK: dict[TemplateName, str] = {
         "{objective_block}\n\n"
         "请逐条贴出真实证据（文件路径 / 命令输出 / 测试结果）。"
         "任何一条缺证据 / 弱证据 / 不确定，视为未完成。"
-        "输出 JSON: {{\"passed\": bool, \"gaps\": [...]}}。"
+        '输出 JSON: {{"passed": bool, "gaps": [...]}}。'
     ),
     TemplateName.WIND_DOWN: (
         "当前任务接近预算上限，进入收尾阶段。\n\n"
@@ -49,10 +50,8 @@ def wrap_untrusted_objective(objective: str) -> str:
 
     剥离内部已存在的开/闭标签，避免 prompt-injection 通过提前闭合或嵌套逃逸。
     """
-    sanitized = (
-        objective
-        .replace("</untrusted_objective>", "[/]")
-        .replace("<untrusted_objective>", "[untrusted_objective]")
+    sanitized = objective.replace("</untrusted_objective>", "[/]").replace(
+        "<untrusted_objective>", "[untrusted_objective]"
     )
     return f"<untrusted_objective>\n{sanitized}\n</untrusted_objective>"
 

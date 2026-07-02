@@ -1,4 +1,5 @@
 """telegram 测试公共构造器。"""
+
 from __future__ import annotations
 
 from tianshu.gateway.telegram.settings import TelegramSettings

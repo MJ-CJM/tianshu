@@ -26,8 +26,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-POLICY_RULE_TIMEOUT = 1.0      # 单条规则 1s
-POLICY_ENGINE_TIMEOUT = 3.0    # 引擎整体 3s
+POLICY_RULE_TIMEOUT = 1.0  # 单条规则 1s
+POLICY_ENGINE_TIMEOUT = 3.0  # 引擎整体 3s
 
 
 @dataclass(frozen=True)
@@ -98,7 +98,8 @@ class PolicyEngine:
         except TimeoutError:
             logger.error(
                 "PolicyEngine timeout (>%.1fs) for tool=%s — fail-secure deny",
-                POLICY_ENGINE_TIMEOUT, ctx.tool_name,
+                POLICY_ENGINE_TIMEOUT,
+                ctx.tool_name,
             )
             return PolicyDecision(
                 verdict="deny",
@@ -128,12 +129,14 @@ class PolicyEngine:
             except TimeoutError:
                 logger.warning(
                     "Rule %s timed out (>%.1fs) — abstain",
-                    rule.rule_id, POLICY_RULE_TIMEOUT,
+                    rule.rule_id,
+                    POLICY_RULE_TIMEOUT,
                 )
                 continue
             except Exception:
                 logger.exception(
-                    "Rule %s raised — abstain", rule.rule_id,
+                    "Rule %s raised — abstain",
+                    rule.rule_id,
                 )
                 continue
 

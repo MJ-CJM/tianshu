@@ -100,20 +100,29 @@ async def _skill_view(
                 "status": m.status,
             }
 
-    return ok_result(json.dumps({
-        "name": skill["name"],
-        "description": skill.get("description", ""),
-        "source": skill.get("source", ""),
-        "content": skill.get("content", ""),
-        "metrics": metrics_info,
-    }, ensure_ascii=False, indent=2))
+    return ok_result(
+        json.dumps(
+            {
+                "name": skill["name"],
+                "description": skill.get("description", ""),
+                "source": skill.get("source", ""),
+                "content": skill.get("content", ""),
+                "metrics": metrics_info,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 # --- skill_manage action handlers ---
 
 
 async def _handle_create(
-    skills: SkillsLoader, name: str, metrics_store: MetricsStore | None = None, **kwargs: Any,
+    skills: SkillsLoader,
+    name: str,
+    metrics_store: MetricsStore | None = None,
+    **kwargs: Any,
 ) -> ToolResult:
     content = kwargs.get("content")
     if not content:
@@ -128,11 +137,16 @@ async def _handle_create(
         if bus is not None:
             try:
                 from tianshu.models.events import make_event
-                bus.fire(make_event(
-                    event_type="skill.learned",
-                    edict_id=None, memorial_id=None, producer="skill_manage",
-                    payload={"name": name, "created_by": "agent"},
-                ))
+
+                bus.fire(
+                    make_event(
+                        event_type="skill.learned",
+                        edict_id=None,
+                        memorial_id=None,
+                        producer="skill_manage",
+                        payload={"name": name, "created_by": "agent"},
+                    )
+                )
             except Exception:
                 pass
         return ok_result(json.dumps({"status": "created", "skill": result}, ensure_ascii=False))
@@ -166,7 +180,10 @@ async def _handle_patch(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolR
 
 
 async def _handle_delete(
-    skills: SkillsLoader, name: str, metrics_store: MetricsStore | None = None, **kwargs: Any,
+    skills: SkillsLoader,
+    name: str,
+    metrics_store: MetricsStore | None = None,
+    **kwargs: Any,
 ) -> ToolResult:
     deleted = skills.delete_skill(name)
     if deleted:
@@ -177,7 +194,10 @@ async def _handle_delete(
 
 
 async def _handle_activate(
-    skills: SkillsLoader, name: str, metrics_store: MetricsStore | None = None, **kwargs: Any,
+    skills: SkillsLoader,
+    name: str,
+    metrics_store: MetricsStore | None = None,
+    **kwargs: Any,
 ) -> ToolResult:
     if metrics_store:
         metrics_store.ensure_exists(name)
@@ -193,6 +213,7 @@ async def _handle_write_file(skills: SkillsLoader, name: str, **kwargs: Any) -> 
         return error_result("'file_path' and 'file_content' are required for write_file")
     if kwargs.get("_guard_enabled") and file_content is not None:
         from tianshu.skills.guard import SkillsGuard, TrustLevel
+
         guard = SkillsGuard()
         gres = guard.scan_content(file_content, TrustLevel.AGENT_CREATED)
         if not SkillsGuard.should_allow(gres, TrustLevel.AGENT_CREATED):
@@ -239,7 +260,9 @@ async def _skill_manage(
     """Create, edit, patch, delete, or activate a skill."""
     handler = _ACTION_HANDLERS.get(action)
     if not handler:
-        return error_result(f"Invalid action: {action}. Must be create/edit/patch/delete/activate/write_file/remove_file")
+        return error_result(
+            f"Invalid action: {action}. Must be create/edit/patch/delete/activate/write_file/remove_file"
+        )
 
     if not _NAME_RE.match(name):
         return error_result(
@@ -338,7 +361,15 @@ def register_skill_tools(
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["create", "edit", "patch", "delete", "activate", "write_file", "remove_file"],
+                        "enum": [
+                            "create",
+                            "edit",
+                            "patch",
+                            "delete",
+                            "activate",
+                            "write_file",
+                            "remove_file",
+                        ],
                         "description": "The action to perform",
                     },
                     "name": {
@@ -360,8 +391,8 @@ def register_skill_tools(
                     "file_path": {
                         "type": "string",
                         "description": "Resource path inside the skill dir "
-                                       "(top dir: scripts/references/assets/templates). "
-                                       "Required for write_file/remove_file.",
+                        "(top dir: scripts/references/assets/templates). "
+                        "Required for write_file/remove_file.",
                     },
                     "file_content": {
                         "type": "string",

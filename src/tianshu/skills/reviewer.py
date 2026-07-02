@@ -147,9 +147,7 @@ class SkillReviewHandler:
 
     def _build_skills_index(self) -> str:
         index_meta = self._skills.list_all_metadata()
-        return "\n".join(
-            f"  - {m['name']}: {m.get('description', '')}" for m in index_meta
-        )
+        return "\n".join(f"  - {m['name']}: {m.get('description', '')}" for m in index_meta)
 
     @staticmethod
     async def _call_llm(config_state: Any, prompt: str) -> str | None:
@@ -198,10 +196,16 @@ class SkillReviewHandler:
         if action == "create":
             self._handle_create(skill_name, result.get("content", ""), reason, edict_id)
         elif action == "update":
-            self._handle_update(skill_name, result.get("patch_old", ""), result.get("patch_new", ""), reason)
+            self._handle_update(
+                skill_name, result.get("patch_old", ""), result.get("patch_new", ""), reason
+            )
 
     def _handle_create(
-        self, name: str, content: str, reason: str, edict_id: str | None = None,
+        self,
+        name: str,
+        content: str,
+        reason: str,
+        edict_id: str | None = None,
     ) -> None:
         if not content:
             logger.warning("[SKILL_REVIEW] Create action but no content provided")
@@ -219,7 +223,9 @@ class SkillReviewHandler:
             if self._metrics is not None:
                 try:
                     self._metrics.ensure_exists(
-                        name, created_by="agent", source_edict_id=edict_id,
+                        name,
+                        created_by="agent",
+                        source_edict_id=edict_id,
                     )
                 except Exception:
                     logger.debug("[SKILL_REVIEW] metrics ensure_exists failed", exc_info=True)
@@ -233,6 +239,7 @@ class SkillReviewHandler:
             return
         try:
             from tianshu.models.events import make_event
+
             ev = make_event(
                 event_type="skill.learned",
                 edict_id=edict_id,

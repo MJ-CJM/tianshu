@@ -1,4 +1,5 @@
 """WebhookConnection：rate limit / 签名失败 / token 失败 / dedup / body 长度。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -16,12 +17,20 @@ from tianshu.gateway.feishu.settings import FeishuSettings
 
 def _settings(*, encrypt_key: str = "", token: str = "") -> FeishuSettings:
     return FeishuSettings(
-        app_id="x", app_secret="y", domain="feishu", connection_mode="webhook",
-        allowed_users=("ou_test",), home_channel="",
-        encrypt_key=encrypt_key, verification_token=token,
-        bot_open_id="", bot_name="",
-        webhook_path="/feishu/webhook", ws_reconnect_interval=120,
-        text_batch_delay=0.0, dedup_cache_size=2048,
+        app_id="x",
+        app_secret="y",
+        domain="feishu",
+        connection_mode="webhook",
+        allowed_users=("ou_test",),
+        home_channel="",
+        encrypt_key=encrypt_key,
+        verification_token=token,
+        bot_open_id="",
+        bot_name="",
+        webhook_path="/feishu/webhook",
+        ws_reconnect_interval=120,
+        text_batch_delay=0.0,
+        dedup_cache_size=2048,
     )
 
 
@@ -66,7 +75,9 @@ def test_dedup_drops_repeat(conn_app):
 def test_invalid_signature_rejected(storage):
     queue: asyncio.Queue = asyncio.Queue()
     conn = WebhookConnection(
-        settings=_settings(encrypt_key="hidden_key"), storage=storage, inbound_queue=queue,
+        settings=_settings(encrypt_key="hidden_key"),
+        storage=storage,
+        inbound_queue=queue,
     )
     app = FastAPI()
     app.include_router(conn.router)
@@ -79,7 +90,9 @@ def test_valid_signature_passes(storage):
     queue: asyncio.Queue = asyncio.Queue()
     key = "secret_key"
     conn = WebhookConnection(
-        settings=_settings(encrypt_key=key), storage=storage, inbound_queue=queue,
+        settings=_settings(encrypt_key=key),
+        storage=storage,
+        inbound_queue=queue,
     )
     app = FastAPI()
     app.include_router(conn.router)
@@ -104,7 +117,9 @@ def test_valid_signature_passes(storage):
 def test_invalid_token_rejected(storage):
     queue: asyncio.Queue = asyncio.Queue()
     conn = WebhookConnection(
-        settings=_settings(token="expected_token"), storage=storage, inbound_queue=queue,
+        settings=_settings(token="expected_token"),
+        storage=storage,
+        inbound_queue=queue,
     )
     app = FastAPI()
     app.include_router(conn.router)
@@ -117,8 +132,9 @@ def test_invalid_token_rejected(storage):
 def test_bad_json_returns_400(conn_app):
     _, _, app = conn_app
     with TestClient(app) as client:
-        r = client.post("/feishu/webhook", content=b"<not json>",
-                        headers={"Content-Type": "application/json"})
+        r = client.post(
+            "/feishu/webhook", content=b"<not json>", headers={"Content-Type": "application/json"}
+        )
         assert r.status_code == 400
 
 
@@ -127,8 +143,9 @@ def test_body_too_large_returns_413(conn_app):
     with TestClient(app) as client:
         # 1MB+1 bytes
         big = b"a" * (1024 * 1024 + 100)
-        r = client.post("/feishu/webhook", content=big,
-                        headers={"Content-Type": "application/json"})
+        r = client.post(
+            "/feishu/webhook", content=big, headers={"Content-Type": "application/json"}
+        )
         assert r.status_code == 413
 
 
@@ -218,7 +235,10 @@ async def test_websocket_on_message_enqueues_payload(storage):
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
     conn = WebSocketConnection(
-        settings=_settings(), storage=storage, inbound_queue=queue, loop=loop,
+        settings=_settings(),
+        storage=storage,
+        inbound_queue=queue,
+        loop=loop,
     )
     event = _MM()
     event.header.event_id = "evt"
@@ -245,7 +265,10 @@ async def test_websocket_on_card_enqueues_and_returns_response(storage):
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
     conn = WebSocketConnection(
-        settings=_settings(), storage=storage, inbound_queue=queue, loop=loop,
+        settings=_settings(),
+        storage=storage,
+        inbound_queue=queue,
+        loop=loop,
     )
     event = _MM()
     event.header.event_id = "ec"
@@ -265,11 +288,16 @@ async def test_websocket_stop_cancels_watchdog(storage):
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
     conn = WebSocketConnection(
-        settings=_settings(), storage=storage, inbound_queue=queue, loop=loop,
+        settings=_settings(),
+        storage=storage,
+        inbound_queue=queue,
+        loop=loop,
     )
+
     # 模拟一个 watchdog task
     async def _wait():
         await asyncio.sleep(60)
+
     conn._watchdog_task = asyncio.create_task(_wait())
     await conn.stop()
     await asyncio.sleep(0.05)

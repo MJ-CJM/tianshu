@@ -4,6 +4,7 @@
 callback_data 协议（≤64 字节，memorial_id 为 26 字符 ULID，总长可容纳）：
   "ea:approve:once:<memorial_id>" / ":edict:" / ":always:" / "ea:reject::<memorial_id>"
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,16 +45,18 @@ def build_approval_message(
         f"**原因**：{reason}\n\n{summary_md}\n\n"
         f"_也可用文本命令：_ `/approve` `/准` `/准敕` `/准永` `/reject` `/驳`"
     )
-    kb = InlineKeyboardMarkup([
+    kb = InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("✅ 单次", callback_data=f"ea:approve:once:{memorial_id}"),
-            InlineKeyboardButton("📋 本敕令", callback_data=f"ea:approve:edict:{memorial_id}"),
-        ],
-        [
-            InlineKeyboardButton("♾️ 总是", callback_data=f"ea:approve:always:{memorial_id}"),
-            InlineKeyboardButton("❌ 拒绝", callback_data=f"ea:reject::{memorial_id}"),
-        ],
-    ])
+            [
+                InlineKeyboardButton("✅ 单次", callback_data=f"ea:approve:once:{memorial_id}"),
+                InlineKeyboardButton("📋 本敕令", callback_data=f"ea:approve:edict:{memorial_id}"),
+            ],
+            [
+                InlineKeyboardButton("♾️ 总是", callback_data=f"ea:approve:always:{memorial_id}"),
+                InlineKeyboardButton("❌ 拒绝", callback_data=f"ea:reject::{memorial_id}"),
+            ],
+        ]
+    )
     return body, kb
 
 
@@ -116,7 +119,8 @@ class ApprovalKeyboardHandler:
         if not chat_id:
             logger.warning(
                 "[telegram/approval] no chat_id for edict %s; approval not delivered "
-                "to telegram (web 端仍可处理)", edict_id,
+                "to telegram (web 端仍可处理)",
+                edict_id,
             )
             return
         payload = event.payload or {}
@@ -130,13 +134,18 @@ class ApprovalKeyboardHandler:
         message_id = await self._outbound.send_card(chat_id, card)
         if message_id:
             self._storage.save_telegram_pending_button(
-                approval_id=memorial_id, chat_id=chat_id,
-                message_id=message_id, kind="tool.approval_required",
+                approval_id=memorial_id,
+                chat_id=chat_id,
+                message_id=message_id,
+                kind="tool.approval_required",
                 instance_id=self._instance_id,
             )
             logger.info(
                 "[telegram/approval] sent edict=%s memorial=%s chat=%s msg=%s",
-                edict_id, memorial_id, chat_id, message_id,
+                edict_id,
+                memorial_id,
+                chat_id,
+                message_id,
             )
 
     async def handle_callback(self, cb: TelegramCallback) -> str:
@@ -165,13 +174,18 @@ class ApprovalKeyboardHandler:
         return f"✅ {label}" if action == "approve" else f"❌ {label}"
 
     async def _refresh_resolved(
-        self, memorial_id: str, cb: TelegramCallback, label: str, action: str,
+        self,
+        memorial_id: str,
+        cb: TelegramCallback,
+        label: str,
+        action: str,
     ) -> None:
         """编辑原审批消息：去按钮 + 标注结果。"""
         self._storage.pop_telegram_pending_button(memorial_id)
         icon = "✅" if action == "approve" else "❌"
         await self._outbound.edit_message(
-            cb.chat_id, cb.message_id,
+            cb.chat_id,
+            cb.message_id,
             f"{icon} **{label}** · memorial `#{memorial_id[:8]}`\n_已在 Telegram 处响应。_",
             reply_markup=None,
         )
@@ -196,7 +210,8 @@ class ApprovalKeyboardHandler:
         icon = "✅" if action == "approve" else "❌"
         label = "已批准" if action == "approve" else "已拒绝"
         await self._outbound.edit_message(
-            pending["chat_id"], pending["message_id"],
+            pending["chat_id"],
+            pending["message_id"],
             f"{icon} **{label}** · memorial `#{memorial_id[:8]}`\n_已在 **{source}** 处响应。_",
             reply_markup=None,
         )

@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class GateResult:
     passed: bool
-    stage: str   # "static" | "import" | "test" | "ok"
+    stage: str  # "static" | "import" | "test" | "ok"
     detail: str  # 失败时尾部输出；成功为 ""
 
 
@@ -53,8 +53,12 @@ class Gate:
         env["PYTHONPATH"] = f"{wt / 'src'}{os.pathsep}{existing}" if existing else str(wt / "src")
         try:
             proc = subprocess.run(
-                cmd, cwd=str(wt), env=env,
-                capture_output=True, text=True, timeout=self._timeout,
+                cmd,
+                cwd=str(wt),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout,
             )
         except subprocess.TimeoutExpired as e:
             return 124, f"timeout after {self._timeout}s: {e}"

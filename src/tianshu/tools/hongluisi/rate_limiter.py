@@ -23,9 +23,7 @@ class RateLimiter:
         self._buckets: dict[tuple[str, str], deque[float]] = defaultdict(deque)
         self._lock = asyncio.Lock()
 
-    async def check(
-        self, edict_id: str, tool_name: str, rate_per_min: int
-    ) -> RateCheckResult:
+    async def check(self, edict_id: str, tool_name: str, rate_per_min: int) -> RateCheckResult:
         key = (edict_id, tool_name)
         now = time.monotonic()
         window_start = now - 60.0

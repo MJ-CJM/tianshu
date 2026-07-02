@@ -1,4 +1,5 @@
 """Tests for CodeVariantStore — git worktree 生命周期。"""
+
 import subprocess
 from pathlib import Path
 
@@ -65,7 +66,9 @@ def test_gc_removes_worktree_keeps_branch(store: CodeVariantStore):
     assert not store.exists("u1")
     out = subprocess.run(
         ["git", "branch", "--list", "universe/u1"],
-        cwd=str(store._repo), capture_output=True, text=True,  # noqa: SLF001
+        cwd=str(store._repo),
+        capture_output=True,
+        text=True,  # noqa: SLF001
     ).stdout
     assert "universe/u1" in out
 
@@ -76,9 +79,9 @@ def test_restore_rebuilds_worktree_with_committed_work(store: CodeVariantStore):
     (wt / "src.txt").write_text("v2\n")
     subprocess.run(["git", "add", "-A"], cwd=str(wt), check=True)
     subprocess.run(
-        ["git", "-c", "user.email=t@t.test", "-c", "user.name=t",
-         "commit", "-q", "-m", "edit"],
-        cwd=str(wt), check=True,
+        ["git", "-c", "user.email=t@t.test", "-c", "user.name=t", "commit", "-q", "-m", "edit"],
+        cwd=str(wt),
+        check=True,
     )
     store.gc_worktree("u1")
     store.restore_worktree("u1")

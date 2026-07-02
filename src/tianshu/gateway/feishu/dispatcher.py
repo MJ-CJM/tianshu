@@ -1,4 +1,5 @@
 """入站流水线：security → group_gate → batcher → command → router。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -17,18 +18,20 @@ logger = logging.getLogger(__name__)
 @dataclass
 class FeishuMessage:
     """归一化后的入站消息。"""
+
     event_id: str
     chat_id: str
-    chat_type: str          # p2p | group
+    chat_type: str  # p2p | group
     sender_open_id: str
     text: str
     raw: dict
-    message_id: str = ""    # 原 user 消息 id（用于 emoji reaction api）
+    message_id: str = ""  # 原 user 消息 id（用于 emoji reaction api）
 
 
 @dataclass
 class FeishuCardAction:
     """卡片按钮点击。"""
+
     event_id: str
     chat_id: str
     sender_open_id: str
@@ -76,7 +79,9 @@ class Dispatcher:
             try:
                 await self._dispatch(payload)
             except Exception:
-                logger.exception("[feishu/dispatcher] failed payload=%.300s", json.dumps(payload)[:300])
+                logger.exception(
+                    "[feishu/dispatcher] failed payload=%.300s", json.dumps(payload)[:300]
+                )
 
     async def _dispatch(self, payload: dict) -> None:
         header = payload.get("header") or {}
@@ -92,7 +97,7 @@ class Dispatcher:
             logger.debug("[feishu/dispatcher] ignored event_type=%s", event_type)
 
     async def _handle_message_event(self, event_id: str, event: dict) -> None:
-        msg = (event.get("message") or {})
+        msg = event.get("message") or {}
         sender = (event.get("sender") or {}).get("sender_id") or {}
         sender_open_id = sender.get("open_id", "")
         chat_id = msg.get("chat_id", "")
@@ -111,8 +116,12 @@ class Dispatcher:
             return
 
         fmsg = FeishuMessage(
-            event_id=event_id, chat_id=chat_id, chat_type=chat_type,
-            sender_open_id=sender_open_id, text=text, raw=event,
+            event_id=event_id,
+            chat_id=chat_id,
+            chat_type=chat_type,
+            sender_open_id=sender_open_id,
+            text=text,
+            raw=event,
             message_id=msg.get("message_id", ""),
         )
 
@@ -142,8 +151,12 @@ class Dispatcher:
             if not merged:
                 return
             merged_msg = FeishuMessage(
-                event_id=fmsg.event_id, chat_id=fmsg.chat_id, chat_type=fmsg.chat_type,
-                sender_open_id=fmsg.sender_open_id, text=merged, raw=fmsg.raw,
+                event_id=fmsg.event_id,
+                chat_id=fmsg.chat_id,
+                chat_type=fmsg.chat_type,
+                sender_open_id=fmsg.sender_open_id,
+                text=merged,
+                raw=fmsg.raw,
                 message_id=fmsg.message_id,  # 用最后一条触发合并的 msg id 加 reaction
             )
             lock = self._chat_locks.setdefault(fmsg.chat_id, asyncio.Lock())
@@ -160,10 +173,14 @@ class Dispatcher:
         if not is_allowed_user(sender_open_id, self._settings.allowed_users):
             return
         chat_id = (event.get("context") or {}).get("open_chat_id", "")
-        await self._card_handler(FeishuCardAction(
-            event_id=event_id, chat_id=chat_id,
-            sender_open_id=sender_open_id, value=value,
-        ))
+        await self._card_handler(
+            FeishuCardAction(
+                event_id=event_id,
+                chat_id=chat_id,
+                sender_open_id=sender_open_id,
+                value=value,
+            )
+        )
 
     def _is_bot_mentioned(self, mentions: list[dict]) -> bool:
         bot_id = self._settings.bot_open_id

@@ -43,17 +43,24 @@ class TestFullEventChain:
         async def track(e):
             events_seen.append(e.event_type)
 
-        for etype in ("edict.submitted", "edict.scheduled", "plan.completed",
-                       "execution.started", "execution.completed",
-                       "audit.completed"):
+        for etype in (
+            "edict.submitted",
+            "edict.scheduled",
+            "plan.completed",
+            "execution.started",
+            "execution.completed",
+            "audit.completed",
+        ):
             event_bus.on(etype, track, priority=999)
 
         # Create components
         scheduler = Scheduler(event_bus=event_bus, storage=storage)
         planner = Planner(event_bus=event_bus, storage=storage, config_manager=config_manager)
         executor = Executor(
-            event_bus=event_bus, storage=storage,
-            config_manager=config_manager, hook_registry=hooks,
+            event_bus=event_bus,
+            storage=storage,
+            config_manager=config_manager,
+            hook_registry=hooks,
         )
         auditor = Auditor(event_bus=event_bus, storage=storage, config_manager=config_manager)
         notifier = Notifier(storage=storage)
@@ -88,6 +95,7 @@ class TestFullEventChain:
 
         # Wait for async tasks
         import asyncio
+
         await asyncio.sleep(0.5)
 
         # Verify the chain executed
@@ -116,9 +124,7 @@ class TestFullEventChain:
 
         event_bus.on("plan.completed", capture)
 
-        await planner.handle_scheduled(
-            make_event("edict.scheduled", edict_id=edict.id)
-        )
+        await planner.handle_scheduled(make_event("edict.scheduled", edict_id=edict.id))
 
         assert len(plan_events) == 1
         plan_data = plan_events[0].payload["plan"]

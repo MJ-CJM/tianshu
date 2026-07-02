@@ -28,12 +28,8 @@ class ProfileTrigger:
             return
         count = self._storage.increment_persona_task_counter(persona_id)
         if count % self._threshold == 0:
-            logger.info(
-                "profile.synthesis triggered for %s at N=%d", persona_id, count
-            )
-            asyncio.create_task(
-                self._syn.run(persona_id, trigger_source="agent_end_hook")
-            )
+            logger.info("profile.synthesis triggered for %s at N=%d", persona_id, count)
+            asyncio.create_task(self._syn.run(persona_id, trigger_source="agent_end_hook"))
 
     async def run_for_all_personas(self, trigger_source: str = "cron") -> None:
         """Daily cron body: synthesize every active persona."""

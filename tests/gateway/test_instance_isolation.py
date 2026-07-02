@@ -3,6 +3,7 @@
 镜像 tests/gateway/telegram/test_channel_isolation.py 的 channel 隔离思路，
 但聚焦同一渠道下不同 instance_id 的隔离（telegram-default vs telegram-x）。
 """
+
 from __future__ import annotations
 
 from tianshu.bus.event_bus import EventBus
@@ -27,10 +28,20 @@ def _tg_outbound(storage, instance_id: str, home: str = "") -> TelegramOutbound:
 
 def _feishu_settings(instance_id: str, home: str = "") -> FeishuSettings:
     return FeishuSettings(
-        app_id="x", app_secret="y", domain="feishu", connection_mode="webhook",
-        allowed_users=(), home_channel=home, encrypt_key="", verification_token="",
-        bot_open_id="", bot_name="", webhook_path="/feishu/webhook",
-        ws_reconnect_interval=120, text_batch_delay=0.6, dedup_cache_size=2048,
+        app_id="x",
+        app_secret="y",
+        domain="feishu",
+        connection_mode="webhook",
+        allowed_users=(),
+        home_channel=home,
+        encrypt_key="",
+        verification_token="",
+        bot_open_id="",
+        bot_name="",
+        webhook_path="/feishu/webhook",
+        ws_reconnect_interval=120,
+        text_batch_delay=0.6,
+        dedup_cache_size=2048,
         instance_id=instance_id,
     )
 
@@ -49,12 +60,15 @@ def _fs_outbound(storage, instance_id: str, home: str = "") -> FeishuOutbound:
 # 1) 出站路由隔离（telegram）
 # --------------------------------------------------------------------------
 
+
 def test_telegram_outbound_only_owning_instance_delivers(storage):
     default_out = _tg_outbound(storage, "telegram-default")
     x_out = _tg_outbound(storage, "telegram-x")
 
     tagged = Edict(
-        title="t", goal="g", source="channel",
+        title="t",
+        goal="g",
+        source="channel",
         metadata={"channel": "telegram", "instance_id": "telegram-x", "chat_id": "555"},
     )
     storage.save_edict(tagged)
@@ -71,7 +85,9 @@ def test_telegram_outbound_legacy_untagged_goes_to_default(storage):
 
     # 存量敕令：无 instance_id → 回退 telegram-default
     legacy = Edict(
-        title="t", goal="g", source="channel",
+        title="t",
+        goal="g",
+        source="channel",
         metadata={"channel": "telegram", "chat_id": "oc"},
     )
     storage.save_edict(legacy)
@@ -85,12 +101,15 @@ def test_telegram_outbound_legacy_untagged_goes_to_default(storage):
 # 2) 出站路由隔离（feishu 镜像，低成本补一份）
 # --------------------------------------------------------------------------
 
+
 def test_feishu_outbound_only_owning_instance_delivers(storage):
     default_out = _fs_outbound(storage, "feishu-default")
     x_out = _fs_outbound(storage, "feishu-x")
 
     tagged = Edict(
-        title="t", goal="g", source="channel",
+        title="t",
+        goal="g",
+        source="channel",
         metadata={"channel": "feishu", "instance_id": "feishu-x", "chat_id": "oc_555"},
     )
     storage.save_edict(tagged)
@@ -99,7 +118,9 @@ def test_feishu_outbound_only_owning_instance_delivers(storage):
     assert x_out._lookup_chat_id(ev) == "oc_555"
 
     legacy = Edict(
-        title="t", goal="g", source="channel",
+        title="t",
+        goal="g",
+        source="channel",
         metadata={"channel": "feishu", "chat_id": "oc_old"},
     )
     storage.save_edict(legacy)
@@ -111,6 +132,7 @@ def test_feishu_outbound_only_owning_instance_delivers(storage):
 # --------------------------------------------------------------------------
 # 3) anchor 隔离：同一 chat_id 在不同实例互不碰撞
 # --------------------------------------------------------------------------
+
 
 def test_telegram_anchor_isolated_by_instance(storage):
     storage.set_telegram_anchor("123", "e1", instance_id="telegram-default")
@@ -132,17 +154,24 @@ def test_feishu_anchor_isolated_by_instance(storage):
 # 4) list_edicts 隔离：x 实例只见自己；default 见自己 + 旧无标记
 # --------------------------------------------------------------------------
 
+
 def test_list_edicts_instance_filter(storage):
     e_x = Edict(
-        title="x", goal="g", source="channel",
+        title="x",
+        goal="g",
+        source="channel",
         metadata={"channel": "telegram", "instance_id": "telegram-x", "chat_id": "1"},
     )
     e_default = Edict(
-        title="d", goal="g", source="channel",
+        title="d",
+        goal="g",
+        source="channel",
         metadata={"channel": "telegram", "instance_id": "telegram-default", "chat_id": "2"},
     )
     e_legacy = Edict(
-        title="l", goal="g", source="channel",
+        title="l",
+        goal="g",
+        source="channel",
         metadata={"channel": "telegram", "chat_id": "3"},  # 无 instance_id
     )
     for e in (e_x, e_default, e_legacy):

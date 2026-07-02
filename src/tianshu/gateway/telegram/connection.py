@@ -3,6 +3,7 @@
 镜像 feishu/connection.py 的双模式。归一化 Update → TelegramMessage/TelegramCallback
 后交给 Dispatcher。长轮询为默认（自托管无需公网/TLS）；webhook 暴露 FastAPI router。
 """
+
 from __future__ import annotations
 
 import logging
@@ -48,9 +49,7 @@ class TelegramConnection:
         self._bot_username: str = ""
 
     async def start(self) -> None:
-        self._app = (
-            Application.builder().token(self._settings.bot_token).build()
-        )
+        self._app = Application.builder().token(self._settings.bot_token).build()
         self._app.add_handler(MessageHandler(filters.TEXT, self._on_message))
         self._app.add_handler(CallbackQueryHandler(self._on_callback))
         self._app.add_error_handler(self._on_error)
@@ -61,7 +60,9 @@ class TelegramConnection:
         self._bot_username = me.username or ""
         logger.info(
             "[telegram] connected as @%s (id=%s) mode=%s",
-            self._bot_username, self._bot_id, self._settings.connection_mode,
+            self._bot_username,
+            self._bot_id,
+            self._settings.connection_mode,
         )
         await self._app.start()
 
@@ -130,7 +131,9 @@ class TelegramConnection:
     # --- 归一化 + 分发 ---
 
     async def _on_message(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
     ) -> None:
         message = update.effective_message
         if message is None or update.effective_user is None:
@@ -153,7 +156,9 @@ class TelegramConnection:
         await self._dispatcher.handle_message(tmsg)
 
     async def _on_callback(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE,
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
     ) -> None:
         query = update.callback_query
         if query is None or query.from_user is None:
@@ -179,9 +184,9 @@ class TelegramConnection:
         if reply and reply.from_user and reply.from_user.id == self._bot_id:
             return True
         text = message.text or ""
-        for ent in (message.entities or []):
+        for ent in message.entities or []:
             if ent.type == "mention":
-                mention = text[ent.offset: ent.offset + ent.length]
+                mention = text[ent.offset : ent.offset + ent.length]
                 if mention.lower() == f"@{self._bot_username}".lower():
                     return True
             elif ent.type == "text_mention" and ent.user and ent.user.id == self._bot_id:
@@ -197,7 +202,9 @@ class TelegramConnection:
         )
 
     async def _on_error(
-        self, update: object, context: ContextTypes.DEFAULT_TYPE,
+        self,
+        update: object,
+        context: ContextTypes.DEFAULT_TYPE,
     ) -> None:
         err = context.error
         name = type(err).__name__ if err else "?"

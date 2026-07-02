@@ -1,4 +1,5 @@
 """Completion audit 数据结构与执行器测试。"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
@@ -70,9 +71,11 @@ async def test_run_completion_audit_invokes_llm_and_returns_result():
     fake_response.content = '{"passed": true, "gaps": []}'
     fake_llm.chat.return_value = fake_response
 
-    acceptance = AcceptanceCriteria(checks=[
-        CheckSpec(kind="bash", name="tests", command="pytest"),
-    ])
+    acceptance = AcceptanceCriteria(
+        checks=[
+            CheckSpec(kind="bash", name="tests", command="pytest"),
+        ]
+    )
 
     result = await run_completion_audit(
         actor_output="我已经跑了 pytest，全部通过",
@@ -100,8 +103,10 @@ async def test_run_completion_audit_retries_once_on_invalid_json():
     fake_llm.chat.side_effect = [bad, good]
 
     result = await run_completion_audit(
-        actor_output="output", objective="g",
-        acceptance=AcceptanceCriteria(), llm=fake_llm,
+        actor_output="output",
+        objective="g",
+        acceptance=AcceptanceCriteria(),
+        llm=fake_llm,
     )
     assert result.passed is False
     assert fake_llm.chat.call_count == 2

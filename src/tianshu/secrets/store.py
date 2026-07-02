@@ -48,11 +48,7 @@ def _row_to_credential(row) -> Credential:
         encrypted_value=row["encrypted_value"],
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
-        last_used_at=(
-            datetime.fromisoformat(row["last_used_at"])
-            if row["last_used_at"]
-            else None
-        ),
+        last_used_at=(datetime.fromisoformat(row["last_used_at"]) if row["last_used_at"] else None),
         kind=kind or "edict_auth",
         provider_name=provider,
         enabled=bool(enabled_val),
@@ -70,13 +66,9 @@ class CredentialStore:
 
         if req.kind == "engine_provider":
             if not req.provider_name:
-                raise ValueError(
-                    "engine_provider credential requires provider_name"
-                )
+                raise ValueError("engine_provider credential requires provider_name")
             if req.provider_name not in {"jina", "tavily", "firecrawl"}:
-                raise ValueError(
-                    f"unsupported provider_name: {req.provider_name}"
-                )
+                raise ValueError(f"unsupported provider_name: {req.provider_name}")
             existing = self._storage.find_credentials_by_provider(req.provider_name)
             if existing is not None:
                 raise ValueError(
@@ -87,9 +79,7 @@ class CredentialStore:
             header_template = ""
         else:  # edict_auth
             if not req.host_pattern or not req.header_template:
-                raise ValueError(
-                    "edict_auth credential requires host_pattern and header_template"
-                )
+                raise ValueError("edict_auth credential requires host_pattern and header_template")
             host_pattern = req.host_pattern
             header_template = req.header_template
 
@@ -111,10 +101,7 @@ class CredentialStore:
         return [_row_to_credential(r) for r in self._storage.list_credentials()]
 
     def list_by_kind(self, kind: str | None = None) -> list[Credential]:
-        return [
-            _row_to_credential(r)
-            for r in self._storage.list_credentials(kind=kind)
-        ]
+        return [_row_to_credential(r) for r in self._storage.list_credentials(kind=kind)]
 
     def get(self, cred_id: str) -> Credential | None:
         row = self._storage.get_credential_by_id(cred_id)
@@ -144,9 +131,7 @@ class CredentialStore:
         if self._storage.get_credential_by_id(cred_id) is None:
             return None
         enc = self._vault.encrypt(req.value) if req.value is not None else None
-        extra = (
-            json.dumps(req.extra_headers) if req.extra_headers is not None else None
-        )
+        extra = json.dumps(req.extra_headers) if req.extra_headers is not None else None
         self._storage.update_credential(
             cred_id,
             encrypted_value=enc,

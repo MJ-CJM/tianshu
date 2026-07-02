@@ -39,11 +39,7 @@ async def test_fetch_ok(monkeypatch):
     engine = ScraplingFetchEngine("http")
     # Provide enough body text so trafilatura extracts ≥500 chars (MIN_EXTRACTED_LEN)
     article_text = "Hello world content here. " * 30  # ~780 chars
-    html = (
-        b"<html><body><article>"
-        + article_text.encode()
-        + b"</article></body></html>"
-    )
+    html = b"<html><body><article>" + article_text.encode() + b"</article></body></html>"
 
     async def fake_invoke(url):
         return _FakePage(200, html)

@@ -1,4 +1,5 @@
 """list_personas tool 单元测试。"""
+
 from __future__ import annotations
 
 import pytest
@@ -39,8 +40,8 @@ def registry_with_personas(storage, monkeypatch):
     """注册 list_personas + mock storage.list_personas 返回固定 4 个 persona。"""
     fixture = [
         _make_persona("wym", "neige", title="大学士", llm="qwen", can_delegate=True),
-        _make_persona("ys",  "ducha", title="御史", llm="mimo_2"),
-        _make_persona("wy",  "wenyuan", llm="mimo_2"),
+        _make_persona("ys", "ducha", title="御史", llm="mimo_2"),
+        _make_persona("wy", "wenyuan", llm="mimo_2"),
         _make_persona("tbh", "wenyuan", llm="mimo_2"),
     ]
     monkeypatch.setattr(storage, "list_personas", lambda: list(fixture))

@@ -16,7 +16,9 @@ console = Console()
 @app.command()
 def submit(
     memorial_id: str = typer.Option(..., "--memorial-id", "-m", help="Memorial ID"),
-    action: str = typer.Option(..., "--action", "-a", help="Action: approve|reject|retry|amend|cancel"),
+    action: str = typer.Option(
+        ..., "--action", "-a", help="Action: approve|reject|retry|amend|cancel"
+    ),
     comment: str = typer.Option(None, "--comment", help="Optional comment"),
     amended_goal: str = typer.Option(None, "--amended-goal", help="New goal (required for amend)"),
     fmt: str = typer.Option("table", "--format", "-f", help="Output format: table|json"),

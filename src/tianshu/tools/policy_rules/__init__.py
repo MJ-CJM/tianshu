@@ -22,11 +22,11 @@ __all__ = [
 def build_default_rules() -> list:
     """返回内建规则的默认实例列表（按优先级顺序）。"""
     return [
-        TierEscalationRule(),        # 100
-        WorkspaceBoundaryRule(),     # 90
-        BashSafetyRule(),            # 80
-        LarkCliSafetyRule(),         # 80（不同工具名，不与 bash 冲突）
-        NetworkSafetyRule(),         # 75
+        TierEscalationRule(),  # 100
+        WorkspaceBoundaryRule(),  # 90
+        BashSafetyRule(),  # 80
+        LarkCliSafetyRule(),  # 80（不同工具名，不与 bash 冲突）
+        NetworkSafetyRule(),  # 75
         ApprovalRequiredListRule(),  # 70
-        DefaultTierRule(),           # 10
+        DefaultTierRule(),  # 10
     ]

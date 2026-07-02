@@ -3,6 +3,7 @@
 是 Phase 1 人格 mutator 的代码版：失败安全（任何异常/空输出→no-op，不留半截改动），
 allowlist 强制（演化域外的目标直接拒绝），traversal-safe（只能写 worktree 内）。
 """
+
 from __future__ import annotations
 
 import logging
@@ -12,8 +13,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _SYSTEM = (
-    "你是改写单个 Python 源文件的工程师，只输出该文件的完整新内容，"
-    "不要解释、不要 markdown 围栏"
+    "你是改写单个 Python 源文件的工程师，只输出该文件的完整新内容，不要解释、不要 markdown 围栏"
 )
 
 _USER = """\
@@ -50,10 +50,10 @@ def _strip_code_fence(text: str) -> str:
     first_newline = stripped.find("\n")
     if first_newline == -1:
         return text
-    inner = stripped[first_newline + 1:]
+    inner = stripped[first_newline + 1 :]
     # 剥掉结尾的 ```
     if inner.endswith("```"):
-        inner = inner[: -3]
+        inner = inner[:-3]
     elif "\n```" in inner:
         inner = inner.rsplit("\n```", 1)[0]
     return inner.rstrip() + "\n"
@@ -76,7 +76,9 @@ class CodeMutator:
 
         if not self.is_within_evolvable(target_path):
             return {
-                "applied": False, "target": target_path, "commit": None,
+                "applied": False,
+                "target": target_path,
+                "commit": None,
                 "reason": "target outside evolvable allowlist",
             }
 
@@ -85,13 +87,17 @@ class CodeMutator:
             abs_target.relative_to(wt)
         except ValueError:
             return {
-                "applied": False, "target": target_path, "commit": None,
+                "applied": False,
+                "target": target_path,
+                "commit": None,
                 "reason": "path traversal rejected",
             }
 
         if not abs_target.is_file():
             return {
-                "applied": False, "target": target_path, "commit": None,
+                "applied": False,
+                "target": target_path,
+                "commit": None,
                 "reason": "target file not found",
             }
 
@@ -101,13 +107,17 @@ class CodeMutator:
         except Exception as e:  # noqa: BLE001
             logger.warning("code mutate LLM failed: %s", e)
             return {
-                "applied": False, "target": target_path, "commit": None,
+                "applied": False,
+                "target": target_path,
+                "commit": None,
                 "reason": f"llm error: {e}",
             }
 
         if not new or not new.strip() or new.strip() == old.strip():
             return {
-                "applied": False, "target": target_path, "commit": None,
+                "applied": False,
+                "target": target_path,
+                "commit": None,
                 "reason": "empty or unchanged output",
             }
 
@@ -115,14 +125,23 @@ class CodeMutator:
             abs_target.write_text(new, encoding="utf-8")
             self._git(wt, "add", target_path)
             self._git(
-                wt, "-c", "user.email=evolver@tianshu", "-c", "user.name=evolver",
-                "commit", "-q", "-m", f"evolve: {hypothesis[:60]}",
+                wt,
+                "-c",
+                "user.email=evolver@tianshu",
+                "-c",
+                "user.name=evolver",
+                "commit",
+                "-q",
+                "-m",
+                f"evolve: {hypothesis[:60]}",
             )
             sha = self._git(wt, "rev-parse", "HEAD").strip()
         except Exception as e:  # noqa: BLE001
             logger.warning("code mutate write/commit failed: %s", e)
             return {
-                "applied": False, "target": target_path, "commit": None,
+                "applied": False,
+                "target": target_path,
+                "commit": None,
                 "reason": f"write/commit error: {e}",
             }
 
@@ -130,21 +149,29 @@ class CodeMutator:
 
     async def _ask_llm(self, target_path: str, old: str, hypothesis: str) -> str:
         """调 LLM 改写文件；若返回有 markdown 围栏则剥掉。"""
-        resp = await self._llm.chat(messages=[
-            {"role": "system", "content": _SYSTEM},
-            {"role": "user", "content": _USER.format(
-                hypothesis=hypothesis,
-                target_path=target_path,
-                old_content=old,
-            )},
-        ])
+        resp = await self._llm.chat(
+            messages=[
+                {"role": "system", "content": _SYSTEM},
+                {
+                    "role": "user",
+                    "content": _USER.format(
+                        hypothesis=hypothesis,
+                        target_path=target_path,
+                        old_content=old,
+                    ),
+                },
+            ]
+        )
         raw = (getattr(resp, "content", None) or "").strip()
         return _strip_code_fence(raw) if raw else ""
 
     @staticmethod
     def _git(wt: Path, *args: str) -> str:
         proc = subprocess.run(
-            ["git", *args], cwd=str(wt), capture_output=True, text=True,
+            ["git", *args],
+            cwd=str(wt),
+            capture_output=True,
+            text=True,
         )
         if proc.returncode != 0:
             raise RuntimeError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")

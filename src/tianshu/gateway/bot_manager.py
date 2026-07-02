@@ -10,6 +10,7 @@
   start_instance(inst) / stop_instance(instance_id) / reload_instance(instance_id, new_settings)
   / status() / get(instance_id) / start_all() / stop_all()。
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -93,7 +94,8 @@ class ChannelBotManager:
             if runtime is None:
                 logger.warning(
                     "[gateway] instance %s (%s) unreadable (secret/vault missing); skipping",
-                    instance_id, channel_type,
+                    instance_id,
+                    channel_type,
                 )
                 continue
             settings = dataclasses.replace(builder(runtime), instance_id=instance_id)
@@ -131,11 +133,7 @@ class ChannelBotManager:
 
         secret_key = "app_secret" if channel_type == "feishu" else "bot_token"
         secret = legacy.get(secret_key, "")
-        non_secret = {
-            k: v
-            for k, v in legacy.items()
-            if k != secret_key and not k.startswith("_")
-        }
+        non_secret = {k: v for k, v in legacy.items() if k != secret_key and not k.startswith("_")}
         instance_id = default_instance_id(channel_type)
         self._storage.save_channel_instance(
             instance_id=instance_id,
@@ -147,7 +145,8 @@ class ChannelBotManager:
         )
         logger.info(
             "[gateway] migrated legacy %s config to default instance %s",
-            channel_type, instance_id,
+            channel_type,
+            instance_id,
         )
         builder = self._runtime_builder(channel_type)
         settings = dataclasses.replace(builder(legacy), instance_id=instance_id)
@@ -179,6 +178,7 @@ class ChannelBotManager:
             _build_feishu_settings_from_runtime,
             _build_telegram_settings_from_runtime,
         )
+
         return (
             _build_feishu_settings_from_runtime
             if channel_type == "feishu"
@@ -202,8 +202,10 @@ class ChannelBotManager:
         )
         if inst.channel_type == "feishu":
             from tianshu.gateway.feishu import FeishuBot
+
             return FeishuBot(**common)
         from tianshu.gateway.telegram import TelegramBot
+
         return TelegramBot(**common)
 
     # --- 生命周期 ---
@@ -213,7 +215,10 @@ class ChannelBotManager:
         if not inst.enabled or not inst.settings.enabled:
             logger.info(
                 "[gateway] instance %s (%s) skipped (enabled=%s, settings.enabled=%s)",
-                inst.instance_id, inst.channel_type, inst.enabled, inst.settings.enabled,
+                inst.instance_id,
+                inst.channel_type,
+                inst.enabled,
+                inst.settings.enabled,
             )
             return False
         try:
@@ -225,13 +230,16 @@ class ChannelBotManager:
                 bot.attach_webhook_router(self._app)
             logger.info(
                 "[gateway] instance %s (%s) started (mode=%s)",
-                inst.instance_id, inst.channel_type, inst.settings.connection_mode,
+                inst.instance_id,
+                inst.channel_type,
+                inst.settings.connection_mode,
             )
             return True
         except Exception:
             logger.exception(
                 "[gateway] instance %s (%s) start failed; degrading (other instances unaffected)",
-                inst.instance_id, inst.channel_type,
+                inst.instance_id,
+                inst.channel_type,
             )
             return False
 
@@ -262,7 +270,8 @@ class ChannelBotManager:
         runtime = self._storage.load_channel_instance_runtime(instance_id)
         if runtime is None:
             logger.warning(
-                "[gateway] reload_instance: %s unreadable (secret/vault missing)", instance_id,
+                "[gateway] reload_instance: %s unreadable (secret/vault missing)",
+                instance_id,
             )
             return False
         channel_type = row["channel_type"]

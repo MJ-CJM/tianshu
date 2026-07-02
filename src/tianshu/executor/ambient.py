@@ -18,7 +18,8 @@ if TYPE_CHECKING:
 
 _current_edict: ContextVar[Edict | None] = ContextVar("current_edict", default=None)
 _current_persona: ContextVar[AgentPersona | None] = ContextVar(
-    "current_persona", default=None,
+    "current_persona",
+    default=None,
 )
 
 

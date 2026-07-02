@@ -57,9 +57,7 @@ class Notifier:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post(url, json=payload)
                 if resp.status_code >= 400:
-                    logger.warning(
-                        "Webhook to %s returned %s", url, resp.status_code
-                    )
+                    logger.warning("Webhook to %s returned %s", url, resp.status_code)
         except Exception:
             logger.exception("Webhook delivery failed for %s", url)
 
@@ -109,12 +107,14 @@ class Notifier:
 
     async def handle_outer_loop_event(self, event: EventEnvelope) -> None:
         """长任务 outer loop 事件透传到 WebSocket（不走 debounce，实时推送给前端）。"""
-        await self.broadcast_ws({
-            "type": event.event_type,
-            "edict_id": event.edict_id,
-            "memorial_id": event.memorial_id,
-            "payload": event.payload,
-        })
+        await self.broadcast_ws(
+            {
+                "type": event.event_type,
+                "edict_id": event.edict_id,
+                "memorial_id": event.memorial_id,
+                "payload": event.payload,
+            }
+        )
 
     async def _dispatch_external(self, event, memorial, message: dict) -> None:
         """Dispatch to external notification channels based on edict dispatch config."""
@@ -169,23 +169,29 @@ class WebSocketStreamCallback:
         self._edict_id = edict_id
 
     async def on_delta(self, text: str) -> None:
-        await self._notifier.broadcast_ws({
-            "type": "stream.delta",
-            "edict_id": self._edict_id,
-            "text": text,
-        })
+        await self._notifier.broadcast_ws(
+            {
+                "type": "stream.delta",
+                "edict_id": self._edict_id,
+                "text": text,
+            }
+        )
 
     async def on_tool_call_start(self, name: str) -> None:
-        await self._notifier.broadcast_ws({
-            "type": "stream.tool_start",
-            "edict_id": self._edict_id,
-            "tool_name": name,
-        })
+        await self._notifier.broadcast_ws(
+            {
+                "type": "stream.tool_start",
+                "edict_id": self._edict_id,
+                "tool_name": name,
+            }
+        )
 
     async def on_tool_call_end(self, name: str, result: object) -> None:
-        await self._notifier.broadcast_ws({
-            "type": "stream.tool_end",
-            "edict_id": self._edict_id,
-            "tool_name": name,
-            "is_error": getattr(result, "is_error", False),
-        })
+        await self._notifier.broadcast_ws(
+            {
+                "type": "stream.tool_end",
+                "edict_id": self._edict_id,
+                "tool_name": name,
+                "is_error": getattr(result, "is_error", False),
+            }
+        )

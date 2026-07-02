@@ -9,6 +9,7 @@
 - /help                   敕令模式帮助
 - 纯文本                   续接当前敕令（v1 现有行为）
 """
+
 from __future__ import annotations
 
 import logging
@@ -104,7 +105,8 @@ class EdictBranch:
             await self._reply(
                 msg.chat_id,
                 self._renderer.unknown_command_reply(
-                    self._renderer.edict_tag(edict_id), cmd,
+                    self._renderer.edict_tag(edict_id),
+                    cmd,
                 ),
             )
         else:
@@ -116,7 +118,8 @@ class EdictBranch:
         """v2: 退出业务敕令模式 → 切回 chat 敕令（自动 ensure）。"""
         self._anchor.delete(msg.chat_id)
         new_eid = await self._edict_bridge.ensure_chat_edict(
-            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,
+            chat_id=msg.chat_id,
+            sender_open_id=msg.sender_open_id,
             assistant_persona_id=self._assistant_persona_id,
         )
         await self._reply(
@@ -132,7 +135,9 @@ class EdictBranch:
         self._anchor.delete(msg.chat_id)
         # 再新建
         result = await self._edict_bridge.create_new(
-            chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, goal=goal,
+            chat_id=msg.chat_id,
+            sender_open_id=msg.sender_open_id,
+            goal=goal,
         )
         await self._send_thinking(msg, result.edict_id, result.memorial_id, goal)
 
@@ -159,7 +164,10 @@ class EdictBranch:
             return
         # edict.status 是 str（数据库列）；EdictStatus enum 用 .value 比对
         if edict.status in (EdictStatus.COMPLETED.value, EdictStatus.CANCELLED.value):
-            await self._reply(msg.chat_id, f"敕令 #{edict.id[:8]} 已 {format_status_label(edict.status)}，无需取消")
+            await self._reply(
+                msg.chat_id,
+                f"敕令 #{edict.id[:8]} 已 {format_status_label(edict.status)}，无需取消",
+            )
             return
         self._storage.update_edict_status(edict.id, EdictStatus.CANCELLED.value)
         self._storage.update_edict_lifecycle_phase(edict.id, "complete")
@@ -177,7 +185,9 @@ class EdictBranch:
         """v1 续接行为：依赖 EdictBridge.continue_or_create。"""
         try:
             result = await self._edict_bridge.continue_or_create(
-                chat_id=msg.chat_id, sender_open_id=msg.sender_open_id, text=text,
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_open_id,
+                text=text,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))
@@ -188,7 +198,11 @@ class EdictBranch:
         await self._outbound.send_text(chat_id, text)
 
     async def _send_thinking(
-        self, msg: FeishuMessage, edict_id: str, memorial_id: str, instruction: str,
+        self,
+        msg: FeishuMessage,
+        edict_id: str,
+        memorial_id: str,
+        instruction: str,
     ) -> None:
         """给用户原消息加 typing reaction，由 outbound 在 execution 完成时移除。"""
         if not msg.message_id:
@@ -196,8 +210,10 @@ class EdictBranch:
         reaction_id = await self._outbound.add_reaction(msg.message_id, "Typing")
         if reaction_id:
             self._storage.save_feishu_thinking(
-                memorial_id=memorial_id, chat_id=msg.chat_id,
-                reaction_id=reaction_id, source_message_id=msg.message_id,
+                memorial_id=memorial_id,
+                chat_id=msg.chat_id,
+                reaction_id=reaction_id,
+                source_message_id=msg.message_id,
             )
 
 

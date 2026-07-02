@@ -98,13 +98,16 @@ async def lifespan(app: FastAPI):
     # --- Tools ---
     tools = ToolRegistry()
     register_builtins(
-        tools, settings.workspace_dir,
-        storage=storage, event_bus=event_bus,
+        tools,
+        settings.workspace_dir,
+        storage=storage,
+        event_bus=event_bus,
     )
 
     # --- MCP（藏兵阁外挂）：fire-and-forget 启动，不阻塞 lifespan ---
     # config 同步读（毫秒级），session 启动放后台（broken/慢 server 的退避不会卡 web）。
     from tianshu.tools.mcp import MCPManager
+
     mcp_manager = MCPManager(tools, storage=storage)
     app.state.mcp_manager = mcp_manager
     try:
@@ -118,9 +121,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("[mcp] background start failed")
 
-    app.state._mcp_start_task = asyncio.create_task(
-        _mcp_bg_start(), name="mcp-bg-start"
-    )
+    app.state._mcp_start_task = asyncio.create_task(_mcp_bg_start(), name="mcp-bg-start")
 
     # 应用 DB 里持久化的禁用列表（live toggle 在运行时通过 PATCH /api/tools/{name} 更新）
     try:
@@ -134,6 +135,7 @@ async def lifespan(app: FastAPI):
     # 系统默认引擎覆盖（可以在鸿胪寺页动态改，启动时从 DB 加载一次）
     try:
         from tianshu.tools.policy_profile import set_system_engine_overrides
+
         prefs = storage.get_engine_preferences()
         set_system_engine_overrides(
             fetch_chain=prefs["fetch_chain"],
@@ -148,9 +150,7 @@ async def lifespan(app: FastAPI):
     # --- Skills ---
     builtin_skills_dir = Path(__file__).parent / "skills" / "builtin"
     workspace_path = (
-        Path(settings.workspace_dir).resolve()
-        if settings.workspace_dir != "."
-        else None
+        Path(settings.workspace_dir).resolve() if settings.workspace_dir != "." else None
     )
     user_skills_dir = Path("~/.tianshu/skills").expanduser()
     user_skills_dir.mkdir(parents=True, exist_ok=True)
@@ -197,6 +197,7 @@ async def lifespan(app: FastAPI):
     # Re-register submit_edict tool now that persona_loader is available
     # （register_builtins 阶段 persona_loader 还未构造，此处覆盖以启用 persona 校验）
     from tianshu.tools.submit_edict import register_submit_edict
+
     register_submit_edict(
         tools,
         storage=storage,
@@ -208,13 +209,17 @@ async def lifespan(app: FastAPI):
     # 与 edict 工具组同 toggle —— 因为它的核心用途是支持"颁敕时按擅长领域指派"，
     # 跟 submit_edict 同生命周期，启用语义一致。
     from tianshu.tools.persona_query import register_list_personas
+
     register_list_personas(tools, storage=storage)
 
     # 默认禁用敕令管理工具集；通政司 toggle 打开后启用（reload 时同步）
     # submit_edict（写）+ list_edicts / get_edict_status / list_personas（读）
     # 作为同一捆绑能力 —— 助手能"颁敕"才需要"看官员名册帮决策指派"。
     edict_tools = (
-        "submit_edict", "list_edicts", "get_edict_status", "list_personas",
+        "submit_edict",
+        "list_edicts",
+        "get_edict_status",
+        "list_personas",
     )
     feishu_channel_cfg = storage.get_channel_config("feishu")
     if not (feishu_channel_cfg and feishu_channel_cfg.get("enable_edict_submission")):
@@ -268,7 +273,9 @@ async def lifespan(app: FastAPI):
     # skill 工具注册：依赖 config_manager.agent_config（guard 开关）；
     # tools / skills / metrics_store / event_bus 均已在前面定义
     register_skill_tools(
-        tools, skills, metrics_store=metrics_store,
+        tools,
+        skills,
+        metrics_store=metrics_store,
         guard_agent_created=config_manager.agent_config.skill_guard_agent_created,
         event_bus=event_bus,
     )
@@ -331,25 +338,34 @@ async def lifespan(app: FastAPI):
             pass
         elif settings.feishu_webhook:
             from tianshu.notifier.channels.feishu import FeishuChannel
+
             channel_registry.register(FeishuChannel(settings.feishu_webhook))
         if settings.dingtalk_webhook:
             from tianshu.notifier.channels.dingtalk import DingTalkChannel
-            channel_registry.register(DingTalkChannel(
-                settings.dingtalk_webhook,
-                secret=settings.dingtalk_secret,
-            ))
+
+            channel_registry.register(
+                DingTalkChannel(
+                    settings.dingtalk_webhook,
+                    secret=settings.dingtalk_secret,
+                )
+            )
         if settings.smtp_host:
             from tianshu.notifier.channels.email import EmailChannel
-            channel_registry.register(EmailChannel(
-                smtp_host=settings.smtp_host,
-                smtp_port=settings.smtp_port,
-                username=settings.smtp_username,
-                password=settings.smtp_password,
-                from_addr=settings.smtp_from,
-                to_addrs=settings.smtp_to.split(",") if settings.smtp_to else [],
-            ))
+
+            channel_registry.register(
+                EmailChannel(
+                    smtp_host=settings.smtp_host,
+                    smtp_port=settings.smtp_port,
+                    username=settings.smtp_username,
+                    password=settings.smtp_password,
+                    from_addr=settings.smtp_from,
+                    to_addrs=settings.smtp_to.split(",") if settings.smtp_to else [],
+                )
+            )
     else:
-        logger.info("[eval_mode] skipping real outbound channel registration (feishu/dingtalk/smtp)")
+        logger.info(
+            "[eval_mode] skipping real outbound channel registration (feishu/dingtalk/smtp)"
+        )
 
     # --- Notifier ---
     notifier = Notifier(storage=storage, channel_registry=channel_registry)
@@ -474,6 +490,7 @@ async def lifespan(app: FastAPI):
 
     # --- OrchestratorContext for long-task outer loop ---
     from tianshu.executor.orchestrator import OrchestratorContext
+
     orch_ctx = OrchestratorContext(
         agent=agent,
         storage=storage,
@@ -520,6 +537,7 @@ async def lifespan(app: FastAPI):
     # schedule_edict tool —— 对话中安排定时/周期敕令（需 scheduler 就绪后注册）
     # 与 submit_edict 同属"敕令工具组"，同一 enable_edict_submission toggle 控制。
     from tianshu.tools.schedule_edict import register_schedule_edict
+
     register_schedule_edict(
         tools,
         storage=storage,
@@ -600,16 +618,23 @@ async def lifespan(app: FastAPI):
     hook_registry.set_event_writer(storage)
 
     # --- Hook registrations ---
-    hook_registry.register(HookType.BEFORE_AGENT_START, memory_manager.on_before_agent_start, priority=50)
+    hook_registry.register(
+        HookType.BEFORE_AGENT_START, memory_manager.on_before_agent_start, priority=50
+    )
     hook_registry.register(HookType.BEFORE_ITERATION, cost_manager.on_before_iteration, priority=10)
     hook_registry.register(HookType.LLM_OUTPUT, cost_manager.on_llm_output, priority=50)
     hook_registry.register(HookType.AGENT_END, memory_manager.on_agent_end, priority=100)
-    hook_registry.register(HookType.BEFORE_TOOL_CALL, approval_manager.on_before_tool_call, priority=10)
+    hook_registry.register(
+        HookType.BEFORE_TOOL_CALL, approval_manager.on_before_tool_call, priority=10
+    )
 
     # Skill review hook (learning loop)
     skill_validator = SkillValidator()
     skill_reviewer = SkillReviewHandler(
-        skills, config_manager, skill_validator, metrics_store=metrics_store,
+        skills,
+        config_manager,
+        skill_validator,
+        metrics_store=metrics_store,
     )
     hook_registry.register(HookType.AGENT_END, skill_reviewer.on_agent_end, priority=200)
     skill_reviewer.attach_event_bus(event_bus)
@@ -648,15 +673,19 @@ async def lifespan(app: FastAPI):
     # --- 平行位面（parallel universe）---
     def _universe_config_snapshot() -> dict:
         from dataclasses import asdict
+
         return {"agent_config": asdict(config_manager.agent_config)}
 
     def _universe_config_apply(manifest: dict) -> None:
         ac = manifest.get("agent_config") or {}
         if ac:
-            config_manager.update_agent_config(**{
-                k: ac[k] for k in ("agent_max_iterations", "agent_timeout_seconds",
-                                   "skills_char_budget") if k in ac
-            })
+            config_manager.update_agent_config(
+                **{
+                    k: ac[k]
+                    for k in ("agent_max_iterations", "agent_timeout_seconds", "skills_char_budget")
+                    if k in ac
+                }
+            )
 
     universe_store = UniverseStore(
         root=Path("~/.tianshu/universes").expanduser(),
@@ -694,13 +723,17 @@ async def lifespan(app: FastAPI):
     code_gate = Gate(python_exe=sys.executable, timeout_s=_cfg.code_variant_sandbox_timeout_s)
     code_sandbox = SandboxRunner(mem_mb=_cfg.code_variant_sandbox_mem_mb)
     code_eval_harness = EvalHarness(
-        storage, code_sandbox, fitness_weights=_cfg.universe_fitness_weights,
+        storage,
+        code_sandbox,
+        fitness_weights=_cfg.universe_fitness_weights,
     )
     code_mutator = CodeMutator(
-        provider_manager.get_client(), evolvable_paths=_cfg.code_variant_evolvable_paths,
+        provider_manager.get_client(),
+        evolvable_paths=_cfg.code_variant_evolvable_paths,
     )
 
     from tianshu.universe.evolver import UniverseEvolver
+
     universe_evolver = UniverseEvolver(
         llm_client=provider_manager.get_client(),
         manager=universe_manager,
@@ -716,11 +749,14 @@ async def lifespan(app: FastAPI):
     app.state.universe_evolver = universe_evolver
 
     scheduler.register_system_jobs(
-        profile_trigger, skill_curator=skill_curator, universe_evolver=universe_evolver,
+        profile_trigger,
+        skill_curator=skill_curator,
+        universe_evolver=universe_evolver,
     )
 
     # --- DigestGenerator ---
     from tianshu.notifier.digest import DigestGenerator
+
     digest_generator = DigestGenerator(storage=storage)
     app.state.digest_generator = digest_generator
 
@@ -728,6 +764,7 @@ async def lifespan(app: FastAPI):
     async def _digest_cron_loop() -> None:
         """Run daily digest at roughly every 24h."""
         import asyncio
+
         while True:
             try:
                 await asyncio.sleep(86400)  # 24 hours
@@ -791,6 +828,7 @@ def create_app() -> FastAPI:
     app.include_router(credentials_router, prefix="/api")
     app.include_router(hongluisi_router, prefix="/api")
     from tianshu.gateway.tongzheng_api import tongzheng_router
+
     app.include_router(tongzheng_router, prefix="/api")
 
     @app.get("/health")

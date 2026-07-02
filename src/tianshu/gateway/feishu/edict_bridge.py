@@ -11,6 +11,7 @@ Follow-up 路径与 gateway.api.follow_up_edict 行为对齐：
 - 直接调 executor.execute_edict 启动任务
 - 加入 executor.running_tasks 集合
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,8 +31,10 @@ from tianshu.storage import Storage
 @dataclass(frozen=True)
 class EdictBridgeResult:
     """`continue_or_create` / `create_new` 的统一返回，便于 caller 同时拿 memorial_id。"""
+
     edict_id: str
     memorial_id: str
+
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +69,13 @@ def _build_history(edict: Edict, memorials: list[Memorial]) -> list[dict]:
         if not m.reasoning_content:
             # 老 memorial：assistant 整条跳过，避免触发 thinking-mode 校验
             continue
-        history.append({
-            "role": "assistant",
-            "content": m.result,
-            "reasoning_content": m.reasoning_content,
-        })
+        history.append(
+            {
+                "role": "assistant",
+                "content": m.result,
+                "reasoning_content": m.reasoning_content,
+            }
+        )
     return history
 
 
@@ -101,7 +106,11 @@ class EdictBridge:
         self._chat_title_prefix = chat_title_prefix
 
     async def continue_or_create(
-        self, *, chat_id: str, sender_open_id: str, text: str,
+        self,
+        *,
+        chat_id: str,
+        sender_open_id: str,
+        text: str,
     ) -> EdictBridgeResult:
         """主入口。返回 (edict_id, memorial_id)。
 
@@ -114,31 +123,36 @@ class EdictBridge:
             if edict and edict.status not in CLOSED_STATES:
                 memorials = self._storage.list_memorials_by_edict(edict.id)
                 has_active = any(
-                    m.status in (TaskStatus.SUBMITTED, TaskStatus.RUNNING)
-                    for m in memorials
+                    m.status in (TaskStatus.SUBMITTED, TaskStatus.RUNNING) for m in memorials
                 )
                 if has_active:
-                    raise EdictBusyError(
-                        f"敕令 #{edict.id[:8]} 仍在处理中，请等待完成后再继续"
-                    )
+                    raise EdictBusyError(f"敕令 #{edict.id[:8]} 仍在处理中，请等待完成后再继续")
                 memorial_id = await self._follow_up(edict, text, sender_open_id, memorials)
                 return EdictBridgeResult(edict_id=edict.id, memorial_id=memorial_id)
             # X1：已结案 → 自动新建（无感）
             logger.info(
                 "[feishu/edict] anchor edict %s closed (status=%s), auto-new",
-                current_edict_id, edict.status if edict else "missing",
+                current_edict_id,
+                edict.status if edict else "missing",
             )
         return await self.create_new(
-            chat_id=chat_id, sender_open_id=sender_open_id, goal=text,
+            chat_id=chat_id,
+            sender_open_id=sender_open_id,
+            goal=text,
         )
 
     async def create_new(
-        self, *, chat_id: str, sender_open_id: str, goal: str,
+        self,
+        *,
+        chat_id: str,
+        sender_open_id: str,
+        goal: str,
     ) -> EdictBridgeResult:
         """显式新建（来自 /new 或 anchor 已结案后的自动新建）。"""
         title = title_from_goal(goal)
         edict = Edict(
-            title=title, goal=goal,
+            title=title,
+            goal=goal,
             source="channel",
             submitter="emperor",
             metadata={
@@ -149,7 +163,9 @@ class EdictBridge:
             },
         )
         memorial = submit_new_edict(
-            self._storage, self._event_bus, edict,
+            self._storage,
+            self._event_bus,
+            edict,
             producer=f"{self._channel}_bot",
             extra_payload={
                 "channel": self._channel,
@@ -161,12 +177,17 @@ class EdictBridge:
         self._anchor.set(chat_id, edict.id)
         logger.info(
             "[feishu/edict] created edict=%s chat=%s sender=%s",
-            edict.id, chat_id, sender_open_id,
+            edict.id,
+            chat_id,
+            sender_open_id,
         )
         return EdictBridgeResult(edict_id=edict.id, memorial_id=memorial.id)
 
     async def ensure_chat_edict(
-        self, *, chat_id: str, sender_open_id: str,
+        self,
+        *,
+        chat_id: str,
+        sender_open_id: str,
         assistant_persona_id: str | None = None,
     ) -> str:
         """确保该 chat 有一个聊天敕令（assistant_chat=true）作为 anchor。
@@ -195,7 +216,9 @@ class EdictBridge:
         # 查找该 chat_id 是否有可复用的 open chat 敕令
         # 注意：list_edicts 不带 metadata 过滤，需 Python 端遍历筛
         open_edicts, _total = self._storage.list_edicts(
-            status="open", limit=200, offset=0,
+            status="open",
+            limit=200,
+            offset=0,
         )
         for e in open_edicts:
             meta = e.metadata or {}
@@ -203,7 +226,8 @@ class EdictBridge:
                 self._anchor.set(chat_id, e.id)
                 logger.info(
                     "[feishu/edict] reusing existing chat edict %s for chat=%s",
-                    e.id, chat_id,
+                    e.id,
+                    chat_id,
                 )
                 return e.id
 
@@ -228,7 +252,9 @@ class EdictBridge:
         self._anchor.set(chat_id, edict.id)
         logger.info(
             "[feishu/edict] auto-created chat edict %s for chat=%s persona=%s",
-            edict.id, chat_id, assistant_persona_id or "default",
+            edict.id,
+            chat_id,
+            assistant_persona_id or "default",
         )
         return edict.id
 
@@ -242,11 +268,15 @@ class EdictBridge:
         """对应 gateway.api.follow_up_edict 的核心逻辑（无 HTTP 层）。返回 memorial_id。"""
         history = _build_history(edict, prev_memorials)
         memorial = Memorial(
-            edict_id=edict.id, instruction=text, status=TaskStatus.SUBMITTED,
+            edict_id=edict.id,
+            instruction=text,
+            status=TaskStatus.SUBMITTED,
         )
         self._storage.save_memorial(memorial)
         self._storage.append_event(
-            edict.id, memorial.id, "followup.submitted",
+            edict.id,
+            memorial.id,
+            "followup.submitted",
             {
                 "instruction": text,
                 "channel": self._channel,
@@ -255,13 +285,17 @@ class EdictBridge:
         )
         task = asyncio.create_task(
             self._executor.execute_edict(
-                edict, memorial=memorial, history=history, user_content=text,
+                edict,
+                memorial=memorial,
+                history=history,
+                user_content=text,
             )
         )
         self._executor.running_tasks.add(task)
         task.add_done_callback(self._executor.running_tasks.discard)
         logger.info(
             "[feishu/edict] follow_up edict=%s memorial=%s",
-            edict.id, memorial.id,
+            edict.id,
+            memorial.id,
         )
         return memorial.id

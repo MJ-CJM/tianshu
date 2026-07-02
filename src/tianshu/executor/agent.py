@@ -56,12 +56,14 @@ class AgentResult(BaseModel):
 #: 仅"助手 persona"（飞书里跟用户对话的那个）能调用的工具集。
 #: 业务执行 persona（被指派去做事的 tbh/wy/ys 等）即使 toggle 开了
 #: 也看不到这些工具 —— 防递归颁敕（执行人把"每日推送"当成"再造一道敕令"）。
-ASSISTANT_ONLY_TOOLS: frozenset[str] = frozenset({
-    "submit_edict",
-    "list_edicts",
-    "get_edict_status",
-    "list_personas",
-})
+ASSISTANT_ONLY_TOOLS: frozenset[str] = frozenset(
+    {
+        "submit_edict",
+        "list_edicts",
+        "get_edict_status",
+        "list_personas",
+    }
+)
 
 
 class Agent:
@@ -144,7 +146,8 @@ class Agent:
             if persona and hasattr(persona, "id"):
                 logger.warning(
                     "[AGENT] Edict %s: prompt_builder unavailable, persona %s context will be lost",
-                    edict.id, getattr(persona, "id", "unknown"),
+                    edict.id,
+                    getattr(persona, "id", "unknown"),
                 )
             system_prompt = self._build_system_prompt(edict, agent_cfg.skills_char_budget)
 
@@ -170,7 +173,6 @@ class Agent:
         # Context window size for compaction thresholds (separate from spending budget)
         context_limit = 128000  # TODO: derive from model config / provider metadata
 
-
         # --- New: LoopState replaces mutable messages list ---
         state = LoopState(messages=tuple(messages), iteration=0)
         recovery_attempts: dict[str, int] = {}
@@ -183,8 +185,11 @@ class Agent:
         while state.iteration < max_iterations:
             if self._shutdown_event.is_set():
                 return self._build_result(
-                    state, ExitReason.CANCELLED,
-                    usage=usage, events=events, recovery=recovery_attempts,
+                    state,
+                    ExitReason.CANCELLED,
+                    usage=usage,
+                    events=events,
+                    recovery=recovery_attempts,
                     error="Shutdown requested",
                 )
 
@@ -195,18 +200,23 @@ class Agent:
             if should_auto_compact(state.messages, context_limit) and not state.compact_attempted:
                 try:
                     state = await auto_compact(state, llm, context_limit)
-                    _emit({
-                        "type": "context.compacted",
-                        "iteration": state.iteration,
-                        "strategy": "auto",
-                        "message_count": len(state.messages),
-                    })
+                    _emit(
+                        {
+                            "type": "context.compacted",
+                            "iteration": state.iteration,
+                            "strategy": "auto",
+                            "message_count": len(state.messages),
+                        }
+                    )
                 except Exception:
                     logger.warning("Auto compact failed", exc_info=True)
 
             logger.debug(
                 "[AGENT] Edict %s: iteration %d/%d, messages=%d",
-                edict.id, state.iteration, max_iterations, len(state.messages),
+                edict.id,
+                state.iteration,
+                max_iterations,
+                len(state.messages),
             )
             _emit({"type": "iteration.started", "iteration": state.iteration})
 
@@ -220,16 +230,18 @@ class Agent:
                 )
                 if iter_hook.block:
                     return self._build_result(
-                        state, ExitReason.HOOK_BLOCKED,
-                        usage=usage, events=events, recovery=recovery_attempts,
+                        state,
+                        ExitReason.HOOK_BLOCKED,
+                        usage=usage,
+                        events=events,
+                        recovery=recovery_attempts,
                         error=f"Blocked at iteration {state.iteration}: {iter_hook.reason}",
                     )
 
             openai_tools = self._tools.get_openai_tools() or None
             if tool_filter and openai_tools:
                 openai_tools = [
-                    t for t in openai_tools
-                    if t.get("function", {}).get("name") in tool_filter
+                    t for t in openai_tools if t.get("function", {}).get("name") in tool_filter
                 ] or None
 
             # ASSISTANT_ONLY_TOOLS 过滤：非助手 persona 不应看见 submit_edict 等
@@ -249,7 +261,8 @@ class Agent:
                 if assistant_id and persona_id != assistant_id:
                     before = len(openai_tools)
                     openai_tools = [
-                        t for t in openai_tools
+                        t
+                        for t in openai_tools
                         if t.get("function", {}).get("name") not in ASSISTANT_ONLY_TOOLS
                     ] or None
                     after = len(openai_tools or [])
@@ -257,7 +270,11 @@ class Agent:
                         logger.debug(
                             "[AGENT] persona %r is not assistant %r — filtered "
                             "%d ASSISTANT_ONLY tools (%d → %d)",
-                            persona_id, assistant_id, before - after, before, after,
+                            persona_id,
+                            assistant_id,
+                            before - after,
+                            before,
+                            after,
                         )
 
             # LLM input hook
@@ -275,8 +292,11 @@ class Agent:
             # Check cancellation before LLM call
             if cancellation_token and getattr(cancellation_token, "is_cancelled", False):
                 return self._build_result(
-                    state, ExitReason.CANCELLED,
-                    usage=usage, events=events, recovery=recovery_attempts,
+                    state,
+                    ExitReason.CANCELLED,
+                    usage=usage,
+                    events=events,
+                    recovery=recovery_attempts,
                 )
 
             # Phase 3: LLM call with context overflow recovery + fallback
@@ -284,10 +304,15 @@ class Agent:
                 if stream_callback:
                     final_response = None
                     async for chunk in llm.chat_stream(current_messages, tools=openai_tools):
-                        if cancellation_token and getattr(cancellation_token, "is_cancelled", False):
+                        if cancellation_token and getattr(
+                            cancellation_token, "is_cancelled", False
+                        ):
                             return self._build_result(
-                                state, ExitReason.CANCELLED,
-                                usage=usage, events=events, recovery=recovery_attempts,
+                                state,
+                                ExitReason.CANCELLED,
+                                usage=usage,
+                                events=events,
+                                recovery=recovery_attempts,
                             )
                         if chunk.content and not chunk.tool_calls:
                             await stream_callback.on_delta(chunk.content)
@@ -300,17 +325,24 @@ class Agent:
                     recovered = await reactive_compact(state, llm=llm, context_limit=context_limit)
                     if recovered is not None and not state.compact_attempted:
                         state = recovered
-                        recovery_attempts["context_overflow"] = recovery_attempts.get("context_overflow", 0) + 1
-                        _emit({
-                            "type": "context.compacted",
-                            "iteration": state.iteration,
-                            "strategy": "reactive",
-                            "message_count": len(state.messages),
-                        })
+                        recovery_attempts["context_overflow"] = (
+                            recovery_attempts.get("context_overflow", 0) + 1
+                        )
+                        _emit(
+                            {
+                                "type": "context.compacted",
+                                "iteration": state.iteration,
+                                "strategy": "reactive",
+                                "message_count": len(state.messages),
+                            }
+                        )
                         continue
                     return self._build_result(
-                        state, ExitReason.CONTEXT_OVERFLOW,
-                        usage=usage, events=events, recovery=recovery_attempts,
+                        state,
+                        ExitReason.CONTEXT_OVERFLOW,
+                        usage=usage,
+                        events=events,
+                        recovery=recovery_attempts,
                         error=str(e),
                     )
 
@@ -321,7 +353,8 @@ class Agent:
                     if fallback_cfg and fallback_cfg.enabled:
                         logger.warning(
                             "[AGENT] Primary LLM failed, switching to fallback '%s': %s",
-                            fallback_name, e,
+                            fallback_name,
+                            e,
                         )
                         fallback_llm = LLMClient(
                             model=fallback_cfg.model,
@@ -337,24 +370,35 @@ class Agent:
                             recovery_attempts["fallback"] = fallback_name
                         except Exception as fallback_err:
                             return self._build_result(
-                                state, ExitReason.LLM_ERROR,
-                                usage=usage, events=events, recovery=recovery_attempts,
+                                state,
+                                ExitReason.LLM_ERROR,
+                                usage=usage,
+                                events=events,
+                                recovery=recovery_attempts,
                                 error=f"Primary: {e}; Fallback: {fallback_err}",
                             )
                     else:
                         return self._build_result(
-                            state, ExitReason.LLM_ERROR,
-                            usage=usage, events=events, recovery=recovery_attempts,
+                            state,
+                            ExitReason.LLM_ERROR,
+                            usage=usage,
+                            events=events,
+                            recovery=recovery_attempts,
                             error=str(e),
                         )
                 else:
                     logger.exception(
                         "[AGENT] Edict %s: iter %d LLM call failed (no fallback configured): %s",
-                        edict.id, state.iteration, e,
+                        edict.id,
+                        state.iteration,
+                        e,
                     )
                     return self._build_result(
-                        state, ExitReason.LLM_ERROR,
-                        usage=usage, events=events, recovery=recovery_attempts,
+                        state,
+                        ExitReason.LLM_ERROR,
+                        usage=usage,
+                        events=events,
+                        recovery=recovery_attempts,
                         error=str(e),
                     )
 
@@ -379,8 +423,11 @@ class Agent:
 
             logger.debug(
                 "[AGENT] Edict %s: iter %d LLM response, tool_calls=%d, has_content=%s, finish_reason=%s",
-                edict.id, state.iteration, len(response.tool_calls or []),
-                bool(response.content), response.finish_reason,
+                edict.id,
+                state.iteration,
+                len(response.tool_calls or []),
+                bool(response.content),
+                response.finish_reason,
             )
 
             if response.tool_calls:
@@ -414,9 +461,7 @@ class Agent:
                     from tianshu.tools.types import ToolTier
 
                     tool_defn = self._tools.get_definition(tc["name"])
-                    tool_tier = (
-                        tool_defn.tier if tool_defn else ToolTier.T4_DANGEROUS.value
-                    )
+                    tool_tier = tool_defn.tier if tool_defn else ToolTier.T4_DANGEROUS.value
                     is_fast_path = tool_tier == ToolTier.T0_READONLY.value
 
                     if self._hooks and not is_fast_path:
@@ -429,22 +474,29 @@ class Agent:
                             memorial=memorial,
                         )
                         if hook_result.block:
-                            new_messages.append({
-                                "role": "tool",
-                                "tool_call_id": tc["id"],
-                                "content": f"Tool blocked: {hook_result.reason}",
-                            })
-                            _emit({
-                                "type": "tool.blocked",
-                                "tool": tc["name"],
-                                "iteration": state.iteration,
-                                "reason": hook_result.reason,
-                            })
+                            new_messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc["id"],
+                                    "content": f"Tool blocked: {hook_result.reason}",
+                                }
+                            )
+                            _emit(
+                                {
+                                    "type": "tool.blocked",
+                                    "tool": tc["name"],
+                                    "iteration": state.iteration,
+                                    "reason": hook_result.reason,
+                                }
+                            )
                             continue
 
                     logger.debug(
                         "[AGENT] Edict %s: iter %d tool=%s, args=%.200s",
-                        edict.id, state.iteration, tc["name"], str(tc["args"])[:200],
+                        edict.id,
+                        state.iteration,
+                        tc["name"],
+                        str(tc["args"])[:200],
                     )
                     if stream_callback:
                         await stream_callback.on_tool_call_start(tc["name"])
@@ -464,11 +516,13 @@ class Agent:
                     max_chars = tool_defn.max_result_chars if tool_defn else 8000
                     if len(content) > max_chars:
                         content = content[:max_chars] + "\n[... truncated]"
-                    new_messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": content,
-                    })
+                    new_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": content,
+                        }
+                    )
 
                     if self._hooks and not is_fast_path:
                         await self._hooks.run(
@@ -482,15 +536,17 @@ class Agent:
                         )
 
                     args_str = tc["args"] if isinstance(tc["args"], str) else json.dumps(tc["args"])
-                    _emit({
-                        "type": "tool.failed" if tool_result.is_error else "tool.completed",
-                        "tool": tc["name"],
-                        "iteration": state.iteration,
-                        "args_preview": args_str[:200],
-                        "result_preview": tool_result.content[:200],
-                        "is_error": tool_result.is_error,
-                        "details": tool_result.details,
-                    })
+                    _emit(
+                        {
+                            "type": "tool.failed" if tool_result.is_error else "tool.completed",
+                            "tool": tc["name"],
+                            "iteration": state.iteration,
+                            "args_preview": args_str[:200],
+                            "result_preview": tool_result.content[:200],
+                            "is_error": tool_result.is_error,
+                            "details": tool_result.details,
+                        }
+                    )
 
                     # 连续同错熔断：失败计数 +1；成功清掉该 tool 的所有计数
                     if tool_result.is_error:
@@ -501,12 +557,17 @@ class Agent:
                         if repeated_failures[key] >= REPEATED_FAILURE_LIMIT:
                             logger.warning(
                                 "[AGENT] Edict %s: tool %r failed %d times with same error, breaking loop. error=%.150s",
-                                edict.id, tc["name"], repeated_failures[key], err_sig,
+                                edict.id,
+                                tc["name"],
+                                repeated_failures[key],
+                                err_sig,
                             )
                             return self._build_result(
                                 state.next_turn(new_messages),
                                 ExitReason.REPEATED_TOOL_FAILURE,
-                                usage=usage, events=events, recovery=recovery_attempts,
+                                usage=usage,
+                                events=events,
+                                recovery=recovery_attempts,
                                 error=(
                                     f"工具 {tc['name']!r} 连续 {repeated_failures[key]} "
                                     f"次失败，错误一致：{err_sig[:120]}"
@@ -541,7 +602,9 @@ class Agent:
                         total_prompt_tokens=state.total_prompt_tokens,
                         total_completion_tokens=state.total_completion_tokens,
                     )
-                    recovery_attempts["output_continuation"] = recovery_attempts.get("output_continuation", 0) + 1
+                    recovery_attempts["output_continuation"] = (
+                        recovery_attempts.get("output_continuation", 0) + 1
+                    )
                     continue
 
                 exit_reason = (
@@ -551,16 +614,22 @@ class Agent:
                 )
                 rc = response.reasoning_content
                 return self._build_result(
-                    state, exit_reason,
+                    state,
+                    exit_reason,
                     summary=response.content,
-                    usage=usage, events=events, recovery=recovery_attempts,
+                    usage=usage,
+                    events=events,
+                    recovery=recovery_attempts,
                     reasoning_content=rc if isinstance(rc, str) and rc else None,
                 )
 
         # Loop exhausted
         return self._build_result(
-            state, ExitReason.MAX_ITERATIONS,
-            usage=usage, events=events, recovery=recovery_attempts,
+            state,
+            ExitReason.MAX_ITERATIONS,
+            usage=usage,
+            events=events,
+            recovery=recovery_attempts,
             error=f"Max iterations ({max_iterations}) reached",
         )
 

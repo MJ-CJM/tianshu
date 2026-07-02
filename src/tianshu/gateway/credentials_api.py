@@ -27,9 +27,7 @@ def _trigger_engine_rebuild() -> None:
     try:
         rebuild_engines()
     except Exception:
-        logger.exception(
-            "rebuild_engines failed; restart required for new key to take effect"
-        )
+        logger.exception("rebuild_engines failed; restart required for new key to take effect")
 
 
 def _store(request: Request) -> CredentialStore:
@@ -88,9 +86,7 @@ def create_credential(req: CredentialCreate, request: Request) -> CredentialView
 
 
 @credentials_router.patch("/{cred_id}")
-def update_credential(
-    cred_id: str, req: CredentialUpdate, request: Request
-) -> CredentialView:
+def update_credential(cred_id: str, req: CredentialUpdate, request: Request) -> CredentialView:
     c = _store(request).update(cred_id, req)
     if c is None:
         raise HTTPException(404, "credential_not_found")
@@ -113,8 +109,7 @@ def delete_credential(cred_id: str, request: Request) -> dict:
         if refs:
             raise HTTPException(
                 409,
-                f"credential referenced by {len(refs)} active edict(s); "
-                "remove references first",
+                f"credential referenced by {len(refs)} active edict(s); remove references first",
             )
 
     store.delete(cred_id)

@@ -50,7 +50,9 @@ def submit(
     console.print(f"  Edict ID: {edict.get('id', 'N/A')}")
     console.print(f"  Goal:     {edict.get('goal', 'N/A')}")
     console.print(f"  Status:   [{color}]{status}[/{color}]")
-    console.print(f"\nUse [bold]tianshu edict get {edict.get('id', '<id>')}[/bold] to check progress")
+    console.print(
+        f"\nUse [bold]tianshu edict get {edict.get('id', '<id>')}[/bold] to check progress"
+    )
 
 
 @app.command("get")

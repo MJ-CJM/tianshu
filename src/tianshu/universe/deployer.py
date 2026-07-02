@@ -4,6 +4,7 @@
 重启后查 /health；不健康 → 指针翻回 previous → relaunch（自动回滚兜底）。
 真实 relaunch（os.execv）藏在可注入回调后，单测不真重启。
 """
+
 from __future__ import annotations
 
 import json
@@ -48,10 +49,17 @@ class DeployPointer:
         return DeployRecord.from_dict(d.get("current")), DeployRecord.from_dict(d.get("previous"))
 
     def write(self, current: DeployRecord | None, previous: DeployRecord | None) -> None:
-        self._path.write_text(json.dumps({
-            "current": current.to_dict() if current else None,
-            "previous": previous.to_dict() if previous else None,
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._path.write_text(
+            json.dumps(
+                {
+                    "current": current.to_dict() if current else None,
+                    "previous": previous.to_dict() if previous else None,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
 
 def _default_relaunch() -> None:

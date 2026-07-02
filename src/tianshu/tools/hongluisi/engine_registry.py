@@ -143,9 +143,7 @@ def rebuild_engines() -> dict[str, str]:
 
     with _rebuild_lock:
         if _storage is None:
-            raise RuntimeError(
-                "engine_registry not initialized; call build_engines(storage) first"
-            )
+            raise RuntimeError("engine_registry not initialized; call build_engines(storage) first")
         fetch, search, api, extract, sources = _do_build(_storage)
         # 原子替换（dict 赋值 GIL 保护）
         _fetch_engines = fetch

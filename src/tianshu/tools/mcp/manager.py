@@ -103,11 +103,7 @@ class MCPManager:
         """
         import asyncio
 
-        enabled = [
-            (name, cfg)
-            for name, cfg in self._config.mcp_servers.items()
-            if cfg.enabled
-        ]
+        enabled = [(name, cfg) for name, cfg in self._config.mcp_servers.items() if cfg.enabled]
         for name, cfg in self._config.mcp_servers.items():
             if not cfg.enabled:
                 logger.info("[mcp] skip disabled server: %s", name)
@@ -117,9 +113,7 @@ class MCPManager:
             try:
                 connected = await session.start()
             except Exception:
-                logger.exception(
-                    "[mcp] server %s failed to start, continuing without it", name
-                )
+                logger.exception("[mcp] server %s failed to start, continuing without it", name)
                 await session.shutdown()
                 return name, None
             if not connected:
@@ -144,18 +138,14 @@ class MCPManager:
                 continue
             self._sessions[name] = session
             count = self._register_session_tools(session)
-            logger.info(
-                "[mcp] registered %d tool(s) from server %s", count, name
-            )
+            logger.info("[mcp] registered %d tool(s) from server %s", count, name)
 
     async def shutdown(self) -> None:
         for session in self._sessions.values():
             try:
                 await session.shutdown()
             except Exception:
-                logger.exception(
-                    "[mcp] error shutting down session %s", session.config.name
-                )
+                logger.exception("[mcp] error shutting down session %s", session.config.name)
         self._sessions.clear()
 
     # -- 工具注册 -----------------------------------------------------------
@@ -205,12 +195,8 @@ def _make_handler(
         try:
             result = await session.call_tool(tool_name, kwargs)
         except Exception as exc:
-            logger.exception(
-                "[mcp] tool call failed: %s.%s", session.config.name, tool_name
-            )
-            return error_result(
-                f"MCP {session.config.name}.{tool_name} failed: {exc}"
-            )
+            logger.exception("[mcp] tool call failed: %s.%s", session.config.name, tool_name)
+            return error_result(f"MCP {session.config.name}.{tool_name} failed: {exc}")
 
         text_parts: list[str] = []
         for piece in result.content or []:
@@ -223,7 +209,9 @@ def _make_handler(
         if structured:
             details = {"structured": structured}
         if result.isError:
-            return ToolResult(content=content or "MCP tool returned error", details=details, is_error=True)
+            return ToolResult(
+                content=content or "MCP tool returned error", details=details, is_error=True
+            )
         return ok_result(content=content, details=details)
 
     return handler

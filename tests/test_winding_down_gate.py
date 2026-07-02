@@ -1,4 +1,5 @@
 """winding_down 阶段下副作用工具被拦截测试。"""
+
 from __future__ import annotations
 
 import pytest

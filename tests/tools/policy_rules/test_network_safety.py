@@ -40,6 +40,7 @@ def _ctx(
 
 # -- non-network tool -> abstain ----------------------------------------------
 
+
 async def test_non_network_tool_abstain() -> None:
     rule = NetworkSafetyRule()
     ctx = _ctx("shell_exec", {}, "trusted-automation")
@@ -47,6 +48,7 @@ async def test_non_network_tool_abstain() -> None:
 
 
 # -- web_fetch ----------------------------------------------------------------
+
 
 async def test_offline_web_fetch_deny() -> None:
     rule = NetworkSafetyRule()
@@ -66,6 +68,7 @@ async def test_default_web_fetch_pass() -> None:
 
 # -- web_search ---------------------------------------------------------------
 
+
 async def test_offline_web_search_deny() -> None:
     rule = NetworkSafetyRule()
     ctx = _ctx("web_search", {"query": "x"}, "safe-explore")
@@ -76,6 +79,7 @@ async def test_offline_web_search_deny() -> None:
 
 
 # -- web_extract (firecrawl only in RESEARCH) ---------------------------------
+
 
 async def test_default_web_extract_deny() -> None:
     """NETWORK_DEFAULT has no firecrawl → web_extract denied."""
@@ -94,6 +98,7 @@ async def test_research_web_extract_pass() -> None:
 
 
 # -- api_request --------------------------------------------------------------
+
 
 async def test_default_api_request_deny() -> None:
     rule = NetworkSafetyRule()

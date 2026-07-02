@@ -63,7 +63,10 @@ body content here
 class TestSplitTemplate:
     def test_zh_split_at_mission(self):
         soul, role = split_template(
-            ZH_TEMPLATE, name="测试官", department="wenyuan", title="参谋",
+            ZH_TEMPLATE,
+            name="测试官",
+            department="wenyuan",
+            title="参谋",
         )
         # SOUL keeps tianshu frontmatter + personality, before 核心使命.
         assert soul.startswith("---\n")
@@ -78,7 +81,10 @@ class TestSplitTemplate:
 
     def test_en_split_handles_emoji_heading(self):
         soul, role = split_template(
-            EN_TEMPLATE, name="Tester", department="wenyuan", title=None,
+            EN_TEMPLATE,
+            name="Tester",
+            department="wenyuan",
+            title=None,
         )
         assert "Your Identity & Memory" in soul
         assert "Core Mission" not in soul
@@ -89,7 +95,10 @@ class TestSplitTemplate:
 
     def test_fallback_without_mission_heading(self):
         soul, role = split_template(
-            NO_MISSION_TEMPLATE, name="N", department="d", title=None,
+            NO_MISSION_TEMPLATE,
+            name="N",
+            department="d",
+            title=None,
         )
         # Intro becomes SOUL; whole body becomes ROLE.
         assert "# Intro line" in soul
@@ -99,7 +108,10 @@ class TestSplitTemplate:
 
     def test_original_frontmatter_stripped(self):
         soul, _ = split_template(
-            ZH_TEMPLATE, name="测试官", department="wenyuan", title=None,
+            ZH_TEMPLATE,
+            name="测试官",
+            department="wenyuan",
+            title=None,
         )
         # The template's own emoji/color frontmatter must not leak through.
         assert "emoji:" not in soul
@@ -111,10 +123,12 @@ class TestTemplateLibrary:
         (root / "zh" / "engineering").mkdir(parents=True)
         (root / "en" / "engineering").mkdir(parents=True)
         (root / "zh" / "engineering" / "engineering-frontend-developer.md").write_text(
-            ZH_TEMPLATE, encoding="utf-8",
+            ZH_TEMPLATE,
+            encoding="utf-8",
         )
         (root / "en" / "engineering" / "engineering-frontend-developer.md").write_text(
-            EN_TEMPLATE, encoding="utf-8",
+            EN_TEMPLATE,
+            encoding="utf-8",
         )
         # README files in a category must be ignored.
         (root / "zh" / "engineering" / "README.md").write_text("# readme", encoding="utf-8")
@@ -139,7 +153,10 @@ class TestTemplateLibrary:
         tmpl = lib.get("zh", "engineering-frontend-developer")
         assert tmpl is not None
         soul, role = lib.render(
-            tmpl, name="测试官", department="wenyuan", title=None,
+            tmpl,
+            name="测试官",
+            department="wenyuan",
+            title=None,
         )
         assert "name: 测试官" in soul
         assert "你的核心使命" in role

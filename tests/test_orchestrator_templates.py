@@ -1,4 +1,5 @@
 """模板渲染辅助测试。"""
+
 from __future__ import annotations
 
 from tianshu.executor.orchestrator.templates import (
@@ -84,10 +85,20 @@ def test_render_audit_lists_checks():
         TemplateName.COMPLETION_AUDIT,
         objective="g",
         checks=[
-            {"name": "tests", "kind": "bash", "command": "pytest",
-             "rubric": None, "pass_threshold": 0.8},
-            {"name": "lint", "kind": "lint", "command": "ruff check",
-             "rubric": None, "pass_threshold": 0.8},
+            {
+                "name": "tests",
+                "kind": "bash",
+                "command": "pytest",
+                "rubric": None,
+                "pass_threshold": 0.8,
+            },
+            {
+                "name": "lint",
+                "kind": "lint",
+                "command": "ruff check",
+                "rubric": None,
+                "pass_threshold": 0.8,
+            },
         ],
     )
     assert "tests" in text
@@ -109,6 +120,7 @@ def test_render_falls_back_when_template_missing(monkeypatch, tmp_path):
     """模板文件缺失时，render 不抛异常，返回 fallback 文本并记录 warning。"""
     # 模拟 templates 目录路径不可用
     from tianshu.executor.orchestrator import templates as tmpl_mod
+
     monkeypatch.setattr(tmpl_mod, "_TEMPLATES_DIR", tmp_path)
     text = render_template(TemplateName.CONTINUATION, objective="g")
     assert text == TEMPLATE_FALLBACK[TemplateName.CONTINUATION].format(

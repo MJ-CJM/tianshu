@@ -3,6 +3,7 @@
 复用飞书的纯解析函数 parse_approval_command / ApprovalCommand；
 handler 镜像飞书 ApprovalCommandHandler，pending 反查改用 telegram_pending_buttons 表。
 """
+
 from __future__ import annotations
 
 import logging
@@ -36,7 +37,11 @@ class TelegramApprovalCommandHandler:
         self._instance_id = instance_id
 
     async def handle(
-        self, *, chat_id: str, sender_open_id: str, command: ApprovalCommand,
+        self,
+        *,
+        chat_id: str,
+        sender_open_id: str,
+        command: ApprovalCommand,
     ) -> str:
         pending = self._storage.list_telegram_pending_for_chat(
             chat_id, instance_id=self._instance_id
@@ -79,7 +84,9 @@ class TelegramApprovalCommandHandler:
         )
         if command.scope and command.scope != actual_scope:
             requested_label = {
-                "once": "单次", "edict": "本敕令", "always": "总是",
+                "once": "单次",
+                "edict": "本敕令",
+                "always": "总是",
             }.get(command.scope, command.scope)
             return (
                 f"✅ 已批准 #{memorial_id[:8]}（{scope_label}，"

@@ -75,13 +75,9 @@ class MCPServerConfig(BaseModel):
     def _check_transport_fields(self) -> MCPServerConfig:
         if self.transport == "stdio":
             if not self.command:
-                raise ValueError(
-                    f"server {self.name!r}: stdio transport requires 'command'"
-                )
+                raise ValueError(f"server {self.name!r}: stdio transport requires 'command'")
         elif self.transport == "streamable_http" and not self.url:
-            raise ValueError(
-                f"server {self.name!r}: streamable_http transport requires 'url'"
-            )
+            raise ValueError(f"server {self.name!r}: streamable_http transport requires 'url'")
         if self.default_tier not in (0, 1, 2, 3, 4):
             raise ValueError(
                 f"server {self.name!r}: default_tier must be 0..4, got {self.default_tier}"
@@ -217,14 +213,13 @@ def merge_overrides(
 
     # 第 2 段：YAML 中没有但 DB 完整定义的 server
     import logging
+
     log = logging.getLogger(__name__)
     for name, ov in by_name.items():
         if name in merged:
             continue
         if not ov.transport:
-            log.debug(
-                "[mcp] override %s has no transport and no YAML seed; skipping", name
-            )
+            log.debug("[mcp] override %s has no transport and no YAML seed; skipping", name)
             continue
         try:
             tools_filter = ToolFilter(
@@ -248,8 +243,6 @@ def merge_overrides(
             )
             merged[name] = cfg
         except Exception as exc:
-            log.warning(
-                "[mcp] DB-defined server %s is invalid, skipping: %s", name, exc
-            )
+            log.warning("[mcp] DB-defined server %s is invalid, skipping: %s", name, exc)
 
     return MCPConfig(mcp_servers=merged)

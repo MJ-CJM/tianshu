@@ -1,4 +1,5 @@
 """Dispatcher：p2p / 群@ / 卡片 / allowlist 拒绝。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -16,16 +17,33 @@ from tianshu.gateway.feishu.settings import FeishuSettings
 
 def _settings(*, allowed=("ou_test",), bot_id="ou_bot", batch_delay=0.0):
     return FeishuSettings(
-        app_id="x", app_secret="y", domain="feishu", connection_mode="webhook",
-        allowed_users=allowed, home_channel="",
-        encrypt_key="", verification_token="", bot_open_id=bot_id, bot_name="bot",
-        webhook_path="/feishu/webhook", ws_reconnect_interval=120,
-        text_batch_delay=batch_delay, dedup_cache_size=2048,
+        app_id="x",
+        app_secret="y",
+        domain="feishu",
+        connection_mode="webhook",
+        allowed_users=allowed,
+        home_channel="",
+        encrypt_key="",
+        verification_token="",
+        bot_open_id=bot_id,
+        bot_name="bot",
+        webhook_path="/feishu/webhook",
+        ws_reconnect_interval=120,
+        text_batch_delay=batch_delay,
+        dedup_cache_size=2048,
     )
 
 
-def _msg_event(*, event_id="evt", chat_id="oc_x", chat_type="p2p",
-               sender="ou_test", text="hi", mentions=None, msg_type="text") -> dict:
+def _msg_event(
+    *,
+    event_id="evt",
+    chat_id="oc_x",
+    chat_type="p2p",
+    sender="ou_test",
+    text="hi",
+    mentions=None,
+    msg_type="text",
+) -> dict:
     if msg_type == "text":
         content = json.dumps({"text": text})
     else:
@@ -35,8 +53,11 @@ def _msg_event(*, event_id="evt", chat_id="oc_x", chat_type="p2p",
         "event": {
             "sender": {"sender_id": {"open_id": sender}},
             "message": {
-                "message_id": "om_1", "chat_id": chat_id, "chat_type": chat_type,
-                "message_type": msg_type, "content": content,
+                "message_id": "om_1",
+                "chat_id": chat_id,
+                "chat_type": chat_type,
+                "message_type": msg_type,
+                "content": content,
                 "mentions": mentions or [],
             },
         },
@@ -122,10 +143,13 @@ async def test_group_without_mention_ignored(dispatcher):
 @pytest.mark.asyncio
 async def test_group_with_mention_dispatched(dispatcher):
     d, queue, msgs, _ = dispatcher
-    await queue.put(_msg_event(
-        chat_type="group", text="hello",
-        mentions=[{"id": {"open_id": "ou_bot"}, "name": "bot"}],
-    ))
+    await queue.put(
+        _msg_event(
+            chat_type="group",
+            text="hello",
+            mentions=[{"id": {"open_id": "ou_bot"}, "name": "bot"}],
+        )
+    )
     await asyncio.sleep(0.15)
     assert len(msgs) == 1
 
@@ -167,8 +191,7 @@ async def test_post_message_extracted(dispatcher):
 @pytest.mark.asyncio
 async def test_unknown_event_type_ignored(dispatcher):
     d, queue, msgs, cards = dispatcher
-    await queue.put({"header": {"event_type": "im.unknown", "event_id": "e"},
-                     "event": {}})
+    await queue.put({"header": {"event_type": "im.unknown", "event_id": "e"}, "event": {}})
     await asyncio.sleep(0.05)
     assert len(msgs) == 0
     assert len(cards) == 0

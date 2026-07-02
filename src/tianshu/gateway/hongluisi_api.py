@@ -58,14 +58,16 @@ def get_engine_preferences(request: Request) -> dict:
 
 
 @hongluisi_router.patch("/engine-preferences")
-def update_engine_preferences(
-    body: EnginePreferencesPayload, request: Request
-) -> dict:
+def update_engine_preferences(body: EnginePreferencesPayload, request: Request) -> dict:
     """live 更新：写 DB + 刷缓存 + rebuild 引擎。无需重启。"""
     storage = request.app.state.storage
     ALLOWED_FETCH = {
-        "local", "jina", "firecrawl",
-        "scrapling", "scrapling_dynamic", "scrapling_stealthy",
+        "local",
+        "jina",
+        "firecrawl",
+        "scrapling",
+        "scrapling_dynamic",
+        "scrapling_stealthy",
     }
     ALLOWED_SEARCH = {"tavily", "jina", "duckduckgo", None, ""}
     ALLOWED_FALLBACK = {"none", "on_error_or_empty", None, ""}

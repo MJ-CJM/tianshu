@@ -18,7 +18,8 @@ MAX_FILE_CHARS = 32000
 # 18 种已知威胁模式（prompt injection / 凭证外泄 / 协议越权）
 # 直接照搬 hermes 的 INJECTION_PATTERNS，按需补充本地化变体。
 _INJECTION_REGEXES: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE) for p in (
+    re.compile(p, re.IGNORECASE)
+    for p in (
         r"ignore (all |the )?(previous|prior|above) (instructions|prompts)",
         r"disregard (all |the )?(previous|prior|above) (instructions|prompts)",
         r"forget (all |the )?(previous|prior|above) (instructions|prompts)",
@@ -34,18 +35,16 @@ _INJECTION_REGEXES: tuple[re.Pattern[str], ...] = tuple(
         r"curl\s+[^\n]*\$(\w*token|\w*key|\w*secret|api[_-]?key)",
         r"wget\s+[^\n]*\$(\w*token|\w*key|\w*secret|api[_-]?key)",
         r"BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY",
-        r"AKIA[0-9A-Z]{16}",                     # AWS access key
-        r"sk-[A-Za-z0-9]{20,}",                  # OpenAI / Anthropic style
-        r"ghp_[A-Za-z0-9]{20,}",                 # GitHub PAT
+        r"AKIA[0-9A-Z]{16}",  # AWS access key
+        r"sk-[A-Za-z0-9]{20,}",  # OpenAI / Anthropic style
+        r"ghp_[A-Za-z0-9]{20,}",  # GitHub PAT
         # 中文越狱
         r"忽略(以上|之前|前面)(所有)?(指令|要求|提示)",
     )
 )
 
 # 不可见 / 控制字符（除常见空白：\t \n \r 之外）
-_INVISIBLE_RE = re.compile(
-    r"[​-‏‪-‮⁠-⁯﻿]"
-)
+_INVISIBLE_RE = re.compile(r"[​-‏‪-‮⁠-⁯﻿]")
 
 
 class MemorySafetyError(ValueError):
@@ -96,7 +95,7 @@ def check_file_size(new_total_chars: int) -> None:
     if new_total_chars > MAX_FILE_CHARS:
         raise MemorySafetyError(
             f"MEMORY.md 写入后将达 {new_total_chars} 字，超出 {MAX_FILE_CHARS} 字上限；"
-            "请先用 memory_write(action=\"remove\"...) 清理旧条目，再写新内容。",
+            '请先用 memory_write(action="remove"...) 清理旧条目，再写新内容。',
         )
 
 

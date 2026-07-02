@@ -119,18 +119,20 @@ class ConfigManager:
             return
         if is_active is None:
             is_active = state.name == self._active_name
-        self._storage.save_llm_config({
-            "name": state.name,
-            "model": state.model,
-            "api_key": state.api_key,
-            "api_base": state.api_base,
-            "max_retries": state.max_retries,
-            "temperature": state.temperature,
-            "top_p": state.top_p,
-            "max_tokens": state.max_tokens,
-            "enabled": state.enabled,
-            "is_active": is_active,
-        })
+        self._storage.save_llm_config(
+            {
+                "name": state.name,
+                "model": state.model,
+                "api_key": state.api_key,
+                "api_base": state.api_base,
+                "max_retries": state.max_retries,
+                "temperature": state.temperature,
+                "top_p": state.top_p,
+                "max_tokens": state.max_tokens,
+                "enabled": state.enabled,
+                "is_active": is_active,
+            }
+        )
 
     @property
     def state(self) -> LLMConfigState:
@@ -207,6 +209,7 @@ class ConfigManager:
 
     def update_agent_config(self, **kwargs: object) -> AgentConfigState:
         from dataclasses import fields, replace
+
         with self._lock:
             valid = {f.name for f in fields(AgentConfigState)}
             filtered = {k: v for k, v in kwargs.items() if k in valid}

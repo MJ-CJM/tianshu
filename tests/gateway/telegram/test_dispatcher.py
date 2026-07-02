@@ -1,4 +1,5 @@
 """Dispatcher：dedup / allowlist / 群门控 / 命令直发 vs 文本批处理。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -25,16 +26,22 @@ def _mk_dispatcher(storage, settings):
         cbs.append(c)
 
     d = Dispatcher(
-        settings=settings, storage=storage,
-        message_handler=on_msg, callback_handler=on_cb,
+        settings=settings,
+        storage=storage,
+        message_handler=on_msg,
+        callback_handler=on_cb,
     )
     return d, msgs, cbs
 
 
 def _msg(text="hi", update_id="u1", chat_type="private", sender_id="1", directed=True):
     return TelegramMessage(
-        update_id=update_id, chat_id="c1", chat_type=chat_type,
-        sender_id=sender_id, text=text, directed=directed,
+        update_id=update_id,
+        chat_id="c1",
+        chat_type=chat_type,
+        sender_id=sender_id,
+        text=text,
+        directed=directed,
     )
 
 
@@ -88,8 +95,12 @@ async def test_text_batching_merges(storage):
 async def test_callback_dispatch_and_dedup(storage):
     d, _, cbs = _mk_dispatcher(storage, make_settings())
     cb = TelegramCallback(
-        update_id="cb1", callback_id="q1", chat_id="c1",
-        sender_id="1", message_id="9", data="ea:approve:once:M",
+        update_id="cb1",
+        callback_id="q1",
+        chat_id="c1",
+        sender_id="1",
+        message_id="9",
+        data="ea:approve:once:M",
     )
     await d.handle_callback(cb)
     await d.handle_callback(cb)  # 同 update_id 去重

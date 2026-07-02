@@ -56,8 +56,11 @@ def _make_ctx(storage, bus, agent, critic_responses):
             side_effects.append(MagicMock(content=_AUDIT_PASS_JSON))
     critic_llm.chat = AsyncMock(side_effect=side_effects)
     return OrchestratorContext(
-        agent=agent, storage=storage, bus=bus,
-        actor_llm=actor_llm, critic_llm=critic_llm,
+        agent=agent,
+        storage=storage,
+        bus=bus,
+        actor_llm=actor_llm,
+        critic_llm=critic_llm,
     )
 
 
@@ -65,9 +68,11 @@ def _agent(output_per_iter: list[str]):
     a = MagicMock()
     results = [
         MagicMock(
-            result=o, summary=o,
+            result=o,
+            summary=o,
             usage=MagicMock(cost_cny=0.1),
-        ) for o in output_per_iter
+        )
+        for o in output_per_iter
     ]
     a.execute = AsyncMock(side_effect=results)
     return a
@@ -88,9 +93,14 @@ def _memorial(edict_id):
 
 @pytest.mark.integration
 async def test_pass_first_try(storage, bus):
-    ctx = _make_ctx(storage, bus, _agent(["draft v1"]), [
-        {"verdict": "pass", "feedback": "ok"},
-    ])
+    ctx = _make_ctx(
+        storage,
+        bus,
+        _agent(["draft v1"]),
+        [
+            {"verdict": "pass", "feedback": "ok"},
+        ],
+    )
     e = _edict()
     storage.save_edict(e)
     r = await run(e, _memorial(e.id), ctx)
@@ -101,11 +111,16 @@ async def test_pass_first_try(storage, bus):
 
 @pytest.mark.integration
 async def test_l0_to_l1_on_same_issue(storage, bus):
-    ctx = _make_ctx(storage, bus, _agent(["v1", "v2", "v3"]), [
-        {"verdict": "fail", "issue_class": "factual_error", "feedback": "wrong fact"},
-        {"verdict": "fail", "issue_class": "factual_error", "feedback": "still wrong"},
-        {"verdict": "pass", "feedback": "ok now"},
-    ])
+    ctx = _make_ctx(
+        storage,
+        bus,
+        _agent(["v1", "v2", "v3"]),
+        [
+            {"verdict": "fail", "issue_class": "factual_error", "feedback": "wrong fact"},
+            {"verdict": "fail", "issue_class": "factual_error", "feedback": "still wrong"},
+            {"verdict": "pass", "feedback": "ok now"},
+        ],
+    )
     e = _edict()
     storage.save_edict(e)
     r = await run(e, _memorial(e.id), ctx)
@@ -116,11 +131,16 @@ async def test_l0_to_l1_on_same_issue(storage, bus):
 
 @pytest.mark.integration
 async def test_streak_resets_on_different_issue(storage, bus):
-    ctx = _make_ctx(storage, bus, _agent(["v1", "v2", "v3"]), [
-        {"verdict": "fail", "issue_class": "factual_error", "feedback": "f1"},
-        {"verdict": "fail", "issue_class": "tone_mismatch", "feedback": "f2"},
-        {"verdict": "pass", "feedback": "ok"},
-    ])
+    ctx = _make_ctx(
+        storage,
+        bus,
+        _agent(["v1", "v2", "v3"]),
+        [
+            {"verdict": "fail", "issue_class": "factual_error", "feedback": "f1"},
+            {"verdict": "fail", "issue_class": "tone_mismatch", "feedback": "f2"},
+            {"verdict": "pass", "feedback": "ok"},
+        ],
+    )
     e = _edict()
     storage.save_edict(e)
     r = await run(e, _memorial(e.id), ctx)
@@ -131,13 +151,21 @@ async def test_streak_resets_on_different_issue(storage, bus):
 
 @pytest.mark.integration
 async def test_exhausted_best_effort(storage, bus):
-    ctx = _make_ctx(storage, bus, _agent(["v1", "v2", "v3"]), [
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-    ])
-    e = _edict(max_outer_iterations=3, on_exhaustion="best_effort",
-               escalation=EscalationSpec(enabled_levels=[]))  # 关闭升级
+    ctx = _make_ctx(
+        storage,
+        bus,
+        _agent(["v1", "v2", "v3"]),
+        [
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+        ],
+    )
+    e = _edict(
+        max_outer_iterations=3,
+        on_exhaustion="best_effort",
+        escalation=EscalationSpec(enabled_levels=[]),
+    )  # 关闭升级
     storage.save_edict(e)
     r = await run(e, _memorial(e.id), ctx)
     assert r.status == TaskStatus.COMPLETED  # best_effort 视为成功
@@ -148,8 +176,11 @@ async def test_exhausted_best_effort(storage, bus):
 async def test_checks_failed_skips_critic(storage, bus):
     # checks 不过 → critic 不调用
     ctx = _make_ctx(storage, bus, _agent(["v1"]), [])  # critic 0 calls
-    e = _edict(checks=[CheckSpec(kind="bash", name="must_fail", command="exit 1")],
-               max_outer_iterations=1, on_exhaustion="fail")
+    e = _edict(
+        checks=[CheckSpec(kind="bash", name="must_fail", command="exit 1")],
+        max_outer_iterations=1,
+        on_exhaustion="fail",
+    )
     storage.save_edict(e)
     r = await run(e, _memorial(e.id), ctx)
     assert r.status == TaskStatus.FAILED
@@ -159,13 +190,19 @@ async def test_checks_failed_skips_critic(storage, bus):
 @pytest.mark.integration
 async def test_failed_keeps_last_actor_output_for_postmortem(storage, bus):
     """on_exhaustion=fail 时 final_output 应保留最后一轮 actor_output 供尸检。"""
-    ctx = _make_ctx(storage, bus, _agent(["draft v1", "draft v2", "draft v3"]), [
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-    ])
-    e = _edict(max_outer_iterations=3, on_exhaustion="fail",
-               escalation=EscalationSpec(enabled_levels=[]))
+    ctx = _make_ctx(
+        storage,
+        bus,
+        _agent(["draft v1", "draft v2", "draft v3"]),
+        [
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+        ],
+    )
+    e = _edict(
+        max_outer_iterations=3, on_exhaustion="fail", escalation=EscalationSpec(enabled_levels=[])
+    )
     storage.save_edict(e)
     r = await run(e, _memorial(e.id), ctx)
     assert r.status == TaskStatus.FAILED
@@ -182,15 +219,20 @@ async def test_critic_unavailable_skip(storage, bus):
     critic_llm = MagicMock()
     # critic._review_single 会重试 max_retries=2 次，全部 RuntimeError → CriticUnavailable → skip → verdict=pass
     # audit 门因 critic_skipped=True，改用 actor_llm，所以 critic_llm 不再需要 audit 响应
-    critic_llm.chat = AsyncMock(side_effect=[
-        RuntimeError("critic down"),  # critic attempt 0
-        RuntimeError("critic down"),  # critic attempt 1 (max_retries=2)
-    ])
+    critic_llm.chat = AsyncMock(
+        side_effect=[
+            RuntimeError("critic down"),  # critic attempt 0
+            RuntimeError("critic down"),  # critic attempt 1 (max_retries=2)
+        ]
+    )
     # actor_llm 处理 audit 调用（critic-skip 退化路径）
     actor_llm.chat = AsyncMock(return_value=MagicMock(content=_AUDIT_PASS_JSON))
     ctx = OrchestratorContext(
-        agent=actor, storage=storage, bus=bus,
-        actor_llm=actor_llm, critic_llm=critic_llm,
+        agent=actor,
+        storage=storage,
+        bus=bus,
+        actor_llm=actor_llm,
+        critic_llm=critic_llm,
     )
     e = _edict()  # on_critic_unavailable 默认 skip
     storage.save_edict(e)
@@ -204,13 +246,20 @@ async def test_critic_unavailable_skip(storage, bus):
 
 @pytest.mark.integration
 async def test_l3_approval_accept_as_is(storage, bus):
-    ctx = _make_ctx(storage, bus, _agent(["v1", "v2", "v3"]), [
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-    ])
+    ctx = _make_ctx(
+        storage,
+        bus,
+        _agent(["v1", "v2", "v3"]),
+        [
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+        ],
+    )
     approvals = MagicMock()
-    approvals.wait_for_outer_loop_decision = AsyncMock(return_value=HumanDecision(action="accept_as_is"))
+    approvals.wait_for_outer_loop_decision = AsyncMock(
+        return_value=HumanDecision(action="accept_as_is")
+    )
     ctx.approvals = approvals
 
     e = _edict(
@@ -227,11 +276,16 @@ async def test_l3_approval_accept_as_is(storage, bus):
 
 @pytest.mark.integration
 async def test_l3_approval_abort(storage, bus):
-    ctx = _make_ctx(storage, bus, _agent(["v1", "v2", "v3"]), [
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-        {"verdict": "fail", "issue_class": "other", "feedback": "f"},
-    ])
+    ctx = _make_ctx(
+        storage,
+        bus,
+        _agent(["v1", "v2", "v3"]),
+        [
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+            {"verdict": "fail", "issue_class": "other", "feedback": "f"},
+        ],
+    )
     approvals = MagicMock()
     approvals.wait_for_outer_loop_decision = AsyncMock(return_value=HumanDecision(action="abort"))
     ctx.approvals = approvals
@@ -250,21 +304,28 @@ async def test_l3_approval_abort(storage, bus):
 @pytest.mark.integration
 async def test_l3_modify_acceptance_resets_streak(storage, bus):
     """L3 用户调宽标准 → 回 L0，streak 清零，下一轮按新标准跑。"""
-    ctx = _make_ctx(storage, bus, _agent(["v1", "v2", "v3", "v4"]), [
-        {"verdict": "fail", "issue_class": "factual_error", "feedback": "f"},
-        {"verdict": "fail", "issue_class": "factual_error", "feedback": "f"},
-        {"verdict": "fail", "issue_class": "factual_error", "feedback": "f"},
-        {"verdict": "pass", "feedback": "ok with looser criteria"},
-    ])
+    ctx = _make_ctx(
+        storage,
+        bus,
+        _agent(["v1", "v2", "v3", "v4"]),
+        [
+            {"verdict": "fail", "issue_class": "factual_error", "feedback": "f"},
+            {"verdict": "fail", "issue_class": "factual_error", "feedback": "f"},
+            {"verdict": "fail", "issue_class": "factual_error", "feedback": "f"},
+            {"verdict": "pass", "feedback": "ok with looser criteria"},
+        ],
+    )
     new_acceptance = AcceptanceCriteria(
         max_outer_iterations=10,
         critic=CriticSpec(same_issue_threshold=5),
     )
     approvals = MagicMock()
-    approvals.wait_for_outer_loop_decision = AsyncMock(return_value=HumanDecision(
-        action="modify_acceptance",
-        new_acceptance=new_acceptance,
-    ))
+    approvals.wait_for_outer_loop_decision = AsyncMock(
+        return_value=HumanDecision(
+            action="modify_acceptance",
+            new_acceptance=new_acceptance,
+        )
+    )
     ctx.approvals = approvals
 
     e = _edict(
@@ -282,6 +343,7 @@ async def test_l3_modify_acceptance_resets_streak(storage, bus):
 
 # ---- pause 等待循环：paused → resume 续跑、paused → 终结干净退出 ----
 
+
 @pytest.mark.integration
 async def test_pause_then_resume_continues_loop(storage, bus, monkeypatch):
     """paused 状态下 outer loop 应等待，resume 后续跑并最终 COMPLETED。"""
@@ -292,9 +354,14 @@ async def test_pause_then_resume_continues_loop(storage, bus, monkeypatch):
         0.01,
     )
 
-    ctx = _make_ctx(storage, bus, _agent(["draft v1"]), [
-        {"verdict": "pass", "feedback": "ok"},
-    ])
+    ctx = _make_ctx(
+        storage,
+        bus,
+        _agent(["draft v1"]),
+        [
+            {"verdict": "pass", "feedback": "ok"},
+        ],
+    )
     e = _edict()
     storage.save_edict(e)
     # 创建后立即切到 paused（模拟用户已点暂停）
@@ -352,9 +419,14 @@ async def test_pause_emits_paused_event_only_once_on_entry(storage, bus, monkeyp
         0.01,
     )
 
-    ctx = _make_ctx(storage, bus, _agent(["v1"]), [
-        {"verdict": "pass", "feedback": "ok"},
-    ])
+    ctx = _make_ctx(
+        storage,
+        bus,
+        _agent(["v1"]),
+        [
+            {"verdict": "pass", "feedback": "ok"},
+        ],
+    )
     e = _edict()
     storage.save_edict(e)
     storage.update_edict_lifecycle_phase(e.id, "paused")
@@ -370,13 +442,11 @@ async def test_pause_emits_paused_event_only_once_on_entry(storage, bus, monkeyp
 
     # 数 storage 里的 outer_loop.paused 事件
     paused_events = [
-        ev for ev in storage.get_events(e.id)
-        if ev["event_type"] == "outer_loop.paused"
+        ev for ev in storage.get_events(e.id) if ev["event_type"] == "outer_loop.paused"
     ]
     assert len(paused_events) == 1, f"应只发一次入场事件，实际 {len(paused_events)} 次"
     # 续跑后应有恢复事件
     resumed_events = [
-        ev for ev in storage.get_events(e.id)
-        if ev["event_type"] == "outer_loop.resumed"
+        ev for ev in storage.get_events(e.id) if ev["event_type"] == "outer_loop.resumed"
     ]
     assert len(resumed_events) == 1

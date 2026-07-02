@@ -2,6 +2,7 @@
 
 把 EdictRuntime.lifecycle_phase 与 storage 的 update / event emission 解耦封装。
 """
+
 from __future__ import annotations
 
 import logging
@@ -59,14 +60,19 @@ def apply_transition(
     if not can_transition(current, target):
         logger.warning(
             "illegal lifecycle transition for edict %s: %s -> %s (reason=%s)",
-            edict_id, current, target, reason,
+            edict_id,
+            current,
+            target,
+            reason,
         )
         return None
     if current == target:
         return None
     storage.update_edict_lifecycle_phase(edict_id, target)
     storage.append_event(
-        edict_id, memorial_id, "edict.lifecycle.changed",
+        edict_id,
+        memorial_id,
+        "edict.lifecycle.changed",
         {"from_phase": current, "to_phase": target, "reason": reason},
     )
     return PhaseTransition(edict_id, current, target, reason)

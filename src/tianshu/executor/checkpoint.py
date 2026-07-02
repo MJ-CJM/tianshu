@@ -25,11 +25,13 @@ class Checkpoint:
         self.usage = usage
 
     def to_json(self) -> str:
-        return json.dumps({
-            "iteration": self.iteration,
-            "messages": self.messages,
-            "usage": self.usage.model_dump(),
-        })
+        return json.dumps(
+            {
+                "iteration": self.iteration,
+                "messages": self.messages,
+                "usage": self.usage.model_dump(),
+            }
+        )
 
     @classmethod
     def from_json(cls, data: str) -> Checkpoint:
@@ -55,7 +57,9 @@ class CheckpointManager:
     ) -> None:
         """Persist a checkpoint for a node."""
         self._storage.update_dag_node_checkpoint(
-            dag_execution_id, node_id, checkpoint.to_json(),
+            dag_execution_id,
+            node_id,
+            checkpoint.to_json(),
         )
 
     def load(
@@ -73,7 +77,9 @@ class CheckpointManager:
     def clear(self, dag_execution_id: str, node_id: str) -> None:
         """Clear a checkpoint."""
         self._storage.update_dag_node_checkpoint(
-            dag_execution_id, node_id, None,
+            dag_execution_id,
+            node_id,
+            None,
         )
 
 
@@ -88,12 +94,14 @@ class OuterLoopCheckpoint:
         self.saved_at = saved_at
 
     def to_json(self) -> str:
-        return json.dumps({
-            "kind": self.KIND,
-            "edict_id": self.edict_id,
-            "state": self.state_dict,
-            "saved_at": self.saved_at,
-        })
+        return json.dumps(
+            {
+                "kind": self.KIND,
+                "edict_id": self.edict_id,
+                "state": self.state_dict,
+                "saved_at": self.saved_at,
+            }
+        )
 
     @classmethod
     def from_json(cls, data: str) -> OuterLoopCheckpoint:

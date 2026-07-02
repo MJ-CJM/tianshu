@@ -69,9 +69,7 @@ def _format_iterations_from_state(state: OuterLoopState) -> str:
             issue = r.critic_result.issue_class or ""
             feedback = _truncate(r.critic_result.feedback, 300)
             critic_part = f" | critic: {verdict} [{issue}] {feedback}"
-        lines.append(
-            f"## 第 {r.iteration} 轮 [{r.level}]\nactor: {actor_snippet}{critic_part}"
-        )
+        lines.append(f"## 第 {r.iteration} 轮 [{r.level}]\nactor: {actor_snippet}{critic_part}")
     return "\n\n".join(lines)
 
 
@@ -94,9 +92,7 @@ def _format_iterations_from_db(rows: list[dict]) -> str:
                 )
             except (ValueError, json.JSONDecodeError):
                 pass
-        lines.append(
-            f"## 第 {r['iteration']} 轮 [{r['level']}]\nactor: {actor}{critic_summary}"
-        )
+        lines.append(f"## 第 {r['iteration']} 轮 [{r['level']}]\nactor: {actor}{critic_summary}")
     return "\n\n".join(lines)
 
 
@@ -161,12 +157,15 @@ async def generate_supervision_report(
         except (ValueError, json.JSONDecodeError) as e:
             logger.warning(
                 "supervision report JSON parse failed for edict %s: %s",
-                edict.id, e,
+                edict.id,
+                e,
             )
             # raw_feedback 已有，4 章节空
     except Exception as e:
         logger.exception(
-            "supervision report LLM call failed for edict %s: %s", edict.id, e,
+            "supervision report LLM call failed for edict %s: %s",
+            edict.id,
+            e,
         )
         raw_text = f"(LLM 调用失败: {e})"
 

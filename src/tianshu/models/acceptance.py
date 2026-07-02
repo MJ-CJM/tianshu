@@ -10,10 +10,10 @@ from pydantic import BaseModel, Field
 class CheckSpec(BaseModel):
     kind: Literal["bash", "lint", "rubric"] = "bash"
     name: str
-    command: str | None = None        # kind=bash/lint 必填
-    rubric: str | None = None         # kind=rubric 必填
+    command: str | None = None  # kind=bash/lint 必填
+    rubric: str | None = None  # kind=rubric 必填
     weight: float = 1.0
-    pass_threshold: float = 0.8       # rubric 通过阈值
+    pass_threshold: float = 0.8  # rubric 通过阈值
     timeout_seconds: int = 60
 
 

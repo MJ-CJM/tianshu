@@ -73,6 +73,7 @@ class JinaSearchEngine:
 
 # ---- parsers ----
 
+
 def _parse_json(resp: httpx.Response) -> list[SearchResult]:
     """Jina JSON: {'code': 200, 'data': [{'title', 'url', 'description', 'content'?}, ...]}"""
     ctype = (resp.headers.get("content-type") or "").lower()
@@ -126,12 +127,7 @@ def _parse_markdown(body: str) -> list[SearchResult]:
         grp = groups[idx]
         title = grp.get("title", "").strip()
         link = grp.get("url source") or grp.get("url", "")
-        snippet = (
-            grp.get("description")
-            or grp.get("markdown content")
-            or grp.get("content")
-            or ""
-        )
+        snippet = grp.get("description") or grp.get("markdown content") or grp.get("content") or ""
         if not title or not link:
             continue
         out.append(

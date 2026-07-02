@@ -32,7 +32,8 @@ class CascadeCanceller:
                 await self._pool.cancel(work_id)
                 dag.mark_failed(node.node_id, "Cancelled by user")
                 self._storage.update_dag_node_status(
-                    execution.id, node.node_id,
+                    execution.id,
+                    node.node_id,
                     DAGNodeStatus.CANCELLED.value,
                     error="Cancelled by user",
                 )
@@ -41,21 +42,27 @@ class CascadeCanceller:
                 downstream = dag.propagate_failure(node.node_id)
                 for nid in downstream:
                     self._storage.update_dag_node_status(
-                        execution.id, nid, DAGNodeStatus.CANCELLED.value,
+                        execution.id,
+                        nid,
+                        DAGNodeStatus.CANCELLED.value,
                     )
                 cancelled.extend(downstream)
 
             elif node.status in (DAGNodeStatus.PENDING, DAGNodeStatus.READY):
                 node.status = DAGNodeStatus.CANCELLED
                 self._storage.update_dag_node_status(
-                    execution.id, node.node_id, DAGNodeStatus.CANCELLED.value,
+                    execution.id,
+                    node.node_id,
+                    DAGNodeStatus.CANCELLED.value,
                 )
                 cancelled.append(node.node_id)
 
         execution.status = "cancelled"
         execution.completed_at = datetime.now(UTC)
         self._storage.update_dag_execution_status(
-            execution.id, "cancelled", completed_at=execution.completed_at,
+            execution.id,
+            "cancelled",
+            completed_at=execution.completed_at,
         )
 
         return list(set(cancelled))

@@ -48,9 +48,7 @@ def test_get_vault_none_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert get_vault() is None
 
 
-def test_get_vault_singleton(
-    monkeypatch: pytest.MonkeyPatch, master_key: str
-) -> None:
+def test_get_vault_singleton(monkeypatch: pytest.MonkeyPatch, master_key: str) -> None:
     monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
     v1 = get_vault()
     v2 = get_vault()
@@ -58,9 +56,7 @@ def test_get_vault_singleton(
     assert v1 is v2
 
 
-def test_reset_vault_allows_rekey(
-    monkeypatch: pytest.MonkeyPatch, master_key: str
-) -> None:
+def test_reset_vault_allows_rekey(monkeypatch: pytest.MonkeyPatch, master_key: str) -> None:
     monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
     v1 = get_vault()
     assert v1 is not None

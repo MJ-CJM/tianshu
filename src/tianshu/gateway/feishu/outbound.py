@@ -1,4 +1,5 @@
 """Feishu 出站：lark-oapi 客户端 + 事件订阅 → 飞书消息。"""
+
 from __future__ import annotations
 
 import json
@@ -49,12 +50,8 @@ class FeishuOutbound:
         """构造 lark client + 注册 EventBus 订阅。仅在 FeishuBot.start 时调用一次。"""
         self._client = self._build_client()
         # 注意：事件名是 execution.completed（不是 memorial.completed）
-        self._event_bus.on(
-            "execution.completed", self._sub_completed, priority=200
-        )
-        self._event_bus.on(
-            "execution.failed", self._sub_failed, priority=200
-        )
+        self._event_bus.on("execution.completed", self._sub_completed, priority=200)
+        self._event_bus.on("execution.failed", self._sub_failed, priority=200)
 
     def stop(self) -> None:
         """取消 EventBus 订阅（实例停止时调用，避免已停实例继续投递）。"""
@@ -100,6 +97,7 @@ class FeishuOutbound:
                 CreateMessageReactionRequest,
                 CreateMessageReactionRequestBody,
             )
+
             req = (
                 CreateMessageReactionRequest.builder()
                 .message_id(message_id)
@@ -115,7 +113,10 @@ class FeishuOutbound:
                 return resp.data.reaction_id
             logger.debug(
                 "[feishu/outbound] add_reaction rejected emoji=%s msg=%s code=%s msg_text=%s",
-                emoji_type, message_id, getattr(resp, "code", None), getattr(resp, "msg", None),
+                emoji_type,
+                message_id,
+                getattr(resp, "code", None),
+                getattr(resp, "msg", None),
             )
         except Exception:
             logger.exception("[feishu/outbound] add_reaction crashed")
@@ -126,6 +127,7 @@ class FeishuOutbound:
             return False
         try:
             from lark_oapi.api.im.v1 import DeleteMessageReactionRequest
+
             req = (
                 DeleteMessageReactionRequest.builder()
                 .message_id(message_id)
@@ -251,34 +253,28 @@ class FeishuOutbound:
         chat_id = self._lookup_chat_id(event)
         if not chat_id:
             return
-        memorial = (
-            self._storage.get_memorial(event.memorial_id)
-            if event.memorial_id
-            else None
-        )
+        memorial = self._storage.get_memorial(event.memorial_id) if event.memorial_id else None
         # 优先用 final_output（最终交付物，过滤掉规划/调研等中间过程），
         # 无则回退 result（兼容老 memorial / outer-loop 老路径）
-        delivery = (
-            memorial.final_output or memorial.result if memorial else None
-        )
+        delivery = memorial.final_output or memorial.result if memorial else None
         if not delivery:
             # 没结果也移除 typing 反应，免得用户原消息上一直挂着
             if event.memorial_id:
                 pending = self._storage.pop_feishu_thinking(event.memorial_id)
                 if pending and pending.get("source_message_id"):
                     await self.remove_reaction(
-                        pending["source_message_id"], pending["reaction_id"],
+                        pending["source_message_id"],
+                        pending["reaction_id"],
                     )
             return
 
         pending = (
-            self._storage.pop_feishu_thinking(event.memorial_id)
-            if event.memorial_id
-            else None
+            self._storage.pop_feishu_thinking(event.memorial_id) if event.memorial_id else None
         )
         if pending and pending.get("source_message_id"):
             await self.remove_reaction(
-                pending["source_message_id"], pending["reaction_id"],
+                pending["source_message_id"],
+                pending["reaction_id"],
             )
 
         body = convert_tables_to_lists(delivery)
@@ -296,14 +292,13 @@ class FeishuOutbound:
             return
         reason = (event.payload or {}).get("error", "未知错误")
         pending = (
-            self._storage.pop_feishu_thinking(event.memorial_id)
-            if event.memorial_id
-            else None
+            self._storage.pop_feishu_thinking(event.memorial_id) if event.memorial_id else None
         )
         # typing → CrossMark：先去掉 typing，再加红叉
         if pending and pending.get("source_message_id"):
             await self.remove_reaction(
-                pending["source_message_id"], pending["reaction_id"],
+                pending["source_message_id"],
+                pending["reaction_id"],
             )
             await self.add_reaction(pending["source_message_id"], "CrossMark")
         await self.send_text(chat_id, f"❌ 执行失败：{reason}")

@@ -2,6 +2,7 @@
 
 与 feishu/settings.py 并列。bot_token 为空 → 整个机器人不启用（向后兼容）。
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,17 +11,17 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class TelegramSettings:
     bot_token: str
-    connection_mode: str           # polling | webhook
+    connection_mode: str  # polling | webhook
     allowed_users: tuple[int, ...]  # 允许的 Telegram user_id
-    home_channel: str              # cron / 无源审批兜底 chat_id（群为负数，以 str 存）
+    home_channel: str  # cron / 无源审批兜底 chat_id（群为负数，以 str 存）
     webhook_path: str
-    webhook_secret: str            # webhook 模式 X-Telegram-Bot-Api-Secret-Token
+    webhook_secret: str  # webhook 模式 X-Telegram-Bot-Api-Secret-Token
     poll_timeout: int
     text_batch_delay: float
     dedup_cache_size: int
-    assistant_persona_id: str = "tongzheng"   # 默认通政司
-    disable_assistant_mode: bool = False        # 紧急逃生开关
-    enable_edict_submission: bool = False       # 助手是否允许在对话中颁敕
+    assistant_persona_id: str = "tongzheng"  # 默认通政司
+    disable_assistant_mode: bool = False  # 紧急逃生开关
+    enable_edict_submission: bool = False  # 助手是否允许在对话中颁敕
     instance_id: str = "telegram-default"
 
     @property

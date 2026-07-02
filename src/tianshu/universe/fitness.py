@@ -28,8 +28,11 @@ def compute_fitness(
     fb_norm = 0.5 + 0.5 * (fb / (1.0 + abs(fb)))
 
     score = (
-        w_succ * success_rate + w_cost * cost_score + w_audit * audit_rate
-        + w_retry * retry_score + w_fb * fb_norm
+        w_succ * success_rate
+        + w_cost * cost_score
+        + w_audit * audit_rate
+        + w_retry * retry_score
+        + w_fb * fb_norm
     )
     return {
         "score": round(score, 4),

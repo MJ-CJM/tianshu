@@ -8,6 +8,7 @@
   "filter"?: str,
 }
 """
+
 from __future__ import annotations
 
 import logging
@@ -59,9 +60,7 @@ class CardBuilder:
             title_short = (e.title or "(无标题)")[:30]
             status_label = format_status_label(e.status)
             short_id = e.id[:8]
-            rows.append(
-                f"{star}**#{short_id}** · {status_label} · {title_short}"
-            )
+            rows.append(f"{star}**#{short_id}** · {status_label} · {title_short}")
         body = "\n\n".join(rows)
         hint = "\n\n---\n💡 复制短 ID 后输入 `/select <ID>` 切换敕令"
 
@@ -181,7 +180,10 @@ class CardBuilder:
                 "title": {"tag": "plain_text", "content": "💰 成本概览"},
             },
             "elements": [
-                {"tag": "markdown", "content": "_暂时无法获取成本数据，请稍后重试或在 web 端查看。_"},
+                {
+                    "tag": "markdown",
+                    "content": "_暂时无法获取成本数据，请稍后重试或在 web 端查看。_",
+                },
             ],
         }
 

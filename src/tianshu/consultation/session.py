@@ -63,14 +63,13 @@ class ConsultationSession:
                 tasks.append(self._get_opinion(persona, request))
 
             opinions = await asyncio.gather(*tasks, return_exceptions=True)
-            response.opinions = [
-                o for o in opinions if isinstance(o, PersonaOpinion)
-            ]
+            response.opinions = [o for o in opinions if isinstance(o, PersonaOpinion)]
 
             # Synthesize
             if response.opinions:
                 synthesis_result = await self._synthesizer.synthesize(
-                    request, response.opinions,
+                    request,
+                    response.opinions,
                 )
                 response.synthesis = synthesis_result.get("synthesis", "")
                 response.decision = synthesis_result.get("decision", "")
@@ -81,12 +80,10 @@ class ConsultationSession:
             # Store consultation result to court Markdown (source of truth)
             if self._memory_manager and response.synthesis:
                 try:
-                    content = (
-                        f"Consultation on '{request.topic[:60]}': "
-                        f"{response.synthesis[:200]}"
-                    )
+                    content = f"Consultation on '{request.topic[:60]}': {response.synthesis[:200]}"
                     # Append to court daily log
                     from tianshu.memory.models import MemoryEntry
+
                     entry = MemoryEntry(
                         persona_id="court",
                         category="insight",
@@ -100,10 +97,7 @@ class ConsultationSession:
                     md = self._memory_manager.md_backend
                     existing = md.read_core_memory("court")
                     date_str = datetime.now(UTC).strftime("%Y-%m-%d")
-                    section = (
-                        f"\n## Consultation ({date_str})\n"
-                        f"- {content}\n"
-                    )
+                    section = f"\n## Consultation ({date_str})\n- {content}\n"
                     if response.decision:
                         section += f"- Decision: {response.decision[:200]}\n"
                     md.write_core_memory("court", existing + section)
@@ -118,7 +112,9 @@ class ConsultationSession:
         return response
 
     async def _get_opinion(
-        self, persona, request: ConsultationRequest,
+        self,
+        persona,
+        request: ConsultationRequest,
     ) -> PersonaOpinion:
         """Get a single persona's opinion via LLM call."""
         from tianshu.llm import LLMClient

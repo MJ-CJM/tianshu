@@ -19,28 +19,32 @@ logger = logging.getLogger(__name__)
 # cache hit 折扣比例参考各家公开数据：deepseek 1/50、claude 1/10、gpt 1/2
 _DEFAULT_PRICING: dict[str, tuple[float, float, float]] = {
     # OpenAI
-    "gpt-4o":           (0.018,  0.009,    0.072),    # cache hit 1/2
-    "gpt-4o-mini":      (0.0011, 0.00055,  0.0043),
-    "gpt-4-turbo":      (0.072,  0.036,    0.216),
-    "gpt-3.5-turbo":    (0.0036, 0.0018,   0.0108),
+    "gpt-4o": (0.018, 0.009, 0.072),  # cache hit 1/2
+    "gpt-4o-mini": (0.0011, 0.00055, 0.0043),
+    "gpt-4-turbo": (0.072, 0.036, 0.216),
+    "gpt-3.5-turbo": (0.0036, 0.0018, 0.0108),
     # Anthropic Claude（cache hit 1/10，cache write ≈ 1.25× miss，本期未单独建模）
-    "claude-3-opus":    (0.108,  0.0108,   0.54),
-    "claude-3-sonnet":  (0.0216, 0.00216,  0.108),
-    "claude-3-haiku":   (0.0018, 0.00018,  0.009),
-    "claude-sonnet-4-6":(0.0216, 0.00216,  0.108),
-    "claude-opus-4-6":  (0.108,  0.0108,   0.54),
-    "claude-haiku-4-5": (0.0072, 0.00072,  0.036),
+    "claude-3-opus": (0.108, 0.0108, 0.54),
+    "claude-3-sonnet": (0.0216, 0.00216, 0.108),
+    "claude-3-haiku": (0.0018, 0.00018, 0.009),
+    "claude-sonnet-4-6": (0.0216, 0.00216, 0.108),
+    "claude-opus-4-6": (0.108, 0.0108, 0.54),
+    "claude-haiku-4-5": (0.0072, 0.00072, 0.036),
     # DeepSeek（cache hit ≈ 1/50；v3 系列；v4-flash/pro 待官方价新鲜度更新）
-    "deepseek-chat":      (0.001,  0.00002, 0.002),   # 注：旧 output 价 0.008 已纠正为 v4 实际 0.002
-    "deepseek-reasoner":  (0.004,  0.00008, 0.016),
-    "deepseek-v4-flash":  (0.001,  0.00002, 0.002),   # 官方原价
-    "deepseek-v4-pro":    (0.012,  0.0001,  0.024),   # 官方原价 (12/0.1/24 元每百万)；限时 2.5 折期间可在户部账房手动覆盖为 (0.003, 0.000025, 0.006)
+    "deepseek-chat": (0.001, 0.00002, 0.002),  # 注：旧 output 价 0.008 已纠正为 v4 实际 0.002
+    "deepseek-reasoner": (0.004, 0.00008, 0.016),
+    "deepseek-v4-flash": (0.001, 0.00002, 0.002),  # 官方原价
+    "deepseek-v4-pro": (
+        0.012,
+        0.0001,
+        0.024,
+    ),  # 官方原价 (12/0.1/24 元每百万)；限时 2.5 折期间可在户部账房手动覆盖为 (0.003, 0.000025, 0.006)
     # 国产其他（cache 比例未公开则 hit=miss 无折扣）
-    "qwen-max":         (0.04,   0.04,     0.12),
-    "qwen-plus":        (0.004,  0.004,    0.012),
-    "moonshot-v1-8k":   (0.012,  0.012,    0.012),
+    "qwen-max": (0.04, 0.04, 0.12),
+    "qwen-plus": (0.004, 0.004, 0.012),
+    "moonshot-v1-8k": (0.012, 0.012, 0.012),
     # MiniMax（无公开 cache 价，hit=miss）
-    "MiniMax-M2.7":     (0.001,  0.001,    0.008),
+    "MiniMax-M2.7": (0.001, 0.001, 0.008),
 }
 
 # 模型未命中价表时的兜底（保守估计；hit = miss）
@@ -93,7 +97,9 @@ class CostTracker:
     ) -> float:
         """Add token usage and return incremental cost in CNY."""
         cost = estimate_cost(
-            model, prompt_tokens, completion_tokens,
+            model,
+            prompt_tokens,
+            completion_tokens,
             cache_read_tokens=cache_read_tokens,
             provider_pricing=provider_pricing,
         )

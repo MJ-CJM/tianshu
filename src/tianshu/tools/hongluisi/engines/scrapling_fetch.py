@@ -44,8 +44,12 @@ class ScraplingFetchEngine:
             clean_url = await validate_url(url)
         except SSRFViolation as v:
             return FetchOutcome(
-                content="", status="error", http_status=None,
-                reason=v.code, bytes_fetched=0, final_url=None,
+                content="",
+                status="error",
+                http_status=None,
+                reason=v.code,
+                bytes_fetched=0,
+                final_url=None,
             )
 
         try:
@@ -53,9 +57,12 @@ class ScraplingFetchEngine:
         except Exception as e:
             logger.exception("scrapling %s fetch failed", self._mode)
             return FetchOutcome(
-                content="", status="error", http_status=None,
+                content="",
+                status="error",
+                http_status=None,
                 reason=f"scrapling_error:{type(e).__name__}",
-                bytes_fetched=0, final_url=None,
+                bytes_fetched=0,
+                final_url=None,
             )
 
         http_status = int(getattr(page, "status", 0) or 0)
@@ -71,44 +78,63 @@ class ScraplingFetchEngine:
                 await validate_url(final)
             except SSRFViolation as v:
                 return FetchOutcome(
-                    content="", status="error", http_status=http_status,
-                    reason=v.code, bytes_fetched=bytes_read, final_url=final,
+                    content="",
+                    status="error",
+                    http_status=http_status,
+                    reason=v.code,
+                    bytes_fetched=bytes_read,
+                    final_url=final,
                 )
 
         if http_status >= 400:
             return FetchOutcome(
-                content="", status="error", http_status=http_status,
+                content="",
+                status="error",
+                http_status=http_status,
                 reason=f"http_status:{http_status}",
-                bytes_fetched=bytes_read, final_url=final,
+                bytes_fetched=bytes_read,
+                final_url=final,
             )
 
         html = body.decode(encoding, errors="ignore")
         markdown = extract_markdown(html, url=clean_url)
         status = "empty" if is_empty(markdown) else "ok"
         return FetchOutcome(
-            content=markdown, status=status, http_status=http_status,
+            content=markdown,
+            status=status,
+            http_status=http_status,
             reason=None if status == "ok" else "extracted_empty",
-            bytes_fetched=bytes_read, final_url=final,
+            bytes_fetched=bytes_read,
+            final_url=final,
         )
 
     async def _invoke(self, url: str):
         """调对应的 Scrapling async API；返回 Scrapling Response 对象。"""
         if self._mode == "http":
             from scrapling.fetchers import AsyncFetcher
+
             # follow_redirects="safe" 显式声明：跳转到私网/内网 IP 会被拒，
             # 不依赖上游默认值（pin 仅 >=0.3）。
             return await AsyncFetcher.get(
-                url, timeout=_HTTP_TIMEOUT_S, stealthy_headers=True,
+                url,
+                timeout=_HTTP_TIMEOUT_S,
+                stealthy_headers=True,
                 follow_redirects="safe",
             )
         if self._mode == "dynamic":
             from scrapling.fetchers import DynamicFetcher
+
             return await DynamicFetcher.async_fetch(
-                url, timeout=_DYNAMIC_TIMEOUT_MS, headless=True,
+                url,
+                timeout=_DYNAMIC_TIMEOUT_MS,
+                headless=True,
             )
         from scrapling.fetchers import StealthyFetcher
+
         return await StealthyFetcher.async_fetch(
-            url, timeout=_STEALTHY_TIMEOUT_MS, headless=True,
+            url,
+            timeout=_STEALTHY_TIMEOUT_MS,
+            headless=True,
         )
 
 

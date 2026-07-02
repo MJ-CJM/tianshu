@@ -1,4 +1,5 @@
 """Orchestrator 决策点路由集成测试。"""
+
 from __future__ import annotations
 
 import pytest
@@ -46,10 +47,12 @@ def test_unknown_phase_rejected():
 
 # ------- audit 嵌入 orchestrator 的高层契约 -------
 
+
 @pytest.mark.asyncio
 async def test_audit_module_is_monkeypatchable(monkeypatch):
     """验证 audit.run_completion_audit 可被 monkeypatch（为 Task 14 e2e 测试奠基）。"""
     from tianshu.executor.orchestrator import audit as audit_mod
+
     called = {}
 
     async def fake_audit(**kwargs):
@@ -58,8 +61,10 @@ async def test_audit_module_is_monkeypatchable(monkeypatch):
 
     monkeypatch.setattr(audit_mod, "run_completion_audit", fake_audit)
     result = await audit_mod.run_completion_audit(
-        actor_output="x", objective="o",
-        acceptance=None, llm=None,
+        actor_output="x",
+        objective="o",
+        acceptance=None,
+        llm=None,
     )
     assert result.passed is True
     assert called["objective"] == "o"

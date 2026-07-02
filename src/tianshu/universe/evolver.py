@@ -98,6 +98,7 @@ class UniverseEvolver:
 
     def _idle_ok(self, idle_hours: int) -> bool:
         from tianshu.skills.curator import _age_hours
+
         last = self._storage.last_activity_at()
         age = _age_hours(last)
         return age is None or age >= idle_hours
@@ -106,7 +107,9 @@ class UniverseEvolver:
         cfg = self._config.agent_config
         if not getattr(cfg, "parallel_universe_enabled", False):
             return EvolveResult(skipped="disabled")
-        if trigger_source != "manual" and not self._idle_ok(getattr(cfg, "universe_evolver_idle_hours", 2)):
+        if trigger_source != "manual" and not self._idle_ok(
+            getattr(cfg, "universe_evolver_idle_hours", 2)
+        ):
             return EvolveResult(skipped="not_idle")
         if not self._storage.try_acquire_synthesis_lock(_LOCK_KEY):
             return EvolveResult(skipped="lock_held")
@@ -123,7 +126,8 @@ class UniverseEvolver:
             mutation = await self._propose_mutation(champ)
             if mutation and mutation.get("target"):
                 child = self._mgr.branch(
-                    champ["id"], mutation.get("name") or "演化候选",
+                    champ["id"],
+                    mutation.get("name") or "演化候选",
                     origin=UniverseOrigin.MUTATION,
                     mutation_reason=mutation.get("reason"),
                     description=f"target={mutation.get('target')}",
@@ -131,8 +135,12 @@ class UniverseEvolver:
                 result.created_challenger = child["id"]
                 result.mutation_reason = mutation.get("reason")
                 from tianshu.universe.mutator import apply_mutation
+
                 applied = await apply_mutation(
-                    self._mgr._store, child["id"], mutation, self._llm,  # noqa: SLF001
+                    self._mgr._store,
+                    child["id"],
+                    mutation,
+                    self._llm,  # noqa: SLF001
                 )
                 result.mutation_applied = bool(applied.get("applied"))
                 result.mutation_detail = applied.get("detail")
@@ -181,28 +189,37 @@ class UniverseEvolver:
             self._mgr.switch(winner_id)
             await self._emit("universe.promoted", {"universe_id": winner_id, "auto": True})
         else:
-            await self._emit("universe.promotion_recommended", {
-                "universe_id": winner_id, "score": best[1], "champion_score": champ_score,
-            })
+            await self._emit(
+                "universe.promotion_recommended",
+                {
+                    "universe_id": winner_id,
+                    "score": best[1],
+                    "champion_score": champ_score,
+                },
+            )
         return winner_id
 
     async def _propose_mutation(self, champ: dict) -> dict:
         challengers = [
-            u for u in self._mgr.list(include_archived=False)
+            u
+            for u in self._mgr.list(include_archived=False)
             if u["status"] == UniverseStatus.CHALLENGER.value
         ]
         prompt = _USER.format(
             champion_fitness=json.dumps(champ.get("fitness", {}), ensure_ascii=False),
             challenger_fitness=json.dumps(
-                [c.get("fitness", {}) for c in challengers], ensure_ascii=False),
+                [c.get("fitness", {}) for c in challengers], ensure_ascii=False
+            ),
             summary=self._champion_summary(champ),
         )
         for _ in range(3):
             try:
-                resp = await self._llm.chat(messages=[
-                    {"role": "system", "content": _SYSTEM},
-                    {"role": "user", "content": prompt},
-                ])
+                resp = await self._llm.chat(
+                    messages=[
+                        {"role": "system", "content": _SYSTEM},
+                        {"role": "user", "content": prompt},
+                    ]
+                )
                 text = (getattr(resp, "content", None) or "").strip()
                 if text.startswith("```") and "\n" in text:
                     text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
@@ -237,7 +254,10 @@ class UniverseEvolver:
             if not getattr(cfg, "code_variant_enabled", False):
                 return {"status": "disabled"}
 
-            if any(c is None for c in (self._code_store, self._gate, self._eval_harness, self._code_mutator)):
+            if any(
+                c is None
+                for c in (self._code_store, self._gate, self._eval_harness, self._code_mutator)
+            ):
                 return {"status": "no_collaborators"}
 
             parent = parent_id or self._mgr.champion_id()
@@ -257,7 +277,9 @@ class UniverseEvolver:
             worktree = self._code_store.worktree_dir(uid)
 
             m = await self._code_mutator.mutate(
-                worktree, target_path=target_path, hypothesis=hypothesis,
+                worktree,
+                target_path=target_path,
+                hypothesis=hypothesis,
             )
             if not m["applied"]:
                 self._mgr.archive(uid)
@@ -265,14 +287,16 @@ class UniverseEvolver:
 
             g = await asyncio.to_thread(self._gate.run, worktree)
             if not g.passed:
-                self._storage.save_variant_eval_run({
-                    "id": str(ULID()),
-                    "universe_id": uid,
-                    "gate_passed": False,
-                    "gate_detail": {"stage": g.stage, "detail": g.detail[:1000]},
-                    "fitness": {},
-                    "created_at": datetime.now(UTC).isoformat(),
-                })
+                self._storage.save_variant_eval_run(
+                    {
+                        "id": str(ULID()),
+                        "universe_id": uid,
+                        "gate_passed": False,
+                        "gate_detail": {"stage": g.stage, "detail": g.detail[:1000]},
+                        "fitness": {},
+                        "created_at": datetime.now(UTC).isoformat(),
+                    }
+                )
                 return {"status": "gate_failed", "universe_id": uid, "detail": g.stage}
 
             eval_set_size = getattr(cfg, "code_variant_eval_set_size", 20)
@@ -280,15 +304,17 @@ class UniverseEvolver:
             ev = await asyncio.to_thread(self._eval_harness.evaluate, worktree, eval_set=es)
             fitness = ev["fitness"]
 
-            self._storage.save_variant_eval_run({
-                "id": str(ULID()),
-                "universe_id": uid,
-                "gate_passed": True,
-                "fitness": fitness,
-                "eval_set_version": str(len(es)),
-                "cost": ev["stats"].get("cost", 0),
-                "created_at": datetime.now(UTC).isoformat(),
-            })
+            self._storage.save_variant_eval_run(
+                {
+                    "id": str(ULID()),
+                    "universe_id": uid,
+                    "gate_passed": True,
+                    "fitness": fitness,
+                    "eval_set_version": str(len(es)),
+                    "cost": ev["stats"].get("cost", 0),
+                    "created_at": datetime.now(UTC).isoformat(),
+                }
+            )
             self._storage.update_universe_fitness(uid, fitness)
 
             champ = self._storage.get_champion_universe()
@@ -308,7 +334,13 @@ class UniverseEvolver:
         if not self._bus:
             return
         from tianshu.models.events import make_event
-        self._bus.fire(make_event(
-            event_type=event_type, edict_id=None, memorial_id=None,
-            producer="universe_evolver", payload=payload,
-        ))
+
+        self._bus.fire(
+            make_event(
+                event_type=event_type,
+                edict_id=None,
+                memorial_id=None,
+                producer="universe_evolver",
+                payload=payload,
+            )
+        )

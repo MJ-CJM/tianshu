@@ -1,4 +1,5 @@
 """#1 Sweeper 孤儿任务回收 —— 回归测试（Multica 借鉴）。"""
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -25,7 +26,9 @@ def storage(tmp_path):
 
 def _mem(s, edict, hb_ago=None, status=TaskStatus.RUNNING):
     m = Memorial(
-        edict_id=edict.id, status=status, started_at=_ago(2000),
+        edict_id=edict.id,
+        status=status,
+        started_at=_ago(2000),
         last_heartbeat_at=_ago(hb_ago) if hb_ago is not None else None,
     )
     s.save_memorial(m)
@@ -98,7 +101,9 @@ async def test_recover_orphan_checkpointed_resumes(storage):
 
 async def test_recover_orphan_paused_skipped(storage):
     e = Edict(
-        goal="p", acceptance=AcceptanceCriteria(), execution_profile="checkpointed",
+        goal="p",
+        acceptance=AcceptanceCriteria(),
+        execution_profile="checkpointed",
         runtime=EdictRuntime(lifecycle_phase="paused"),
     )
     storage.save_edict(e)

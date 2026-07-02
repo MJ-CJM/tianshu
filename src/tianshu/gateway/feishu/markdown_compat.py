@@ -4,6 +4,7 @@
 （| col | col |），渲染会被吃掉。本模块把表格转成"项: 值" 形式的列表
 并提供超长内容的安全分段。
 """
+
 from __future__ import annotations
 
 import re

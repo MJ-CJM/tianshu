@@ -49,6 +49,7 @@ class NetworkSafetyRule:
     def _resolve_network_policy(self, ctx: PolicyContext) -> NetworkPolicy:
         # 和 hongluisi/tools.py 共用同一套 fallback（policy_profile.resolve_network_for_edict）
         from tianshu.tools.policy_profile import resolve_network_for_edict
+
         return resolve_network_for_edict(ctx.edict)
 
     def _evaluate_api_request(

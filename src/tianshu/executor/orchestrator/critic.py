@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 
 # v1 内置 issue_class 集合 —— critic system prompt 强约束在内
 ISSUE_CLASSES: tuple[str, ...] = (
-    "factual_error",         # 事实性错误
-    "tone_mismatch",         # 语气/风格与目标不符
-    "incomplete_coverage",   # 覆盖不全
-    "structure_mismatch",    # 结构与要求不符
+    "factual_error",  # 事实性错误
+    "tone_mismatch",  # 语气/风格与目标不符
+    "incomplete_coverage",  # 覆盖不全
+    "structure_mismatch",  # 结构与要求不符
     "formatting_violation",  # 格式问题
-    "checks_failed",         # 指标层失败（不进 critic）
-    "other",                 # 未分类
+    "checks_failed",  # 指标层失败（不进 critic）
+    "other",  # 未分类
 )
 
 _STRICTNESS_GUIDANCE = {
@@ -149,7 +149,9 @@ def _parse(raw: str) -> CriticResult:
     )
 
 
-def _resolve_critic_llm(persona: object | None, ctx: object | None, fallback: LLMClient) -> LLMClient:
+def _resolve_critic_llm(
+    persona: object | None, ctx: object | None, fallback: LLMClient
+) -> LLMClient:
     """按 persona.llm_config_name 拿 critic 专用 LLM；找不到落 fallback。"""
     if persona is None or ctx is None:
         return fallback
@@ -216,6 +218,7 @@ def _replace_usage(r: CriticResult, usage: object) -> CriticResult:
     仅接受真正的 UsageSummary 实例；测试里 mock 对象不写入 usage 字段（避免下游序列化失败）。
     """
     from dataclasses import replace
+
     if usage is None:
         return r
     raw_cost = getattr(usage, "cost_cny", 0.0)
@@ -239,18 +242,13 @@ def _aggregate_results_all_must_pass(
     total_cost = sum(r.cost_cny for _, r in results)
     aggregated_usage = _sum_usages([r.usage for _, r in results if r.usage is not None])
     # 聚合 improvement_hints（持续优化模式 — 即使全 pass 也注入下一轮 actor）
-    hints_parts = [
-        f"[{pid}] {r.improvement_hints}"
-        for pid, r in results if r.improvement_hints
-    ]
+    hints_parts = [f"[{pid}] {r.improvement_hints}" for pid, r in results if r.improvement_hints]
     aggregated_hints = "\n".join(hints_parts) if hints_parts else None
 
     fails = [(pid, r) for pid, r in results if r.verdict == "fail"]
     if not fails:
         # 全过
-        feedback = "\n".join(
-            f"[{pid}] pass: {r.feedback}" for pid, r in results if r.feedback
-        )
+        feedback = "\n".join(f"[{pid}] pass: {r.feedback}" for pid, r in results if r.feedback)
         return CriticResult(
             verdict="pass",
             feedback=feedback or "all critics passed",
@@ -317,15 +315,25 @@ async def review(
     # 无 persona 配置：降级到通用 critic
     if not persona_ids or ctx is None:
         return await _review_single(
-            actor_output, edict, acceptance, None, llm,
-            fallback_llm=fallback_llm, max_retries=max_retries,
+            actor_output,
+            edict,
+            acceptance,
+            None,
+            llm,
+            fallback_llm=fallback_llm,
+            max_retries=max_retries,
         )
 
     persona_loader = getattr(ctx, "persona_loader", None)
     if persona_loader is None:
         return await _review_single(
-            actor_output, edict, acceptance, None, llm,
-            fallback_llm=fallback_llm, max_retries=max_retries,
+            actor_output,
+            edict,
+            acceptance,
+            None,
+            llm,
+            fallback_llm=fallback_llm,
+            max_retries=max_retries,
         )
 
     # 多 persona：并发调用
@@ -340,17 +348,26 @@ async def review(
         actual_llm = _resolve_critic_llm(persona, ctx, llm)
         try:
             r = await _review_single(
-                actor_output, edict, acceptance, persona, actual_llm,
-                fallback_llm=fallback_llm, max_retries=max_retries,
+                actor_output,
+                edict,
+                acceptance,
+                persona,
+                actual_llm,
+                fallback_llm=fallback_llm,
+                max_retries=max_retries,
             )
             return (pid, r)
         except CriticUnavailable as e:
             logger.warning("critic '%s' unavailable: %s", pid, e)
             # 单个 critic 失败 → 视为 fail（不让一个挂掉就整体 skip）
-            return (pid, CriticResult(
-                verdict="fail", issue_class="other",
-                feedback=f"critic '{pid}' 不可用: {e}",
-            ))
+            return (
+                pid,
+                CriticResult(
+                    verdict="fail",
+                    issue_class="other",
+                    feedback=f"critic '{pid}' 不可用: {e}",
+                ),
+            )
 
     results = await asyncio.gather(*[_one(pid, p) for pid, p in personas])
     return _aggregate_results_all_must_pass(results)

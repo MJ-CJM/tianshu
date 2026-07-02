@@ -57,7 +57,10 @@ async def _memory_search(
             if dept:
                 visible_ids.append(f"_dept_{dept}")
         ids = fts_search(
-            storage._conn, query, persona_ids=visible_ids, limit=limit,
+            storage._conn,
+            query,
+            persona_ids=visible_ids,
+            limit=limit,
         )
 
         if not ids:
@@ -88,7 +91,9 @@ async def _memory_search(
             for row in rows
         ]
 
-        return ok_result(json.dumps({"results": results, "total": len(results)}, ensure_ascii=False, indent=2))
+        return ok_result(
+            json.dumps({"results": results, "total": len(results)}, ensure_ascii=False, indent=2)
+        )
 
     except Exception as e:
         logger.exception("Memory search failed")
@@ -205,7 +210,8 @@ async def _memory_write(
             storage.save_memory_entry(entry)
         except Exception:
             logger.warning(
-                "save_memory_entry failed for memory_write (non-fatal)", exc_info=True,
+                "save_memory_entry failed for memory_write (non-fatal)",
+                exc_info=True,
             )
 
     # 审计事件
@@ -213,29 +219,36 @@ async def _memory_write(
         try:
             from tianshu.models import make_event
 
-            await event_bus.emit(make_event(
-                "memory.write",
-                {
-                    "caller_persona_id": getattr(get_current_persona(), "id", None),
-                    "scope": scope,
-                    "storage_key": storage_key,
-                    "section": section_norm,
-                    "action": action,
-                    "total_chars": total_chars,
-                    "path": str(path),
-                },
-            ))
+            await event_bus.emit(
+                make_event(
+                    "memory.write",
+                    {
+                        "caller_persona_id": getattr(get_current_persona(), "id", None),
+                        "scope": scope,
+                        "storage_key": storage_key,
+                        "section": section_norm,
+                        "action": action,
+                        "total_chars": total_chars,
+                        "path": str(path),
+                    },
+                )
+            )
         except Exception:
             logger.debug("memory.write event emit failed (non-fatal)")
 
-    return ok_result(json.dumps({
-        "ok": True,
-        "scope": scope,
-        "storage_key": storage_key,
-        "section": section_norm,
-        "action": action,
-        "total_chars": total_chars,
-    }, ensure_ascii=False))
+    return ok_result(
+        json.dumps(
+            {
+                "ok": True,
+                "scope": scope,
+                "storage_key": storage_key,
+                "section": section_norm,
+                "action": action,
+                "total_chars": total_chars,
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 def register_memory_tools(
@@ -292,7 +305,8 @@ def register_memory_tools(
     from tianshu.memory.markdown_backend import MarkdownMemoryBackend
 
     md_backend = MarkdownMemoryBackend(
-        memory_dir=memory_dir, personas_dir=personas_dir,
+        memory_dir=memory_dir,
+        personas_dir=personas_dir,
     )
 
     registry.register(

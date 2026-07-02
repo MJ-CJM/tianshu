@@ -7,6 +7,7 @@
 - pending / seen 表新增 instance_id 列，存量行回填 <channel>-default。
 - 幂等：再 init_db() 不报错、数据不变。
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -98,15 +99,13 @@ def test_migration_upgrades_old_session_tables(tmp_path):
 
     # 存量行回填 <channel>-default，current_edict_id 保留
     row = conn.execute(
-        "SELECT instance_id, current_edict_id FROM telegram_session_anchor "
-        "WHERE chat_id = '123'"
+        "SELECT instance_id, current_edict_id FROM telegram_session_anchor WHERE chat_id = '123'"
     ).fetchone()
     assert row[0] == "telegram-default"
     assert row[1] == "ed_tg"
 
     row = conn.execute(
-        "SELECT instance_id, current_edict_id FROM feishu_session_anchor "
-        "WHERE chat_id = 'oc_x'"
+        "SELECT instance_id, current_edict_id FROM feishu_session_anchor WHERE chat_id = 'oc_x'"
     ).fetchone()
     assert row[0] == "feishu-default"
     assert row[1] == "ed_fs"
@@ -117,18 +116,30 @@ def test_migration_upgrades_old_session_tables(tmp_path):
     assert "instance_id" in _columns(conn, "telegram_seen_messages")
     assert "instance_id" in _columns(conn, "feishu_seen_messages")
 
-    assert conn.execute(
-        "SELECT instance_id FROM telegram_pending_buttons WHERE approval_id='ap1'"
-    ).fetchone()[0] == "telegram-default"
-    assert conn.execute(
-        "SELECT instance_id FROM feishu_pending_cards WHERE approval_id='ap2'"
-    ).fetchone()[0] == "feishu-default"
-    assert conn.execute(
-        "SELECT instance_id FROM telegram_seen_messages WHERE update_id='u1'"
-    ).fetchone()[0] == "telegram-default"
-    assert conn.execute(
-        "SELECT instance_id FROM feishu_seen_messages WHERE message_id='m1'"
-    ).fetchone()[0] == "feishu-default"
+    assert (
+        conn.execute(
+            "SELECT instance_id FROM telegram_pending_buttons WHERE approval_id='ap1'"
+        ).fetchone()[0]
+        == "telegram-default"
+    )
+    assert (
+        conn.execute(
+            "SELECT instance_id FROM feishu_pending_cards WHERE approval_id='ap2'"
+        ).fetchone()[0]
+        == "feishu-default"
+    )
+    assert (
+        conn.execute(
+            "SELECT instance_id FROM telegram_seen_messages WHERE update_id='u1'"
+        ).fetchone()[0]
+        == "telegram-default"
+    )
+    assert (
+        conn.execute(
+            "SELECT instance_id FROM feishu_seen_messages WHERE message_id='m1'"
+        ).fetchone()[0]
+        == "feishu-default"
+    )
 
     s.close()
 
@@ -147,16 +158,13 @@ def test_migration_is_idempotent(tmp_path):
     conn = s2._conn
 
     row = conn.execute(
-        "SELECT instance_id, current_edict_id FROM telegram_session_anchor "
-        "WHERE chat_id = '123'"
+        "SELECT instance_id, current_edict_id FROM telegram_session_anchor WHERE chat_id = '123'"
     ).fetchone()
     assert row[0] == "telegram-default"
     assert row[1] == "ed_tg"
 
     # 仍只有 1 行（没有重复回填）
-    cnt = conn.execute(
-        "SELECT COUNT(*) FROM telegram_session_anchor"
-    ).fetchone()[0]
+    cnt = conn.execute("SELECT COUNT(*) FROM telegram_session_anchor").fetchone()[0]
     assert cnt == 1
 
     s2.close()

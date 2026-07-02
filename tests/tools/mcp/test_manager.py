@@ -51,12 +51,8 @@ def manager(registry: ToolRegistry) -> MCPManager:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_start_registers_tools(
-    manager: MCPManager, registry: ToolRegistry
-) -> None:
-    manager._config = MCPConfig(
-        mcp_servers={"fx": _fixture_server_config(name="fx")}
-    )
+async def test_start_registers_tools(manager: MCPManager, registry: ToolRegistry) -> None:
+    manager._config = MCPConfig(mcp_servers={"fx": _fixture_server_config(name="fx")})
     try:
         await manager.start()
 
@@ -75,12 +71,8 @@ async def test_start_registers_tools(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_executor_can_call_mcp_tool(
-    manager: MCPManager, registry: ToolRegistry
-) -> None:
-    manager._config = MCPConfig(
-        mcp_servers={"fx": _fixture_server_config(name="fx")}
-    )
+async def test_executor_can_call_mcp_tool(manager: MCPManager, registry: ToolRegistry) -> None:
+    manager._config = MCPConfig(mcp_servers={"fx": _fixture_server_config(name="fx")})
     try:
         await manager.start()
 
@@ -97,9 +89,7 @@ async def test_executor_can_call_mcp_tool(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_disabled_server_skipped(
-    manager: MCPManager, registry: ToolRegistry
-) -> None:
+async def test_disabled_server_skipped(manager: MCPManager, registry: ToolRegistry) -> None:
     manager._config = MCPConfig(
         mcp_servers={
             "fx": _fixture_server_config(name="fx", enabled=False),
@@ -115,9 +105,7 @@ async def test_disabled_server_skipped(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_include_filter_applied(
-    manager: MCPManager, registry: ToolRegistry
-) -> None:
+async def test_include_filter_applied(manager: MCPManager, registry: ToolRegistry) -> None:
     manager._config = MCPConfig(
         mcp_servers={
             "fx": _fixture_server_config(
@@ -137,9 +125,7 @@ async def test_include_filter_applied(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_exclude_filter_applied(
-    manager: MCPManager, registry: ToolRegistry
-) -> None:
+async def test_exclude_filter_applied(manager: MCPManager, registry: ToolRegistry) -> None:
     manager._config = MCPConfig(
         mcp_servers={
             "fx": _fixture_server_config(
@@ -159,9 +145,7 @@ async def test_exclude_filter_applied(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_tool_overrides_change_tier(
-    manager: MCPManager, registry: ToolRegistry
-) -> None:
+async def test_tool_overrides_change_tier(manager: MCPManager, registry: ToolRegistry) -> None:
     manager._config = MCPConfig(
         mcp_servers={
             "fx": _fixture_server_config(

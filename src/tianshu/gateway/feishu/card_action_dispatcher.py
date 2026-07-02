@@ -10,6 +10,7 @@
 
 转换：把按钮点击合成为等价的文本命令（如 /select <id>），重发给 ModeRouter。
 """
+
 from __future__ import annotations
 
 import logging
@@ -41,6 +42,7 @@ class CardActionDispatcher:
 
         # 构造一个伪 FeishuMessage 喂给 ModeRouter
         from tianshu.gateway.feishu.dispatcher import FeishuMessage
+
         fake_msg = FeishuMessage(
             event_id=action.event_id,
             chat_id=action.chat_id,

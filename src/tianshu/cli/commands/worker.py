@@ -60,4 +60,6 @@ def worker_status():
         if sessions:
             console.print("\n[bold]Session Lanes[/bold]")
             for eid, info in sessions.items():
-                console.print(f"  {eid}: available={info.get('available', 0)} / max={info.get('max', 0)}")
+                console.print(
+                    f"  {eid}: available={info.get('available', 0)} / max={info.get('max', 0)}"
+                )

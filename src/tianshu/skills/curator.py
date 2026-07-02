@@ -102,7 +102,9 @@ class CurateResult:
             "plan": {
                 "consolidations": self.plan.consolidations,
                 "archivals": self.plan.archivals,
-            } if self.plan else None,
+            }
+            if self.plan
+            else None,
             "created": self.created,
             "archived": self.archived,
             "errors": self.errors,
@@ -164,14 +166,16 @@ class SkillCurator:
             skill = self._loader.get_skill(m.skill_name)
             if not skill:
                 continue  # metrics row without a live file (already gone)
-            out.append({
-                "name": m.skill_name,
-                "description": skill.get("description", ""),
-                "usage": m.usage_count,
-                "success": m.success_count,
-                "state": m.state,
-                "last_used": m.last_used_at or m.created_at or "?",
-            })
+            out.append(
+                {
+                    "name": m.skill_name,
+                    "description": skill.get("description", ""),
+                    "usage": m.usage_count,
+                    "success": m.success_count,
+                    "state": m.state,
+                    "last_used": m.last_used_at or m.created_at or "?",
+                }
+            )
         return out
 
     @staticmethod
@@ -211,7 +215,8 @@ class SkillCurator:
 
     async def _llm_plan(self, candidates: list[dict]) -> CuratePlan:
         raw = await self._call_llm_json(
-            _SYSTEM, _USER.format(candidates=self._render_candidates(candidates)),
+            _SYSTEM,
+            _USER.format(candidates=self._render_candidates(candidates)),
         )
         cons = raw.get("consolidations", []) if isinstance(raw, dict) else []
         arch = raw.get("archivals", []) if isinstance(raw, dict) else []
@@ -296,12 +301,20 @@ class SkillCurator:
             if not skill:
                 continue
             try:
-                resp = await self._llm.chat(messages=[
-                    {"role": "system", "content": _ITERATE_SYSTEM},
-                    {"role": "user", "content": _ITERATE_USER.format(
-                        name=m.skill_name, usage=m.usage_count,
-                        rate=m.success_rate, content=skill.get("content", ""))},
-                ])
+                resp = await self._llm.chat(
+                    messages=[
+                        {"role": "system", "content": _ITERATE_SYSTEM},
+                        {
+                            "role": "user",
+                            "content": _ITERATE_USER.format(
+                                name=m.skill_name,
+                                usage=m.usage_count,
+                                rate=m.success_rate,
+                                content=skill.get("content", ""),
+                            ),
+                        },
+                    ]
+                )
                 new_md = (getattr(resp, "content", None) or "").strip()
                 if new_md.startswith("```") and "\n" in new_md:
                     new_md = new_md.split("\n", 1)[1].rsplit("```", 1)[0].strip()
@@ -322,6 +335,7 @@ class SkillCurator:
         if not self._event_bus:
             return
         from tianshu.models.events import make_event
+
         ev = make_event(
             event_type=event_type,
             edict_id=None,
@@ -337,7 +351,8 @@ class SkillCurator:
         d.mkdir(parents=True, exist_ok=True)
         run = {"trigger_source": trigger_source, "ts": ts, **result.to_dict()}
         (d / "run.json").write_text(
-            json.dumps(run, ensure_ascii=False, indent=2), encoding="utf-8",
+            json.dumps(run, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
         lines = [
             f"# 修撰策展报告 {ts}",
@@ -356,7 +371,9 @@ class SkillCurator:
     # --- orchestration ---
 
     async def run(
-        self, trigger_source: str = "manual", dry_run: bool = False,
+        self,
+        trigger_source: str = "manual",
+        dry_run: bool = False,
     ) -> CurateResult:
         cfg = self._config.agent_config
         if not getattr(cfg, "skill_curator_enabled", True):
@@ -364,29 +381,33 @@ class SkillCurator:
 
         if not dry_run:
             if not self._idle_ok(getattr(cfg, "skill_curator_idle_hours", 2)):
-                await self._emit("curate.skipped",
-                                 {"reason": "not_idle", "trigger_source": trigger_source})
+                await self._emit(
+                    "curate.skipped", {"reason": "not_idle", "trigger_source": trigger_source}
+                )
                 return CurateResult(skipped="not_idle")
             if not self._storage.try_acquire_synthesis_lock(_LOCK_KEY):
-                await self._emit("curate.skipped",
-                                 {"reason": "lock_held", "trigger_source": trigger_source})
+                await self._emit(
+                    "curate.skipped", {"reason": "lock_held", "trigger_source": trigger_source}
+                )
                 return CurateResult(skipped="lock_held")
 
         started = datetime.now(UTC)
-        await self._emit("curate.started",
-                         {"trigger_source": trigger_source, "dry_run": dry_run})
+        await self._emit("curate.started", {"trigger_source": trigger_source, "dry_run": dry_run})
         try:
             lifecycle: dict = {}
             if not dry_run:
                 lifecycle = apply_automatic_transitions(
-                    self._metrics, self._loader,
+                    self._metrics,
+                    self._loader,
                     stale_after_days=getattr(cfg, "skill_stale_after_days", 30),
                     archive_after_days=getattr(cfg, "skill_archive_after_days", 90),
                 )
 
             candidates = self._collect_candidates()
             result = CurateResult(
-                lifecycle=lifecycle, candidates=len(candidates), dry_run=dry_run,
+                lifecycle=lifecycle,
+                candidates=len(candidates),
+                dry_run=dry_run,
             )
 
             if len(candidates) >= 2:
@@ -400,21 +421,25 @@ class SkillCurator:
                 result.iterated = await self._iterate_pass()
                 result.report_dir = self._write_report(result, trigger_source)
 
-            await self._emit("curate.completed", {
-                "trigger_source": trigger_source,
-                "dry_run": dry_run,
-                "lifecycle": lifecycle,
-                "candidates": len(candidates),
-                "created": result.created,
-                "archived": result.archived,
-                "errors_count": len(result.errors),
-                "duration_ms": int((datetime.now(UTC) - started).total_seconds() * 1000),
-            })
+            await self._emit(
+                "curate.completed",
+                {
+                    "trigger_source": trigger_source,
+                    "dry_run": dry_run,
+                    "lifecycle": lifecycle,
+                    "candidates": len(candidates),
+                    "created": result.created,
+                    "archived": result.archived,
+                    "errors_count": len(result.errors),
+                    "duration_ms": int((datetime.now(UTC) - started).total_seconds() * 1000),
+                },
+            )
             return result
         except Exception as e:  # noqa: BLE001
             logger.exception("[CURATOR] run failed")
-            await self._emit("curate.failed",
-                             {"error_type": type(e).__name__, "error_message": str(e)})
+            await self._emit(
+                "curate.failed", {"error_type": type(e).__name__, "error_message": str(e)}
+            )
             return CurateResult(skipped="error", errors=[str(e)], dry_run=dry_run)
         finally:
             if not dry_run:

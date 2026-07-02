@@ -1,4 +1,5 @@
 """FeishuOutbound 单元测试：markdown 检测、客户端调用、chat_id 反查。"""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -14,11 +15,20 @@ from tianshu.models.events import EventEnvelope
 
 def _settings(home: str = "") -> FeishuSettings:
     return FeishuSettings(
-        app_id="x", app_secret="y", domain="feishu", connection_mode="webhook",
-        allowed_users=("ou_test",), home_channel=home,
-        encrypt_key="", verification_token="", bot_open_id="", bot_name="",
-        webhook_path="/feishu/webhook", ws_reconnect_interval=120,
-        text_batch_delay=0.6, dedup_cache_size=2048,
+        app_id="x",
+        app_secret="y",
+        domain="feishu",
+        connection_mode="webhook",
+        allowed_users=("ou_test",),
+        home_channel=home,
+        encrypt_key="",
+        verification_token="",
+        bot_open_id="",
+        bot_name="",
+        webhook_path="/feishu/webhook",
+        ws_reconnect_interval=120,
+        text_batch_delay=0.6,
+        dedup_cache_size=2048,
     )
 
 
@@ -173,10 +183,12 @@ async def test_send_post_falls_back_to_plain_when_post_fails(storage):
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     fake_client = MagicMock()
     # 第一次 acreate（post）失败，第二次（plain）成功
-    fake_client.im.v1.message.acreate = AsyncMock(side_effect=[
-        _fake_resp(success=False),
-        _fake_resp(msg_id="plain_ok"),
-    ])
+    fake_client.im.v1.message.acreate = AsyncMock(
+        side_effect=[
+            _fake_resp(success=False),
+            _fake_resp(msg_id="plain_ok"),
+        ]
+    )
     out._client = fake_client
     mid = await out.send_text("oc_x", "**bold**")
     assert mid == "plain_ok"
@@ -198,6 +210,7 @@ async def test_on_execution_completed_sends_post_with_table_converted(storage):
     """订阅 execution.completed → 拉 memorial.result → 发 post（v2：完整 + 表格转列表）。"""
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
+
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out._send_post = AsyncMock(return_value="m1")
@@ -205,17 +218,14 @@ async def test_on_execution_completed_sends_post_with_table_converted(storage):
     edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
     storage.save_edict(edict)
     result_md = (
-        "概况：\n\n"
-        "| 项目 | 值 |\n"
-        "|------|-----|\n"
-        "| 标题 | demo |\n"
-        "| 总页数 | 26 页 |\n\n"
-        "结尾内容。"
+        "概况：\n\n| 项目 | 值 |\n|------|-----|\n| 标题 | demo |\n| 总页数 | 26 页 |\n\n结尾内容。"
     )
     memorial = Memorial(edict_id=edict.id, instruction="i", result=result_md)
     storage.save_memorial(memorial)
     event = EventEnvelope(
-        event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
+        event_type="execution.completed",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
         payload={"title": "完成"},
     )
     await out._on_execution_completed(event)
@@ -233,6 +243,7 @@ async def test_on_execution_completed_prefers_final_output(storage):
     """final_output 存在时只发它，过滤掉 result 里的中间过程（规划/调研）。"""
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
+
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out._send_post = AsyncMock(return_value="m1")
@@ -247,12 +258,16 @@ async def test_on_execution_completed_prefers_final_output(storage):
     )
     final = "上海今日多云 22°C，湿度 65%"
     memorial = Memorial(
-        edict_id=edict.id, instruction="i",
-        result=full_result, final_output=final,
+        edict_id=edict.id,
+        instruction="i",
+        result=full_result,
+        final_output=final,
     )
     storage.save_memorial(memorial)
     event = EventEnvelope(
-        event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
+        event_type="execution.completed",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
     )
     await out._on_execution_completed(event)
 
@@ -270,6 +285,7 @@ async def test_on_execution_completed_falls_back_to_result_when_no_final(storage
     """final_output 为空时回退用 result（兼容老 memorial / outer-loop 场景）。"""
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
+
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out._send_post = AsyncMock(return_value="m1")
@@ -277,12 +293,16 @@ async def test_on_execution_completed_falls_back_to_result_when_no_final(storage
     edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
     storage.save_edict(edict)
     memorial = Memorial(
-        edict_id=edict.id, instruction="i",
-        result="老 memorial 的 result", final_output=None,
+        edict_id=edict.id,
+        instruction="i",
+        result="老 memorial 的 result",
+        final_output=None,
     )
     storage.save_memorial(memorial)
     event = EventEnvelope(
-        event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
+        event_type="execution.completed",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
     )
     await out._on_execution_completed(event)
     body_arg = out._send_post.await_args.args[1]
@@ -295,6 +315,7 @@ async def test_on_execution_completed_long_content_split(storage):
     from tianshu.gateway.feishu.markdown_compat import DEFAULT_CHUNK_SIZE
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
+
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out._send_post = AsyncMock(return_value="m1")
@@ -304,7 +325,9 @@ async def test_on_execution_completed_long_content_split(storage):
     memorial = Memorial(edict_id=edict.id, instruction="i", result=long_result)
     storage.save_memorial(memorial)
     event = EventEnvelope(
-        event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
+        event_type="execution.completed",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
     )
     await out._on_execution_completed(event)
     assert out._send_post.await_count >= 2
@@ -315,6 +338,7 @@ async def test_on_execution_completed_removes_typing_then_posts(storage):
     """有 typing reaction → 移除 + 紧接 post 完整内容。"""
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
+
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out.remove_reaction = AsyncMock(return_value=True)
@@ -325,11 +349,15 @@ async def test_on_execution_completed_removes_typing_then_posts(storage):
     memorial = Memorial(edict_id=edict.id, instruction="i", result="正文内容")
     storage.save_memorial(memorial)
     storage.save_feishu_thinking(
-        memorial_id=memorial.id, chat_id="oc_x",
-        reaction_id="rx_X", source_message_id="om_u_orig",
+        memorial_id=memorial.id,
+        chat_id="oc_x",
+        reaction_id="rx_X",
+        source_message_id="om_u_orig",
     )
     event = EventEnvelope(
-        event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
+        event_type="execution.completed",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
     )
     await out._on_execution_completed(event)
     out.remove_reaction.assert_awaited_once_with("om_u_orig", "rx_X")
@@ -343,6 +371,7 @@ async def test_on_execution_completed_removes_typing_then_posts(storage):
 async def test_on_execution_failed_swaps_typing_to_crossmark(storage):
     """失败 → 移除 typing + 加 CrossMark + 发失败提示。"""
     from tianshu.models.edict import Edict
+
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out.remove_reaction = AsyncMock(return_value=True)
@@ -351,11 +380,15 @@ async def test_on_execution_failed_swaps_typing_to_crossmark(storage):
     edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
     storage.save_edict(edict)
     storage.save_feishu_thinking(
-        memorial_id="mem_fail", chat_id="oc_x",
-        reaction_id="rx_typing", source_message_id="om_u_fail",
+        memorial_id="mem_fail",
+        chat_id="oc_x",
+        reaction_id="rx_typing",
+        source_message_id="om_u_fail",
     )
     event = EventEnvelope(
-        event_type="execution.failed", edict_id=edict.id, memorial_id="mem_fail",
+        event_type="execution.failed",
+        edict_id=edict.id,
+        memorial_id="mem_fail",
         payload={"error": "boom"},
     )
     await out._on_execution_failed(event)
@@ -371,7 +404,9 @@ async def test_on_execution_completed_skips_when_no_chat(storage):
     out = FeishuOutbound(settings=_settings(home=""), storage=storage, event_bus=bus)
     out._send_post = AsyncMock()
     event = EventEnvelope(
-        event_type="execution.completed", edict_id="missing", memorial_id="m",
+        event_type="execution.completed",
+        edict_id="missing",
+        memorial_id="m",
     )
     await out._on_execution_completed(event)
     out._send_post.assert_not_awaited()
@@ -380,13 +415,16 @@ async def test_on_execution_completed_skips_when_no_chat(storage):
 @pytest.mark.asyncio
 async def test_on_execution_failed_sends_error(storage):
     from tianshu.models.edict import Edict
+
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out.send_text = AsyncMock(return_value="m")
     edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
     storage.save_edict(edict)
     event = EventEnvelope(
-        event_type="execution.failed", edict_id=edict.id, memorial_id="m",
+        event_type="execution.failed",
+        edict_id=edict.id,
+        memorial_id="m",
         payload={"error": "OOM"},
     )
     await out._on_execution_failed(event)
@@ -399,6 +437,7 @@ async def test_on_execution_failed_sends_error(storage):
 async def test_on_execution_completed_skips_no_memorial_result(storage):
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
+
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out.send_text = AsyncMock()
@@ -408,7 +447,9 @@ async def test_on_execution_completed_skips_no_memorial_result(storage):
     memorial = Memorial(edict_id=edict.id, instruction="i", result="")
     storage.save_memorial(memorial)
     event = EventEnvelope(
-        event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id,
+        event_type="execution.completed",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
     )
     out._send_post = AsyncMock()
     await out._on_execution_completed(event)

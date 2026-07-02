@@ -38,9 +38,7 @@ HOOK_TIMEOUTS[HookType.BEFORE_TOOL_CALL] = 310.0
 
 
 # BEFORE_TOOL_CALL 的 hook 超时必须 fail-secure（拦住工具），否则等于绕过审批/policy
-_FAIL_SECURE_HOOKS: frozenset[HookType] = frozenset(
-    {HookType.BEFORE_TOOL_CALL}
-)
+_FAIL_SECURE_HOOKS: frozenset[HookType] = frozenset({HookType.BEFORE_TOOL_CALL})
 
 
 class HookResult(BaseModel):
@@ -78,9 +76,7 @@ class HookRegistry:
 
     def unregister(self, hook_type: HookType, handler: HookHandler) -> None:
         entries = self._hooks.get(hook_type, [])
-        self._hooks[hook_type] = [
-            e for e in entries if e.handler is not handler
-        ]
+        self._hooks[hook_type] = [e for e in entries if e.handler is not handler]
 
     def set_event_writer(self, writer: object) -> None:
         """Set a storage reference for writing hook execution events."""
@@ -94,16 +90,18 @@ class HookRegistry:
         for entry in self._hooks.get(hook_type, []):
             handler_name = entry.handler.__qualname__
             try:
-                result = await asyncio.wait_for(
-                    entry.handler(**context), timeout=timeout
-                )
+                result = await asyncio.wait_for(entry.handler(**context), timeout=timeout)
 
                 # Write hook execution event for frontend visibility (8.2)
-                self._write_hook_event(hook_type, handler_name, context, blocked=bool(result and result.block))
+                self._write_hook_event(
+                    hook_type, handler_name, context, blocked=bool(result and result.block)
+                )
 
                 logger.debug(
                     "[HOOK] %s: handler=%s, blocked=%s",
-                    hook_type.value, handler_name, bool(result and result.block),
+                    hook_type.value,
+                    handler_name,
+                    bool(result and result.block),
                 )
                 if result and result.block:
                     return result

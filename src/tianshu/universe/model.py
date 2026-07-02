@@ -10,15 +10,15 @@ from ulid import ULID
 
 
 class UniverseStatus(str, Enum):
-    CHAMPION = "champion"      # 在役（唯一）
+    CHAMPION = "champion"  # 在役（唯一）
     CHALLENGER = "challenger"  # 候选
-    ARCHIVED = "archived"      # 已归档（可恢复）
+    ARCHIVED = "archived"  # 已归档（可恢复）
 
 
 class UniverseOrigin(str, Enum):
-    GENESIS = "genesis"            # 首次启用时捕获的初始位面
+    GENESIS = "genesis"  # 首次启用时捕获的初始位面
     MANUAL_BRANCH = "manual_branch"  # 人工分支
-    MUTATION = "mutation"          # 演化引擎变异产生（1b）
+    MUTATION = "mutation"  # 演化引擎变异产生（1b）
     CODE_VARIANT = "code_variant"  # 预留：第二步代码变体位面
 
 

@@ -6,6 +6,7 @@
 parse_approval_command / markdown_compat / ApprovalManager / Executor / Storage），
 重写平台层（python-telegram-bot 连接、出站、inline keyboard 审批/卡片）。
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -91,11 +92,14 @@ class TelegramBot:
             chat_title_prefix="Telegram 助手对话",
         )
         self._outbound = TelegramOutbound(
-            settings=settings, storage=storage, event_bus=event_bus,
+            settings=settings,
+            storage=storage,
+            event_bus=event_bus,
             instance_id=instance_id,
         )
         self._approval_commands = TelegramApprovalCommandHandler(
-            storage=storage, approval_manager=approval_manager,
+            storage=storage,
+            approval_manager=approval_manager,
             instance_id=instance_id,
         )
 
@@ -105,7 +109,8 @@ class TelegramBot:
         self._renderer = PersonaRenderer(persona)
 
         self._card_builder = TelegramCardBuilder(
-            storage=storage, cost_manager=cost_manager,
+            storage=storage,
+            cost_manager=cost_manager,
         )
 
         self._assistant_branch = AssistantBranch(
@@ -162,7 +167,8 @@ class TelegramBot:
 
     async def start(self) -> None:
         logger.info(
-            "[telegram] starting (mode=%s)", self._settings.connection_mode,
+            "[telegram] starting (mode=%s)",
+            self._settings.connection_mode,
         )
         if not self._settings.allowed_users:
             logger.warning(
@@ -177,7 +183,8 @@ class TelegramBot:
             )
         self._acquire_app_lock()
         self._connection = TelegramConnection(
-            settings=self._settings, dispatcher=self._dispatcher,
+            settings=self._settings,
+            dispatcher=self._dispatcher,
         )
         await self._connection.start()
         self._outbound.start()
@@ -197,7 +204,8 @@ class TelegramBot:
         """热加载新 settings：重建 connection；保持 outbound/approval_kb 订阅。"""
         logger.info(
             "[telegram] reloading (old_mode=%s -> new_mode=%s)",
-            self._settings.connection_mode, new_settings.connection_mode,
+            self._settings.connection_mode,
+            new_settings.connection_mode,
         )
         if self._connection:
             await self._connection.stop()
@@ -214,7 +222,8 @@ class TelegramBot:
         # 重建 connection（dispatcher 复用同实例，但需切 settings 引用）
         self._dispatcher._settings = new_settings  # type: ignore[attr-defined]
         self._connection = TelegramConnection(
-            settings=new_settings, dispatcher=self._dispatcher,
+            settings=new_settings,
+            dispatcher=self._dispatcher,
         )
         await self._connection.start()
 
@@ -265,7 +274,9 @@ class TelegramBot:
                 await self._reply(msg.chat_id, "用法：/new <目标描述>")
                 return
             result = await self._edict_bridge.create_new(
-                chat_id=msg.chat_id, sender_open_id=msg.sender_id, goal=goal,
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_id,
+                goal=goal,
             )
             await self._reply(msg.chat_id, f"✅ 新敕令 #{result.edict_id[:8]} 已创建")
             return
@@ -279,7 +290,8 @@ class TelegramBot:
                 await self._reply(msg.chat_id, f"敕令 #{target[:8]} 不存在")
                 return
             await self._reply(
-                msg.chat_id, f"敕令 #{edict.id[:8]}\n标题：{edict.title}\n状态：{edict.status}",
+                msg.chat_id,
+                f"敕令 #{edict.id[:8]}\n标题：{edict.title}\n状态：{edict.status}",
             )
             return
         if cmd == "/cancel":
@@ -307,7 +319,9 @@ class TelegramBot:
             return
         try:
             result = await self._edict_bridge.continue_or_create(
-                chat_id=msg.chat_id, sender_open_id=msg.sender_id, text=text,
+                chat_id=msg.chat_id,
+                sender_open_id=msg.sender_id,
+                text=text,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))

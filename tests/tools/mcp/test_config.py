@@ -107,14 +107,15 @@ class TestServerValidation:
 
     def test_default_tier_out_of_range(self) -> None:
         with pytest.raises(ValidationError):
-            MCPServerConfig(
-                name="x", transport="stdio", command="npx", default_tier=99
-            )
+            MCPServerConfig(name="x", transport="stdio", command="npx", default_tier=99)
 
     def test_extra_field_rejected(self) -> None:
         with pytest.raises(ValidationError):
             MCPServerConfig(
-                name="x", transport="stdio", command="npx", unknown="oops"  # type: ignore[call-arg]
+                name="x",
+                transport="stdio",
+                command="npx",
+                unknown="oops",  # type: ignore[call-arg]
             )
 
 
@@ -131,9 +132,7 @@ class TestEnvInterpolation:
         out = cfg.with_env_interpolated()
         assert out.env == {"TOKEN": "secret-123", "LITERAL": "no_subst"}
 
-    def test_interpolate_env_in_http_headers(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_interpolate_env_in_http_headers(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MCP_GH_TOKEN", "ghp_xxx")
         cfg = MCPServerConfig(
             name="gh",
@@ -144,9 +143,7 @@ class TestEnvInterpolation:
         out = cfg.with_env_interpolated()
         assert out.headers == {"Authorization": "Bearer ghp_xxx"}
 
-    def test_missing_env_keeps_literal(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_missing_env_keeps_literal(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("MCP_NOT_SET", raising=False)
         cfg = MCPServerConfig(
             name="fs",
@@ -196,9 +193,7 @@ class TestMergeOverrides:
 
     def test_override_env_replaces_completely(self) -> None:
         cfg = self._base()
-        out = merge_overrides(
-            cfg, [MCPServerOverride(name="fs", env={"B": "2"})]
-        )
+        out = merge_overrides(cfg, [MCPServerOverride(name="fs", env={"B": "2"})])
         # override 是完整替换，而非 merge 字典
         assert out.mcp_servers["fs"].env == {"B": "2"}
 
@@ -214,9 +209,7 @@ class TestMergeOverrides:
 
     def test_override_for_unknown_server_ignored(self) -> None:
         cfg = self._base()
-        out = merge_overrides(
-            cfg, [MCPServerOverride(name="ghost", enabled=True)]
-        )
+        out = merge_overrides(cfg, [MCPServerOverride(name="ghost", enabled=True)])
         assert "ghost" not in out.mcp_servers
 
     def test_returns_new_instance(self) -> None:

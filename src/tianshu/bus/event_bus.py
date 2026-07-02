@@ -48,7 +48,10 @@ class EventBus:
         entries = self._handlers.get(event.event_type, [])
         logger.debug(
             "[BUS] emit %s: edict=%s, memorial=%s, handlers=%d",
-            event.event_type, event.edict_id, event.memorial_id, len(entries),
+            event.event_type,
+            event.edict_id,
+            event.memorial_id,
+            len(entries),
         )
         for entry in entries:
             try:
@@ -70,7 +73,10 @@ class EventBus:
         entries = self._handlers.get(event.event_type, [])
         logger.debug(
             "[BUS] fire %s: edict=%s, memorial=%s, handlers=%d",
-            event.event_type, event.edict_id, event.memorial_id, len(entries),
+            event.event_type,
+            event.edict_id,
+            event.memorial_id,
+            len(entries),
         )
         task = asyncio.create_task(self._run_handlers(event))
         self._background_tasks.add(task)
@@ -90,9 +96,7 @@ class EventBus:
     def off(self, event_type: str, handler: EventHandler) -> None:
         """Unregister a handler."""
         entries = self._handlers.get(event_type, [])
-        self._handlers[event_type] = [
-            e for e in entries if e.handler is not handler
-        ]
+        self._handlers[event_type] = [e for e in entries if e.handler is not handler]
 
     def _persist(self, event: EventEnvelope) -> None:
         if self._storage and event.edict_id:

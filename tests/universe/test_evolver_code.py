@@ -1,4 +1,5 @@
 """Tests for UniverseEvolver.propose_code_variant (2c / Phase 2 increment 2c-C2)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -47,7 +48,9 @@ class FakeManager:
             return {"id": self._champion_uid, "fitness": {"score": 0.5}}
         return None
 
-    def branch_code_variant(self, parent_id: str, name: str, *, start_ref="HEAD", description="") -> dict:
+    def branch_code_variant(
+        self, parent_id: str, name: str, *, start_ref="HEAD", description=""
+    ) -> dict:
         uid = f"child-{len(self.branched):03d}"
         rec = {"id": uid, "parent": parent_id, "name": name, "description": description}
         self.branched.append(rec)
@@ -252,7 +255,9 @@ async def test_explicit_parent_id_used_over_champion(tmp_path):
     mgr = FakeManager(champion_uid="champ-001")
     ev, mgr, _ = _build_evolver(tmp_path, manager=mgr)
     result = await ev.propose_code_variant(
-        target_path="src/foo.py", hypothesis="try this", parent_id="explicit-parent",
+        target_path="src/foo.py",
+        hypothesis="try this",
+        parent_id="explicit-parent",
     )
     # branched from the explicit parent, not champion
     assert mgr.branched[0]["parent"] == "explicit-parent"

@@ -44,7 +44,11 @@ def test_parse_llm_json_bad_raises():
 
 @pytest.mark.unit
 def test_coerce_cron():
-    raw = {"goal": "推送天气", "schedule": {"type": "cron", "cron": "0 18 * * *"}, "notes": "每天18点"}
+    raw = {
+        "goal": "推送天气",
+        "schedule": {"type": "cron", "cron": "0 18 * * *"},
+        "notes": "每天18点",
+    }
     draft, notes = coerce_draft(raw)
     assert draft["goal"] == "推送天气"
     assert draft["schedule"]["type"] == "cron"

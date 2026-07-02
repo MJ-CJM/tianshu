@@ -2,6 +2,7 @@
 
 直接构造 FeishuBot，mock outbound/connection 依赖，绕开 lark client 真启动。
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -17,11 +18,20 @@ from tianshu.gateway.feishu.settings import FeishuSettings
 def _settings(disable_assistant_mode: bool = True) -> FeishuSettings:
     """v1 legacy fallback：disable_assistant_mode=True，保留 v1 命令路由测试。"""
     return FeishuSettings(
-        app_id="x", app_secret="y", domain="feishu", connection_mode="webhook",
-        allowed_users=("ou_test",), home_channel="",
-        encrypt_key="", verification_token="", bot_open_id="", bot_name="",
-        webhook_path="/feishu/webhook", ws_reconnect_interval=120,
-        text_batch_delay=0.0, dedup_cache_size=2048,
+        app_id="x",
+        app_secret="y",
+        domain="feishu",
+        connection_mode="webhook",
+        allowed_users=("ou_test",),
+        home_channel="",
+        encrypt_key="",
+        verification_token="",
+        bot_open_id="",
+        bot_name="",
+        webhook_path="/feishu/webhook",
+        ws_reconnect_interval=120,
+        text_batch_delay=0.0,
+        dedup_cache_size=2048,
         assistant_persona_id="tongzheng",
         intent_llm_enabled=False,
         disable_assistant_mode=disable_assistant_mode,
@@ -40,8 +50,12 @@ def bot(storage):
     persona_loader = MagicMock()
     persona_loader.get = MagicMock(return_value=None)
     fb = FeishuBot(
-        storage=storage, event_bus=bus, approval_manager=approval,
-        executor=executor, notifier=notifier, settings=_settings(),
+        storage=storage,
+        event_bus=bus,
+        approval_manager=approval,
+        executor=executor,
+        notifier=notifier,
+        settings=_settings(),
         persona_loader=persona_loader,
         provider_manager=None,
         cost_manager=None,
@@ -55,8 +69,12 @@ def bot(storage):
 
 def _msg(text: str, chat_id: str = "oc_x", sender: str = "ou_test") -> FeishuMessage:
     return FeishuMessage(
-        event_id="e", chat_id=chat_id, chat_type="p2p",
-        sender_open_id=sender, text=text, raw={},
+        event_id="e",
+        chat_id=chat_id,
+        chat_type="p2p",
+        sender_open_id=sender,
+        text=text,
+        raw={},
     )
 
 
@@ -157,7 +175,9 @@ async def test_default_text_busy_raises_friendly_message(bot):
 async def test_card_dispatch_routes_to_approval_handler(bot):
     bot._approval_card.handle_button_click = AsyncMock()
     action = FeishuCardAction(
-        event_id="e", chat_id="c", sender_open_id="ou_test",
+        event_id="e",
+        chat_id="c",
+        sender_open_id="ou_test",
         value={"memorial_id": "m1", "action": "approve"},
     )
     await bot._on_card(action)
