@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from tianshu.plugins.manifest import PluginManifest
+from tianshu.tools.registry import ToolDefinition
 
 if TYPE_CHECKING:
     from tianshu.executor.hooks import HookHandler, HookRegistry, HookType
@@ -60,9 +61,21 @@ class PluginApi:
         logger.info("Plugin registered: %s v%s", manifest.name, manifest.version)
 
     def register_tool(self, name: str, handler, schema: dict | None = None) -> None:
-        """Register a tool via ToolRegistry."""
+        """Register a tool via ToolRegistry.
+
+        schema 支持键：description / parameters（JSON schema）/ tier / max_result_chars / side_effect。
+        """
         if self._tools:
-            self._tools.register(name, handler, schema)
+            s = schema or {}
+            definition = ToolDefinition(
+                name=name,
+                description=s.get("description", name),
+                parameters=s.get("parameters", {"type": "object", "properties": {}}),
+                tier=s.get("tier", 0),
+                max_result_chars=s.get("max_result_chars", 8000),
+                side_effect=s.get("side_effect", False),
+            )
+            self._tools.register(name, handler, definition)
             logger.info("Plugin tool registered: %s", name)
 
     def register_hook(
