@@ -83,7 +83,7 @@ def _prompt_file_path(request: Request, persona_id: str, filename: str):
 
 
 @system_router.get("/system-prompt/files")
-async def list_prompt_files(request: Request):
+def list_prompt_files(request: Request):
     from datetime import UTC, datetime
 
     personas_dir: Path = request.app.state.personas_dir
@@ -139,7 +139,7 @@ async def list_prompt_files(request: Request):
 
 
 @system_router.get("/system-prompt/files/{persona_id}/{filename}")
-async def get_prompt_file(persona_id: str, filename: str, request: Request):
+def get_prompt_file(persona_id: str, filename: str, request: Request):
     if filename not in _PROMPT_FILE_WHITELIST:
         raise HTTPException(status_code=400, detail=f"File '{filename}' is not in whitelist")
     if filename in ("SOUL.md", "ROLE.md"):
@@ -182,7 +182,7 @@ async def update_prompt_file(persona_id: str, filename: str, request: Request):
 @system_router.post(
     "/system-prompt/files/{persona_id}/{filename}/reset", response_model=ApiResponse
 )
-async def reset_prompt_file(persona_id: str, filename: str, request: Request):
+def reset_prompt_file(persona_id: str, filename: str, request: Request):
     """Reset a runtime identity file (SOUL.md / ROLE.md / MEMORY.md) to its department template."""
     if filename not in ("SOUL.md", "ROLE.md", "MEMORY.md"):
         raise HTTPException(
@@ -242,7 +242,7 @@ async def preview_system_prompt(persona_id: str, request: Request):
 
 
 @system_router.get("/event-bus/handlers")
-async def list_event_bus_handlers(request: Request):
+def list_event_bus_handlers(request: Request):
     """List all registered event handlers with priorities."""
     event_bus: EventBus = request.app.state.event_bus
     result = {}
@@ -254,7 +254,7 @@ async def list_event_bus_handlers(request: Request):
 
 
 @system_router.get("/event-bus/stats")
-async def get_event_bus_stats(request: Request):
+def get_event_bus_stats(request: Request):
     """Get event type distribution from storage."""
     storage: Storage = request.app.state.storage
     stats = storage.get_event_stats()
@@ -262,7 +262,7 @@ async def get_event_bus_stats(request: Request):
 
 
 @system_router.get("/event-bus/recent")
-async def get_recent_events(
+def get_recent_events(
     request: Request,
     limit: int = Query(default=50, ge=1, le=200),
 ):
@@ -276,7 +276,7 @@ async def get_recent_events(
 
 
 @system_router.get("/hooks/registry")
-async def list_hooks_registry(request: Request):
+def list_hooks_registry(request: Request):
     """List all registered hooks with handler info and priorities."""
     from tianshu.kernel.hooks import HookRegistry
 
@@ -293,7 +293,7 @@ async def list_hooks_registry(request: Request):
 
 
 @system_router.get("/notifications/channels")
-async def list_notification_channels(request: Request):
+def list_notification_channels(request: Request):
     """List registered notification channels with rate limit info."""
     from tianshu.notifier.channel_registry import ChannelRegistry
 

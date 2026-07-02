@@ -14,7 +14,7 @@ cost_router = APIRouter(prefix="/cost", tags=["cost"])
 
 
 @cost_router.get("/summary")
-async def get_cost_summary(
+def get_cost_summary(
     request: Request,
     period: str | None = None,
     edict_id: str | None = None,
@@ -25,7 +25,7 @@ async def get_cost_summary(
 
 
 @cost_router.get("/records")
-async def get_cost_records(
+def get_cost_records(
     request: Request,
     edict_id: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
@@ -41,7 +41,7 @@ async def get_cost_records(
 
 
 @cost_router.get("/budget")
-async def get_cost_budget(request: Request, scope: str = "global"):
+def get_cost_budget(request: Request, scope: str = "global"):
     cm: CostManager = request.app.state.cost_manager
     status = cm.get_budget(scope)
     if not status:
@@ -62,7 +62,7 @@ async def set_cost_budget(request: Request):
 
 
 @cost_router.get("/export")
-async def export_cost_records(
+def export_cost_records(
     request: Request,
     period: str | None = None,
     edict_id: str | None = None,

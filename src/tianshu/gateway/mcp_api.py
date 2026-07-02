@@ -53,7 +53,7 @@ def _mcp_server_to_dict(name: str, cfg, session=None) -> dict:
 
 
 @mcp_router.get("/servers")
-async def list_mcp_servers(request: Request):
+def list_mcp_servers(request: Request):
     manager = getattr(request.app.state, "mcp_manager", None)
     if manager is None:
         return ApiResponse(success=True, data=[])
@@ -79,7 +79,7 @@ async def list_mcp_servers(request: Request):
 
 
 @mcp_router.get("/servers/{name}")
-async def get_mcp_server(name: str, request: Request):
+def get_mcp_server(name: str, request: Request):
     manager = getattr(request.app.state, "mcp_manager", None)
     if manager is None or name not in manager.config.mcp_servers:
         raise HTTPException(404, f"mcp server {name!r} not found")
@@ -89,7 +89,7 @@ async def get_mcp_server(name: str, request: Request):
 
 
 @mcp_router.get("/servers/{name}/tools")
-async def list_mcp_server_tools(name: str, request: Request):
+def list_mcp_server_tools(name: str, request: Request):
     manager = getattr(request.app.state, "mcp_manager", None)
     if manager is None or name not in manager.config.mcp_servers:
         raise HTTPException(404, f"mcp server {name!r} not found")
@@ -266,7 +266,7 @@ async def create_mcp_server(
 
 
 @mcp_router.delete("/servers/{name}/override")
-async def delete_mcp_server_override(name: str, request: Request):
+def delete_mcp_server_override(name: str, request: Request):
     """清除 DB override（YAML 种子保留）。"""
     storage: Storage = request.app.state.storage
     storage.delete_mcp_override(name)

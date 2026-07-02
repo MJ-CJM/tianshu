@@ -59,7 +59,7 @@ async def create_consultation(request: Request):
 
 
 @gateway_router.get("/consultations/{consultation_id}")
-async def get_consultation(consultation_id: str, request: Request):
+def get_consultation(consultation_id: str, request: Request):
     consultation: ConsultationSession = request.app.state.consultation
     result = consultation.get(consultation_id)
     if not result:

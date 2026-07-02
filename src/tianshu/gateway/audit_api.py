@@ -18,14 +18,14 @@ audit_router = APIRouter(tags=["audit"])
 
 
 @audit_router.get("/audit/stats")
-async def get_audit_stats(request: Request):
+def get_audit_stats(request: Request):
     storage: Storage = request.app.state.storage
     stats = storage.get_audit_stats()
     return ApiResponse(success=True, data=stats)
 
 
 @audit_router.get("/audit/network-events")
-async def get_network_events(
+def get_network_events(
     request: Request,
     limit: int = Query(50, ge=1, le=500),
     tool: str | None = Query(None),
@@ -49,7 +49,7 @@ async def get_network_events(
 
 
 @audit_router.get("/audit/rules")
-async def get_audit_rules(request: Request):
+def get_audit_rules(request: Request):
     """Get configured audit rules and review policies."""
     rules = [
         {
@@ -214,7 +214,7 @@ async def revoke_session_rule(rule_id: str, request: Request):
 
 
 @audit_router.get("/policy/stats")
-async def policy_stats(request: Request):
+def policy_stats(request: Request):
     """Aggregate today's allow/deny/require_approval/approved/rejected counts."""
     import json as _json
 
@@ -247,7 +247,7 @@ async def policy_stats(request: Request):
 
 
 @audit_router.get("/policy/templates")
-async def list_policy_templates():
+def list_policy_templates():
     """List built-in PolicyProfile templates."""
     from tianshu.tools.policy_profile import BUILTIN_TEMPLATES
 

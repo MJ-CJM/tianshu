@@ -14,19 +14,19 @@ universes_router = APIRouter(prefix="/universes", tags=["universes"])
 
 
 @universes_router.get("")
-async def list_universes(request: Request):
+def list_universes(request: Request):
     mgr = request.app.state.universe_manager
     return ApiResponse(success=True, data=mgr.list())
 
 
 @universes_router.get("/_diff")
-async def diff_universes(request: Request, a: str = Query(...), b: str = Query(...)):
+def diff_universes(request: Request, a: str = Query(...), b: str = Query(...)):
     mgr = request.app.state.universe_manager
     return ApiResponse(success=True, data=mgr.diff(a, b))
 
 
 @universes_router.get("/_status")
-async def universe_status(request: Request):
+def universe_status(request: Request):
     config_manager = request.app.state.config_manager
     enabled = config_manager.agent_config.parallel_universe_enabled
     return ApiResponse(success=True, data={"enabled": enabled})
@@ -98,7 +98,7 @@ async def delete_universe(universe_id: str, request: Request):
 
 
 @universes_router.get("/{universe_id}")
-async def get_universe(universe_id: str, request: Request):
+def get_universe(universe_id: str, request: Request):
     storage: Storage = request.app.state.storage
     uni = storage.get_universe(universe_id)
     if not uni:
@@ -159,7 +159,7 @@ async def promote_code_variant(universe_id: str, request: Request):
 
 
 @universes_router.get("/{universe_id}/code-diff", response_model=ApiResponse)
-async def code_diff_universe(universe_id: str, request: Request):
+def code_diff_universe(universe_id: str, request: Request):
     mgr = request.app.state.universe_manager
     try:
         diff = mgr.code_diff(universe_id)
@@ -169,6 +169,6 @@ async def code_diff_universe(universe_id: str, request: Request):
 
 
 @universes_router.get("/{universe_id}/eval-runs", response_model=ApiResponse)
-async def list_eval_runs(universe_id: str, request: Request):
+def list_eval_runs(universe_id: str, request: Request):
     storage: Storage = request.app.state.storage
     return ApiResponse(success=True, data=storage.list_variant_eval_runs(universe_id))

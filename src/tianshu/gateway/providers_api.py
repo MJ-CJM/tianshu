@@ -15,7 +15,7 @@ providers_router = APIRouter(tags=["providers"])
 
 
 @providers_router.get("/providers")
-async def list_providers(request: Request):
+def list_providers(request: Request):
     storage: Storage = request.app.state.storage
     providers = storage.list_providers()
     return ApiResponse(success=True, data=providers)
@@ -47,7 +47,7 @@ async def update_provider(name: str, request: Request):
 
 
 @providers_router.delete("/providers/{name}", response_model=ApiResponse)
-async def delete_provider(name: str, request: Request):
+def delete_provider(name: str, request: Request):
     storage: Storage = request.app.state.storage
     deleted = storage.delete_provider(name)
     if not deleted:
@@ -56,7 +56,7 @@ async def delete_provider(name: str, request: Request):
 
 
 @providers_router.get("/providers/{name}/status")
-async def get_provider_status(name: str, request: Request):
+def get_provider_status(name: str, request: Request):
     storage: Storage = request.app.state.storage
     provider = storage.get_provider(name)
     if not provider:
@@ -74,7 +74,7 @@ class ProviderPricingUpdateRequest(BaseModel):
 
 
 @providers_router.put("/providers/{name}/pricing", response_model=ApiResponse)
-async def update_provider_pricing(
+def update_provider_pricing(
     name: str,
     body: ProviderPricingUpdateRequest,
     request: Request,
@@ -92,7 +92,7 @@ async def update_provider_pricing(
 
 
 @providers_router.delete("/providers/{name}/pricing", response_model=ApiResponse)
-async def reset_provider_pricing(name: str, request: Request):
+def reset_provider_pricing(name: str, request: Request):
     """重置 provider 三维价格为 NULL（落 _DEFAULT_PRICING）。"""
     storage: Storage = request.app.state.storage
     provider = storage.get_provider(name)
@@ -111,7 +111,7 @@ async def reset_provider_pricing(name: str, request: Request):
 
 
 @providers_router.get("/providers/pricing/defaults", response_model=ApiResponse)
-async def get_default_pricing_table(request: Request):
+def get_default_pricing_table(request: Request):
     """返回 _DEFAULT_PRICING 全部条目（用于户部账房"查看默认价表"展示）。"""
     from tianshu.cost.tracker import _DEFAULT_PRICING, _FALLBACK_PRICING
 
@@ -133,7 +133,7 @@ async def get_default_pricing_table(request: Request):
 
 
 @providers_router.get("/providers/{name}/pricing/effective", response_model=ApiResponse)
-async def get_effective_pricing(name: str, request: Request):
+def get_effective_pricing(name: str, request: Request):
     """返回当前生效价 + 来源（custom / default / mixed）。"""
     storage: Storage = request.app.state.storage
     if not storage.get_provider(name):
@@ -146,14 +146,14 @@ async def get_effective_pricing(name: str, request: Request):
 
 
 @providers_router.get("/plugins")
-async def list_plugins(request: Request):
+def list_plugins(request: Request):
     storage: Storage = request.app.state.storage
     plugins = storage.list_plugins()
     return ApiResponse(success=True, data=plugins)
 
 
 @providers_router.get("/plugins/{name}")
-async def get_plugin(name: str, request: Request):
+def get_plugin(name: str, request: Request):
     storage: Storage = request.app.state.storage
     plugin = storage.get_plugin(name)
     if not plugin:

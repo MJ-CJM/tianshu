@@ -46,7 +46,7 @@ async def sync_memory_index(request: Request):
 
 
 @memory_router.delete("/memory/{entry_id}", response_model=ApiResponse)
-async def delete_memory(entry_id: str, request: Request):
+def delete_memory(entry_id: str, request: Request):
     mm: MemoryManager = request.app.state.memory_manager
     deleted = mm.delete(entry_id)
     if not deleted:
@@ -66,7 +66,7 @@ async def batch_delete_memory(request: Request):
 
 
 @memory_router.get("/memory/policies")
-async def get_memory_policies(request: Request):
+def get_memory_policies(request: Request):
     mm: MemoryManager = request.app.state.memory_manager
     policies = {}
     for pid, policy in mm._access_control._policies.items():
@@ -182,7 +182,7 @@ async def trigger_reflection(request: Request):
 
 
 @memory_router.get("/memory/stats")
-async def get_memory_stats(request: Request):
+def get_memory_stats(request: Request):
     """Get memory statistics per persona."""
     mm: MemoryManager = request.app.state.memory_manager
     stats = {}
@@ -211,7 +211,7 @@ async def get_memory_stats(request: Request):
 # NOTE: 参数路由必须注册在 /memory/policies、/memory/stats 等静态段之后，
 # 否则 {persona_id} 会把它们全部吞掉（历史 bug：stats/policies 曾不可达）。
 @memory_router.get("/memory/{persona_id}")
-async def get_persona_memory(
+def get_persona_memory(
     persona_id: str,
     request: Request,
     limit: int = Query(default=50, ge=1, le=200),

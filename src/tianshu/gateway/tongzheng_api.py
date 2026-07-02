@@ -105,7 +105,7 @@ def _env_feishu_view() -> dict:
 
 
 @tongzheng_router.get("/channels/feishu")
-async def get_feishu_channel(request: Request) -> ApiResponse:
+def get_feishu_channel(request: Request) -> ApiResponse:
     """获取飞书默认实例配置（app_secret 永远以掩码返回，不返明文）。"""
     storage: Storage = request.app.state.storage
     row = storage.get_channel_instance(default_instance_id("feishu"))
@@ -150,7 +150,7 @@ async def put_feishu_channel(
 
 
 @tongzheng_router.get("/personas")
-async def list_personas(request: Request) -> ApiResponse:
+def list_personas(request: Request) -> ApiResponse:
     """供前端下拉框使用：列所有可用 cabinet personas。"""
     loader = request.app.state.persona_loader
     items: list = []
@@ -173,7 +173,7 @@ async def list_personas(request: Request) -> ApiResponse:
 
 
 @tongzheng_router.get("/channels/feishu/status")
-async def feishu_status(request: Request) -> ApiResponse:
+def feishu_status(request: Request) -> ApiResponse:
     """查询飞书默认实例连接状态。"""
     bot_manager = getattr(request.app.state, "bot_manager", None)
     bot = bot_manager.get(default_instance_id("feishu")) if bot_manager is not None else None
@@ -258,7 +258,7 @@ def _env_telegram_view() -> dict:
 
 
 @tongzheng_router.get("/channels/telegram")
-async def get_telegram_channel(request: Request) -> ApiResponse:
+def get_telegram_channel(request: Request) -> ApiResponse:
     """获取 Telegram 默认实例配置（bot_token 永远以掩码返回）。"""
     storage: Storage = request.app.state.storage
     row = storage.get_channel_instance(default_instance_id("telegram"))
@@ -300,7 +300,7 @@ async def put_telegram_channel(
 
 
 @tongzheng_router.get("/channels/telegram/status")
-async def telegram_status(request: Request) -> ApiResponse:
+def telegram_status(request: Request) -> ApiResponse:
     """查询 Telegram 默认实例连接状态。"""
     bot_manager = getattr(request.app.state, "bot_manager", None)
     bot = bot_manager.get(default_instance_id("telegram")) if bot_manager is not None else None
@@ -405,7 +405,7 @@ class InstanceUpdate(BaseModel):
 
 
 @tongzheng_router.get("/instances")
-async def list_instances(request: Request) -> ApiResponse:
+def list_instances(request: Request) -> ApiResponse:
     """列所有实例，合并运行状态；secret 掩码。"""
     storage: Storage = request.app.state.storage
     bot_manager = getattr(request.app.state, "bot_manager", None)
@@ -421,7 +421,7 @@ async def list_instances(request: Request) -> ApiResponse:
 
 
 @tongzheng_router.get("/instances/{instance_id}")
-async def get_instance(instance_id: str, request: Request) -> ApiResponse:
+def get_instance(instance_id: str, request: Request) -> ApiResponse:
     """单条实例；secret 掩码。"""
     storage: Storage = request.app.state.storage
     row = storage.get_channel_instance(instance_id)
@@ -546,7 +546,7 @@ async def delete_instance(instance_id: str, request: Request) -> ApiResponse:
 
 
 @tongzheng_router.get("/instances/{instance_id}/status")
-async def instance_status(instance_id: str, request: Request) -> ApiResponse:
+def instance_status(instance_id: str, request: Request) -> ApiResponse:
     """单实例运行状态。"""
     bot_manager = getattr(request.app.state, "bot_manager", None)
     bot = bot_manager.get(instance_id) if bot_manager is not None else None

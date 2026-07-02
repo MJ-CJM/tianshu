@@ -152,7 +152,7 @@ async def parse_edict_nl(body: ParseEdictRequest, request: Request):
 
 
 @edicts_router.get("")
-async def list_edicts(
+def list_edicts(
     request: Request,
     status: EdictStatus | None = None,
     search: str | None = None,
@@ -174,7 +174,7 @@ async def list_edicts(
 
 
 @edicts_router.get("/{edict_id}")
-async def get_edict(edict_id: str, request: Request):
+def get_edict(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
     edict = storage.get_edict(edict_id)
     if not edict:
@@ -183,7 +183,7 @@ async def get_edict(edict_id: str, request: Request):
 
 
 @edicts_router.patch("/{edict_id}", response_model=ApiResponse)
-async def update_edict(edict_id: str, body: EdictUpdateRequest, request: Request):
+def update_edict(edict_id: str, body: EdictUpdateRequest, request: Request):
     storage: Storage = request.app.state.storage
     edict = storage.get_edict(edict_id)
     if not edict:
@@ -205,7 +205,7 @@ async def update_edict(edict_id: str, body: EdictUpdateRequest, request: Request
 
 
 @edicts_router.delete("/{edict_id}", response_model=ApiResponse)
-async def delete_edict(edict_id: str, request: Request):
+def delete_edict(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
     edict = storage.get_edict(edict_id)
     if not edict:
@@ -221,7 +221,7 @@ async def delete_edict(edict_id: str, request: Request):
 
 
 @edicts_router.post("/{edict_id}/pause", response_model=ApiResponse)
-async def pause_edict(edict_id: str, request: Request):
+def pause_edict(edict_id: str, request: Request):
     """暂停一个 active 状态的 edict。complete/winding_down 状态返回 409。幂等：已 paused 直接返回 200。"""
     storage: Storage = request.app.state.storage
     edict = storage.get_edict(edict_id)
@@ -252,7 +252,7 @@ async def pause_edict(edict_id: str, request: Request):
 
 
 @edicts_router.post("/{edict_id}/resume", response_model=ApiResponse)
-async def resume_edict(edict_id: str, request: Request):
+def resume_edict(edict_id: str, request: Request):
     """恢复一个 paused 状态的 edict 为 active。complete/winding_down 状态返回 409。幂等：已 active 直接返回 200。"""
     storage: Storage = request.app.state.storage
     edict = storage.get_edict(edict_id)
@@ -283,7 +283,7 @@ async def resume_edict(edict_id: str, request: Request):
 
 
 @edicts_router.get("/{edict_id}/memorial")
-async def get_memorial_by_edict(edict_id: str, request: Request):
+def get_memorial_by_edict(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
     if not storage.get_edict(edict_id):
         raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
@@ -295,7 +295,7 @@ async def get_memorial_by_edict(edict_id: str, request: Request):
 
 
 @edicts_router.get("/{edict_id}/memorials")
-async def list_edict_memorials(edict_id: str, request: Request):
+def list_edict_memorials(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
     memorials = storage.list_memorials_by_edict(edict_id)
     return ApiResponse(success=True, data=[m.model_dump(mode="json") for m in memorials])
@@ -354,7 +354,7 @@ async def approve_plan(edict_id: str, request: Request):
 
 
 @edicts_router.post("/{edict_id}/plan/reject", response_model=ApiResponse)
-async def reject_plan(edict_id: str, request: Request):
+def reject_plan(edict_id: str, request: Request):
     """Reject a pending plan."""
     storage: Storage = request.app.state.storage
     edict = storage.get_edict(edict_id)
@@ -445,7 +445,7 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
 
 
 @edicts_router.patch("/{edict_id}/status", response_model=ApiResponse)
-async def update_edict_status(edict_id: str, body: EdictStatusUpdateRequest, request: Request):
+def update_edict_status(edict_id: str, body: EdictStatusUpdateRequest, request: Request):
     storage: Storage = request.app.state.storage
     edict = storage.get_edict(edict_id)
     if not edict:
@@ -459,14 +459,14 @@ async def update_edict_status(edict_id: str, body: EdictStatusUpdateRequest, req
 
 
 @edicts_router.get("/{edict_id}/events")
-async def get_events(edict_id: str, request: Request):
+def get_events(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
     events = storage.get_events(edict_id)
     return ApiResponse(success=True, data=events)
 
 
 @edicts_router.get("/{edict_id}/iterations")
-async def get_outer_loop_iterations(edict_id: str, request: Request):
+def get_outer_loop_iterations(edict_id: str, request: Request):
     """长任务 outer loop 的迭代记录（仅 acceptance != None 的 edict 有数据）。"""
     storage: Storage = request.app.state.storage
     rows = storage.get_outer_loop_iterations(edict_id)
@@ -480,7 +480,7 @@ class OuterLoopDecisionRequest(BaseModel):
 
 
 @edicts_router.get("/outer-loop/pending")
-async def list_outer_loop_pending(request: Request):
+def list_outer_loop_pending(request: Request):
     """所有 L3 待审批的长任务列表（含 best_output / critic_feedback / 轮数等）。"""
     am = request.app.state.approval_manager
     items = am.list_pending_outer_loop()
@@ -488,7 +488,7 @@ async def list_outer_loop_pending(request: Request):
 
 
 @edicts_router.post("/{edict_id}/outer-loop/decide")
-async def submit_outer_loop_decision_api(
+def submit_outer_loop_decision_api(
     edict_id: str,
     body: OuterLoopDecisionRequest,
     request: Request,
@@ -516,7 +516,7 @@ async def submit_outer_loop_decision_api(
 
 
 @edicts_router.get("/{edict_id}/supervision-reports")
-async def get_supervision_reports(edict_id: str, request: Request):
+def get_supervision_reports(edict_id: str, request: Request):
     """长任务终态后由所有 critic persona 生成的监督报告列表（4 章节 × N 监督官）。"""
     storage: Storage = request.app.state.storage
     rows = storage.get_supervision_reports(edict_id)
@@ -529,7 +529,7 @@ async def get_supervision_reports(edict_id: str, request: Request):
 
 
 @edicts_router.get("/{edict_id}/supervision-report")
-async def get_supervision_report_legacy(edict_id: str, request: Request):
+def get_supervision_report_legacy(edict_id: str, request: Request):
     """兼容旧 endpoint —— 返第一个监督报告（已废弃，建议用 /supervision-reports）。"""
     storage: Storage = request.app.state.storage
     row = storage.get_supervision_report(edict_id)
@@ -542,7 +542,7 @@ async def get_supervision_report_legacy(edict_id: str, request: Request):
 
 
 @edicts_router.get("/{edict_id}/policy_events")
-async def list_policy_events(edict_id: str, request: Request):
+def list_policy_events(edict_id: str, request: Request):
     """Return policy.* + hook.* + tool.approval_required + decree.* events for an edict."""
     storage: Storage = request.app.state.storage
     rows = storage.get_events(edict_id)

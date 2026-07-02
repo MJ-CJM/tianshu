@@ -28,7 +28,7 @@ async def curate_skills(
 
 
 @skills_router.get("/skills")
-async def list_skills(request: Request):
+def list_skills(request: Request):
     from tianshu.skills.loader import SkillsLoader
 
     loader: SkillsLoader = request.app.state.skills_loader
@@ -54,7 +54,7 @@ async def list_skills(request: Request):
 
 
 @skills_router.get("/skills/{name}")
-async def get_skill(name: str, request: Request):
+def get_skill(name: str, request: Request):
     from tianshu.skills.loader import SkillsLoader
 
     loader: SkillsLoader = request.app.state.skills_loader
@@ -86,7 +86,7 @@ async def update_skill(name: str, request: Request):
 
 
 @skills_router.post("/skills/{name}/archive")
-async def archive_skill(name: str, request: Request):
+def archive_skill(name: str, request: Request):
     """Human undo: archive an agent-created skill (recoverable)."""
     loader = request.app.state.skills_loader
     metrics = getattr(request.app.state, "skill_metrics_store", None)
@@ -133,7 +133,7 @@ async def create_skill(request: Request):
 
 
 @skills_router.delete("/skills/{name}", response_model=ApiResponse)
-async def delete_skill(name: str, request: Request):
+def delete_skill(name: str, request: Request):
     from tianshu.skills.loader import SkillsLoader
 
     loader: SkillsLoader = request.app.state.skills_loader
@@ -153,7 +153,7 @@ async def delete_skill(name: str, request: Request):
 
 
 @skills_router.get("/tools")
-async def list_tools(request: Request):
+def list_tools(request: Request):
     from tianshu.tools.registry import ToolRegistry
 
     registry: ToolRegistry = request.app.state.tool_registry
@@ -188,7 +188,7 @@ class _ToolEnabledPatch(BaseModel):
 
 
 @skills_router.patch("/tools/{tool_name}")
-async def update_tool_enabled(tool_name: str, body: _ToolEnabledPatch, request: Request):
+def update_tool_enabled(tool_name: str, body: _ToolEnabledPatch, request: Request):
     from tianshu.tools.registry import ToolRegistry
 
     registry: ToolRegistry = request.app.state.tool_registry

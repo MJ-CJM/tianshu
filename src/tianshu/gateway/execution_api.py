@@ -19,7 +19,7 @@ execution_router = APIRouter(tags=["execution"])
 
 
 @execution_router.get("/memorials")
-async def list_memorials(
+def list_memorials(
     request: Request,
     status: TaskStatus | None = None,
     limit: int = Query(default=50, ge=1, le=200),
@@ -37,7 +37,7 @@ async def list_memorials(
 
 
 @execution_router.get("/memorials/{memorial_id}")
-async def get_memorial(memorial_id: str, request: Request):
+def get_memorial(memorial_id: str, request: Request):
     storage: Storage = request.app.state.storage
     memorial = storage.get_memorial(memorial_id)
     if not memorial:
@@ -86,7 +86,7 @@ async def create_decree(body: DecreeCreateRequest, request: Request):
 
 
 @execution_router.get("/approvals/pending_tool_calls", response_model=ApiResponse)
-async def list_pending_tool_calls(request: Request):
+def list_pending_tool_calls(request: Request):
     """Return in-memory pending tool-call approvals awaited by PolicyHook.
 
     Used by 御书房 to render mid-execution approval cards. The state is sourced
@@ -127,7 +127,7 @@ async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
 
 
 @execution_router.get("/dag/by-edict/{edict_id}")
-async def get_dag_by_edict(edict_id: str, request: Request):
+def get_dag_by_edict(edict_id: str, request: Request):
     storage: Storage = request.app.state.storage
     dag = storage.get_dag_by_edict(edict_id)
     if not dag:
@@ -136,7 +136,7 @@ async def get_dag_by_edict(edict_id: str, request: Request):
 
 
 @execution_router.get("/dag/{dag_id}")
-async def get_dag(dag_id: str, request: Request):
+def get_dag(dag_id: str, request: Request):
     storage: Storage = request.app.state.storage
     dag = storage.get_dag_execution(dag_id)
     if not dag:
@@ -174,13 +174,13 @@ async def retry_dag(dag_id: str, request: Request):
 
 
 @execution_router.get("/workers")
-async def list_workers(request: Request):
+def list_workers(request: Request):
     pool: WorkerPool = request.app.state.worker_pool
     return ApiResponse(success=True, data={"active": pool.list_active()})
 
 
 @execution_router.get("/workers/status")
-async def get_workers_status(request: Request):
+def get_workers_status(request: Request):
     pool: WorkerPool = request.app.state.worker_pool
     lane_manager: LaneManager = request.app.state.lane_manager
     pool_status = pool.status()
@@ -200,7 +200,7 @@ async def get_workers_status(request: Request):
 
 
 @execution_router.get("/memorials/by-persona/{persona_id}")
-async def list_memorials_by_persona(
+def list_memorials_by_persona(
     persona_id: str,
     request: Request,
     limit: int = Query(default=100, ge=1, le=500),
@@ -219,7 +219,7 @@ async def list_memorials_by_persona(
 
 
 @execution_router.get("/planner/stats")
-async def get_planner_stats(request: Request):
+def get_planner_stats(request: Request):
     """Get planning statistics: total edicts, passthrough count, DAG count, avg tasks."""
     storage: Storage = request.app.state.storage
     with storage._lock:

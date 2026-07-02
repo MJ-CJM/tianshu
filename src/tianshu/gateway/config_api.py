@@ -38,13 +38,13 @@ def _state_to_agent_config(state) -> AgentConfig:
 
 
 @config_router.get("/agent-config", response_model=ApiResponse)
-async def get_agent_config(request: Request):
+def get_agent_config(request: Request):
     cm: ConfigManager = request.app.state.config_manager
     return ApiResponse(success=True, data=_state_to_agent_config(cm.agent_config).model_dump())
 
 
 @config_router.put("/agent-config", response_model=ApiResponse)
-async def update_agent_config(body: AgentConfigUpdateRequest, request: Request):
+def update_agent_config(body: AgentConfigUpdateRequest, request: Request):
     cm: ConfigManager = request.app.state.config_manager
     updates = body.model_dump(exclude_none=True)
     if not updates:
@@ -73,13 +73,13 @@ def _state_to_config(s: LLMConfigState) -> LLMConfig:
 
 
 @config_router.get("/config", response_model=ApiResponse)
-async def get_config(request: Request):
+def get_config(request: Request):
     cm: ConfigManager = request.app.state.config_manager
     return ApiResponse(success=True, data=_state_to_config(cm.state).model_dump())
 
 
 @config_router.put("/config", response_model=ApiResponse)
-async def update_config(body: LLMConfigUpdateRequest, request: Request):
+def update_config(body: LLMConfigUpdateRequest, request: Request):
     cm: ConfigManager = request.app.state.config_manager
     updates = body.model_dump(exclude_none=True)
     if not updates:
@@ -93,7 +93,7 @@ async def update_config(body: LLMConfigUpdateRequest, request: Request):
 
 
 @config_router.get("/configs", response_model=ApiResponse)
-async def list_configs(request: Request):
+def list_configs(request: Request):
     cm: ConfigManager = request.app.state.config_manager
     configs, active_name = cm.list_configs()
     resp = LLMConfigListResponse(
@@ -104,7 +104,7 @@ async def list_configs(request: Request):
 
 
 @config_router.post("/configs", response_model=ApiResponse, status_code=201)
-async def create_config(body: LLMConfigCreateRequest, request: Request):
+def create_config(body: LLMConfigCreateRequest, request: Request):
     cm: ConfigManager = request.app.state.config_manager
     state = LLMConfigState(
         name=body.name,
@@ -127,7 +127,7 @@ async def create_config(body: LLMConfigCreateRequest, request: Request):
 
 
 @config_router.put("/configs/{name}", response_model=ApiResponse)
-async def update_named_config(name: str, body: LLMConfigUpdateRequest, request: Request):
+def update_named_config(name: str, body: LLMConfigUpdateRequest, request: Request):
     cm: ConfigManager = request.app.state.config_manager
     updates = body.model_dump(exclude_none=True)
     try:
@@ -141,7 +141,7 @@ async def update_named_config(name: str, body: LLMConfigUpdateRequest, request: 
 
 
 @config_router.delete("/configs/{name}", response_model=ApiResponse)
-async def delete_named_config(name: str, request: Request):
+def delete_named_config(name: str, request: Request):
     cm: ConfigManager = request.app.state.config_manager
     try:
         cm.delete_config(name)
@@ -155,7 +155,7 @@ async def delete_named_config(name: str, request: Request):
 
 
 @config_router.put("/configs/{name}/activate", response_model=ApiResponse)
-async def activate_config(name: str, request: Request):
+def activate_config(name: str, request: Request):
     cm: ConfigManager = request.app.state.config_manager
     try:
         cm.set_active(name)

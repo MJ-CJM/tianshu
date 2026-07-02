@@ -21,7 +21,7 @@ personas_router = APIRouter(tags=["personas"])
 
 
 @personas_router.get("/departments")
-async def list_departments(request: Request):
+def list_departments(request: Request):
     storage: Storage = request.app.state.storage
     departments = storage.list_departments()
     return ApiResponse(success=True, data=departments)
@@ -53,7 +53,7 @@ async def update_department(dept_id: str, request: Request):
 
 
 @personas_router.delete("/departments/{dept_id}", response_model=ApiResponse)
-async def delete_department(dept_id: str, request: Request):
+def delete_department(dept_id: str, request: Request):
     storage: Storage = request.app.state.storage
     existing = storage.get_department(dept_id)
     if not existing:
@@ -161,7 +161,7 @@ def _render_persona_identity_files(
 
 
 @personas_router.get("/personas")
-async def list_personas(request: Request):
+def list_personas(request: Request):
     selector: OfficialSelector = request.app.state.official_selector
     storage: Storage = request.app.state.storage
     personas = selector.list_all()
@@ -319,7 +319,7 @@ async def create_persona(request: Request):
 
 
 @personas_router.get("/persona-templates")
-async def list_persona_templates(
+def list_persona_templates(
     request: Request,
     lang: str = Query(default="zh"),
 ):
@@ -345,7 +345,7 @@ async def list_persona_templates(
 
 
 @personas_router.get("/persona-templates/{template_id}")
-async def get_persona_template(
+def get_persona_template(
     template_id: str,
     request: Request,
     lang: str = Query(default="zh"),
@@ -445,7 +445,7 @@ async def update_persona(persona_id: str, request: Request):
     "/personas/{persona_id}/regenerate-identity",
     response_model=ApiResponse,
 )
-async def regenerate_persona_identity(persona_id: str, request: Request):
+def regenerate_persona_identity(persona_id: str, request: Request):
     """基于当前 name/department/title 重新生成 SOUL.md/ROLE.md（覆盖现有文件）。
 
     用于：
@@ -488,7 +488,7 @@ async def regenerate_persona_identity(persona_id: str, request: Request):
 
 
 @personas_router.delete("/personas/{persona_id}", response_model=ApiResponse)
-async def delete_persona(persona_id: str, request: Request):
+def delete_persona(persona_id: str, request: Request):
     from tianshu.persona.loader import PersonaLoader
 
     loader: PersonaLoader = request.app.state.persona_loader
@@ -501,14 +501,14 @@ async def delete_persona(persona_id: str, request: Request):
 
 
 @personas_router.get("/personas/{persona_id}/metrics")
-async def get_persona_metrics(persona_id: str, request: Request):
+def get_persona_metrics(persona_id: str, request: Request):
     evaluator: PerformanceEvaluator = request.app.state.evaluator
     metrics = evaluator.evaluate(persona_id)
     return ApiResponse(success=True, data=metrics.model_dump())
 
 
 @personas_router.get("/personas/{persona_id}/profile")
-async def get_persona_profile(persona_id: str, request: Request):
+def get_persona_profile(persona_id: str, request: Request):
     from tianshu.persona.profile_schema import parse_profile
 
     persona_loader = request.app.state.persona_loader
@@ -621,7 +621,7 @@ class _ProfileManualUpdate(BaseModel):
 
 
 @personas_router.put("/personas/{persona_id}/profile/manual", response_model=ApiResponse)
-async def update_profile_manual(persona_id: str, body: _ProfileManualUpdate, request: Request):
+def update_profile_manual(persona_id: str, body: _ProfileManualUpdate, request: Request):
     persona_loader = request.app.state.persona_loader
     if not persona_loader.get(persona_id):
         raise HTTPException(404, f"Persona '{persona_id}' not found")
@@ -644,7 +644,7 @@ async def update_profile_manual(persona_id: str, body: _ProfileManualUpdate, req
 
 
 @personas_router.get("/personas/{persona_id}/profile/history/{version}")
-async def get_profile_history(persona_id: str, version: int, request: Request):
+def get_profile_history(persona_id: str, version: int, request: Request):
     persona_loader = request.app.state.persona_loader
     if not persona_loader.get(persona_id):
         raise HTTPException(404, f"Persona '{persona_id}' not found")
@@ -670,7 +670,7 @@ async def get_profile_history(persona_id: str, version: int, request: Request):
 
 
 @personas_router.get("/routing/rules")
-async def get_routing_rules(request: Request):
+def get_routing_rules(request: Request):
     """Get official routing rules and keyword mappings."""
     selector: OfficialSelector = request.app.state.official_selector
     personas = selector.list_all()
