@@ -26,11 +26,15 @@ from tianshu.executor.orchestrator.archive import archive_old_iterations
 from tianshu.executor.policy_hook import PolicyHook
 from tianshu.executor.worker_pool import WorkerPool
 from tianshu.gateway import gateway_router
+from tianshu.gateway.config_api import config_router
+from tianshu.gateway.cost_api import cost_router
 from tianshu.gateway.credentials_api import credentials_router
 from tianshu.gateway.edicts_api import edicts_router
 from tianshu.gateway.execution_api import execution_router
 from tianshu.gateway.hongluisi_api import hongluisi_router
+from tianshu.gateway.memory_api import memory_router
 from tianshu.gateway.personas_api import personas_router
+from tianshu.gateway.providers_api import providers_router
 from tianshu.gateway.skills_api import skills_router
 from tianshu.gateway.universes_api import universes_router
 from tianshu.kernel.hooks import HookRegistry, HookType
@@ -830,11 +834,15 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(gateway_router, prefix="/api")
+    app.include_router(config_router, prefix="/api")
+    app.include_router(cost_router, prefix="/api")
     app.include_router(credentials_router, prefix="/api")
     app.include_router(edicts_router, prefix="/api")
     app.include_router(execution_router, prefix="/api")
     app.include_router(hongluisi_router, prefix="/api")
+    app.include_router(memory_router, prefix="/api")
     app.include_router(personas_router, prefix="/api")
+    app.include_router(providers_router, prefix="/api")
     app.include_router(skills_router, prefix="/api")
     app.include_router(universes_router, prefix="/api")
     from tianshu.gateway.tongzheng_api import tongzheng_router
