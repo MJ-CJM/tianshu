@@ -37,6 +37,7 @@ import {
   EyeOutlined,
   LockOutlined,
 } from "@ant-design/icons";
+import { useSearchParams } from "react-router-dom";
 import PageContainer from "../components/common/PageContainer";
 import MCPTab from "../components/system/MCPTab";
 import SecretSkillsTab from "../components/system/SecretSkillsTab";
@@ -1982,10 +1983,14 @@ function ExternalCredentialsTab() {
 
 export default function SystemManagementPage() {
   const t = useT();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") ?? "skills";
+  const setActiveTab = (key: string) => setSearchParams({ tab: key }, { replace: true });
   return (
     <PageContainer title={t("system.title")}>
       <Tabs
-        defaultActiveKey="skills"
+        activeKey={activeTab}
+        onChange={setActiveTab}
         items={[
           {
             key: "skills",

@@ -95,7 +95,7 @@ export default function ApprovalQueuePage() {
 
   return (
     <PageContainer
-      title={`${t("nav.approvals")} (${edicts.length})`}
+      title={t("nav.approvals")}
       extra={
         <Space>
           <Input

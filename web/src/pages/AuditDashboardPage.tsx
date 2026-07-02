@@ -12,7 +12,7 @@ import {
 import { fetchPolicyStats } from "../api/policy";
 import type { PolicyStats } from "../api/policy";
 import type { ColumnsType } from "antd/es/table";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuditStats } from "../hooks/useAudit";
 import { useAuditRules } from "../hooks/useOps";
@@ -352,7 +352,9 @@ export default function AuditDashboardPage() {
   const t = useT();
   const navigate = useNavigate();
   const { data: stats, isLoading, refetch } = useAuditStats();
-  const [activeTab, setActiveTab] = useState("stats");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") ?? "stats";
+  const setActiveTab = (key: string) => setSearchParams({ tab: key }, { replace: true });
   const { data: rulesData } = useAuditRules();
 
   const summary = stats?.summary;
