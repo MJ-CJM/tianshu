@@ -34,6 +34,15 @@ def _audit_passed(a: dict) -> bool:
     return a.get("verdict") == "pass"
 
 
+def _load_json_field(raw: str, loader, field: str, entity_id: str, default):
+    """反序列化行 JSON 字段；失败时 warning 并返回 default（容忍历史脏数据）。"""
+    try:
+        return loader(raw)
+    except Exception as exc:
+        logger.warning("Failed to deserialize %s for %s: %s", field, entity_id, exc)
+        return default
+
+
 # Deferred import to avoid circular deps
 _MemoryEntry = None
 
@@ -2696,48 +2705,45 @@ class Storage:
 
         schedule = EdictSchedule()
         if "schedule_json" in keys and row["schedule_json"]:
-            try:
-                schedule = EdictSchedule.model_validate_json(row["schedule_json"])
-            except Exception:
-                pass
+            schedule = _load_json_field(
+                row["schedule_json"], EdictSchedule.model_validate_json,
+                "schedule_json", row["id"], schedule,
+            )
 
         dispatch = None
         if "dispatch_json" in keys and row["dispatch_json"]:
-            try:
-                dispatch = EdictDispatch.model_validate_json(row["dispatch_json"])
-            except Exception:
-                pass
+            dispatch = _load_json_field(
+                row["dispatch_json"], EdictDispatch.model_validate_json,
+                "dispatch_json", row["id"], dispatch,
+            )
 
         runtime = EdictRuntime()
         if "runtime_json" in keys and row["runtime_json"]:
-            try:
-                runtime = EdictRuntime.model_validate_json(row["runtime_json"])
-            except Exception:
-                pass
+            runtime = _load_json_field(
+                row["runtime_json"], EdictRuntime.model_validate_json,
+                "runtime_json", row["id"], runtime,
+            )
 
         constraints = []
         if "constraints_json" in keys and row["constraints_json"]:
-            try:
-                constraints = json.loads(row["constraints_json"])
-            except Exception:
-                pass
+            constraints = _load_json_field(
+                row["constraints_json"], json.loads,
+                "constraints_json", row["id"], constraints,
+            )
 
         metadata = {}
         if "metadata_json" in keys and row["metadata_json"]:
-            try:
-                metadata = json.loads(row["metadata_json"])
-            except Exception:
-                pass
+            metadata = _load_json_field(
+                row["metadata_json"], json.loads,
+                "metadata_json", row["id"], metadata,
+            )
 
         acceptance = None
         if "acceptance_json" in keys and row["acceptance_json"]:
-            try:
-                acceptance = AcceptanceCriteria.model_validate_json(row["acceptance_json"])
-            except Exception as exc:
-                logger.warning(
-                    "Failed to deserialize acceptance_json for edict %s: %s",
-                    row["id"], exc,
-                )
+            acceptance = _load_json_field(
+                row["acceptance_json"], AcceptanceCriteria.model_validate_json,
+                "acceptance_json", row["id"], acceptance,
+            )
 
         return Edict(
             id=row["id"],
@@ -2771,10 +2777,10 @@ class Storage:
 
         audit = None
         if "audit_json" in keys and row["audit_json"]:
-            try:
-                audit = AuditResult.model_validate_json(row["audit_json"])
-            except Exception:
-                pass
+            audit = _load_json_field(
+                row["audit_json"], AuditResult.model_validate_json,
+                "audit_json", row["id"], audit,
+            )
 
         return Memorial(
             id=row["id"],

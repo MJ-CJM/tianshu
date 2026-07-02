@@ -167,4 +167,4 @@ class HookRegistry:
                 },
             )
         except Exception:
-            pass
+            logger.debug("Failed to persist hook audit event", exc_info=True)
