@@ -11,7 +11,7 @@
 | `llm.py` | `LLMClient`、`LLMResponse`、`_apply_prompt_caching`、`_extract_cache_read_tokens`、`_extract_model_echo`、`_log_model_echo`、`_resolve_model` | LiteLLM 封装、缓存、回显校验 |
 | `config_manager.py` | `ConfigManager`、`LLMConfigState`、`AgentConfigState` | 多命名配置 + Agent 运行参数 |
 | `providers/manager.py` | `ProviderManager` | 路由、限速、配价生效计算 |
-| `providers/protocol.py` | `ProviderInfo`、`ProviderCapability`、`TaskRequirements` | pydantic 容量/需求模型 |
+| `providers/capabilities.py` | `ProviderInfo`、`ProviderCapability`、`TaskRequirements` | pydantic 容量/需求模型 |
 | `providers/litellm_provider.py` | `create_llm_client` | LLMClient 工厂 |
 | `cost/manager.py` | `CostManager` | hook + event 接入、记账 |
 | `cost/tracker.py` | `CostTracker`、`estimate_cost`、`lookup_pricing`、`_DEFAULT_PRICING` | 累加器 + 无状态定价 |

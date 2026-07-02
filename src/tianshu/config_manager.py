@@ -20,7 +20,7 @@ class LLMConfigState:
     model: str
     api_key: str
     api_base: str = ""
-    max_retries: int = 3
+    max_retries: int = _SETTINGS_DEFAULTS["llm_max_retries"].default
     temperature: float = _SETTINGS_DEFAULTS["llm_temperature"].default
     top_p: float = _SETTINGS_DEFAULTS["llm_top_p"].default
     max_tokens: int = _SETTINGS_DEFAULTS["llm_max_tokens"].default

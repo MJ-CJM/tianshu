@@ -76,7 +76,7 @@ Provider 是一份带能力/配额/价格的模型配置。`ProviderManager` 负
 最小端到端：
 
 ```python
-from tianshu.providers.protocol import ProviderInfo, ProviderCapability
+from tianshu.providers.capabilities import ProviderInfo, ProviderCapability
 
 provider_manager.register(ProviderInfo(
     name="my-gpt",
