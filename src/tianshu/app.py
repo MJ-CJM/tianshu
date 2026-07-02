@@ -25,6 +25,7 @@ from tianshu.providers.manager import ProviderManager
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.executor.hooks import HookRegistry, HookType
+from tianshu.executor.orchestrator.archive import archive_old_iterations
 from tianshu.executor.policy_hook import PolicyHook
 from tianshu.persona.evaluator import PerformanceEvaluator
 from tianshu.gateway import gateway_router
@@ -735,6 +736,7 @@ async def lifespan(app: FastAPI):
                 await notifier.broadcast_ws(digest)
                 # Dispatch to all registered external channels
                 await channel_registry.send_all(digest, str(digest))
+                archived = archive_old_iterations(storage)
             except asyncio.CancelledError:
                 break
             except Exception:

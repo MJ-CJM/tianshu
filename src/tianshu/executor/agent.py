@@ -18,6 +18,7 @@ from tianshu.executor.compaction.reactive import reactive_compact
 from tianshu.executor.exit_reason import ExitReason
 from tianshu.executor.hooks import HookRegistry, HookResult, HookType
 from tianshu.executor.loop_state import LoopState
+from tianshu.executor.streaming import StreamCallback
 from tianshu.llm import LLMClient
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.persona.prompt_builder import PromptBuilder
@@ -98,7 +99,7 @@ class Agent:
         user_content: str | None = None,
         tool_filter: list[str] | None = None,
         persona: object | None = None,
-        stream_callback: object | None = None,
+        stream_callback: StreamCallback | None = None,
         cancellation_token: object | None = None,
     ) -> AgentResult:
         # Read runtime config at execution start
