@@ -138,6 +138,7 @@ feat_phase3 参考。
 - **Memory Palace Phase 2+ 向量后端** —— 参考 NanoBot 的 heartbeat 两阶段决策模式，让 `Reflector` 通过 tool_call 做结构化反思决策
 - **Pi-Mono 的 EventStream 不可变链** —— 若未来将 LoopState + EventBus 融合成更强的时间旅行调试，可参考
 - **OpenClaw 的 channels 架构** —— 若要扩展通知通道到 10+，可参考其 11 通道抽象
+- **Multica 的控制平面设计** —— 调度自愈（Sweeper）、并发治理、控制/数据平面解耦，契合 Phase 3 分布式。详见 [multica-analysis.md](./multica-analysis.md) 与落地方案 [../superpowers/plans/2026-07-02-multica-inspired-control-plane.md](../superpowers/plans/2026-07-02-multica-inspired-control-plane.md)
 
 ---
 
