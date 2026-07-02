@@ -137,10 +137,10 @@ class UniverseEvolver:
                 from tianshu.universe.mutator import apply_mutation
 
                 applied = await apply_mutation(
-                    self._mgr._store,
+                    self._mgr._store,  # noqa: SLF001
                     child["id"],
                     mutation,
-                    self._llm,  # noqa: SLF001
+                    self._llm,
                 )
                 result.mutation_applied = bool(applied.get("applied"))
                 result.mutation_detail = applied.get("detail")

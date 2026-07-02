@@ -66,9 +66,9 @@ def test_gc_removes_worktree_keeps_branch(store: CodeVariantStore):
     assert not store.exists("u1")
     out = subprocess.run(
         ["git", "branch", "--list", "universe/u1"],
-        cwd=str(store._repo),
+        cwd=str(store._repo),  # noqa: SLF001
         capture_output=True,
-        text=True,  # noqa: SLF001
+        text=True,
     ).stdout
     assert "universe/u1" in out
 
