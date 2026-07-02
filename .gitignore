@@ -19,3 +19,5 @@ src/tianshu/web/static/
 web/*.local
 web/tsconfig.tsbuildinfo
 .idea/workspace.xml
+.idea/modules.xml
+.codegraph/
