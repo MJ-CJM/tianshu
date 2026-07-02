@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
-from tianshu.tools.mcp.client import DiscoveredTool, MCPServerSession
+from tianshu.tools.mcp.client import MCPServerSession
 from tianshu.tools.mcp.config import (
     MCPConfig,
     MCPServerConfig,
@@ -18,7 +19,7 @@ from tianshu.tools.mcp.naming import encode_tool_name
 from tianshu.tools.types import ToolResult, error_result, ok_result
 
 if TYPE_CHECKING:
-    from tianshu.tools.registry import ToolDefinition, ToolRegistry
+    from tianshu.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class MCPManager:
 
     def __init__(
         self,
-        tool_registry: "ToolRegistry",
+        tool_registry: ToolRegistry,
         config_path: str | Path = "~/.tianshu/mcp_servers.yaml",
         storage: object | None = None,
     ) -> None:

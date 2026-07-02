@@ -77,7 +77,7 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
         )
         try:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.CancelledError):
             proc.kill()
             await proc.communicate()
             return error_result("grep: search timed out")

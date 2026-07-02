@@ -16,7 +16,6 @@ from tianshu.tools.mcp.config import (
     merge_overrides,
 )
 
-
 _FULL_YAML = """
 mcp_servers:
   filesystem:

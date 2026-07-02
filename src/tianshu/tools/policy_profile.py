@@ -136,7 +136,7 @@ def resolve_network_for_edict(edict: object) -> NetworkPolicy:
 
 async def expand_profile_to_rules(
     profile: PolicyProfile,
-    edict: "Edict",
+    edict: Edict,
     store: object,
 ) -> int:
     """把 profile 展开为一批 edict-scope session rules，返回创建数量。

@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from datetime import UTC, datetime, timedelta
-
 from tianshu.config_manager import AgentConfigState
 from tianshu.skills.curator import SkillCurator
 from tianshu.skills.loader import SkillsLoader
 from tianshu.skills.metrics import SkillMetrics, SkillMetricsStore
-from tianshu.skills.validator import SkillValidator
 from tianshu.storage import Storage
 
 _SKILL_MD = "---\nname: {name}\ndescription: test skill for iteration\n---\n\n# {name}\n\nbody for {name}"
@@ -167,7 +165,6 @@ class TestIteratePass:
         mock_llm = MagicMock()
         mock_llm.chat = MagicMock(return_value=_Resp(llm_resp))
 
-        import asyncio
 
         async def async_chat(**kwargs):
             return _Resp(llm_resp)

@@ -16,7 +16,7 @@ from tianshu.executor.compaction.auto import auto_compact, should_auto_compact
 from tianshu.executor.compaction.micro import micro_compact
 from tianshu.executor.compaction.reactive import reactive_compact
 from tianshu.executor.exit_reason import ExitReason
-from tianshu.executor.hooks import HookRegistry, HookResult, HookType
+from tianshu.executor.hooks import HookRegistry, HookType
 from tianshu.executor.loop_state import LoopState
 from tianshu.executor.streaming import StreamCallback
 from tianshu.llm import LLMClient

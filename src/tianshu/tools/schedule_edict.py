@@ -69,9 +69,9 @@ def _resolve_delivery(deliver: str | None) -> dict | str:
 def register_schedule_edict(
     registry: ToolRegistry,
     *,
-    storage: "Storage",
-    scheduler: "Scheduler",
-    persona_loader: "PersonaLoader | None" = None,
+    storage: Storage,
+    scheduler: Scheduler,
+    persona_loader: PersonaLoader | None = None,
 ) -> None:
     """注册 schedule_edict tool 到 ToolRegistry。"""
 

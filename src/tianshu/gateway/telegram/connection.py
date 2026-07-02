@@ -94,7 +94,7 @@ class TelegramConnection:
     # --- webhook router ---
 
     @property
-    def router(self) -> "APIRouter":
+    def router(self) -> APIRouter:
         """webhook 模式：暴露 FastAPI router（校验 secret → process_update）。"""
         from fastapi import APIRouter, Request, Response
 

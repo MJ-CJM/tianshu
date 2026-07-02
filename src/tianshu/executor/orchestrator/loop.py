@@ -14,9 +14,9 @@ from tianshu.executor.orchestrator.audit import (
     run_completion_audit,
 )
 from tianshu.executor.orchestrator.budget import (
-    BudgetSnapshot,
     HARD_LIMIT,
     SOFT_LANDING_THRESHOLD,
+    BudgetSnapshot,
     compute_usage_ratio,
     dominant_dimension,
 )
@@ -25,26 +25,26 @@ from tianshu.executor.orchestrator.critic import CriticUnavailable, review
 from tianshu.executor.orchestrator.escalation import decide_escalation
 from tianshu.executor.orchestrator.lifecycle import apply_transition
 from tianshu.executor.orchestrator.persistence import emit_audit, persist_iteration
-from tianshu.executor.orchestrator.supervision import generate_supervision_report
 from tianshu.executor.orchestrator.state import (
     CriticResult,
     IterationRecord,
     OuterLoopState,
 )
+from tianshu.executor.orchestrator.supervision import generate_supervision_report
 from tianshu.executor.orchestrator.templates import (
     TemplateName,
     render_template,
 )
 from tianshu.llm import LLMClient
 from tianshu.models.common import TaskStatus, UsageSummary
-
-# pause 等待轮询间隔。短一点用户体感快、长一点 DB 压力小。
-PAUSE_POLL_INTERVAL_SECONDS: float = 2.0
 from tianshu.models.edict import Edict
 from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
+
+# pause 等待轮询间隔。短一点用户体感快、长一点 DB 压力小。
+PAUSE_POLL_INTERVAL_SECONDS: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -166,7 +166,7 @@ def _state_from_dict(d: dict) -> OuterLoopState:
     )
 
 
-def _save_checkpoint(ctx: "OrchestratorContext", state: OuterLoopState) -> None:
+def _save_checkpoint(ctx: OrchestratorContext, state: OuterLoopState) -> None:
     cp = OuterLoopCheckpoint(
         edict_id=state.edict_id,
         state_dict=_state_to_dict(state),
@@ -177,7 +177,7 @@ def _save_checkpoint(ctx: "OrchestratorContext", state: OuterLoopState) -> None:
     )
 
 
-def _load_checkpoint(ctx: "OrchestratorContext", edict_id: str) -> OuterLoopState | None:
+def _load_checkpoint(ctx: OrchestratorContext, edict_id: str) -> OuterLoopState | None:
     raw = ctx.storage.get_outer_loop_checkpoint(edict_id)
     if not raw:
         return None
@@ -214,12 +214,12 @@ def _add_usage_to_memorial(
 async def _finalize_with_supervision(
     state: OuterLoopState,
     edict: Edict,
-    ctx: "OrchestratorContext",
+    ctx: OrchestratorContext,
     memorial: Memorial,
     status: TaskStatus,
     final_output: str | None,
     error: str | None = None,
-) -> "OrchestratorResult":
+) -> OrchestratorResult:
     """终态包装：清 checkpoint + (可选) 生成监督报告 + 返回 OrchestratorResult。
 
     监督报告仅在 edict.acceptance.critic.persona_id 配了且 ctx.persona_loader 可用时生成。
@@ -831,7 +831,7 @@ async def _escalate_to_human(
                 timeout_seconds=timeout,
             )
         if raw is None:
-            raise asyncio.TimeoutError("approval timeout / no decision")
+            raise TimeoutError("approval timeout / no decision")
         if isinstance(raw, dict):
             decision = HumanDecision.model_validate(raw)
         elif isinstance(raw, HumanDecision):

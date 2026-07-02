@@ -39,7 +39,7 @@ def get_memorial(
     color = _STATUS_COLORS.get(status, "white")
     usage = m.get("usage", {})
 
-    console.print(f"\n[bold]Memorial[/bold]")
+    console.print("\n[bold]Memorial[/bold]")
     console.print(f"  ID:           {m.get('id')}")
     console.print(f"  Edict ID:     {m.get('edict_id')}")
     console.print(f"  Status:       [{color}]{status}[/{color}]")
@@ -47,16 +47,16 @@ def get_memorial(
     console.print(f"  Started at:   {m.get('started_at', 'N/A')}")
     console.print(f"  Completed at: {m.get('completed_at', 'N/A')}")
 
-    console.print(f"\n[bold]Token Usage:[/bold]")
+    console.print("\n[bold]Token Usage:[/bold]")
     console.print(f"  Prompt:     {usage.get('prompt_tokens', 0)}")
     console.print(f"  Completion: {usage.get('completion_tokens', 0)}")
     console.print(f"  Total:      {usage.get('total_tokens', 0)}")
 
     if m.get("summary"):
-        console.print(f"\n[bold]Summary:[/bold]")
+        console.print("\n[bold]Summary:[/bold]")
         console.print(m["summary"])
     if m.get("result") and m.get("result") != m.get("summary"):
-        console.print(f"\n[bold]Result:[/bold]")
+        console.print("\n[bold]Result:[/bold]")
         console.print(m["result"])
     if m.get("error"):
         console.print(f"\n[red]Error:[/red] {m['error']}")

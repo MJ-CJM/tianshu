@@ -10,7 +10,6 @@ from urllib.parse import urlparse
 
 from tianshu.tools.hongluisi.policy import NetworkPolicy
 from tianshu.tools.policy import PolicyContext, PolicyDecision
-from tianshu.tools.policy_profile import BUILTIN_TEMPLATES
 
 NETWORK_TOOLS = frozenset({"web_fetch", "web_search", "api_request", "web_extract"})
 WRITE_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})

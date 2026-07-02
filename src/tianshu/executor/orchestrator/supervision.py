@@ -112,11 +112,10 @@ async def generate_supervision_report(
 ) -> SupervisionReport:
     """调监督官 LLM 生成结构化报告。失败时仍返回 SupervisionReport（章节空 + raw_feedback 兜底）。"""
     iter_summary = _format_iterations_from_state(state)
-    if state.history == () or not state.history:
-        # resume 后 history 不重建，回查 DB
-        if storage is not None:
-            rows = storage.get_outer_loop_iterations(edict.id)
-            iter_summary = _format_iterations_from_db(rows)
+    # resume 后 history 不重建，回查 DB
+    if (state.history == () or not state.history) and storage is not None:
+        rows = storage.get_outer_loop_iterations(edict.id)
+        iter_summary = _format_iterations_from_db(rows)
 
     persona_name = getattr(persona, "name", "未知监督官")
     persona_dept = getattr(persona, "department", "")

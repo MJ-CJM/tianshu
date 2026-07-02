@@ -1,13 +1,11 @@
 """模板渲染辅助测试。"""
 from __future__ import annotations
 
-import pytest
-
 from tianshu.executor.orchestrator.templates import (
+    TEMPLATE_FALLBACK,
+    TemplateName,
     render_template,
     wrap_untrusted_objective,
-    TemplateName,
-    TEMPLATE_FALLBACK,
 )
 
 

@@ -7,14 +7,10 @@
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from tianshu.tools.builtins import register_builtins
-from tianshu.tools.registry import ToolDefinition, ToolRegistry
-from tianshu.tools.types import ToolResult, ToolTier, ok_result
-
+from tianshu.tools.registry import ToolRegistry
 
 # ── tool_registry：过滤 schema 外 kwargs ────────────────────────────────────
 
@@ -181,8 +177,8 @@ async def test_success_resets_failure_counter():
 
 def test_agent_accepts_provider_callable():
     """Agent.__init__ 应接受 assistant_persona_id_provider 参数（callable，可返回 None）。"""
-    from tianshu.executor.agent import Agent
     from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
+    from tianshu.executor.agent import Agent
 
     cm = ConfigManager(
         initial=LLMConfigState(name="x", model="x", api_key="x", api_base=""),
@@ -209,8 +205,8 @@ def test_agent_accepts_provider_callable():
 
 def test_agent_accepts_no_provider_default_none():
     """provider 参数可选，老调用方不传也能创建 Agent（向后兼容）。"""
-    from tianshu.executor.agent import Agent
     from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
+    from tianshu.executor.agent import Agent
 
     cm = ConfigManager(
         initial=LLMConfigState(name="x", model="x", api_key="x", api_base=""),

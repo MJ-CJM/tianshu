@@ -34,13 +34,13 @@ class AssistantBranch:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        anchor: "SessionAnchor",
+        storage: Storage,
+        anchor: SessionAnchor,
         edict_bridge,
-        outbound: "TelegramOutbound",
+        outbound: TelegramOutbound,
         renderer,
-        card_builder: "TelegramCardBuilder",
-        approval_commands: "TelegramApprovalCommandHandler | None" = None,
+        card_builder: TelegramCardBuilder,
+        approval_commands: TelegramApprovalCommandHandler | None = None,
         assistant_persona_id: str = "tongzheng",
         instance_id: str = "telegram-default",
     ) -> None:
@@ -60,7 +60,7 @@ class AssistantBranch:
     def set_assistant_persona_id(self, persona_id: str) -> None:
         self._assistant_persona_id = persona_id
 
-    async def handle(self, msg: "TelegramMessage", ctx: "ModeContext") -> None:
+    async def handle(self, msg: TelegramMessage, ctx: ModeContext) -> None:
         text = msg.text.strip()
 
         approval_cmd = parse_approval_command(text)
@@ -114,7 +114,7 @@ class AssistantBranch:
 
     # --- 命令实现 ---
 
-    async def _cmd_new(self, msg: "TelegramMessage", ctx: "ModeContext", goal: str) -> None:
+    async def _cmd_new(self, msg: TelegramMessage, ctx: ModeContext, goal: str) -> None:
         if not goal:
             await self._reply(msg.chat_id, "用法：/new <目标描述>")
             return
@@ -123,7 +123,7 @@ class AssistantBranch:
         )
         await self._send_thinking(msg, result.edict_id, result.memorial_id, goal)
 
-    async def _cmd_list(self, msg: "TelegramMessage", ctx: "ModeContext", filter_arg: str) -> None:
+    async def _cmd_list(self, msg: TelegramMessage, ctx: ModeContext, filter_arg: str) -> None:
         status_filter = self._parse_filter(filter_arg)
         status_value = status_filter.value if status_filter is not None else None
         edicts, _total = self._storage.list_edicts(
@@ -139,7 +139,7 @@ class AssistantBranch:
         card = self._card_builder.build_list_card(edicts=edicts, current_anchor=ctx.edict_id)
         await self._outbound.send_card(msg.chat_id, card)
 
-    async def _cmd_select(self, msg: "TelegramMessage", ctx: "ModeContext", target: str) -> None:
+    async def _cmd_select(self, msg: TelegramMessage, ctx: ModeContext, target: str) -> None:
         if not target:
             await self._reply(msg.chat_id, "用法：/select <敕令 ID 前缀（≥6 字符）>")
             return
@@ -167,15 +167,15 @@ class AssistantBranch:
             self._renderer.edict_selected_reply(edict.id, edict.title or "(无标题)"),
         )
 
-    async def _cmd_budget(self, msg: "TelegramMessage", ctx: "ModeContext") -> None:
+    async def _cmd_budget(self, msg: TelegramMessage, ctx: ModeContext) -> None:
         card = await self._card_builder.build_budget_card()
         await self._outbound.send_card(msg.chat_id, card)
 
-    async def _cmd_menu(self, msg: "TelegramMessage", ctx: "ModeContext") -> None:
+    async def _cmd_menu(self, msg: TelegramMessage, ctx: ModeContext) -> None:
         card = self._card_builder.build_menu_card()
         await self._outbound.send_card(msg.chat_id, card)
 
-    async def _cmd_status(self, msg: "TelegramMessage", ctx: "ModeContext", target: str) -> None:
+    async def _cmd_status(self, msg: TelegramMessage, ctx: ModeContext, target: str) -> None:
         if not target:
             await self._reply(
                 msg.chat_id, "助手模式下 /status 需要指定敕令 ID。用法：/status <id>",
@@ -190,7 +190,7 @@ class AssistantBranch:
             f"📋 #{edict.id[:8]} 标题：{edict.title or '(无)'}\n状态：{format_status_label(edict.status)}",
         )
 
-    async def _cmd_cancel(self, msg: "TelegramMessage", ctx: "ModeContext", target: str) -> None:
+    async def _cmd_cancel(self, msg: TelegramMessage, ctx: ModeContext, target: str) -> None:
         if not target:
             await self._reply(
                 msg.chat_id, "助手模式下 /cancel 需要指定敕令 ID。用法：/cancel <id>",
@@ -210,7 +210,7 @@ class AssistantBranch:
         self._storage.update_edict_lifecycle_phase(edict.id, "complete")
         await self._reply(msg.chat_id, self._renderer.edict_cancel_reply(edict.id))
 
-    async def _cmd_clear(self, msg: "TelegramMessage", ctx: "ModeContext") -> None:
+    async def _cmd_clear(self, msg: TelegramMessage, ctx: ModeContext) -> None:
         if not ctx.edict_id:
             await self._reply(
                 msg.chat_id, f"{self._renderer.assistant_tag()} 当前无活跃聊天会话",
@@ -237,7 +237,7 @@ class AssistantBranch:
     # --- 纯文本（自然语言）---
 
     async def _handle_natural_language(
-        self, msg: "TelegramMessage", ctx: "ModeContext", text: str,
+        self, msg: TelegramMessage, ctx: ModeContext, text: str,
     ) -> None:
         from tianshu.gateway.feishu.edict_bridge import EdictBusyError
         try:
@@ -264,7 +264,7 @@ class AssistantBranch:
             return None
         return EdictStatus.OPEN
 
-    def _find_by_prefix(self, prefix: str) -> "Edict | None":
+    def _find_by_prefix(self, prefix: str) -> Edict | None:
         if len(prefix) < 6:
             return None
         edicts, _total = self._storage.list_edicts(
@@ -280,7 +280,7 @@ class AssistantBranch:
         await self._outbound.send_text(chat_id, text)
 
     async def _send_thinking(
-        self, msg: "TelegramMessage", edict_id: str, memorial_id: str, instruction: str,
+        self, msg: TelegramMessage, edict_id: str, memorial_id: str, instruction: str,
     ) -> None:
         """发 ⏳ 占位消息，execution 完成时由 outbound 删除。"""
         mid = await self._outbound.send_thinking(msg.chat_id)

@@ -11,6 +11,7 @@ from tianshu.config_manager import ConfigManager
 from tianshu.models.common import AuditResult, EdictStatus, TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
+from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class Auditor:
         self._rules = RulesEngine()
         self._reviewer = LLMReviewer(config_manager)
 
-    async def audit(self, edict: Edict, memorial: "Memorial") -> AuditResult:
+    async def audit(self, edict: Edict, memorial: Memorial) -> AuditResult:
         logger.debug("[AUDIT] Edict %s: start audit, policy=%s", edict.id, edict.review_policy)
         # Layer 1: fast rules
         result = self._rules.check(edict, memorial)
@@ -72,11 +73,7 @@ class Auditor:
         # Skip audit if policy is "never"
         if edict.review_policy == "never":
             audit_result = AuditResult(verdict="pass", rules_checked=0)
-        elif edict.review_policy == "always":
-            audit_result = await self.audit(edict, memorial)
-        elif edict.review_policy == "on_failure" and memorial.status == TaskStatus.FAILED:
-            audit_result = await self.audit(edict, memorial)
-        elif edict.review_policy == "on_flag":
+        elif edict.review_policy == "always" or edict.review_policy == "on_failure" and memorial.status == TaskStatus.FAILED or edict.review_policy == "on_flag":
             audit_result = await self.audit(edict, memorial)
         else:
             audit_result = AuditResult(verdict="pass", rules_checked=0)

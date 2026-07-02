@@ -2,10 +2,9 @@
 
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field
-from ulid import ULID
 
 T = TypeVar("T")
 
@@ -81,7 +80,7 @@ class TimelineItem(BaseModel):
     detail: str | None = None
 
 
-class ApiResponse(BaseModel, Generic[T]):
+class ApiResponse(BaseModel, Generic[T]):  # noqa: UP046 -- pydantic 泛型模型迁移 PEP 695 语法有兼容性风险，暂缓
     success: bool
     data: T | None = None
     error: str | None = None

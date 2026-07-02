@@ -47,15 +47,15 @@ class FeishuBot:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        event_bus: "EventBus",
-        approval_manager: "ApprovalManager",
-        executor: "Executor",
-        notifier: "Notifier",
+        storage: Storage,
+        event_bus: EventBus,
+        approval_manager: ApprovalManager,
+        executor: Executor,
+        notifier: Notifier,
         settings: FeishuSettings,
-        persona_loader: "PersonaLoader | None" = None,
-        provider_manager: "ProviderManager | None" = None,
-        cost_manager: "CostManager | None" = None,
+        persona_loader: PersonaLoader | None = None,
+        provider_manager: ProviderManager | None = None,
+        cost_manager: CostManager | None = None,
         instance_id: str = "feishu-default",
     ) -> None:
         self._storage = storage
@@ -365,7 +365,7 @@ class FeishuBot:
             except OSError:
                 logger.exception("[feishu] failed to remove app lock file")
 
-    def attach_webhook_router(self, app: "FastAPI") -> None:
+    def attach_webhook_router(self, app: FastAPI) -> None:
         """Webhook 模式：把路由挂到 FastAPI app。"""
         if self._connection and isinstance(self._connection, WebhookConnection):
             app.include_router(self._connection.router)

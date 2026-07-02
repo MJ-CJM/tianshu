@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 
 from tianshu.dag.graph import DAG
 from tianshu.dag.models import DAGExecution, DAGNodeStatus
@@ -81,7 +80,9 @@ class PartialRetrier:
         for nid, node in dag.nodes.items():
             if nid in result:
                 continue
-            if node_id in node.depends_on:
-                if node.status in (DAGNodeStatus.CANCELLED, DAGNodeStatus.FAILED):
-                    result.add(nid)
-                    self._collect_downstream(dag, nid, result)
+            if node_id in node.depends_on and node.status in (
+                DAGNodeStatus.CANCELLED,
+                DAGNodeStatus.FAILED,
+            ):
+                result.add(nid)
+                self._collect_downstream(dag, nid, result)

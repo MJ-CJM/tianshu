@@ -32,15 +32,15 @@ class CallbackDispatcher:
     def __init__(
         self,
         *,
-        mode_router: "ModeRouter",
-        approval_kb: "ApprovalKeyboardHandler",
-        outbound: "TelegramOutbound",
+        mode_router: ModeRouter,
+        approval_kb: ApprovalKeyboardHandler,
+        outbound: TelegramOutbound,
     ) -> None:
         self._mode_router = mode_router
         self._approval_kb = approval_kb
         self._outbound = outbound
 
-    async def handle(self, cb: "TelegramCallback") -> None:
+    async def handle(self, cb: TelegramCallback) -> None:
         data = cb.data or ""
         popup = ""
         try:
@@ -55,7 +55,7 @@ class CallbackDispatcher:
         finally:
             await self._outbound.answer_callback(cb.callback_id, popup)
 
-    async def _handle_command(self, cb: "TelegramCallback", rest: str) -> None:
+    async def _handle_command(self, cb: TelegramCallback, rest: str) -> None:
         """把按钮合成为一条 TelegramMessage 文本命令，重入 ModeRouter。"""
         from tianshu.gateway.telegram.dispatcher import TelegramMessage
 

@@ -1,12 +1,11 @@
 """Tests for Planner."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.models import Edict
-from tianshu.models.edict import EdictRuntime
 from tianshu.models.events import make_event
 from tianshu.planner.planner import Planner
 

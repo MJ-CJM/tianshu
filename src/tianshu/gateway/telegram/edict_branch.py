@@ -30,13 +30,13 @@ class EdictBranch:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        anchor: "SessionAnchor",
+        storage: Storage,
+        anchor: SessionAnchor,
         edict_bridge,
-        outbound: "TelegramOutbound",
+        outbound: TelegramOutbound,
         renderer,
-        assistant_branch: "AssistantBranch",
-        approval_commands: "TelegramApprovalCommandHandler | None" = None,
+        assistant_branch: AssistantBranch,
+        approval_commands: TelegramApprovalCommandHandler | None = None,
         assistant_persona_id: str = "tongzheng",
         instance_id: str = "telegram-default",
     ) -> None:
@@ -56,7 +56,7 @@ class EdictBranch:
     def set_assistant_persona_id(self, persona_id: str) -> None:
         self._assistant_persona_id = persona_id
 
-    async def handle(self, msg: "TelegramMessage", ctx: "ModeContext") -> None:
+    async def handle(self, msg: TelegramMessage, ctx: ModeContext) -> None:
         text = msg.text.strip()
 
         approval_cmd = parse_approval_command(text)
@@ -172,7 +172,7 @@ class EdictBranch:
         await self._outbound.send_text(chat_id, text)
 
     async def _send_thinking(
-        self, msg: "TelegramMessage", edict_id: str, memorial_id: str, instruction: str,
+        self, msg: TelegramMessage, edict_id: str, memorial_id: str, instruction: str,
     ) -> None:
         mid = await self._outbound.send_thinking(msg.chat_id)
         if mid:

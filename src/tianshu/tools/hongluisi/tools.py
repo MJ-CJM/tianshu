@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Callable
+from collections.abc import Callable
 from urllib.parse import urlparse
 
 from tianshu.tools.hongluisi.engine_registry import (

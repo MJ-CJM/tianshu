@@ -13,7 +13,7 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from tianshu.models.common import EDICT_STATUS_LABELS, EdictStatus, MEMORIAL_STATUS_LABELS
+from tianshu.models.common import EDICT_STATUS_LABELS, MEMORIAL_STATUS_LABELS
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
@@ -60,7 +60,7 @@ def _humanize_age(created_at: datetime) -> str:
     return f"{days // 365} 年前"
 
 
-def _edict_brief(edict: "Edict", memorial: "Memorial | None") -> dict:
+def _edict_brief(edict: Edict, memorial: Memorial | None) -> dict:
     """供 details 字段使用的紧凑结构。"""
     brief: dict = {
         "edict_id": edict.id,
@@ -83,7 +83,7 @@ def _edict_brief(edict: "Edict", memorial: "Memorial | None") -> dict:
 def register_edict_query(
     registry: ToolRegistry,
     *,
-    storage: "Storage",
+    storage: Storage,
 ) -> None:
     """注册 list_edicts / get_edict_status 到 ToolRegistry。"""
 

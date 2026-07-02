@@ -6,7 +6,6 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tianshu.notifier.channel_registry import ChannelRegistry
     from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)

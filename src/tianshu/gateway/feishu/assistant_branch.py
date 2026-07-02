@@ -33,13 +33,13 @@ class AssistantBranch:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        anchor: "SessionAnchor",
-        edict_bridge: "EdictBridge",
-        outbound: "FeishuOutbound",
-        renderer: "PersonaRenderer",
-        card_builder: "CardBuilder",
-        approval_commands: "ApprovalCommandHandler | None" = None,
+        storage: Storage,
+        anchor: SessionAnchor,
+        edict_bridge: EdictBridge,
+        outbound: FeishuOutbound,
+        renderer: PersonaRenderer,
+        card_builder: CardBuilder,
+        approval_commands: ApprovalCommandHandler | None = None,
         assistant_persona_id: str = "tongzheng",
         instance_id: str = "feishu-default",
     ) -> None:
@@ -53,7 +53,7 @@ class AssistantBranch:
         self._assistant_persona_id = assistant_persona_id
         self._instance_id = instance_id
 
-    def set_renderer(self, renderer: "PersonaRenderer") -> None:
+    def set_renderer(self, renderer: PersonaRenderer) -> None:
         """支持 reload 时切换 persona。"""
         self._renderer = renderer
 
@@ -61,7 +61,7 @@ class AssistantBranch:
         """支持 reload 时切换 persona id（用于 /clear 后新建 chat 敕令时指派 persona）。"""
         self._assistant_persona_id = persona_id
 
-    async def handle(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
+    async def handle(self, msg: FeishuMessage, ctx: ModeContext) -> None:
         """主入口：解析命令 → 调对应实现。"""
         text = msg.text.strip()
 
@@ -119,7 +119,7 @@ class AssistantBranch:
 
     # --- 命令实现 ---
 
-    async def _cmd_new(self, msg: "FeishuMessage", ctx: "ModeContext", goal: str) -> None:
+    async def _cmd_new(self, msg: FeishuMessage, ctx: ModeContext, goal: str) -> None:
         if not goal:
             await self._reply(msg.chat_id, "用法：/new <目标描述>")
             return
@@ -128,7 +128,7 @@ class AssistantBranch:
         )
         await self._send_thinking(msg, result.edict_id, result.memorial_id, goal)
 
-    async def _cmd_list(self, msg: "FeishuMessage", ctx: "ModeContext", filter_arg: str) -> None:
+    async def _cmd_list(self, msg: FeishuMessage, ctx: ModeContext, filter_arg: str) -> None:
         status_filter = self._parse_filter(filter_arg)
         status_value = status_filter.value if status_filter is not None else None
         edicts, _total = self._storage.list_edicts(
@@ -147,7 +147,7 @@ class AssistantBranch:
         )
         await self._outbound.send_card(msg.chat_id, card)
 
-    async def _cmd_select(self, msg: "FeishuMessage", ctx: "ModeContext", target: str) -> None:
+    async def _cmd_select(self, msg: FeishuMessage, ctx: ModeContext, target: str) -> None:
         if not target:
             await self._reply(msg.chat_id, "用法：/select <敕令 ID 前缀（≥6 字符）>")
             return
@@ -176,15 +176,15 @@ class AssistantBranch:
             self._renderer.edict_selected_reply(edict.id, edict.title or "(无标题)"),
         )
 
-    async def _cmd_budget(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
+    async def _cmd_budget(self, msg: FeishuMessage, ctx: ModeContext) -> None:
         card = await self._card_builder.build_budget_card()
         await self._outbound.send_card(msg.chat_id, card)
 
-    async def _cmd_menu(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
+    async def _cmd_menu(self, msg: FeishuMessage, ctx: ModeContext) -> None:
         card = self._card_builder.build_menu_card()
         await self._outbound.send_card(msg.chat_id, card)
 
-    async def _cmd_status(self, msg: "FeishuMessage", ctx: "ModeContext", target: str) -> None:
+    async def _cmd_status(self, msg: FeishuMessage, ctx: ModeContext, target: str) -> None:
         if not target:
             await self._reply(
                 msg.chat_id,
@@ -200,7 +200,7 @@ class AssistantBranch:
             f"📋 #{edict.id[:8]} 标题：{edict.title or '(无)'}\n状态：{format_status_label(edict.status)}",
         )
 
-    async def _cmd_cancel(self, msg: "FeishuMessage", ctx: "ModeContext", target: str) -> None:
+    async def _cmd_cancel(self, msg: FeishuMessage, ctx: ModeContext, target: str) -> None:
         if not target:
             await self._reply(
                 msg.chat_id,
@@ -220,7 +220,7 @@ class AssistantBranch:
         self._storage.update_edict_lifecycle_phase(edict.id, "complete")
         await self._reply(msg.chat_id, self._renderer.edict_cancel_reply(edict.id))
 
-    async def _cmd_clear(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
+    async def _cmd_clear(self, msg: FeishuMessage, ctx: ModeContext) -> None:
         """归档当前聊天敕令 + 新建 + 切 anchor。
 
         仅在 anchor 指向聊天敕令（metadata.assistant_chat=true）时可用。
@@ -254,7 +254,7 @@ class AssistantBranch:
     # --- 纯文本（自然语言）---
 
     async def _handle_natural_language(
-        self, msg: "FeishuMessage", ctx: "ModeContext", text: str,
+        self, msg: FeishuMessage, ctx: ModeContext, text: str,
     ) -> None:
         """纯文本（无 / 前缀）→ 续接当前 anchor 敕令，让 executor + persona LLM 自然处理。
 
@@ -286,7 +286,7 @@ class AssistantBranch:
             return None
         return EdictStatus.OPEN
 
-    def _find_by_prefix(self, prefix: str) -> "Edict | None":
+    def _find_by_prefix(self, prefix: str) -> Edict | None:
         if len(prefix) < 6:
             return None
         edicts, _total = self._storage.list_edicts(
@@ -302,7 +302,7 @@ class AssistantBranch:
         await self._outbound.send_text(chat_id, text)
 
     async def _send_thinking(
-        self, msg: "FeishuMessage", edict_id: str, memorial_id: str, instruction: str,
+        self, msg: FeishuMessage, edict_id: str, memorial_id: str, instruction: str,
     ) -> None:
         """给用户原消息加 typing reaction 表示"正在思考"，登记到 db。
 

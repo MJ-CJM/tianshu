@@ -84,7 +84,7 @@ class ApprovalCardHandler:
         storage: Storage,
         event_bus: EventBus,
         approval_manager: ApprovalManager,
-        outbound: "FeishuOutbound",
+        outbound: FeishuOutbound,
         instance_id: str = "feishu-default",
     ) -> None:
         self._settings = settings

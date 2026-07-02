@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tianshu.bus.event_bus import EventBus
-from tianshu.gateway.feishu.outbound import FeishuOutbound, _MD_HINT_RE
+from tianshu.gateway.feishu.outbound import _MD_HINT_RE, FeishuOutbound
 from tianshu.gateway.feishu.settings import FeishuSettings
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope
@@ -292,9 +292,9 @@ async def test_on_execution_completed_falls_back_to_result_when_no_final(storage
 @pytest.mark.asyncio
 async def test_on_execution_completed_long_content_split(storage):
     """超长 result 拆多段连续下发。"""
+    from tianshu.gateway.feishu.markdown_compat import DEFAULT_CHUNK_SIZE
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
-    from tianshu.gateway.feishu.markdown_compat import DEFAULT_CHUNK_SIZE
     bus = EventBus(storage=storage)
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out._send_post = AsyncMock(return_value="m1")

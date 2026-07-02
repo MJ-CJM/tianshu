@@ -4,16 +4,31 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from pydantic import BaseModel, Field
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager, LLMConfigState
-from tianshu.providers.manager import ProviderManager
+from tianshu.consultation.models import ConsultationRequest
+from tianshu.consultation.session import ConsultationSession
+from tianshu.cost.manager import CostManager
 from tianshu.edict_ops import submit_new_edict
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
+from tianshu.executor.lanes import LaneManager
+from tianshu.executor.worker_pool import WorkerPool
+from tianshu.memory.manager import MemoryManager
+from tianshu.memory.models import MemoryQuery
 from tianshu.models import (
     AgentConfig,
     AgentConfigUpdateRequest,
@@ -37,18 +52,11 @@ from tianshu.models import (
 )
 from tianshu.models.api import ParseEdictRequest
 from tianshu.models.edict import title_from_goal
-from tianshu.consultation.models import ConsultationRequest
-from tianshu.consultation.session import ConsultationSession
-from tianshu.cost.manager import CostManager
-from tianshu.cost.models import BudgetStatus, CostSummary
-from tianshu.executor.lanes import LaneManager
-from tianshu.executor.worker_pool import WorkerPool
-from tianshu.memory.manager import MemoryManager
-from tianshu.memory.models import MemoryEntry, MemoryQuery
-from tianshu.persona.template_library import TemplateLibrary
 from tianshu.notifier.notifier import Notifier
 from tianshu.persona.evaluator import PerformanceEvaluator
 from tianshu.persona.selector import OfficialSelector
+from tianshu.persona.template_library import TemplateLibrary
+from tianshu.providers.manager import ProviderManager
 from tianshu.scheduler.scheduler import Scheduler
 from tianshu.storage import Storage
 
@@ -416,7 +424,6 @@ async def reject_plan(edict_id: str, request: Request):
 @gateway_router.post("/edicts/{edict_id}/follow-up", response_model=ApiResponse, status_code=202)
 async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request):
     storage: Storage = request.app.state.storage
-    event_bus: EventBus = request.app.state.event_bus
     executor: Executor = request.app.state.executor
 
     edict = storage.get_edict(edict_id)
@@ -813,7 +820,7 @@ async def create_decree(body: DecreeCreateRequest, request: Request):
     try:
         await approval_manager.submit_decree(decree)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
     return ApiResponse(success=True, data=decree.model_dump(mode="json"))
 
@@ -852,7 +859,7 @@ async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
             actor=body.actor,
         )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     return ApiResponse(success=True, data=decree.model_dump(mode="json"))
 
 
@@ -1293,7 +1300,7 @@ async def create_config(body: LLMConfigCreateRequest, request: Request):
     try:
         cm.add_config(state)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
     pm: ProviderManager = request.app.state.provider_manager
     pm.sync_from_config(state)
     return ApiResponse(success=True, data=_state_to_config(state).model_dump())
@@ -1306,7 +1313,7 @@ async def update_named_config(name: str, body: LLMConfigUpdateRequest, request: 
     try:
         new_state = cm.update_config(name, **updates) if updates else cm.get_config(name)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found") from None
     if new_state:
         pm: ProviderManager = request.app.state.provider_manager
         pm.sync_from_config(new_state)
@@ -1319,9 +1326,9 @@ async def delete_named_config(name: str, request: Request):
     try:
         cm.delete_config(name)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found") from None
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     pm: ProviderManager = request.app.state.provider_manager
     pm.unregister(name)
     return ApiResponse(success=True, data={"name": name})
@@ -1333,7 +1340,7 @@ async def activate_config(name: str, request: Request):
     try:
         cm.set_active(name)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"Config '{name}' not found")
+        raise HTTPException(status_code=404, detail=f"Config '{name}' not found") from None
     pm: ProviderManager = request.app.state.provider_manager
     pm.sync_all()
     configs, active_name = cm.list_configs()
@@ -1371,7 +1378,7 @@ async def cancel_dag(dag_id: str, request: Request):
     try:
         cancelled = await executor.cancel_dag(dag_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return ApiResponse(success=True, data={"dag_id": dag_id, "cancelled_nodes": cancelled})
 
 
@@ -1383,7 +1390,7 @@ async def retry_dag(dag_id: str, request: Request):
     try:
         reset_ids = await executor.retry_dag(dag_id, from_node_ids=from_node_ids)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return ApiResponse(success=True, data={"dag_id": dag_id, "reset_node_ids": reset_ids})
 
 
@@ -1419,6 +1426,7 @@ async def get_workers_status(request: Request):
 @gateway_router.post("/consultations", response_model=ApiResponse, status_code=202)
 async def create_consultation(request: Request):
     import asyncio
+
     from tianshu.consultation.models import ConsultationResponse
 
     consultation: ConsultationSession = request.app.state.consultation
@@ -1641,7 +1649,6 @@ async def create_persona(request: Request):
     # Validate llm_config_name FK if provided
     llm_config_name = body.get("llm_config_name") or None
     if llm_config_name:
-        from tianshu.config_manager import ConfigManager
         config_manager: ConfigManager = request.app.state.config_manager
         if not config_manager.get_config(llm_config_name):
             raise HTTPException(
@@ -1824,7 +1831,6 @@ async def update_persona(persona_id: str, request: Request):
         raise HTTPException(status_code=400, detail=f"Department '{body['department']}' does not exist")
     # Validate llm_config_name FK if provided
     if "llm_config_name" in body and body["llm_config_name"]:
-        from tianshu.config_manager import ConfigManager
         config_manager: ConfigManager = request.app.state.config_manager
         if not config_manager.get_config(body["llm_config_name"]):
             raise HTTPException(
@@ -1944,7 +1950,6 @@ async def get_persona_metrics(persona_id: str, request: Request):
 
 @gateway_router.get("/personas/{persona_id}/profile")
 async def get_persona_profile(persona_id: str, request: Request):
-    from pathlib import Path
     from tianshu.persona.profile_schema import parse_profile
 
     persona_loader = request.app.state.persona_loader
@@ -2019,11 +2024,10 @@ async def trigger_profile_synthesis(persona_id: str, request: Request):
         )
         try:
             while True:
-                done = {task}
                 try:
                     ev = await asyncio.wait_for(queue.get(), timeout=60)
-                except asyncio.TimeoutError:
-                    yield f": keepalive\n\n"
+                except TimeoutError:
+                    yield ": keepalive\n\n"
                     if task.done():
                         break
                     continue
@@ -2155,7 +2159,7 @@ async def update_skill(name: str, request: Request):
     try:
         skill = loader.save_skill(name, content)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found") from None
     if metrics is not None:
         metrics.ensure_exists(name)
         metrics.set_human_curated(name, True)
@@ -2200,7 +2204,7 @@ async def create_skill(request: Request):
     try:
         skill = loader.create_skill(name, content)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
     return ApiResponse(success=True, data=skill)
 
 
@@ -2652,8 +2656,7 @@ def _prompt_file_path(request: Request, persona_id: str, filename: str):
 
 @gateway_router.get("/system-prompt/files")
 async def list_prompt_files(request: Request):
-    from datetime import datetime, UTC
-    from pathlib import Path
+    from datetime import UTC, datetime
     personas_dir: Path = request.app.state.personas_dir
     memory_manager = request.app.state.memory_manager
     memory_dir: Path = memory_manager.memory_dir
@@ -2924,7 +2927,6 @@ async def trigger_reflection(request: Request):
 async def get_memory_stats(request: Request):
     """Get memory statistics per persona."""
     mm: MemoryManager = request.app.state.memory_manager
-    from pathlib import Path
     stats = {}
     for persona_dir in sorted(mm._memory_dir.iterdir()):
         if not persona_dir.is_dir():
@@ -3164,7 +3166,7 @@ async def create_session_rule(request: Request):
     try:
         assert_can_grant(tool_name, scope)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
     expires_after = timedelta(days=expires_days) if expires_days and expires_days > 0 else None
 

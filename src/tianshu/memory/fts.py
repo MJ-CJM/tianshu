@@ -63,7 +63,7 @@ def fts_search(
     query: str,
     persona_id: str | None = None,
     limit: int = 20,
-    persona_ids: "list[str] | None" = None,
+    persona_ids: list[str] | None = None,
 ) -> list[str]:
     """Search memory via FTS5. Returns list of matching entry IDs.
 

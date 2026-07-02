@@ -5,8 +5,9 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from tianshu.universe.model import Universe, UniverseOrigin, UniverseStatus
 from tianshu.universe.store import UniverseStore

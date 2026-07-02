@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def register_list_personas(
     registry: ToolRegistry,
     *,
-    storage: "Storage",
+    storage: Storage,
 ) -> None:
     """注册 list_personas tool 到 ToolRegistry。"""
 

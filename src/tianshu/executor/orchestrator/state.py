@@ -62,7 +62,7 @@ class OuterLoopState:
     history: tuple[IterationRecord, ...] = field(default_factory=tuple)
     total_cost_cny: float = 0.0
 
-    def advance(self, record: IterationRecord) -> "OuterLoopState":
+    def advance(self, record: IterationRecord) -> OuterLoopState:
         """append record 并按 critic_result 更新 streak / issue_class。"""
         new_streak = self.same_issue_streak
         new_issue = self.last_critic_issue_class
@@ -92,9 +92,9 @@ class OuterLoopState:
             total_cost_cny=self.total_cost_cny + record.cost_cny,
         )
 
-    def with_level(self, level: Level) -> "OuterLoopState":
+    def with_level(self, level: Level) -> OuterLoopState:
         # 升级时 streak 不清零 —— 由 advance() 据 issue_class 是否同类决定
         return replace(self, current_level=level)
 
-    def with_consultation_advice(self, advice: str) -> "OuterLoopState":
+    def with_consultation_advice(self, advice: str) -> OuterLoopState:
         return replace(self, consultation_advice=advice)

@@ -17,7 +17,7 @@ HOOK_TIMEOUT = 5.0
 
 # 个别 hook 场景需要更长的 wait —— 特别是 BEFORE_TOOL_CALL 里 PolicyHook 的
 # wait_for_approval 最多等 300s。默认 5s 会把审批等待打断并放行（fail-open bug）。
-HOOK_TIMEOUTS: "dict[HookType, float]" = {}  # 在 HookType 定义后填
+HOOK_TIMEOUTS: dict[HookType, float] = {}  # 在 HookType 定义后填
 
 
 class HookType(str, Enum):
@@ -109,7 +109,7 @@ class HookRegistry:
                     return result
                 if result and result.modified_args:
                     combined.modified_args = result.modified_args
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "Hook %s timed out (>%.1fs) for %s",
                     handler_name,

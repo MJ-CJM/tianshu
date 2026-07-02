@@ -1408,8 +1408,6 @@ class Storage:
         limit: int = 20,
         include_shared: bool = False,
     ) -> list:
-        MemoryEntry = _get_memory_entry()
-
         # Try FTS5 first if available and query is provided
         if query and getattr(self, "_fts_available", False):
             from tianshu.memory.fts import fts_search
@@ -1464,7 +1462,6 @@ class Storage:
         return [self._row_to_memory_entry(r) for r in rows]
 
     def list_memory_by_persona(self, persona_id: str, limit: int = 50) -> list:
-        MemoryEntry = _get_memory_entry()
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM memory_entries WHERE persona_id = ? ORDER BY created_at DESC LIMIT ?",

@@ -245,6 +245,7 @@ class UniverseEvolver:
                 return {"status": "no_champion"}
 
             from datetime import UTC, datetime
+
             from ulid import ULID
 
             child = self._mgr.branch_code_variant(

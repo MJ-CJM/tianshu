@@ -34,12 +34,12 @@ class ModeRouter:
     def __init__(
         self,
         *,
-        anchor: "SessionAnchor",
-        assistant_branch: "AssistantBranch",
-        edict_branch: "EdictBranch",
+        anchor: SessionAnchor,
+        assistant_branch: AssistantBranch,
+        edict_branch: EdictBranch,
         edict_bridge,
-        storage: "Storage",
-        settings: "TelegramSettings",
+        storage: Storage,
+        settings: TelegramSettings,
     ) -> None:
         self._anchor = anchor
         self._assistant = assistant_branch
@@ -61,7 +61,7 @@ class ModeRouter:
             chat_id=chat_id, sender_open_id="", edict_id=edict_id,
         )
 
-    async def dispatch(self, msg: "TelegramMessage") -> None:
+    async def dispatch(self, msg: TelegramMessage) -> None:
         """主入口：保证 anchor 存在 → 判断模式 → 转给对应分支。"""
         await self._edict_bridge.ensure_chat_edict(
             chat_id=msg.chat_id, sender_open_id=msg.sender_open_id,

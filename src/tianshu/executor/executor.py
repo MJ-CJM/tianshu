@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
-from tianshu.dag.models import DAGExecution
 from tianshu.executor.hooks import HookRegistry, HookType
 from tianshu.models.common import TaskStatus
 from tianshu.models.edict import Edict
@@ -448,7 +447,7 @@ class Executor:
             memorial.error = "Task was cancelled"
             event_type = "execution.cancelled"
             raise
-        except asyncio.TimeoutError:
+        except TimeoutError:
             memorial.status = TaskStatus.FAILED
             memorial.error = f"Execution timed out after {edict.runtime.timeout_seconds}s"
             event_type = "execution.failed"

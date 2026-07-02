@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 class CardActionDispatcher:
-    def __init__(self, *, mode_router: "ModeRouter") -> None:
+    def __init__(self, *, mode_router: ModeRouter) -> None:
         self._mode_router = mode_router
 
-    async def handle(self, action: "FeishuCardAction") -> None:
+    async def handle(self, action: FeishuCardAction) -> None:
         """把卡片按钮 value 转成文本命令再走 ModeRouter。"""
         value = action.value or {}
         command = value.get("command")

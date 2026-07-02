@@ -68,7 +68,7 @@ def should_auto_compact(
 
 async def auto_compact(
     state: LoopState,
-    llm: "LLMClient",
+    llm: LLMClient,
     context_limit: int,
 ) -> LoopState:
     """Summarize middle messages via LLM, keeping head and tail."""

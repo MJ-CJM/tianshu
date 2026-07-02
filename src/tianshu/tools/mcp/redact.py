@@ -37,8 +37,5 @@ def redact(text: str) -> str:
     if not text:
         return text
     for pattern, repl in _PATTERNS:
-        if callable(repl):
-            text = pattern.sub(repl, text)  # type: ignore[arg-type]
-        else:
-            text = pattern.sub(repl, text)
+        text = pattern.sub(repl, text) if callable(repl) else pattern.sub(repl, text)  # type: ignore[arg-type]
     return text

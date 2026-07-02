@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -31,7 +31,7 @@ def _make_persona(persona_id="ducha-yu", name="都察院·林御史", dept="duch
 
 
 def _make_state_with_history():
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     record = IterationRecord(
         iteration=0, level="L0", actor_output="第一稿内容...",
         checks_result=ChecksResult(all_passed=True),

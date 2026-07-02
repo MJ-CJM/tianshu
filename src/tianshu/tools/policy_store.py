@@ -52,7 +52,7 @@ def fingerprint_bash(args: dict) -> str:
 
 def fingerprint_memory(args: dict) -> str:
     """memory_tools 指纹 = sorted filtered arg keys。"""
-    keys = sorted(k for k in args.keys() if k not in {"value", "content"})
+    keys = sorted(k for k in args if k not in {"value", "content"})
     return "memory:" + ",".join(keys)
 
 
@@ -65,7 +65,7 @@ def fingerprint_default(args: dict) -> str:
     return "hash:" + hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:16]
 
 
-_FINGERPRINT_FUNCS: dict[str, "callable"] = {
+_FINGERPRINT_FUNCS: dict[str, callable] = {
     "edit_file": fingerprint_edit_file,
     "write_file": fingerprint_edit_file,
     "shell_exec": fingerprint_bash,
@@ -160,7 +160,7 @@ class CompositeSessionRuleStore:
     """组合存储：edict scope 走 InMemory，always scope 走 Sqlite。"""
 
     in_memory: InMemorySessionRuleStore
-    sqlite: "SqliteSessionRuleStore"
+    sqlite: SqliteSessionRuleStore
 
     async def create(self, rule: SessionRule) -> None:
         if rule.scope == "always":

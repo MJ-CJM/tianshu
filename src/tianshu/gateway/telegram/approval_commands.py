@@ -27,8 +27,8 @@ class TelegramApprovalCommandHandler:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        approval_manager: "ApprovalManager",
+        storage: Storage,
+        approval_manager: ApprovalManager,
         instance_id: str = "telegram-default",
     ) -> None:
         self._storage = storage

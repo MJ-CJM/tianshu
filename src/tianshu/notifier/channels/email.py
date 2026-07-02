@@ -40,9 +40,10 @@ class EmailChannel(NotificationChannel):
             return False
 
         try:
-            import aiosmtplib
-            from email.mime.text import MIMEText
             from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+
+            import aiosmtplib
 
             msg = MIMEMultipart("alternative")
             msg["Subject"] = message.get("title", "Tianshu Notification")

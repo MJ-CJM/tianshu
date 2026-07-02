@@ -31,7 +31,7 @@ class BodyTooLarge(Exception):
 class SharedHttpClient:
     """跨 Edict 共享连接池、DNS 缓存、TTL 响应缓存。"""
 
-    _instance: "SharedHttpClient | None" = None
+    _instance: SharedHttpClient | None = None
 
     def __init__(self) -> None:
         self._client = httpx.AsyncClient(
@@ -45,7 +45,7 @@ class SharedHttpClient:
         self._cache: TTLCache = TTLCache(maxsize=CACHE_MAXSIZE, ttl=CACHE_TTL_SEC)
 
     @classmethod
-    def instance(cls) -> "SharedHttpClient":
+    def instance(cls) -> SharedHttpClient:
         if cls._instance is None:
             cls._instance = SharedHttpClient()
         return cls._instance

@@ -139,7 +139,7 @@ class TelegramOutbound:
 
     async def edit_message(
         self, chat_id: str, message_id: str,
-        text: str, reply_markup: "InlineKeyboardMarkup | None" = None,
+        text: str, reply_markup: InlineKeyboardMarkup | None = None,
     ) -> bool:
         if self._bot is None:
             return False

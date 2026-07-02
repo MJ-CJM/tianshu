@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from unittest.mock import AsyncMock, MagicMock
+
 
 # ---------------------------------------------------------------------------
 # lark_oapi is an optional dependency (飞书 bot 功能)。在没有安装的环境里，
@@ -38,7 +38,9 @@ def _stub_lark_oapi() -> None:
             mod = types.ModuleType(name)
             # Make every attribute access return a MagicMock so that
             # `from lark_oapi.xxx import Yyy` statements succeed.
-            mod.__getattr__ = lambda attr, _m=MagicMock(): _m  # type: ignore[method-assign]
+            # 有意用默认参数在 lambda 定义时求值一次，让同一 stub 模块的所有属性
+            # 访问返回同一个 MagicMock 实例（而非每次都是新实例）。
+            mod.__getattr__ = lambda attr, _m=MagicMock(): _m  # noqa: B008  # type: ignore[method-assign]
             sys.modules[name] = mod
 
 
@@ -47,10 +49,10 @@ try:
 except ModuleNotFoundError:
     _stub_lark_oapi()
 
-import pytest
+import pytest  # noqa: E402
 
-from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
-from tianshu.storage import Storage
+from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState  # noqa: E402
+from tianshu.storage import Storage  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

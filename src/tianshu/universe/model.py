@@ -50,7 +50,7 @@ class Universe:
         }
 
     @classmethod
-    def from_row(cls, row: dict) -> "Universe":
+    def from_row(cls, row: dict) -> Universe:
         return cls(
             id=row["id"],
             name=row["name"],

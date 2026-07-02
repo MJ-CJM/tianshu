@@ -174,7 +174,6 @@ class MemoryManager:
         if not self._drawer_store or not self._memory_config.enabled:
             return []
 
-        from datetime import timezone
 
         from ulid import ULID
 
@@ -185,7 +184,7 @@ class MemoryManager:
         )
 
         ids: list[str] = []
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = datetime.now(UTC).isoformat()
         for i, chunk in enumerate(chunks):
             drawer = Drawer(
                 id=str(ULID()),
@@ -255,10 +254,6 @@ class MemoryManager:
 
     def delete(self, entry_id: str) -> bool:
         """Delete a memory entry from both SQLite index and Markdown source."""
-        # Read entry details before deleting from SQLite
-        entries = self._storage.search_memory(
-            persona_id="", query=None, category=None, limit=1,
-        )
         # Direct lookup by id
         with self._storage._lock:
             row = self._storage._conn.execute(

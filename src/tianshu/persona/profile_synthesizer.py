@@ -12,8 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -96,7 +96,7 @@ class ProfileSynthesizer:
         """
         persona = self._personas.get(persona_id)
         persona_name = persona.name if persona else persona_id
-        since = datetime.now(timezone.utc) - timedelta(days=window_days)
+        since = datetime.now(UTC) - timedelta(days=window_days)
         since_iso = since.isoformat()
 
         raw_drawers = (
@@ -178,7 +178,7 @@ class ProfileSynthesizer:
                 status_counts[s] += 1
         active_drawers = len(drawers)
         since_iso = (
-            datetime.now(timezone.utc) - timedelta(days=window_days)
+            datetime.now(UTC) - timedelta(days=window_days)
         ).isoformat()
         recent = sum(1 for d in drawers if d.timestamp >= since_iso)
         activity_level = (
@@ -421,7 +421,7 @@ class ProfileSynthesizer:
         """Invoke LLM with up to 3 attempts (2 retries) for non-JSON output. Returns {} on full failure."""
         last_err: Exception | None = None
         prompt_user = user
-        for attempt in range(3):
+        for _ in range(3):
             try:
                 resp = await self._llm.chat(
                     messages=[
@@ -523,7 +523,7 @@ class ProfileSynthesizer:
                 {"reason": "lock_held", "trigger_source": trigger_source},
             )
             return None
-        started_ms = datetime.now(timezone.utc)
+        started_ms = datetime.now(UTC)
         await self._emit(
             "profile.synthesis.started",
             persona_id,
@@ -589,7 +589,7 @@ class ProfileSynthesizer:
                 health_md=_format_health(health),
                 degradations_md=_format_degradations(candidates, degradations),
             )
-            now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            now_iso = datetime.now(UTC).isoformat(timespec="seconds")
             auto_section = render_auto_section(
                 persona_name=inputs.persona_name,
                 window_days=window_days,
@@ -663,7 +663,7 @@ class ProfileSynthesizer:
                     "conflict_skipped_write": conflict,
                     "memory_review_written": review_written,
                     "duration_ms": int(
-                        (datetime.now(timezone.utc) - started_ms).total_seconds() * 1000
+                        (datetime.now(UTC) - started_ms).total_seconds() * 1000
                     ),
                 },
             )

@@ -1,6 +1,6 @@
 import pytest
 
-from tianshu.memory.drawer import Drawer, DrawerResult, MemoryBackend
+from tianshu.memory.drawer import Drawer, MemoryBackend
 from tianshu.memory.drawer_store import DrawerStore
 
 

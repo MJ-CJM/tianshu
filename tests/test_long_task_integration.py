@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from unittest.mock import AsyncMock
 
 import pytest
@@ -30,7 +31,6 @@ from tianshu.executor.orchestrator.templates import (
     wrap_untrusted_objective,
 )
 from tianshu.models.acceptance import AcceptanceCriteria, CheckSpec
-
 
 # ---------- 预算阈值 ----------
 
@@ -257,16 +257,16 @@ def test_format_gaps_contains_all_fields():
 def test_audit_result_is_immutable():
     """AuditResult / AuditGap 是 frozen dataclass。"""
     result = AuditResult(passed=False, gaps=(AuditGap("x", "y", "ok", "z"),))
-    with pytest.raises(Exception):  # FrozenInstanceError 或 dataclass 等价
+    with pytest.raises(FrozenInstanceError):
         result.passed = True  # type: ignore[misc]
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         result.gaps[0].check_name = "changed"  # type: ignore[misc]
 
 
 def test_audit_gap_is_immutable():
     """AuditGap 单独验证不变性。"""
     gap = AuditGap("check", "req", "missing", "action")
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         gap.evidence_status = "ok"  # type: ignore[misc]
 
 
@@ -277,5 +277,5 @@ def test_budget_snapshot_is_immutable():
         cost_used_cny=0.0, cost_budget_cny=None,
         time_used_seconds=0, deadline_seconds=None,
     )
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         snap.tokens_used = 200  # type: ignore[misc]

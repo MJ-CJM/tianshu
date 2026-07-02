@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
@@ -51,7 +52,7 @@ class MCPServerSession:
     tools: list[DiscoveredTool] = field(default_factory=list)
     last_error: str | None = None
 
-    _session: "ClientSession | None" = None
+    _session: ClientSession | None = None
     _ready_event: asyncio.Event = field(default_factory=asyncio.Event)
     _shutdown_event: asyncio.Event = field(default_factory=asyncio.Event)
     _reconnect_event: asyncio.Event = field(default_factory=asyncio.Event)
@@ -151,10 +152,10 @@ class MCPServerSession:
         try:
             await asyncio.wait_for(self._shutdown_event.wait(), timeout=seconds)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return False
 
-    async def _discover_tools(self, session: "ClientSession") -> None:
+    async def _discover_tools(self, session: ClientSession) -> None:
         resp = await session.list_tools()
         self.tools = []
         for t in resp.tools:
@@ -190,15 +191,13 @@ class MCPServerSession:
             return
         try:
             await asyncio.wait_for(self._task, timeout=10)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.CancelledError):
             logger.warning(
                 "[mcp] session shutdown timeout, cancelling: %s",
                 self.config.name,
             )
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
-            except (asyncio.CancelledError, Exception):
-                pass
         except Exception:
             pass

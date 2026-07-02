@@ -1,9 +1,10 @@
 """Edict pause/resume API 测试。"""
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
-from unittest.mock import patch
 
 from tianshu.app import create_app, lifespan
 

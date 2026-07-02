@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 async def reactive_compact(
     state: LoopState,
-    llm: "LLMClient",
+    llm: LLMClient,
     context_limit: int,
 ) -> LoopState | None:
     """Two-step recovery for context overflow errors.

@@ -22,10 +22,7 @@ def register_find_files(registry: ToolRegistry, workspace: Path) -> None:
             return error_result(f"Error: '{path}' is not a directory")
 
         # Choose glob vs rglob based on pattern
-        if "**" in pattern:
-            matches_iter = search_path.glob(pattern)
-        else:
-            matches_iter = search_path.rglob(pattern)
+        matches_iter = search_path.glob(pattern) if "**" in pattern else search_path.rglob(pattern)
 
         # Collect up to limit entries without materializing the full iterator
         results: list[str] = []

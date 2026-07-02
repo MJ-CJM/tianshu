@@ -1,5 +1,6 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
+
 from tianshu.universe.evolver import UniverseEvolver
 
 
@@ -12,7 +13,8 @@ def _cfg(**over):
 
 
 def _evolver(cfg, mgr, storage, llm=None):
-    cm = MagicMock(); cm.agent_config = cfg
+    cm = MagicMock()
+    cm.agent_config = cfg
     return UniverseEvolver(llm or AsyncMock(), mgr, storage, cm)
 
 
@@ -23,45 +25,54 @@ def test_disabled_skips():
 
 
 def test_lock_held_skips():
-    st = MagicMock(); st.try_acquire_synthesis_lock.return_value = False
+    st = MagicMock()
+    st.try_acquire_synthesis_lock.return_value = False
     st.last_activity_at.return_value = None
     ev = _evolver(_cfg(), MagicMock(), st)
     assert asyncio.run(ev.run()).skipped == "lock_held"
 
 
 def test_no_champion_releases_lock():
-    st = MagicMock(); st.try_acquire_synthesis_lock.return_value = True
+    st = MagicMock()
+    st.try_acquire_synthesis_lock.return_value = True
     st.last_activity_at.return_value = None
-    mgr = MagicMock(); mgr.champion.return_value = None
+    mgr = MagicMock()
+    mgr.champion.return_value = None
     ev = _evolver(_cfg(), mgr, st)
     assert asyncio.run(ev.run()).skipped == "no_champion"
     assert st.release_synthesis_lock.called
 
 
 def test_retires_failing_challenger():
-    st = MagicMock(); st.try_acquire_synthesis_lock.return_value = True
+    st = MagicMock()
+    st.try_acquire_synthesis_lock.return_value = True
     st.last_activity_at.return_value = None
     st.universe_memorial_stats.return_value = {"total": 5, "success": 0}
     champ = {"id": "champ", "fitness": {"score": 0.5}}
-    mgr = MagicMock(); mgr.champion.return_value = champ
+    mgr = MagicMock()
+    mgr.champion.return_value = champ
     mgr.list.return_value = [dict(champ, status="champion"),
                              {"id": "bad", "status": "challenger", "fitness": {}}]
-    llm = AsyncMock(); llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
+    llm = AsyncMock()
+    llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
     ev = _evolver(_cfg(), mgr, st, llm)
     r = asyncio.run(ev.run())
     assert "bad" in r.retired
 
 
 def test_recommends_promotion_without_switch():
-    st = MagicMock(); st.try_acquire_synthesis_lock.return_value = True
+    st = MagicMock()
+    st.try_acquire_synthesis_lock.return_value = True
     st.last_activity_at.return_value = None
     st.universe_memorial_stats.return_value = {"total": 0, "success": 0}
     champ = {"id": "champ", "fitness": {"score": 0.4}}
-    mgr = MagicMock(); mgr.champion.return_value = champ
+    mgr = MagicMock()
+    mgr.champion.return_value = champ
     mgr.list.return_value = [dict(champ, status="champion"),
                              {"id": "win", "status": "challenger",
                               "fitness": {"score": 0.9, "samples": 50}}]
-    llm = AsyncMock(); llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
+    llm = AsyncMock()
+    llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
     ev = _evolver(_cfg(), mgr, st, llm)
     r = asyncio.run(ev.run())
     assert r.promotion_recommended == "win"
@@ -69,26 +80,31 @@ def test_recommends_promotion_without_switch():
 
 
 def test_auto_promote_switches():
-    st = MagicMock(); st.try_acquire_synthesis_lock.return_value = True
+    st = MagicMock()
+    st.try_acquire_synthesis_lock.return_value = True
     st.last_activity_at.return_value = None
     st.universe_memorial_stats.return_value = {"total": 0, "success": 0}
     champ = {"id": "champ", "fitness": {"score": 0.4}}
-    mgr = MagicMock(); mgr.champion.return_value = champ
+    mgr = MagicMock()
+    mgr.champion.return_value = champ
     mgr.list.return_value = [dict(champ, status="champion"),
                              {"id": "win", "status": "challenger",
                               "fitness": {"score": 0.9, "samples": 50}}]
-    llm = AsyncMock(); llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
+    llm = AsyncMock()
+    llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
     ev = _evolver(_cfg(universe_auto_promote=True), mgr, st, llm)
     asyncio.run(ev.run())
     assert mgr.switch.called
 
 
 def test_mutation_branches_challenger():
-    st = MagicMock(); st.try_acquire_synthesis_lock.return_value = True
+    st = MagicMock()
+    st.try_acquire_synthesis_lock.return_value = True
     st.last_activity_at.return_value = None
     st.universe_memorial_stats.return_value = {"total": 0, "success": 0}
     champ = {"id": "champ", "fitness": {"score": 0.5}}
-    mgr = MagicMock(); mgr.champion.return_value = champ
+    mgr = MagicMock()
+    mgr.champion.return_value = champ
     mgr.list.return_value = [dict(champ, status="champion")]
     mgr.branch.return_value = {"id": "newch"}
     llm = AsyncMock()
@@ -101,21 +117,25 @@ def test_mutation_branches_challenger():
 
 def test_manual_bypasses_idle():
     # idle gate would block (idle_hours high, last activity recent) but manual bypasses it
-    st = MagicMock(); st.try_acquire_synthesis_lock.return_value = True
-    from datetime import datetime, UTC
+    st = MagicMock()
+    st.try_acquire_synthesis_lock.return_value = True
+    from datetime import UTC, datetime
     st.last_activity_at.return_value = datetime.now(UTC).isoformat()
     champ = {"id": "champ", "fitness": {"score": 0.5}}
-    mgr = MagicMock(); mgr.champion.return_value = champ
+    mgr = MagicMock()
+    mgr.champion.return_value = champ
     mgr.list.return_value = [dict(champ, status="champion")]
-    llm = AsyncMock(); llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
+    llm = AsyncMock()
+    llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
     ev = _evolver(_cfg(universe_evolver_idle_hours=999), mgr, st, llm)
     r = asyncio.run(ev.run(trigger_source="manual"))
     assert r.skipped != "not_idle"  # manual bypassed idle
 
 
 def test_cron_respects_idle():
-    st = MagicMock(); st.try_acquire_synthesis_lock.return_value = True
-    from datetime import datetime, UTC
+    st = MagicMock()
+    st.try_acquire_synthesis_lock.return_value = True
+    from datetime import UTC, datetime
     st.last_activity_at.return_value = datetime.now(UTC).isoformat()
     ev = _evolver(_cfg(universe_evolver_idle_hours=999), MagicMock(), st)
     r = asyncio.run(ev.run(trigger_source="cron"))
@@ -123,10 +143,9 @@ def test_cron_respects_idle():
 
 
 def test_evolver_lands_persona_mutation(tmp_path):
-    from pathlib import Path
     from tianshu.storage import Storage
-    from tianshu.universe.store import UniverseStore
     from tianshu.universe.manager import UniverseManager
+    from tianshu.universe.store import UniverseStore
 
     # Set up live personas/skills dirs
     (p := tmp_path / "personas" / "bingbu").mkdir(parents=True)
@@ -155,7 +174,8 @@ def test_evolver_lands_persona_mutation(tmp_path):
     g = mgr.ensure_genesis()
 
     cfg = _cfg()
-    cm = MagicMock(); cm.agent_config = cfg
+    cm = MagicMock()
+    cm.agent_config = cfg
 
     llm = AsyncMock()
     llm.chat.side_effect = [

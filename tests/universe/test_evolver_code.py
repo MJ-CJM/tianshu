@@ -9,7 +9,6 @@ import pytest
 from tianshu.universe.evolver import UniverseEvolver
 from tianshu.universe.gate import GateResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fakes
 # ---------------------------------------------------------------------------

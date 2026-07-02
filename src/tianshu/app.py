@@ -15,50 +15,43 @@ from tianshu.auditor.auditor import Auditor
 from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
 from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
-from tianshu.cost.manager import CostManager
 from tianshu.consultation.session import ConsultationSession
+from tianshu.cost.manager import CostManager
 from tianshu.executor.agent import Agent
-from tianshu.executor.dag_scheduler import DAGScheduler
-from tianshu.executor.lanes import LaneManager
-from tianshu.executor.worker_pool import WorkerPool
-from tianshu.providers.manager import ProviderManager
 from tianshu.executor.approvals import ApprovalManager
+from tianshu.executor.dag_scheduler import DAGScheduler
 from tianshu.executor.executor import Executor
 from tianshu.executor.hooks import HookRegistry, HookType
+from tianshu.executor.lanes import LaneManager
 from tianshu.executor.orchestrator.archive import archive_old_iterations
 from tianshu.executor.policy_hook import PolicyHook
-from tianshu.persona.evaluator import PerformanceEvaluator
+from tianshu.executor.worker_pool import WorkerPool
 from tianshu.gateway import gateway_router
 from tianshu.gateway.credentials_api import credentials_router
 from tianshu.gateway.hongluisi_api import hongluisi_router
+from tianshu.logging_config import setup_logging
 from tianshu.memory.config import MemoryConfig
 from tianshu.memory.drawer_store import DrawerStore
 from tianshu.memory.manager import MemoryManager
 from tianshu.notifier.channel_registry import ChannelRegistry
 from tianshu.notifier.notifier import Notifier
-from tianshu.plugins.api import PluginApi
-from tianshu.plugins.loader import PluginLoader
+from tianshu.persona.evaluator import PerformanceEvaluator
 from tianshu.persona.loader import PersonaLoader
-from tianshu.persona.template_library import TemplateLibrary
 from tianshu.persona.profile_synthesizer import ProfileSynthesizer
 from tianshu.persona.profile_trigger import ProfileTrigger
 from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.persona.selector import OfficialSelector
+from tianshu.persona.template_library import TemplateLibrary
 from tianshu.planner.planner import Planner
+from tianshu.plugins.api import PluginApi
+from tianshu.plugins.loader import PluginLoader
+from tianshu.providers.manager import ProviderManager
 from tianshu.scheduler.scheduler import Scheduler
+from tianshu.skills.curator import SkillCurator
 from tianshu.skills.loader import SkillsLoader, SkillsWatcher
 from tianshu.skills.metrics import SkillMetricsStore
 from tianshu.skills.reviewer import SkillReviewHandler
 from tianshu.skills.validator import SkillValidator
-from tianshu.skills.curator import SkillCurator
-from tianshu.universe.store import UniverseStore
-from tianshu.universe.code_store import CodeVariantStore
-from tianshu.universe.deployer import DeployPointer, Deployer
-from tianshu.universe.manager import UniverseManager
-from tianshu.universe.gate import Gate
-from tianshu.universe.sandbox import SandboxRunner
-from tianshu.universe.eval_harness import EvalHarness
-from tianshu.universe.code_mutator import CodeMutator
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.memory_tools import register_memory_tools
@@ -69,11 +62,17 @@ from tianshu.tools.policy_store import (
     InMemorySessionRuleStore,
     SqliteSessionRuleStore,
 )
-from tianshu.tools.skill_tools import register_skill_tools
 from tianshu.tools.registry import ToolRegistry
+from tianshu.tools.skill_tools import register_skill_tools
+from tianshu.universe.code_mutator import CodeMutator
+from tianshu.universe.code_store import CodeVariantStore
+from tianshu.universe.deployer import Deployer, DeployPointer
+from tianshu.universe.eval_harness import EvalHarness
+from tianshu.universe.gate import Gate
+from tianshu.universe.manager import UniverseManager
+from tianshu.universe.sandbox import SandboxRunner
+from tianshu.universe.store import UniverseStore
 from tianshu.web import mount_web
-
-from tianshu.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
 

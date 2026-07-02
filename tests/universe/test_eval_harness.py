@@ -16,7 +16,6 @@ from tianshu.storage import Storage
 from tianshu.universe.eval_harness import EvalHarness
 from tianshu.universe.fitness import compute_fitness
 
-
 # ---------------------------------------------------------------------------
 # 辅助：临时 Storage
 # ---------------------------------------------------------------------------
@@ -91,7 +90,6 @@ def test_select_eval_set_respects_size(tmp_storage):
 
 def test_aggregate_db_stats(tmp_storage, tmp_path):
     """aggregate_db_stats 聚合沙箱 DB 中所有 memorial，不按 universe_id 过滤。"""
-    import json
 
     # 插入两条 memorial：一条成功，一条失败
     e = Edict(goal="test")

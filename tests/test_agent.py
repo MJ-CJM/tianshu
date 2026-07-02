@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tianshu.executor.agent import Agent, AgentResult
+from tianshu.executor.agent import Agent
 from tianshu.executor.exit_reason import ExitReason
 from tianshu.executor.hooks import HookRegistry
 from tianshu.models import Edict, TaskStatus, UsageSummary
@@ -208,8 +208,8 @@ class TestAgentIntegration:
     @pytest.fixture
     def tools(self):
         registry = ToolRegistry()
-        from tianshu.tools.types import ok_result
         from tianshu.tools.registry import ToolDefinition
+        from tianshu.tools.types import ok_result
 
         async def mock_grep(**kwargs):
             return ok_result("line1: match\nline2: match\n" + "x" * 500)

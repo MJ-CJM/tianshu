@@ -35,8 +35,8 @@ class CardBuilder:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        cost_manager: "CostManager | None" = None,
+        storage: Storage,
+        cost_manager: CostManager | None = None,
     ) -> None:
         self._storage = storage
         self._cost_manager = cost_manager
@@ -45,7 +45,7 @@ class CardBuilder:
 
     def build_list_card(
         self,
-        edicts: list["Edict"],
+        edicts: list[Edict],
         current_anchor: str | None = None,
     ) -> dict:
         """每条敕令一行 markdown，含可复制的短 ID。

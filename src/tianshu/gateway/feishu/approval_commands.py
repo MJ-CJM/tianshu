@@ -105,8 +105,8 @@ class ApprovalCommandHandler:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        approval_manager: "ApprovalManager",
+        storage: Storage,
+        approval_manager: ApprovalManager,
         instance_id: str = "feishu-default",
     ) -> None:
         self._storage = storage

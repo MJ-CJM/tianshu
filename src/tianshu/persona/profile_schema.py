@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import yaml
@@ -31,7 +31,7 @@ class ProfileFrontmatter:
             "persona_name": self.persona_name,
             "version": self.version,
             "last_synthesized": self.last_synthesized
-            or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            or datetime.now(UTC).isoformat(timespec="seconds"),
             "synthesizer_model": self.synthesizer_model,
             "data_window": self.data_window,
             "data_sources": self.data_sources,
@@ -41,7 +41,7 @@ class ProfileFrontmatter:
         return yaml.safe_dump(d, allow_unicode=True, sort_keys=False).strip()
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ProfileFrontmatter":
+    def from_dict(cls, d: dict[str, Any]) -> ProfileFrontmatter:
         return cls(
             persona_id=str(d.get("persona_id", "")),
             persona_name=str(d.get("persona_name", "")),

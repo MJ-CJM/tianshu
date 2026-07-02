@@ -10,7 +10,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from tianshu.app import create_app, lifespan
-from tianshu.tools.mcp.config import MCPConfig, MCPServerConfig, ToolFilter
+from tianshu.tools.mcp.config import MCPConfig, MCPServerConfig
 
 
 @pytest.fixture

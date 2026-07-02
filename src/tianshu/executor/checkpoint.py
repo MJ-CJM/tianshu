@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 
-from tianshu.dag.models import DAGNode
 from tianshu.models.common import UsageSummary
 from tianshu.storage import Storage
 
@@ -97,7 +96,7 @@ class OuterLoopCheckpoint:
         })
 
     @classmethod
-    def from_json(cls, data: str) -> "OuterLoopCheckpoint":
+    def from_json(cls, data: str) -> OuterLoopCheckpoint:
         d = json.loads(data)
         return cls(
             edict_id=d["edict_id"],

@@ -1,10 +1,7 @@
 """Unit tests for Deployer — injected fake relaunch, no real os.execv."""
 from __future__ import annotations
 
-import pytest
-
-from tianshu.universe.deployer import DeployPointer, DeployRecord, Deployer
-
+from tianshu.universe.deployer import Deployer, DeployPointer, DeployRecord
 
 # ---------------------------------------------------------------------------
 # helpers

@@ -149,6 +149,7 @@ class TestNextCronUtc:
     def test_unknown_timezone_falls_back_to_utc(self, caplog):
         """非法时区不崩，回退 UTC + warn。"""
         import logging
+
         from tianshu.scheduler.scheduler import _next_cron_utc
         caplog.set_level(logging.WARNING)
         result = _next_cron_utc("20 16 * * *", "Bogus/Zone")

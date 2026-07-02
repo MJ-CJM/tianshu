@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -19,8 +19,8 @@ def _record(level="L0", issue_class="factual_error", verdict="fail", cost=0.1) -
         iteration=0, level=level, actor_output="x",
         checks_result=ChecksResult(all_passed=True),
         critic_result=CriticResult(verdict=verdict, issue_class=issue_class, feedback="f"),
-        started_at=datetime.now(timezone.utc),
-        finished_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
         cost_cny=cost,
     )
 

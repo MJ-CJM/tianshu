@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -33,8 +33,8 @@ def test_archive_empty_table(storage):
 
 @pytest.mark.unit
 def test_archive_old_only(storage):
-    old_ts = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
-    new_ts = datetime.now(timezone.utc).isoformat()
+    old_ts = (datetime.now(UTC) - timedelta(days=60)).isoformat()
+    new_ts = datetime.now(UTC).isoformat()
     _save_iter(storage, "old1", "e1", 0, old_ts)
     _save_iter(storage, "new1", "e1", 1, new_ts)
 
@@ -53,7 +53,7 @@ def test_archive_old_only(storage):
 @pytest.mark.unit
 def test_archive_idempotent(storage):
     """归档过的不再处理 —— 第二次跑返回 0。"""
-    old_ts = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
+    old_ts = (datetime.now(UTC) - timedelta(days=60)).isoformat()
     _save_iter(storage, "old1", "e1", 0, old_ts)
 
     n1 = archive_old_iterations(storage, retention_days=30)
@@ -66,8 +66,8 @@ def test_archive_idempotent(storage):
 @pytest.mark.unit
 def test_archive_custom_retention(storage):
     """retention_days 可调，比如 7 天。"""
-    ts_3d = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
-    ts_10d = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    ts_3d = (datetime.now(UTC) - timedelta(days=3)).isoformat()
+    ts_10d = (datetime.now(UTC) - timedelta(days=10)).isoformat()
     _save_iter(storage, "i3", "e1", 0, ts_3d)
     _save_iter(storage, "i10", "e1", 1, ts_10d)
 

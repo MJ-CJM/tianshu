@@ -39,13 +39,13 @@ class EdictBranch:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        anchor: "SessionAnchor",
-        edict_bridge: "EdictBridge",
-        outbound: "FeishuOutbound",
-        renderer: "PersonaRenderer",
-        assistant_branch: "AssistantBranch",
-        approval_commands: "ApprovalCommandHandler | None" = None,
+        storage: Storage,
+        anchor: SessionAnchor,
+        edict_bridge: EdictBridge,
+        outbound: FeishuOutbound,
+        renderer: PersonaRenderer,
+        assistant_branch: AssistantBranch,
+        approval_commands: ApprovalCommandHandler | None = None,
         assistant_persona_id: str = "tongzheng",
         instance_id: str = "feishu-default",
     ) -> None:
@@ -59,14 +59,14 @@ class EdictBranch:
         self._assistant_persona_id = assistant_persona_id
         self._instance_id = instance_id
 
-    def set_renderer(self, renderer: "PersonaRenderer") -> None:
+    def set_renderer(self, renderer: PersonaRenderer) -> None:
         self._renderer = renderer
 
     def set_assistant_persona_id(self, persona_id: str) -> None:
         """支持 reload 时切换 persona id（用于 /exit 切回 chat 敕令时指派 persona）。"""
         self._assistant_persona_id = persona_id
 
-    async def handle(self, msg: "FeishuMessage", ctx: "ModeContext") -> None:
+    async def handle(self, msg: FeishuMessage, ctx: ModeContext) -> None:
         text = msg.text.strip()
 
         # 审批双语命令优先级最高（不影响 anchor，跨模式可用）
@@ -188,7 +188,7 @@ class EdictBranch:
         await self._outbound.send_text(chat_id, text)
 
     async def _send_thinking(
-        self, msg: "FeishuMessage", edict_id: str, memorial_id: str, instruction: str,
+        self, msg: FeishuMessage, edict_id: str, memorial_id: str, instruction: str,
     ) -> None:
         """给用户原消息加 typing reaction，由 outbound 在 execution 完成时移除。"""
         if not msg.message_id:

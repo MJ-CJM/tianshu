@@ -1,6 +1,6 @@
 """Integration test — full event chain: submit → schedule → plan → execute → audit → notify."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 

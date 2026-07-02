@@ -114,7 +114,7 @@ async def lark_cli(args: list[str], timeout: int = _DEFAULT_TIMEOUT) -> ToolResu
         proc.kill()
         await asyncio.shield(proc.communicate())
         raise
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await asyncio.shield(proc.communicate())
         return error_result(f"lark_cli: 命令超时（{to}s）")
@@ -132,10 +132,7 @@ async def lark_cli(args: list[str], timeout: int = _DEFAULT_TIMEOUT) -> ToolResu
                 "`lark-cli auth login` 完成一次授权后重试。" + tail
             )
 
-    if out and err:
-        content = out + "\nSTDERR:\n" + err
-    else:
-        content = out or err
+    content = out + "\nSTDERR:\n" + err if out and err else out or err
 
     truncated = len(content) > _MAX_OUTPUT
     content = content[:_MAX_OUTPUT]

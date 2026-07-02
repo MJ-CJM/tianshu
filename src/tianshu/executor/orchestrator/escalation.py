@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from tianshu.executor.orchestrator.state import Level, OuterLoopState
+from tianshu.executor.orchestrator.state import OuterLoopState
 from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.edict import Edict
 

@@ -20,10 +20,10 @@ def _request(method: str, path: str, **kwargs) -> dict:
             return resp.json()
     except httpx.ConnectError:
         print(f"Cannot connect to Tianshu ({_base_url()})", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None
     except httpx.HTTPStatusError as e:
         print(f"API error: {e.response.status_code} - {e.response.text}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 def api_get(path: str, params: dict | None = None) -> dict:

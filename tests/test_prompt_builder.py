@@ -1,13 +1,11 @@
 """Tests for PromptBuilder."""
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
 from tianshu.models import Edict
 from tianshu.persona.loader import PersonaLoader
-from tianshu.persona.model import AgentPersona
 from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.skills.loader import SkillsLoader
 

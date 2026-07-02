@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from tianshu.persona.model import AgentPersona
 
 _current_edict: ContextVar[Edict | None] = ContextVar("current_edict", default=None)
-_current_persona: ContextVar["AgentPersona | None"] = ContextVar(
+_current_persona: ContextVar[AgentPersona | None] = ContextVar(
     "current_persona", default=None,
 )
 
@@ -26,7 +26,7 @@ def get_current_edict() -> Edict | None:
     return _current_edict.get()
 
 
-def get_current_persona() -> "AgentPersona | None":
+def get_current_persona() -> AgentPersona | None:
     return _current_persona.get()
 
 
@@ -40,7 +40,7 @@ def bind_edict(edict: Edict):
 
 
 @contextmanager
-def bind_persona(persona: "AgentPersona | None"):
+def bind_persona(persona: AgentPersona | None):
     token: Token = _current_persona.set(persona)
     try:
         yield

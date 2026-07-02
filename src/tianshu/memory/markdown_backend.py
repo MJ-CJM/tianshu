@@ -11,6 +11,7 @@ it is seeded from personas/{persona}/MEMORY.md (the git-tracked template).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import shutil
@@ -156,7 +157,7 @@ class MarkdownMemoryBackend:
         mode: str = "append",
         content: str | None = None,
         old_text: str | None = None,
-    ) -> "tuple[Path, int]":
+    ) -> tuple[Path, int]:
         """以 H2 section 为锚定的安全写入。
 
         参数
@@ -234,10 +235,8 @@ class MarkdownMemoryBackend:
 
         tmp_path = path.with_suffix(".md.tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
-            try:
+            with contextlib.suppress(OSError, AttributeError):  # Windows 或不支持 flock 的 fs
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            except (OSError, AttributeError):
-                pass  # Windows 或不支持 flock 的 fs
             f.write(new_text)
             f.flush()
             os.fsync(f.fileno())
@@ -301,10 +300,7 @@ class MarkdownMemoryBackend:
                 raise FileNotFoundError(f"old_text not found in section {section!r}")
             new_body = section_body.replace(old_text, "", 1)
             # 若移除后 section body 全空，则把整个 section 也移掉
-            if not new_body.strip():
-                new_section = ""
-            else:
-                new_section = f"{section}\n{new_body}"
+            new_section = "" if not new_body.strip() else f"{section}\n{new_body}"
 
         after = "".join(lines[end:])
         result = before + new_section + after

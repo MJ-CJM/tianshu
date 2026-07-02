@@ -47,7 +47,7 @@ def convert_tables_to_lists(md: str) -> str:
                 if len(header) == 2 and len(row) == 2:
                     out.append(f"- **{row[0]}**：{row[1]}")
                 else:
-                    pairs = [f"{h}: {v}" for h, v in zip(header, row) if v]
+                    pairs = [f"{h}: {v}" for h, v in zip(header, row, strict=False) if v]
                     out.append("- " + " / ".join(pairs))
             continue
         out.append(line)

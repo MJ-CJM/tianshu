@@ -42,11 +42,11 @@ class RenderedPersona:
 class PersonaRenderer:
     """根据绑定 persona 渲染回信文案。"""
 
-    def __init__(self, persona: "AgentPersona | None") -> None:
+    def __init__(self, persona: AgentPersona | None) -> None:
         self._persona = self._resolve(persona)
 
     @staticmethod
-    def _resolve(persona: "AgentPersona | None") -> RenderedPersona:
+    def _resolve(persona: AgentPersona | None) -> RenderedPersona:
         if persona is None:
             logger.warning(
                 "[feishu/persona] no persona bound, falling back to default '%s'",

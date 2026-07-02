@@ -171,7 +171,7 @@ class SkillsLoader:
         try:
             updated_content, strategy = fuzzy_replace(content, old, new)
         except ValueError:
-            raise ValueError(f"Pattern not found in skill '{name}'")
+            raise ValueError(f"Pattern not found in skill '{name}'") from None
 
         if strategy != "exact":
             logger.info(
@@ -247,10 +247,9 @@ class SkillsLoader:
         openclaw = meta.get("metadata", {}).get("openclaw", {})
 
         # always=true skips requirement checks
-        if not openclaw.get("always", False):
-            if not self._check_requirements(openclaw):
-                logger.debug("Skill '%s' failed requirements check", name)
-                return
+        if not openclaw.get("always", False) and not self._check_requirements(openclaw):
+            logger.debug("Skill '%s' failed requirements check", name)
+            return
 
         skills[name] = post.content
 
@@ -426,7 +425,7 @@ class SkillsLoader:
 
     def save_skill(self, name: str, content: str) -> dict:
         """Write back skill content to its SKILL.md file. SkillsWatcher auto-reloads."""
-        for base, source in self._search_dirs():
+        for base, _source in self._search_dirs():
             skill_file = base / name / "SKILL.md"
             if skill_file.is_file():
                 # Preserve frontmatter, replace content
@@ -623,7 +622,6 @@ class SkillsWatcher:
         logger.info("SkillsWatcher stopped")
 
     def _schedule_reload(self) -> None:
-        import asyncio
 
         if self._loop is None:
             return

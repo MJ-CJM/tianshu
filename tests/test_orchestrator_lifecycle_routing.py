@@ -1,13 +1,11 @@
 """Orchestrator 决策点路由集成测试。"""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 import pytest
 
-from tianshu.executor.orchestrator.audit import AuditGap, AuditResult
+from tianshu.executor.orchestrator.audit import AuditResult
 from tianshu.executor.orchestrator.lifecycle import (
-    apply_transition, can_transition,
+    can_transition,
 )
 
 

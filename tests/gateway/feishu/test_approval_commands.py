@@ -11,7 +11,6 @@ from tianshu.gateway.feishu.approval_commands import (
     parse_approval_command,
 )
 
-
 # --- parse_approval_command ---
 
 @pytest.mark.parametrize("text,expected", [

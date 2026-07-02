@@ -4,12 +4,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from unittest.mock import MagicMock as _MM
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tianshu.gateway.feishu.connection import WebhookConnection
+from tianshu.gateway.feishu.connection import WebhookConnection, WebSocketConnection
 from tianshu.gateway.feishu.settings import FeishuSettings
 
 
@@ -163,10 +164,6 @@ async def test_start_stop_no_op(storage):
 
 
 # --- WebSocketConnection 静态方法 / 转换逻辑测试 ---
-
-from unittest.mock import MagicMock as _MM
-
-from tianshu.gateway.feishu.connection import WebSocketConnection
 
 
 def test_sdk_message_to_payload_with_full_event():

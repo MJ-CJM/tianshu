@@ -43,6 +43,7 @@ dev = [
     "pytest-cov>=5.0",
     "pytest-asyncio>=0.23",
     "respx>=0.21",
+    "ruff>=0.5",
 ]
 scrapling = ["scrapling[fetchers]>=0.3"]
 
@@ -56,3 +57,19 @@ where = ["src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = ["slow: 真实子进程/慢测试"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC"]
+ignore = [
+    "E501",  # 行宽交给 formatter
+    # 下面 4 条是本次（B1-T8）首次 lint 落地时的残余处置，非长期豁免，后续批次收紧：
+    "UP042",   # str+Enum → StrEnum 会改变 str()/序列化行为（11 处核心枚举），需专项验证后再迁移
+    "ASYNC240",  # async 函数内阻塞 pathlib/os.path 调用（16 处），修复需引入 to_thread 等重构，超出本次 lint-fix 范围
+    "ASYNC221",  # async 函数内阻塞子进程调用（5 处，均为测试代码），同上
+    "ASYNC109",  # async 函数以 timeout 参数暴露超时（2 处），改法是破坏性 API 变更，暂缓
+]

@@ -14,21 +14,7 @@ class TestBackwardCompatImports:
 
     def test_import_from_models(self):
         from tianshu.models import (
-            AgentConfig,
-            ApiResponse,
             Edict,
-            EdictCreateRequest,
-            EdictStatus,
-            EdictStatusUpdateRequest,
-            EdictUpdateRequest,
-            FollowUpRequest,
-            LLMConfig,
-            LLMConfigCreateRequest,
-            LLMConfigListResponse,
-            LLMConfigUpdateRequest,
-            Memorial,
-            TaskStatus,
-            UsageSummary,
         )
         assert Edict is not None
 

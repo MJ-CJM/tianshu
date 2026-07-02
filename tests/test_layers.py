@@ -1,9 +1,10 @@
-import pytest
 from unittest.mock import AsyncMock
 
-from tianshu.memory.layers import MemoryStack
-from tianshu.memory.drawer import DrawerResult
+import pytest
+
 from tianshu.memory.config import MemoryConfig
+from tianshu.memory.drawer import DrawerResult
+from tianshu.memory.layers import MemoryStack
 
 
 @pytest.fixture

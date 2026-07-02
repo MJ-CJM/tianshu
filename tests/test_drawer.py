@@ -1,5 +1,6 @@
+from datetime import UTC, datetime
+
 import pytest
-from datetime import datetime, timezone
 
 
 def test_drawer_creation():
@@ -11,7 +12,7 @@ def test_drawer_creation():
         room="execution",
         content="Deployment failed due to missing env var DATABASE_URL.",
         source_edict_id="edict_abc",
-        timestamp=datetime(2026, 4, 16, tzinfo=timezone.utc).isoformat(),
+        timestamp=datetime(2026, 4, 16, tzinfo=UTC).isoformat(),
         category="W",
         confidence=0.9,
         chunk_index=0,
@@ -53,6 +54,7 @@ def test_drawer_result_has_score():
 
 def test_memory_backend_protocol():
     """MemoryBackend is a Protocol — any class with matching methods satisfies it."""
-    from tianshu.memory.drawer import MemoryBackend
     import typing
+
+    from tianshu.memory.drawer import MemoryBackend
     assert typing.runtime_checkable(MemoryBackend) or hasattr(MemoryBackend, '__protocol_attrs__') or True

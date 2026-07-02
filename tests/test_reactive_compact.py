@@ -1,10 +1,11 @@
 """Tests for reactive compact strategy."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from tianshu.executor.loop_state import LoopState
+import pytest
+
 from tianshu.executor.compaction.reactive import reactive_compact
+from tianshu.executor.loop_state import LoopState
 
 
 class TestReactiveCompact:

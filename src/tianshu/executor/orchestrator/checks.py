@@ -33,7 +33,7 @@ async def _run_bash(spec: CheckSpec) -> CheckOutcome:
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=spec.timeout_seconds,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             return CheckOutcome(

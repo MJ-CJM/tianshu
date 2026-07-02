@@ -1,8 +1,9 @@
 """CardActionDispatcher 单元测试：按钮 value → 文本命令合成。"""
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from tianshu.gateway.feishu.card_action_dispatcher import CardActionDispatcher
 from tianshu.gateway.feishu.dispatcher import FeishuCardAction

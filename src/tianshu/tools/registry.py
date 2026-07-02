@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 import jsonschema
 from pydantic import BaseModel
@@ -54,7 +54,7 @@ class ToolRegistry:
     def list_disabled(self) -> set[str]:
         return set(self._disabled)
 
-    def apply_disabled(self, names: "set[str] | list[str]") -> None:
+    def apply_disabled(self, names: set[str] | list[str]) -> None:
         """批量应用禁用列表（startup 后从 DB 读回时调用）。"""
         self._disabled = set(names)
 

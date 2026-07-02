@@ -278,9 +278,11 @@ class TestSkillView:
 
     @pytest.mark.asyncio
     async def test_skill_view_increments_metrics(self, loader: SkillsLoader) -> None:
+        import os
+        import tempfile
+
         from tianshu.skills.metrics import SkillMetricsStore
         from tianshu.storage import Storage
-        import tempfile, os
         with tempfile.TemporaryDirectory() as tmp:
             db = Storage(os.path.join(tmp, "t.db"))
             db.init_db()

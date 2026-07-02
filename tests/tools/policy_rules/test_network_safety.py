@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from tianshu.tools.policy_rules.network_safety import NetworkSafetyRule
 from tianshu.tools.types import ToolTier
 

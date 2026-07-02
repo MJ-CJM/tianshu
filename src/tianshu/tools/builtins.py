@@ -22,9 +22,9 @@ if TYPE_CHECKING:
 def register_builtins(
     registry: ToolRegistry,
     workspace_dir: str,
-    storage: "Storage | None" = None,
-    event_bus: "EventBus | None" = None,
-    persona_loader: "PersonaLoader | None" = None,
+    storage: Storage | None = None,
+    event_bus: EventBus | None = None,
+    persona_loader: PersonaLoader | None = None,
 ) -> None:
     workspace = Path(workspace_dir).resolve()
 
@@ -46,7 +46,7 @@ def register_builtins(
             proc.kill()
             await asyncio.shield(proc.communicate())
             raise
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await asyncio.shield(proc.communicate())
             return error_result("shell_exec: command timed out after 60s")

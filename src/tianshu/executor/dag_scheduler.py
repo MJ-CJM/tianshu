@@ -9,9 +9,9 @@ from datetime import UTC, datetime
 from tianshu.bus.event_bus import EventBus
 from tianshu.dag.graph import DAG
 from tianshu.dag.models import DAGExecution, DAGNode, DAGNodeStatus
-from tianshu.executor.agent import Agent, AgentResult
+from tianshu.executor.agent import Agent
 from tianshu.executor.worker import Worker
-from tianshu.executor.worker_pool import WorkItem, WorkerPool
+from tianshu.executor.worker_pool import WorkerPool, WorkItem
 from tianshu.models.common import TaskStatus, UsageSummary
 from tianshu.models.edict import Edict
 from tianshu.models.events import make_event

@@ -56,7 +56,7 @@ def test_inject_renders_template_value(store_with_github: CredentialStore) -> No
     inj = CredentialInjector(store_with_github)
     r = inj.inject("api.github.com", {})
     # the raw secret must not leak as a stringified bytes object
-    assert "Bearer secret-abc" == r.merged_headers["Authorization"]
+    assert r.merged_headers["Authorization"] == "Bearer secret-abc"
     assert "b'" not in r.merged_headers["Authorization"]
 
 

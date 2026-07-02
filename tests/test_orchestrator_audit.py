@@ -7,10 +7,9 @@ import pytest
 
 from tianshu.executor.orchestrator.audit import (
     AuditGap,
-    AuditResult,
+    format_gaps_for_continuation,
     parse_audit_response,
     run_completion_audit,
-    format_gaps_for_continuation,
 )
 from tianshu.models.acceptance import AcceptanceCriteria, CheckSpec
 
@@ -94,8 +93,10 @@ async def test_run_completion_audit_invokes_llm_and_returns_result():
 @pytest.mark.asyncio
 async def test_run_completion_audit_retries_once_on_invalid_json():
     fake_llm = AsyncMock()
-    bad = AsyncMock(); bad.content = "not json"
-    good = AsyncMock(); good.content = '{"passed": false, "gaps": [{"check_name": "x", "requirement": "y", "evidence_status": "missing", "suggested_action": "z"}]}'
+    bad = AsyncMock()
+    bad.content = "not json"
+    good = AsyncMock()
+    good.content = '{"passed": false, "gaps": [{"check_name": "x", "requirement": "y", "evidence_status": "missing", "suggested_action": "z"}]}'
     fake_llm.chat.side_effect = [bad, good]
 
     result = await run_completion_audit(

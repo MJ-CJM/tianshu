@@ -25,16 +25,18 @@ def _now_iso() -> str:
 
 def _row_to_credential(row) -> Credential:
     # Handle old schema rows pre-migration defensively.
+    # NOTE: row 是 sqlite3.Row，非 dict —— `in row` 会走 __iter__ 逐值比较，
+    # 语义与 `in row.keys()`（比较列名）不同，不能按 SIM118 建议改写。
     try:
-        kind = row["kind"] if "kind" in row.keys() else "edict_auth"
+        kind = row["kind"] if "kind" in row.keys() else "edict_auth"  # noqa: SIM118
     except (IndexError, KeyError):
         kind = "edict_auth"
     try:
-        provider = row["provider_name"] if "provider_name" in row.keys() else None
+        provider = row["provider_name"] if "provider_name" in row.keys() else None  # noqa: SIM118
     except (IndexError, KeyError):
         provider = None
     try:
-        enabled_val = row["enabled"] if "enabled" in row.keys() else 1
+        enabled_val = row["enabled"] if "enabled" in row.keys() else 1  # noqa: SIM118
     except (IndexError, KeyError):
         enabled_val = 1
     return Credential(
@@ -165,7 +167,7 @@ class CredentialStore:
 
 
 def resolve_provider_key(
-    store: "CredentialStore | None",
+    store: CredentialStore | None,
     provider_name: str,
     env_var: str,
 ) -> tuple[str | None, str]:

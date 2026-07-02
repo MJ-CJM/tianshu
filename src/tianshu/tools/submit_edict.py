@@ -35,9 +35,9 @@ _VALID_REVIEW_POLICIES = ("never", "on_failure", "on_flag", "always")
 def register_submit_edict(
     registry: ToolRegistry,
     *,
-    storage: "Storage",
-    event_bus: "EventBus",
-    persona_loader: "PersonaLoader | None" = None,
+    storage: Storage,
+    event_bus: EventBus,
+    persona_loader: PersonaLoader | None = None,
 ) -> None:
     """注册 submit_edict tool 到 ToolRegistry。"""
 

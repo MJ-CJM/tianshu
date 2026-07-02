@@ -64,7 +64,7 @@ def watch(
         import websockets.sync.client as ws_client
     except ImportError:
         console.print("[red]websockets 未安装，请执行: pip install 'tianshu[cli]'[/red]")
-        raise SystemExit(1)
+        raise SystemExit(1) from None
 
     base = os.environ.get("TIANSHU_API_URL", "http://localhost:8000")
     ws_url = base.replace("http://", "ws://").replace("https://", "wss://") + "/api/ws"
@@ -111,7 +111,7 @@ def watch(
         console.print("\n[yellow]Interrupted.[/yellow]")
     except Exception as e:
         console.print(f"[red]Connection error: {e}[/red]", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     console.print(f"\n[bold]Summary:[/bold] {len(events)} events received")
     if events:

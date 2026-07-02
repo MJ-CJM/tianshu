@@ -4,11 +4,11 @@ from __future__ import annotations
 import pytest
 
 from tianshu.executor.orchestrator.budget import (
+    HARD_LIMIT,
+    SOFT_LANDING_THRESHOLD,
     BudgetSnapshot,
     compute_usage_ratio,
     dominant_dimension,
-    HARD_LIMIT,
-    SOFT_LANDING_THRESHOLD,
 )
 
 
@@ -59,7 +59,7 @@ def test_zero_budget_treated_as_unset():
 
 
 def test_soft_landing_threshold_is_zero_point_nine():
-    assert SOFT_LANDING_THRESHOLD == pytest.approx(0.9)
+    assert pytest.approx(0.9) == SOFT_LANDING_THRESHOLD
 
 
 def test_hard_limit_is_one_point_zero():

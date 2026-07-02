@@ -1,5 +1,6 @@
 """Core data models — backward-compatible re-export."""
 
+from tianshu.dag.models import DAGExecution, DAGNode, DAGNodeStatus
 from tianshu.models.api import (
     AgentConfig,
     AgentConfigUpdateRequest,
@@ -28,7 +29,6 @@ from tianshu.models.edict import Edict, EdictDispatch, EdictRuntime, EdictSchedu
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan, PlanTask
-from tianshu.dag.models import DAGExecution, DAGNode, DAGNodeStatus
 
 __all__ = [
     # common

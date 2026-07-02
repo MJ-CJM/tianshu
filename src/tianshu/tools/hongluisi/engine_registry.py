@@ -10,12 +10,12 @@ import threading
 
 from tianshu.secrets import resolve_provider_key
 from tianshu.tools.hongluisi.engines import FetchEngine, SearchEngine
+from tianshu.tools.hongluisi.engines.duckduckgo_search import build_duckduckgo
 from tianshu.tools.hongluisi.engines.firecrawl import build_firecrawl
 from tianshu.tools.hongluisi.engines.firecrawl_extract import build_firecrawl_extract
 from tianshu.tools.hongluisi.engines.jina_reader import build_jina_reader
 from tianshu.tools.hongluisi.engines.jina_search import build_jina_search
 from tianshu.tools.hongluisi.engines.local_fetch import LocalFetchEngine
-from tianshu.tools.hongluisi.engines.duckduckgo_search import build_duckduckgo
 from tianshu.tools.hongluisi.engines.scrapling_fetch import build_scrapling
 from tianshu.tools.hongluisi.engines.tavily import build_tavily
 

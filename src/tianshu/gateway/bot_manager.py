@@ -43,16 +43,16 @@ class ChannelBotManager:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        event_bus: "EventBus",
-        approval_manager: "ApprovalManager",
-        executor: "Executor",
-        notifier: "Notifier",
-        persona_loader: "PersonaLoader | None",
-        provider_manager: "ProviderManager | None",
-        cost_manager: "CostManager | None",
+        storage: Storage,
+        event_bus: EventBus,
+        approval_manager: ApprovalManager,
+        executor: Executor,
+        notifier: Notifier,
+        persona_loader: PersonaLoader | None,
+        provider_manager: ProviderManager | None,
+        cost_manager: CostManager | None,
         env_settings,
-        app: "FastAPI | None",
+        app: FastAPI | None,
     ) -> None:
         self._storage = storage
         self._event_bus = event_bus

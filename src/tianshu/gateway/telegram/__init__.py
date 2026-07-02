@@ -56,15 +56,15 @@ class TelegramBot:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        event_bus: "EventBus",
-        approval_manager: "ApprovalManager",
-        executor: "Executor",
-        notifier: "Notifier",
+        storage: Storage,
+        event_bus: EventBus,
+        approval_manager: ApprovalManager,
+        executor: Executor,
+        notifier: Notifier,
         settings: TelegramSettings,
-        persona_loader: "PersonaLoader | None" = None,
-        provider_manager: "ProviderManager | None" = None,
-        cost_manager: "CostManager | None" = None,
+        persona_loader: PersonaLoader | None = None,
+        provider_manager: ProviderManager | None = None,
+        cost_manager: CostManager | None = None,
         instance_id: str = "telegram-default",
     ) -> None:
         self._storage = storage
@@ -236,7 +236,7 @@ class TelegramBot:
         self._mode_router._settings = new_settings  # type: ignore[attr-defined]
         logger.info("[telegram] reload complete (mode=%s)", new_settings.connection_mode)
 
-    def attach_webhook_router(self, app: "FastAPI") -> None:
+    def attach_webhook_router(self, app: FastAPI) -> None:
         """Webhook 模式：把路由挂到 FastAPI app。"""
         if self._connection and self._settings.connection_mode == "webhook":
             app.include_router(self._connection.router)

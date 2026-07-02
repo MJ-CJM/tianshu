@@ -1,8 +1,9 @@
 """ModeRouter 单元测试：状态机判定 + 分发（v2 极简模型）。"""
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from tianshu.gateway.feishu.dispatcher import FeishuMessage
 from tianshu.gateway.feishu.mode_router import ModeContext, ModeRouter

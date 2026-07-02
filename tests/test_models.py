@@ -1,6 +1,5 @@
 """Tests for Phase 0 models — Edict/Memorial serialization, defaults, enums."""
 
-from datetime import UTC, datetime
 
 from tianshu.models import (
     ApiResponse,

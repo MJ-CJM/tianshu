@@ -28,8 +28,8 @@ class TelegramCardBuilder:
     def __init__(
         self,
         *,
-        storage: "Storage",
-        cost_manager: "CostManager | None" = None,
+        storage: Storage,
+        cost_manager: CostManager | None = None,
     ) -> None:
         self._storage = storage
         self._cost_manager = cost_manager
@@ -37,7 +37,7 @@ class TelegramCardBuilder:
     # --- /list ---
 
     def build_list_card(
-        self, edicts: list["Edict"], current_anchor: str | None = None,
+        self, edicts: list[Edict], current_anchor: str | None = None,
     ) -> TelegramCard:
         rows: list[str] = []
         buttons: list[list[InlineKeyboardButton]] = []

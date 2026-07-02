@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import TYPE_CHECKING
 
 from tianshu.cost.tracker import lookup_pricing
 from tianshu.llm import LLMClient
-from tianshu.providers.litellm_provider import create_llm_client
 from tianshu.providers.capabilities import ProviderCapability, ProviderInfo, TaskRequirements
+from tianshu.providers.litellm_provider import create_llm_client
 
 if TYPE_CHECKING:
     from tianshu.config_manager import ConfigManager, LLMConfigState
@@ -321,10 +322,8 @@ class ProviderManager:
     def _row_to_info(row: dict) -> ProviderInfo:
         caps = []
         for c in row.get("capabilities", []):
-            try:
+            with contextlib.suppress(ValueError):
                 caps.append(ProviderCapability(c))
-            except ValueError:
-                pass
         return ProviderInfo(
             name=row["name"],
             model=row["model"],

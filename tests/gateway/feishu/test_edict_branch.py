@@ -1,8 +1,9 @@
 """EdictBranch 单元测试：敕令模式命令 + /exit + 续接。"""
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from tianshu.gateway.feishu.dispatcher import FeishuMessage
 from tianshu.gateway.feishu.edict_branch import EdictBranch

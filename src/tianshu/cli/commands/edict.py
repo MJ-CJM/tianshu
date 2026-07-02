@@ -46,7 +46,7 @@ def submit(
     status = edict.get("status", "unknown")
     color = _STATUS_COLORS.get(status, "white")
 
-    console.print(f"\nEdict submitted:")
+    console.print("\nEdict submitted:")
     console.print(f"  Edict ID: {edict.get('id', 'N/A')}")
     console.print(f"  Goal:     {edict.get('goal', 'N/A')}")
     console.print(f"  Status:   [{color}]{status}[/{color}]")
@@ -66,7 +66,7 @@ def get_edict(
         return
 
     edict = data.get("data", {})
-    console.print(f"\n[bold]Edict[/bold]")
+    console.print("\n[bold]Edict[/bold]")
     console.print(f"  ID:         {edict.get('id')}")
     console.print(f"  Goal:       {edict.get('goal')}")
     console.print(f"  Context:    {edict.get('context', 'N/A')}")

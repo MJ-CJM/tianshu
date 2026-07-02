@@ -352,8 +352,8 @@ class PromptBuilder:
             "tokens_est": len(task_ctx) // 4,
         })
 
-        total_chars = sum(l["chars"] for l in layers)
-        total_tokens = sum(l["tokens_est"] for l in layers)
+        total_chars = sum(layer["chars"] for layer in layers)
+        total_tokens = sum(layer["tokens_est"] for layer in layers)
 
         return {
             "persona_id": persona.id if persona else None,
@@ -461,8 +461,8 @@ class PromptBuilder:
     def _clip(text: str, limit: int) -> str:
         # strip table rows first, then trailing bullets
         lines = text.split("\n")
-        while len(text) > limit and any(l.startswith("|") for l in lines):
-            lines = [l for l in lines if not l.startswith("|")]
+        while len(text) > limit and any(line.startswith("|") for line in lines):
+            lines = [line for line in lines if not line.startswith("|")]
             text = "\n".join(lines)
         if len(text) > limit:
             text = text[: limit - 3].rstrip() + "..."

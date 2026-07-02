@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from tianshu.executor.hooks import HookHandler, HookRegistry, HookType
     from tianshu.notifier.channel_registry import ChannelRegistry
     from tianshu.notifier.channels.base import NotificationChannel
-    from tianshu.providers.manager import ProviderManager
     from tianshu.providers.capabilities import ProviderInfo
+    from tianshu.providers.manager import ProviderManager
     from tianshu.skills.loader import SkillsLoader
     from tianshu.storage import Storage
     from tianshu.tools.registry import ToolRegistry

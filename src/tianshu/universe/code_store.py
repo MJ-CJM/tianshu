@@ -7,6 +7,7 @@ git 是代码的唯一真相源；fork 起点 start_ref 记在 sidecar，供 dif
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import subprocess
@@ -97,10 +98,8 @@ class CodeVariantStore:
         if wt.is_dir():
             self._git("worktree", "remove", "--force", str(wt))
         branch = self.branch_name(universe_id)
-        try:
+        with contextlib.suppress(RuntimeError):
             self._git("branch", "-D", branch)
-        except RuntimeError:
-            pass
         self._meta_path(universe_id).unlink(missing_ok=True)
 
     def _read_meta(self, universe_id: str) -> dict:

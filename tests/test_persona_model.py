@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from tianshu.persona.loader import PersonaLoader
 from tianshu.persona.model import AgentPersona
 from tianshu.persona.selector import OfficialSelector

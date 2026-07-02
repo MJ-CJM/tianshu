@@ -39,12 +39,12 @@ class ModeRouter:
     def __init__(
         self,
         *,
-        anchor: "SessionAnchor",
-        assistant_branch: "AssistantBranch",
-        edict_branch: "EdictBranch",
-        edict_bridge: "EdictBridge",
-        storage: "Storage",
-        settings: "FeishuSettings",
+        anchor: SessionAnchor,
+        assistant_branch: AssistantBranch,
+        edict_branch: EdictBranch,
+        edict_bridge: EdictBridge,
+        storage: Storage,
+        settings: FeishuSettings,
     ) -> None:
         self._anchor = anchor
         self._assistant = assistant_branch
@@ -75,7 +75,7 @@ class ModeRouter:
             sender_open_id="", edict_id=edict_id,
         )
 
-    async def dispatch(self, msg: "FeishuMessage") -> None:
+    async def dispatch(self, msg: FeishuMessage) -> None:
         """主入口：保证 anchor 存在 → 判断模式 → 转给对应分支。"""
         # v2: 首次接入自动建 chat 敕令（用通政司配置的 assistant_persona_id）
         await self._edict_bridge.ensure_chat_edict(

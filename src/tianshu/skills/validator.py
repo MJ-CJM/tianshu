@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import frontmatter as fm
 
-from tianshu.skills.guard import SkillsGuard, TrustLevel
+from tianshu.skills.guard import SkillsGuard
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _MAX_CONTENT_SIZE = 256 * 1024

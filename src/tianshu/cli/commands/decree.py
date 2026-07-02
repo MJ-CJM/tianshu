@@ -6,7 +6,6 @@ import json
 
 import typer
 from rich.console import Console
-from rich.table import Table
 
 from tianshu.cli.client import api_get, api_post
 
@@ -40,7 +39,7 @@ def submit(
         return
 
     decree = data.get("data", {})
-    console.print(f"\n[bold]Decree submitted[/bold]")
+    console.print("\n[bold]Decree submitted[/bold]")
     console.print(f"  ID:          {decree.get('id', 'N/A')}")
     console.print(f"  Memorial ID: {decree.get('memorial_id', 'N/A')}")
     console.print(f"  Action:      {decree.get('action', 'N/A')}")

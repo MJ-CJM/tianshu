@@ -5,8 +5,6 @@ import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock
 
-import pytest
-
 from tianshu.universe.code_mutator import CodeMutator
 
 # ---------------------------------------------------------------------------

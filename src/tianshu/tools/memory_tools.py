@@ -98,7 +98,7 @@ async def _memory_search(
 async def _memory_write(
     md_backend,
     event_bus,
-    storage: "Storage | None" = None,
+    storage: Storage | None = None,
     *,
     action: str,
     scope: str,

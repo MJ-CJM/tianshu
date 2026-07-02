@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import threading
@@ -31,18 +32,29 @@ logger = logging.getLogger(__name__)
 # 修复：CARD 也走 do_without_validation（dispatcher_handler 已通过 _callback_processor_map
 # 支持卡片回调）。
 # 等 lark-oapi 升级修复后可移除此 patch。
+import base64 as _base64  # noqa: E402
 import http as _http  # noqa: E402
 import time as _time  # noqa: E402
-import base64 as _base64  # noqa: E402
+
 from lark_oapi.core.const import UTF_8 as _LARK_UTF_8  # noqa: E402
 from lark_oapi.core.json import JSON as _LarkJSON  # noqa: E402
 from lark_oapi.ws.client import _get_by_key as _lark_get_by_key  # noqa: E402
 from lark_oapi.ws.const import (  # noqa: E402
     HEADER_BIZ_RT as _LARK_HEADER_BIZ_RT,
+)
+from lark_oapi.ws.const import (  # noqa: E402
     HEADER_MESSAGE_ID as _LARK_HEADER_MESSAGE_ID,
+)
+from lark_oapi.ws.const import (  # noqa: E402
     HEADER_SEQ as _LARK_HEADER_SEQ,
+)
+from lark_oapi.ws.const import (  # noqa: E402
     HEADER_SUM as _LARK_HEADER_SUM,
+)
+from lark_oapi.ws.const import (  # noqa: E402
     HEADER_TRACE_ID as _LARK_HEADER_TRACE_ID,
+)
+from lark_oapi.ws.const import (  # noqa: E402
     HEADER_TYPE as _LARK_HEADER_TYPE,
 )
 from lark_oapi.ws.enum import MessageType as _LarkMessageType  # noqa: E402
@@ -276,10 +288,8 @@ class WebSocketConnection:
         except Exception:
             logger.exception("[feishu/ws] client.start() crashed in thread")
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 new_loop.close()
-            except Exception:
-                pass
 
     async def stop(self) -> None:
         # lark.ws.Client 无公开 stop API；daemon thread 随主进程退出而终止

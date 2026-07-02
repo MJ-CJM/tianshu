@@ -71,7 +71,7 @@ class ApprovalManager:
         try:
             await asyncio.wait_for(evt.wait(), timeout=APPROVAL_TIMEOUT)
             return self._results.pop(memorial_id, None)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "Approval timeout for memorial %s, auto-rejecting",
                 memorial_id,
@@ -102,7 +102,7 @@ class ApprovalManager:
         try:
             await asyncio.wait_for(evt.wait(), timeout=timeout_seconds)
             return self._outer_loop_results.pop(edict_id, None)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Outer-loop approval timeout for edict %s", edict_id)
             return None
         finally:

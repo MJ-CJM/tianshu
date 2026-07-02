@@ -20,7 +20,6 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 _ENV_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
 
 
@@ -73,24 +72,23 @@ class MCPServerConfig(BaseModel):
     connect_timeout: int = 30
 
     @model_validator(mode="after")
-    def _check_transport_fields(self) -> "MCPServerConfig":
+    def _check_transport_fields(self) -> MCPServerConfig:
         if self.transport == "stdio":
             if not self.command:
                 raise ValueError(
                     f"server {self.name!r}: stdio transport requires 'command'"
                 )
-        elif self.transport == "streamable_http":
-            if not self.url:
-                raise ValueError(
-                    f"server {self.name!r}: streamable_http transport requires 'url'"
-                )
+        elif self.transport == "streamable_http" and not self.url:
+            raise ValueError(
+                f"server {self.name!r}: streamable_http transport requires 'url'"
+            )
         if self.default_tier not in (0, 1, 2, 3, 4):
             raise ValueError(
                 f"server {self.name!r}: default_tier must be 0..4, got {self.default_tier}"
             )
         return self
 
-    def with_env_interpolated(self) -> "MCPServerConfig":
+    def with_env_interpolated(self) -> MCPServerConfig:
         """返回一个对 env / headers 完成 ``${VAR}`` 替换的副本。"""
         return self.model_copy(
             update={

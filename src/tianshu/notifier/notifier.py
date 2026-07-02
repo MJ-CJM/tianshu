@@ -5,13 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Set
 
 import httpx
 from fastapi import WebSocket
 
 from tianshu.models.events import EventEnvelope
-from tianshu.notifier.renderer import render_feishu, render_dingtalk, render_email, render_status
+from tianshu.notifier.renderer import render_dingtalk, render_email, render_feishu, render_status
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)

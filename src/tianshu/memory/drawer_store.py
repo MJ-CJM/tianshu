@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from tianshu.memory.drawer import Drawer, DrawerResult
 
@@ -51,13 +52,11 @@ class DrawerStore:
             CREATE INDEX IF NOT EXISTS idx_drawers_wing_room ON drawers(wing, room);
         """)
         # FTS5 virtual table for BM25 search
-        try:
+        with contextlib.suppress(sqlite3.OperationalError):  # FTS5 not available
             self._conn.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS drawers_fts
                 USING fts5(id, wing, room, content, tokenize='unicode61');
             """)
-        except sqlite3.OperationalError:
-            pass  # FTS5 not available
         self._conn.commit()
 
     async def store_drawer(self, drawer: Drawer) -> str:
@@ -71,13 +70,11 @@ class DrawerStore:
                  drawer.confidence, drawer.chunk_index),
             )
             # Sync to FTS
-            try:
+            with contextlib.suppress(sqlite3.OperationalError):
                 self._conn.execute(
                     "INSERT OR REPLACE INTO drawers_fts (id, wing, room, content) VALUES (?, ?, ?, ?)",
                     (drawer.id, drawer.wing, drawer.room, drawer.content),
                 )
-            except sqlite3.OperationalError:
-                pass
             self._conn.commit()
         return drawer.id
 
@@ -194,10 +191,8 @@ class DrawerStore:
     async def delete_drawer(self, drawer_id: str) -> bool:
         with self._lock:
             cur = self._conn.execute("DELETE FROM drawers WHERE id = ?", (drawer_id,))
-            try:
+            with contextlib.suppress(sqlite3.OperationalError):
                 self._conn.execute("DELETE FROM drawers_fts WHERE id = ?", (drawer_id,))
-            except sqlite3.OperationalError:
-                pass
             self._conn.commit()
             return cur.rowcount > 0
 
@@ -215,7 +210,7 @@ class DrawerStore:
         if not rows:
             return ""
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         scored: list[tuple[float, dict]] = []
         for row in rows:
             drawer = dict(row)

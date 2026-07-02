@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import difflib
 import logging
-from datetime import datetime, timezone
 
 from tianshu.persona.profile_schema import (
     AUTO_SECTION_MARKER,

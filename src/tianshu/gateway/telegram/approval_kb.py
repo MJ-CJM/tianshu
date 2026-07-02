@@ -65,7 +65,7 @@ class ApprovalKeyboardHandler:
         storage: Storage,
         event_bus: EventBus,
         approval_manager: ApprovalManager,
-        outbound: "TelegramOutbound",
+        outbound: TelegramOutbound,
         instance_id: str = "telegram-default",
     ) -> None:
         self._settings = settings
@@ -139,7 +139,7 @@ class ApprovalKeyboardHandler:
                 edict_id, memorial_id, chat_id, message_id,
             )
 
-    async def handle_callback(self, cb: "TelegramCallback") -> str:
+    async def handle_callback(self, cb: TelegramCallback) -> str:
         """处理 ea: 按钮点击 → submit_tool_decision → 刷新消息。返回 answer 弹窗文本。"""
         # data: ea:<action>:<scope>:<memorial_id>
         parts = cb.data.split(":", 3)
@@ -165,7 +165,7 @@ class ApprovalKeyboardHandler:
         return f"✅ {label}" if action == "approve" else f"❌ {label}"
 
     async def _refresh_resolved(
-        self, memorial_id: str, cb: "TelegramCallback", label: str, action: str,
+        self, memorial_id: str, cb: TelegramCallback, label: str, action: str,
     ) -> None:
         """编辑原审批消息：去按钮 + 标注结果。"""
         self._storage.pop_telegram_pending_button(memorial_id)

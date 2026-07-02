@@ -1,9 +1,11 @@
 import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock
+
 import pytest
-from tianshu.universe.store import UniverseStore
+
 from tianshu.universe.mutator import apply_mutation, parse_persona_target
+from tianshu.universe.store import UniverseStore
 
 
 @pytest.mark.parametrize("target,expected", [
@@ -27,7 +29,8 @@ def _store(tmp_path: Path) -> UniverseStore:
 
 
 def _llm(content: str) -> AsyncMock:
-    m = AsyncMock(); m.chat.return_value = type("R", (), {"content": content})()
+    m = AsyncMock()
+    m.chat.return_value = type("R", (), {"content": content})()
     return m
 
 
@@ -55,7 +58,8 @@ def test_missing_file_no_op(tmp_path):
 
 def test_llm_failure_leaves_file_unchanged(tmp_path):
     store = _store(tmp_path)
-    bad = AsyncMock(); bad.chat.side_effect = RuntimeError("boom")
+    bad = AsyncMock()
+    bad.chat.side_effect = RuntimeError("boom")
     r = asyncio.run(apply_mutation(store, "child",
         {"target": "persona:bingbu/ROLE.md", "reason": "x"}, bad))
     assert r["applied"] is False

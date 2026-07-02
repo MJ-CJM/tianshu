@@ -48,8 +48,8 @@ class PolicyContext:
     tool_name: str
     tool_tier: ToolTier
     args: dict[str, Any]
-    edict: "Edict"
-    memorial: "Memorial | None"
+    edict: Edict
+    memorial: Memorial | None
     workspace_root: Path
     iteration: int
     recent_calls: tuple[ToolCallRecord, ...] = ()
@@ -95,7 +95,7 @@ class PolicyEngine:
                 self._evaluate_inner(ctx),
                 timeout=POLICY_ENGINE_TIMEOUT,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(
                 "PolicyEngine timeout (>%.1fs) for tool=%s — fail-secure deny",
                 POLICY_ENGINE_TIMEOUT, ctx.tool_name,
@@ -125,7 +125,7 @@ class PolicyEngine:
                     rule.evaluate(ctx),
                     timeout=POLICY_RULE_TIMEOUT,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "Rule %s timed out (>%.1fs) — abstain",
                     rule.rule_id, POLICY_RULE_TIMEOUT,

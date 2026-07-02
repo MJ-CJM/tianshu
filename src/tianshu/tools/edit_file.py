@@ -56,6 +56,7 @@ def register_edit_file(registry: ToolRegistry, workspace: Path) -> None:
             zip(
                 normalized.splitlines(),
                 new_content.splitlines(),
+                strict=False,
             )
         ):
             if a != b:
