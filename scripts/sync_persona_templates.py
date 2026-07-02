@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -47,7 +47,11 @@ SKIP_DIRS = {
 
 def _run(cmd: list[str], cwd: Path | None = None) -> str:
     result = subprocess.run(
-        cmd, cwd=cwd, check=True, capture_output=True, text=True,
+        cmd,
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
     )
     return result.stdout.strip()
 
@@ -56,10 +60,7 @@ def _is_category_dir(d: Path) -> bool:
     if not d.is_dir() or d.name in SKIP_DIRS:
         return False
     # A category dir holds at least one agent markdown file.
-    return any(
-        f.suffix == ".md" and not f.name.lower().startswith("readme")
-        for f in d.iterdir()
-    )
+    return any(f.suffix == ".md" and not f.name.lower().startswith("readme") for f in d.iterdir())
 
 
 def sync_repo(lang: str, url: str, tmp: Path) -> tuple[int, int, str]:
@@ -94,7 +95,7 @@ def sync_repo(lang: str, url: str, tmp: Path) -> tuple[int, int, str]:
 
 
 def write_sources(stats: dict[str, dict]) -> None:
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     lines = [
         "# Persona Template Sources",
         "",
