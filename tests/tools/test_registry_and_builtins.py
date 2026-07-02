@@ -121,7 +121,7 @@ async def test_read_file_nonexistent(registry):
 
 def test_exit_reason_repeated_tool_failure_exists():
     """ExitReason 枚举里应该有 REPEATED_TOOL_FAILURE，供熔断退出使用。"""
-    from tianshu.executor.exit_reason import ExitReason
+    from tianshu.kernel.exit_reason import ExitReason
 
     assert ExitReason.REPEATED_TOOL_FAILURE == "repeated_tool_failure"
     # 应该是与 LLM_ERROR 区分开的独立 reason

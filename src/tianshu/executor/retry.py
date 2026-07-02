@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from tianshu.dag.graph import DAG
-from tianshu.dag.models import DAGExecution, DAGNodeStatus
+from tianshu.models.dag import DAGExecution, DAGNodeStatus
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)

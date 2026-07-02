@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from tianshu.executor.ambient import get_current_edict
+from tianshu.kernel.ambient import get_current_edict
 from tianshu.models.common import VALID_EXECUTION_PROFILES, VALID_PRIORITIES
 from tianshu.models.edict import Edict, title_from_goal
 from tianshu.scheduler.schedule_spec import parse_spec

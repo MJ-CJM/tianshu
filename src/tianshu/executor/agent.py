@@ -11,14 +11,14 @@ import litellm
 from pydantic import BaseModel, Field
 
 from tianshu.config_manager import ConfigManager
-from tianshu.executor.ambient import bind_edict, bind_persona
 from tianshu.executor.compaction.auto import auto_compact, should_auto_compact
 from tianshu.executor.compaction.micro import micro_compact
 from tianshu.executor.compaction.reactive import reactive_compact
-from tianshu.executor.exit_reason import ExitReason
-from tianshu.executor.hooks import HookRegistry, HookType
 from tianshu.executor.loop_state import LoopState
 from tianshu.executor.streaming import StreamCallback
+from tianshu.kernel.ambient import bind_edict, bind_persona
+from tianshu.kernel.exit_reason import ExitReason
+from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.llm import LLMClient
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.persona.prompt_builder import PromptBuilder

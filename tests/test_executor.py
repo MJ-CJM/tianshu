@@ -6,7 +6,7 @@ import pytest
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.executor import Executor
-from tianshu.executor.hooks import HookRegistry
+from tianshu.kernel.hooks import HookRegistry
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.events import make_event
 

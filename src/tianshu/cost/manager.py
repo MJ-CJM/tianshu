@@ -106,7 +106,7 @@ class CostManager:
 
     async def on_before_iteration(self, **context: object) -> object:
         """BEFORE_ITERATION hook — circuit breaker for budget enforcement."""
-        from tianshu.executor.hooks import HookResult
+        from tianshu.kernel.hooks import HookResult
 
         edict = context.get("edict")
         if not edict:

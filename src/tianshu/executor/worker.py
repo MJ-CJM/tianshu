@@ -6,9 +6,9 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
-from tianshu.dag.models import DAGNode
 from tianshu.executor.agent import Agent, AgentResult
 from tianshu.models.common import TaskStatus
+from tianshu.models.dag import DAGNode
 from tianshu.models.edict import Edict
 from tianshu.models.memorial import Memorial
 from tianshu.persona.model import AgentPersona

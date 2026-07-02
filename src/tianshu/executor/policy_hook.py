@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from tianshu.executor.hooks import HookResult
+from tianshu.kernel.hooks import HookResult
 from tianshu.tools.policy import PolicyContext, PolicyDecision, PolicyEngine
 from tianshu.tools.types import ToolTier
 

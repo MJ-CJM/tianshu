@@ -2,7 +2,7 @@
 
 import pytest
 
-from tianshu.executor.hooks import HookRegistry, HookResult, HookType
+from tianshu.kernel.hooks import HookRegistry, HookResult, HookType
 
 
 class TestHookRegistry:

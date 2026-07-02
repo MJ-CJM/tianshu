@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
-from tianshu.executor.hooks import HookRegistry, HookType
+from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models.common import TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event

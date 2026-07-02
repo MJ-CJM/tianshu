@@ -355,7 +355,7 @@ class MemoryManager:
 
         # BEFORE_COMPACTION hook
         if self._hooks and hasattr(self._hooks, "run"):
-            from tianshu.executor.hooks import HookType
+            from tianshu.kernel.hooks import HookType
 
             await self._hooks.run(
                 HookType.BEFORE_COMPACTION,
@@ -518,7 +518,7 @@ class MemoryManager:
 
     async def on_before_agent_start(self, **context: object) -> object:
         """BEFORE_AGENT_START hook — inject relevant memories from Markdown + Palace."""
-        from tianshu.executor.hooks import HookResult
+        from tianshu.kernel.hooks import HookResult
 
         edict = context.get("edict")
         if not edict:

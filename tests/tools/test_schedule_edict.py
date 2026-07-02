@@ -180,7 +180,7 @@ async def test_any_official_can_use_not_assistant_only(setup):
 @pytest.mark.asyncio
 async def test_inherits_origin_metadata_from_current_edict(setup):
     """create 时继承当前会话敕令的渠道元数据 → 到点结果按来源投递。"""
-    from tianshu.executor.ambient import bind_edict
+    from tianshu.kernel.ambient import bind_edict
     from tianshu.models.edict import Edict as _Edict
 
     func, storage, _ = setup
@@ -262,7 +262,7 @@ async def test_deliver_local_no_push(setup):
 @pytest.mark.asyncio
 async def test_deliver_explicit_overrides_origin(setup):
     """显式 deliver 优先于来源继承。"""
-    from tianshu.executor.ambient import bind_edict
+    from tianshu.kernel.ambient import bind_edict
     from tianshu.models.edict import Edict as _Edict
 
     func, storage, _ = setup

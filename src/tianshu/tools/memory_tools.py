@@ -34,7 +34,7 @@ async def _memory_search(
       - 朝廷共享条目（persona_id == "court"）
     若不在 agent 上下文（无 caller），保持跨 persona 检索（向后兼容）。
     """
-    from tianshu.executor.ambient import get_current_persona
+    from tianshu.kernel.ambient import get_current_persona
 
     if not query.strip():
         return error_result("Query cannot be empty")
@@ -115,7 +115,7 @@ async def _memory_write(
 
     路径完全由 scope + caller_persona 决定，agent 不能干预。
     """
-    from tianshu.executor.ambient import get_current_persona
+    from tianshu.kernel.ambient import get_current_persona
     from tianshu.memory.safety import (
         MemorySafetyError,
         check_file_size,

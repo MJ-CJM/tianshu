@@ -6,8 +6,8 @@ import logging
 from datetime import UTC, datetime
 
 from tianshu.dag.graph import DAG
-from tianshu.dag.models import DAGExecution, DAGNodeStatus
 from tianshu.executor.worker_pool import WorkerPool
+from tianshu.models.dag import DAGExecution, DAGNodeStatus
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)

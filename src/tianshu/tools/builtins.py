@@ -6,7 +6,7 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tianshu.executor.ambient import get_current_edict
+from tianshu.kernel.ambient import get_current_edict
 from tianshu.storage import Storage
 from tianshu.tools.hongluisi.engine_registry import build_engines
 from tianshu.tools.hongluisi.tools import register_hongluisi

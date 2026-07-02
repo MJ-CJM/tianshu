@@ -9,8 +9,8 @@ from typing import Any
 import litellm
 
 from tianshu.config_manager import ConfigManager
-from tianshu.executor.exit_reason import ExitReason
-from tianshu.executor.hooks import HookResult
+from tianshu.kernel.exit_reason import ExitReason
+from tianshu.kernel.hooks import HookResult
 from tianshu.skills.loader import SkillsLoader
 from tianshu.skills.validator import SkillValidator
 

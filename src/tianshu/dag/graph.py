@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 
-from tianshu.dag.models import DAGExecution, DAGNode, DAGNodeStatus
+from tianshu.models.dag import DAGExecution, DAGNode, DAGNodeStatus
 
 
 class DAG:

@@ -1,6 +1,6 @@
 """Tests for ExitReason enum."""
 
-from tianshu.executor.exit_reason import ExitReason
+from tianshu.kernel.exit_reason import ExitReason
 
 
 class TestExitReason:

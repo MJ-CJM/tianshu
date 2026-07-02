@@ -2959,7 +2959,7 @@ async def get_recent_events(
 @gateway_router.get("/hooks/registry")
 async def list_hooks_registry(request: Request):
     """List all registered hooks with handler info and priorities."""
-    from tianshu.executor.hooks import HookRegistry
+    from tianshu.kernel.hooks import HookRegistry
 
     hook_registry: HookRegistry = request.app.state.hook_registry
     result = {}

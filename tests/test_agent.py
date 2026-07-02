@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from tianshu.executor.agent import Agent
-from tianshu.executor.exit_reason import ExitReason
-from tianshu.executor.hooks import HookRegistry
+from tianshu.kernel.exit_reason import ExitReason
+from tianshu.kernel.hooks import HookRegistry
 from tianshu.models import Edict, TaskStatus, UsageSummary
 from tianshu.skills.loader import SkillsLoader
 from tianshu.tools.registry import ToolRegistry

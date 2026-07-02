@@ -25,7 +25,7 @@ class Plan(BaseModel):
 
         Single-task plans produce a single-node DAG for backward compatibility.
         """
-        from tianshu.dag.models import DAGExecution, DAGNode
+        from tianshu.models.dag import DAGExecution, DAGNode
 
         nodes = [
             DAGNode(

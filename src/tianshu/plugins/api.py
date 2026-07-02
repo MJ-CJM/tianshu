@@ -9,7 +9,7 @@ from tianshu.plugins.manifest import PluginManifest
 from tianshu.tools.registry import ToolDefinition
 
 if TYPE_CHECKING:
-    from tianshu.executor.hooks import HookHandler, HookRegistry, HookType
+    from tianshu.kernel.hooks import HookHandler, HookRegistry, HookType
     from tianshu.notifier.channel_registry import ChannelRegistry
     from tianshu.notifier.channels.base import NotificationChannel
     from tianshu.providers.capabilities import ProviderInfo
