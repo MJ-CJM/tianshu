@@ -10,7 +10,7 @@ from typing import Literal
 from tianshu.bus.event_bus import EventBus
 from tianshu.models.common import TaskStatus
 from tianshu.models.decree import Decree
-from tianshu.models.edict import Edict
+from tianshu.models.edict import Edict, title_from_goal
 from tianshu.models.events import make_event
 from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
@@ -368,7 +368,7 @@ class ApprovalManager:
         if decree.amended_goal:
             new_edict = Edict(
                 goal=decree.amended_goal,
-                title=decree.amended_goal[:20] + "..." if len(decree.amended_goal) > 20 else decree.amended_goal,
+                title=title_from_goal(decree.amended_goal),
                 context=f"Amended from memorial {memorial.id}",
             )
             self._storage.save_edict(new_edict)

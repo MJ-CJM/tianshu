@@ -95,3 +95,10 @@ class Edict(BaseModel):
     acceptance: AcceptanceCriteria | None = None
     execution_profile: Literal["foreground", "checkpointed", "background"] = "foreground"
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def title_from_goal(goal: str, title: str | None = None) -> str:
+    """缺省标题 = goal 前 20 字符（超长加省略号）。"""
+    if title:
+        return title
+    return goal[:20] + "…" if len(goal) > 20 else goal

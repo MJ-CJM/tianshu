@@ -15,11 +15,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from tianshu.edict_ops import submit_new_edict
 from tianshu.models.acceptance import AcceptanceCriteria, CheckSpec
-from tianshu.models.common import TaskStatus
-from tianshu.models.edict import Edict
-from tianshu.models.events import make_event
-from tianshu.models.memorial import Memorial
+from tianshu.models.common import VALID_EXECUTION_PROFILES, VALID_PRIORITIES
+from tianshu.models.edict import Edict, title_from_goal
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
@@ -30,8 +29,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_VALID_PRIORITIES = ("urgent", "normal", "low")
-_VALID_PROFILES = ("foreground", "checkpointed", "background")
 _VALID_REVIEW_POLICIES = ("never", "on_failure", "on_flag", "always")
 
 
@@ -57,14 +54,14 @@ def register_submit_edict(
     ) -> ToolResult:
         if not goal or not goal.strip():
             return error_result("submit_edict: goal 不能为空")
-        if priority not in _VALID_PRIORITIES:
+        if priority not in VALID_PRIORITIES:
             return error_result(
-                f"submit_edict: priority 必须是 {'|'.join(_VALID_PRIORITIES)}（实得 {priority}）",
+                f"submit_edict: priority 必须是 {'|'.join(VALID_PRIORITIES)}（实得 {priority}）",
             )
-        if execution_profile not in _VALID_PROFILES:
+        if execution_profile not in VALID_EXECUTION_PROFILES:
             return error_result(
                 f"submit_edict: execution_profile 必须是 "
-                f"{'|'.join(_VALID_PROFILES)}（实得 {execution_profile}）",
+                f"{'|'.join(VALID_EXECUTION_PROFILES)}（实得 {execution_profile}）",
             )
         if review_policy not in _VALID_REVIEW_POLICIES:
             return error_result(
@@ -92,7 +89,7 @@ def register_submit_edict(
                 ],
             )
 
-        edict_title = title or (goal[:20] + "…" if len(goal) > 20 else goal)
+        edict_title = title_from_goal(goal, title)
         edict_kwargs: dict = {
             "title": edict_title,
             "goal": goal,
@@ -109,27 +106,16 @@ def register_submit_edict(
         if assigned_persona_id:
             edict_kwargs["assigned_persona_id"] = assigned_persona_id
         edict = Edict(**edict_kwargs)
-        storage.save_edict(edict)
-
-        memorial = Memorial(
-            edict_id=edict.id, instruction=edict.goal,
-            status=TaskStatus.SUBMITTED,
-        )
-        storage.save_memorial(memorial)
-
-        event_bus.fire(make_event(
-            "edict.submitted",
-            edict_id=edict.id,
-            memorial_id=memorial.id,
+        submit_new_edict(
+            storage, event_bus, edict,
             producer="submit_edict_tool",
-            payload={
-                "goal": edict.goal,
+            extra_payload={
                 "priority": edict.priority,
                 "assigned_persona_id": edict.assigned_persona_id,
                 "execution_profile": edict.execution_profile,
                 "via": "assistant_tool",
             },
-        ))
+        )
         logger.info(
             "[tools/submit_edict] new edict=%s goal=%.60s assigned=%s priority=%s profile=%s",
             edict.id, edict.goal, edict.assigned_persona_id,
@@ -185,7 +171,7 @@ def register_submit_edict(
                     },
                     "priority": {
                         "type": "string",
-                        "enum": list(_VALID_PRIORITIES),
+                        "enum": list(VALID_PRIORITIES),
                         "description": "优先级，默认 normal",
                     },
                     "assigned_persona_id": {
@@ -201,7 +187,7 @@ def register_submit_edict(
                     },
                     "execution_profile": {
                         "type": "string",
-                        "enum": list(_VALID_PROFILES),
+                        "enum": list(VALID_EXECUTION_PROFILES),
                         "description": (
                             "执行模式：foreground=短任务（一次性返回，秒级到分钟级，默认）；"
                             "checkpointed=中等任务（带检查点，可断点续跑）；"

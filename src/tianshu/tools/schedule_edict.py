@@ -17,7 +17,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from tianshu.executor.ambient import get_current_edict
-from tianshu.models.edict import Edict
+from tianshu.models.common import VALID_EXECUTION_PROFILES, VALID_PRIORITIES
+from tianshu.models.edict import Edict, title_from_goal
 from tianshu.scheduler.schedule_spec import parse_spec
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
@@ -29,8 +30,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_VALID_PRIORITIES = ("urgent", "normal", "low")
-_VALID_PROFILES = ("foreground", "checkpointed", "background")
 _VALID_ACTIONS = ("create", "list", "cancel", "pause", "resume", "run_now")
 _KNOWN_CHANNELS = ("feishu", "telegram", "dingtalk", "email", "wecom")
 _NO_PUSH = ("local", "none", "web")
@@ -94,14 +93,14 @@ def register_schedule_edict(
                 "schedule_edict: create 需要 schedule"
                 "（如 '30m' / 'every 2h' / '0 9 * * *' / ISO 时间）",
             )
-        if priority not in _VALID_PRIORITIES:
+        if priority not in VALID_PRIORITIES:
             return error_result(
-                f"schedule_edict: priority 必须是 {'|'.join(_VALID_PRIORITIES)}（实得 {priority}）",
+                f"schedule_edict: priority 必须是 {'|'.join(VALID_PRIORITIES)}（实得 {priority}）",
             )
-        if execution_profile not in _VALID_PROFILES:
+        if execution_profile not in VALID_EXECUTION_PROFILES:
             return error_result(
                 f"schedule_edict: execution_profile 必须是 "
-                f"{'|'.join(_VALID_PROFILES)}（实得 {execution_profile}）",
+                f"{'|'.join(VALID_EXECUTION_PROFILES)}（实得 {execution_profile}）",
             )
         if (
             assigned_persona_id
@@ -120,7 +119,7 @@ def register_schedule_edict(
                 "schedule_edict 仅用于定时/周期任务；要立即执行请改用 submit_edict",
             )
 
-        edict_title = title or (goal[:20] + "…" if len(goal) > 20 else goal)
+        edict_title = title_from_goal(goal, title)
         edict_kwargs: dict = {
             "title": edict_title,
             "goal": goal,
@@ -294,7 +293,7 @@ def register_schedule_edict(
                     },
                     "priority": {
                         "type": "string",
-                        "enum": list(_VALID_PRIORITIES),
+                        "enum": list(VALID_PRIORITIES),
                         "description": "优先级，默认 normal。",
                     },
                     "assigned_persona_id": {
@@ -307,7 +306,7 @@ def register_schedule_edict(
                     },
                     "execution_profile": {
                         "type": "string",
-                        "enum": list(_VALID_PROFILES),
+                        "enum": list(VALID_EXECUTION_PROFILES),
                         "description": (
                             "执行模式：foreground=短任务（默认）；checkpointed=带检查点；"
                             "background=长任务后台执行。"

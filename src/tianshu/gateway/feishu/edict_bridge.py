@@ -18,11 +18,11 @@ import logging
 from dataclasses import dataclass
 
 from tianshu.bus.event_bus import EventBus
+from tianshu.edict_ops import submit_new_edict
 from tianshu.executor.executor import Executor
 from tianshu.gateway.feishu.session_anchor import SessionAnchor
 from tianshu.models.common import EdictStatus, TaskStatus
-from tianshu.models.edict import Edict
-from tianshu.models.events import make_event
+from tianshu.models.edict import Edict, title_from_goal
 from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
 
@@ -136,7 +136,7 @@ class EdictBridge:
         self, *, chat_id: str, sender_open_id: str, goal: str,
     ) -> EdictBridgeResult:
         """显式新建（来自 /new 或 anchor 已结案后的自动新建）。"""
-        title = goal[:20] + ("…" if len(goal) > 20 else "")
+        title = title_from_goal(goal)
         edict = Edict(
             title=title, goal=goal,
             source="channel",
@@ -148,23 +148,17 @@ class EdictBridge:
                 self._user_meta_key: sender_open_id,
             },
         )
-        self._storage.save_edict(edict)
-        memorial = Memorial(
-            edict_id=edict.id, instruction=edict.goal, status=TaskStatus.SUBMITTED,
-        )
-        self._storage.save_memorial(memorial)
-        self._anchor.set(chat_id, edict.id)
-        self._event_bus.fire(make_event(
-            "edict.submitted",
-            edict_id=edict.id, memorial_id=memorial.id,
+        memorial = submit_new_edict(
+            self._storage, self._event_bus, edict,
             producer=f"{self._channel}_bot",
-            payload={
-                "goal": edict.goal,
+            extra_payload={
                 "channel": self._channel,
                 "instance_id": self._instance_id,
                 "chat_id": chat_id,
             },
-        ))
+        )
+        # fire 是后台异步任务，本协程内无 await，anchor.set 必在其执行前完成，无竞态。
+        self._anchor.set(chat_id, edict.id)
         logger.info(
             "[feishu/edict] created edict=%s chat=%s sender=%s",
             edict.id, chat_id, sender_open_id,

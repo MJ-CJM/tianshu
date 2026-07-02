@@ -28,6 +28,28 @@ class EdictStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+VALID_PRIORITIES = ("urgent", "normal", "low")
+VALID_EXECUTION_PROFILES = ("foreground", "checkpointed", "background")
+
+EDICT_STATUS_LABELS: dict[str, str] = {
+    "open": "进行中",
+    "completed": "已完成",
+    "cancelled": "已取消",
+}
+
+MEMORIAL_STATUS_LABELS: dict[str, str] = {
+    "submitted": "排队中",
+    "scheduled": "已调度",
+    "planning": "规划中",
+    "running": "执行中",
+    "auditing": "审计中",
+    "needs_review": "待人工复核",
+    "completed": "已完成",
+    "failed": "失败",
+    "cancelled": "已取消",
+}
+
+
 class UsageSummary(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0

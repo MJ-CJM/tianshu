@@ -13,7 +13,7 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from tianshu.models.common import EdictStatus
+from tianshu.models.common import EDICT_STATUS_LABELS, EdictStatus, MEMORIAL_STATUS_LABELS
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
@@ -24,34 +24,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_EDICT_STATUS_LABEL = {
-    "open": "进行中",
-    "completed": "已完成",
-    "cancelled": "已取消",
-}
-
-_MEMORIAL_STATUS_LABEL = {
-    "submitted": "排队中",
-    "scheduled": "已调度",
-    "planning": "规划中",
-    "running": "执行中",
-    "auditing": "审计中",
-    "needs_review": "待人工复核",
-    "completed": "已完成",
-    "failed": "失败",
-    "cancelled": "已取消",
-}
-
 _VALID_LIST_STATUS = ("open", "completed", "cancelled", "all")
 _MIN_PREFIX_LEN = 6   # 与 feishu 助手 /select /status 命令保持一致
 
 
 def _label_edict_status(value: str) -> str:
-    return _EDICT_STATUS_LABEL.get(value, value)
+    return EDICT_STATUS_LABELS.get(value, value)
 
 
 def _label_memorial_status(value: str) -> str:
-    return _MEMORIAL_STATUS_LABEL.get(value, value)
+    return MEMORIAL_STATUS_LABELS.get(value, value)
 
 
 def _humanize_age(created_at: datetime) -> str:

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager, LLMConfigState
 from tianshu.providers.manager import ProviderManager
+from tianshu.edict_ops import submit_new_edict
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.models import (
@@ -35,6 +36,7 @@ from tianshu.models import (
     make_event,
 )
 from tianshu.models.api import ParseEdictRequest
+from tianshu.models.edict import title_from_goal
 from tianshu.consultation.models import ConsultationRequest
 from tianshu.consultation.session import ConsultationSession
 from tianshu.cost.manager import CostManager
@@ -118,7 +120,7 @@ async def create_edict(body: EdictCreateRequest, request: Request):
                 metadata={"deduplicated": True},
             )
 
-    title = body.title or (body.goal[:20] + "…" if len(body.goal) > 20 else body.goal)
+    title = title_from_goal(body.goal, body.title)
     edict_kwargs: dict = {"title": title, "goal": body.goal, "context": body.context}
     if body.idempotency_key:
         edict_kwargs["idempotency_key"] = body.idempotency_key
@@ -156,25 +158,13 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     if body.execution_profile != "foreground":
         edict_kwargs["execution_profile"] = body.execution_profile
     edict = Edict(**edict_kwargs)
-    storage.save_edict(edict)
     logger.debug(
         "[API] Edict %s: submitted goal=%.100s, priority=%s, assigned=%s",
         edict.id, edict.goal, edict.priority, edict.assigned_persona_id,
     )
 
-    memorial = Memorial(edict_id=edict.id, instruction=edict.goal, status=TaskStatus.SUBMITTED)
-    storage.save_memorial(memorial)
-
     # Fire-and-forget: 不阻塞 API 响应，事件链在后台异步执行
-    event_bus.fire(
-        make_event(
-            "edict.submitted",
-            edict_id=edict.id,
-            memorial_id=memorial.id,
-            producer="gateway",
-            payload={"goal": edict.goal},
-        )
-    )
+    submit_new_edict(storage, event_bus, edict, producer="gateway")
 
     return ApiResponse(
         success=True,
