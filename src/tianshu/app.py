@@ -27,6 +27,8 @@ from tianshu.executor.policy_hook import PolicyHook
 from tianshu.executor.worker_pool import WorkerPool
 from tianshu.gateway import gateway_router
 from tianshu.gateway.credentials_api import credentials_router
+from tianshu.gateway.edicts_api import edicts_router
+from tianshu.gateway.execution_api import execution_router
 from tianshu.gateway.hongluisi_api import hongluisi_router
 from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.logging_config import setup_logging
@@ -826,6 +828,8 @@ def create_app() -> FastAPI:
     )
     app.include_router(gateway_router, prefix="/api")
     app.include_router(credentials_router, prefix="/api")
+    app.include_router(edicts_router, prefix="/api")
+    app.include_router(execution_router, prefix="/api")
     app.include_router(hongluisi_router, prefix="/api")
     from tianshu.gateway.tongzheng_api import tongzheng_router
 
