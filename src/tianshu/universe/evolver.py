@@ -262,7 +262,7 @@ class UniverseEvolver:
                 self._mgr.archive(uid)
                 return {"status": "no_mutation", "universe_id": uid, "detail": m["reason"]}
 
-            g = self._gate.run(worktree)
+            g = await asyncio.to_thread(self._gate.run, worktree)
             if not g.passed:
                 self._storage.save_variant_eval_run({
                     "id": str(ULID()),
@@ -276,7 +276,7 @@ class UniverseEvolver:
 
             eval_set_size = getattr(cfg, "code_variant_eval_set_size", 20)
             es = self._eval_harness.select_eval_set(eval_set_size)
-            ev = self._eval_harness.evaluate(worktree, eval_set=es)
+            ev = await asyncio.to_thread(self._eval_harness.evaluate, worktree, eval_set=es)
             fitness = ev["fitness"]
 
             self._storage.save_variant_eval_run({
