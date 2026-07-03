@@ -14,13 +14,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
 from tianshu.config import TianshuSettings
 from tianshu.tools.builtins import register_builtins
-from tianshu.tools.mcp import MCPManager
 from tianshu.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from tianshu.tools.mcp import MCPManager
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,9 @@ async def wire_tools(app: FastAPI, settings: TianshuSettings) -> ToolRegistry:
 
     # --- MCP（藏兵阁外挂）：fire-and-forget 启动，不阻塞 lifespan ---
     # config 同步读（毫秒级），session 启动放后台（broken/慢 server 的退避不会卡 web）。
+    # 惰性导入：mcp 属可选能力，保持 import 时不加载（对应原 lifespan 的函数内导入）。
+    from tianshu.tools.mcp import MCPManager
+
     mcp_manager = MCPManager(tools, storage=storage)
     app.state.mcp_manager = mcp_manager
     try:

@@ -19,9 +19,6 @@ from fastapi import FastAPI
 from tianshu.config import TianshuSettings
 from tianshu.gateway.bot_manager import ChannelBotManager
 from tianshu.notifier.channel_registry import ChannelRegistry
-from tianshu.notifier.channels.dingtalk import DingTalkChannel
-from tianshu.notifier.channels.email import EmailChannel
-from tianshu.notifier.channels.feishu import FeishuChannel
 from tianshu.notifier.notifier import Notifier
 from tianshu.tools.policy_store import (
     CompositeSessionRuleStore,
@@ -48,8 +45,13 @@ def wire_channels(app: FastAPI, settings: TianshuSettings) -> None:
             # 不通过 ChannelRegistry。互斥：旧 incoming webhook URL 完全跳过。
             pass
         elif settings.feishu_webhook:
+            # 条件导入：渠道类只在对应配置存在时加载（保持可选依赖的惰性边界）
+            from tianshu.notifier.channels.feishu import FeishuChannel
+
             channel_registry.register(FeishuChannel(settings.feishu_webhook))
         if settings.dingtalk_webhook:
+            from tianshu.notifier.channels.dingtalk import DingTalkChannel
+
             channel_registry.register(
                 DingTalkChannel(
                     settings.dingtalk_webhook,
@@ -57,6 +59,8 @@ def wire_channels(app: FastAPI, settings: TianshuSettings) -> None:
                 )
             )
         if settings.smtp_host:
+            from tianshu.notifier.channels.email import EmailChannel
+
             channel_registry.register(
                 EmailChannel(
                     smtp_host=settings.smtp_host,
