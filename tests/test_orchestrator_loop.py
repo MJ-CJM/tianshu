@@ -410,6 +410,35 @@ async def test_pause_then_complete_externally_returns_cancelled(storage, bus, mo
 
 
 @pytest.mark.integration
+async def test_pause_then_edict_deleted_returns_cancelled(storage, bus, monkeypatch):
+    """paused 状态下 edict 被删除（如用户误删），应干净 CANCELLED 退出，不崩溃。"""
+    import asyncio
+
+    monkeypatch.setattr(
+        "tianshu.executor.orchestrator.loop.PAUSE_POLL_INTERVAL_SECONDS",
+        0.01,
+    )
+
+    ctx = _make_ctx(storage, bus, _agent(["never run"]), [])
+    e = _edict()
+    storage.save_edict(e)
+    storage.update_edict_lifecycle_phase(e.id, "paused")
+
+    async def _delayed_delete():
+        await asyncio.sleep(0.1)
+        storage.delete_edict(e.id)
+
+    delete_task = asyncio.create_task(_delayed_delete())
+    r = await run(e, _memorial(e.id), ctx)
+    await delete_task
+
+    assert r.status == TaskStatus.CANCELLED
+    assert r.error == "edict deleted while paused"
+    # actor 没被调用过（agent.execute side_effect 未消费）
+    assert ctx.agent.execute.call_count == 0
+
+
+@pytest.mark.integration
 async def test_pause_emits_paused_event_only_once_on_entry(storage, bus, monkeypatch):
     """outer_loop.paused 事件应只在入场发一次，等待循环里不应重复发。"""
     import asyncio

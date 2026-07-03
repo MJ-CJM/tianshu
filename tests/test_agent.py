@@ -4,12 +4,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tianshu.config_manager import LLMConfigState
 from tianshu.executor.agent import Agent
 from tianshu.kernel.exit_reason import ExitReason
-from tianshu.kernel.hooks import HookRegistry
+from tianshu.kernel.hooks import HookRegistry, HookResult, HookType
 from tianshu.models import Edict, TaskStatus, UsageSummary
 from tianshu.skills.loader import SkillsLoader
-from tianshu.tools.registry import ToolRegistry
+from tianshu.tools.registry import ToolDefinition, ToolRegistry
+from tianshu.tools.types import error_result
 
 
 class TestAgent:
@@ -276,3 +278,190 @@ class TestAgentIntegration:
         assert result.exit_reason == ExitReason.COMPLETED
         assert result.iteration_count == 2
         assert "2 bugs" in result.summary
+
+
+class TestAgentHighRiskPaths:
+    """B4-T1 审查 Important 项：execute() 高风险恢复/熔断/拦截路径的常设回归。"""
+
+    @pytest.fixture
+    def tools(self):
+        return ToolRegistry()
+
+    @pytest.fixture
+    def skills(self, tmp_path):
+        return SkillsLoader(builtin_dir=tmp_path, char_budget=1000)
+
+    @pytest.fixture
+    def agent(self, config_manager, tools, skills):
+        return Agent(config_manager=config_manager, tools=tools, skills=skills)
+
+    # --- context-overflow: reactive compact 恢复成功 / 恢复失败 ---
+
+    async def test_context_overflow_reactive_recovery_succeeds_and_retries(self, agent):
+        edict = Edict(goal="huge context task")
+        success_response = MagicMock(
+            content="done after recompact",
+            tool_calls=None,
+            usage=UsageSummary(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            finish_reason="stop",
+        )
+
+        async def _recover(state, llm, context_limit):
+            return state.with_recovery("reactive_test", list(state.messages))
+
+        with (
+            patch("tianshu.executor.agent.LLMClient") as MockLLM,
+            patch("tianshu.executor.agent.reactive_compact") as mock_reactive,
+        ):
+            mock_llm = AsyncMock()
+            mock_llm.chat.side_effect = [Exception("context_length_exceeded"), success_response]
+            MockLLM.return_value = mock_llm
+            mock_reactive.side_effect = _recover
+
+            result = await agent.execute(edict)
+
+        assert result.status == TaskStatus.COMPLETED
+        assert result.exit_reason == ExitReason.COMPLETED
+        assert result.recovery_attempts.get("context_overflow") == 1
+        assert mock_llm.chat.call_count == 2
+
+    async def test_context_overflow_reactive_recovery_fails_exits_context_overflow(self, agent):
+        edict = Edict(goal="huge context task")
+
+        with (
+            patch("tianshu.executor.agent.LLMClient") as MockLLM,
+            patch("tianshu.executor.agent.reactive_compact") as mock_reactive,
+        ):
+            mock_llm = AsyncMock()
+            mock_llm.chat.side_effect = Exception("context_length_exceeded")
+            MockLLM.return_value = mock_llm
+            mock_reactive.return_value = None  # 两步恢复均失败
+
+            result = await agent.execute(edict)
+
+        assert result.status == TaskStatus.FAILED
+        assert result.exit_reason == ExitReason.CONTEXT_OVERFLOW
+        assert mock_llm.chat.call_count == 1
+
+    # --- fallback 三态 ---
+
+    async def test_fallback_success_continues_after_primary_failure(self, agent, config_manager):
+        config_manager.add_config(
+            LLMConfigState(name="fallback", model="fb-model", api_key="fb-key", api_base="http://fb")
+        )
+        config_manager.update_agent_config(fallback_llm_config_name="fallback")
+        edict = Edict(goal="test fallback success")
+        success_response = MagicMock(
+            content="fallback answer",
+            tool_calls=None,
+            usage=UsageSummary(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            finish_reason="stop",
+        )
+        primary_llm = AsyncMock()
+        primary_llm.chat.side_effect = RuntimeError("primary down")
+        fallback_llm = AsyncMock()
+        fallback_llm.chat.return_value = success_response
+
+        with patch("tianshu.executor.agent.LLMClient") as MockLLM:
+            MockLLM.side_effect = [primary_llm, fallback_llm]
+            result = await agent.execute(edict)
+
+        assert result.status == TaskStatus.COMPLETED
+        assert result.result == "fallback answer"
+        assert result.recovery_attempts.get("fallback") == "fallback"
+        assert MockLLM.call_count == 2
+
+    async def test_fallback_also_fails_exits_llm_error(self, agent, config_manager):
+        config_manager.add_config(
+            LLMConfigState(name="fallback", model="fb-model", api_key="fb-key", api_base="http://fb")
+        )
+        config_manager.update_agent_config(fallback_llm_config_name="fallback")
+        edict = Edict(goal="test fallback failure")
+        primary_llm = AsyncMock()
+        primary_llm.chat.side_effect = RuntimeError("primary down")
+        fallback_llm = AsyncMock()
+        fallback_llm.chat.side_effect = RuntimeError("fallback down")
+
+        with patch("tianshu.executor.agent.LLMClient") as MockLLM:
+            MockLLM.side_effect = [primary_llm, fallback_llm]
+            result = await agent.execute(edict)
+
+        assert result.status == TaskStatus.FAILED
+        assert result.exit_reason == ExitReason.LLM_ERROR
+        assert "primary down" in result.error
+        assert "fallback down" in result.error
+
+    async def test_no_fallback_configured_exits_llm_error(self, agent):
+        """agent_config.fallback_llm_config_name 未配置（fixture 默认 None）—— 直接收工。"""
+        edict = Edict(goal="test no fallback")
+
+        with patch("tianshu.executor.agent.LLMClient") as MockLLM:
+            mock_llm = AsyncMock()
+            mock_llm.chat.side_effect = RuntimeError("primary down")
+            MockLLM.return_value = mock_llm
+            result = await agent.execute(edict)
+
+        assert result.status == TaskStatus.FAILED
+        assert result.exit_reason == ExitReason.LLM_ERROR
+        assert "fallback" not in result.recovery_attempts
+        assert MockLLM.call_count == 1
+
+    # --- 连续同错熔断 ---
+
+    async def test_repeated_same_tool_failure_triggers_circuit_breaker(
+        self, config_manager, skills
+    ):
+        tools = ToolRegistry()
+
+        async def boom_tool(**kwargs):
+            return error_result("boom: same failure every time")
+
+        tools.register(
+            "boom",
+            boom_tool,
+            ToolDefinition(
+                name="boom",
+                description="always fails the same way",
+                parameters={"type": "object", "properties": {}},
+            ),
+        )
+        agent = Agent(config_manager=config_manager, tools=tools, skills=skills)
+        edict = Edict(goal="trigger circuit breaker")
+
+        # 单条 LLM 响应里连续 3 个同名工具调用，错误签名相同 → 应在第 3 次时熔断
+        tool_calls = [{"id": f"tc{i}", "name": "boom", "args": "{}"} for i in range(3)]
+        mock_response = MagicMock(
+            content="calling boom repeatedly",
+            tool_calls=tool_calls,
+            usage=UsageSummary(),
+            finish_reason="tool_calls",
+        )
+        with patch("tianshu.executor.agent.LLMClient") as MockLLM:
+            mock_llm = AsyncMock()
+            mock_llm.chat.return_value = mock_response
+            MockLLM.return_value = mock_llm
+            result = await agent.execute(edict)
+
+        assert result.status == TaskStatus.FAILED
+        assert result.exit_reason == ExitReason.REPEATED_TOOL_FAILURE
+        assert "boom" in result.error
+
+    # --- before-iteration hook 拦截 ---
+
+    async def test_before_iteration_hook_blocks_execution(self, config_manager, tools, skills):
+        hooks = HookRegistry()
+
+        async def _deny(**context):
+            return HookResult(block=True, reason="预算已耗尽")
+
+        hooks.register(HookType.BEFORE_ITERATION, _deny)
+        agent = Agent(config_manager=config_manager, tools=tools, skills=skills, hook_registry=hooks)
+        edict = Edict(goal="should be blocked")
+
+        with patch("tianshu.executor.agent.LLMClient"):
+            result = await agent.execute(edict)
+
+        assert result.status == TaskStatus.FAILED
+        assert result.exit_reason == ExitReason.HOOK_BLOCKED
+        assert "预算已耗尽" in result.error
+        assert result.iteration_count == 0
