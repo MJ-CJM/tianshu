@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -53,25 +52,14 @@ class UniverseManager:
         return champ["id"] if champ else None
 
     def route_for_memorial(self, memorial_id: str) -> str | None:
-        """返回本 memorial 应归属的位面：默认冠军；按 explore_ratio 概率分给在线候选。
+        """返回本 memorial 应归属的位面——当前一律归冠军(仅作归因标记)。
 
-        用 memorial_id 的稳定哈希做确定性分桶（无随机源、可复现；ULID 安全）。
+        历史版本曾按 explore_ratio 把流量哈希分桶给 challenger,但 challenger
+        的行为配置只有晋升(switch)后才会加载到 live,被"探索"到的流量实际仍以
+        冠军配置执行,fitness 归因失真。探索路由退役;challenger 的适应度改由
+        沙箱配对评估产生(evolver),待支持 per-run 位面装配后再恢复在线探索。
         """
-        champ_id = self.champion_id()
-        cfg = self._agent_config()
-        if not getattr(cfg, "parallel_universe_enabled", False):
-            return champ_id
-        ratio = getattr(cfg, "universe_explore_ratio", 0.1)
-        if ratio <= 0:
-            return champ_id
-        challengers = [u for u in self.list(include_archived=False) if u["status"] == "challenger"]
-        if not challengers:
-            return champ_id
-        h = int(hashlib.sha256((memorial_id or "").encode()).hexdigest(), 16)
-        if (h % 100) < int(ratio * 100):
-            idx = (h // 100) % len(challengers)
-            return challengers[idx]["id"]
-        return champ_id
+        return self.champion_id()
 
     def list(self, *, include_archived: bool = True) -> list[dict]:
         return self._storage.list_universes(include_archived=include_archived)

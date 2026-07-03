@@ -8,7 +8,6 @@ def _cfg(**over):
     d = dict(
         parallel_universe_enabled=True,
         universe_evolver_idle_hours=0,
-        universe_challenger_fail_limit=3,
         universe_min_samples=10,
         universe_promote_margin=0.05,
         universe_auto_promote=False,
@@ -46,25 +45,6 @@ def test_no_champion_releases_lock():
     ev = _evolver(_cfg(), mgr, st)
     assert asyncio.run(ev.run()).skipped == "no_champion"
     assert st.release_synthesis_lock.called
-
-
-def test_retires_failing_challenger():
-    st = MagicMock()
-    st.try_acquire_synthesis_lock.return_value = True
-    st.last_activity_at.return_value = None
-    st.universe_memorial_stats.return_value = {"total": 5, "success": 0}
-    champ = {"id": "champ", "fitness": {"score": 0.5}}
-    mgr = MagicMock()
-    mgr.champion.return_value = champ
-    mgr.list.return_value = [
-        dict(champ, status="champion"),
-        {"id": "bad", "status": "challenger", "fitness": {}},
-    ]
-    llm = AsyncMock()
-    llm.chat.return_value = type("R", (), {"content": '{"target": null}'})()
-    ev = _evolver(_cfg(), mgr, st, llm)
-    r = asyncio.run(ev.run())
-    assert "bad" in r.retired
 
 
 def test_recommends_promotion_without_switch():

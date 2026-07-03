@@ -120,7 +120,6 @@ class UniverseEvolver:
             if not champ:
                 return EvolveResult(skipped="no_champion")
 
-            result.retired = self._retire_failing_challengers(cfg)
             result.promotion_recommended = await self._maybe_promote(champ, cfg)
 
             mutation = await self._propose_mutation(champ)
@@ -153,19 +152,6 @@ class UniverseEvolver:
             return result
         finally:
             self._storage.release_synthesis_lock(_LOCK_KEY)
-
-    def _retire_failing_challengers(self, cfg: Any) -> list[str]:
-        limit = getattr(cfg, "universe_challenger_fail_limit", 5)
-        retired: list[str] = []
-        for u in self._mgr.list(include_archived=False):
-            if u["status"] != UniverseStatus.CHALLENGER.value:
-                continue
-            stats = self._storage.universe_memorial_stats(u["id"])
-            fails = stats["total"] - stats["success"]
-            if stats["total"] >= limit and fails >= limit:
-                self._mgr.archive(u["id"])
-                retired.append(u["id"])
-        return retired
 
     async def _maybe_promote(self, champ: dict, cfg: Any) -> str | None:
         min_samples = getattr(cfg, "universe_min_samples", 20)

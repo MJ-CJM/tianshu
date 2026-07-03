@@ -53,6 +53,11 @@ async def _update_universe_fitness(
     universe_id = getattr(memorial, "universe_id", None) if memorial else None
     if not universe_id:
         return
+    champ = storage.get_champion_universe()
+    if not champ or champ["id"] != universe_id:
+        # challenger 的 fitness 由沙箱配对评估负责(evolver 写入),
+        # 在线运行信号只累积给冠军,避免覆盖沙箱评估分。
+        return
     stats = storage.universe_memorial_stats(universe_id)
     weights = config_manager.agent_config.universe_fitness_weights
     storage.update_universe_fitness(universe_id, compute_fitness(stats, weights=weights))
