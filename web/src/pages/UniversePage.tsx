@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Button, Input, Modal, Space, Table, Tag, message } from "antd";
+import { Button, Card, Input, Modal, Space, Table, Tag, Tree, message } from "antd";
 import { ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
+import type { DataNode } from "antd/es/tree";
 import {
   archiveUniverse,
   branchUniverse,
@@ -12,6 +13,7 @@ import {
   listEvalRuns,
   listUniverses,
   promoteCodeVariant,
+  proposeAutoCode,
   proposeCodeVariant,
   restoreUniverse,
   switchUniverse,
@@ -40,6 +42,22 @@ const ORIGIN_LABEL: Record<string, string> = {
   code_variant: "代码变体",
 };
 
+function buildLineage(rows: Universe[]): DataNode[] {
+  const byParent = new Map<string | null, Universe[]>();
+  rows.forEach((u) => {
+    const k = u.parent_universe_id ?? null;
+    byParent.set(k, [...(byParent.get(k) ?? []), u]);
+  });
+  const toNode = (u: Universe): DataNode => ({
+    key: u.id,
+    title: `${u.name} · ${STATUS_LABEL[u.status] ?? u.status} · score=${
+      u.fitness?.score ?? "—"
+    }`,
+    children: (byParent.get(u.id) ?? []).map(toNode),
+  });
+  return (byParent.get(null) ?? []).map(toNode);
+}
+
 export default function UniversePage() {
   const t = useT();
   const [rows, setRows] = useState<Universe[]>([]);
@@ -63,6 +81,14 @@ export default function UniversePage() {
   const [evalOpen, setEvalOpen] = useState(false);
   const [evalRuns, setEvalRuns] = useState<VariantEvalRun[]>([]);
   const [evalLoading, setEvalLoading] = useState(false);
+
+  // 晋升审批 modal state
+  const [promoteReviewOpen, setPromoteReviewOpen] = useState(false);
+  const [promoteTarget, setPromoteTarget] = useState<Universe | null>(null);
+  const [promoting, setPromoting] = useState(false);
+
+  // 自主提案
+  const [autoProposing, setAutoProposing] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -201,8 +227,7 @@ export default function UniversePage() {
     }
   };
 
-  const onShowDiff = async (u: Universe) => {
-    setDiffOpen(true);
+  const loadDiff = async (u: Universe) => {
     setDiffContent("");
     setDiffLoading(true);
     try {
@@ -215,8 +240,7 @@ export default function UniversePage() {
     }
   };
 
-  const onShowEvalRuns = async (u: Universe) => {
-    setEvalOpen(true);
+  const loadEvalRuns = async (u: Universe) => {
     setEvalRuns([]);
     setEvalLoading(true);
     try {
@@ -227,6 +251,16 @@ export default function UniversePage() {
     } finally {
       setEvalLoading(false);
     }
+  };
+
+  const onShowDiff = async (u: Universe) => {
+    setDiffOpen(true);
+    await loadDiff(u);
+  };
+
+  const onShowEvalRuns = async (u: Universe) => {
+    setEvalOpen(true);
+    await loadEvalRuns(u);
   };
 
   const onDelete = (u: Universe) => {
@@ -245,13 +279,47 @@ export default function UniversePage() {
     });
   };
 
-  const onPromote = async (u: Universe) => {
-    const res = await promoteCodeVariant(u.id);
-    if (res.success) {
-      void message.success("代码变体已晋升");
+  const onOpenPromoteReview = async (u: Universe) => {
+    setPromoteTarget(u);
+    setPromoteReviewOpen(true);
+    await Promise.all([loadDiff(u), loadEvalRuns(u)]);
+  };
+
+  const onConfirmPromote = async () => {
+    if (!promoteTarget) return;
+    setPromoting(true);
+    try {
+      const res = await promoteCodeVariant(promoteTarget.id);
+      if (res.success) {
+        void message.success("已晋升为冠军并暂存部署指针(重启为受控步骤)");
+        setPromoteReviewOpen(false);
+        void load();
+      } else {
+        void message.error("晋升失败");
+      }
+    } finally {
+      setPromoting(false);
+    }
+  };
+
+  const onProposeAuto = async () => {
+    setAutoProposing(true);
+    try {
+      const res = await proposeAutoCode();
+      if (!res.success || !res.data) {
+        void message.error("自主提案失败");
+        return;
+      }
+      const d = res.data;
+      const skipped = d.skipped as string | undefined;
+      if (skipped) {
+        void message.info(`跳过:${skipped}`);
+      } else {
+        void message.success(`已提案 ${(d.proposed as number | undefined) ?? 0} 个`);
+      }
       void load();
-    } else {
-      void message.error("晋升失败");
+    } finally {
+      setAutoProposing(false);
     }
   };
 
@@ -338,7 +406,7 @@ export default function UniversePage() {
                   <Button
                     size="small"
                     type="primary"
-                    onClick={() => void onPromote(u)}
+                    onClick={() => void onOpenPromoteReview(u)}
                   >
                     晋升代码
                   </Button>
@@ -411,6 +479,12 @@ export default function UniversePage() {
                 代码演化
               </Button>
               <Button
+                loading={autoProposing}
+                onClick={() => void onProposeAuto()}
+              >
+                自主提案
+              </Button>
+              <Button
                 icon={<ThunderboltOutlined />}
                 loading={evolving}
                 onClick={() => void onEvolve()}
@@ -425,6 +499,12 @@ export default function UniversePage() {
         </Space>
       }
     >
+      {rows.length > 0 && (
+        <Card size="small" title="位面谱系" style={{ marginBottom: 16 }}>
+          <Tree treeData={buildLineage(rows)} defaultExpandAll showLine />
+        </Card>
+      )}
+
       <Table<Universe>
         rowKey="id"
         dataSource={rows}
@@ -500,6 +580,65 @@ export default function UniversePage() {
           size="small"
           locale={{ emptyText: "暂无评估记录" }}
         />
+      </Modal>
+
+      {/* 晋升审批 Modal：diff + 评估记录(含基线/delta) 同屏，确认后才真正晋升 */}
+      <Modal
+        title={`晋升审批:${promoteTarget?.name ?? ""}`}
+        open={promoteReviewOpen}
+        onCancel={() => setPromoteReviewOpen(false)}
+        width={960}
+        footer={[
+          <Button key="cancel" onClick={() => setPromoteReviewOpen(false)}>取消</Button>,
+          <Button
+            key="ok"
+            type="primary"
+            danger
+            loading={promoting}
+            onClick={() => void onConfirmPromote()}
+          >
+            确认晋升
+          </Button>,
+        ]}
+      >
+        <h4>代码改动(相对 fork 起点)</h4>
+        <pre style={{ maxHeight: 320, overflow: "auto", background: "#f6f6f6", padding: 12 }}>
+          {diffContent || "(无改动或加载中)"}
+        </pre>
+        <h4>评估记录(变体 vs 冠军基线,同评估集)</h4>
+        <Table<VariantEvalRun>
+          size="small"
+          rowKey="id"
+          pagination={false}
+          dataSource={evalRuns}
+          loading={evalLoading}
+          columns={[
+            { title: "时间", dataIndex: "created_at", width: 180 },
+            {
+              title: "门禁",
+              dataIndex: "gate_passed",
+              width: 70,
+              render: (v: boolean) => (v ? <Tag color="green">过</Tag> : <Tag color="red">毙</Tag>),
+            },
+            { title: "变体分", width: 90, render: (_, r) => r.fitness?.score ?? "—" },
+            { title: "基线分", width: 90, render: (_, r) => r.baseline?.score ?? "—" },
+            {
+              title: "delta",
+              width: 90,
+              render: (_, r) => {
+                const v = r.fitness?.score;
+                const b = r.baseline?.score;
+                if (typeof v !== "number" || typeof b !== "number") return "—";
+                const d = v - b;
+                return <span style={{ color: d >= 0 ? "#3f8600" : "#cf1322" }}>{d.toFixed(4)}</span>;
+              },
+            },
+            { title: "备注", render: (_, r) => (r.fitness?.truncated ? "预算截断" : "") },
+          ]}
+        />
+        <p style={{ marginTop: 12, color: "#999" }}>
+          晋升将翻转冠军并暂存部署指针;重启是单独受控步骤,健康检查失败会自动回滚。
+        </p>
       </Modal>
     </PageContainer>
   );

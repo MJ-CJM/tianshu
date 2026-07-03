@@ -86,6 +86,13 @@ export async function proposeCodeVariant(
   return data;
 }
 
+export async function proposeAutoCode(): Promise<ApiResponse<Record<string, unknown>>> {
+  const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
+    "/universes/propose-auto",
+  );
+  return data;
+}
+
 export async function promoteCodeVariant(id: string): Promise<ApiResponse<Universe>> {
   const { data } = await apiClient.post<ApiResponse<Universe>>(
     `/universes/${id}/promote-code`, {},

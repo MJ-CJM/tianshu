@@ -894,7 +894,8 @@ export interface Universe {
   origin: "genesis" | "manual_branch" | "mutation" | "code_variant";
   mutation_reason: string | null;
   description: string;
-  fitness: Record<string, number>;
+  /** 数值型适应度分项 + 可能混入的 truncated（预算截断）布尔标记 */
+  fitness: Record<string, number | boolean>;
   created_at: string;
   code_ref: string | null;
 }
@@ -904,7 +905,10 @@ export interface VariantEvalRun {
   universe_id: string;
   gate_passed: boolean;
   gate_detail: { stage?: string; detail?: string } | null;
-  fitness: Record<string, number>;
+  /** 数值型适应度分项 + 可能混入的 truncated（预算截断）布尔标记 */
+  fitness: Record<string, number | boolean>;
+  /** 同评估集下的冠军基线分（纯数值，无 truncated 混入）；无基线或基线被截断时为 null */
+  baseline?: Record<string, number> | null;
   eval_set_version: string | null;
   cost: number;
   created_at: string;
