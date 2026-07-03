@@ -16,8 +16,8 @@ from tianshu.models.acceptance import (
     CriticSpec,
     EscalationSpec,
 )
-from tianshu.models.common import TaskStatus
-from tianshu.models.edict import Edict
+from tianshu.models.common import TaskStatus, UsageSummary
+from tianshu.models.edict import Edict, EdictRuntime
 from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
 
@@ -450,3 +450,64 @@ async def test_pause_emits_paused_event_only_once_on_entry(storage, bus, monkeyp
         ev for ev in storage.get_events(e.id) if ev["event_type"] == "outer_loop.resumed"
     ]
     assert len(resumed_events) == 1
+
+
+# ---- B4-T1 行为锚点：拆分 run() 前补齐的主循环控制流场景 ----
+
+
+@pytest.mark.integration
+async def test_budget_hard_limit_forces_early_finalize(storage, bus):
+    """已处于 winding_down 后仍触发硬上限 → 强制 finalize FAILED，不再跑 actor/critic（提前收工路径）。"""
+    ctx = _make_ctx(storage, bus, _agent(["should not be called"]), [])  # critic 不应被调用
+    e = _edict().model_copy(
+        update={"runtime": EdictRuntime(token_budget=1000, lifecycle_phase="winding_down")}
+    )
+    storage.save_edict(e)
+    m = _memorial(e.id).model_copy(update={"usage": UsageSummary(total_tokens=1000)})
+
+    r = await run(e, m, ctx)
+
+    assert r.status == TaskStatus.FAILED
+    assert r.error is not None and r.error.startswith("budget_exhausted")
+    assert ctx.agent.execute.call_count == 0, "预算耗尽应在 actor 调用前提前收工"
+    assert ctx.critic_llm.chat.call_count == 0
+
+
+@pytest.mark.integration
+async def test_checks_failed_carries_feedback_to_next_iteration(storage, bus):
+    """checks 未过 → 不进 critic，advance 后把 checks_failed 反馈带进下一轮 actor 调用。"""
+    actor_llm = MagicMock()
+    actor_llm.chat = AsyncMock(
+        side_effect=[
+            MagicMock(content=json.dumps({"score": 0.3, "reasoning": "meh"})),  # iter0 rubric 不过
+            MagicMock(content=json.dumps({"score": 0.9, "reasoning": "good"})),  # iter1 rubric 过
+        ]
+    )
+    critic_llm = MagicMock()
+    critic_llm.chat = AsyncMock(
+        side_effect=[
+            MagicMock(content=json.dumps({"verdict": "pass", "feedback": "ok"})),  # iter1 critic
+            MagicMock(content=_AUDIT_PASS_JSON),  # iter1 completion audit
+        ]
+    )
+    agent = _agent(["v1", "v2"])
+    ctx = OrchestratorContext(
+        agent=agent, storage=storage, bus=bus, actor_llm=actor_llm, critic_llm=critic_llm
+    )
+    e = _edict(
+        checks=[CheckSpec(kind="rubric", name="tone", rubric="be nice", pass_threshold=0.8)],
+        max_outer_iterations=3,
+    )
+    storage.save_edict(e)
+
+    r = await run(e, _memorial(e.id), ctx)
+
+    assert r.status == TaskStatus.COMPLETED
+    assert r.final_output == "v2"
+    assert agent.execute.call_count == 2
+    # 第一轮 checks 失败记为 issue_class=checks_failed，critic 未被调用
+    assert r.state.history[0].critic_result.issue_class == "checks_failed"
+    # 第二轮 actor 调用的 user_content 应带上第一轮的 checks 失败反馈
+    second_call_content = agent.execute.call_args_list[1].kwargs["user_content"]
+    assert "issue_class=checks_failed" in second_call_content
+    assert "checks 未通过" in second_call_content
