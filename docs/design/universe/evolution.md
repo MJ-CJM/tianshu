@@ -58,7 +58,7 @@
 
 ## 5. 演化引擎（UniverseEvolver）
 
-骨架对齐 SkillCurator「修撰」：`gate(idle + lock) → 采信号 → 一处 LLM 变异 → 分支候选 → 熔断下线劣质候选 → 晋升推荐`。
+骨架对齐 SkillCurator「修撰」：`gate(idle + lock) → 采信号 → 一处 LLM 变异 → 分支候选 → 沙箱配对评估 → delta 分流（归档/推荐/留观）`。
 
 | 步骤 | 契约 |
 |---|---|
@@ -66,12 +66,14 @@
 | 采信号 | 读冠军行为概要 + 各位面适应度 |
 | 提变异 | LLM 只产出**一处**定向变异 + 理由（一次只动一处，便于归因）。当前 cut 仅瞄准人格文件 |
 | 生候选 | 从冠军分支出候选位面（`origin=mutation`，记 `mutation_reason`），再调 mutator 把意图改写进文件 |
-| 熔断 | 候选样本数与失败数均超 `universe_challenger_fail_limit` → 自动归档下线 |
-| 选优 | 候选在 ≥`universe_min_samples` 样本上超过冠军 + `universe_promote_margin` → 默认发 `universe.promotion_recommended`（人工确认）；`universe_auto_promote=True` 才自动 switch |
+| 沙箱配对评估 | 变异落地后，主仓代码 + env 重定向 personas 到候选快照跑一次沙箱评估；冠军在同一评估集上跑一次基线（按指纹缓存复用）；margin 判在两者的 `delta` 上——详见 [eval.md](./eval.md) §5 |
+| 选优分流 | `delta ≤ -universe_promote_margin` → 当场归档；`delta ≥ universe_promote_margin` 且样本数达 `universe_min_samples` → 默认发 `universe.promotion_recommended`（人工确认），`universe_auto_promote=True` 才自动 switch；落在带内 → 留观，不作处置 |
 
 ## 6. 变异落地（PersonaMutator）
 
 **当前限制（诚实定性）**：变异落地只支持**人格文件**（`SOUL.md` / `ROLE.md`）改写——人格目录被位面完整快照、切换时 restore+reload，零改造即端到端生效。policy / config / skillset 类变异尚未落地（需先扩展快照范围把 session_rules、完整 config、技能状态纳入 snapshot/restore），在此之前走「只记录不改写」兜底（`mutation_applied=False`）。
+
+**演化记忆**：§5「提变异」的 LLM prompt 不是无记忆地每次现想——`UniverseEvolver._mutation_history` 把近期（默认最近 20 条，含已归档）`origin=mutation` 的位面按时间倒序整理成台账（结局「已晋升 / 留观中 / 已淘汰」+ 对应得分），拼进 prompt 并明确指示「请勿重复相同或相近方向」，避免 LLM 在没有记忆的情况下反复提出相似变异。
 
 安全约束：target 解析强制 allowlist（仅 SOUL.md/ROLE.md）+ 防路径穿越（拒 `/`、`..`、`.` 开头的 persona id）；改写后文件大小上限 64KB；空/超长/无变化均 no-op。
 
@@ -90,28 +92,23 @@
 - 综合分 = 各维加权（默认权重 `(0.4, 0.15, 0.2, 0.1, 0.15)`，可配 `universe_fitness_weights`）。
 - **小样本保护**：未达 `universe_min_samples` 不参与晋升判定；晋升要求超冠军一个 margin，避免噪声晋升。
 
-## 8. 探索路由（Gate）
+## 8. 探索路由——已退役
 
-诏令入口的小流量探索分流（在 manager 的 `route_for_memorial`）：
+原设计意图：诏令入口按小流量把新诏令分给候选位面，用真实在线信号验证候选表现，是「选优」环节的数据来源。
 
-- 总开关关闭 → 一律归冠军。
-- 否则以 `universe_explore_ratio` 概率把新诏令分给在线候选，否则给冠军。
-- 用 `memorial_id` 的稳定 sha256 哈希做**确定性分桶**（无随机源、可复现）。
-- 无在线候选 → 归冠军。
+**现状**：候选位面的行为配置只有晋升（`switch`）后才会加载进 live——被「探索」到的流量实际仍以冠军配置执行，fitness 归因失真，是无效流量。`manager.route_for_memorial` 已退役分流逻辑：不论总开关、候选存活状态，一律返回冠军 id，`memorial_id` 仅留作归因标记；candidate（challenger）不真正运行，其适应度改由**沙箱配对评估**产生（见 §5、[eval.md](./eval.md) §5）。
 
-边界：探索仅作用于新诏令；系统/定时诏令默认不参与（避免系统任务被实验配置影响）。
+**恢复条件**：待支持 per-run 位面装配（执行时按 `memorial.universe_id` 为每次调用单独装配对应位面的 personas/config，而非全局唯一 live 目录）后，再恢复真正的在线探索路由。
 
 ## 9. 配置项
 
 | 配置 | 默认 | 作用 |
 |---|---|---|
 | `parallel_universe_enabled` | False | 总开关（opt-in） |
-| `universe_explore_ratio` | 0.1 | 候选探索流量比例 |
-| `universe_min_samples` | 20 | 参与晋升的最小样本量 |
-| `universe_promote_margin` | 0.05 | 晋升所需领先幅度 |
+| `universe_min_samples` | 20 | 配对评估参与晋升的最低样本数（取变体沙箱评估的 `fitness.samples`） |
+| `universe_promote_margin` | 0.05 | 晋升所需领先幅度（判在配对 `delta` 上） |
 | `universe_auto_promote` | False | 默认推荐人工确认；开启则阈值满足即切换 |
 | `universe_evolver_idle_hours` | 2 | 非手动触发的空闲门槛 |
-| `universe_challenger_fail_limit` | 5 | 候选连续失败下线阈值 |
 | `universe_fitness_weights` | (0.4,0.15,0.2,0.1,0.15) | 五维适应度权重 |
 
 **相关实现**：[../../impl/universe/](../../impl/universe/)

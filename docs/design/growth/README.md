@@ -66,9 +66,9 @@
 
 ### ④ 位面进化（universe/evolver.py）
 
-最重的一环，改的是**整份行为配置**而非单点。`UniverseEvolver.run`：gate（`parallel_universe_enabled` + idle + lock）→ 退役连败候选 → 选优晋升满足 margin 的候选 → LLM 提**一处**定向变异 → 从冠军分支出候选位面 + mutator 落地。配套 **EvalHarness** 在沙箱回放评估集给代码变体打分（[../universe/code-variant.md](../universe/code-variant.md) §5.3）。
+最重的一环，改的是**整份行为配置**而非单点。`UniverseEvolver.run`：gate（`parallel_universe_enabled` + idle + lock）→ LLM 提**一处**定向变异（携带历史尝试台账，避免重复方向）→ 从冠军分支出候选位面 + mutator 落地 → 沙箱配对评估（候选 vs 冠军基线，同评估集）按 delta 分流：劣汰归档 / 优则推荐晋升（或按开关自动晋升）/ 平居留观。配套 **EvalHarness** 也给代码变体打分（[../universe/code-variant.md](../universe/code-variant.md) §5.3）。
 
-与前三环的本质区别：前三环改的产物**立即对所有任务生效**；位面进化把改动隔离进候选位面，先用 `universe_explore_ratio` 小流量探索 + 滚动适应度验证，达标才晋升为冠军——见 [../universe/evolution.md](../universe/evolution.md) §5-8。
+与前三环的本质区别：前三环改的产物**立即对所有任务生效**；位面进化把改动隔离进候选位面，先经沙箱配对评估验证 `delta` 达标才晋升为冠军，不直接放真实流量试探——见 [../universe/evolution.md](../universe/evolution.md) §5、§8。
 
 ## 4. 四环如何协作
 

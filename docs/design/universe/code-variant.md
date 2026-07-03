@@ -89,6 +89,22 @@
 
 `UniverseEvolver.propose_code_variant` 编排完整闭环：`分支 → 变异 → 门禁 → 评估 → 记录 → 推荐`，失败安全，状态机覆盖 `disabled/no_collaborators/no_champion/no_mutation/gate_failed/evaluated/recommended/error`。默认**不自动晋升**。
 
+## 6b. 太医诊断器与自主提案（Diagnostician）
+
+`CodeMutator` 需要一对 `(target_path, hypothesis)` 才能动手——此前这对参数只能人工给。**Diagnostician**（`diagnostician.py`，喻「太医」）补上这一环：从平台自身的失败症状里提炼演化假设，交给既有的 `propose_code_variant` 闭环，人不再是唯一的假设来源。只诊断、不动刀——真正的改写/门禁/评估仍是原有安全链。
+
+| 环节 | 契约 |
+|---|---|
+| 诊断输入 | 近期 `status=failed` 的 memorial（`goal` 截 120 字 + `error` 截 200 字 + 审计 `reasons` 截 200 字，默认取最近 30 条）+ 已试过的假设（近期 `origin=code_variant` 且带 `description` 的位面，倒序取 20 条，避免开重复药方） |
+| allowlist 过滤 | LLM 提议的每条 `target_path` 都要过 `code_mutator._within_evolvable` 校验，越界（不在 `code_variant_evolvable_paths` 内）直接丢弃，不进候选清单 |
+| 失败安全 | 无失败症状 / LLM 输出非 JSON 数组 / 全部越界 → 返回空列表 `[]`；三试非法 JSON 后放弃，不抛异常 |
+| 配额执行 | `auto_propose_codes`：诊断最多要 `code_variant_daily_propose_quota`（默认 2）条假设，逐条同步调用 `propose_code_variant`（分支→变异→门禁→评估，见 §5-6），不并发 |
+| 触发方式 | cron `universe.daily_code_propose`，`30 5 * * *`（每日 05:30，晚于 05:00 的行为层演化 `daily_evolve` 半小时，错峰）；也可手动 `POST /api/universes/propose-auto` 立即触发一轮 |
+| 默认态 | `code_variant_auto_propose=False`——诊断器接线到位，但默认不真正自主开方，需显式开启 |
+| 并发保护 | 与人格演化共用 `try_acquire_synthesis_lock` 机制，但用独立 lock key（`__universe_code_propose__`），互不阻塞 |
+
+一次 `auto_propose_codes` 返回 `{"proposed": n, "results": [...]}`（或 `{"skipped": 原因}`），并发 `universe.code_proposed` 事件供审计面板订阅。
+
 ## 7. 晋升与回滚（Deployer）
 
 | 环节 | 契约 |
@@ -117,15 +133,18 @@ manager 在 branch/switch/diff/archive/restore/delete 各动作里据 `code_ref`
 | `code_variant_enabled` | False | 代码变体总开关（opt-in） |
 | `code_variant_evolvable_paths` | selector/planner/tools 等 | 演化域 allowlist（机制支持全仓，策略默认受限） |
 | `code_variant_auto_promote` | False | 代码层自动晋升（默认关，明确不推荐开） |
+| `code_variant_auto_propose` | False | 太医诊断器自主提案总开关（默认关，见 §6b） |
+| `code_variant_daily_propose_quota` | 2 | 自主提案每轮配额（诊断假设数上限） |
 | `code_variant_sandbox_timeout_s` | 900 | 沙箱门禁+评估全程超时 |
 | `code_variant_sandbox_mem_mb` | 2048 | 沙箱内存闸 |
-| `code_variant_eval_set_size` | 20 | 回放评估集规模 |
+| `code_variant_eval_set_size` | 20 | 回放评估集规模（60% 成功 + 40% 失败混采） |
+| `code_variant_eval_budget_cny` | 20.0 | 单次沙箱评估成本闸（元），触顶截断，详见 [./eval.md](./eval.md) §9 |
 
 晋升 margin / 样本量复用 Phase 1 的 `universe_promote_margin` / `universe_min_samples`。
 
 ## 10. 安全主防线
 
-自我修改代码是高风险面，控制分层：测试门禁是最强安全网；隔离 DB + `EVAL_MODE` 副作用围栏 + 资源闸把评估期变体关在沙箱里。**🔴 残余风险**：live 评估要 LLM key → untrusted 变体进程能拿到 key → 理论可外泄。结论：**晋升前人工审完整 diff 是主控制**，代码层 auto-promote 默认关且不推荐开。每次变异/评估/晋升/回滚发 EventBus 事件进审计面板。
+自我修改代码是高风险面，控制分层：测试门禁是最强安全网；隔离 DB + `EVAL_MODE` 副作用围栏 + 资源闸把评估期变体关在沙箱里；`TIANSHU_EVAL_LLM_*`（详见 [./eval.md](./eval.md) §8）给沙箱评估配一把独立低额度 LLM 凭证，不设则沙箱沿用宿主凭证。**🔴 残余风险**：live 评估要 LLM key → untrusted 变体进程能拿到 key → 理论可外泄，可通过 `TIANSHU_EVAL_LLM_*` 压缩泄漏面（专用低额度凭证，泄了也只损失额度上限），但机制上无法彻底消除。结论：**晋升前人工审完整 diff 是主控制**，代码层 auto-promote 默认关且不推荐开。每次变异/评估/晋升/回滚发 EventBus 事件进审计面板。
 
 ## 11. 设计 rationale：每个选择背后的「为什么」
 

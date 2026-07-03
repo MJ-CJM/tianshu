@@ -21,12 +21,13 @@
 
 一个 eval case = **一条历史 goal 字符串**。评估集是这些 goal 的去重列表。
 
-`EvalHarness.select_eval_set(size)`：
+`EvalHarness.select_eval_set(size)` **分层混采**：约 `int(size*0.4)` 条最近失败 + 其余（约 60%）最近成功，跨层去重，任一层数据不足时用另一层补齐到 `size`：
 
-- 取 `storage.list_edicts(status="completed", limit=size*3)` —— 只选**已成功完成**的历史诏令，按创建时间倒序（最近优先）。
-- 逐条取 `edict.goal.strip()`，**按文本去重**，攒满 `size` 条即止。
+- **失败层**（`_collect_failed_goals`）：`edict` 没有 `failed` 生命周期——失败是 **memorial 层**的终态，不能像成功层那样直接按 edict 状态过滤（永远查不到）。做法是 `storage.list_memorials(status="failed", limit=want*3)`，逐条反查 `storage.get_edict(m.edict_id)` 取 `edict.goal`。
+- **成功层**（`_collect_goals("completed", ...)`）：取 `storage.list_edicts(status="completed", limit=want*3)`，按创建时间倒序，逐条取 `edict.goal.strip()`。
+- 两层各自**按文本去重**，且跨层互斥（已入选的 goal 不会在另一层重复出现）。
 
-为什么用「历史已完成 goal」而非合成用例：这些是平台真实承接过、且当前冠军能跑通的任务 —— 它们天然构成一条**冠军基线为 100% 成功**的回归集。变体在同一集上若掉成功率，就是真实退化。
+为什么用「历史目标」而非合成用例：这些是平台真实承接过的任务，天然贴近真实分布。为什么还要混入失败样本：纯成功集下，配对评估里变体与冠军基线都是 100% 通过，变体唯一能拉开的差距只剩 cost/audit/retry 这些次要维度——**无法证明「修好了冠军跑不动的任务」**。混入历史失败 goal 后，配对基线下冠军在这些样本上大概率同样失败，变体若真修好，直接体现为正 `delta`；没修好，两边同样失败也不构成误伤。这一选集口径同时服务于代码变体与行为层候选评估（见 §5）。
 
 ## 3. 沙箱变体回放与轮询至终态
 
@@ -89,19 +90,23 @@ score = 0.4·success_rate + 0.15·cost_score + 0.2·audit_rate
 
 ## 5. 变体 vs Champion 回归检测
 
-评估完，`propose_code_variant` 做回归比对：
+早期实现曾拿变体的沙箱评估分与冠军的**在线累积分**比 margin——评估集、运行环境、统计时段三者都不同，是跨分布比较，噪声对噪声。现改为**同评估集配对评估**：冠军在同一个 `eval_set`、同一套沙箱环境下也跑一次，margin 判在两者的配对差 `delta` 上：
 
 ```
-variant_score = fitness["score"]                              # 本次沙箱评估
-champ_score   = champion.fitness["score"]  (无冠军 fitness 则 0)
-margin        = cfg.universe_promote_margin  (默认 0.05)
-variant_score >= champ_score + margin  →  status="recommended"
-否则                                    →  status="evaluated"
+paired = eval_harness.evaluate_paired(
+             variant_worktree, eval_set=es, baseline_worktree=champion_repo_or_worktree,
+             variant_env=..., budget_cny=..., cached_baseline=cached)
+delta  = paired["variant"]["fitness"]["score"] - paired["baseline"]["fitness"]["score"]
+margin = cfg.universe_promote_margin  (默认 0.05)
+delta >= margin  →  status="recommended"（或 auto_promote 开启时直接晋升）
+否则             →  status="evaluated"
 ```
 
-`margin` 是**回归带宽**：变体必须赢冠军一个肉眼可辨的差距才算「值得晋升」，落在 margin 内的微小波动不构成晋升理由 —— 防止评估噪声驱动无意义的代码翻动。注意 `recommended` 也**只是推荐**，默认不自动晋升（见 §7）。
+**基线按评估集指纹缓存**：`eval_set_fingerprint(eval_set, champion_key)` = 评估集内容 + `champion_key` 的 sha256 前 12 位；`champion_key`（由 `evolver._baseline_key()` 构造）取「冠军位面 id : 主干短 HEAD」。把主干 HEAD 编进指纹，是因为冠军的「代码基线」就是主干当前提交——**任何一次主干提交都会让指纹变化，从而使旧基线缓存自动失效**，不会拿过期基线继续比较。`Storage.latest_baseline_fitness(fp)` 命中同指纹的历史基线时，`evaluate_paired` 直接跳过冠军那一次沙箱回放（评估成本减半，`baseline_cached=True`）；未命中则冠军也真跑一次，跑完连同指纹一并存进 `variant_eval_runs.baseline_json`，供下次同指纹复用。**若冠军基线评估本身被预算闸截断**（见 §9），该次基线不入缓存——截断样本不能冒充完整基线继续被复用。
 
-每次评估（无论结果）都落 `variant_eval_runs` 表（`save_variant_eval_run`），并 `update_universe_fitness(uid, fitness)` 把分写回该位面，供 Web UI 看历史。
+`margin` 仍是**回归带宽**：变体必须在配对差上赢一个肉眼可辨的差距才算「值得晋升」，落在带内的微小波动不构成晋升理由 —— 防止评估噪声驱动无意义的代码翻动。注意 `recommended` 也**只是推荐**，默认不自动晋升（见 §7）。
+
+每次评估（无论结果）都落 `variant_eval_runs` 表（`save_variant_eval_run`，变体分入 `fitness_json`、基线分入 `baseline_json`），并 `update_universe_fitness(uid, fitness)` 把变体分写回该位面，供 Web UI 看历史。
 
 ## 6. 晋升门禁语义：Gate 三关 + margin
 
@@ -118,7 +123,7 @@ variant_score >= champ_score + margin  →  status="recommended"
 晋升资格链：
 
 ```
-gate ①②③ 全绿  →  沙箱回放打 fitness  →  variant ≥ champ + margin (recommended)
+gate ①②③ 全绿  →  沙箱配对评估(变体 vs 冠军基线，同评估集)  →  delta ≥ margin (recommended)
   →  人工审完整 diff + eval 记录  →  Deployer 晋升
 ```
 
@@ -132,21 +137,24 @@ gate ①②③ 全绿  →  沙箱回放打 fitness  →  variant ≥ champ + ma
 1. branch_code_variant(champion) → worktree + 分支 universe/<id>
 2. code_mutator.mutate(worktree, target_path, hypothesis)  →  applied=True, 提交一个 commit
 3. gate.run(worktree):  compileall ✓  →  import tianshu ✓  →  pytest -q ✓   (stage=ok)
-4. select_eval_set(20):  取最近 20 条已完成 goal（含若干运维类 goal）
-5. evaluate(worktree, eval_set):
-     sandbox 起隔离进程(临时端口 + _eval.db + EVAL_MODE)
-     逐条 POST /api/edicts 回放，轮询 memorial 至终态
-     aggregate_db_stats:  total=20 success=20 audited=18 audit_pass=18
-                          retries=3 cost=1.2 feedback=4
-     compute_fitness → success_rate=1.0  audit_rate=1.0  retry_score≈0.925
-                       cost_score=1/(1+(1.2*1000/20))≈0.0164  fb_norm≈0.9
-                       score = 0.4·1 + 0.15·0.0164 + 0.2·1 + 0.1·0.925 + 0.15·0.9
-                             ≈ 0.83
-6. save_variant_eval_run(...) + update_universe_fitness(uid, fitness)
-7. 冠军 score=0.80, margin=0.05  →  0.83 ≥ 0.80+0.05 ?  否（0.85>0.83）
-     → status="evaluated"（达标但未过 margin，不推荐）
-   若冠军 score=0.76 → 0.83 ≥ 0.81 → status="recommended"
-8. 任一步异常 → status="error"，失败安全，不留半截状态
+4. select_eval_set(20):  分层混采，约 12 条最近成功 + 8 条最近失败（含若干运维类 goal）
+5. eval_set_fingerprint(es, champion_key) 未命中 latest_baseline_fitness 缓存 → 基线需真跑一次
+6. evaluate_paired(worktree, eval_set=es, baseline_worktree=repo_root, budget_cny=20.0):
+     variant = evaluate(worktree, ...):
+       sandbox 起隔离进程(临时端口 + _eval.db + EVAL_MODE)
+       逐条 POST /api/edicts 回放，轮询 memorial 至终态
+       aggregate_db_stats:  total=20 success=20 audited=18 audit_pass=18
+                            retries=3 cost=1.2 feedback=4
+       compute_fitness → success_rate=1.0  audit_rate=1.0  retry_score≈0.925
+                         cost_score=1/(1+(1.2*1000/20))≈0.0164  fb_norm≈0.9
+                         score = 0.4·1 + 0.15·0.0164 + 0.2·1 + 0.1·0.925 + 0.15·0.9 ≈ 0.83
+     baseline = evaluate(repo_root, ...):  主仓（冠军）代码在同一 eval_set 上再跑一次 → score ≈ 0.80
+     delta = 0.83 - 0.80 = 0.03，baseline_cached=False（本次基线是真跑出来的）
+7. save_variant_eval_run(fitness=variant 分, baseline=baseline 分, eval_set_version=指纹, ...)
+     + update_universe_fitness(uid, variant 分)
+8. margin=0.05  →  delta(0.03) ≥ margin ?  否  → status="evaluated"（达标但未过 margin，不推荐）
+   若这次基线表现更差（score≈0.76）→ delta=0.07 ≥ 0.05 → status="recommended"
+9. 任一步异常 → status="error"，失败安全，不留半截状态；若基线评估本身被预算闸截断，则该次基线不写入缓存（见 §9）
 ```
 
 可见 cost_score 在这套权重下很小（0.15 权重 × 0.016），主导分的是成功率与审计率 —— 评估真正盯的是「跑得对、审得过」，成本只作微调。最终是否晋升仍由人看 §6 的完整 diff 拍板，平台默认 `code_variant_auto_promote=False`。
@@ -155,10 +163,36 @@ gate ①②③ 全绿  →  沙箱回放打 fitness  →  variant ≥ champ + ma
 
 | 配置 | 默认 | 作用 |
 |---|---|---|
-| `code_variant_eval_set_size` | 20 | 回放评估集规模（`select_eval_set` 上限）|
+| `code_variant_eval_set_size` | 20 | 回放评估集规模（`select_eval_set` 上限，60% 成功 + 40% 失败混采，见 §2）|
+| `code_variant_eval_budget_cny` | 20.0 | 单次沙箱评估的成本闸（元），触顶截断，已回放部分照常打分，详见 §9 |
 | `code_variant_sandbox_timeout_s` | 900 | Gate 全程 + 沙箱单步超时 |
 | `code_variant_sandbox_mem_mb` | 2048 | 沙箱内存闸（`RLIMIT_AS`）|
-| `universe_promote_margin` | 0.05 | 回归带宽：变体须赢冠军此差距才 `recommended` |
+| `universe_promote_margin` | 0.05 | 回归带宽：变体须在配对 `delta` 上赢此差距才 `recommended` |
 | `code_variant_auto_promote` | False | 代码层自动晋升（默认关，明确不推荐开）|
+| `TIANSHU_EVAL_LLM_API_KEY` | 空 | 沙箱评估专用 LLM key（env-only，非 `AgentConfig` 热更字段）；空则沙箱沿用宿主 `TIANSHU_LLM_*` 凭证 |
+| `TIANSHU_EVAL_LLM_API_BASE` | 空 | 配合上者的可选 base url 叠加，仅当已设 key 才生效 |
+| `TIANSHU_EVAL_LLM_MODEL` | 空 | 配合上者的可选模型名叠加，仅当已设 key 才生效 |
 
 `goal_timeout_s`（单条回放轮询超时）默认 300s，由 `evaluate` 形参控制。
+
+## 9. 预算闸与截断语义
+
+沙箱回放烧的是真实 LLM 调用费用，且此前无上限。`code_variant_eval_budget_cny`（默认 20 元）给单次 `evaluate()` 加了一道成本闸：
+
+```
+for goal in eval_set:
+    _run_goal(...)                          # 逐条回放
+    if budget_cny is not None and aggregate_db_stats(db)["cost"] >= budget_cny:
+        truncated = True
+        break                                # 已回放部分照常聚合打分
+stats = aggregate_db_stats(db)
+return {"fitness": score(stats), "stats": stats, "n": ran, "truncated": truncated}
+```
+
+**失败安全，只截断不作废**：触顶后停止回放剩余 goal，但已跑完的那部分照常聚合进 `compute_fitness`——评估绝不会因预算耗尽而整体报废。返回 dict 多一个 `truncated: bool` 键；为 True 时，`propose_code_variant` / `_evaluate_behavior_challenger` 会把它并进 `fitness_json`（`{**fitness, "truncated": True}`），供 Web UI 的评估记录表标注「预算截断」，提示这次分数基于不完整回放算出、可信度打折。
+
+**配对评估下预算各自独立计价**：`evaluate_paired` 对变体、基线各自独立传 `budget_cny`——未命中基线缓存时，一次配对评估最多花两倍预算；命中基线缓存（见 §5）则只有变体那次真花钱，评估成本减半。
+
+**截断的基线不入缓存**：若冠军基线评估本身被截断，`save_variant_eval_run` 存入的 `baseline` 字段为 `None`（不落 `baseline_json`），`latest_baseline_fitness` 的查询条件带 `baseline_json IS NOT NULL`，自然不会把这次不完整的基线当成可复用缓存——避免下一次评估拿一个「没跑完」的基线继续比较。
+
+首次启用建议把 `code_variant_eval_set_size` 调小观察实际花费，再决定是否上调预算或评估集规模。

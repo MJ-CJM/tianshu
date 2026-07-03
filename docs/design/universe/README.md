@@ -41,7 +41,7 @@
 |---|---|
 | persona / skills | 位面快照的主体；切换位面时 PersonaLoader/SkillsLoader 的 runtime 根目录被重定向 + 缓存失效 |
 | config_manager | config 类快照存于 manifest，切换时读回并 `update_agent_config`；演化/代码变体的全部开关都是 `AgentConfigState` 字段 |
-| executor | 执行开始时按 `route_for_memorial` 固化 `universe_id`；探索路由按 `universe_explore_ratio` 把新诏令分流给在线候选 |
+| executor | 执行开始时按 `route_for_memorial` 固化 `universe_id`；探索路由已退役，一律归冠军，候选的适应度改由沙箱配对评估产生 |
 | bus / scheduler | memorial 完成事件触发 fitness 更新；演化引擎可由 scheduler 周期 + 空闲触发（类比 SkillCurator「修撰」） |
 | 单线自进化（修撰/reviewer） | 正交：演化选「哪套配置」，修撰优化「在役这套里的技能」 |
 

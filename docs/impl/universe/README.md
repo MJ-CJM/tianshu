@@ -15,6 +15,7 @@
 | `evolver.py` | `UniverseEvolver`、`EvolveResult` | 演化：`run`（人格路径）/ `propose_code_variant`（代码路径） |
 | `fitness.py` | `compute_fitness` | 五维加权适应度（纯函数） |
 | `mutator.py` | `apply_mutation`、`parse_persona_target` | 人格文件变异落地（SOUL.md/ROLE.md） |
+| `diagnostician.py` | `Diagnostician` | 太医：失败 memorial + 已试假设 → 演化域内代码改进假设清单，供 `auto_propose_codes` 消费 |
 | `code_mutator.py` | `CodeMutator` | worktree 内代码改写 + 演化域 allowlist + traversal-safe |
 | `gate.py` | `Gate`、`GateResult` | 三关门禁：compileall / import / pytest |
 | `sandbox.py` | `SandboxRunner`、`SandboxHandle`、`SandboxError` | 隔离子进程拉起 + 健康检查 + 销毁 |
@@ -61,8 +62,8 @@ config 的 snapshot/apply 是注入回调（`_universe_config_snapshot` / `_univ
 
 ### 5.1 诏令归因（fitness 闭环）
 
-- `executor.py:167` 执行开始时，若 memorial 未带 `universe_id`，调 `universe_manager.route_for_memorial(memorial.id)` 固化归属（默认冠军；按 explore_ratio 确定性哈希分给在线候选）。
-- `app.py` 注册 `_update_universe_fitness` 订阅 `execution.completed/failed`、`audit.completed`（priority 250）→ 聚合 `universe_memorial_stats` → `compute_fitness` → `update_universe_fitness`。
+- `executor/executor.py:204` 执行开始时，若 memorial 未带 `universe_id`，调 `universe_manager.route_for_memorial(memorial.id)` 固化归属——**一律归冠军（探索路由已退役）**，见 [../../design/universe/evolution.md](../../design/universe/evolution.md) §8。
+- `bootstrap/wiring_scheduler.py` 注册 `_update_universe_fitness`（`bootstrap/universe_hooks.py`）订阅 `execution.completed/failed`、`audit.completed`（priority 250）→ **仅当 memorial 归属位面为当前冠军**才聚合 `universe_memorial_stats` → `compute_fitness` → `update_universe_fitness`；候选（challenger）的适应度不走这条在线路径，改由沙箱配对评估写入（见 §5.3）。
 
 ### 5.2 行为层切换
 
@@ -70,7 +71,7 @@ config 的 snapshot/apply 是注入回调（`_universe_config_snapshot` / `_univ
 
 ### 5.3 代码变体闭环
 
-`evolver.propose_code_variant`：`branch_code_variant`(worktree) → `code_mutator.mutate` → `gate.run`（编译/import/pytest）→ `eval_harness.evaluate`（沙箱回放）→ `save_variant_eval_run` + `update_universe_fitness` → 超 margin 则 `recommended`，否则 `evaluated`。晋升走 `manager.promote_code_variant`（翻冠军 + `deployer.stage` 暂存指针，重启另行受控触发）。
+`evolver.propose_code_variant`：`branch_code_variant`(worktree) → `code_mutator.mutate` → `gate.run`（编译/import/pytest）→ `select_eval_set`（60% 成功 + 40% 失败混采）→ 按指纹查 `latest_baseline_fitness` 缓存 → `eval_harness.evaluate_paired`（变体与冠军基线同集各跑一次沙箱回放，均受 `code_variant_eval_budget_cny` 预算闸约束，触顶截断照常打分）→ `save_variant_eval_run`（连同基线分 `baseline_json`，截断的基线不入缓存）+ `update_universe_fitness` → 配对差 `delta` 超 `universe_promote_margin` 则 `recommended`，否则 `evaluated`。晋升走 `manager.promote_code_variant`（翻冠军 + `deployer.stage` 暂存指针，重启另行受控触发）。行为层候选（`evolver.run` 内的 `_evaluate_behavior_challenger`）走同一套配对评估机制，只是变体侧用 `TIANSHU_RUNTIME_PERSONAS_DIR` 重定向到候选的 persona 快照，而非切 worktree。
 
 ## 6. HTTP 路由
 
@@ -85,3 +86,6 @@ config 的 snapshot/apply 是注入回调（`_universe_config_snapshot` / `_univ
 | 新增适应度维度 | 改 `fitness.compute_fitness` 的 stats 入参与权重；同步 `universe_memorial_stats` 与 `EvalHarness.aggregate_db_stats` 两处聚合 |
 | 调整门禁 | `Gate.run(run_tests=...)`；新增关在 `Gate.run` 内按 fail-fast 顺序插入 |
 | cassette 回归评估 | EvalHarness 设计预留两模式，当前以 live 评估为主路径，cassette 录放可在 `evaluate` 旁路扩展 |
+| 恢复在线探索路由 | 需先支持 per-run 位面装配（执行时按 `memorial.universe_id` 为每次调用单独装配对应位面的 personas/config，而非全局唯一 live 目录），见 [../../design/universe/evolution.md](../../design/universe/evolution.md) §8 |
+| 太医纳入更多诊断信号 | `Diagnostician._collect_failures` 目前只读 `status="failed"` 的 memorial；可扩展纳入负反馈（`feedback_score<0`）或审计 `verdict!=pass` 但终态非 failed 的记录 |
+| 自主提案吞吐更高 | `auto_propose_codes` 当前在配额内串行调用 `propose_code_variant`；`SandboxRunner` 本身支持并行拉起多个（见 [../../design/universe/code-variant.md](../../design/universe/code-variant.md) §5.1），可在此基础上并行化评估 |
