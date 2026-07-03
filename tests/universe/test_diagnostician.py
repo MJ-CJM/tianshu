@@ -2,6 +2,7 @@
 
 import json
 
+from tianshu.models.common import AuditResult
 from tianshu.universe.diagnostician import Diagnostician
 
 
@@ -26,10 +27,11 @@ class _FakeEdict:
 
 
 class _FakeMemorial:
-    def __init__(self, edict_id, error=None, audit_json=None):
+    def __init__(self, edict_id, error=None, audit_json=None, audit=None):
         self.edict_id = edict_id
         self.error = error
         self.audit_json = audit_json
+        self.audit = audit
 
 
 class _FakeStorage:
@@ -38,7 +40,8 @@ class _FakeStorage:
         self._unis = list(universes)
 
     def list_memorials(self, status=None, limit=50, offset=0):
-        return self._mems[:limit]
+        rows = self._mems[:limit]
+        return (rows, len(self._mems))
 
     def get_edict(self, edict_id):
         return _FakeEdict(goal=f"目标-{edict_id}")
@@ -112,3 +115,15 @@ async def test_diagnose_collects_str_audit_json():
     await diag.diagnose()
     prompt = diag._llm.prompts[0]
     assert "拆解过粗" in prompt
+
+
+async def test_diagnose_collects_audit_reasons():
+    """memorial.audit.reasons 属性的审计意见应被发给 LLM——测试 .audit 属性主路径。"""
+    payload = "[]"
+    audit = AuditResult(reasons=["拆解过粗", "缺验证"])
+    mems = [_FakeMemorial("e1", error="timeout", audit=audit)]
+    diag = _diag(payload, mems)
+    await diag.diagnose()
+    prompt = diag._llm.prompts[0]
+    assert "拆解过粗" in prompt
+    assert "缺验证" in prompt
