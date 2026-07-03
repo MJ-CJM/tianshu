@@ -30,19 +30,39 @@ class EvalHarness:
         self._weights = fitness_weights
 
     def select_eval_set(self, size: int) -> list[str]:
-        """从历史已完成 edict 取代表性 goal 列表（最多 size 条，去重）。
+        """分层选集:约 60% 最近成功 + 40% 最近失败(跨层去重,不足互补)。
 
-        使用 storage.list_edicts(status='completed') 读取历史，按创建时间倒序取最近，去重。
+        含失败样本让变体有机会证明「修好了冠军跑不动的」——配对基线下
+        冠军在失败样本上同样失败,变体修好即体现为正 delta。
         """
-        edicts, _ = self._storage.list_edicts(status="completed", limit=size * 3)
-        seen: set[str] = set()
+        n_fail = int(size * 0.4)
+        fail_goals = self._collect_goals("failed", n_fail)
+        succ_goals = self._collect_goals(
+            "completed", size - len(fail_goals), exclude=set(fail_goals)
+        )
+        short = size - len(succ_goals) - len(fail_goals)
+        if short > 0:
+            fail_goals.extend(
+                self._collect_goals("failed", short, exclude=set(fail_goals) | set(succ_goals))
+            )
+        return succ_goals + fail_goals
+
+    def _collect_goals(self, status: str, want: int, exclude: set[str] | None = None) -> list[str]:
+        """从指定状态收集不重复的 goal，最多 want 条。
+
+        exclude: 要跳过的 goal 集合（跨层去重）。
+        """
+        if want <= 0:
+            return []
+        seen: set[str] = set(exclude or ())
+        edicts, _ = self._storage.list_edicts(status=status, limit=want * 3)
         goals: list[str] = []
         for e in edicts:
             g = e.goal.strip()
             if g and g not in seen:
                 seen.add(g)
                 goals.append(g)
-            if len(goals) >= size:
+            if len(goals) >= want:
                 break
         return goals
 

@@ -25,6 +25,7 @@ class EdictStatus(str, Enum):
     OPEN = "open"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+    FAILED = "failed"
 
 
 VALID_PRIORITIES = ("urgent", "normal", "low")

@@ -58,12 +58,18 @@ def test_score_uses_compute_fitness():
 
 
 def test_select_eval_set_from_storage(tmp_storage):
-    """从 completed edict 中选出 goal 列表，不超过 size，去重。"""
-    goals = ["goal A", "goal B", "goal C", "goal A"]  # "goal A" 重复
-    for g in goals:
+    """从 completed 和 failed edict 混采，约 60% 成功 + 40% 失败，去重。"""
+    # 插入 3 个 completed goals
+    for _i, g in enumerate(["goal A", "goal B", "goal C"]):
         e = Edict(goal=g, status=EdictStatus.COMPLETED)
         tmp_storage.save_edict(e)
         tmp_storage.update_edict_status(e.id, "completed")
+
+    # 插入 2 个 failed goals
+    for _i, g in enumerate(["failed goal 1", "failed goal 2"]):
+        e = Edict(goal=g, status=EdictStatus.FAILED)
+        tmp_storage.save_edict(e)
+        tmp_storage.update_edict_status(e.id, "failed")
 
     # 追加一个 open 状态的 edict，不应被选中
     open_e = Edict(goal="open goal")
@@ -73,24 +79,37 @@ def test_select_eval_set_from_storage(tmp_storage):
     result = harness.select_eval_set(5)
 
     assert len(result) <= 5
-    # "goal A" 去重后只出现一次
-    assert result.count("goal A") == 1
     # open edict 的 goal 不应出现
     assert "open goal" not in result
-    # 三个唯一 completed goals 都应在结果中
-    assert set(result) == {"goal A", "goal B", "goal C"}
+    # 应包含目标样本：约 60% 成功（3 条）+ 40% 失败（2 条）
+    failed_count = sum(1 for g in result if g.startswith("failed"))
+    completed_count = sum(1 for g in result if g.startswith("goal"))
+    assert failed_count == 2
+    assert completed_count == 3
 
 
 def test_select_eval_set_respects_size(tmp_storage):
-    """size 参数截断结果。"""
+    """size 参数截断结果，混采模式下也应遵守大小限制。"""
+    # 插入 10 个 completed goals
     for i in range(10):
         e = Edict(goal=f"goal {i}", status=EdictStatus.COMPLETED)
         tmp_storage.save_edict(e)
         tmp_storage.update_edict_status(e.id, "completed")
 
+    # 插入 10 个 failed goals
+    for i in range(10):
+        e = Edict(goal=f"failed goal {i}", status=EdictStatus.FAILED)
+        tmp_storage.save_edict(e)
+        tmp_storage.update_edict_status(e.id, "failed")
+
     harness = EvalHarness(tmp_storage, None)
-    result = harness.select_eval_set(3)
-    assert len(result) <= 3
+    result = harness.select_eval_set(10)
+    assert len(result) <= 10
+    # 应约 60% 成功（6 条）+ 40% 失败（4 条）
+    failed_count = sum(1 for g in result if g.startswith("failed"))
+    completed_count = sum(1 for g in result if g.startswith("goal"))
+    assert failed_count == 4
+    assert completed_count == 6
 
 
 # ---------------------------------------------------------------------------
@@ -385,3 +404,73 @@ def test_evaluate_paired_bare_fitness_dict_cache(tmp_path, monkeypatch):
     assert r["baseline_cached"] is True
     assert round(r["delta"], 4) == 0.05  # 0.8 - 0.75
     assert calls == [str(tmp_path / "variant")]  # 命中缓存,baseline_worktree 未被评估
+
+
+# ---------------------------------------------------------------------------
+# test_select_eval_set_mixes_failed_goals (新测试)
+# ---------------------------------------------------------------------------
+
+
+def test_select_eval_set_mixes_failed_goals():
+    from tianshu.universe.eval_harness import EvalHarness
+
+    class _E:
+        def __init__(self, goal):
+            self.goal = goal
+
+    class _FakeStorage:
+        def list_edicts(self, status=None, limit=50, **kw):
+            if status == "completed":
+                return [_E(f"成功目标{i}") for i in range(20)], 20
+            if status == "failed":
+                return [_E(f"失败目标{i}") for i in range(20)], 20
+            return [], 0
+
+    harness = EvalHarness(storage=_FakeStorage(), sandbox_runner=None)
+    goals = harness.select_eval_set(10)
+    assert len(goals) == 10
+    assert sum(1 for g in goals if g.startswith("失败")) == 4  # 40%
+    assert sum(1 for g in goals if g.startswith("成功")) == 6
+
+
+def test_select_eval_set_backfills_when_failed_scarce():
+    """失败样本不足时用成功样本回填到满额。"""
+    from tianshu.universe.eval_harness import EvalHarness
+
+    class _E:
+        def __init__(self, goal):
+            self.goal = goal
+
+    class _FakeStorage:
+        def list_edicts(self, status=None, limit=50, **kw):
+            if status == "completed":
+                return [_E(f"成功目标{i}") for i in range(20)], 20
+            if status == "failed":
+                return [_E("失败目标0")], 1
+            return [], 0
+
+    goals = EvalHarness(storage=_FakeStorage(), sandbox_runner=None).select_eval_set(10)
+    assert len(goals) == 10
+    assert sum(1 for g in goals if g.startswith("失败")) == 1
+    assert sum(1 for g in goals if g.startswith("成功")) == 9
+
+
+def test_select_eval_set_dedupes_across_strata():
+    """同一 goal 同时出现在成功与失败层时不重复入集。"""
+    from tianshu.universe.eval_harness import EvalHarness
+
+    class _E:
+        def __init__(self, goal):
+            self.goal = goal
+
+    class _FakeStorage:
+        def list_edicts(self, status=None, limit=50, **kw):
+            if status == "completed":
+                return [_E("重叠目标"), _E("成功目标1"), _E("成功目标2")], 3
+            if status == "failed":
+                return [_E("重叠目标"), _E("失败目标1")], 2
+            return [], 0
+
+    goals = EvalHarness(storage=_FakeStorage(), sandbox_runner=None).select_eval_set(5)
+    assert len(goals) == len(set(goals))  # 无重复
+    assert "重叠目标" in goals
