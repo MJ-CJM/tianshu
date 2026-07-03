@@ -301,6 +301,29 @@ def list_edict_memorials(edict_id: str, request: Request):
     return ApiResponse(success=True, data=[m.model_dump(mode="json") for m in memorials])
 
 
+MAX_LATEST_MEMORIALS_BATCH = 200
+
+
+class LatestMemorialsRequest(BaseModel):
+    edict_ids: list[str]
+
+
+@edicts_router.post("/latest-memorials")
+def get_latest_memorials_batch(body: LatestMemorialsRequest, request: Request):
+    """批量取多个 edict 的最新奏折——御书房合并后消除 useEdictLatestMemorials 的 N+1 请求。"""
+    if len(body.edict_ids) > MAX_LATEST_MEMORIALS_BATCH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"edict_ids exceeds max of {MAX_LATEST_MEMORIALS_BATCH}",
+        )
+    storage: Storage = request.app.state.storage
+    data: dict[str, dict | None] = {}
+    for edict_id in body.edict_ids:
+        memorial = storage.get_memorial_by_edict(edict_id)
+        data[edict_id] = memorial.model_dump(mode="json") if memorial else None
+    return ApiResponse(success=True, data=data)
+
+
 @edicts_router.post("/{edict_id}/plan/approve", response_model=ApiResponse)
 async def approve_plan(edict_id: str, request: Request):
     """Approve a pending plan and trigger execution."""
