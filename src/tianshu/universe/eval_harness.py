@@ -104,6 +104,7 @@ class EvalHarness:
         eval_set: list[str],
         seed_db: Path | None = None,
         goal_timeout_s: int = 300,
+        extra_env: dict | None = None,
     ) -> dict:
         """在沙箱中回放 eval_set，聚合并打分。
 
@@ -113,7 +114,7 @@ class EvalHarness:
         iso_db = Path(worktree).parent / "_eval.db"
         if seed_db is not None:
             shutil.copy(seed_db, iso_db)
-        with self._sandbox.session(worktree, db_path=iso_db) as h:
+        with self._sandbox.session(worktree, db_path=iso_db, extra_env=extra_env) as h:
             for goal in eval_set:
                 self._run_goal(h.base_url, goal, goal_timeout_s)
             stats = self.aggregate_db_stats(h.db_path)

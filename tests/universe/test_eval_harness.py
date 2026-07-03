@@ -167,7 +167,7 @@ class _FakeSandboxRunner:
         self._db_path = db_path
 
     @contextlib.contextmanager
-    def session(self, worktree, *, db_path):
+    def session(self, worktree, *, db_path, extra_env=None):
         yield _FakeHandle(base_url="http://fake:9999", db_path=self._db_path)
 
 

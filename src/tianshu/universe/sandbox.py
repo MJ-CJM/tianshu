@@ -51,11 +51,20 @@ class SandboxRunner:
             s.bind(("127.0.0.1", 0))
             return s.getsockname()[1]
 
-    def _build_env(self, worktree: Path, db_path: Path, port: int) -> dict:
+    def _build_env(
+        self,
+        worktree: Path,
+        db_path: Path,
+        port: int,
+        extra_env: dict[str, str] | None = None,
+    ) -> dict:
         env = dict(os.environ)
         src = str(Path(worktree) / "src")
         existing = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = f"{src}{os.pathsep}{existing}" if existing else src
+        if extra_env:
+            env.update({k: str(v) for k, v in extra_env.items()})
+        # 安全围栏字段最后写入,extra_env 不可覆盖(评估进程必须始终处于隔离态)
         env["TIANSHU_DB_PATH"] = str(db_path)
         env["TIANSHU_PORT"] = str(port)
         env["TIANSHU_HOST"] = self._host
@@ -71,11 +80,13 @@ class SandboxRunner:
         except Exception:  # noqa: BLE001
             pass
 
-    def start(self, worktree: Path, *, db_path: Path) -> SandboxHandle:
+    def start(
+        self, worktree: Path, *, db_path: Path, extra_env: dict[str, str] | None = None
+    ) -> SandboxHandle:
         """拉起变体子进程并等待 /health 健康；失败则清理并抛 SandboxError。"""
         wt = Path(worktree)
         port = self._free_port()
-        env = self._build_env(wt, db_path, port)
+        env = self._build_env(wt, db_path, port, extra_env=extra_env)
         preexec = self._preexec if os.name == "posix" else None
         proc = subprocess.Popen(
             [
@@ -135,8 +146,8 @@ class SandboxRunner:
                     proc.wait(timeout=5)
 
     @contextlib.contextmanager
-    def session(self, worktree: Path, *, db_path: Path):
-        handle = self.start(worktree, db_path=db_path)
+    def session(self, worktree: Path, *, db_path: Path, extra_env: dict[str, str] | None = None):
+        handle = self.start(worktree, db_path=db_path, extra_env=extra_env)
         try:
             yield handle
         finally:

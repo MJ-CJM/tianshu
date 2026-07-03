@@ -22,6 +22,37 @@ def test_build_env_injects_isolation(tmp_path: Path):
     assert env["PYTHONPATH"].split(os.pathsep)[0] == str(tmp_path / "wt" / "src")
 
 
+def test_build_env_extra_env_overrides():
+    from tianshu.universe.sandbox import SandboxRunner
+
+    runner = SandboxRunner()
+    env = runner._build_env(
+        Path("/tmp/wt"),
+        Path("/tmp/db.sqlite"),
+        12345,
+        extra_env={
+            "TIANSHU_RUNTIME_PERSONAS_DIR": "/tmp/personas",
+            "TIANSHU_LLM_API_KEY": "sk-eval",
+        },
+    )
+    assert env["TIANSHU_RUNTIME_PERSONAS_DIR"] == "/tmp/personas"
+    assert env["TIANSHU_LLM_API_KEY"] == "sk-eval"
+    assert env["TIANSHU_EVAL_MODE"] == "1"  # 原有注入不受影响
+    assert env["TIANSHU_DB_PATH"] == "/tmp/db.sqlite"
+
+
+def test_build_env_extra_env_cannot_unset_eval_mode():
+    from tianshu.universe.sandbox import SandboxRunner
+
+    env = SandboxRunner()._build_env(
+        Path("/tmp/wt"),
+        Path("/tmp/db.sqlite"),
+        12345,
+        extra_env={"TIANSHU_EVAL_MODE": "0"},
+    )
+    assert env["TIANSHU_EVAL_MODE"] == "1"  # 安全围栏字段不可被覆盖
+
+
 @pytest.mark.slow
 def test_sandbox_boots_real_app_and_health_ok(tmp_path: Path):
     """真实子进程冒烟：从主仓启动 app 到临时端口 + 隔离 DB，/health 返回 200，再销毁。"""
