@@ -8,10 +8,9 @@ import { ThemeContext, useThemeProvider } from "./hooks/useTheme";
 import { LocaleContext, useLocaleProvider } from "./hooks/useLocale";
 import { getThemeConfig } from "./theme";
 import AppLayout from "./components/layout/AppLayout";
-import EdictListPage from "./pages/EdictListPage";
+import RoyalStudyPage from "./pages/RoyalStudyPage";
 import EdictCreatePage from "./pages/EdictCreatePage";
 import EdictDetailPage from "./pages/EdictDetailPage";
-import ApprovalQueuePage from "./pages/ApprovalQueuePage";
 import SchedulerPage from "./pages/SchedulerPage";
 import AuditDashboardPage from "./pages/AuditDashboardPage";
 import CostDashboardPage from "./pages/CostDashboardPage";
@@ -51,10 +50,10 @@ function ThemedApp() {
           <BrowserRouter>
             <Routes>
               <Route element={<AppLayout />}>
-                <Route path="/" element={<EdictListPage />} />
+                <Route path="/" element={<RoyalStudyPage />} />
                 <Route path="/edicts/create" element={<EdictCreatePage />} />
                 <Route path="/edicts/:edictId" element={<EdictDetailPage />} />
-                <Route path="/approvals" element={<ApprovalQueuePage />} />
+                <Route path="/approvals" element={<RoyalStudyPage />} />
                 <Route path="/scheduler" element={<SchedulerPage />} />
                 <Route path="/audit" element={<AuditDashboardPage />} />
                 <Route path="/cost" element={<CostDashboardPage />} />

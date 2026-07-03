@@ -1,6 +1,5 @@
 {
   "nav": {
-    "edictList": "Tasks",
     "edictCreate": "New Task",
     "approvals": "Approvals",
     "cabinet": "Planning",
@@ -14,7 +13,13 @@
     "persona": "Personas",
     "system": "System",
     "sessionRules": "Session Rules",
-    "universe": "Universes"
+    "universe": "Universes",
+    "group": {
+      "edict": "Tasks",
+      "gov": "Governance",
+      "growth": "Growth",
+      "system": "System"
+    }
   },
   "sidebar": {
     "darkMode": "Dark Mode",
@@ -1919,6 +1924,12 @@
       "pinned": "Skill \"{name}\" pinned",
       "unpinned": "Skill \"{name}\" unpinned",
       "editSaved": "Saved. Marked as human-reviewed — auto-iteration will not overwrite it."
+    }
+  },
+  "study": {
+    "tab": {
+      "pending": "Pending",
+      "all": "All Tasks"
     }
   }
 }

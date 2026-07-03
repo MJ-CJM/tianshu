@@ -6,8 +6,6 @@ import {
   theme,
 } from "antd";
 import {
-  UnorderedListOutlined,
-  PlusCircleOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   SunOutlined,
@@ -44,86 +42,105 @@ export default function AppSidebar() {
 
   const menuItems = [
     {
-      key: "/",
-      icon: <UnorderedListOutlined />,
-      label: t("nav.edictList"),
+      key: "group-edict",
+      type: "group" as const,
+      label: t("nav.group.edict"),
+      children: [
+        {
+          key: "/",
+          icon: <AuditOutlined />,
+          label: reviewCount > 0 ? `${t("nav.approvals")} (${reviewCount})` : t("nav.approvals"),
+        },
+        {
+          key: "/scheduler",
+          icon: <ScheduleOutlined />,
+          label: t("nav.scheduler"),
+        },
+      ],
     },
     {
-      key: "/edicts/create",
-      icon: <PlusCircleOutlined />,
-      label: t("nav.edictCreate"),
+      key: "group-gov",
+      type: "group" as const,
+      label: t("nav.group.gov"),
+      children: [
+        {
+          key: "/cabinet",
+          icon: <CrownOutlined />,
+          label: t("nav.cabinet"),
+        },
+        {
+          key: "/consultation",
+          icon: <TeamOutlined />,
+          label: t("nav.consultation"),
+        },
+        {
+          key: "/audit",
+          icon: <SafetyCertificateOutlined />,
+          label: t("nav.audit"),
+        },
+        {
+          key: "/session-rules",
+          icon: <SafetyOutlined />,
+          label: t("nav.sessionRules"),
+        },
+      ],
     },
     {
-      key: "/approvals",
-      icon: <AuditOutlined />,
-      label: reviewCount > 0 ? `${t("nav.approvals")} (${reviewCount})` : t("nav.approvals"),
+      key: "group-growth",
+      type: "group" as const,
+      label: t("nav.group.growth"),
+      children: [
+        {
+          key: "/personas",
+          icon: <TeamOutlined />,
+          label: t("nav.persona"),
+        },
+        {
+          key: "/memory",
+          icon: <BookOutlined />,
+          label: t("nav.knowledge"),
+        },
+        {
+          key: "/universes",
+          icon: <DeploymentUnitOutlined />,
+          label: t("nav.universe"),
+        },
+      ],
     },
     {
-      key: "/scheduler",
-      icon: <ScheduleOutlined />,
-      label: t("nav.scheduler"),
-    },
-    {
-      key: "/audit",
-      icon: <SafetyCertificateOutlined />,
-      label: t("nav.audit"),
-    },
-    {
-      key: "/cost",
-      icon: <DollarOutlined />,
-      label: t("nav.tax"),
-    },
-    {
-      key: "/memory",
-      icon: <BookOutlined />,
-      label: t("nav.knowledge"),
-    },
-    {
-      key: "/consultation",
-      icon: <TeamOutlined />,
-      label: t("nav.consultation"),
-    },
-    {
-      key: "/cabinet",
-      icon: <CrownOutlined />,
-      label: t("nav.cabinet"),
-    },
-    {
-      key: "/hongluisi",
-      icon: <GlobalOutlined />,
-      label: t("nav.foreign"),
-    },
-    {
-      key: "/tongzheng",
-      icon: <MessageOutlined />,
-      label: t("nav.notify"),
-    },
-    {
-      key: "/personas",
-      icon: <TeamOutlined />,
-      label: t("nav.persona"),
-    },
-    {
-      key: "/session-rules",
-      icon: <SafetyOutlined />,
-      label: t("nav.sessionRules"),
-    },
-    {
-      key: "/universes",
-      icon: <DeploymentUnitOutlined />,
-      label: t("nav.universe"),
-    },
-    {
-      key: "/system",
-      icon: <ToolOutlined />,
-      label: t("nav.system"),
+      key: "group-system",
+      type: "group" as const,
+      label: t("nav.group.system"),
+      children: [
+        {
+          key: "/system",
+          icon: <ToolOutlined />,
+          label: t("nav.system"),
+        },
+        {
+          key: "/hongluisi",
+          icon: <GlobalOutlined />,
+          label: t("nav.foreign"),
+        },
+        {
+          key: "/tongzheng",
+          icon: <MessageOutlined />,
+          label: t("nav.notify"),
+        },
+        {
+          key: "/cost",
+          icon: <DollarOutlined />,
+          label: t("nav.tax"),
+        },
+      ],
     },
   ];
 
   // Note: DAG battle map is accessible via edict detail "查看作战图" button,
   // not as a direct sidebar item (it requires a dagId parameter).
 
-  const selectedKey = location.pathname === "/" ? "/" : location.pathname;
+  // "/" 与 "/approvals" 均为御书房（合并页两个路径，避免书签失效），高亮同一菜单项
+  const selectedKey = location.pathname === "/approvals" ? "/" : location.pathname;
 
   return (
     <Layout.Sider

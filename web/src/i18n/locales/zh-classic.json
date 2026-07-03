@@ -1,6 +1,5 @@
 {
   "nav": {
-    "edictList": "敕令总览",
     "edictCreate": "颁发敕令",
     "approvals": "御书房",
     "cabinet": "内阁",
@@ -14,7 +13,13 @@
     "persona": "百官阁",
     "system": "藏兵阁",
     "sessionRules": "权印司",
-    "universe": "位面"
+    "universe": "位面",
+    "group": {
+      "edict": "敕令",
+      "gov": "政要",
+      "growth": "百官",
+      "system": "外朝"
+    }
   },
   "sidebar": {
     "darkMode": "深色模式",
@@ -1918,6 +1923,12 @@
       "pinned": "技能「{name}」已钉牌",
       "unpinned": "技能「{name}」已撤牌",
       "editSaved": "已录档。此技已标为人工勘校，迭代不覆。"
+    }
+  },
+  "study": {
+    "tab": {
+      "pending": "待处置",
+      "all": "全部敕令"
     }
   }
 }

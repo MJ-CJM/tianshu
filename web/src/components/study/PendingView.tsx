@@ -5,20 +5,24 @@ import {
   useOpenEdicts,
   useEdictLatestMemorials,
   usePendingToolCalls,
-} from "../hooks/useApprovals";
-import DecreeModal from "../components/decree/DecreeModal";
-import EdictActivityCard from "../components/decree/EdictActivityCard";
-import PageContainer from "../components/common/PageContainer";
+} from "../../hooks/useApprovals";
+import DecreeModal from "../decree/DecreeModal";
+import EdictActivityCard from "../decree/EdictActivityCard";
 import {
   deriveEdictPhase,
   PHASE_SORT_ORDER,
   useEdictPhaseLabels,
   type EdictPhase,
-} from "../utils/edictPhase";
-import { useT } from "../i18n";
-import type { Memorial, PendingToolCall } from "../api/types";
+} from "../../utils/edictPhase";
+import { useT } from "../../i18n";
+import type { Memorial, PendingToolCall } from "../../api/types";
 
-export default function ApprovalQueuePage() {
+interface PendingViewProps {
+  /** 只在「待处置」Tab 激活时开启富化查询（memorial 批量拉取），避免隐藏 Tab 仍轮询 */
+  active: boolean;
+}
+
+export default function PendingView({ active }: PendingViewProps) {
   const t = useT();
   const phaseLabels = useEdictPhaseLabels();
   const phaseOptions = [
@@ -30,7 +34,8 @@ export default function ApprovalQueuePage() {
   const edicts = data?.data ?? [];
   const edictIds = useMemo(() => edicts.map((e) => e.id), [edicts]);
 
-  const memorialQueries = useEdictLatestMemorials(edictIds);
+  const { data: memorialsResp } = useEdictLatestMemorials(edictIds, active);
+  const latestMemorials = memorialsResp?.data ?? {};
   const { data: pendingToolCalls = [] } = usePendingToolCalls();
 
   const pendingByEdict = useMemo(() => {
@@ -63,9 +68,8 @@ export default function ApprovalQueuePage() {
   };
 
   const items = useMemo(() => {
-    const all = edicts.map((edict, i) => {
-      const query = memorialQueries[i];
-      const latestMemorial = query?.data?.data ?? null;
+    const all = edicts.map((edict) => {
+      const latestMemorial = latestMemorials[edict.id] ?? null;
       const phase = deriveEdictPhase(latestMemorial);
       const pending = pendingByEdict.get(edict.id) ?? [];
       return { edict, latestMemorial, phase, pending };
@@ -91,12 +95,11 @@ export default function ApprovalQueuePage() {
         if (ap !== bp) return bp - ap;
         return PHASE_SORT_ORDER[a.phase] - PHASE_SORT_ORDER[b.phase];
       });
-  }, [edicts, memorialQueries, pendingByEdict, searchText, phaseFilter]);
+  }, [edicts, latestMemorials, pendingByEdict, searchText, phaseFilter]);
 
   return (
-    <PageContainer
-      title={t("nav.approvals")}
-      extra={
+    <>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
         <Space>
           <Input
             prefix={<SearchOutlined />}
@@ -118,8 +121,8 @@ export default function ApprovalQueuePage() {
             loading={isLoading}
           />
         </Space>
-      }
-    >
+      </div>
+
       {items.length === 0 && !isLoading ? (
         <Empty
           description={
@@ -146,6 +149,6 @@ export default function ApprovalQueuePage() {
         open={modalOpen}
         onClose={closeModal}
       />
-    </PageContainer>
+    </>
   );
 }

@@ -1,5 +1,5 @@
-import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
-import { listEdicts, getEdictMemorial } from "../api/edicts";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { listEdicts, getLatestMemorialsBatch } from "../api/edicts";
 import {
   listNeedsReview,
   createDecree,
@@ -24,13 +24,12 @@ export function useOpenEdicts(limit = 100) {
   });
 }
 
-export function useEdictLatestMemorials(edictIds: string[]) {
-  return useQueries({
-    queries: edictIds.map((id) => ({
-      queryKey: ["memorial_latest", id],
-      queryFn: () => getEdictMemorial(id),
-      refetchInterval: 5_000,
-    })),
+export function useEdictLatestMemorials(edictIds: string[], enabled = true) {
+  return useQuery({
+    queryKey: ["memorial_latest", edictIds],
+    queryFn: () => getLatestMemorialsBatch(edictIds),
+    enabled: enabled && edictIds.length > 0,
+    refetchInterval: 5_000,
   });
 }
 

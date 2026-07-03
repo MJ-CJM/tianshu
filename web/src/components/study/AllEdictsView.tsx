@@ -1,16 +1,13 @@
 import { useState, useMemo } from "react";
 import { Button, Input, Select, Space } from "antd";
-import { PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import { listEdicts, deleteEdict } from "../api/edicts";
-import EdictTable from "../components/edict/EdictTable";
-import PageContainer from "../components/common/PageContainer";
-import { PAGE_SIZE, useEdictStatusLabels } from "../utils/constants";
-import { useT } from "../i18n";
+import { listEdicts, deleteEdict } from "../../api/edicts";
+import EdictTable from "../edict/EdictTable";
+import { PAGE_SIZE, useEdictStatusLabels } from "../../utils/constants";
+import { useT } from "../../i18n";
 
-export default function EdictListPage() {
-  const navigate = useNavigate();
+export default function AllEdictsView() {
   const t = useT();
   const edictStatusLabels = useEdictStatusLabels();
   const statusOptions = [
@@ -62,9 +59,8 @@ export default function EdictListPage() {
   };
 
   return (
-    <PageContainer
-      title={t("nav.edictList")}
-      extra={
+    <>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
         <Space>
           <Input
             prefix={<SearchOutlined />}
@@ -90,16 +86,9 @@ export default function EdictListPage() {
             icon={<ReloadOutlined />}
             onClick={() => edictsQuery.refetch()}
           />
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => navigate("/edicts/create")}
-          >
-            {t("nav.edictCreate")}
-          </Button>
         </Space>
-      }
-    >
+      </div>
+
       <EdictTable
         edicts={edicts}
         total={total}
@@ -111,6 +100,6 @@ export default function EdictListPage() {
         onBatchDelete={handleBatchDelete}
         onRefresh={() => queryClient.invalidateQueries({ queryKey: ["edicts"] })}
       />
-    </PageContainer>
+    </>
   );
 }

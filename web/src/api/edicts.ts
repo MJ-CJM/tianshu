@@ -70,6 +70,16 @@ export async function getEdictMemorials(
   return data;
 }
 
+export async function getLatestMemorialsBatch(
+  edictIds: string[],
+): Promise<ApiResponse<Record<string, Memorial | null>>> {
+  const { data } = await apiClient.post<ApiResponse<Record<string, Memorial | null>>>(
+    "/edicts/latest-memorials",
+    { edict_ids: edictIds },
+  );
+  return data;
+}
+
 export async function getEdictEvents(
   edictId: string,
 ): Promise<ApiResponse<EdictEvent[]>> {
