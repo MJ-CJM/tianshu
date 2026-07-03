@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import litellm
 from pydantic import BaseModel, Field
@@ -19,7 +20,7 @@ from tianshu.executor.streaming import StreamCallback
 from tianshu.kernel.ambient import bind_edict, bind_persona
 from tianshu.kernel.exit_reason import ExitReason
 from tianshu.kernel.hooks import HookRegistry, HookType
-from tianshu.llm import LLMClient
+from tianshu.llm import LLMClient, LLMResponse
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.skills.loader import SkillsLoader
@@ -64,6 +65,24 @@ ASSISTANT_ONLY_TOOLS: frozenset[str] = frozenset(
         "list_personas",
     }
 )
+
+# 连续同错熔断阈值：见 Agent._handle_llm_response 内 repeated_failures 的说明。
+REPEATED_FAILURE_LIMIT = 3
+
+
+@dataclass
+class _LlmCallOutcome:
+    """`Agent._call_llm_with_recovery` 的返回值。
+
+    response 为 None 时表示原地触发了 reactive-compact 恢复，等价于原 while 循环里的
+    `continue`——调用方应跳过本轮剩余处理，直接进入下一轮 while 迭代（此时 result 恒为 None）。
+    result 非 None 时 execute() 应立即返回它。
+    """
+
+    state: LoopState
+    usage: UsageSummary
+    response: LLMResponse | None
+    result: AgentResult | None
 
 
 class Agent:
@@ -180,7 +199,6 @@ class Agent:
         # 任一签名连续 3 次 → 主动 break，避免 LLM 拿着同样的 schema/args bug 死磕
         # 烧满 max_iterations 的 token（如 read_file 的 limit/offset 幻觉）。
         repeated_failures: dict[tuple[str, str], int] = {}
-        REPEATED_FAILURE_LIMIT = 3
 
         while state.iteration < max_iterations:
             if self._shutdown_event.is_set():
@@ -193,23 +211,7 @@ class Agent:
                     error="Shutdown requested",
                 )
 
-            # Phase 1: micro compact (per-turn tool result cleanup, zero LLM cost)
-            state = micro_compact(state)
-
-            # Phase 2: auto compact (threshold-triggered LLM summarization)
-            if should_auto_compact(state.messages, context_limit) and not state.compact_attempted:
-                try:
-                    state = await auto_compact(state, llm, context_limit)
-                    _emit(
-                        {
-                            "type": "context.compacted",
-                            "iteration": state.iteration,
-                            "strategy": "auto",
-                            "message_count": len(state.messages),
-                        }
-                    )
-                except Exception:
-                    logger.warning("Auto compact failed", exc_info=True)
+            state = await self._run_compaction(state, llm, context_limit, _emit)
 
             logger.debug(
                 "[AGENT] Edict %s: iteration %d/%d, messages=%d",
@@ -220,408 +222,51 @@ class Agent:
             )
             _emit({"type": "iteration.started", "iteration": state.iteration})
 
-            # Before iteration hook (budget check, audit, etc.)
-            if self._hooks:
-                iter_hook = await self._hooks.run(
-                    HookType.BEFORE_ITERATION,
-                    edict=edict,
-                    iteration=state.iteration,
-                    usage=usage,
-                )
-                if iter_hook.block:
-                    return self._build_result(
-                        state,
-                        ExitReason.HOOK_BLOCKED,
-                        usage=usage,
-                        events=events,
-                        recovery=recovery_attempts,
-                        error=f"Blocked at iteration {state.iteration}: {iter_hook.reason}",
-                    )
-
-            openai_tools = self._tools.get_openai_tools() or None
-            if tool_filter and openai_tools:
-                openai_tools = [
-                    t for t in openai_tools if t.get("function", {}).get("name") in tool_filter
-                ] or None
-
-            # ASSISTANT_ONLY_TOOLS 过滤：非助手 persona 不应看见 submit_edict 等
-            # 颁敕工具，否则 cron 触发的执行 persona（tbh/wy/...）会把"每日推送"
-            # 误解为"再造一道敕令"无限套娃。每轮重新读 provider 以反映 toggle / persona 切换。
-            if openai_tools and self._assistant_persona_id_provider is not None:
-                persona_id = getattr(persona, "id", None) if persona else None
-                try:
-                    assistant_id = self._assistant_persona_id_provider()
-                except Exception:
-                    logger.warning(
-                        "[AGENT] assistant_persona_id_provider raised; "
-                        "skipping ASSISTANT_ONLY filter (fail-open by design)",
-                        exc_info=True,
-                    )
-                    assistant_id = None
-                if assistant_id and persona_id != assistant_id:
-                    before = len(openai_tools)
-                    openai_tools = [
-                        t
-                        for t in openai_tools
-                        if t.get("function", {}).get("name") not in ASSISTANT_ONLY_TOOLS
-                    ] or None
-                    after = len(openai_tools or [])
-                    if before != after:
-                        logger.debug(
-                            "[AGENT] persona %r is not assistant %r — filtered "
-                            "%d ASSISTANT_ONLY tools (%d → %d)",
-                            persona_id,
-                            assistant_id,
-                            before - after,
-                            before,
-                            after,
-                        )
-
-            # LLM input hook
-            current_messages = list(state.messages)
-            if self._hooks:
-                input_hook = await self._hooks.run(
-                    HookType.LLM_INPUT,
-                    messages=current_messages,
-                    edict=edict,
-                    iteration=state.iteration,
-                )
-                if input_hook.modified_args and "messages" in input_hook.modified_args:
-                    current_messages = input_hook.modified_args["messages"]
-
-            # Check cancellation before LLM call
-            if cancellation_token and getattr(cancellation_token, "is_cancelled", False):
-                return self._build_result(
-                    state,
-                    ExitReason.CANCELLED,
-                    usage=usage,
-                    events=events,
-                    recovery=recovery_attempts,
-                )
-
-            # Phase 3: LLM call with context overflow recovery + fallback
-            try:
-                if stream_callback:
-                    final_response = None
-                    async for chunk in llm.chat_stream(current_messages, tools=openai_tools):
-                        if cancellation_token and getattr(
-                            cancellation_token, "is_cancelled", False
-                        ):
-                            return self._build_result(
-                                state,
-                                ExitReason.CANCELLED,
-                                usage=usage,
-                                events=events,
-                                recovery=recovery_attempts,
-                            )
-                        if chunk.content and not chunk.tool_calls:
-                            await stream_callback.on_delta(chunk.content)
-                        final_response = chunk
-                    response = final_response
-                else:
-                    response = await llm.chat(current_messages, tools=openai_tools)
-            except Exception as e:
-                if _is_context_overflow(e):
-                    recovered = await reactive_compact(state, llm=llm, context_limit=context_limit)
-                    if recovered is not None and not state.compact_attempted:
-                        state = recovered
-                        recovery_attempts["context_overflow"] = (
-                            recovery_attempts.get("context_overflow", 0) + 1
-                        )
-                        _emit(
-                            {
-                                "type": "context.compacted",
-                                "iteration": state.iteration,
-                                "strategy": "reactive",
-                                "message_count": len(state.messages),
-                            }
-                        )
-                        continue
-                    return self._build_result(
-                        state,
-                        ExitReason.CONTEXT_OVERFLOW,
-                        usage=usage,
-                        events=events,
-                        recovery=recovery_attempts,
-                        error=str(e),
-                    )
-
-                # Attempt fallback model if configured
-                fallback_name = agent_cfg.fallback_llm_config_name
-                if fallback_name and "fallback" not in recovery_attempts:
-                    fallback_cfg = self._config_manager.get_config(fallback_name)
-                    if fallback_cfg and fallback_cfg.enabled:
-                        logger.warning(
-                            "[AGENT] Primary LLM failed, switching to fallback '%s': %s",
-                            fallback_name,
-                            e,
-                        )
-                        fallback_llm = LLMClient(
-                            model=fallback_cfg.model,
-                            api_key=fallback_cfg.api_key,
-                            api_base=fallback_cfg.api_base,
-                            max_retries=fallback_cfg.max_retries,
-                            temperature=fallback_cfg.temperature,
-                            top_p=fallback_cfg.top_p,
-                            max_tokens=fallback_cfg.max_tokens,
-                        )
-                        try:
-                            response = await fallback_llm.chat(current_messages, tools=openai_tools)
-                            recovery_attempts["fallback"] = fallback_name
-                        except Exception as fallback_err:
-                            return self._build_result(
-                                state,
-                                ExitReason.LLM_ERROR,
-                                usage=usage,
-                                events=events,
-                                recovery=recovery_attempts,
-                                error=f"Primary: {e}; Fallback: {fallback_err}",
-                            )
-                    else:
-                        return self._build_result(
-                            state,
-                            ExitReason.LLM_ERROR,
-                            usage=usage,
-                            events=events,
-                            recovery=recovery_attempts,
-                            error=str(e),
-                        )
-                else:
-                    logger.exception(
-                        "[AGENT] Edict %s: iter %d LLM call failed (no fallback configured): %s",
-                        edict.id,
-                        state.iteration,
-                        e,
-                    )
-                    return self._build_result(
-                        state,
-                        ExitReason.LLM_ERROR,
-                        usage=usage,
-                        events=events,
-                        recovery=recovery_attempts,
-                        error=str(e),
-                    )
-
-            usage = self._accumulate_usage(usage, response.usage)
-            state = state.accumulate_usage(
-                response.usage.prompt_tokens,
-                response.usage.completion_tokens,
+            hook_block = await self._check_before_iteration_hook(
+                edict, state, usage, events, recovery_attempts
             )
+            if hook_block is not None:
+                return hook_block
 
-            # LLM output hook
-            if self._hooks:
-                await self._hooks.run(
-                    HookType.LLM_OUTPUT,
-                    content=response.content,
-                    tool_calls=response.tool_calls,
-                    iteration=state.iteration,
-                    usage=response.usage,
-                    edict=edict,
-                    config_state=config_state,
-                    provider_name=getattr(llm, "provider_name", None),
-                )
+            openai_tools = self._resolve_tool_list(tool_filter, persona)
 
-            logger.debug(
-                "[AGENT] Edict %s: iter %d LLM response, tool_calls=%d, has_content=%s, finish_reason=%s",
-                edict.id,
-                state.iteration,
-                len(response.tool_calls or []),
-                bool(response.content),
-                response.finish_reason,
+            call_outcome = await self._call_llm_with_recovery(
+                edict,
+                state,
+                llm,
+                openai_tools,
+                agent_cfg,
+                config_state,
+                usage,
+                events,
+                recovery_attempts,
+                context_limit,
+                stream_callback,
+                cancellation_token,
+                _emit,
             )
+            state, usage = call_outcome.state, call_outcome.usage
+            if call_outcome.result is not None:
+                return call_outcome.result
+            if call_outcome.response is None:
+                continue
+            response = call_outcome.response
 
-            if response.tool_calls:
-                # Build assistant message with tool_calls
-                assistant_msg: dict = {
-                    "role": "assistant",
-                    "content": response.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tc["id"],
-                            "type": "function",
-                            "function": {
-                                "name": tc["name"],
-                                "arguments": tc["args"],
-                            },
-                        }
-                        for tc in response.tool_calls
-                    ],
-                }
-                # DeepSeek thinking 模式要求 reasoning_content 必须随 tool_calls 一起回传
-                # （否则下一轮请求会报 "reasoning_content in the thinking mode must be passed back"）
-                if response.reasoning_content:
-                    assistant_msg["reasoning_content"] = response.reasoning_content
-                new_messages = list(state.messages) + [assistant_msg]
-
-                # Execute each tool call sequentially
-                for tc in response.tool_calls:
-                    # Tier fast-path: T0_READONLY bypasses HookRegistry at agent layer.
-                    # Registry has its own T0 fast path too — defense in depth, avoids
-                    # emitting noise hook events for readonly tools. Spec Section 2.
-                    from tianshu.tools.types import ToolTier
-
-                    tool_defn = self._tools.get_definition(tc["name"])
-                    tool_tier = tool_defn.tier if tool_defn else ToolTier.T4_DANGEROUS.value
-                    is_fast_path = tool_tier == ToolTier.T0_READONLY.value
-
-                    if self._hooks and not is_fast_path:
-                        hook_result = await self._hooks.run(
-                            HookType.BEFORE_TOOL_CALL,
-                            tool_name=tc["name"],
-                            tool_args=tc["args"],
-                            iteration=state.iteration,
-                            edict=edict,
-                            memorial=memorial,
-                        )
-                        if hook_result.block:
-                            new_messages.append(
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": tc["id"],
-                                    "content": f"Tool blocked: {hook_result.reason}",
-                                }
-                            )
-                            _emit(
-                                {
-                                    "type": "tool.blocked",
-                                    "tool": tc["name"],
-                                    "iteration": state.iteration,
-                                    "reason": hook_result.reason,
-                                }
-                            )
-                            continue
-
-                    logger.debug(
-                        "[AGENT] Edict %s: iter %d tool=%s, args=%.200s",
-                        edict.id,
-                        state.iteration,
-                        tc["name"],
-                        str(tc["args"])[:200],
-                    )
-                    if stream_callback:
-                        await stream_callback.on_tool_call_start(tc["name"])
-                    try:
-                        with bind_edict(edict), bind_persona(persona):
-                            tool_result = await self._tools.execute(
-                                tc["name"],
-                                tc["args"],
-                                lifecycle_phase=edict.runtime.lifecycle_phase,
-                            )
-                    except Exception as tool_err:
-                        tool_result = ToolResult(content=f"Tool error: {tool_err}", is_error=True)
-                    if stream_callback:
-                        await stream_callback.on_tool_call_end(tc["name"], tool_result)
-
-                    content = tool_result.content
-                    max_chars = tool_defn.max_result_chars if tool_defn else 8000
-                    if len(content) > max_chars:
-                        content = content[:max_chars] + "\n[... truncated]"
-                    new_messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": content,
-                        }
-                    )
-
-                    if self._hooks and not is_fast_path:
-                        await self._hooks.run(
-                            HookType.AFTER_TOOL_CALL,
-                            tool_name=tc["name"],
-                            tool_args=tc["args"],
-                            tool_result=tool_result,
-                            iteration=state.iteration,
-                            edict=edict,
-                            memorial=memorial,
-                        )
-
-                    args_str = tc["args"] if isinstance(tc["args"], str) else json.dumps(tc["args"])
-                    _emit(
-                        {
-                            "type": "tool.failed" if tool_result.is_error else "tool.completed",
-                            "tool": tc["name"],
-                            "iteration": state.iteration,
-                            "args_preview": args_str[:200],
-                            "result_preview": tool_result.content[:200],
-                            "is_error": tool_result.is_error,
-                            "details": tool_result.details,
-                        }
-                    )
-
-                    # 连续同错熔断：失败计数 +1；成功清掉该 tool 的所有计数
-                    if tool_result.is_error:
-                        # 错误签名：取前 200 字符消除噪音（行号/时间戳等）
-                        err_sig = (tool_result.content or "")[:200]
-                        key = (tc["name"], err_sig)
-                        repeated_failures[key] = repeated_failures.get(key, 0) + 1
-                        if repeated_failures[key] >= REPEATED_FAILURE_LIMIT:
-                            logger.warning(
-                                "[AGENT] Edict %s: tool %r failed %d times with same error, breaking loop. error=%.150s",
-                                edict.id,
-                                tc["name"],
-                                repeated_failures[key],
-                                err_sig,
-                            )
-                            return self._build_result(
-                                state.next_turn(new_messages),
-                                ExitReason.REPEATED_TOOL_FAILURE,
-                                usage=usage,
-                                events=events,
-                                recovery=recovery_attempts,
-                                error=(
-                                    f"工具 {tc['name']!r} 连续 {repeated_failures[key]} "
-                                    f"次失败，错误一致：{err_sig[:120]}"
-                                ),
-                            )
-                    else:
-                        # 任一次成功 → 清掉该 tool 的所有失败计数
-                        repeated_failures = {
-                            k: v for k, v in repeated_failures.items() if k[0] != tc["name"]
-                        }
-
-                # State replacement: advance to next turn
-                state = state.next_turn(new_messages)
-            else:
-                # No tool calls — check for output truncation recovery
-                if response.finish_reason == "length" and state.output_recovery_count < 3:
-                    continuation = {
-                        "role": "user",
-                        "content": "你的输出被截断了。请从中断处直接继续，不要重复已输出的内容。",
-                    }
-                    new_msgs = list(state.messages) + [
-                        {"role": "assistant", "content": response.content or ""},
-                        continuation,
-                    ]
-                    state = LoopState(
-                        messages=tuple(new_msgs),
-                        iteration=state.iteration,
-                        transition_reason="output_continuation",
-                        output_recovery_count=state.output_recovery_count + 1,
-                        compact_attempted=state.compact_attempted,
-                        total_compact_count=state.total_compact_count,
-                        total_prompt_tokens=state.total_prompt_tokens,
-                        total_completion_tokens=state.total_completion_tokens,
-                    )
-                    recovery_attempts["output_continuation"] = (
-                        recovery_attempts.get("output_continuation", 0) + 1
-                    )
-                    continue
-
-                exit_reason = (
-                    ExitReason.OUTPUT_TRUNCATED
-                    if response.finish_reason == "length"
-                    else ExitReason.COMPLETED
-                )
-                rc = response.reasoning_content
-                return self._build_result(
-                    state,
-                    exit_reason,
-                    summary=response.content,
-                    usage=usage,
-                    events=events,
-                    recovery=recovery_attempts,
-                    reasoning_content=rc if isinstance(rc, str) and rc else None,
-                )
+            state, repeated_failures, resp_result = await self._handle_llm_response(
+                response,
+                state,
+                edict,
+                memorial,
+                persona,
+                stream_callback,
+                usage,
+                events,
+                recovery_attempts,
+                repeated_failures,
+                _emit,
+            )
+            if resp_result is not None:
+                return resp_result
 
         # Loop exhausted
         return self._build_result(
@@ -632,6 +277,538 @@ class Agent:
             recovery=recovery_attempts,
             error=f"Max iterations ({max_iterations}) reached",
         )
+
+    async def _run_compaction(
+        self,
+        state: LoopState,
+        llm: LLMClient,
+        context_limit: int,
+        emit: Callable[[dict], None],
+    ) -> LoopState:
+        """压缩触发块：per-turn micro compact + 阈值触发的 auto compact。"""
+        # Phase 1: micro compact (per-turn tool result cleanup, zero LLM cost)
+        state = micro_compact(state)
+
+        # Phase 2: auto compact (threshold-triggered LLM summarization)
+        if should_auto_compact(state.messages, context_limit) and not state.compact_attempted:
+            try:
+                state = await auto_compact(state, llm, context_limit)
+                emit(
+                    {
+                        "type": "context.compacted",
+                        "iteration": state.iteration,
+                        "strategy": "auto",
+                        "message_count": len(state.messages),
+                    }
+                )
+            except Exception:
+                logger.warning("Auto compact failed", exc_info=True)
+        return state
+
+    async def _check_before_iteration_hook(
+        self,
+        edict: Edict,
+        state: LoopState,
+        usage: UsageSummary,
+        events: list[dict],
+        recovery_attempts: dict,
+    ) -> AgentResult | None:
+        """Before-iteration hook（预算检查、审计等）；被拦截时返回收工结果，否则 None。"""
+        # Before iteration hook (budget check, audit, etc.)
+        if self._hooks:
+            iter_hook = await self._hooks.run(
+                HookType.BEFORE_ITERATION,
+                edict=edict,
+                iteration=state.iteration,
+                usage=usage,
+            )
+            if iter_hook.block:
+                return self._build_result(
+                    state,
+                    ExitReason.HOOK_BLOCKED,
+                    usage=usage,
+                    events=events,
+                    recovery=recovery_attempts,
+                    error=f"Blocked at iteration {state.iteration}: {iter_hook.reason}",
+                )
+        return None
+
+    def _resolve_tool_list(
+        self,
+        tool_filter: list[str] | None,
+        persona: object | None,
+    ) -> list[dict] | None:
+        """按 tool_filter + ASSISTANT_ONLY_TOOLS 过滤出本轮可用的 openai tool schema 列表。"""
+        openai_tools = self._tools.get_openai_tools() or None
+        if tool_filter and openai_tools:
+            openai_tools = [
+                t for t in openai_tools if t.get("function", {}).get("name") in tool_filter
+            ] or None
+
+        # ASSISTANT_ONLY_TOOLS 过滤：非助手 persona 不应看见 submit_edict 等
+        # 颁敕工具，否则 cron 触发的执行 persona（tbh/wy/...）会把"每日推送"
+        # 误解为"再造一道敕令"无限套娃。每轮重新读 provider 以反映 toggle / persona 切换。
+        if openai_tools and self._assistant_persona_id_provider is not None:
+            persona_id = getattr(persona, "id", None) if persona else None
+            try:
+                assistant_id = self._assistant_persona_id_provider()
+            except Exception:
+                logger.warning(
+                    "[AGENT] assistant_persona_id_provider raised; "
+                    "skipping ASSISTANT_ONLY filter (fail-open by design)",
+                    exc_info=True,
+                )
+                assistant_id = None
+            if assistant_id and persona_id != assistant_id:
+                before = len(openai_tools)
+                openai_tools = [
+                    t
+                    for t in openai_tools
+                    if t.get("function", {}).get("name") not in ASSISTANT_ONLY_TOOLS
+                ] or None
+                after = len(openai_tools or [])
+                if before != after:
+                    logger.debug(
+                        "[AGENT] persona %r is not assistant %r — filtered "
+                        "%d ASSISTANT_ONLY tools (%d → %d)",
+                        persona_id,
+                        assistant_id,
+                        before - after,
+                        before,
+                        after,
+                    )
+        return openai_tools
+
+    async def _call_llm_with_recovery(
+        self,
+        edict: Edict,
+        state: LoopState,
+        llm: LLMClient,
+        openai_tools: list[dict] | None,
+        agent_cfg: object,
+        config_state: object,
+        usage: UsageSummary,
+        events: list[dict],
+        recovery_attempts: dict,
+        context_limit: int,
+        stream_callback: StreamCallback | None,
+        cancellation_token: object | None,
+        emit: Callable[[dict], None],
+    ) -> _LlmCallOutcome:
+        """LLM 调用轮次：input hook + 取消检查 + 调用（含 context-overflow / fallback 恢复）
+        + usage 累加 + output hook。
+
+        response=None（此时 result 恒为 None）表示原地触发了 reactive-compact 恢复，等价于原
+        while 循环体内的 `continue`——调用方应跳过本轮剩余处理，直接进入下一轮 while 迭代。
+        """
+        # LLM input hook
+        current_messages = list(state.messages)
+        if self._hooks:
+            input_hook = await self._hooks.run(
+                HookType.LLM_INPUT,
+                messages=current_messages,
+                edict=edict,
+                iteration=state.iteration,
+            )
+            if input_hook.modified_args and "messages" in input_hook.modified_args:
+                current_messages = input_hook.modified_args["messages"]
+
+        # Check cancellation before LLM call
+        if cancellation_token and getattr(cancellation_token, "is_cancelled", False):
+            return _LlmCallOutcome(
+                state=state,
+                usage=usage,
+                response=None,
+                result=self._build_result(
+                    state,
+                    ExitReason.CANCELLED,
+                    usage=usage,
+                    events=events,
+                    recovery=recovery_attempts,
+                ),
+            )
+
+        # Phase 3: LLM call with context overflow recovery + fallback
+        try:
+            if stream_callback:
+                final_response = None
+                async for chunk in llm.chat_stream(current_messages, tools=openai_tools):
+                    if cancellation_token and getattr(
+                        cancellation_token, "is_cancelled", False
+                    ):
+                        return _LlmCallOutcome(
+                            state=state,
+                            usage=usage,
+                            response=None,
+                            result=self._build_result(
+                                state,
+                                ExitReason.CANCELLED,
+                                usage=usage,
+                                events=events,
+                                recovery=recovery_attempts,
+                            ),
+                        )
+                    if chunk.content and not chunk.tool_calls:
+                        await stream_callback.on_delta(chunk.content)
+                    final_response = chunk
+                response = final_response
+            else:
+                response = await llm.chat(current_messages, tools=openai_tools)
+        except Exception as e:
+            if _is_context_overflow(e):
+                recovered = await reactive_compact(state, llm=llm, context_limit=context_limit)
+                if recovered is not None and not state.compact_attempted:
+                    state = recovered
+                    recovery_attempts["context_overflow"] = (
+                        recovery_attempts.get("context_overflow", 0) + 1
+                    )
+                    emit(
+                        {
+                            "type": "context.compacted",
+                            "iteration": state.iteration,
+                            "strategy": "reactive",
+                            "message_count": len(state.messages),
+                        }
+                    )
+                    return _LlmCallOutcome(state=state, usage=usage, response=None, result=None)
+                return _LlmCallOutcome(
+                    state=state,
+                    usage=usage,
+                    response=None,
+                    result=self._build_result(
+                        state,
+                        ExitReason.CONTEXT_OVERFLOW,
+                        usage=usage,
+                        events=events,
+                        recovery=recovery_attempts,
+                        error=str(e),
+                    ),
+                )
+
+            # Attempt fallback model if configured
+            fallback_name = agent_cfg.fallback_llm_config_name
+            if fallback_name and "fallback" not in recovery_attempts:
+                fallback_cfg = self._config_manager.get_config(fallback_name)
+                if fallback_cfg and fallback_cfg.enabled:
+                    logger.warning(
+                        "[AGENT] Primary LLM failed, switching to fallback '%s': %s",
+                        fallback_name,
+                        e,
+                    )
+                    fallback_llm = LLMClient(
+                        model=fallback_cfg.model,
+                        api_key=fallback_cfg.api_key,
+                        api_base=fallback_cfg.api_base,
+                        max_retries=fallback_cfg.max_retries,
+                        temperature=fallback_cfg.temperature,
+                        top_p=fallback_cfg.top_p,
+                        max_tokens=fallback_cfg.max_tokens,
+                    )
+                    try:
+                        response = await fallback_llm.chat(current_messages, tools=openai_tools)
+                        recovery_attempts["fallback"] = fallback_name
+                    except Exception as fallback_err:
+                        return _LlmCallOutcome(
+                            state=state,
+                            usage=usage,
+                            response=None,
+                            result=self._build_result(
+                                state,
+                                ExitReason.LLM_ERROR,
+                                usage=usage,
+                                events=events,
+                                recovery=recovery_attempts,
+                                error=f"Primary: {e}; Fallback: {fallback_err}",
+                            ),
+                        )
+                else:
+                    return _LlmCallOutcome(
+                        state=state,
+                        usage=usage,
+                        response=None,
+                        result=self._build_result(
+                            state,
+                            ExitReason.LLM_ERROR,
+                            usage=usage,
+                            events=events,
+                            recovery=recovery_attempts,
+                            error=str(e),
+                        ),
+                    )
+            else:
+                logger.exception(
+                    "[AGENT] Edict %s: iter %d LLM call failed (no fallback configured): %s",
+                    edict.id,
+                    state.iteration,
+                    e,
+                )
+                return _LlmCallOutcome(
+                    state=state,
+                    usage=usage,
+                    response=None,
+                    result=self._build_result(
+                        state,
+                        ExitReason.LLM_ERROR,
+                        usage=usage,
+                        events=events,
+                        recovery=recovery_attempts,
+                        error=str(e),
+                    ),
+                )
+
+        usage = self._accumulate_usage(usage, response.usage)
+        state = state.accumulate_usage(
+            response.usage.prompt_tokens,
+            response.usage.completion_tokens,
+        )
+
+        # LLM output hook
+        if self._hooks:
+            await self._hooks.run(
+                HookType.LLM_OUTPUT,
+                content=response.content,
+                tool_calls=response.tool_calls,
+                iteration=state.iteration,
+                usage=response.usage,
+                edict=edict,
+                config_state=config_state,
+                provider_name=getattr(llm, "provider_name", None),
+            )
+
+        logger.debug(
+            "[AGENT] Edict %s: iter %d LLM response, tool_calls=%d, has_content=%s, finish_reason=%s",
+            edict.id,
+            state.iteration,
+            len(response.tool_calls or []),
+            bool(response.content),
+            response.finish_reason,
+        )
+
+        return _LlmCallOutcome(state=state, usage=usage, response=response, result=None)
+
+    async def _handle_llm_response(
+        self,
+        response: LLMResponse,
+        state: LoopState,
+        edict: Edict,
+        memorial: Memorial | None,
+        persona: object | None,
+        stream_callback: StreamCallback | None,
+        usage: UsageSummary,
+        events: list[dict],
+        recovery_attempts: dict,
+        repeated_failures: dict[tuple[str, str], int],
+        emit: Callable[[dict], None],
+    ) -> tuple[LoopState, dict[tuple[str, str], int], AgentResult | None]:
+        """tool_call 执行块：有 tool_calls 则逐个执行；否则按 finish_reason 续转或收工。
+
+        返回 (state, repeated_failures, 提前收工结果)；后者非 None 时 execute() 应立即返回
+        它。为 None 时本函数已处理完当前 while 迭代的剩余工作，execute() 的循环体也已到底，
+        自然进入下一轮——与原 tool_calls 分支落到 while 循环底部、以及原 no-tool-calls 分支里
+        的 `continue` 语句效果一致（该分支之后 while 循环体内再无其它语句）。
+        """
+        if response.tool_calls:
+            # Build assistant message with tool_calls
+            assistant_msg: dict = {
+                "role": "assistant",
+                "content": response.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["args"],
+                        },
+                    }
+                    for tc in response.tool_calls
+                ],
+            }
+            # DeepSeek thinking 模式要求 reasoning_content 必须随 tool_calls 一起回传
+            # （否则下一轮请求会报 "reasoning_content in the thinking mode must be passed back"）
+            if response.reasoning_content:
+                assistant_msg["reasoning_content"] = response.reasoning_content
+            new_messages = list(state.messages) + [assistant_msg]
+
+            # Execute each tool call sequentially
+            for tc in response.tool_calls:
+                # Tier fast-path: T0_READONLY bypasses HookRegistry at agent layer.
+                # Registry has its own T0 fast path too — defense in depth, avoids
+                # emitting noise hook events for readonly tools. Spec Section 2.
+                from tianshu.tools.types import ToolTier
+
+                tool_defn = self._tools.get_definition(tc["name"])
+                tool_tier = tool_defn.tier if tool_defn else ToolTier.T4_DANGEROUS.value
+                is_fast_path = tool_tier == ToolTier.T0_READONLY.value
+
+                if self._hooks and not is_fast_path:
+                    hook_result = await self._hooks.run(
+                        HookType.BEFORE_TOOL_CALL,
+                        tool_name=tc["name"],
+                        tool_args=tc["args"],
+                        iteration=state.iteration,
+                        edict=edict,
+                        memorial=memorial,
+                    )
+                    if hook_result.block:
+                        new_messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": f"Tool blocked: {hook_result.reason}",
+                            }
+                        )
+                        emit(
+                            {
+                                "type": "tool.blocked",
+                                "tool": tc["name"],
+                                "iteration": state.iteration,
+                                "reason": hook_result.reason,
+                            }
+                        )
+                        continue
+
+                logger.debug(
+                    "[AGENT] Edict %s: iter %d tool=%s, args=%.200s",
+                    edict.id,
+                    state.iteration,
+                    tc["name"],
+                    str(tc["args"])[:200],
+                )
+                if stream_callback:
+                    await stream_callback.on_tool_call_start(tc["name"])
+                try:
+                    with bind_edict(edict), bind_persona(persona):
+                        tool_result = await self._tools.execute(
+                            tc["name"],
+                            tc["args"],
+                            lifecycle_phase=edict.runtime.lifecycle_phase,
+                        )
+                except Exception as tool_err:
+                    tool_result = ToolResult(content=f"Tool error: {tool_err}", is_error=True)
+                if stream_callback:
+                    await stream_callback.on_tool_call_end(tc["name"], tool_result)
+
+                content = tool_result.content
+                max_chars = tool_defn.max_result_chars if tool_defn else 8000
+                if len(content) > max_chars:
+                    content = content[:max_chars] + "\n[... truncated]"
+                new_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": content,
+                    }
+                )
+
+                if self._hooks and not is_fast_path:
+                    await self._hooks.run(
+                        HookType.AFTER_TOOL_CALL,
+                        tool_name=tc["name"],
+                        tool_args=tc["args"],
+                        tool_result=tool_result,
+                        iteration=state.iteration,
+                        edict=edict,
+                        memorial=memorial,
+                    )
+
+                args_str = tc["args"] if isinstance(tc["args"], str) else json.dumps(tc["args"])
+                emit(
+                    {
+                        "type": "tool.failed" if tool_result.is_error else "tool.completed",
+                        "tool": tc["name"],
+                        "iteration": state.iteration,
+                        "args_preview": args_str[:200],
+                        "result_preview": tool_result.content[:200],
+                        "is_error": tool_result.is_error,
+                        "details": tool_result.details,
+                    }
+                )
+
+                # 连续同错熔断：失败计数 +1；成功清掉该 tool 的所有计数
+                if tool_result.is_error:
+                    # 错误签名：取前 200 字符消除噪音（行号/时间戳等）
+                    err_sig = (tool_result.content or "")[:200]
+                    key = (tc["name"], err_sig)
+                    repeated_failures[key] = repeated_failures.get(key, 0) + 1
+                    if repeated_failures[key] >= REPEATED_FAILURE_LIMIT:
+                        logger.warning(
+                            "[AGENT] Edict %s: tool %r failed %d times with same error, breaking loop. error=%.150s",
+                            edict.id,
+                            tc["name"],
+                            repeated_failures[key],
+                            err_sig,
+                        )
+                        final_state = state.next_turn(new_messages)
+                        return (
+                            final_state,
+                            repeated_failures,
+                            self._build_result(
+                                final_state,
+                                ExitReason.REPEATED_TOOL_FAILURE,
+                                usage=usage,
+                                events=events,
+                                recovery=recovery_attempts,
+                                error=(
+                                    f"工具 {tc['name']!r} 连续 {repeated_failures[key]} "
+                                    f"次失败，错误一致：{err_sig[:120]}"
+                                ),
+                            ),
+                        )
+                else:
+                    # 任一次成功 → 清掉该 tool 的所有失败计数
+                    repeated_failures = {
+                        k: v for k, v in repeated_failures.items() if k[0] != tc["name"]
+                    }
+
+            # State replacement: advance to next turn
+            state = state.next_turn(new_messages)
+            return state, repeated_failures, None
+        else:
+            # No tool calls — check for output truncation recovery
+            if response.finish_reason == "length" and state.output_recovery_count < 3:
+                continuation = {
+                    "role": "user",
+                    "content": "你的输出被截断了。请从中断处直接继续，不要重复已输出的内容。",
+                }
+                new_msgs = list(state.messages) + [
+                    {"role": "assistant", "content": response.content or ""},
+                    continuation,
+                ]
+                state = LoopState(
+                    messages=tuple(new_msgs),
+                    iteration=state.iteration,
+                    transition_reason="output_continuation",
+                    output_recovery_count=state.output_recovery_count + 1,
+                    compact_attempted=state.compact_attempted,
+                    total_compact_count=state.total_compact_count,
+                    total_prompt_tokens=state.total_prompt_tokens,
+                    total_completion_tokens=state.total_completion_tokens,
+                )
+                recovery_attempts["output_continuation"] = (
+                    recovery_attempts.get("output_continuation", 0) + 1
+                )
+                return state, repeated_failures, None
+
+            exit_reason = (
+                ExitReason.OUTPUT_TRUNCATED
+                if response.finish_reason == "length"
+                else ExitReason.COMPLETED
+            )
+            rc = response.reasoning_content
+            return (
+                state,
+                repeated_failures,
+                self._build_result(
+                    state,
+                    exit_reason,
+                    summary=response.content,
+                    usage=usage,
+                    events=events,
+                    recovery=recovery_attempts,
+                    reasoning_content=rc if isinstance(rc, str) and rc else None,
+                ),
+            )
 
     def _build_result(
         self,

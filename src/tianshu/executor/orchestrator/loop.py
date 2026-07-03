@@ -26,6 +26,7 @@ from tianshu.executor.orchestrator.escalation import decide_escalation
 from tianshu.executor.orchestrator.lifecycle import apply_transition
 from tianshu.executor.orchestrator.persistence import emit_audit, persist_iteration
 from tianshu.executor.orchestrator.state import (
+    ChecksResult,
     CriticResult,
     IterationRecord,
     OuterLoopState,
@@ -36,6 +37,7 @@ from tianshu.executor.orchestrator.templates import (
     render_template,
 )
 from tianshu.llm import LLMClient
+from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import TaskStatus, UsageSummary
 from tianshu.models.edict import Edict
 from tianshu.models.memorial import Memorial
@@ -294,15 +296,515 @@ async def _finalize_with_supervision(
     )
 
 
-async def run(
+async def _check_pause(
+    ctx: OrchestratorContext,
     edict: Edict,
     memorial: Memorial,
-    ctx: OrchestratorContext,
-) -> OrchestratorResult:
-    """outer loop 主入口。要求 edict.acceptance is not None。"""
-    assert edict.acceptance is not None, "orchestrator.run 要求 acceptance 不为 None"
-    acceptance = edict.acceptance
+    state: OuterLoopState,
+) -> tuple[Edict, OrchestratorResult | None]:
+    """pause 轮询块：用户手动暂停时原地等待，直到 resume / 被外部终结。
 
+    返回 (可能被刷新的 edict, 提前收工结果)；后者非 None 时 run() 应立即 return 它。
+    """
+    # ---- NEW: 检查用户是否手动 pause —— 等待恢复后续跑，不退出 loop ----
+    latest_edict = ctx.storage.get_edict(edict.id)
+    if latest_edict and latest_edict.runtime.lifecycle_phase == "paused":
+        # 入场：仅首次进入 paused 时发事件 + checkpoint
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "outer_loop.paused",
+            {"iteration": state.iteration},
+        )
+        if edict.execution_profile in ("checkpointed", "background"):
+            _save_checkpoint(ctx, state)
+        # 等待循环：每 PAUSE_POLL_INTERVAL 秒重读 lifecycle，直到 active 或 cancelled
+        while True:
+            await asyncio.sleep(PAUSE_POLL_INTERVAL_SECONDS)
+            latest_edict = ctx.storage.get_edict(edict.id)
+            if not latest_edict:
+                # edict 被删除，按 cancelled 退出
+                return edict, OrchestratorResult(
+                    status=TaskStatus.CANCELLED,
+                    final_output=None,
+                    state=state,
+                    error="edict deleted while paused",
+                )
+            phase = latest_edict.runtime.lifecycle_phase
+            if phase == "active":
+                # 续跑：发恢复事件，刷新本地 edict 引用，跳出等待
+                await emit_audit(
+                    ctx.bus,
+                    ctx.storage,
+                    edict.id,
+                    memorial.id,
+                    "outer_loop.resumed",
+                    {"iteration": state.iteration},
+                )
+                edict = latest_edict
+                break
+            if phase == "complete":
+                # 外部把 edict 终结（cancel / 其他），干净退出
+                return edict, OrchestratorResult(
+                    status=TaskStatus.CANCELLED,
+                    final_output=None,
+                    state=state,
+                    error="edict ended while paused",
+                )
+            # phase == "paused" 或 "winding_down" 继续等
+    # ---- pause 检查结束 ----
+    return edict, None
+
+
+async def _check_budget(
+    ctx: OrchestratorContext,
+    edict: Edict,
+    memorial: Memorial,
+    state: OuterLoopState,
+    acceptance: AcceptanceCriteria,
+) -> tuple[OuterLoopState, Edict, OrchestratorResult | None]:
+    """预算检查块：usage_ratio 触发软着陆转移 / 硬上限强制 finalize。
+
+    返回 (state, edict, 提前收工结果)；后者非 None 时 run() 应立即 return 它。
+    """
+    # ---- NEW: 预算检查（usage_ratio）+ 软着陆触发 ----
+    budget_snap = BudgetSnapshot(
+        tokens_used=memorial.usage.total_tokens if memorial.usage else 0,
+        token_budget=edict.runtime.token_budget,
+        cost_used_cny=float(memorial.usage.cost_cny) if memorial.usage else 0.0,
+        cost_budget_cny=edict.runtime.cost_budget_cny,
+        time_used_seconds=int((datetime.now(UTC) - memorial.created_at).total_seconds())
+        if getattr(memorial, "created_at", None)
+        else 0,
+        deadline_seconds=acceptance.deadline_seconds,
+    )
+    usage_ratio = compute_usage_ratio(budget_snap)
+    cur_phase = edict.runtime.lifecycle_phase
+
+    if usage_ratio >= HARD_LIMIT:
+        if cur_phase != "winding_down":
+            result = apply_transition(
+                ctx.storage,
+                ctx.bus,
+                edict.id,
+                memorial.id,
+                cur_phase,
+                "winding_down",
+                reason=f"hard_limit_reached usage_ratio={usage_ratio:.2f}",
+            )
+            if result is not None:
+                edict = edict.model_copy(
+                    update={
+                        "runtime": edict.runtime.model_copy(
+                            update={"lifecycle_phase": "winding_down"}
+                        )
+                    }
+                )
+                wind_down_prompt = render_template(
+                    TemplateName.WIND_DOWN,
+                    objective=edict.goal,
+                )
+                state = state.with_consultation_advice(wind_down_prompt)
+                await emit_audit(
+                    ctx.bus,
+                    ctx.storage,
+                    edict.id,
+                    memorial.id,
+                    "edict.wind_down.entered",
+                    {
+                        "usage_ratio": usage_ratio,
+                        "trigger_field": dominant_dimension(budget_snap) or "unknown",
+                        "threshold_type": "hard_limit",
+                    },
+                )
+            # else: 转移被拒（如 phase=paused），保持现状继续 actor turn
+        else:
+            # 已经 wind_down 过一次仍超额，强制 finalize
+            result = apply_transition(
+                ctx.storage,
+                ctx.bus,
+                edict.id,
+                memorial.id,
+                "winding_down",
+                "complete",
+                reason="budget_exhausted",
+            )
+            if result is not None:
+                trigger = dominant_dimension(budget_snap) or "unknown"
+                last_output = state.history[-1].actor_output if state.history else None
+                return (
+                    state,
+                    edict,
+                    await _finalize_with_supervision(
+                        state,
+                        edict,
+                        ctx,
+                        memorial,
+                        TaskStatus.FAILED,
+                        last_output,
+                        error=f"budget_exhausted: {trigger} (usage_ratio={usage_ratio:.2f})",
+                    ),
+                )
+    elif usage_ratio >= SOFT_LANDING_THRESHOLD and cur_phase == "active":
+        result = apply_transition(
+            ctx.storage,
+            ctx.bus,
+            edict.id,
+            memorial.id,
+            cur_phase,
+            "winding_down",
+            reason=f"soft_landing_threshold usage_ratio={usage_ratio:.2f}",
+        )
+        if result is not None:
+            edict = edict.model_copy(
+                update={
+                    "runtime": edict.runtime.model_copy(
+                        update={"lifecycle_phase": "winding_down"}
+                    )
+                }
+            )
+            wind_down_prompt = render_template(
+                TemplateName.WIND_DOWN,
+                objective=edict.goal,
+            )
+            state = state.with_consultation_advice(wind_down_prompt)
+            await emit_audit(
+                ctx.bus,
+                ctx.storage,
+                edict.id,
+                memorial.id,
+                "edict.wind_down.entered",
+                {
+                    "usage_ratio": usage_ratio,
+                    "trigger_field": dominant_dimension(budget_snap) or "unknown",
+                    "threshold_type": "soft_landing",
+                },
+            )
+    # ---- 预算检查结束 ----
+    return state, edict, None
+
+
+async def _run_actor_turn(
+    ctx: OrchestratorContext,
+    edict: Edict,
+    memorial: Memorial,
+    state: OuterLoopState,
+) -> tuple[str, float]:
+    """1. actor：注入上一轮反馈后调 actor，返回 (actor_output, actor_cost)。"""
+    override = derive_actor_override(state, edict)
+    # 把 critic feedback / consultation advice 注入到下一轮 user_content
+    augmented_content = edict.goal
+    if edict.context:
+        augmented_content += f"\n\nAdditional context: {edict.context}"
+    if override.extra_system_msg:
+        augmented_content += f"\n\n## 上一轮反馈与建议\n{override.extra_system_msg}"
+
+    # v1：thinking_budget / model 不传给 Agent（Agent 层暂不支持）
+    actor_result = await ctx.agent.execute(
+        edict,
+        memorial=memorial,
+        user_content=augmented_content,
+    )
+    actor_output = actor_result.result or actor_result.summary or ""
+    # Actor 错误时把 error 信息暴露出来，让 critic + 监督报告能正确诊断（而非误判为 actor 偷懒）
+    if not actor_output and getattr(actor_result, "error", None):
+        actor_output = f"[ACTOR ERROR] {actor_result.error}"
+        logger.warning(
+            "[ORCH] edict %s iter %d: actor returned empty output with error: %s",
+            edict.id,
+            state.iteration,
+            actor_result.error,
+        )
+    raw_actor_cost = getattr(actor_result.usage, "cost_cny", 0.0) if actor_result.usage else 0.0
+    actor_cost = float(raw_actor_cost) if isinstance(raw_actor_cost, (int, float)) else 0.0
+    # 注：critic 调用的 cost 在下面 critic_result.cost_cny 上，会一并加入 record.cost_cny
+    return actor_output, actor_cost
+
+
+async def _run_checks_phase(
+    ctx: OrchestratorContext,
+    edict: Edict,
+    memorial: Memorial,
+    state: OuterLoopState,
+    acceptance: AcceptanceCriteria,
+    actor_output: str,
+) -> tuple[ChecksResult | None, OrchestratorResult | None]:
+    """2. checks：跑指标；配置错误时提前收工。
+
+    返回 (checks_result, 提前收工结果)；后者非 None 时 run() 应立即 return 它
+    （此时 checks_result 恒为 None）。
+    """
+    try:
+        checks_result = await run_checks(
+            acceptance.checks,
+            actor_output,
+            ctx.actor_llm,
+        )
+    except ChecksConfigError as e:
+        last_output = state.history[-1].actor_output if state.history else actor_output
+        return None, await _finalize_with_supervision(
+            state,
+            edict,
+            ctx,
+            memorial,
+            TaskStatus.FAILED,
+            last_output,
+            error=f"checks 配置错: {e}",
+        )
+
+    return checks_result, None
+
+
+async def _run_critic_phase(
+    ctx: OrchestratorContext,
+    edict: Edict,
+    acceptance: AcceptanceCriteria,
+    actor_output: str,
+    checks_result: ChecksResult,
+) -> tuple[CriticResult | None, bool]:
+    """3. critic（仅当 checks 全过才跑）。返回 (critic_result, critic_skipped)。"""
+    critic_result: CriticResult | None = None
+    critic_skipped = False
+    if checks_result.all_passed:
+        try:
+            critic_result = await review(
+                actor_output,
+                edict,
+                acceptance,
+                ctx.critic_llm,
+                fallback_llm=ctx.critic_fallback_llm,
+                ctx=ctx,
+            )
+        except CriticUnavailable as e:
+            if acceptance.on_critic_unavailable == "skip":
+                critic_result = CriticResult(
+                    verdict="pass", feedback=f"critic 不可用，skip: {e}"
+                )
+                critic_skipped = True
+            else:
+                # 升级到人 —— Task 12 实现；当前先返回 fail
+                critic_result = CriticResult(
+                    verdict="fail",
+                    issue_class="other",
+                    feedback=f"critic 不可用: {e}",
+                )
+    else:
+        critic_result = CriticResult(
+            verdict="fail",
+            issue_class="checks_failed",
+            feedback=f"checks 未通过: {[o.name for o in checks_result.outcomes if not o.passed]}",
+        )
+    return critic_result, critic_skipped
+
+
+async def _run_post_critic(
+    ctx: OrchestratorContext,
+    edict: Edict,
+    memorial: Memorial,
+    acceptance: AcceptanceCriteria,
+    state: OuterLoopState,
+    record: IterationRecord,
+    critic_result: CriticResult | None,
+    critic_skipped: bool,
+    actor_output: str,
+) -> tuple[OuterLoopState, Edict, OrchestratorResult | None]:
+    """4. PASS → completion audit 门 → 收工/持续优化；5. FAIL → advance + 升级；末尾 checkpoint。
+
+    返回 (state, edict, 提前收工结果)；后者非 None 时 run() 应立即 return 它，否则 run()
+    应继续下一轮 while 迭代。PASS 分支原有的两处 `continue`（audit 未过续转 / 持续优化模式
+    未满轮）在此等价为「不提前收工」（result=None）——continue 之后 run() 原本再无其它语句，
+    与直接从本函数 return 效果一致；FAIL 分支落到函数末尾同理。
+    """
+    # 4. PASS → completion audit 门 → 收工（除非 min_outer_iterations 未满，进入"持续优化"模式）
+    if critic_result and critic_result.verdict == "pass":
+        state = state.advance(record)
+
+        # ---- completion audit 门 ----
+        # spec §7：critic-skip 时 audit 退化为 actor 自审
+        audit_llm = ctx.actor_llm if critic_skipped else ctx.critic_llm
+        audit_executor = "actor_self_audit" if critic_skipped else "critic_llm"
+        audit_result = await run_completion_audit(
+            actor_output=actor_output,
+            objective=edict.goal,
+            acceptance=acceptance,
+            llm=audit_llm,
+        )
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "edict.audit.executed",
+            {
+                "passed": audit_result.passed,
+                "gaps_count": len(audit_result.gaps),
+                "iteration": state.iteration,
+                "executor_persona": audit_executor,  # "critic_llm" or "actor_self_audit"
+            },
+        )
+        if not audit_result.passed:
+            # 把 gaps 反哺为下一轮 actor 的续转 prompt
+            gaps_text = format_gaps_for_continuation(audit_result.gaps)
+            continuation = render_template(
+                TemplateName.CONTINUATION,
+                objective=edict.goal,
+                critic_feedback=None,
+                audit_gaps=gaps_text,
+            )
+            state = state.with_consultation_advice(continuation)
+            await emit_audit(
+                ctx.bus,
+                ctx.storage,
+                edict.id,
+                memorial.id,
+                "edict.continuation.injected",
+                {
+                    "iteration": state.iteration,
+                    "has_critic_feedback": False,
+                    "has_audit_gaps": True,
+                },
+            )
+            if edict.execution_profile in ("checkpointed", "background"):
+                _save_checkpoint(ctx, state)
+            return state, edict, None  # 进入下一轮 outer iter
+        # ---- audit 通过：保留原有"持续优化模式" + finalize 逻辑不变 ----
+
+        min_iter = getattr(acceptance, "min_outer_iterations", 1) or 1
+        if state.iteration < min_iter:
+            # 持续优化：把 critic 的 improvement_hints 注入下一轮 actor
+            hint = critic_result.improvement_hints
+            if hint:
+                state = state.with_consultation_advice(
+                    f"[持续优化模式] 上一轮已合格，但仍可优化：\n{hint}"
+                )
+            await emit_audit(
+                ctx.bus,
+                ctx.storage,
+                edict.id,
+                memorial.id,
+                "outer_loop.continued_for_optimization",
+                {
+                    "iteration": state.iteration,
+                    "min_iterations": min_iter,
+                    "has_hints": bool(hint),
+                },
+            )
+            if edict.execution_profile in ("checkpointed", "background"):
+                _save_checkpoint(ctx, state)
+            return state, edict, None  # 进入下一轮 outer iter
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "outer_loop.completed",
+            {"iterations": state.iteration, "total_cost": state.total_cost_cny},
+        )
+        return (
+            state,
+            edict,
+            await _finalize_with_supervision(
+                state,
+                edict,
+                ctx,
+                memorial,
+                TaskStatus.COMPLETED,
+                actor_output,
+            ),
+        )
+
+    # 5. FAIL → advance + 升级（暂不实现 L1/L2/L3 的实际 escalate 动作，Task 10-12 加）
+    state = state.advance(record)
+    decision = decide_escalation(
+        state,
+        edict,
+        acceptance,
+        last_critic_passed=False,
+    )
+    if decision == "EXHAUSTED":
+        return state, edict, await _handle_exhaustion(state, edict, ctx, memorial)
+    if decision != state.current_level:
+        state = state.with_level(decision)  # type: ignore[arg-type]
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "outer_loop.escalated",
+            {"to": decision, "iteration": state.iteration},
+        )
+        if decision == "L2" and ctx.consultation_session is not None:
+            try:
+                advice = await _run_consultation(
+                    edict,
+                    state,
+                    ctx,
+                    memorial,
+                )
+                if advice:
+                    state = state.with_consultation_advice(advice)
+            except Exception as e:
+                logger.exception("consultation 调用失败，跳过 L2 直接升 L3")
+                await emit_audit(
+                    ctx.bus,
+                    ctx.storage,
+                    edict.id,
+                    memorial.id,
+                    "outer_loop.escalated",
+                    {"from": "L2", "to": "L3", "reason": f"consultation failed: {e}"},
+                )
+                state = state.with_level("L3")
+                decision = "L3"  # 让下面的 L3 分支接到
+
+        if decision == "L3":
+            human_decision = await _escalate_to_human(state, edict, ctx, memorial)
+            state, edict, terminal = _apply_human_decision(state, human_decision, edict)
+            if terminal == "abort":
+                last_output = state.history[-1].actor_output if state.history else None
+                return (
+                    state,
+                    edict,
+                    await _finalize_with_supervision(
+                        state,
+                        edict,
+                        ctx,
+                        memorial,
+                        TaskStatus.FAILED,
+                        last_output,
+                        error="aborted by human",
+                    ),
+                )
+            if terminal == "accept_as_is":
+                last = state.history[-1] if state.history else None
+                return (
+                    state,
+                    edict,
+                    await _finalize_with_supervision(
+                        state,
+                        edict,
+                        ctx,
+                        memorial,
+                        TaskStatus.COMPLETED,
+                        last.actor_output if last else None,
+                    ),
+                )
+            # else continue / modify_acceptance → 继续循环
+
+    # checkpoint（仅 checkpointed/background）
+    if edict.execution_profile in ("checkpointed", "background"):
+        _save_checkpoint(ctx, state)
+    return state, edict, None
+
+
+async def _init_outer_loop_state(
+    ctx: OrchestratorContext,
+    edict: Edict,
+    memorial: Memorial,
+    acceptance: AcceptanceCriteria,
+) -> OuterLoopState:
+    """resume（仅 checkpointed/background）或新建 state，并发 outer_loop.started 事件。"""
     # Resume：仅 checkpointed/background profile 启用
     if edict.execution_profile in ("checkpointed", "background"):
         resumed = _load_checkpoint(ctx, edict.id)
@@ -327,6 +829,18 @@ async def run(
         "outer_loop.started",
         {"max_outer": acceptance.max_outer_iterations},
     )
+    return state
+
+
+async def run(
+    edict: Edict,
+    memorial: Memorial,
+    ctx: OrchestratorContext,
+) -> OrchestratorResult:
+    """outer loop 主入口。要求 edict.acceptance is not None。"""
+    assert edict.acceptance is not None, "orchestrator.run 要求 acceptance 不为 None"
+    acceptance = edict.acceptance
+    state = await _init_outer_loop_state(ctx, edict, memorial, acceptance)
 
     while state.iteration < acceptance.max_outer_iterations:
         iter_started = datetime.now(UTC)
@@ -339,247 +853,25 @@ async def run(
             {"iteration": state.iteration, "level": state.current_level},
         )
 
-        # ---- NEW: 检查用户是否手动 pause —— 等待恢复后续跑，不退出 loop ----
-        latest_edict = ctx.storage.get_edict(edict.id)
-        if latest_edict and latest_edict.runtime.lifecycle_phase == "paused":
-            # 入场：仅首次进入 paused 时发事件 + checkpoint
-            await emit_audit(
-                ctx.bus,
-                ctx.storage,
-                edict.id,
-                memorial.id,
-                "outer_loop.paused",
-                {"iteration": state.iteration},
-            )
-            if edict.execution_profile in ("checkpointed", "background"):
-                _save_checkpoint(ctx, state)
-            # 等待循环：每 PAUSE_POLL_INTERVAL 秒重读 lifecycle，直到 active 或 cancelled
-            while True:
-                await asyncio.sleep(PAUSE_POLL_INTERVAL_SECONDS)
-                latest_edict = ctx.storage.get_edict(edict.id)
-                if not latest_edict:
-                    # edict 被删除，按 cancelled 退出
-                    return OrchestratorResult(
-                        status=TaskStatus.CANCELLED,
-                        final_output=None,
-                        state=state,
-                        error="edict deleted while paused",
-                    )
-                phase = latest_edict.runtime.lifecycle_phase
-                if phase == "active":
-                    # 续跑：发恢复事件，刷新本地 edict 引用，跳出等待
-                    await emit_audit(
-                        ctx.bus,
-                        ctx.storage,
-                        edict.id,
-                        memorial.id,
-                        "outer_loop.resumed",
-                        {"iteration": state.iteration},
-                    )
-                    edict = latest_edict
-                    break
-                if phase == "complete":
-                    # 外部把 edict 终结（cancel / 其他），干净退出
-                    return OrchestratorResult(
-                        status=TaskStatus.CANCELLED,
-                        final_output=None,
-                        state=state,
-                        error="edict ended while paused",
-                    )
-                # phase == "paused" 或 "winding_down" 继续等
-        # ---- pause 检查结束 ----
+        edict, pause_exit = await _check_pause(ctx, edict, memorial, state)
+        if pause_exit is not None:
+            return pause_exit
 
-        # ---- NEW: 预算检查（usage_ratio）+ 软着陆触发 ----
-        budget_snap = BudgetSnapshot(
-            tokens_used=memorial.usage.total_tokens if memorial.usage else 0,
-            token_budget=edict.runtime.token_budget,
-            cost_used_cny=float(memorial.usage.cost_cny) if memorial.usage else 0.0,
-            cost_budget_cny=edict.runtime.cost_budget_cny,
-            time_used_seconds=int((datetime.now(UTC) - memorial.created_at).total_seconds())
-            if getattr(memorial, "created_at", None)
-            else 0,
-            deadline_seconds=acceptance.deadline_seconds,
+        state, edict, budget_exit = await _check_budget(ctx, edict, memorial, state, acceptance)
+        if budget_exit is not None:
+            return budget_exit
+
+        actor_output, actor_cost = await _run_actor_turn(ctx, edict, memorial, state)
+
+        checks_result, checks_exit = await _run_checks_phase(
+            ctx, edict, memorial, state, acceptance, actor_output
         )
-        usage_ratio = compute_usage_ratio(budget_snap)
-        cur_phase = edict.runtime.lifecycle_phase
+        if checks_exit is not None:
+            return checks_exit
 
-        if usage_ratio >= HARD_LIMIT:
-            if cur_phase != "winding_down":
-                result = apply_transition(
-                    ctx.storage,
-                    ctx.bus,
-                    edict.id,
-                    memorial.id,
-                    cur_phase,
-                    "winding_down",
-                    reason=f"hard_limit_reached usage_ratio={usage_ratio:.2f}",
-                )
-                if result is not None:
-                    edict = edict.model_copy(
-                        update={
-                            "runtime": edict.runtime.model_copy(
-                                update={"lifecycle_phase": "winding_down"}
-                            )
-                        }
-                    )
-                    wind_down_prompt = render_template(
-                        TemplateName.WIND_DOWN,
-                        objective=edict.goal,
-                    )
-                    state = state.with_consultation_advice(wind_down_prompt)
-                    await emit_audit(
-                        ctx.bus,
-                        ctx.storage,
-                        edict.id,
-                        memorial.id,
-                        "edict.wind_down.entered",
-                        {
-                            "usage_ratio": usage_ratio,
-                            "trigger_field": dominant_dimension(budget_snap) or "unknown",
-                            "threshold_type": "hard_limit",
-                        },
-                    )
-                # else: 转移被拒（如 phase=paused），保持现状继续 actor turn
-            else:
-                # 已经 wind_down 过一次仍超额，强制 finalize
-                result = apply_transition(
-                    ctx.storage,
-                    ctx.bus,
-                    edict.id,
-                    memorial.id,
-                    "winding_down",
-                    "complete",
-                    reason="budget_exhausted",
-                )
-                if result is not None:
-                    trigger = dominant_dimension(budget_snap) or "unknown"
-                    last_output = state.history[-1].actor_output if state.history else None
-                    return await _finalize_with_supervision(
-                        state,
-                        edict,
-                        ctx,
-                        memorial,
-                        TaskStatus.FAILED,
-                        last_output,
-                        error=f"budget_exhausted: {trigger} (usage_ratio={usage_ratio:.2f})",
-                    )
-        elif usage_ratio >= SOFT_LANDING_THRESHOLD and cur_phase == "active":
-            result = apply_transition(
-                ctx.storage,
-                ctx.bus,
-                edict.id,
-                memorial.id,
-                cur_phase,
-                "winding_down",
-                reason=f"soft_landing_threshold usage_ratio={usage_ratio:.2f}",
-            )
-            if result is not None:
-                edict = edict.model_copy(
-                    update={
-                        "runtime": edict.runtime.model_copy(
-                            update={"lifecycle_phase": "winding_down"}
-                        )
-                    }
-                )
-                wind_down_prompt = render_template(
-                    TemplateName.WIND_DOWN,
-                    objective=edict.goal,
-                )
-                state = state.with_consultation_advice(wind_down_prompt)
-                await emit_audit(
-                    ctx.bus,
-                    ctx.storage,
-                    edict.id,
-                    memorial.id,
-                    "edict.wind_down.entered",
-                    {
-                        "usage_ratio": usage_ratio,
-                        "trigger_field": dominant_dimension(budget_snap) or "unknown",
-                        "threshold_type": "soft_landing",
-                    },
-                )
-        # ---- 预算检查结束 ----
-
-        # 1. actor
-        override = derive_actor_override(state, edict)
-        # 把 critic feedback / consultation advice 注入到下一轮 user_content
-        augmented_content = edict.goal
-        if edict.context:
-            augmented_content += f"\n\nAdditional context: {edict.context}"
-        if override.extra_system_msg:
-            augmented_content += f"\n\n## 上一轮反馈与建议\n{override.extra_system_msg}"
-
-        # v1：thinking_budget / model 不传给 Agent（Agent 层暂不支持）
-        actor_result = await ctx.agent.execute(
-            edict,
-            memorial=memorial,
-            user_content=augmented_content,
+        critic_result, critic_skipped = await _run_critic_phase(
+            ctx, edict, acceptance, actor_output, checks_result
         )
-        actor_output = actor_result.result or actor_result.summary or ""
-        # Actor 错误时把 error 信息暴露出来，让 critic + 监督报告能正确诊断（而非误判为 actor 偷懒）
-        if not actor_output and getattr(actor_result, "error", None):
-            actor_output = f"[ACTOR ERROR] {actor_result.error}"
-            logger.warning(
-                "[ORCH] edict %s iter %d: actor returned empty output with error: %s",
-                edict.id,
-                state.iteration,
-                actor_result.error,
-            )
-        raw_actor_cost = getattr(actor_result.usage, "cost_cny", 0.0) if actor_result.usage else 0.0
-        actor_cost = float(raw_actor_cost) if isinstance(raw_actor_cost, (int, float)) else 0.0
-        # 注：critic 调用的 cost 在下面 critic_result.cost_cny 上，会一并加入 record.cost_cny
-
-        # 2. checks
-        try:
-            checks_result = await run_checks(
-                acceptance.checks,
-                actor_output,
-                ctx.actor_llm,
-            )
-        except ChecksConfigError as e:
-            last_output = state.history[-1].actor_output if state.history else actor_output
-            return await _finalize_with_supervision(
-                state,
-                edict,
-                ctx,
-                memorial,
-                TaskStatus.FAILED,
-                last_output,
-                error=f"checks 配置错: {e}",
-            )
-
-        # 3. critic（仅当 checks 全过才跑）
-        critic_result: CriticResult | None = None
-        critic_skipped = False
-        if checks_result.all_passed:
-            try:
-                critic_result = await review(
-                    actor_output,
-                    edict,
-                    acceptance,
-                    ctx.critic_llm,
-                    fallback_llm=ctx.critic_fallback_llm,
-                    ctx=ctx,
-                )
-            except CriticUnavailable as e:
-                if acceptance.on_critic_unavailable == "skip":
-                    critic_result = CriticResult(
-                        verdict="pass", feedback=f"critic 不可用，skip: {e}"
-                    )
-                    critic_skipped = True
-                else:
-                    # 升级到人 —— Task 12 实现；当前先返回 fail
-                    critic_result = CriticResult(
-                        verdict="fail",
-                        issue_class="other",
-                        feedback=f"critic 不可用: {e}",
-                    )
-        else:
-            critic_result = CriticResult(
-                verdict="fail",
-                issue_class="checks_failed",
-                feedback=f"checks 未通过: {[o.name for o in checks_result.outcomes if not o.passed]}",
-            )
 
         record = IterationRecord(
             iteration=state.iteration,
@@ -612,172 +904,19 @@ async def run(
             },
         )
 
-        # 4. PASS → completion audit 门 → 收工（除非 min_outer_iterations 未满，进入"持续优化"模式）
-        if critic_result and critic_result.verdict == "pass":
-            state = state.advance(record)
-
-            # ---- completion audit 门 ----
-            # spec §7：critic-skip 时 audit 退化为 actor 自审
-            audit_llm = ctx.actor_llm if critic_skipped else ctx.critic_llm
-            audit_executor = "actor_self_audit" if critic_skipped else "critic_llm"
-            audit_result = await run_completion_audit(
-                actor_output=actor_output,
-                objective=edict.goal,
-                acceptance=acceptance,
-                llm=audit_llm,
-            )
-            await emit_audit(
-                ctx.bus,
-                ctx.storage,
-                edict.id,
-                memorial.id,
-                "edict.audit.executed",
-                {
-                    "passed": audit_result.passed,
-                    "gaps_count": len(audit_result.gaps),
-                    "iteration": state.iteration,
-                    "executor_persona": audit_executor,  # "critic_llm" or "actor_self_audit"
-                },
-            )
-            if not audit_result.passed:
-                # 把 gaps 反哺为下一轮 actor 的续转 prompt
-                gaps_text = format_gaps_for_continuation(audit_result.gaps)
-                continuation = render_template(
-                    TemplateName.CONTINUATION,
-                    objective=edict.goal,
-                    critic_feedback=None,
-                    audit_gaps=gaps_text,
-                )
-                state = state.with_consultation_advice(continuation)
-                await emit_audit(
-                    ctx.bus,
-                    ctx.storage,
-                    edict.id,
-                    memorial.id,
-                    "edict.continuation.injected",
-                    {
-                        "iteration": state.iteration,
-                        "has_critic_feedback": False,
-                        "has_audit_gaps": True,
-                    },
-                )
-                if edict.execution_profile in ("checkpointed", "background"):
-                    _save_checkpoint(ctx, state)
-                continue  # 进入下一轮 outer iter
-            # ---- audit 通过：保留原有"持续优化模式" + finalize 逻辑不变 ----
-
-            min_iter = getattr(acceptance, "min_outer_iterations", 1) or 1
-            if state.iteration < min_iter:
-                # 持续优化：把 critic 的 improvement_hints 注入下一轮 actor
-                hint = critic_result.improvement_hints
-                if hint:
-                    state = state.with_consultation_advice(
-                        f"[持续优化模式] 上一轮已合格，但仍可优化：\n{hint}"
-                    )
-                await emit_audit(
-                    ctx.bus,
-                    ctx.storage,
-                    edict.id,
-                    memorial.id,
-                    "outer_loop.continued_for_optimization",
-                    {
-                        "iteration": state.iteration,
-                        "min_iterations": min_iter,
-                        "has_hints": bool(hint),
-                    },
-                )
-                if edict.execution_profile in ("checkpointed", "background"):
-                    _save_checkpoint(ctx, state)
-                continue  # 进入下一轮 outer iter
-            await emit_audit(
-                ctx.bus,
-                ctx.storage,
-                edict.id,
-                memorial.id,
-                "outer_loop.completed",
-                {"iterations": state.iteration, "total_cost": state.total_cost_cny},
-            )
-            return await _finalize_with_supervision(
-                state,
-                edict,
-                ctx,
-                memorial,
-                TaskStatus.COMPLETED,
-                actor_output,
-            )
-
-        # 5. FAIL → advance + 升级（暂不实现 L1/L2/L3 的实际 escalate 动作，Task 10-12 加）
-        state = state.advance(record)
-        decision = decide_escalation(
-            state,
+        state, edict, post_exit = await _run_post_critic(
+            ctx,
             edict,
+            memorial,
             acceptance,
-            last_critic_passed=False,
+            state,
+            record,
+            critic_result,
+            critic_skipped,
+            actor_output,
         )
-        if decision == "EXHAUSTED":
-            return await _handle_exhaustion(state, edict, ctx, memorial)
-        if decision != state.current_level:
-            state = state.with_level(decision)  # type: ignore[arg-type]
-            await emit_audit(
-                ctx.bus,
-                ctx.storage,
-                edict.id,
-                memorial.id,
-                "outer_loop.escalated",
-                {"to": decision, "iteration": state.iteration},
-            )
-            if decision == "L2" and ctx.consultation_session is not None:
-                try:
-                    advice = await _run_consultation(
-                        edict,
-                        state,
-                        ctx,
-                        memorial,
-                    )
-                    if advice:
-                        state = state.with_consultation_advice(advice)
-                except Exception as e:
-                    logger.exception("consultation 调用失败，跳过 L2 直接升 L3")
-                    await emit_audit(
-                        ctx.bus,
-                        ctx.storage,
-                        edict.id,
-                        memorial.id,
-                        "outer_loop.escalated",
-                        {"from": "L2", "to": "L3", "reason": f"consultation failed: {e}"},
-                    )
-                    state = state.with_level("L3")
-                    decision = "L3"  # 让下面的 L3 分支接到
-
-            if decision == "L3":
-                human_decision = await _escalate_to_human(state, edict, ctx, memorial)
-                state, edict, terminal = _apply_human_decision(state, human_decision, edict)
-                if terminal == "abort":
-                    last_output = state.history[-1].actor_output if state.history else None
-                    return await _finalize_with_supervision(
-                        state,
-                        edict,
-                        ctx,
-                        memorial,
-                        TaskStatus.FAILED,
-                        last_output,
-                        error="aborted by human",
-                    )
-                if terminal == "accept_as_is":
-                    last = state.history[-1] if state.history else None
-                    return await _finalize_with_supervision(
-                        state,
-                        edict,
-                        ctx,
-                        memorial,
-                        TaskStatus.COMPLETED,
-                        last.actor_output if last else None,
-                    )
-                # else continue / modify_acceptance → 继续循环
-
-        # checkpoint（仅 checkpointed/background）
-        if edict.execution_profile in ("checkpointed", "background"):
-            _save_checkpoint(ctx, state)
+        if post_exit is not None:
+            return post_exit
 
     return await _handle_exhaustion(state, edict, ctx, memorial)
 
