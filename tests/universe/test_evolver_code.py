@@ -101,11 +101,13 @@ class FakeEvalHarness:
         self._score = fitness_score
         self._n = n
         self._baseline_score = baseline_score
+        self.received_champion_key: str | None = None
 
     def select_eval_set(self, size: int) -> list[str]:
         return [f"goal-{i}" for i in range(min(size, self._n))]
 
     def eval_set_fingerprint(self, eval_set: list[str], champion_key: str) -> str:
+        self.received_champion_key = champion_key
         return "fp-test"
 
     def evaluate(
@@ -409,6 +411,41 @@ def test_baseline_key_includes_git_head():
     )
     key = ev._baseline_key()
     champ_part, sep, head_part = key.partition(":")
+    assert champ_part == "champ-xyz"
+    assert sep == ":"
+    assert head_part != "nohead"
+    assert head_part and all(c in "0123456789abcdef" for c in head_part)
+
+
+async def test_propose_code_variant_wires_sha_bearing_champion_key_into_fingerprint(tmp_path):
+    """接线回归:propose_code_variant 传给 eval_set_fingerprint 的 champion_key 必须是
+    _baseline_key() 的产物(含 ':' 分隔的短 sha 段),而非裸 champion_id——防止日后改动
+    悄悄绕开 Task 4 的基线指纹修复,退回感知不到主干新提交的旧口径。
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+
+    class _RealRepoRootCodeStore(FakeCodeStore):
+        """worktree 落在 tmp_path(不脏写真实仓),repo_root 指向真实项目根(供 git rev-parse)。"""
+
+        @property
+        def repo_root(self) -> Path:
+            return repo_root
+
+    eh = FakeEvalHarness()
+    ev = UniverseEvolver(
+        llm_client=MagicMock(),
+        manager=FakeManager(champion_uid="champ-xyz"),
+        storage=FakeStorage(),
+        config_manager=_make_config_manager(),
+        code_store=_RealRepoRootCodeStore(tmp_path),
+        gate=FakeGate(),
+        eval_harness=eh,
+        code_mutator=FakeCodeMutator(),
+    )
+    await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+
+    assert eh.received_champion_key is not None
+    champ_part, sep, head_part = eh.received_champion_key.partition(":")
     assert champ_part == "champ-xyz"
     assert sep == ":"
     assert head_part != "nohead"

@@ -54,6 +54,7 @@ class EvolveResult:
     mutation_detail: str | None = None
     retired: list[str] = field(default_factory=list)
     promotion_recommended: str | None = None
+    eval_delta: float | None = None
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -65,6 +66,7 @@ class EvolveResult:
             "mutation_detail": self.mutation_detail,
             "retired": self.retired,
             "promotion_recommended": self.promotion_recommended,
+            "eval_delta": self.eval_delta,
             "errors": self.errors,
         }
 
@@ -120,8 +122,6 @@ class UniverseEvolver:
             if not champ:
                 return EvolveResult(skipped="no_champion")
 
-            result.promotion_recommended = await self._maybe_promote(champ, cfg)
-
             mutation = await self._propose_mutation(champ)
             if mutation and mutation.get("target"):
                 child = self._mgr.branch(
@@ -144,6 +144,38 @@ class UniverseEvolver:
                 result.mutation_applied = bool(applied.get("applied"))
                 result.mutation_detail = applied.get("detail")
 
+                if result.mutation_applied:
+                    paired = await self._evaluate_behavior_challenger(child["id"], cfg)
+                    if paired is not None:
+                        margin = getattr(cfg, "universe_promote_margin", 0.05)
+                        min_samples = getattr(cfg, "universe_min_samples", 20)
+                        result.eval_delta = paired["delta"]
+                        samples = paired["variant"]["fitness"].get("samples", 0)
+                        if paired["delta"] <= -margin:
+                            self._mgr.archive(child["id"])
+                            result.retired.append(child["id"])
+                        elif paired["delta"] >= margin and samples >= min_samples:
+                            result.promotion_recommended = child["id"]
+                            if getattr(cfg, "universe_auto_promote", False):
+                                self._mgr.switch(child["id"])
+                                await self._emit(
+                                    "universe.promoted",
+                                    {
+                                        "universe_id": child["id"],
+                                        "auto": True,
+                                        "delta": paired["delta"],
+                                    },
+                                )
+                            else:
+                                await self._emit(
+                                    "universe.promotion_recommended",
+                                    {
+                                        "universe_id": child["id"],
+                                        "delta": paired["delta"],
+                                        "samples": samples,
+                                    },
+                                )
+
             await self._emit("universe.evolved", result.to_dict())
             return result
         except Exception as e:  # noqa: BLE001
@@ -152,38 +184,6 @@ class UniverseEvolver:
             return result
         finally:
             self._storage.release_synthesis_lock(_LOCK_KEY)
-
-    async def _maybe_promote(self, champ: dict, cfg: Any) -> str | None:
-        min_samples = getattr(cfg, "universe_min_samples", 20)
-        margin = getattr(cfg, "universe_promote_margin", 0.05)
-        auto = getattr(cfg, "universe_auto_promote", False)
-        champ_score = (champ.get("fitness") or {}).get("score", 0.0)
-        best: tuple[str, float] | None = None
-        for u in self._mgr.list(include_archived=False):
-            if u["status"] != UniverseStatus.CHALLENGER.value:
-                continue
-            f = u.get("fitness") or {}
-            if f.get("samples", 0) < min_samples:
-                continue
-            score = f.get("score", 0.0)
-            if score >= champ_score + margin and (best is None or score > best[1]):
-                best = (u["id"], score)
-        if not best:
-            return None
-        winner_id = best[0]
-        if auto:
-            self._mgr.switch(winner_id)
-            await self._emit("universe.promoted", {"universe_id": winner_id, "auto": True})
-        else:
-            await self._emit(
-                "universe.promotion_recommended",
-                {
-                    "universe_id": winner_id,
-                    "score": best[1],
-                    "champion_score": champ_score,
-                },
-            )
-        return winner_id
 
     async def _propose_mutation(self, champ: dict) -> dict:
         challengers = [
@@ -221,6 +221,59 @@ class UniverseEvolver:
         pdir = store.personas_dir(champ["id"])
         personas = sorted(p.name for p in pdir.glob("*")) if pdir.exists() else []
         return f"人格: {personas}; config: {list(store.read_manifest(champ['id']).keys())}"
+
+    async def _evaluate_behavior_challenger(self, child_id: str, cfg: Any) -> dict | None:
+        """行为层候选的沙箱配对评估:主仓代码 + env 重定向 personas 到候选快照。
+
+        协作者缺失(测试装配/未开代码变体基建)或无历史 goal 时返回 None,
+        候选留观、不判晋升——失败安全,评估缺席不等于劣质。
+        """
+        if self._eval_harness is None or self._code_store is None:
+            return None
+        eval_set = self._eval_harness.select_eval_set(
+            getattr(cfg, "code_variant_eval_set_size", 20)
+        )
+        if not eval_set:
+            return None
+        store = self._mgr._store  # noqa: SLF001
+        variant_env = {"TIANSHU_RUNTIME_PERSONAS_DIR": str(store.personas_dir(child_id))}
+        champion_key = self._baseline_key()
+        fp = self._eval_harness.eval_set_fingerprint(eval_set, champion_key)
+        cached = self._storage.latest_baseline_fitness(fp)
+        budget = getattr(cfg, "code_variant_eval_budget_cny", None)
+        repo_root = self._code_store.repo_root
+        paired = await asyncio.to_thread(
+            self._eval_harness.evaluate_paired,
+            repo_root,
+            eval_set=eval_set,
+            baseline_worktree=repo_root,
+            variant_env=variant_env,
+            budget_cny=budget,
+            cached_baseline=cached,
+        )
+        from datetime import UTC, datetime
+
+        from ulid import ULID
+
+        fitness = paired["variant"]["fitness"]
+        self._storage.save_variant_eval_run(
+            {
+                "id": str(ULID()),
+                "universe_id": child_id,
+                "gate_passed": True,
+                "fitness": fitness,
+                "baseline": (
+                    paired["baseline"]["fitness"]
+                    if not paired["baseline"].get("truncated")
+                    else None
+                ),
+                "eval_set_version": fp,
+                "cost": paired["variant"]["stats"].get("cost", 0),
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        self._storage.update_universe_fitness(child_id, fitness)
+        return paired
 
     def _baseline_key(self) -> str:
         """基线身份 = 冠军位面 + 主干代码版本;主干任何提交都使基线缓存失效。"""

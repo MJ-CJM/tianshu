@@ -48,9 +48,17 @@ def test_build_env_extra_env_cannot_unset_eval_mode():
         Path("/tmp/wt"),
         Path("/tmp/db.sqlite"),
         12345,
-        extra_env={"TIANSHU_EVAL_MODE": "0"},
+        extra_env={
+            "TIANSHU_EVAL_MODE": "0",
+            "TIANSHU_DB_PATH": "/evil/db.sqlite",
+            "TIANSHU_PORT": "1",
+            "TIANSHU_HOST": "0.0.0.0",
+        },
     )
     assert env["TIANSHU_EVAL_MODE"] == "1"  # 安全围栏字段不可被覆盖
+    assert env["TIANSHU_DB_PATH"] == "/tmp/db.sqlite"
+    assert env["TIANSHU_PORT"] == "12345"
+    assert env["TIANSHU_HOST"] == "127.0.0.1"
 
 
 @pytest.mark.slow
