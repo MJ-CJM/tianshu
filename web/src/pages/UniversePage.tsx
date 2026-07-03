@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Card, Input, Modal, Space, Table, Tag, Tree, message } from "antd";
 import { ReloadOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -43,9 +43,12 @@ const ORIGIN_LABEL: Record<string, string> = {
 };
 
 function buildLineage(rows: Universe[]): DataNode[] {
+  const ids = new Set(rows.map((u) => u.id));
   const byParent = new Map<string | null, Universe[]>();
   rows.forEach((u) => {
-    const k = u.parent_universe_id ?? null;
+    // 父位面被硬删除后 parent_universe_id 会指向不存在的 id：
+    // 此时当作伪根渲染，避免整棵子树从谱系树消失（但仍在表格中列出）
+    const k = u.parent_universe_id && ids.has(u.parent_universe_id) ? u.parent_universe_id : null;
     byParent.set(k, [...(byParent.get(k) ?? []), u]);
   });
   const toNode = (u: Universe): DataNode => ({
@@ -76,11 +79,15 @@ export default function UniversePage() {
   const [diffOpen, setDiffOpen] = useState(false);
   const [diffContent, setDiffContent] = useState("");
   const [diffLoading, setDiffLoading] = useState(false);
+  // 请求序号守卫：防止快速切换位面时，旧位面的慢响应覆盖新位面已展示的 diff
+  const diffReqRef = useRef(0);
 
   // 评估记录 modal state
   const [evalOpen, setEvalOpen] = useState(false);
   const [evalRuns, setEvalRuns] = useState<VariantEvalRun[]>([]);
   const [evalLoading, setEvalLoading] = useState(false);
+  // 请求序号守卫：防止快速切换位面时，旧位面的慢响应覆盖新位面已展示的评估记录
+  const evalReqRef = useRef(0);
 
   // 晋升审批 modal state
   const [promoteReviewOpen, setPromoteReviewOpen] = useState(false);
@@ -228,28 +235,32 @@ export default function UniversePage() {
   };
 
   const loadDiff = async (u: Universe) => {
+    const seq = ++diffReqRef.current;
     setDiffContent("");
     setDiffLoading(true);
     try {
       const res = await getCodeDiff(u.id);
+      if (seq !== diffReqRef.current) return; // 已有更新的请求发出，本次响应过期，丢弃
       if (res.success && res.data) {
         setDiffContent(res.data.diff);
       }
     } finally {
-      setDiffLoading(false);
+      if (seq === diffReqRef.current) setDiffLoading(false);
     }
   };
 
   const loadEvalRuns = async (u: Universe) => {
+    const seq = ++evalReqRef.current;
     setEvalRuns([]);
     setEvalLoading(true);
     try {
       const res = await listEvalRuns(u.id);
+      if (seq !== evalReqRef.current) return; // 已有更新的请求发出，本次响应过期，丢弃
       if (res.success && res.data) {
         setEvalRuns(res.data);
       }
     } finally {
-      setEvalLoading(false);
+      if (seq === evalReqRef.current) setEvalLoading(false);
     }
   };
 
