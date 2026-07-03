@@ -105,20 +105,39 @@ class EvalHarness:
         seed_db: Path | None = None,
         goal_timeout_s: int = 300,
         extra_env: dict | None = None,
+        budget_cny: float | None = None,
     ) -> dict:
         """在沙箱中回放 eval_set，聚合并打分。
 
         iso_db 放在 worktree 同级目录（保持 worktree 内文件系统干净）。
         seed_db 不为 None 时拷贝作为初始数据库（例如携带 persona/LLM 配置）。
+        budget_cny 非 None 时逐条回放后检查沙箱 DB 累计成本,触顶即截断
+        (truncated=True),已回放部分照常聚合打分——评估必须失败安全,
+        预算闸只截断、不作废。
         """
         iso_db = Path(worktree).parent / "_eval.db"
         if seed_db is not None:
             shutil.copy(seed_db, iso_db)
+        truncated = False
+        ran = 0
         with self._sandbox.session(worktree, db_path=iso_db, extra_env=extra_env) as h:
             for goal in eval_set:
                 self._run_goal(h.base_url, goal, goal_timeout_s)
+                ran += 1
+                if (
+                    budget_cny is not None
+                    and self.aggregate_db_stats(h.db_path)["cost"] >= budget_cny
+                ):
+                    truncated = True
+                    logger.warning(
+                        "eval: budget %.2f CNY reached after %d/%d goals, truncating",
+                        budget_cny,
+                        ran,
+                        len(eval_set),
+                    )
+                    break
             stats = self.aggregate_db_stats(h.db_path)
-        return {"fitness": self.score(stats), "stats": stats, "n": len(eval_set)}
+        return {"fitness": self.score(stats), "stats": stats, "n": ran, "truncated": truncated}
 
     def _run_goal(self, base_url: str, goal: str, timeout_s: int) -> None:
         """POST 一个 edict 并轮询其 memorial 到终态（或超时放弃）。

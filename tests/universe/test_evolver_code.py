@@ -100,10 +100,17 @@ class FakeEvalHarness:
     def select_eval_set(self, size: int) -> list[str]:
         return [f"goal-{i}" for i in range(min(size, self._n))]
 
-    def evaluate(self, worktree: Path, *, eval_set: list[str], seed_db=None) -> dict:
+    def evaluate(
+        self, worktree: Path, *, eval_set: list[str], seed_db=None, budget_cny=None
+    ) -> dict:
         fitness = {"score": self._score, "samples": len(eval_set)}
         stats = {"cost": 0.01, "total": len(eval_set), "success": len(eval_set)}
-        return {"fitness": fitness, "stats": stats, "n": len(eval_set)}
+        return {
+            "fitness": fitness,
+            "stats": stats,
+            "n": len(eval_set),
+            "truncated": False,
+        }
 
 
 class FakeStorage:

@@ -209,12 +209,94 @@ def test_evaluate_orchestration_with_fakes(tmp_path, tmp_storage, monkeypatch):
     result = harness.evaluate(worktree, eval_set=eval_set)
 
     # 返回结构正确
-    assert set(result.keys()) == {"fitness", "stats", "n"}
+    assert set(result.keys()) == {"fitness", "stats", "n", "truncated"}
     assert result["n"] == len(eval_set)
     assert isinstance(result["fitness"], dict)
     assert "score" in result["fitness"]
     assert isinstance(result["stats"], dict)
     assert "total" in result["stats"]
+    assert result["truncated"] is False
 
     # _run_goal 被调用了 len(eval_set) 次
     assert run_goal_calls == eval_set
+
+
+def test_evaluate_truncates_on_budget(tmp_path, monkeypatch):
+    """预算触顶后停止回放剩余 goal,结果标记 truncated。"""
+    from tianshu.universe.eval_harness import EvalHarness
+
+    ran: list[str] = []
+
+    class _H:
+        base_url = "http://x"
+        db_path = tmp_path / "_eval.db"
+
+    class _FakeSandbox:
+        import contextlib
+
+        @contextlib.contextmanager
+        def session(self, worktree, *, db_path, extra_env=None):
+            yield _H()
+
+    harness = EvalHarness(storage=None, sandbox_runner=_FakeSandbox())
+    # 每回放一条 goal,沙箱 DB 里累积 1.0 元成本
+    monkeypatch.setattr(harness, "_run_goal", lambda base, goal, t: ran.append(goal))
+    costs = iter([1.0, 2.0, 3.0, 3.0])  # 第 2 条后 cost=2.0 ≥ budget → 截断
+    monkeypatch.setattr(
+        harness,
+        "aggregate_db_stats",
+        lambda db: {
+            "total": len(ran),
+            "success": len(ran),
+            "retries": 0,
+            "audited": 0,
+            "audit_pass": 0,
+            "cost": next(costs),
+            "feedback": 0,
+        },
+    )
+
+    result = harness.evaluate(tmp_path, eval_set=["g1", "g2", "g3"], budget_cny=2.0)
+    assert result["truncated"] is True
+    assert ran == ["g1", "g2"]
+    assert result["n"] == 2
+
+
+def test_evaluate_no_budget_runs_all(tmp_path, monkeypatch):
+    """不传预算时全量回放,truncated 恒 False。"""
+    from tianshu.universe.eval_harness import EvalHarness
+
+    ran: list[str] = []
+
+    class _H:
+        base_url = "http://x"
+        db_path = tmp_path / "_eval.db"
+
+    class _FakeSandbox:
+        import contextlib
+
+        @contextlib.contextmanager
+        def session(self, worktree, *, db_path, extra_env=None):
+            yield _H()
+
+    harness = EvalHarness(storage=None, sandbox_runner=_FakeSandbox())
+    monkeypatch.setattr(harness, "_run_goal", lambda base, goal, t: ran.append(goal))
+    costs = iter([1.0, 2.0, 3.0, 3.0])
+    monkeypatch.setattr(
+        harness,
+        "aggregate_db_stats",
+        lambda db: {
+            "total": len(ran),
+            "success": len(ran),
+            "retries": 0,
+            "audited": 0,
+            "audit_pass": 0,
+            "cost": next(costs),
+            "feedback": 0,
+        },
+    )
+
+    result = harness.evaluate(tmp_path, eval_set=["g1", "g2", "g3"])
+    assert result["truncated"] is False
+    assert ran == ["g1", "g2", "g3"]
+    assert result["n"] == 3

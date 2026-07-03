@@ -287,8 +287,15 @@ class UniverseEvolver:
 
             eval_set_size = getattr(cfg, "code_variant_eval_set_size", 20)
             es = self._eval_harness.select_eval_set(eval_set_size)
-            ev = await asyncio.to_thread(self._eval_harness.evaluate, worktree, eval_set=es)
+            ev = await asyncio.to_thread(
+                self._eval_harness.evaluate,
+                worktree,
+                eval_set=es,
+                budget_cny=getattr(cfg, "code_variant_eval_budget_cny", None),
+            )
             fitness = ev["fitness"]
+            if ev.get("truncated"):
+                fitness = {**fitness, "truncated": True}
 
             self._storage.save_variant_eval_run(
                 {
