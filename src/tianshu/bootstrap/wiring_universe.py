@@ -82,10 +82,18 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
     _cfg = config_manager.agent_config
     code_gate = Gate(python_exe=sys.executable, timeout_s=_cfg.code_variant_sandbox_timeout_s)
     code_sandbox = SandboxRunner(mem_mb=_cfg.code_variant_sandbox_mem_mb)
+    eval_base_env: dict[str, str] = {}
+    if settings.eval_llm_api_key:
+        eval_base_env["TIANSHU_LLM_API_KEY"] = settings.eval_llm_api_key
+        if settings.eval_llm_api_base:
+            eval_base_env["TIANSHU_LLM_API_BASE"] = settings.eval_llm_api_base
+        if settings.eval_llm_model:
+            eval_base_env["TIANSHU_LLM_MODEL"] = settings.eval_llm_model
     code_eval_harness = EvalHarness(
         storage,
         code_sandbox,
         fitness_weights=_cfg.universe_fitness_weights,
+        base_env=eval_base_env,
     )
     code_mutator = CodeMutator(
         provider_manager.get_client(),

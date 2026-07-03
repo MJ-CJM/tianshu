@@ -24,10 +24,18 @@ _TERMINAL_STATUSES = {"completed", "approved", "failed", "rejected"}
 
 
 class EvalHarness:
-    def __init__(self, storage, sandbox_runner, *, fitness_weights=(0.4, 0.15, 0.2, 0.1, 0.15)):
+    def __init__(
+        self,
+        storage,
+        sandbox_runner,
+        *,
+        fitness_weights=(0.4, 0.15, 0.2, 0.1, 0.15),
+        base_env: dict[str, str] | None = None,
+    ):
         self._storage = storage
         self._sandbox = sandbox_runner
         self._weights = fitness_weights
+        self._base_env = dict(base_env or {})
 
     def select_eval_set(self, size: int) -> list[str]:
         """分层选集:约 60% 最近成功 + 40% 最近失败(跨层去重,不足互补)。
@@ -168,7 +176,8 @@ class EvalHarness:
             shutil.copy(seed_db, iso_db)
         truncated = False
         ran = 0
-        with self._sandbox.session(worktree, db_path=iso_db, extra_env=extra_env) as h:
+        merged_env = {**self._base_env, **(extra_env or {})} or None
+        with self._sandbox.session(worktree, db_path=iso_db, extra_env=merged_env) as h:
             for goal in eval_set:
                 self._run_goal(h.base_url, goal, goal_timeout_s)
                 ran += 1

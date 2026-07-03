@@ -568,3 +568,52 @@ def test_select_eval_set_failed_layer_survives_empty_list_edicts():
     failed = [g for g in goals if g.startswith("失败")]
     assert len(failed) == 2  # size=5 → n_fail=int(5*0.4)=2，全部经 memorial 路径采到
     assert set(failed) <= {"失败目标0", "失败目标1", "失败目标2"}
+
+
+# ---------------------------------------------------------------------------
+# test_evaluate_merges_base_env_into_sandbox (沙箱凭证隔离测试)
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_merges_base_env_into_sandbox(tmp_path, monkeypatch):
+    """evaluate() 应将 base_env 与 extra_env 合并后传给 sandbox.session()。
+
+    base_env 作为默认值，extra_env 优先级更高。验证沙箱进程收到合并后的 env dict。
+    """
+    from tianshu.universe.eval_harness import EvalHarness
+
+    captured = {}
+
+    class _H:
+        base_url = "http://x"
+        db_path = tmp_path / "_eval.db"
+
+    class _FakeSandbox:
+        import contextlib
+
+        @contextlib.contextmanager
+        def session(self, worktree, *, db_path, extra_env=None):
+            captured["extra_env"] = extra_env
+            yield _H()
+
+    harness = EvalHarness(
+        storage=None, sandbox_runner=_FakeSandbox(), base_env={"TIANSHU_LLM_API_KEY": "sk-eval-low"}
+    )
+    monkeypatch.setattr(harness, "_run_goal", lambda *a: None)
+    monkeypatch.setattr(
+        harness,
+        "aggregate_db_stats",
+        lambda db: {
+            "total": 0,
+            "success": 0,
+            "retries": 0,
+            "audited": 0,
+            "audit_pass": 0,
+            "cost": 0.0,
+            "feedback": 0,
+        },
+    )
+
+    harness.evaluate(tmp_path, eval_set=["g"], extra_env={"TIANSHU_RUNTIME_PERSONAS_DIR": "/tmp/p"})
+    assert captured["extra_env"]["TIANSHU_LLM_API_KEY"] == "sk-eval-low"
+    assert captured["extra_env"]["TIANSHU_RUNTIME_PERSONAS_DIR"] == "/tmp/p"

@@ -77,3 +77,8 @@ class TianshuSettings(BaseSettings):
     parallel_universe_enabled: bool = False
     code_variant_enabled: bool = False
     eval_mode: bool = False  # 沙箱评估模式：外发副作用（通知/webhook）应被 stub
+    # 沙箱评估专用 LLM 凭证(空 = 沿用宿主凭证)。untrusted 变体进程在评估期
+    # 能拿到 LLM key,配置低额度专用 key 可把泄漏面压到额度上限。
+    eval_llm_api_key: str = ""
+    eval_llm_api_base: str = ""
+    eval_llm_model: str = ""
