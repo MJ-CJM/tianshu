@@ -65,7 +65,7 @@
 
 ## 5. Ambient Context（调用方身份绑定）
 
-工具 handler 经常需要知道「是谁在调用我」——尤其 `memory_write` 要把内容写进**调用方私有池**而非别人的目录。直接让 Agent 把 `persona_id` 当参数透传给每个工具，既污染工具签名，又容易在多轮 / 多节点并发时串号。`executor/ambient.py` 用 `ContextVar` 把当前 Edict 与 Persona 绑成 ambient 上下文解决这个问题。
+工具 handler 经常需要知道「是谁在调用我」——尤其 `memory_write` 要把内容写进**调用方私有池**而非别人的目录。直接让 Agent 把 `persona_id` 当参数透传给每个工具，既污染工具签名，又容易在多轮 / 多节点并发时串号。`kernel/ambient.py` 用 `ContextVar` 把当前 Edict 与 Persona 绑成 ambient 上下文解决这个问题。
 
 **为何用 ContextVar 而非共享字段**：
 

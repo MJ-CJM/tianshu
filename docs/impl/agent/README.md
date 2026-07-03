@@ -10,16 +10,16 @@
 |---|---|---|
 | ReAct 主循环 | `executor/agent.py` | `Agent.execute()`、`AgentResult`、`ASSISTANT_ONLY_TOOLS` |
 | 单轮状态 | `executor/loop_state.py` | `LoopState`（frozen，`next_turn`/`with_recovery`/`with_compacted`/`accumulate_usage`） |
-| 退出原因 | `executor/exit_reason.py` | `ExitReason(StrEnum)` 10 值 |
+| 退出原因 | `kernel/exit_reason.py` | `ExitReason(StrEnum)` 10 值 |
 | 流式 | `executor/streaming.py` | `StreamCallback`(Protocol)、`CancellationToken` |
-| 钩点 | `executor/hooks.py` | `HookRegistry`、`HookType`、`HookResult`、`HOOK_TIMEOUTS` |
+| 钩点 | `kernel/hooks.py` | `HookRegistry`、`HookType`、`HookResult`、`HOOK_TIMEOUTS` |
 | policy 钩 | `executor/policy_hook.py` | `PolicyHook`（priority 5） |
 | 审批 | `executor/approvals.py` | `ApprovalManager`（priority 10） |
 | 取消/恢复 | `executor/cancel.py`、`executor/checkpoint.py`、`executor/retry.py` | cancel 信号、checkpoint、重试 |
 | 压缩 | `executor/compaction/{micro,auto,reactive,token_estimator}.py` | `micro_compact`、`auto_compact`/`should_auto_compact`、`reactive_compact`、`estimate_tokens` |
 | 并发 | `executor/worker_pool.py`、`executor/lanes.py`、`executor/worker.py` | `WorkerPool`、`LaneManager`/`SessionLane`/`GlobalLane`、`Worker` |
 | DAG 调度 | `executor/dag_scheduler.py` | `DAGScheduler.run()`、`_schedule_ready()` |
-| DAG 图 | `dag/graph.py`、`dag/models.py` | `DAG`、`DAGExecution`、`DAGNode`、`DAGNodeStatus` |
+| DAG 图 | `dag/graph.py`、`models/dag.py` | `DAG`、`DAGExecution`、`DAGNode`、`DAGNodeStatus` |
 | 分派 | `executor/executor.py` | `Executor.handle_plan_completed()`、`execute_edict()`、`_run_outer_loop()` |
 | outer loop | `executor/orchestrator/` | 见 §4 |
 

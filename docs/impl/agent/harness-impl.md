@@ -14,7 +14,7 @@
 | 失败级联取消 | `executor/cancel.py` | `CascadeCanceller.cancel()` |
 | 部分重试 | `executor/retry.py` | `PartialRetrier.prepare_retry()`、`_collect_downstream()` |
 | 节点 checkpoint | `executor/checkpoint.py` | `Checkpoint`、`CheckpointManager`（`save`/`load`/`clear`）、`OuterLoopCheckpoint` |
-| ambient 上下文 | `executor/ambient.py` | `bind_edict`/`bind_persona`、`get_current_edict`/`get_current_persona` |
+| ambient 上下文 | `kernel/ambient.py` | `bind_edict`/`bind_persona`、`get_current_edict`/`get_current_persona` |
 | 调度编排 | `executor/dag_scheduler.py` | `DAGScheduler.run()`、`_schedule_ready()` |
 | 取消/重试入口 | `executor/executor.py` | `Executor.cancel_dag()`、`retry_dag()`、`set_dag_scheduler()`、`set_lane_manager()` |
 | 图操作 | `dag/graph.py` | `DAG.propagate_failure`、`mark_failed`/`mark_completed`、`get_ready_nodes`、`is_complete` |

@@ -13,7 +13,7 @@ feat_phase4 深度参考。落点见 [plan](../superpowers/plans/2026-04-02-phas
 **采纳点**：
 
 1. **ExitReason 枚举**（10 种退出原因）—— 取代此前的 `bool success` + 错误字符串。明确区分 `completed` / `max_iterations` / `context_overflow` / `timeout` / `cancelled` / `hook_blocked` / `budget_exhausted` / `llm_error` / `output_truncated` / `repeated_tool_failure`。
-   落点：`src/tianshu/executor/exit_reason.py`
+   落点：`src/tianshu/kernel/exit_reason.py`
 
 2. **LoopState frozen dataclass** —— 每轮返回新对象（`next_turn` / `with_recovery` / `with_compacted` / `accumulate_usage`），消除隐式状态。
    落点：`src/tianshu/executor/loop_state.py`
@@ -31,7 +31,7 @@ feat_phase4 深度参考。落点见 [plan](../superpowers/plans/2026-04-02-phas
    落点：`src/tianshu/executor/streaming.py`
 
 7. **Hook 生命周期系统** —— 10 种 HookType，priority 排序，`HookResult(block, reason, modified_args)` 可阻断或改写。
-   落点：`src/tianshu/executor/hooks.py`
+   落点：`src/tianshu/kernel/hooks.py`
 
 ### 1.2 Hermes Agent — 安全与模糊匹配
 
@@ -119,7 +119,7 @@ feat_phase3 参考。
 |---|---|---|
 | ExitReason / LoopState / Compaction / Streaming | Claude Code | `executor/` |
 | Anthropic prompt cache | Claude Code | `llm.py` |
-| Skills 渐进加载 + Hook 生命周期 | Claude Code | `skills/loader.py`, `executor/hooks.py` |
+| Skills 渐进加载 + Hook 生命周期 | Claude Code | `skills/loader.py`, `kernel/hooks.py` |
 | Guard 13 × 50 regex + TrustLevel | Hermes | `skills/guard.py` |
 | FuzzyMatch 8 策略 | Hermes | `skills/fuzzy_match.py` |
 | Skills 3 层缓存 | Hermes | `skills/loader.py` |

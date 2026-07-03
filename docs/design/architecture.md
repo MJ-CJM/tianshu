@@ -195,7 +195,7 @@ execution.completed → MemoryManager.on_agent_end
 | **Memory Palace L0–L3** | `memory/` | BEFORE_AGENT_START hook / prompt Layer 5.1 | `design/memory-palace.md`, `impl/memory.md` |
 | **Skills 渐进加载** | `skills/loader.py` | prompt Layer 7（索引 + always-on） | `impl/skills.md` |
 | **Guard 安全扫描** | `skills/guard.py` | `skill_install` / `skill_propose` | `impl/skills.md` §3 |
-| **Hook 系统（10 钩点）** | `executor/hooks.py` | agent 生命周期 | `impl/executor.md` §4 |
+| **Hook 系统（10 钩点）** | `kernel/hooks.py` | agent 生命周期 | `impl/executor.md` §4 |
 | **PolicyHook + Approval** | `executor/policy_hook.py`, `approvals.py` | BEFORE_TOOL_CALL | `impl/executor.md` §5 |
 | **3 层 Compaction** | `executor/compaction/` | 上下文溢出 / 阈值 / 每轮末尾 | `impl/executor.md` §3 |
 | **CostManager** | `cost/` | BEFORE_ITERATION / LLM_OUTPUT | `impl/llm-and-cost.md` §4 |
@@ -272,13 +272,13 @@ execution.completed → MemoryManager.on_agent_end
 - `reference-projects.md` — Claude Code / Hermes / NanoBot / DeepAgents 等借鉴源
 
 ### impl/（HOW + WHERE，按模块索引当前代码）
-- `overview.md` — 启动序列、18 张表、模块树、前端↔后端路由
+- `overview.md` — 启动序列、38+ 张表、模块树、前端↔后端路由
 - `executor.md` — 17 文件：Agent / Hook / Policy / DAG / Compaction / Worker
 - `skills.md` — Loader / Guard / FuzzyMatch / Metrics / Reviewer / Validator
 - `memory.md` — 14 文件：Drawer / Stack / Markdown / Chunker / Compactor / Reflect
 - `persona.md` — 模板/运行时 / Loader / Selector / PromptBuilder 8 层
 - `llm-and-cost.md` — LLMClient / ConfigManager / ProviderManager / CostManager
-- `storage-and-events.md` — 18 表 / EventBus / 事件流
+- `storage-and-events.md` — 38+ 表 / EventBus / 事件流
 
 ### 进行中计划（`docs/superpowers/plans/`）
 - 2026-04-02 Phase 1 Agent loop redesign（CC 借鉴，已落地）
