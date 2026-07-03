@@ -34,16 +34,18 @@ class EvalHarness:
 
         含失败样本让变体有机会证明「修好了冠军跑不动的」——配对基线下
         冠军在失败样本上同样失败,变体修好即体现为正 delta。
+
+        edict 没有 failed 生命周期(失败挂在 memorial 层，见 _collect_failed_goals)。
         """
         n_fail = int(size * 0.4)
-        fail_goals = self._collect_goals("failed", n_fail)
+        fail_goals = self._collect_failed_goals(n_fail)
         succ_goals = self._collect_goals(
             "completed", size - len(fail_goals), exclude=set(fail_goals)
         )
         short = size - len(succ_goals) - len(fail_goals)
         if short > 0:
             fail_goals.extend(
-                self._collect_goals("failed", short, exclude=set(fail_goals) | set(succ_goals))
+                self._collect_failed_goals(short, exclude=set(fail_goals) | set(succ_goals))
             )
         return succ_goals + fail_goals
 
@@ -59,6 +61,31 @@ class EvalHarness:
         goals: list[str] = []
         for e in edicts:
             g = e.goal.strip()
+            if g and g not in seen:
+                seen.add(g)
+                goals.append(g)
+            if len(goals) >= want:
+                break
+        return goals
+
+    def _collect_failed_goals(self, want: int, exclude: set[str] | None = None) -> list[str]:
+        """从 memorial.status=failed 反查 edict.goal 收集失败样本，最多 want 条。
+
+        edict 本身没有 failed 状态——失败是 memorial 层的终态，因此不能像
+        _collect_goals 那样直接 list_edicts(status="failed")（永远查不到）。
+
+        exclude: 要跳过的 goal 集合（跨层去重）。
+        """
+        if want <= 0:
+            return []
+        seen: set[str] = set(exclude or ())
+        mems, _ = self._storage.list_memorials(status="failed", limit=want * 3)
+        goals: list[str] = []
+        for m in mems:
+            edict = self._storage.get_edict(m.edict_id)
+            if edict is None:
+                continue
+            g = edict.goal.strip()
             if g and g not in seen:
                 seen.add(g)
                 goals.append(g)

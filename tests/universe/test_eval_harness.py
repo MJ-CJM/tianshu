@@ -58,18 +58,22 @@ def test_score_uses_compute_fitness():
 
 
 def test_select_eval_set_from_storage(tmp_storage):
-    """从 completed 和 failed edict 混采，约 60% 成功 + 40% 失败，去重。"""
+    """从 completed edict 和 failed memorial 混采，约 60% 成功 + 40% 失败，去重。
+
+    edict 没有 failed 生命周期：失败信号挂在 memorial 层，edict 本身保持
+    默认(open)状态，select_eval_set 需经 memorial 反查 edict.goal 采到失败样本。
+    """
     # 插入 3 个 completed goals
     for _i, g in enumerate(["goal A", "goal B", "goal C"]):
         e = Edict(goal=g, status=EdictStatus.COMPLETED)
         tmp_storage.save_edict(e)
         tmp_storage.update_edict_status(e.id, "completed")
 
-    # 插入 2 个 failed goals
+    # 插入 2 个 failed goals：edict 保持 open，失败状态挂在 memorial 上
     for _i, g in enumerate(["failed goal 1", "failed goal 2"]):
-        e = Edict(goal=g, status=EdictStatus.FAILED)
+        e = Edict(goal=g)
         tmp_storage.save_edict(e)
-        tmp_storage.update_edict_status(e.id, "failed")
+        tmp_storage.save_memorial(Memorial(edict_id=e.id, status=TaskStatus.FAILED))
 
     # 追加一个 open 状态的 edict，不应被选中
     open_e = Edict(goal="open goal")
@@ -96,11 +100,11 @@ def test_select_eval_set_respects_size(tmp_storage):
         tmp_storage.save_edict(e)
         tmp_storage.update_edict_status(e.id, "completed")
 
-    # 插入 10 个 failed goals
+    # 插入 10 个 failed goals：edict 保持 open，失败状态挂在 memorial 上
     for i in range(10):
-        e = Edict(goal=f"failed goal {i}", status=EdictStatus.FAILED)
+        e = Edict(goal=f"failed goal {i}")
         tmp_storage.save_edict(e)
-        tmp_storage.update_edict_status(e.id, "failed")
+        tmp_storage.save_memorial(Memorial(edict_id=e.id, status=TaskStatus.FAILED))
 
     harness = EvalHarness(tmp_storage, None)
     result = harness.select_eval_set(10)
@@ -412,19 +416,37 @@ def test_evaluate_paired_bare_fitness_dict_cache(tmp_path, monkeypatch):
 
 
 def test_select_eval_set_mixes_failed_goals():
+    """edict 层无 failed 状态：list_edicts("failed") 故意留空，
+
+    失败样本经 list_memorials + get_edict 反查 goal 采集。
+    """
     from tianshu.universe.eval_harness import EvalHarness
 
     class _E:
         def __init__(self, goal):
             self.goal = goal
 
+    class _M:
+        def __init__(self, edict_id):
+            self.edict_id = edict_id
+
     class _FakeStorage:
+        def __init__(self):
+            self._failed_edicts = {f"f{i}": _E(f"失败目标{i}") for i in range(20)}
+
         def list_edicts(self, status=None, limit=50, **kw):
             if status == "completed":
                 return [_E(f"成功目标{i}") for i in range(20)], 20
+            return [], 0  # edict 层无 failed 状态
+
+        def list_memorials(self, status=None, limit=50, offset=0):
             if status == "failed":
-                return [_E(f"失败目标{i}") for i in range(20)], 20
+                ids = list(self._failed_edicts)
+                return [_M(eid) for eid in ids], len(ids)
             return [], 0
+
+        def get_edict(self, edict_id):
+            return self._failed_edicts.get(edict_id)
 
     harness = EvalHarness(storage=_FakeStorage(), sandbox_runner=None)
     goals = harness.select_eval_set(10)
@@ -441,13 +463,26 @@ def test_select_eval_set_backfills_when_failed_scarce():
         def __init__(self, goal):
             self.goal = goal
 
+    class _M:
+        def __init__(self, edict_id):
+            self.edict_id = edict_id
+
     class _FakeStorage:
+        def __init__(self):
+            self._failed_edicts = {"f0": _E("失败目标0")}
+
         def list_edicts(self, status=None, limit=50, **kw):
             if status == "completed":
                 return [_E(f"成功目标{i}") for i in range(20)], 20
+            return [], 0  # edict 层无 failed 状态
+
+        def list_memorials(self, status=None, limit=50, offset=0):
             if status == "failed":
-                return [_E("失败目标0")], 1
+                return [_M("f0")], 1
             return [], 0
+
+        def get_edict(self, edict_id):
+            return self._failed_edicts.get(edict_id)
 
     goals = EvalHarness(storage=_FakeStorage(), sandbox_runner=None).select_eval_set(10)
     assert len(goals) == 10
@@ -463,14 +498,73 @@ def test_select_eval_set_dedupes_across_strata():
         def __init__(self, goal):
             self.goal = goal
 
+    class _M:
+        def __init__(self, edict_id):
+            self.edict_id = edict_id
+
     class _FakeStorage:
+        def __init__(self):
+            self._failed_edicts = {"f0": _E("重叠目标"), "f1": _E("失败目标1")}
+
         def list_edicts(self, status=None, limit=50, **kw):
             if status == "completed":
                 return [_E("重叠目标"), _E("成功目标1"), _E("成功目标2")], 3
+            return [], 0  # edict 层无 failed 状态
+
+        def list_memorials(self, status=None, limit=50, offset=0):
             if status == "failed":
-                return [_E("重叠目标"), _E("失败目标1")], 2
+                return [_M("f0"), _M("f1")], 2
             return [], 0
+
+        def get_edict(self, edict_id):
+            return self._failed_edicts.get(edict_id)
 
     goals = EvalHarness(storage=_FakeStorage(), sandbox_runner=None).select_eval_set(5)
     assert len(goals) == len(set(goals))  # 无重复
     assert "重叠目标" in goals
+
+
+def test_select_eval_set_failed_layer_survives_empty_list_edicts():
+    """守门测试：list_edicts(status="failed") 返回空模拟真实系统
+
+    (edict 没有 failed 生命周期)。失败层必须仍能从 memorial 路径采到样本，
+    防止实现回归为直接查 list_edicts("failed") 的伪实现。
+    """
+    from tianshu.universe.eval_harness import EvalHarness
+
+    class _E:
+        def __init__(self, goal):
+            self.goal = goal
+
+    class _M:
+        def __init__(self, edict_id):
+            self.edict_id = edict_id
+
+    class _FakeStorage:
+        def __init__(self):
+            self._failed_edicts = {
+                "f0": _E("失败目标0"),
+                "f1": _E("失败目标1"),
+                "f2": _E("失败目标2"),
+            }
+
+        def list_edicts(self, status=None, limit=50, **kw):
+            if status == "completed":
+                return [_E(f"成功目标{i}") for i in range(10)], 10
+            if status == "failed":
+                return [], 0  # 模拟真实系统：edict 从不进入 failed 状态
+            return [], 0
+
+        def list_memorials(self, status=None, limit=50, offset=0):
+            if status == "failed":
+                ids = list(self._failed_edicts)
+                return [_M(eid) for eid in ids], len(ids)
+            return [], 0
+
+        def get_edict(self, edict_id):
+            return self._failed_edicts.get(edict_id)
+
+    goals = EvalHarness(storage=_FakeStorage(), sandbox_runner=None).select_eval_set(5)
+    failed = [g for g in goals if g.startswith("失败")]
+    assert len(failed) == 2  # size=5 → n_fail=int(5*0.4)=2，全部经 memorial 路径采到
+    assert set(failed) <= {"失败目标0", "失败目标1", "失败目标2"}
