@@ -301,3 +301,13 @@ class EventMixin:
             if len(out) >= limit:
                 break
         return out
+
+    def last_activity_at(self) -> str | None:
+        """Most recent event timestamp (ISO) for idle gating; None if no events.
+
+        Execution events carry an edict_id and are persisted, so MAX(created_at)
+        across the events table approximates the last real agent activity.
+        """
+        with self._lock:
+            row = self._conn.execute("SELECT MAX(created_at) AS ts FROM events").fetchone()
+        return row["ts"] if row and row["ts"] else None

@@ -3,10 +3,8 @@
 Storage 由 _StorageBase（连接生命周期：建库/建表/迁移/关闭）与 15 个领域 Mixin 组合而成：
 edict/memorial/event/memory/cost/dag/scheduler（批 B）+
 config/persona/universe/credential/orchestrator/channel/feishu/telegram（批 C）。
-本文件仅保留三个跨域方法（涉及多张表 JOIN，无法唯一归入某个领域表）与 Storage 组合声明本身。
+本文件仅保留跨域方法（涉及多张表 JOIN，无法唯一归入某个领域表）与 Storage 组合声明本身。
 """
-
-import logging
 
 from tianshu.storage._base import _StorageBase
 from tianshu.storage.channel_repo import ChannelMixin
@@ -24,8 +22,6 @@ from tianshu.storage.persona_repo import PersonaMixin
 from tianshu.storage.scheduler_repo import SchedulerMixin
 from tianshu.storage.telegram_repo import TelegramMixin
 from tianshu.storage.universe_repo import UniverseMixin
-
-logger = logging.getLogger(__name__)
 
 
 class Storage(
@@ -100,16 +96,6 @@ class Storage(
             "total_cost_cny": round(cost_row["total_cost"], 6) if cost_row else 0.0,
             "avg_duration_seconds": round(row["avg_duration_seconds"] or 0.0, 2),
         }
-
-    def last_activity_at(self) -> str | None:
-        """Most recent event timestamp (ISO) for idle gating; None if no events.
-
-        Execution events carry an edict_id and are persisted, so MAX(created_at)
-        across the events table approximates the last real agent activity.
-        """
-        with self._lock:
-            row = self._conn.execute("SELECT MAX(created_at) AS ts FROM events").fetchone()
-        return row["ts"] if row and row["ts"] else None
 
     # --- Memorials by Persona ---
 

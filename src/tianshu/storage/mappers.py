@@ -72,9 +72,7 @@ def _row_to_dag_execution(row: sqlite3.Row, nodes: list[DAGNode]) -> DAGExecutio
         root_memorial_id=row["root_memorial_id"],
         max_concurrency=row["max_concurrency"],
         created_at=datetime.fromisoformat(row["created_at"]),
-        completed_at=datetime.fromisoformat(row["completed_at"])
-        if row["completed_at"]
-        else None,
+        completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
         nodes=nodes,
     )
 
@@ -92,9 +90,7 @@ def _row_to_dag_node(row: sqlite3.Row) -> DAGNode:
         memorial_id=row["memorial_id"],
         checkpoint_json=row["checkpoint_json"],
         started_at=datetime.fromisoformat(row["started_at"]) if row["started_at"] else None,
-        completed_at=datetime.fromisoformat(row["completed_at"])
-        if row["completed_at"]
-        else None,
+        completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
         error=row["error"],
     )
 
@@ -228,15 +224,11 @@ def _row_to_edict(row: sqlite3.Row) -> Edict:
         priority=row["priority"] if "priority" in keys else "normal",
         review_policy=row["review_policy"] if "review_policy" in keys else "never",
         output_format=row["output_format"] if "output_format" in keys else None,
-        assigned_persona_id=row["assigned_persona_id"]
-        if "assigned_persona_id" in keys
-        else None,
+        assigned_persona_id=row["assigned_persona_id"] if "assigned_persona_id" in keys else None,
         planner_persona_id=row["planner_persona_id"] if "planner_persona_id" in keys else None,
         plan_review=bool(row["plan_review"]) if "plan_review" in keys else False,
         acceptance=acceptance,
-        execution_profile=row["execution_profile"]
-        if "execution_profile" in keys
-        else "foreground",
+        execution_profile=row["execution_profile"] if "execution_profile" in keys else "foreground",
         constraints=constraints,
         schedule=schedule,
         dispatch=dispatch,
@@ -275,9 +267,7 @@ def _row_to_memorial(row: sqlite3.Row) -> Memorial:
             else None
         ),
         started_at=(datetime.fromisoformat(row["started_at"]) if row["started_at"] else None),
-        completed_at=(
-            datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None
-        ),
+        completed_at=(datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None),
         attempt=row["attempt"] if "attempt" in keys else 1,
         parent_memorial_id=row["parent_memorial_id"] if "parent_memorial_id" in keys else None,
         review_status=row["review_status"] if "review_status" in keys else "not_required",
