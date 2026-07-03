@@ -136,6 +136,7 @@ class TelegramBot:
             instance_id=instance_id,
         )
         self._mode_router = ModeRouter(
+            channel="telegram",
             anchor=self._anchor,
             assistant_branch=self._assistant_branch,
             edict_branch=self._edict_branch,

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from tianshu.gateway.core.budget import query_budget_data
 from tianshu.models.common import EDICT_STATUS_LABELS
 
 if TYPE_CHECKING:
@@ -120,32 +121,10 @@ class CardBuilder:
         """近 7 天总消费 + 当前预算 + Top 5 高消费敕令。"""
         if self._cost_manager is None:
             return self._budget_unavailable_card()
-        budget = self._cost_manager.get_budget("global")
-
-        # 近 7 天总消费 + Top 5 敕令（直接查 cost_ledger 表）
-        recent_total = 0.0
-        top_edicts: list[tuple[str, str, float]] = []
-        try:
-            rows = self._storage._conn.execute(
-                "SELECT edict_id, SUM(cost_cny) as total FROM cost_ledger "
-                "WHERE created_at >= datetime('now', '-7 days') AND edict_id IS NOT NULL "
-                "GROUP BY edict_id ORDER BY total DESC LIMIT 5"
-            ).fetchall()
-            for row in rows:
-                edict_id = row[0]
-                total = float(row[1] or 0.0)
-                edict = self._storage.get_edict(edict_id)
-                title = (edict.title if edict else "(已删)") or "(无标题)"
-                top_edicts.append((edict_id, title[:20], total))
-            # 整体 7 天累计（含未在 top5 的）
-            full_total_row = self._storage._conn.execute(
-                "SELECT SUM(cost_cny) FROM cost_ledger "
-                "WHERE created_at >= datetime('now', '-7 days')"
-            ).fetchone()
-            if full_total_row and full_total_row[0]:
-                recent_total = float(full_total_row[0])
-        except Exception:
-            logger.exception("[feishu/card] cost ledger query failed")
+        data = query_budget_data(self._storage, self._cost_manager)
+        recent_total = data["recent_total"]
+        budget = data["budget"]
+        top_edicts = data["top_edicts"]
 
         lines = [f"**近 7 天消费**：¥{recent_total:.2f}"]
         if budget is not None:

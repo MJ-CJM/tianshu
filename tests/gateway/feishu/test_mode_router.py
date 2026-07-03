@@ -50,6 +50,7 @@ def _make_router(
     settings = MagicMock()
     settings.assistant_persona_id = "tongzheng"
     router = ModeRouter(
+        channel="feishu",
         anchor=anchor,
         assistant_branch=assistant,
         edict_branch=edict_branch,

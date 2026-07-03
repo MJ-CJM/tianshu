@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from tianshu.gateway.core.budget import query_budget_data
+
 # 复用飞书的纯函数（status → 中文标签）
 from tianshu.gateway.feishu.card_builder import format_status_label
 
@@ -104,30 +106,10 @@ class TelegramCardBuilder:
     async def _build_budget_real(self) -> TelegramCard:
         if self._cost_manager is None:
             return self._budget_unavailable()
-        budget = self._cost_manager.get_budget("global")
-
-        recent_total = 0.0
-        top_edicts: list[tuple[str, str, float]] = []
-        try:
-            rows = self._storage._conn.execute(
-                "SELECT edict_id, SUM(cost_cny) as total FROM cost_ledger "
-                "WHERE created_at >= datetime('now', '-7 days') AND edict_id IS NOT NULL "
-                "GROUP BY edict_id ORDER BY total DESC LIMIT 5"
-            ).fetchall()
-            for row in rows:
-                edict_id = row[0]
-                total = float(row[1] or 0.0)
-                edict = self._storage.get_edict(edict_id)
-                title = (edict.title if edict else "(已删)") or "(无标题)"
-                top_edicts.append((edict_id, title[:20], total))
-            full_total_row = self._storage._conn.execute(
-                "SELECT SUM(cost_cny) FROM cost_ledger "
-                "WHERE created_at >= datetime('now', '-7 days')"
-            ).fetchone()
-            if full_total_row and full_total_row[0]:
-                recent_total = float(full_total_row[0])
-        except Exception:
-            logger.exception("[telegram/card] cost ledger query failed")
+        data = query_budget_data(self._storage, self._cost_manager)
+        recent_total = data["recent_total"]
+        budget = data["budget"]
+        top_edicts = data["top_edicts"]
 
         lines = ["💰 **成本概览（近 7 天）**", "", f"**近 7 天消费**：¥{recent_total:.2f}"]
         if budget is not None:
