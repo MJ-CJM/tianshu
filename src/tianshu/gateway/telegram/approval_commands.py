@@ -41,9 +41,7 @@ class TelegramApprovalCommandHandler(_CoreApprovalCommandHandler):
         )
 
     def _list_pending_for_chat(self, chat_id: str) -> list[str]:
-        return self._storage.list_telegram_pending_for_chat(
-            chat_id, instance_id=self._instance_id
-        )
+        return self._storage.list_telegram_pending_for_chat(chat_id, instance_id=self._instance_id)
 
 
 __all__ = [

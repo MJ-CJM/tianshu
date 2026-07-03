@@ -460,9 +460,7 @@ async def _check_budget(
         if result is not None:
             edict = edict.model_copy(
                 update={
-                    "runtime": edict.runtime.model_copy(
-                        update={"lifecycle_phase": "winding_down"}
-                    )
+                    "runtime": edict.runtime.model_copy(update={"lifecycle_phase": "winding_down"})
                 }
             )
             wind_down_prompt = render_template(
@@ -579,9 +577,7 @@ async def _run_critic_phase(
             )
         except CriticUnavailable as e:
             if acceptance.on_critic_unavailable == "skip":
-                critic_result = CriticResult(
-                    verdict="pass", feedback=f"critic 不可用，skip: {e}"
-                )
+                critic_result = CriticResult(verdict="pass", feedback=f"critic 不可用，skip: {e}")
                 critic_skipped = True
             else:
                 # 升级到人 —— Task 12 实现；当前先返回 fail

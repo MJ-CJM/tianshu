@@ -49,8 +49,6 @@ async def test_global_read_on_sees_all(storage, tmp_path):
     storage.save_memory_entry(
         MemoryEntry(persona_id="other", category="observation", content="机密 secret-xyz")
     )
-    with patch(
-        "tianshu.kernel.ambient.get_current_persona", return_value=_persona(tmp_path, True)
-    ):
+    with patch("tianshu.kernel.ambient.get_current_persona", return_value=_persona(tmp_path, True)):
         r = await _memory_search(storage, query="secret-xyz")
     assert "secret-xyz" in r.content

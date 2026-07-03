@@ -125,9 +125,7 @@ class Dispatcher:
 
         await self._batcher.handle(fmsg)
 
-    async def _process_batch(
-        self, chat_id: str, merged_text: str, message: FeishuMessage
-    ) -> None:
+    async def _process_batch(self, chat_id: str, merged_text: str, message: FeishuMessage) -> None:
         merged_msg = replace(message, text=merged_text)
         await self._message_handler(merged_msg)
 

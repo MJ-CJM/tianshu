@@ -45,8 +45,7 @@ def query_budget_data(storage: Storage, cost_manager: CostManager) -> dict:
             top_edicts.append((edict_id, title[:20], total))
         # 整体 7 天累计（含未在 top5 的）
         full_total_row = storage._conn.execute(
-            "SELECT SUM(cost_cny) FROM cost_ledger "
-            "WHERE created_at >= datetime('now', '-7 days')"
+            "SELECT SUM(cost_cny) FROM cost_ledger WHERE created_at >= datetime('now', '-7 days')"
         ).fetchone()
         if full_total_row and full_total_row[0]:
             recent_total = float(full_total_row[0])

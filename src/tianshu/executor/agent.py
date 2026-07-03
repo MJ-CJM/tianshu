@@ -433,9 +433,7 @@ class Agent:
             if stream_callback:
                 final_response = None
                 async for chunk in llm.chat_stream(current_messages, tools=openai_tools):
-                    if cancellation_token and getattr(
-                        cancellation_token, "is_cancelled", False
-                    ):
+                    if cancellation_token and getattr(cancellation_token, "is_cancelled", False):
                         return _LlmCallOutcome(
                             state=state,
                             usage=usage,

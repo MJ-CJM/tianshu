@@ -41,9 +41,7 @@ def _default_enabled_levels() -> list[Literal["L1", "L2", "L3"]]:
 
 
 class EscalationSpec(BaseModel):
-    enabled_levels: list[Literal["L1", "L2", "L3"]] = Field(
-        default_factory=_default_enabled_levels
-    )
+    enabled_levels: list[Literal["L1", "L2", "L3"]] = Field(default_factory=_default_enabled_levels)
     l1_max_rounds: int = 2
     l2_max_rounds: int = 1
     l1_thinking_budget: int = 8000

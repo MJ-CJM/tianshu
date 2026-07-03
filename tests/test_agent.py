@@ -347,7 +347,9 @@ class TestAgentHighRiskPaths:
 
     async def test_fallback_success_continues_after_primary_failure(self, agent, config_manager):
         config_manager.add_config(
-            LLMConfigState(name="fallback", model="fb-model", api_key="fb-key", api_base="http://fb")
+            LLMConfigState(
+                name="fallback", model="fb-model", api_key="fb-key", api_base="http://fb"
+            )
         )
         config_manager.update_agent_config(fallback_llm_config_name="fallback")
         edict = Edict(goal="test fallback success")
@@ -373,7 +375,9 @@ class TestAgentHighRiskPaths:
 
     async def test_fallback_also_fails_exits_llm_error(self, agent, config_manager):
         config_manager.add_config(
-            LLMConfigState(name="fallback", model="fb-model", api_key="fb-key", api_base="http://fb")
+            LLMConfigState(
+                name="fallback", model="fb-model", api_key="fb-key", api_base="http://fb"
+            )
         )
         config_manager.update_agent_config(fallback_llm_config_name="fallback")
         edict = Edict(goal="test fallback failure")
@@ -455,7 +459,9 @@ class TestAgentHighRiskPaths:
             return HookResult(block=True, reason="预算已耗尽")
 
         hooks.register(HookType.BEFORE_ITERATION, _deny)
-        agent = Agent(config_manager=config_manager, tools=tools, skills=skills, hook_registry=hooks)
+        agent = Agent(
+            config_manager=config_manager, tools=tools, skills=skills, hook_registry=hooks
+        )
         edict = Edict(goal="should be blocked")
 
         with patch("tianshu.executor.agent.LLMClient"):
