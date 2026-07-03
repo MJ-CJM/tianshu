@@ -30,13 +30,13 @@ export default function PendingView({ active }: PendingViewProps) {
     ...Object.entries(phaseLabels).map(([value, label]) => ({ value, label })),
   ];
 
-  const { data, isLoading, refetch } = useOpenEdicts();
+  const { data, isLoading, refetch } = useOpenEdicts(100, active);
   const edicts = data?.data ?? [];
   const edictIds = useMemo(() => edicts.map((e) => e.id), [edicts]);
 
   const { data: memorialsResp } = useEdictLatestMemorials(edictIds, active);
   const latestMemorials = memorialsResp?.data ?? {};
-  const { data: pendingToolCalls = [] } = usePendingToolCalls();
+  const { data: pendingToolCalls = [] } = usePendingToolCalls(active);
 
   const pendingByEdict = useMemo(() => {
     const map = new Map<string, PendingToolCall[]>();

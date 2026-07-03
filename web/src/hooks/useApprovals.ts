@@ -16,11 +16,12 @@ export function useNeedsReview(limit = 50) {
   });
 }
 
-export function useOpenEdicts(limit = 100) {
+export function useOpenEdicts(limit = 100, enabled = true) {
   return useQuery({
     queryKey: ["edicts", "open"],
     queryFn: () => listEdicts({ status: "open", limit }),
     refetchInterval: 10_000,
+    enabled,
   });
 }
 
@@ -47,11 +48,12 @@ export function useCreateDecree() {
   });
 }
 
-export function usePendingToolCalls() {
+export function usePendingToolCalls(enabled = true) {
   return useQuery({
     queryKey: ["approvals", "pending_tool_calls"],
     queryFn: fetchPendingToolCalls,
     refetchInterval: 5_000,
+    enabled,
   });
 }
 
