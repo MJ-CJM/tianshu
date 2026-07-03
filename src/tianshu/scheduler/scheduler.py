@@ -124,6 +124,18 @@ class Scheduler:
             )
             logger.info("Registered system job: universe.daily_evolve (0 5 * * *)")
 
+            async def _fire_code_propose() -> None:
+                await universe_evolver.auto_propose_codes(trigger_source="cron")
+
+            self._system_jobs.append(
+                {
+                    "cron": "30 5 * * *",
+                    "name": "universe.daily_code_propose",
+                    "fn": _fire_code_propose,
+                }
+            )
+            logger.info("Registered system job: universe.daily_code_propose (30 5 * * *)")
+
     async def start(self) -> None:
         self._running = True
         await self._restore_jobs()

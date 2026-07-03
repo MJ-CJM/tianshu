@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -163,6 +164,12 @@ class FakeStorage:
     def latest_baseline_fitness(self, eval_set_version: str) -> dict | None:
         return self._baseline_fitness
 
+    def try_acquire_synthesis_lock(self, key: str) -> bool:
+        return True
+
+    def release_synthesis_lock(self, key: str) -> None:
+        pass
+
 
 # ---------------------------------------------------------------------------
 # Fixture
@@ -178,6 +185,7 @@ def _build_evolver(
     code_mutator: FakeCodeMutator | None = None,
     gate: FakeGate | None = None,
     eval_harness: FakeEvalHarness | None = None,
+    diagnostician: Any = None,
     omit_collaborators: bool = False,
 ) -> tuple[UniverseEvolver, FakeManager, FakeStorage]:
     mgr = manager or FakeManager()
@@ -195,6 +203,7 @@ def _build_evolver(
             manager=mgr,
             storage=sto,
             config_manager=cm,
+            diagnostician=diagnostician,
         )
     else:
         ev = UniverseEvolver(
@@ -206,6 +215,7 @@ def _build_evolver(
             gate=g,
             eval_harness=eh,
             code_mutator=mutator,
+            diagnostician=diagnostician,
         )
     return ev, mgr, sto
 
@@ -484,3 +494,47 @@ async def test_baseline_truncated_not_cached(tmp_path):
     await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
 
     assert sto.saved_runs[0]["baseline"] is None
+
+
+# ---------------------------------------------------------------------------
+# auto_propose_codes (Task 8 — 自主提案接线：配额、cron、API)
+# ---------------------------------------------------------------------------
+
+
+async def test_auto_propose_respects_quota_and_disabled(tmp_path, monkeypatch):
+    ev, _, _ = _build_evolver(tmp_path)  # cfg.code_variant_enabled=True by default
+
+    # 关开关 → skipped
+    ev._config.agent_config.code_variant_auto_propose = False
+    assert (await ev.auto_propose_codes())["skipped"] == "disabled"
+
+    # 开开关:诊断出 3 条,quota=2 → 只提 2 个
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._config.agent_config.code_variant_daily_propose_quota = 2
+
+    class _FakeDiag:
+        async def diagnose(self, *, max_hypotheses):
+            assert max_hypotheses == 2
+            return [
+                {"target_path": "src/tianshu/planner/p.py", "hypothesis": f"h{i}", "rationale": ""}
+                for i in range(max_hypotheses)
+            ]
+
+    ev._diagnostician = _FakeDiag()
+    proposed = []
+
+    async def _fake_propose(*, target_path, hypothesis, parent_id=None):
+        proposed.append(hypothesis)
+        return {"status": "evaluated", "universe_id": f"u-{hypothesis}"}
+
+    monkeypatch.setattr(ev, "propose_code_variant", _fake_propose)
+    out = await ev.auto_propose_codes(trigger_source="manual")
+    assert out["proposed"] == 2
+    assert proposed == ["h0", "h1"]
+
+
+async def test_auto_propose_no_diagnostician_skips(tmp_path):
+    ev, _, _ = _build_evolver(tmp_path)
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._diagnostician = None
+    assert (await ev.auto_propose_codes())["skipped"] == "no_diagnostician"

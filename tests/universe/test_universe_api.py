@@ -115,6 +115,19 @@ async def test_archive_challenger_succeeds(client):
     assert body["data"]["status"] == "archived"
 
 
+async def test_trigger_auto_propose_smoke(client):
+    class _FakeEvolver:
+        async def auto_propose_codes(self, trigger_source="manual"):
+            return {"skipped": "disabled"}
+
+    client._transport.app.state.universe_evolver = _FakeEvolver()
+    resp = await client.post("/api/universes/propose-auto")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"] == {"skipped": "disabled"}
+
+
 async def test_diff_two_universes(client):
     mgr = client._transport.app.state.universe_manager
     g = mgr.ensure_genesis()

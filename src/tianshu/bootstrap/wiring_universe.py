@@ -24,6 +24,7 @@ from tianshu.config import TianshuSettings
 from tianshu.universe.code_mutator import CodeMutator
 from tianshu.universe.code_store import CodeVariantStore
 from tianshu.universe.deployer import Deployer, DeployPointer
+from tianshu.universe.diagnostician import Diagnostician
 from tianshu.universe.eval_harness import EvalHarness
 from tianshu.universe.evolver import UniverseEvolver
 from tianshu.universe.gate import Gate
@@ -90,6 +91,11 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         provider_manager.get_client(),
         evolvable_paths=_cfg.code_variant_evolvable_paths,
     )
+    diagnostician = Diagnostician(
+        provider_manager.get_client(),
+        storage,
+        evolvable_paths=_cfg.code_variant_evolvable_paths,
+    )
 
     universe_evolver = UniverseEvolver(
         llm_client=provider_manager.get_client(),
@@ -101,6 +107,7 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         sandbox=code_sandbox,
         eval_harness=code_eval_harness,
         code_mutator=code_mutator,
+        diagnostician=diagnostician,
     )
     universe_evolver.attach_event_bus(event_bus)
     app.state.universe_evolver = universe_evolver

@@ -65,6 +65,8 @@ class AgentConfigState:
     code_variant_sandbox_mem_mb: int = 2048
     code_variant_eval_set_size: int = 20
     code_variant_eval_budget_cny: float = 20.0
+    code_variant_auto_propose: bool = False
+    code_variant_daily_propose_quota: int = 2
 
 
 class ConfigManager:

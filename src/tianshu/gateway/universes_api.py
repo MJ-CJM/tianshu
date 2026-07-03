@@ -87,6 +87,13 @@ async def propose_code_variant(request: Request):
     return ApiResponse(success=True, data=result)
 
 
+@universes_router.post("/propose-auto", response_model=ApiResponse)
+async def trigger_auto_propose(request: Request):
+    evolver = request.app.state.universe_evolver
+    result = await evolver.auto_propose_codes(trigger_source="manual")
+    return ApiResponse(success=True, data=result)
+
+
 @universes_router.delete("/{universe_id}", response_model=ApiResponse)
 async def delete_universe(universe_id: str, request: Request):
     mgr = request.app.state.universe_manager

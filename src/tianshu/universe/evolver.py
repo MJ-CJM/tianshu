@@ -25,6 +25,7 @@ from tianshu.universe.model import UniverseOrigin, UniverseStatus
 logger = logging.getLogger(__name__)
 
 _LOCK_KEY = "__universe_evolver__"
+_CODE_LOCK_KEY = "__universe_code_propose__"
 
 _SYSTEM = (
     "你是天枢的「演化」官，负责让宫殿的行为配置随使用越来越贴合主上。"
@@ -86,6 +87,7 @@ class UniverseEvolver:
         sandbox: Any = None,
         eval_harness: Any = None,
         code_mutator: Any = None,
+        diagnostician: Any = None,
     ) -> None:
         self._llm = llm_client
         self._mgr = manager
@@ -97,6 +99,7 @@ class UniverseEvolver:
         self._sandbox = sandbox
         self._eval_harness = eval_harness
         self._code_mutator = code_mutator
+        self._diagnostician = diagnostician
 
     def attach_event_bus(self, bus: Any) -> None:
         self._bus = bus
@@ -439,6 +442,39 @@ class UniverseEvolver:
         except Exception as e:  # noqa: BLE001
             logger.exception("[EVOLVER] propose_code_variant failed")
             return {"status": "error", "detail": str(e)}
+
+    async def auto_propose_codes(self, trigger_source: str = "cron") -> dict:
+        """自主代码提案:太医诊断 → 配额内逐个走 propose 闭环。失败安全。"""
+        cfg = self._config.agent_config
+        if not getattr(cfg, "code_variant_enabled", False) or not getattr(
+            cfg, "code_variant_auto_propose", False
+        ):
+            return {"skipped": "disabled"}
+        if self._diagnostician is None:
+            return {"skipped": "no_diagnostician"}
+        if trigger_source != "manual" and not self._idle_ok(
+            getattr(cfg, "universe_evolver_idle_hours", 2)
+        ):
+            return {"skipped": "not_idle"}
+        if not self._storage.try_acquire_synthesis_lock(_CODE_LOCK_KEY):
+            return {"skipped": "lock_held"}
+        try:
+            quota = max(0, getattr(cfg, "code_variant_daily_propose_quota", 2))
+            proposals = await self._diagnostician.diagnose(max_hypotheses=quota)
+            results = []
+            for p in proposals[:quota]:
+                r = await self.propose_code_variant(
+                    target_path=p["target_path"], hypothesis=p["hypothesis"]
+                )
+                results.append({"proposal": p, "result": r})
+            out = {"proposed": len(results), "results": results}
+            await self._emit("universe.code_proposed", out)
+            return out
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[EVOLVER] auto_propose_codes failed")
+            return {"skipped": "error", "detail": str(e)}
+        finally:
+            self._storage.release_synthesis_lock(_CODE_LOCK_KEY)
 
     async def _emit(self, event_type: str, payload: dict) -> None:
         if not self._bus:
