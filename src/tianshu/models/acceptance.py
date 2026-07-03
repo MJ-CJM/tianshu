@@ -36,9 +36,13 @@ class CriticSpec(BaseModel):
         return []
 
 
+def _default_enabled_levels() -> list[Literal["L1", "L2", "L3"]]:
+    return ["L1", "L2", "L3"]
+
+
 class EscalationSpec(BaseModel):
     enabled_levels: list[Literal["L1", "L2", "L3"]] = Field(
-        default_factory=lambda: ["L1", "L2", "L3"]
+        default_factory=_default_enabled_levels
     )
     l1_max_rounds: int = 2
     l2_max_rounds: int = 1

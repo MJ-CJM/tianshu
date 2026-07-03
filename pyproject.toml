@@ -44,6 +44,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "respx>=0.21",
     "ruff>=0.5",
+    "mypy>=1.10",
 ]
 scrapling = ["scrapling[fetchers]>=0.3"]
 
@@ -62,6 +63,13 @@ markers = ["slow: 真实子进程/慢测试"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["tianshu.models", "tianshu.kernel", "tianshu.bus", "tianshu.dag", "tianshu.config"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC"]
