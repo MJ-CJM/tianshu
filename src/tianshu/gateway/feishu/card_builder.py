@@ -15,7 +15,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from tianshu.gateway.core.budget import query_budget_data
-from tianshu.models.common import EDICT_STATUS_LABELS
+from tianshu.gateway.core.status_label import format_status_label  # re-export，向后兼容
 
 if TYPE_CHECKING:
     from tianshu.cost.manager import CostManager
@@ -23,12 +23,6 @@ if TYPE_CHECKING:
     from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
-
-
-def format_status_label(status) -> str:
-    """统一把 EdictStatus enum / str 渲染成中文友好标签。"""
-    value = status.value if hasattr(status, "value") else str(status)
-    return EDICT_STATUS_LABELS.get(value, value)
 
 
 class CardBuilder:

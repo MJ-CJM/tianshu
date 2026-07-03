@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from tianshu.bus.event_bus import EventBus
 from tianshu.edict_ops import submit_new_edict
 from tianshu.executor.executor import Executor
+from tianshu.gateway.core.errors import EdictBusyError  # re-export，向后兼容
 from tianshu.gateway.feishu.session_anchor import SessionAnchor
 from tianshu.models.common import EdictStatus, TaskStatus
 from tianshu.models.edict import Edict, title_from_goal
@@ -40,10 +41,6 @@ logger = logging.getLogger(__name__)
 
 # 注：tianshu 的 EdictStatus 仅有 OPEN / COMPLETED / CANCELLED 三态（无 FAILED）。
 CLOSED_STATES = {EdictStatus.COMPLETED, EdictStatus.CANCELLED}
-
-
-class EdictBusyError(RuntimeError):
-    """敕令仍有 active memorial，无法立即 follow_up。caller 应向用户提示。"""
 
 
 def _build_history(edict: Edict, memorials: list[Memorial]) -> list[dict]:

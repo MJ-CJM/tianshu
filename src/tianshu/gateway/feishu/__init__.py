@@ -11,15 +11,17 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tianshu.gateway.core.errors import EdictBusyError
+from tianshu.gateway.core.status_label import format_status_label
 from tianshu.gateway.feishu.approval_card import ApprovalCardHandler
 from tianshu.gateway.feishu.approval_commands import ApprovalCommandHandler
 from tianshu.gateway.feishu.assistant_branch import AssistantBranch
 from tianshu.gateway.feishu.card_action_dispatcher import CardActionDispatcher
-from tianshu.gateway.feishu.card_builder import CardBuilder, format_status_label
+from tianshu.gateway.feishu.card_builder import CardBuilder
 from tianshu.gateway.feishu.connection import WebhookConnection, WebSocketConnection
 from tianshu.gateway.feishu.dispatcher import Dispatcher, FeishuCardAction, FeishuMessage
 from tianshu.gateway.feishu.edict_branch import EdictBranch
-from tianshu.gateway.feishu.edict_bridge import EdictBridge, EdictBusyError
+from tianshu.gateway.feishu.edict_bridge import EdictBridge
 from tianshu.gateway.feishu.mode_router import ModeRouter
 from tianshu.gateway.feishu.outbound import FeishuOutbound
 from tianshu.gateway.feishu.persona_renderer import PersonaRenderer

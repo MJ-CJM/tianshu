@@ -13,9 +13,7 @@ from typing import TYPE_CHECKING
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from tianshu.gateway.core.budget import query_budget_data
-
-# 复用飞书的纯函数（status → 中文标签）
-from tianshu.gateway.feishu.card_builder import format_status_label
+from tianshu.gateway.core.status_label import format_status_label
 
 if TYPE_CHECKING:
     from tianshu.cost.manager import CostManager

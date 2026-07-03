@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 # 复用平台无关核心
-from tianshu.gateway.feishu.edict_bridge import EdictBridge, EdictBusyError
+from tianshu.gateway.core.errors import EdictBusyError
+from tianshu.gateway.feishu.edict_bridge import EdictBridge
 from tianshu.gateway.feishu.persona_renderer import PersonaRenderer
 from tianshu.gateway.telegram.approval_commands import TelegramApprovalCommandHandler
 from tianshu.gateway.telegram.approval_kb import ApprovalKeyboardHandler
