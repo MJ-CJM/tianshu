@@ -1,4 +1,4 @@
-"""Storage Memorial 领域 Mixin —— 奏折/批复 CRUD、心跳存活判定、位面反馈统计。"""
+"""Storage Memorial 领域 Mixin —— 奏折/批复 CRUD、心跳存活判定、位面反馈打分。"""
 
 import json
 import sqlite3
@@ -9,16 +9,9 @@ from tianshu.models import Decree, Memorial, UsageSummary
 from tianshu.storage.mappers import _memorial_to_params, _row_to_memorial
 
 
-def _audit_passed(a: dict) -> bool:
-    """AuditResult.verdict == 'pass' を「合格」とみなす（conservative: 不明は不合格）。"""
-    return a.get("verdict") == "pass"
-
-
 class MemorialMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
-
-    # --- Memorial ---
 
     def save_memorial(self, memorial: Memorial) -> None:
         with self._lock, self._conn:
@@ -224,43 +217,3 @@ class MemorialMixin:
                 "UPDATE memorials SET feedback_score = ? WHERE id = ?",
                 (score, memorial_id),
             )
-
-    def universe_memorial_stats(self, universe_id: str) -> dict:
-        """聚合某位面下 memorial 的成功/失败/重试/成本/审计/反馈。"""
-        with self._lock:
-            rows = self._conn.execute(
-                "SELECT status, attempt, usage_json, audit_json, feedback_score "
-                "FROM memorials WHERE universe_id = ?",
-                (universe_id,),
-            ).fetchall()
-        total = len(rows)
-        success = sum(1 for r in rows if r["status"] in ("completed", "approved"))
-        retries = sum(max(0, (r["attempt"] or 1) - 1) for r in rows)
-        feedback = sum((r["feedback_score"] or 0) for r in rows)
-        audited = 0
-        audit_pass = 0
-        cost = 0.0
-        for r in rows:
-            try:
-                u = json.loads(r["usage_json"] or "{}")
-                cost += float(u.get("cost_cny", 0.0) or 0.0)
-            except (ValueError, TypeError):
-                pass
-            aj = r["audit_json"]
-            if aj:
-                audited += 1
-                try:
-                    a = json.loads(aj)
-                    if _audit_passed(a):
-                        audit_pass += 1
-                except (ValueError, TypeError):
-                    pass
-        return {
-            "total": total,
-            "success": success,
-            "retries": retries,
-            "audited": audited,
-            "audit_pass": audit_pass,
-            "cost": round(cost, 6),
-            "feedback": feedback,
-        }

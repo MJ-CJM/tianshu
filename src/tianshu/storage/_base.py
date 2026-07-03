@@ -2,7 +2,6 @@
 
 import sqlite3
 import threading
-from datetime import UTC, datetime
 from pathlib import Path
 
 from tianshu.storage.migrations import run_migrations
@@ -110,36 +109,6 @@ class _StorageBase:
                 if "duplicate column name" not in str(e):
                     raise
         self._conn.commit()
-
-    def _seed_departments(self) -> None:
-        """Populate departments table from existing personas if empty."""
-        count = self._conn.execute("SELECT COUNT(*) FROM departments").fetchone()[0]
-        if count > 0:
-            return
-
-        KNOWN = {
-            "bingbu": "兵部 (Ministry of War)",
-            "neige": "内阁 (Imperial Cabinet)",
-            "ducha": "都察院 (Censorate)",
-            "tongzheng": "通政司 (Bureau of Coordination)",
-            "wenyuan": "文渊阁 (Grand Secretariat)",
-            "hubu": "户部 (Ministry of Revenue)",
-        }
-
-        now = datetime.now(UTC).isoformat()
-        # Collect distinct departments from personas
-        rows = self._conn.execute("SELECT DISTINCT department FROM personas").fetchall()
-        dept_ids = {r[0] for r in rows}
-        # Merge with known defaults
-        dept_ids.update(KNOWN.keys())
-
-        with self._conn:
-            for dept_id in dept_ids:
-                name = KNOWN.get(dept_id, dept_id)
-                self._conn.execute(
-                    "INSERT OR IGNORE INTO departments (id, name, description, created_at) VALUES (?, ?, '', ?)",
-                    (dept_id, name, now),
-                )
 
     def close(self) -> None:
         if self._conn:
