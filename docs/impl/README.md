@@ -1,10 +1,14 @@
-# 实现总览（HEAD @ feat_phase5）
+# 实现总览（HEAD @ feat_phase8）
 
 本目录每份文档描述 **当前代码** 的一个横切面。设计意图与稳定契约见 `../design/`。
 
-## 启动序列（FastAPI lifespan）
+## 启动序列（FastAPI lifespan → bootstrap/ 装配）
 
-按 `src/tianshu/app.py` `lifespan()` 中的实例化顺序：
+装配逻辑已从单体 `lifespan()` 拆分为 `src/tianshu/bootstrap/` 包的 wiring 函数序列
+（`wiring_storage / wiring_tools / wiring_skills / wiring_memory / wiring_persona /
+wiring_llm / wiring_executor / wiring_channels / wiring_scheduler / wiring_universe`
+等，`app.py` 的 `lifespan()` 只保留 ~40 行顺序编排）。下列实例化顺序不变，
+每步对应的 wiring 文件见 `bootstrap/` 内同名模块：
 
 1. `Storage` → `storage.init_db()`（SQLite，WAL 模式，线程锁）
 2. `EventBus`（持久化事件到 `events` 表）
