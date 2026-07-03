@@ -38,11 +38,11 @@
 |---|---|
 | `universes` | `id / name / parent_universe_id / status / origin / mutation_reason / description / fitness_json / code_ref / created_at`（建表见 `storage/schema.py:224`） |
 | `memorials.universe_id` | 迁移加列（`storage/migrations.py:157`），执行开始固化诏令归属 |
-| `variant_eval_runs` | 代码变体每次评估记录，按 `universe_id` 建索引（`storage/schema.py:249`） |
+| `variant_eval_runs` | 代码变体每次评估记录，含 `baseline_json`（配对评估的基线分），按 `universe_id` 建索引（`storage/schema.py:249`） |
 
 主要方法：`save_universe` / `get_universe` / `list_universes` / `get_champion_universe` / `set_universe_status` / `update_universe_fitness` / `delete_universe` / `universe_memorial_stats` / `save_variant_eval_run` / `list_variant_eval_runs`。
 
-## 4. 装配（`app.py` lifespan）
+## 4. 装配（`bootstrap/wiring_universe.py` `wire_universe()`）
 
 ```text
 UniverseStore(root=~/.tianshu/universes, live_personas/live_skills)
@@ -52,8 +52,8 @@ UniverseManager(storage, store, persona_loader, skills_loader,
                 config_snapshot, config_apply, code_store, deployer)
   → 若 parallel_universe_enabled 或已有 champion：update_agent_config(enabled=True) + ensure_genesis()
   → executor.set_universe_manager(universe_manager)
-  → app.state.universe_manager
-Gate / SandboxRunner / EvalHarness / CodeMutator → UniverseEvolver → app.state.universe_evolver
+Gate / SandboxRunner / EvalHarness / CodeMutator → Diagnostician → UniverseEvolver
+  → event_bus 绑定，app.state.universe_evolver
 ```
 
 config 的 snapshot/apply 是注入回调（`_universe_config_snapshot` / `_universe_config_apply`），解耦 manager 与 ConfigManager 细节。

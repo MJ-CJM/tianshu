@@ -1,4 +1,4 @@
-"""探索路由已退役:无论开关/候选状态,route_for_memorial 一律归冠军。"""
+"""探索路由已退役：challenger 不真正运行，route_for_memorial 一律归冠军（仅作归因标记）。"""
 
 
 class _FakeStorage:
