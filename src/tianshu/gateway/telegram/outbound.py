@@ -16,14 +16,13 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
 from tianshu.bus.event_bus import EventBus
-from tianshu.gateway.feishu.markdown_compat import convert_tables_to_lists, split_long
+from tianshu.gateway.core.outbound import OutboundEventBase
 from tianshu.gateway.telegram.markdown_v2 import (
     format_message,
     strip_mdv2,
     truncate_message,
 )
 from tianshu.gateway.telegram.settings import TelegramSettings
-from tianshu.models.events import EventEnvelope
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -45,7 +44,7 @@ def _to_chat_id(chat_id: str) -> int | str:
         return s
 
 
-class TelegramOutbound:
+class TelegramOutbound(OutboundEventBase):
     def __init__(
         self,
         *,
@@ -54,28 +53,17 @@ class TelegramOutbound:
         event_bus: EventBus,
         instance_id: str = "telegram-default",
     ) -> None:
-        self._settings = settings
-        self._storage = storage
-        self._event_bus = event_bus
-        self._instance_id = instance_id
         self._bot: Bot | None = None
-        # 保存订阅引用：EventBus.off 用 `is` 比对，bound method 每次取属性都是新对象。
-        self._sub_completed = self._on_execution_completed
-        self._sub_failed = self._on_execution_failed
-
-    def start(self) -> None:
-        """构造 Bot + 注册 EventBus 订阅（仅 TelegramBot.start 调用一次）。"""
-        self._bot = Bot(self._settings.bot_token)
-        self._event_bus.on("execution.completed", self._sub_completed, priority=200)
-        self._event_bus.on("execution.failed", self._sub_failed, priority=200)
-
-    def stop(self) -> None:
-        """取消 EventBus 订阅（实例停止时调用，避免已停实例继续投递）。"""
-        self._event_bus.off("execution.completed", self._sub_completed)
-        self._event_bus.off("execution.failed", self._sub_failed)
+        super().__init__(
+            settings=settings,
+            storage=storage,
+            event_bus=event_bus,
+            instance_id=instance_id,
+            chunk_max_len=_SAFE_CHUNK,
+        )
 
     def rebuild_client(self) -> None:
-        """仅重建 Bot（热加载切 token），**不重订阅 EventBus**。"""
+        """构造/重建 Bot（start() 首次调用，或热加载切 token 时），**不重订阅 EventBus**。"""
         self._bot = Bot(self._settings.bot_token)
 
     @property
@@ -242,36 +230,20 @@ class TelegramOutbound:
             logger.exception("[telegram/outbound] send crashed")
             return None
 
-    # --- 事件订阅 handlers ---
+    # --- core hooks：事件编排已上移 OutboundEventBase，这里只留 telegram 差异 ---
 
-    async def _on_execution_completed(self, event: EventEnvelope) -> None:
-        chat_id = self._lookup_chat_id(event)
-        if not chat_id:
-            return
-        memorial = self._storage.get_memorial(event.memorial_id) if event.memorial_id else None
-        delivery = (memorial.final_output or memorial.result) if memorial else None
+    def _anchored_chats(self, edict_id: str) -> list[str]:
+        return self._storage.list_telegram_chats_anchored_to(
+            edict_id, instance_id=self._instance_id
+        )
 
-        # 先清掉 ⏳ 占位
-        await self._clear_thinking(event.memorial_id, chat_id)
-        if not delivery:
-            return
-
-        body = convert_tables_to_lists(delivery)
-        chunks = split_long(body, max_len=_SAFE_CHUNK)
-        for idx, chunk in enumerate(chunks):
-            if len(chunks) > 1 and idx > 0:
-                chunk = f"## 续 {idx + 1}/{len(chunks)}\n\n{chunk}"
-            await self.send_text(chat_id, chunk)
-
-    async def _on_execution_failed(self, event: EventEnvelope) -> None:
-        chat_id = self._lookup_chat_id(event)
-        if not chat_id:
-            return
-        await self._clear_thinking(event.memorial_id, chat_id)
-        reason = (event.payload or {}).get("error", "未知错误")
-        await self.send_text(chat_id, f"❌ 执行失败：{reason}")
+    async def _deliver_chunk(self, chat_id: str, chunk: str, idx: int, total: int) -> None:
+        if total > 1 and idx > 0:
+            chunk = f"## 续 {idx + 1}/{total}\n\n{chunk}"
+        await self.send_text(chat_id, chunk)
 
     async def _clear_thinking(self, memorial_id: str | None, chat_id: str) -> None:
+        """清掉 ⏳ 占位消息。"""
         if not memorial_id:
             return
         pending = self._storage.pop_telegram_thinking(memorial_id)
@@ -280,35 +252,3 @@ class TelegramOutbound:
                 pending.get("chat_id") or chat_id,
                 pending["message_id"],
             )
-
-    def _lookup_chat_id(self, event: EventEnvelope) -> str | None:
-        """反查回执目标 chat_id；实例路由隔离：仅处理本实例敕令 + home 兜底。
-
-        Fallback：
-          1. edict.metadata.chat_id（telegram 原生发起）
-          2. anchor 反查（web 创建 + /select 切过去）
-          3. settings.home_channel（无 channel 的 cron 敕令兜底）
-        """
-        if not event.edict_id:
-            return self._settings.home_channel or None
-        edict = self._storage.get_edict(event.edict_id)
-        if not edict:
-            return self._settings.home_channel or None
-        # 实例路由隔离：非本实例的敕令不由本 outbound 投递，避免交叉发送。
-        # 存量敕令无 instance_id → 回退 {channel}-default；cron 等无 channel 敕令
-        # （inst=None）仍走 home_channel 兜底，不被实例守卫拦截。
-        inst = (edict.metadata or {}).get("instance_id")
-        if inst is None:
-            ch = (edict.metadata or {}).get("channel")
-            inst = f"{ch}-default" if ch else None
-        if inst is not None and inst != self._instance_id:
-            return None  # 非本实例的敕令，不投递
-        chat_id = (edict.metadata or {}).get("chat_id")
-        if chat_id:
-            return chat_id
-        anchored = self._storage.list_telegram_chats_anchored_to(
-            event.edict_id, instance_id=self._instance_id
-        )
-        if anchored:
-            return anchored[0]
-        return self._settings.home_channel or None

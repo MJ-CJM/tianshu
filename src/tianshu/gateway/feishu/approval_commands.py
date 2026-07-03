@@ -14,15 +14,14 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
+
+from tianshu.gateway.core.approval import ApprovalCommandHandler as _CoreApprovalCommandHandler
 
 if TYPE_CHECKING:
     from tianshu.executor.approvals import ApprovalManager
     from tianshu.storage import Storage
-
-logger = logging.getLogger(__name__)
 
 ApprovalAction = Literal["approve", "reject"]
 ApprovalScope = Literal["once", "edict", "always"]
@@ -97,10 +96,12 @@ def parse_approval_command(text: str) -> ApprovalCommand | None:
     return ApprovalCommand(action=action, scope=scope, target_prefix=target_prefix)
 
 
-class ApprovalCommandHandler:
-    """根据已解析的 ApprovalCommand 调用 ApprovalManager 执行审批。
+class ApprovalCommandHandler(_CoreApprovalCommandHandler):
+    """根据已解析的 ApprovalCommand 调用 ApprovalManager 执行审批（飞书数据访问）。
 
-    返回字符串：要回给飞书用户的回复文本。
+    命令语义（prefix 匹配 / 降级提示 / 回复文案）已上移
+    core.approval.ApprovalCommandHandler；本类只保留飞书侧的 pending 反查
+    实现 + actor 前缀。
     """
 
     def __init__(
@@ -111,69 +112,12 @@ class ApprovalCommandHandler:
         instance_id: str = "feishu-default",
     ) -> None:
         self._storage = storage
-        self._approval = approval_manager
         self._instance_id = instance_id
-
-    async def handle(
-        self,
-        *,
-        chat_id: str,
-        sender_open_id: str,
-        command: ApprovalCommand,
-    ) -> str:
-        pending = self._list_pending_for_chat(chat_id)
-        if not pending:
-            return "🛡️ 当前 chat 无待审批工具调用。"
-
-        if command.target_prefix:
-            matches = [p for p in pending if p.startswith(command.target_prefix)]
-            if not matches:
-                return f"未找到待审批 #{command.target_prefix}，输入命令查看 chat 内 pending"
-            if len(matches) > 1:
-                preview = ", ".join(f"#{m[:12]}" for m in matches[:5])
-                return f"前缀 '{command.target_prefix}' 匹配多个：{preview}，请用更长前缀"
-            memorial_id = matches[0]
-        else:
-            if len(pending) > 1:
-                lines = [f"⚠️ chat 内有 {len(pending)} 个待审批，请指定短 ID："]
-                for m in pending[:10]:
-                    lines.append(f"  - `/approve {m[:8]}` 或 `/准 {m[:8]}`")
-                return "\n".join(lines)
-            memorial_id = pending[0]
-
-        try:
-            decree = await self._approval.submit_tool_decision(
-                memorial_id=memorial_id,
-                action=command.action,
-                grant_scope=command.scope if command.action == "approve" else None,
-                actor=f"feishu:{sender_open_id}",
-            )
-        except ValueError as exc:
-            # pending 已被 web 端响应（幂等）
-            logger.info("[feishu/approval] submit skipped: %s", exc)
-            return f"敕令 #{memorial_id[:8]} 已被其他通道响应。"
-
-        if command.action == "reject":
-            return f"❌ 已拒绝 #{memorial_id[:8]}"
-        # 用 decree 的实际 scope（可能被安全降级，如 shell_exec 的 always→once）
-        actual_scope = decree.grant_scope or "once"
-        scope_label = {"once": "单次", "edict": "本敕令", "always": "总是"}.get(
-            actual_scope, "单次"
+        super().__init__(
+            approval_manager=approval_manager,
+            list_pending=self._list_pending_for_chat,
+            actor_prefix="feishu",
         )
-        # 用户请求的 scope 与实际不一致（如 always→once）→ 显式提示降级，
-        # 避免用户以为永久放行了，下次又遇到同一审批时困惑
-        if command.scope and command.scope != actual_scope:
-            requested_label = {
-                "once": "单次",
-                "edict": "本敕令",
-                "always": "总是",
-            }.get(command.scope, command.scope)
-            return (
-                f"✅ 已批准 #{memorial_id[:8]}（{scope_label}，"
-                f"原请求 {requested_label} 因安全策略降级 —— "
-                f"shell_exec 等高危工具不可永久放行）"
-            )
-        return f"✅ 已批准 #{memorial_id[:8]}（{scope_label}）"
 
     def _list_pending_for_chat(self, chat_id: str) -> list[str]:
         """从 feishu_pending_cards 反查该 chat 下尚未响应的 memorial_id。"""

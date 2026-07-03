@@ -6,11 +6,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
+from tianshu.gateway.core.batcher import InboundBatcher
 from tianshu.gateway.telegram.security import is_allowed_user
 from tianshu.gateway.telegram.settings import TelegramSettings
 from tianshu.storage import Storage
@@ -70,16 +70,13 @@ class Dispatcher:
         self._storage = storage
         self._message_handler = message_handler
         self._callback_handler = callback_handler
-        self._chat_locks: dict[str, asyncio.Lock] = {}
-        self._batch_buffers: dict[str, list[str]] = {}
-        self._batch_timers: dict[str, asyncio.Task] = {}
+        self._batcher = InboundBatcher(
+            batch_delay=lambda: self._settings.text_batch_delay,
+            process=self._process_batch,
+        )
 
     async def stop(self) -> None:
-        for t in list(self._batch_timers.values()):
-            if not t.done():
-                t.cancel()
-        self._batch_timers.clear()
-        self._batch_buffers.clear()
+        await self._batcher.stop()
 
     # --- 入站文本 ---
 
@@ -108,46 +105,13 @@ class Dispatcher:
             msg.text,
         )
 
-        # 命令（/ 开头）跳过批处理直接派发；纯文本走批处理合并
-        if msg.text.startswith("/"):
-            lock = self._chat_locks.setdefault(msg.chat_id, asyncio.Lock())
-            async with lock:
-                await self._message_handler(msg)
-        else:
-            await self._enqueue_for_batch(msg)
+        await self._batcher.handle(msg)
 
-    async def _enqueue_for_batch(self, msg: TelegramMessage) -> None:
-        """文本消息进批处理缓冲，text_batch_delay 静默期后合并 flush。"""
-        buf = self._batch_buffers.setdefault(msg.chat_id, [])
-        buf.append(msg.text)
-        existing = self._batch_timers.get(msg.chat_id)
-        if existing and not existing.done():
-            existing.cancel()
-
-        async def _flush() -> None:
-            try:
-                await asyncio.sleep(self._settings.text_batch_delay)
-            except asyncio.CancelledError:
-                return
-            merged = "\n".join(self._batch_buffers.pop(msg.chat_id, []))
-            self._batch_timers.pop(msg.chat_id, None)
-            if not merged:
-                return
-            merged_msg = TelegramMessage(
-                update_id=msg.update_id,
-                chat_id=msg.chat_id,
-                chat_type=msg.chat_type,
-                sender_id=msg.sender_id,
-                text=merged,
-                raw=msg.raw,
-                message_id=msg.message_id,
-                directed=msg.directed,
-            )
-            lock = self._chat_locks.setdefault(msg.chat_id, asyncio.Lock())
-            async with lock:
-                await self._message_handler(merged_msg)
-
-        self._batch_timers[msg.chat_id] = asyncio.create_task(_flush())
+    async def _process_batch(
+        self, chat_id: str, merged_text: str, message: TelegramMessage
+    ) -> None:
+        merged_msg = replace(message, text=merged_text)
+        await self._message_handler(merged_msg)
 
     # --- 入站按钮点击 ---
 

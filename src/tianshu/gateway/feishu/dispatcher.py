@@ -7,8 +7,9 @@ import contextlib
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from tianshu.gateway.core.batcher import InboundBatcher
 from tianshu.gateway.feishu.security import is_allowed_user
 from tianshu.gateway.feishu.settings import FeishuSettings
 
@@ -54,9 +55,10 @@ class Dispatcher:
         self._message_handler = message_handler
         self._card_handler = card_handler
         self._task: asyncio.Task | None = None
-        self._chat_locks: dict[str, asyncio.Lock] = {}
-        self._batch_buffers: dict[str, list[str]] = {}
-        self._batch_timers: dict[str, asyncio.Task] = {}
+        self._batcher = InboundBatcher(
+            batch_delay=lambda: self._settings.text_batch_delay,
+            process=self._process_batch,
+        )
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._consume_loop())
@@ -67,11 +69,7 @@ class Dispatcher:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
         # 取消所有 pending batch flush
-        for t in list(self._batch_timers.values()):
-            if not t.done():
-                t.cancel()
-        self._batch_timers.clear()
-        self._batch_buffers.clear()
+        await self._batcher.stop()
 
     async def _consume_loop(self) -> None:
         while True:
@@ -125,45 +123,13 @@ class Dispatcher:
             message_id=msg.get("message_id", ""),
         )
 
-        # 命令（以 / 开头）跳过批处理直接派发；纯文本走批处理
-        if fmsg.text.startswith("/"):
-            lock = self._chat_locks.setdefault(chat_id, asyncio.Lock())
-            async with lock:
-                await self._message_handler(fmsg)
-        else:
-            await self._enqueue_for_batch(fmsg)
+        await self._batcher.handle(fmsg)
 
-    async def _enqueue_for_batch(self, fmsg: FeishuMessage) -> None:
-        """文本消息进批处理缓冲。0.6s 静默期后合并 flush。"""
-        buf = self._batch_buffers.setdefault(fmsg.chat_id, [])
-        buf.append(fmsg.text)
-        existing = self._batch_timers.get(fmsg.chat_id)
-        if existing and not existing.done():
-            existing.cancel()
-
-        async def _flush() -> None:
-            try:
-                await asyncio.sleep(self._settings.text_batch_delay)
-            except asyncio.CancelledError:
-                return
-            merged = "\n".join(self._batch_buffers.pop(fmsg.chat_id, []))
-            self._batch_timers.pop(fmsg.chat_id, None)
-            if not merged:
-                return
-            merged_msg = FeishuMessage(
-                event_id=fmsg.event_id,
-                chat_id=fmsg.chat_id,
-                chat_type=fmsg.chat_type,
-                sender_open_id=fmsg.sender_open_id,
-                text=merged,
-                raw=fmsg.raw,
-                message_id=fmsg.message_id,  # 用最后一条触发合并的 msg id 加 reaction
-            )
-            lock = self._chat_locks.setdefault(fmsg.chat_id, asyncio.Lock())
-            async with lock:
-                await self._message_handler(merged_msg)
-
-        self._batch_timers[fmsg.chat_id] = asyncio.create_task(_flush())
+    async def _process_batch(
+        self, chat_id: str, merged_text: str, message: FeishuMessage
+    ) -> None:
+        merged_msg = replace(message, text=merged_text)
+        await self._message_handler(merged_msg)
 
     async def _handle_card_event(self, event_id: str, event: dict) -> None:
         action = event.get("action") or {}

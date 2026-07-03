@@ -15,9 +15,8 @@ from lark_oapi.api.im.v1 import (
 )
 
 from tianshu.bus.event_bus import EventBus
-from tianshu.gateway.feishu.markdown_compat import convert_tables_to_lists, split_long
+from tianshu.gateway.core.outbound import OutboundEventBase
 from tianshu.gateway.feishu.settings import FeishuSettings
-from tianshu.models.events import EventEnvelope
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -25,7 +24,7 @@ logger = logging.getLogger(__name__)
 _MD_HINT_RE = re.compile(r"(\n#+\s|\n\s*[-*]\s|\*\*|`{3}|\[.+\]\(.+\))")
 
 
-class FeishuOutbound:
+class FeishuOutbound(OutboundEventBase):
     """事件订阅 + 飞书消息发送。Step 5 起会扩展卡片下行。"""
 
     def __init__(
@@ -36,30 +35,16 @@ class FeishuOutbound:
         event_bus: EventBus,
         instance_id: str = "feishu-default",
     ) -> None:
-        self._settings = settings
-        self._storage = storage
-        self._event_bus = event_bus
-        self._instance_id = instance_id
         self._client: lark.Client | None = None
-        # 保存订阅时的 handler 引用：EventBus.off 用 `is` 比对，bound method
-        # 每次取属性都是新对象，必须复用 start() 时的同一引用才能 off 掉。
-        self._sub_completed = self._on_execution_completed
-        self._sub_failed = self._on_execution_failed
-
-    def start(self) -> None:
-        """构造 lark client + 注册 EventBus 订阅。仅在 FeishuBot.start 时调用一次。"""
-        self._client = self._build_client()
-        # 注意：事件名是 execution.completed（不是 memorial.completed）
-        self._event_bus.on("execution.completed", self._sub_completed, priority=200)
-        self._event_bus.on("execution.failed", self._sub_failed, priority=200)
-
-    def stop(self) -> None:
-        """取消 EventBus 订阅（实例停止时调用，避免已停实例继续投递）。"""
-        self._event_bus.off("execution.completed", self._sub_completed)
-        self._event_bus.off("execution.failed", self._sub_failed)
+        super().__init__(
+            settings=settings, storage=storage, event_bus=event_bus, instance_id=instance_id
+        )
 
     def rebuild_client(self) -> None:
-        """仅重建 lark client（用于热加载切换 app_id/secret）；**不重订阅 EventBus**。"""
+        """构造/重建 lark client（start() 首次调用，或热加载切换 app_id/secret 时）；
+
+        **不重订阅 EventBus**。
+        """
         self._client = self._build_client()
 
     def _build_client(self) -> lark.Client:
@@ -242,95 +227,32 @@ class FeishuOutbound:
             logger.exception("[feishu/outbound] send crashed")
             return None
 
-    # --- 事件订阅 handlers ---
+    # --- core hooks：事件编排已上移 OutboundEventBase，这里只留飞书差异 ---
 
-    async def _on_execution_completed(self, event: EventEnvelope) -> None:
-        """执行完成 → 移除 typing reaction + post 富文本下发完整内容。
+    def _anchored_chats(self, edict_id: str) -> list[str]:
+        return self._storage.list_chats_anchored_to(edict_id, instance_id=self._instance_id)
 
-        post tag=md 支持嵌套列表 / 标题 / 加粗 / 行内代码；表格转列表；
-        超长按段落拆段连续下发。
-        """
-        chat_id = self._lookup_chat_id(event)
-        if not chat_id:
+    async def _deliver_chunk(self, chat_id: str, chunk: str, idx: int, total: int) -> None:
+        """post tag=md 支持嵌套列表 / 标题 / 加粗 / 行内代码；超长按段落拆段连续下发。"""
+        if total == 1:
+            await self._send_post(chat_id, chunk)
+        else:
+            head = f"## 续 {idx + 1}/{total}" if idx > 0 else ""
+            await self._send_post(chat_id, f"{head}\n\n{chunk}".strip())
+
+    async def _clear_thinking(self, memorial_id: str | None, chat_id: str) -> None:
+        """移除 typing reaction（没结果也要移除，免得用户原消息上一直挂着）。"""
+        if not memorial_id:
             return
-        memorial = self._storage.get_memorial(event.memorial_id) if event.memorial_id else None
-        # 优先用 final_output（最终交付物，过滤掉规划/调研等中间过程），
-        # 无则回退 result（兼容老 memorial / outer-loop 老路径）
-        delivery = memorial.final_output or memorial.result if memorial else None
-        if not delivery:
-            # 没结果也移除 typing 反应，免得用户原消息上一直挂着
-            if event.memorial_id:
-                pending = self._storage.pop_feishu_thinking(event.memorial_id)
-                if pending and pending.get("source_message_id"):
-                    await self.remove_reaction(
-                        pending["source_message_id"],
-                        pending["reaction_id"],
-                    )
-            return
-
-        pending = (
-            self._storage.pop_feishu_thinking(event.memorial_id) if event.memorial_id else None
-        )
+        pending = self._storage.pop_feishu_thinking(memorial_id)
         if pending and pending.get("source_message_id"):
-            await self.remove_reaction(
-                pending["source_message_id"],
-                pending["reaction_id"],
-            )
+            await self.remove_reaction(pending["source_message_id"], pending["reaction_id"])
 
-        body = convert_tables_to_lists(delivery)
-        chunks = split_long(body)
-        for idx, chunk in enumerate(chunks):
-            if len(chunks) == 1:
-                await self._send_post(chat_id, chunk)
-            else:
-                head = f"## 续 {idx + 1}/{len(chunks)}" if idx > 0 else ""
-                await self._send_post(chat_id, f"{head}\n\n{chunk}".strip())
-
-    async def _on_execution_failed(self, event: EventEnvelope) -> None:
-        chat_id = self._lookup_chat_id(event)
-        if not chat_id:
+    async def _clear_thinking_failed(self, memorial_id: str | None, chat_id: str) -> None:
+        """typing → CrossMark：先去掉 typing，再加红叉。"""
+        if not memorial_id:
             return
-        reason = (event.payload or {}).get("error", "未知错误")
-        pending = (
-            self._storage.pop_feishu_thinking(event.memorial_id) if event.memorial_id else None
-        )
-        # typing → CrossMark：先去掉 typing，再加红叉
+        pending = self._storage.pop_feishu_thinking(memorial_id)
         if pending and pending.get("source_message_id"):
-            await self.remove_reaction(
-                pending["source_message_id"],
-                pending["reaction_id"],
-            )
+            await self.remove_reaction(pending["source_message_id"], pending["reaction_id"])
             await self.add_reaction(pending["source_message_id"], "CrossMark")
-        await self.send_text(chat_id, f"❌ 执行失败：{reason}")
-
-    def _lookup_chat_id(self, event: EventEnvelope) -> str | None:
-        """反查回执目标 chat_id。
-
-        Fallback 链：
-          1. edict.metadata.chat_id（飞书原生发起的敕令）
-          2. anchor 反查（web 创建敕令 + 飞书 /select 切过去的场景）
-          3. settings.home_channel（用户配置的兜底）
-        """
-        if not event.edict_id:
-            return self._settings.home_channel or None
-        edict = self._storage.get_edict(event.edict_id)
-        if not edict:
-            return self._settings.home_channel or None
-        # 实例路由隔离：非本实例的敕令不由本 outbound 投递，避免交叉发送。
-        # 存量敕令无 instance_id → 回退 {channel}-default；cron 等无 channel 敕令
-        # （inst=None）仍走 home_channel 兜底，不被实例守卫拦截。
-        inst = (edict.metadata or {}).get("instance_id")
-        if inst is None:
-            ch = (edict.metadata or {}).get("channel")
-            inst = f"{ch}-default" if ch else None
-        if inst is not None and inst != self._instance_id:
-            return None  # 非本实例的敕令，不投递
-        chat_id = (edict.metadata or {}).get("chat_id")
-        if chat_id:
-            return chat_id
-        anchored = self._storage.list_chats_anchored_to(
-            event.edict_id, instance_id=self._instance_id
-        )
-        if anchored:
-            return anchored[0]
-        return self._settings.home_channel or None
