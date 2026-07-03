@@ -280,3 +280,49 @@ async def test_evaluate_behavior_challenger_does_not_cache_truncated_baseline(mo
 
     saved = storage.save_variant_eval_run.call_args[0][0]
     assert saved["baseline"] is None
+
+
+def test_mutation_history_lists_recent_attempts_with_outcome(evolver_fixture):
+    """_mutation_history 列出近期 mutation origin 尝试(含结局),最近在前,非 mutation origin 被过滤。"""
+    evolver, mgr = evolver_fixture
+    mgr.list.return_value = [
+        {
+            "id": "u-1",
+            "origin": "mutation",
+            "status": "archived",
+            "mutation_reason": "ROLE 增加复核步骤",
+            "name": "候选甲",
+            "fitness": {"score": 0.61},
+            "created_at": "2026-07-01T00:00:00+00:00",
+        },
+        {
+            "id": "u-2",
+            "origin": "mutation",
+            "status": "challenger",
+            "mutation_reason": "SOUL 收紧输出格式",
+            "name": "候选乙",
+            "fitness": {"score": 0.74},
+            "created_at": "2026-07-02T00:00:00+00:00",
+        },
+        {
+            "id": "u-3",
+            "origin": "manual_branch",
+            "status": "challenger",
+            "mutation_reason": None,
+            "name": "手动分支",
+            "fitness": {},
+            "created_at": "2026-07-03T00:00:00+00:00",
+        },
+    ]
+    text = evolver._mutation_history()
+    assert "ROLE 增加复核步骤" in text
+    assert "SOUL 收紧输出格式" in text
+    assert "手动分支" not in text  # 只列 mutation origin
+    assert text.index("SOUL 收紧输出格式") < text.index("ROLE 增加复核步骤")  # 最近在前
+
+
+def test_mutation_history_empty(evolver_fixture):
+    """_mutation_history 无历史时返回占位字符串。"""
+    evolver, mgr = evolver_fixture
+    mgr.list.return_value = []
+    assert evolver._mutation_history() == "(无历史尝试)"

@@ -38,9 +38,12 @@ _USER = """\
 冠军行为概要（可改写的官员人格）：
 {summary}
 
+近期已尝试过的变异(含结局,请勿重复相同或相近方向):
+{history}
+
 请提出【一处】可能让宫殿更贴合主上的人格改写，输出 JSON：
 {{"target": "persona:<官员id>/ROLE.md 或 persona:<官员id>/SOUL.md（官员id 必须取自上面列出的官员）",
-  "reason": "改这个文件的哪一点、为何可能更贴合",
+  "reason": "改这个文件的哪一点、为何可能更贴合(不得与已尝试方向重复)",
   "name": "候选位面名称（简短中文）"}}
 若当前无明确可改之处，输出 {{"target": null, "reason": "...", "name": null}}。"""
 
@@ -104,6 +107,28 @@ class UniverseEvolver:
         last = self._storage.last_activity_at()
         age = _age_hours(last)
         return age is None or age >= idle_hours
+
+    def _mutation_history(self, limit: int = 20) -> str:
+        """近期变异尝试台账(含已归档),供变异 prompt 避免重复方向。"""
+        rows = [
+            u
+            for u in self._mgr.list(include_archived=True)
+            if u.get("origin") == UniverseOrigin.MUTATION.value
+        ]
+        rows.sort(key=lambda u: u.get("created_at") or "", reverse=True)
+        lines = []
+        for u in rows[:limit]:
+            f = u.get("fitness") or {}
+            outcome = {
+                "champion": "已晋升",
+                "challenger": "留观中",
+                "archived": "已淘汰",
+            }.get(u["status"], u["status"])
+            lines.append(
+                f"- [{outcome}] {u.get('mutation_reason') or u['name']}"
+                f" (score={f.get('score', 'n/a')})"
+            )
+        return "\n".join(lines) or "(无历史尝试)"
 
     async def run(self, trigger_source: str = "manual") -> EvolveResult:
         cfg = self._config.agent_config
@@ -197,6 +222,7 @@ class UniverseEvolver:
                 [c.get("fitness", {}) for c in challengers], ensure_ascii=False
             ),
             summary=self._champion_summary(champ),
+            history=self._mutation_history(),
         )
         for _ in range(3):
             try:
