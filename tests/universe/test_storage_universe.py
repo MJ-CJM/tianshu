@@ -179,3 +179,45 @@ def test_delete_universe_nonexistent_is_noop(tmp_path):
     s.init_db()
     # Should not raise
     s.delete_universe("ghost-id")
+
+
+def test_eval_run_baseline_roundtrip_and_latest(storage):
+    storage.save_universe(
+        {
+            "id": "u-1",
+            "name": "test",
+            "status": "challenger",
+            "origin": "manual_branch",
+            "created_at": "2026-07-04T00:00:00+00:00",
+        }
+    )
+    storage.save_variant_eval_run(
+        {
+            "id": "r1",
+            "universe_id": "u-1",
+            "gate_passed": True,
+            "fitness": {"score": 0.8},
+            "baseline": {"score": 0.7},
+            "eval_set_version": "fp-abc",
+            "cost": 1.0,
+            "created_at": "2026-07-04T01:00:00+00:00",
+        }
+    )
+    storage.save_variant_eval_run(
+        {
+            "id": "r2",
+            "universe_id": "u-1",
+            "gate_passed": True,
+            "fitness": {"score": 0.9},
+            "baseline": {"score": 0.72},
+            "eval_set_version": "fp-abc",
+            "cost": 1.0,
+            "created_at": "2026-07-04T02:00:00+00:00",
+        }
+    )
+
+    runs = storage.list_variant_eval_runs("u-1")
+    assert runs[0]["baseline"] == {"score": 0.72}  # 按 created_at 倒序
+
+    assert storage.latest_baseline_fitness("fp-abc") == {"score": 0.72}
+    assert storage.latest_baseline_fitness("fp-nope") is None

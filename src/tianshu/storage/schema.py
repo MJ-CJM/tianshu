@@ -244,6 +244,7 @@ SCHEMA_SQL_CORE = """
                     fitness_json TEXT NOT NULL DEFAULT '{}',
                     eval_set_version TEXT,
                     cost REAL NOT NULL DEFAULT 0,
+                    baseline_json TEXT,
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_variant_eval_runs_universe

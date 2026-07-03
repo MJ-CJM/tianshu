@@ -64,6 +64,10 @@ class FakeCodeStore:
     def __init__(self, tmp_path: Path):
         self._root = tmp_path
 
+    @property
+    def repo_root(self) -> Path:
+        return self._root
+
     def worktree_dir(self, uid: str) -> Path:
         d = self._root / uid
         d.mkdir(parents=True, exist_ok=True)
@@ -93,12 +97,16 @@ class FakeGate:
 
 
 class FakeEvalHarness:
-    def __init__(self, *, fitness_score: float = 0.7, n: int = 3):
+    def __init__(self, *, fitness_score: float = 0.7, n: int = 3, baseline_score: float = 0.5):
         self._score = fitness_score
         self._n = n
+        self._baseline_score = baseline_score
 
     def select_eval_set(self, size: int) -> list[str]:
         return [f"goal-{i}" for i in range(min(size, self._n))]
+
+    def eval_set_fingerprint(self, eval_set: list[str], champion_key: str) -> str:
+        return "fp-test"
 
     def evaluate(
         self, worktree: Path, *, eval_set: list[str], seed_db=None, budget_cny=None
@@ -112,10 +120,34 @@ class FakeEvalHarness:
             "truncated": False,
         }
 
+    def evaluate_paired(
+        self,
+        variant_worktree: Path,
+        *,
+        eval_set: list[str],
+        baseline_worktree: Path,
+        budget_cny=None,
+        cached_baseline: dict | None = None,
+        **kw,
+    ) -> dict:
+        variant = self.evaluate(variant_worktree, eval_set=eval_set, budget_cny=budget_cny)
+        baseline = cached_baseline or {
+            "fitness": {"score": self._baseline_score, "samples": len(eval_set)},
+            "stats": {"cost": 0.0},
+            "n": len(eval_set),
+            "truncated": False,
+        }
+        delta = round(variant["fitness"]["score"] - baseline["fitness"]["score"], 4)
+        return {
+            "variant": variant,
+            "baseline": baseline,
+            "delta": delta,
+            "baseline_cached": cached_baseline is not None,
+        }
+
 
 class FakeStorage:
-    def __init__(self, *, champion_fitness_score: float = 0.5):
-        self._champion_score = champion_fitness_score
+    def __init__(self):
         self.saved_runs: list[dict] = []
         self.updated_fitness: list[tuple[str, dict]] = []
 
@@ -125,8 +157,8 @@ class FakeStorage:
     def update_universe_fitness(self, uid: str, fitness: dict) -> None:
         self.updated_fitness.append((uid, fitness))
 
-    def get_champion_universe(self) -> dict | None:
-        return {"id": "champ-001", "fitness": {"score": self._champion_score}}
+    def latest_baseline_fitness(self, eval_set_version: str) -> dict | None:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -235,27 +267,30 @@ async def test_gate_fail_detail_truncated_to_1000(tmp_path):
 
 
 async def test_recommended_when_variant_beats_champion_by_margin(tmp_path):
-    # champion score=0.5, variant score=0.7, margin=0.05 → 0.7 >= 0.5+0.05 → recommended
-    sto = FakeStorage(champion_fitness_score=0.5)
+    # paired baseline=0.5, variant score=0.7, margin=0.05 → delta=0.2 >= 0.05 → recommended
+    sto = FakeStorage()
     eh = FakeEvalHarness(fitness_score=0.7)
     ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh)
     result = await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
     assert result["status"] == "recommended"
     assert result["fitness"]["score"] == pytest.approx(0.7)
+    assert result["delta"] == pytest.approx(0.2)
     # fitness saved to storage
     assert len(sto.updated_fitness) == 1
     assert len(sto.saved_runs) == 1
     assert sto.saved_runs[0]["gate_passed"] is True
+    assert sto.saved_runs[0]["baseline"] == {"score": 0.5, "samples": 3}
 
 
 async def test_evaluated_when_variant_within_margin(tmp_path):
-    # champion score=0.5, variant score=0.52, margin=0.05 → 0.52 < 0.55 → evaluated
-    sto = FakeStorage(champion_fitness_score=0.5)
+    # paired baseline=0.5, variant score=0.52, margin=0.05 → delta=0.02 < 0.05 → evaluated
+    sto = FakeStorage()
     eh = FakeEvalHarness(fitness_score=0.52)
     ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh)
     result = await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
     assert result["status"] == "evaluated"
     assert result["fitness"]["score"] == pytest.approx(0.52)
+    assert result["delta"] == pytest.approx(0.02)
 
 
 async def test_explicit_parent_id_used_over_champion(tmp_path):
@@ -282,7 +317,7 @@ async def test_error_returns_error_status(tmp_path):
 
 
 async def test_eval_run_saved_with_required_fields(tmp_path):
-    sto = FakeStorage(champion_fitness_score=0.3)
+    sto = FakeStorage()
     eh = FakeEvalHarness(fitness_score=0.8, n=5)
     cfg = _make_cfg(code_variant_eval_set_size=5)
     ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh, cfg=cfg)
@@ -293,5 +328,26 @@ async def test_eval_run_saved_with_required_fields(tmp_path):
     assert "universe_id" in run
     assert run["gate_passed"] is True
     assert "fitness" in run
+    assert "baseline" in run
     assert "eval_set_version" in run
     assert "created_at" in run
+
+
+async def test_variant_truncated_propagates_to_saved_fitness(tmp_path):
+    """evaluate_paired 的 variant 侧带 truncated=True 时,落库 fitness 与位面 fitness 都要带上该标记。"""
+
+    class _TruncatedEvalHarness(FakeEvalHarness):
+        def evaluate_paired(self, variant_worktree, *, eval_set, baseline_worktree, **kw):
+            paired = super().evaluate_paired(
+                variant_worktree, eval_set=eval_set, baseline_worktree=baseline_worktree, **kw
+            )
+            paired["variant"] = {**paired["variant"], "truncated": True}
+            return paired
+
+    sto = FakeStorage()
+    eh = _TruncatedEvalHarness()
+    ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh)
+    await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+
+    assert sto.saved_runs[0]["fitness"]["truncated"] is True
+    assert sto.updated_fitness[0][1]["truncated"] is True

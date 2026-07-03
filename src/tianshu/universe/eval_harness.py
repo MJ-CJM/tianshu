@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import shutil
@@ -138,6 +139,61 @@ class EvalHarness:
                     break
             stats = self.aggregate_db_stats(h.db_path)
         return {"fitness": self.score(stats), "stats": stats, "n": ran, "truncated": truncated}
+
+    @staticmethod
+    def eval_set_fingerprint(eval_set: list[str], champion_key: str) -> str:
+        """评估集指纹:内容 + 冠军标识。冠军更替或选集内容变化都会使基线缓存失效。"""
+        payload = "\n".join(eval_set) + "|" + champion_key
+        return hashlib.sha256(payload.encode()).hexdigest()[:12]
+
+    def evaluate_paired(
+        self,
+        variant_worktree: Path,
+        *,
+        eval_set: list[str],
+        baseline_worktree: Path,
+        variant_env: dict | None = None,
+        baseline_env: dict | None = None,
+        goal_timeout_s: int = 300,
+        budget_cny: float | None = None,
+        cached_baseline: dict | None = None,
+    ) -> dict:
+        """变体与冠军基线在同一评估集上各评一次,margin 判在配对差上。
+
+        cached_baseline(同指纹的历史基线)命中时跳过基线评估,评估成本减半。
+        """
+        variant = self.evaluate(
+            variant_worktree,
+            eval_set=eval_set,
+            extra_env=variant_env,
+            goal_timeout_s=goal_timeout_s,
+            budget_cny=budget_cny,
+        )
+        if cached_baseline is not None:
+            baseline = (
+                cached_baseline
+                if "fitness" in cached_baseline
+                else {"fitness": cached_baseline, "stats": {}, "n": 0, "truncated": False}
+            )
+            baseline_cached = True
+        else:
+            baseline = self.evaluate(
+                baseline_worktree,
+                eval_set=eval_set,
+                extra_env=baseline_env,
+                goal_timeout_s=goal_timeout_s,
+                budget_cny=budget_cny,
+            )
+            baseline_cached = False
+        delta = round(
+            variant["fitness"].get("score", 0.0) - baseline["fitness"].get("score", 0.0), 4
+        )
+        return {
+            "variant": variant,
+            "baseline": baseline,
+            "delta": delta,
+            "baseline_cached": baseline_cached,
+        }
 
     def _run_goal(self, base_url: str, goal: str, timeout_s: int) -> None:
         """POST 一个 edict 并轮询其 memorial 到终态（或超时放弃）。

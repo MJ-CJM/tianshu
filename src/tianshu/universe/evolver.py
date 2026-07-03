@@ -287,14 +287,20 @@ class UniverseEvolver:
 
             eval_set_size = getattr(cfg, "code_variant_eval_set_size", 20)
             es = self._eval_harness.select_eval_set(eval_set_size)
-            ev = await asyncio.to_thread(
-                self._eval_harness.evaluate,
+            champion_key = self._mgr.champion_id() or "genesis"
+            fp = self._eval_harness.eval_set_fingerprint(es, champion_key)
+            cached = self._storage.latest_baseline_fitness(fp)
+            budget = getattr(cfg, "code_variant_eval_budget_cny", None)
+            paired = await asyncio.to_thread(
+                self._eval_harness.evaluate_paired,
                 worktree,
                 eval_set=es,
-                budget_cny=getattr(cfg, "code_variant_eval_budget_cny", None),
+                baseline_worktree=self._code_store.repo_root,
+                budget_cny=budget,
+                cached_baseline=cached,
             )
-            fitness = ev["fitness"]
-            if ev.get("truncated"):
+            fitness = paired["variant"]["fitness"]
+            if paired["variant"].get("truncated"):
                 fitness = {**fitness, "truncated": True}
 
             self._storage.save_variant_eval_run(
@@ -303,21 +309,28 @@ class UniverseEvolver:
                     "universe_id": uid,
                     "gate_passed": True,
                     "fitness": fitness,
-                    "eval_set_version": str(len(es)),
-                    "cost": ev["stats"].get("cost", 0),
+                    "baseline": paired["baseline"]["fitness"],
+                    "eval_set_version": fp,
+                    "cost": paired["variant"]["stats"].get("cost", 0),
                     "created_at": datetime.now(UTC).isoformat(),
                 }
             )
             self._storage.update_universe_fitness(uid, fitness)
 
-            champ = self._storage.get_champion_universe()
-            champ_score = (champ.get("fitness") or {}).get("score", 0.0) if champ else 0.0
-            variant_score = fitness.get("score", 0.0)
             margin = getattr(cfg, "universe_promote_margin", 0.05)
-
-            if variant_score >= champ_score + margin:
-                return {"status": "recommended", "universe_id": uid, "fitness": fitness}
-            return {"status": "evaluated", "universe_id": uid, "fitness": fitness}
+            if paired["delta"] >= margin:
+                return {
+                    "status": "recommended",
+                    "universe_id": uid,
+                    "fitness": fitness,
+                    "delta": paired["delta"],
+                }
+            return {
+                "status": "evaluated",
+                "universe_id": uid,
+                "fitness": fitness,
+                "delta": paired["delta"],
+            }
 
         except Exception as e:  # noqa: BLE001
             logger.exception("[EVOLVER] propose_code_variant failed")

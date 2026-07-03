@@ -126,6 +126,7 @@ def _row_to_eval_run(row) -> dict:
         "gate_passed": bool(row["gate_passed"]),
         "gate_detail": json.loads(row["gate_detail"]) if row["gate_detail"] else None,
         "fitness": json.loads(row["fitness_json"] or "{}"),
+        "baseline": json.loads(row["baseline_json"]) if row["baseline_json"] else None,
         "eval_set_version": row["eval_set_version"],
         "cost": row["cost"],
         "created_at": row["created_at"],

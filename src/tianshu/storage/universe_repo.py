@@ -84,8 +84,8 @@ class UniverseMixin:
             self._conn.execute(
                 """INSERT OR REPLACE INTO variant_eval_runs
                    (id, universe_id, gate_passed, gate_detail,
-                    fitness_json, eval_set_version, cost, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    fitness_json, eval_set_version, cost, created_at, baseline_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run["id"],
                     run["universe_id"],
@@ -97,8 +97,27 @@ class UniverseMixin:
                     run.get("eval_set_version"),
                     float(run.get("cost", 0.0)),
                     run["created_at"],
+                    json.dumps(run["baseline"], ensure_ascii=False)
+                    if run.get("baseline") is not None
+                    else None,
                 ),
             )
+
+    def latest_baseline_fitness(self, eval_set_version: str) -> dict | None:
+        """同评估集指纹下最近一次冠军基线分(供 evaluate_paired 缓存复用)。"""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT baseline_json FROM variant_eval_runs "
+                "WHERE eval_set_version = ? AND baseline_json IS NOT NULL "
+                "ORDER BY created_at DESC LIMIT 1",
+                (eval_set_version,),
+            ).fetchone()
+        if not row or not row["baseline_json"]:
+            return None
+        try:
+            return json.loads(row["baseline_json"])
+        except (ValueError, TypeError):
+            return None
 
     def list_variant_eval_runs(self, universe_id: str) -> list[dict]:
         with self._lock:

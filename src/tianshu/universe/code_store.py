@@ -28,6 +28,10 @@ class CodeVariantStore:
 
     # --- paths ---
 
+    @property
+    def repo_root(self) -> Path:
+        return self._repo
+
     def worktree_dir(self, universe_id: str) -> Path:
         return self._root / universe_id
 

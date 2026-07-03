@@ -175,6 +175,8 @@ def run_migrations(conn: sqlite3.Connection) -> None:
                 finished_at TEXT
             )""",
         "CREATE INDEX IF NOT EXISTS idx_schedule_run_source ON schedule_run(source)",
+        # 2026-07-04: 位面竞争力——配对基线(冠军同集沙箱评估分)落台账
+        "ALTER TABLE variant_eval_runs ADD COLUMN baseline_json TEXT",
     ]
     for sql in migrations:
         try:

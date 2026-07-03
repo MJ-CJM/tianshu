@@ -300,3 +300,55 @@ def test_evaluate_no_budget_runs_all(tmp_path, monkeypatch):
     assert result["truncated"] is False
     assert ran == ["g1", "g2", "g3"]
     assert result["n"] == 3
+
+
+# ---------------------------------------------------------------------------
+# test_eval_set_fingerprint / test_evaluate_paired
+# ---------------------------------------------------------------------------
+
+
+def test_eval_set_fingerprint_stable_and_sensitive():
+    from tianshu.universe.eval_harness import EvalHarness
+
+    fp1 = EvalHarness.eval_set_fingerprint(["a", "b"], "champ-1")
+    assert fp1 == EvalHarness.eval_set_fingerprint(["a", "b"], "champ-1")
+    assert len(fp1) == 12
+    assert fp1 != EvalHarness.eval_set_fingerprint(["a", "c"], "champ-1")  # 集合变
+    assert fp1 != EvalHarness.eval_set_fingerprint(["a", "b"], "champ-2")  # 冠军变
+
+
+def test_evaluate_paired_delta_and_cache(tmp_path, monkeypatch):
+    from tianshu.universe.eval_harness import EvalHarness
+
+    harness = EvalHarness(storage=None, sandbox_runner=None)
+    calls: list[str] = []
+
+    def _fake_evaluate(worktree, *, eval_set, extra_env=None, **kw):
+        calls.append(str(worktree))
+        score = 0.8 if "variant" in str(worktree) else 0.7
+        return {
+            "fitness": {"score": score, "samples": len(eval_set)},
+            "stats": {"cost": 1.0},
+            "n": len(eval_set),
+            "truncated": False,
+        }
+
+    monkeypatch.setattr(harness, "evaluate", _fake_evaluate)
+
+    r = harness.evaluate_paired(
+        tmp_path / "variant", eval_set=["g1"], baseline_worktree=tmp_path / "main"
+    )
+    assert r["delta"] == 0.1
+    assert r["baseline_cached"] is False
+    assert len(calls) == 2
+
+    calls.clear()
+    r2 = harness.evaluate_paired(
+        tmp_path / "variant",
+        eval_set=["g1"],
+        baseline_worktree=tmp_path / "main",
+        cached_baseline={"fitness": {"score": 0.75, "samples": 1}, "stats": {}, "n": 1},
+    )
+    assert r2["baseline_cached"] is True
+    assert round(r2["delta"], 4) == 0.05
+    assert calls == [str(tmp_path / "variant")]  # 命中缓存只评 variant
