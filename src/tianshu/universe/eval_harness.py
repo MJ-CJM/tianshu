@@ -13,6 +13,7 @@ import sqlite3
 import time
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 
 from tianshu.universe.fitness import compute_fitness
@@ -165,13 +166,14 @@ class EvalHarness:
     ) -> dict:
         """在沙箱中回放 eval_set，聚合并打分。
 
-        iso_db 放在 worktree 同级目录（保持 worktree 内文件系统干净）。
+        iso_db 放在 worktree 同级目录（保持 worktree 内文件系统干净），文件名唯一化
+        （随机后缀），避免并发评估互踩。
         seed_db 不为 None 时拷贝作为初始数据库（例如携带 persona/LLM 配置）。
         budget_cny 非 None 时逐条回放后检查沙箱 DB 累计成本,触顶即截断
         (truncated=True),已回放部分照常聚合打分——评估必须失败安全,
         预算闸只截断、不作废。
         """
-        iso_db = Path(worktree).parent / "_eval.db"
+        iso_db = Path(worktree).parent / f"_eval-{uuid.uuid4().hex[:8]}.db"
         if seed_db is not None:
             shutil.copy(seed_db, iso_db)
         truncated = False

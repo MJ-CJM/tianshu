@@ -282,6 +282,52 @@ async def test_evaluate_behavior_challenger_does_not_cache_truncated_baseline(mo
     assert saved["baseline"] is None
 
 
+async def test_evaluate_behavior_challenger_propagates_truncated_flag(monkeypatch):
+    """行为层候选评估应与代码层 propose_code_variant 同构:variant 被预算闸截断时,
+
+    落库 fitness 与位面 fitness 都要带上 truncated=True 标记(发现 2:修复前行为层
+    评估落库不带该标记,UI"预算截断"备注列缺标)。
+    """
+    from pathlib import Path
+
+    storage = MagicMock()
+    storage.latest_baseline_fitness.return_value = None
+    mgr = MagicMock()
+    mgr._store.personas_dir.return_value = Path("/personas/child1")
+    eval_harness = MagicMock()
+    eval_harness.select_eval_set.return_value = ["g1"]
+    eval_harness.eval_set_fingerprint.return_value = "fp-x"
+    eval_harness.evaluate_paired.return_value = {
+        "variant": {
+            "fitness": {"score": 0.7, "samples": 20},
+            "stats": {"cost": 0.1},
+            "truncated": True,
+        },
+        "baseline": {"fitness": {"score": 0.7, "samples": 20}, "truncated": False},
+        "delta": 0.0,
+        "baseline_cached": False,
+    }
+    code_store = MagicMock()
+    code_store.repo_root = Path("/repo")
+
+    ev = UniverseEvolver(
+        AsyncMock(),
+        mgr,
+        storage,
+        MagicMock(),
+        code_store=code_store,
+        eval_harness=eval_harness,
+    )
+    monkeypatch.setattr(ev, "_baseline_key", lambda: "champ:abc123")
+
+    await ev._evaluate_behavior_challenger("child1", _cfg())
+
+    saved = storage.save_variant_eval_run.call_args[0][0]
+    assert saved["fitness"]["truncated"] is True
+    updated_fitness = storage.update_universe_fitness.call_args[0][1]
+    assert updated_fitness["truncated"] is True
+
+
 def test_mutation_history_lists_recent_attempts_with_outcome(evolver_fixture):
     """_mutation_history 列出近期 mutation origin 尝试(含结局),最近在前,非 mutation origin 被过滤。"""
     evolver, mgr = evolver_fixture

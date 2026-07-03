@@ -1,7 +1,7 @@
 """UniverseEvolver（演化）— 从冠军位面变异出候选并据适应度择优。
 
 骨架对齐 SkillCurator：gate(idle + lock) → 采信号 → ONE LLM 变异 →
-分支候选位面 → 熔断下线劣质候选 → 晋升推荐（默认人工确认）。
+分支候选位面 → 沙箱配对评估 delta 分流(劣汰归档/达标推荐/带内留观) → 晋升推荐（默认人工确认）。
 
 变异落地（mutator）：分支候选后，调 universe.mutator.apply_mutation 把变异意图真正
 改写进候选位面文件。当前 cut 仅支持【人格文件】(SOUL.md / ROLE.md) 改写——人格目录被
@@ -285,6 +285,8 @@ class UniverseEvolver:
         from ulid import ULID
 
         fitness = paired["variant"]["fitness"]
+        if paired["variant"].get("truncated"):
+            fitness = {**fitness, "truncated": True}
         self._storage.save_variant_eval_run(
             {
                 "id": str(ULID()),

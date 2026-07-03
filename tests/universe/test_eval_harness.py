@@ -617,3 +617,57 @@ def test_evaluate_merges_base_env_into_sandbox(tmp_path, monkeypatch):
     harness.evaluate(tmp_path, eval_set=["g"], extra_env={"TIANSHU_RUNTIME_PERSONAS_DIR": "/tmp/p"})
     assert captured["extra_env"]["TIANSHU_LLM_API_KEY"] == "sk-eval-low"
     assert captured["extra_env"]["TIANSHU_RUNTIME_PERSONAS_DIR"] == "/tmp/p"
+
+
+# ---------------------------------------------------------------------------
+# test_evaluate_generates_unique_iso_db_per_call (发现 1 回归测试)
+# ---------------------------------------------------------------------------
+
+
+def test_evaluate_generates_unique_iso_db_per_call(tmp_path, monkeypatch):
+    """两次 evaluate() 调用应各自生成唯一的 iso_db 文件名。
+
+    修复前 iso_db 固定为 "_eval.db"：并发评估（行为层/代码层各一条 cron，经
+    asyncio.to_thread 真并发）会共享同一文件，先结束者 stop() 的 unlink 会
+    删掉对方仍在使用的库。文件名唯一化后每次 evaluate() 各用各的库。
+    """
+    from tianshu.universe.eval_harness import EvalHarness
+
+    captured_db_paths: list[Path] = []
+
+    class _H:
+        base_url = "http://x"
+        db_path = tmp_path / "_eval.db"
+
+    class _FakeSandbox:
+        import contextlib
+
+        @contextlib.contextmanager
+        def session(self, worktree, *, db_path, extra_env=None):
+            captured_db_paths.append(Path(db_path))
+            yield _H()
+
+    harness = EvalHarness(storage=None, sandbox_runner=_FakeSandbox())
+    monkeypatch.setattr(harness, "_run_goal", lambda *a: None)
+    monkeypatch.setattr(
+        harness,
+        "aggregate_db_stats",
+        lambda db: {
+            "total": 0,
+            "success": 0,
+            "retries": 0,
+            "audited": 0,
+            "audit_pass": 0,
+            "cost": 0.0,
+            "feedback": 0,
+        },
+    )
+
+    harness.evaluate(tmp_path, eval_set=["g1"])
+    harness.evaluate(tmp_path, eval_set=["g1"])
+
+    assert len(captured_db_paths) == 2
+    assert captured_db_paths[0] != captured_db_paths[1]
+    for p in captured_db_paths:
+        assert p.name.startswith("_eval-")
+        assert p.name.endswith(".db")
