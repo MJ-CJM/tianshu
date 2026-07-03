@@ -1,0 +1,125 @@
+"""SkillsLoader / metrics / register_skill_tools / SkillCurator / hot-reload 装配。
+
+四个函数对应原 lifespan() 中不相邻的四段代码，顺序依赖各不相同，因此没有
+合并成一个函数：
+
+- `wire_skills`：`# --- Skills ---` 分区，创建 SkillsLoader + SkillMetricsStore。
+  必须早于 persona/memory 装配（它们要用 skills/metrics_store）。
+- `wire_skill_tools`：原分区注释写明"register_skill_tools 移到 config_manager
+  定义之后"，对应的正是这段没有独立 `# --- X ---` 标题、但紧跟在
+  `# --- LLM Config Manager ---` 之后的桥接代码。必须晚于 config_manager。
+- `wire_skill_curator`：`# --- SkillCurator ---` 分区，晚于 provider_manager/
+  config_manager，此时 skills/metrics_store 已经进了 app.state，直接用
+  service-locator 取即可，不需要显式传参。
+- `wire_skills_watcher`：`# --- Skills hot-reload watcher ---` 分区，
+  在最靠后的位置创建；skills_watcher 从未写入 app.state（原代码只是
+  lifespan 的局部变量，关停时在 yield 之后直接引用），因此由本函数返回，
+  lifespan 显式持有到 shutdown 段使用。
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from fastapi import FastAPI
+
+from tianshu.config import TianshuSettings
+from tianshu.skills.curator import SkillCurator
+from tianshu.skills.loader import SkillsLoader, SkillsWatcher
+from tianshu.skills.metrics import SkillMetricsStore
+from tianshu.tools.registry import ToolRegistry
+from tianshu.tools.skill_tools import register_skill_tools
+
+logger = logging.getLogger(__name__)
+
+
+def wire_skills(app: FastAPI, settings: TianshuSettings) -> tuple[SkillsLoader, SkillMetricsStore]:
+    """创建 SkillsLoader + SkillMetricsStore（尚不写入 app.state）。
+
+    返回 (skills, metrics_store)：两者要到 `# --- Agent ---` 分区才
+    `app.state.skills_loader` / `app.state.skill_metrics_store`，但
+    memory palace（PromptBuilder）与 skill 工具注册在那之前就需要用到，
+    属有状态对象、不可重新构造，由 lifespan 显式向后传递。
+    """
+    storage = app.state.storage
+
+    # --- Skills ---
+    builtin_skills_dir = Path(__file__).parent.parent / "skills" / "builtin"
+    workspace_path = (
+        Path(settings.workspace_dir).resolve() if settings.workspace_dir != "." else None
+    )
+    user_skills_dir = Path("~/.tianshu/skills").expanduser()
+    user_skills_dir.mkdir(parents=True, exist_ok=True)
+    skills = SkillsLoader(
+        builtin_dir=builtin_skills_dir,
+        workspace_dir=workspace_path,
+        user_dir=user_skills_dir,
+        char_budget=settings.skills_char_budget,
+    )
+    metrics_store = SkillMetricsStore(storage._conn)
+    # register_skill_tools 移到 config_manager 定义之后（它依赖 config_manager.agent_config）
+    return skills, metrics_store
+
+
+def wire_skill_tools(
+    app: FastAPI,
+    settings: TianshuSettings,
+    tools: ToolRegistry,
+    skills: SkillsLoader,
+    metrics_store: SkillMetricsStore,
+) -> None:
+    """注册 skill 工具——依赖 config_manager.agent_config，须晚于 wire_llm_config。"""
+    config_manager = app.state.config_manager
+    event_bus = app.state.event_bus
+
+    # skill 工具注册：依赖 config_manager.agent_config（guard 开关）；
+    # tools / skills / metrics_store / event_bus 均已在前面定义
+    register_skill_tools(
+        tools,
+        skills,
+        metrics_store=metrics_store,
+        guard_agent_created=config_manager.agent_config.skill_guard_agent_created,
+        event_bus=event_bus,
+    )
+
+
+def wire_skill_curator(app: FastAPI, settings: TianshuSettings) -> None:
+    """创建 SkillCurator（修撰）——周期性技能库自优化。"""
+    provider_manager = app.state.provider_manager
+    skills = app.state.skills_loader
+    metrics_store = app.state.skill_metrics_store
+    storage = app.state.storage
+    config_manager = app.state.config_manager
+    event_bus = app.state.event_bus
+
+    # --- SkillCurator (修撰) — 周期性技能库自优化 ---
+    skill_curator = SkillCurator(
+        llm_client=provider_manager.get_client(),
+        loader=skills,
+        metrics_store=metrics_store,
+        storage=storage,
+        config_manager=config_manager,
+        runtime_dir=Path("~/.tianshu/runtime").expanduser(),
+    )
+    skill_curator.attach_event_bus(event_bus)
+    app.state.skill_curator = skill_curator
+
+
+def wire_skills_watcher(app: FastAPI, settings: TianshuSettings) -> SkillsWatcher | None:
+    """启动技能热重载 watcher。
+
+    返回 skills_watcher（或 None）：从未写入 app.state，原代码里就是
+    lifespan 的局部变量，关停时在 yield 之后直接引用；由 lifespan 显式
+    持有以保持这条行为不变。
+    """
+    skills = app.state.skills_loader
+
+    # --- Skills hot-reload watcher ---
+    skills_watcher = SkillsWatcher(skills)
+    try:
+        skills_watcher.start()
+    except Exception:
+        logger.warning("SkillsWatcher failed to start (watchdog may not be installed)")
+        skills_watcher = None
+    return skills_watcher

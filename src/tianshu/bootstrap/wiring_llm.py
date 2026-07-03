@@ -1,0 +1,127 @@
+"""ConfigManager / ProviderManager / Agent / CostManager 装配。
+
+三个函数对应原 lifespan() 中的三段代码：
+
+- `wire_llm_config`：`# --- LLM Config Manager ---` 分区。
+- `wire_provider_and_agent`：`# --- ProviderManager ---` +
+  `# --- Agent ---` 两个相邻分区，合并。
+- `wire_cost_manager`：`# --- CostManager（提前创建）---` 分区，
+  位置在 ApprovalManager 之后、Channel bots 之前，离前两个较远，
+  但内容仍属"LLM/cost 基础设施"一类，按目标结构放在同一文件、
+  作为独立函数在其原有位置调用。
+
+跨区变量处置：`tools` / `skills` / `metrics_store` / `prompt_builder`
+均由更早的 wiring 函数创建、此时尚未写入 app.state，由 lifespan 显式
+传参（见各自 wiring 文件的说明）。`personas_dir` 为纯路径计算，
+按设计约定 #2 在本文件内重新推导，而不是等这里把它写进 app.state
+之后再读回来。
+"""
+
+from __future__ import annotations
+
+import functools
+import logging
+from pathlib import Path
+
+from fastapi import FastAPI
+
+from tianshu.config import TianshuSettings
+from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
+from tianshu.cost.manager import CostManager
+from tianshu.executor.agent import Agent
+from tianshu.persona.prompt_builder import PromptBuilder
+from tianshu.providers.manager import ProviderManager
+from tianshu.skills.loader import SkillsLoader
+from tianshu.skills.metrics import SkillMetricsStore
+from tianshu.storage import Storage
+from tianshu.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
+
+
+def _assistant_persona_id_provider(storage: Storage) -> str | None:
+    """实时读 channel_configs.feishu.assistant_persona_id。
+
+    原 lifespan 内嵌闭包提为顶层，捕获对象（storage）改为显式参数，
+    调用处用 functools.partial 绑定。agent 用它判断当前执行 persona
+    是不是助手，非助手过滤掉 ASSISTANT_ONLY_TOOLS（submit_edict 等），
+    防 cron 触发的执行 persona 递归颁敕。
+    """
+    cfg = storage.get_channel_config("feishu")
+    return (cfg or {}).get("assistant_persona_id")
+
+
+def wire_llm_config(app: FastAPI, settings: TianshuSettings) -> None:
+    """创建 ConfigManager（LLM 配置 + agent 配置）。"""
+    storage = app.state.storage
+
+    # --- LLM Config Manager ---
+    initial_state = LLMConfigState(
+        name=settings.llm_model,
+        model=settings.llm_model,
+        api_key=settings.llm_api_key,
+        api_base=settings.llm_api_base,
+        max_retries=settings.llm_max_retries,
+        temperature=settings.llm_temperature,
+        top_p=settings.llm_top_p,
+        max_tokens=settings.llm_max_tokens,
+    )
+    agent_config = AgentConfigState(
+        agent_max_iterations=settings.agent_max_iterations,
+        agent_timeout_seconds=settings.agent_timeout_seconds,
+        skills_char_budget=settings.skills_char_budget,
+        parallel_universe_enabled=settings.parallel_universe_enabled,
+    )
+    config_manager = ConfigManager(initial_state, agent_config=agent_config, storage=storage)
+    app.state.config_manager = config_manager
+
+
+def wire_provider_and_agent(
+    app: FastAPI,
+    settings: TianshuSettings,
+    tools: ToolRegistry,
+    skills: SkillsLoader,
+    metrics_store: SkillMetricsStore,
+    prompt_builder: PromptBuilder,
+) -> None:
+    """创建 ProviderManager + Agent，并把它们及关联对象挂到 app.state。"""
+    storage = app.state.storage
+    config_manager = app.state.config_manager
+    hook_registry = app.state.hook_registry
+    personas_dir = Path(__file__).parent.parent.parent.parent / "personas"
+
+    # --- ProviderManager ---
+    provider_manager = ProviderManager(storage=storage, config_manager=config_manager)
+    provider_manager.sync_all()
+    app.state.provider_manager = provider_manager
+
+    # --- Agent ---
+    # 实时读 channel_configs.feishu.assistant_persona_id —— agent 用它判断
+    # 当前执行 persona 是不是助手，非助手过滤掉 ASSISTANT_ONLY_TOOLS
+    # （submit_edict 等），防 cron 触发的执行 persona 递归颁敕。
+    agent = Agent(
+        config_manager=config_manager,
+        tools=tools,
+        skills=skills,
+        hook_registry=hook_registry,
+        prompt_builder=prompt_builder,
+        provider_manager=provider_manager,
+        metrics_store=metrics_store,
+        assistant_persona_id_provider=functools.partial(_assistant_persona_id_provider, storage),
+    )
+    app.state.agent = agent
+    app.state.skills_loader = skills
+    app.state.skill_metrics_store = metrics_store
+    app.state.tool_registry = tools
+    app.state.prompt_builder = prompt_builder
+    app.state.personas_dir = personas_dir
+
+
+def wire_cost_manager(app: FastAPI, settings: TianshuSettings) -> None:
+    """创建 CostManager（提前创建：FeishuBot /budget 卡片需要）。"""
+    storage = app.state.storage
+    event_bus = app.state.event_bus
+
+    # --- CostManager（提前创建：FeishuBot /budget 卡片需要）---
+    cost_manager = CostManager(storage=storage, event_bus=event_bus)
+    app.state.cost_manager = cost_manager
