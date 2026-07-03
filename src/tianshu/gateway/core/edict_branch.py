@@ -21,9 +21,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
+from tianshu.gateway.core.approval import parse_approval_command
 from tianshu.gateway.core.errors import EdictBusyError
 from tianshu.gateway.core.status_label import format_status_label
-from tianshu.gateway.feishu.approval_commands import parse_approval_command
 from tianshu.models.common import EdictStatus
 
 if TYPE_CHECKING:

@@ -15,10 +15,11 @@
 - ``_default_instance_id``：未显式传入 instance_id 时的默认值两端字面量
   不同（"feishu-default" / "telegram-default"），子类各自声明。
 
-EdictBridge / PersonaRenderer / parse_approval_command 本身已是通道无关的
-共享实现，只是物理位置仍在 feishu/ 包（历史遗留，telegram 早已复用）；这里
-按 core/mode_router.py、core/outbound.py 同样的方式处理——类型仅
-TYPE_CHECKING 引用或直接复用纯函数，不构成 core→telegram 依赖。
+EdictBridge / PersonaRenderer 物理位置仍在 feishu/ 包（历史遗留，telegram
+早已复用），这里按 core/mode_router.py、core/outbound.py 同样的方式处理——
+类型仅 TYPE_CHECKING 引用，不构成 core→feishu 运行时依赖。
+parse_approval_command 已迁入 core/approval.py（同批消除 core→feishu 潜伏
+循环 import），直接从 core 导入。
 """
 
 from __future__ import annotations
@@ -26,9 +27,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
+from tianshu.gateway.core.approval import parse_approval_command
 from tianshu.gateway.core.errors import EdictBusyError
 from tianshu.gateway.core.status_label import format_status_label
-from tianshu.gateway.feishu.approval_commands import parse_approval_command
 from tianshu.models.common import EdictStatus
 
 if TYPE_CHECKING:

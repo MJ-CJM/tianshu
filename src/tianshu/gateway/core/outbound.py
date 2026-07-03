@@ -5,8 +5,8 @@
 thinking 机制、每段拼接方式两端不同，留给子类钩子（均以
 raise NotImplementedError 占位）。
 
-convert_tables_to_lists 复用 feishu/markdown_compat（历史遗留，telegram 也已
-复用；待迁 core，同 core/mode_router.py 对 EdictBridge 的处理方式）。
+convert_tables_to_lists 复用 core/markdown_compat（原 feishu/markdown_compat，
+telegram 也已复用；现已迁入 core，消除此前 core→feishu 的潜伏循环 import）。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Protocol
 
-from tianshu.gateway.feishu.markdown_compat import (
+from tianshu.gateway.core.markdown_compat import (
     DEFAULT_CHUNK_SIZE,
     convert_tables_to_lists,
     split_long,
