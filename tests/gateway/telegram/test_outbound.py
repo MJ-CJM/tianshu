@@ -94,3 +94,32 @@ async def test_execution_completed_skips_non_telegram(storage):
     ev = EventEnvelope(event_type="execution.completed", edict_id=edict.id)
     await out._on_execution_completed(ev)
     bot.send_message.assert_not_awaited()  # 飞书敕令不投递
+
+
+@pytest.mark.asyncio
+async def test_execution_completed_multi_chunk_adds_continuation_prefix(storage):
+    """长结果被 split_long 切成多片时，第 2 片起应带"续 i/n"前缀，首片不带。"""
+    out, bot = _outbound(storage)
+    edict = Edict(
+        title="t", goal="g", source="channel", metadata={"channel": "telegram", "chat_id": "555"}
+    )
+    storage.save_edict(edict)
+    # 两段各 2000 字，中间空行分隔：合计超过 _SAFE_CHUNK(3500) → split_long 切成 2 片
+    para1 = "第一段。" * 500
+    para2 = "第二段。" * 500
+    memorial = Memorial(
+        edict_id=edict.id,
+        instruction="hi",
+        status=TaskStatus.COMPLETED,
+        result=para1 + "\n\n" + para2,
+    )
+    storage.save_memorial(memorial)
+
+    ev = EventEnvelope(event_type="execution.completed", edict_id=edict.id, memorial_id=memorial.id)
+    await out._on_execution_completed(ev)
+
+    assert bot.send_message.await_count == 2
+    first_text = bot.send_message.await_args_list[0].kwargs["text"]
+    second_text = bot.send_message.await_args_list[1].kwargs["text"]
+    assert "续" not in first_text
+    assert "续 2/2" in second_text

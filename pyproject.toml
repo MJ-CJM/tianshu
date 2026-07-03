@@ -58,7 +58,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-markers = ["slow: 真实子进程/慢测试"]
+markers = [
+    "slow: 真实子进程/慢测试",
+    "unit: 纯单元测试（无 IO / 无外部依赖）",
+    "integration: 跨组件集成测试（真 Storage / 多协作者编排）",
+]
 
 [tool.ruff]
 line-length = 100
