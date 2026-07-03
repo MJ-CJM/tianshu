@@ -17,9 +17,7 @@ import dataclasses
 import logging
 from typing import TYPE_CHECKING
 
-from tianshu.gateway.feishu.settings import from_global_settings as feishu_from_env
 from tianshu.gateway.instance import ChannelInstance, default_instance_id
-from tianshu.gateway.telegram.settings import from_global_settings as telegram_from_env
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -159,10 +157,29 @@ class ChannelBotManager:
         )
 
     def _env_fallback_instance(self, channel_type: str) -> ChannelInstance:
-        """无 DB 实例、无旧配置 → env 兜底（env 为空时 enabled=False）。"""
+        """无 DB 实例、无旧配置 → env 兜底（env 为空时 enabled=False）。
+
+        惰性导入：feishu/telegram 的 settings 子模块会触发各自包的
+        ``__init__.py``（进而拉入 lark_oapi / python-telegram-bot），
+        保持可选依赖的惰性边界。
+        """
         if channel_type == "feishu":
+            try:
+                from tianshu.gateway.feishu.settings import from_global_settings as feishu_from_env
+            except ImportError as exc:
+                raise ImportError(
+                    "飞书通道依赖未安装，请执行: pip install 'tianshu[feishu]'"
+                ) from exc
             settings = feishu_from_env(self._env_settings)
         else:
+            try:
+                from tianshu.gateway.telegram.settings import (
+                    from_global_settings as telegram_from_env,
+                )
+            except ImportError as exc:
+                raise ImportError(
+                    "Telegram 通道依赖未安装，请执行: pip install 'tianshu[telegram]'"
+                ) from exc
             settings = telegram_from_env(self._env_settings)
         return ChannelInstance(
             instance_id=default_instance_id(channel_type),
@@ -201,11 +218,19 @@ class ChannelBotManager:
             instance_id=inst.instance_id,
         )
         if inst.channel_type == "feishu":
-            from tianshu.gateway.feishu import FeishuBot
-
+            try:
+                from tianshu.gateway.feishu import FeishuBot
+            except ImportError as exc:
+                raise ImportError(
+                    "飞书通道依赖未安装，请执行: pip install 'tianshu[feishu]'"
+                ) from exc
             return FeishuBot(**common)
-        from tianshu.gateway.telegram import TelegramBot
-
+        try:
+            from tianshu.gateway.telegram import TelegramBot
+        except ImportError as exc:
+            raise ImportError(
+                "Telegram 通道依赖未安装，请执行: pip install 'tianshu[telegram]'"
+            ) from exc
         return TelegramBot(**common)
 
     # --- 生命周期 ---

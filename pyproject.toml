@@ -21,12 +21,8 @@ dependencies = [
     "jsonschema>=4.0",
     "watchdog>=4.0",
     "croniter>=2.0",
-    "trafilatura>=1.12",
     "cachetools>=5.3",
     "cryptography>=42",
-    "lark-oapi>=1.4.0",
-    "python-telegram-bot>=22.6,<23",
-    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +43,11 @@ dev = [
     "mypy>=1.10",
 ]
 scrapling = ["scrapling[fetchers]>=0.3"]
+feishu = ["lark-oapi>=1.4.0"]
+telegram = ["python-telegram-bot>=22.6,<23"]
+web = ["trafilatura>=1.12"]
+mcp = ["mcp>=1.0"]
+all = ["tianshu[feishu,telegram,web,mcp,cli,notify]"]
 
 [project.scripts]
 tianshu = "tianshu.cli.main:app"
