@@ -150,10 +150,12 @@ class FakeEvalHarness:
 
 
 class FakeStorage:
-    def __init__(self, baseline_fitness: dict | None = None):
+    def __init__(self, baseline_fitness: dict | None = None, *, lock_acquired: bool = True):
         self.saved_runs: list[dict] = []
         self.updated_fitness: list[tuple[str, dict]] = []
         self._baseline_fitness = baseline_fitness
+        self._lock_acquired = lock_acquired
+        self.lock_calls: list[dict] = []  # 记录 try_acquire 和 release 调用
 
     def save_variant_eval_run(self, run: dict) -> None:
         self.saved_runs.append(run)
@@ -164,11 +166,16 @@ class FakeStorage:
     def latest_baseline_fitness(self, eval_set_version: str) -> dict | None:
         return self._baseline_fitness
 
+    def last_activity_at(self) -> str | None:
+        """返回 None,表示无活动记录(idle 满足)。"""
+        return None
+
     def try_acquire_synthesis_lock(self, key: str) -> bool:
-        return True
+        self.lock_calls.append({"action": "try_acquire", "key": key})
+        return self._lock_acquired
 
     def release_synthesis_lock(self, key: str) -> None:
-        pass
+        self.lock_calls.append({"action": "release", "key": key})
 
 
 # ---------------------------------------------------------------------------
@@ -538,3 +545,91 @@ async def test_auto_propose_no_diagnostician_skips(tmp_path):
     ev._config.agent_config.code_variant_auto_propose = True
     ev._diagnostician = None
     assert (await ev.auto_propose_codes())["skipped"] == "no_diagnostician"
+
+
+async def test_auto_propose_lock_held_skips_and_no_release(tmp_path):
+    """lock_held 路径:try_acquire 返回 False → skipped='lock_held',release 未被调用。"""
+
+    class _FakeDiag:
+        async def diagnose(self, *, max_hypotheses):
+            return []
+
+    sto = FakeStorage(lock_acquired=False)  # try_acquire 返回 False
+    ev, _, _ = _build_evolver(tmp_path, storage=sto)
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._diagnostician = _FakeDiag()
+
+    result = await ev.auto_propose_codes()
+    assert result["skipped"] == "lock_held"
+    # 验证 try_acquire 被调用但 release 未被调用
+    assert any(call["action"] == "try_acquire" for call in sto.lock_calls)
+    assert not any(call["action"] == "release" for call in sto.lock_calls)
+
+
+async def test_auto_propose_not_idle_skips_for_cron(tmp_path, monkeypatch):
+    """not_idle 路径:trigger_source='cron' 且 idle 不满足 → skipped='not_idle'。"""
+
+    class _FakeDiag:
+        async def diagnose(self, *, max_hypotheses):
+            return []
+
+    ev, _, _ = _build_evolver(tmp_path)
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._diagnostician = _FakeDiag()
+
+    # monkeypatch _idle_ok 返回 False,模拟 idle 门槛不满足
+    monkeypatch.setattr(ev, "_idle_ok", lambda hours: False)
+
+    result = await ev.auto_propose_codes(trigger_source="cron")
+    assert result["skipped"] == "not_idle"
+
+
+async def test_auto_propose_error_releases_lock_on_diagnose_failure(tmp_path):
+    """error 释放锁:diagnose 抛异常 → skipped='error',release_synthesis_lock 被调用。"""
+
+    class _FailingDiagnostician:
+        async def diagnose(self, *, max_hypotheses):
+            raise RuntimeError("diagnose failed")
+
+    sto = FakeStorage(lock_acquired=True)
+    ev, _, _ = _build_evolver(tmp_path, storage=sto)
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._diagnostician = _FailingDiagnostician()
+
+    result = await ev.auto_propose_codes()
+    assert result["skipped"] == "error"
+    assert "diagnose failed" in result["detail"]
+    # 验证 release 被调用（finally 生效）
+    assert any(call["action"] == "release" for call in sto.lock_calls)
+
+
+async def test_auto_propose_respects_quota_truncation(tmp_path, monkeypatch):
+    """配额防御:diagnose 返回 5 条(超过 quota=2) → 只 propose 2 条。"""
+
+    class _FakeDiagIgnoringMax:
+        async def diagnose(self, *, max_hypotheses):
+            # 无视 max_hypotheses,返回 5 条
+            return [
+                {"target_path": "src/tianshu/planner/p.py", "hypothesis": f"h{i}", "rationale": ""}
+                for i in range(5)
+            ]
+
+    sto = FakeStorage(lock_acquired=True)
+    ev, _, _ = _build_evolver(tmp_path, storage=sto)
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._config.agent_config.code_variant_daily_propose_quota = 2
+    ev._diagnostician = _FakeDiagIgnoringMax()
+
+    proposed = []
+
+    async def _fake_propose(*, target_path, hypothesis, parent_id=None):
+        proposed.append(hypothesis)
+        return {"status": "evaluated", "universe_id": f"u-{hypothesis}"}
+
+    monkeypatch.setattr(ev, "propose_code_variant", _fake_propose)
+    result = await ev.auto_propose_codes()
+
+    # 只应该提 2 条([:quota] 截断)
+    assert result["proposed"] == 2
+    assert proposed == ["h0", "h1"]
+    assert len(result["results"]) == 2
