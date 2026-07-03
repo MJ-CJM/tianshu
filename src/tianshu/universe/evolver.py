@@ -222,6 +222,27 @@ class UniverseEvolver:
         personas = sorted(p.name for p in pdir.glob("*")) if pdir.exists() else []
         return f"人格: {personas}; config: {list(store.read_manifest(champ['id']).keys())}"
 
+    def _baseline_key(self) -> str:
+        """基线身份 = 冠军位面 + 主干代码版本;主干任何提交都使基线缓存失效。"""
+        champ = self._mgr.champion_id() or "genesis"
+        head = "nohead"
+        try:
+            if self._code_store is not None:
+                import subprocess
+
+                proc = subprocess.run(
+                    ["git", "rev-parse", "--short", "HEAD"],
+                    cwd=str(self._code_store.repo_root),
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if proc.returncode == 0:
+                    head = proc.stdout.strip()
+        except Exception:  # noqa: BLE001
+            pass
+        return f"{champ}:{head}"
+
     async def propose_code_variant(
         self,
         *,
@@ -287,7 +308,7 @@ class UniverseEvolver:
 
             eval_set_size = getattr(cfg, "code_variant_eval_set_size", 20)
             es = self._eval_harness.select_eval_set(eval_set_size)
-            champion_key = self._mgr.champion_id() or "genesis"
+            champion_key = self._baseline_key()
             fp = self._eval_harness.eval_set_fingerprint(es, champion_key)
             cached = self._storage.latest_baseline_fitness(fp)
             budget = getattr(cfg, "code_variant_eval_budget_cny", None)
@@ -309,7 +330,11 @@ class UniverseEvolver:
                     "universe_id": uid,
                     "gate_passed": True,
                     "fitness": fitness,
-                    "baseline": paired["baseline"]["fitness"],
+                    "baseline": (
+                        paired["baseline"]["fitness"]
+                        if not paired["baseline"].get("truncated")
+                        else None
+                    ),
                     "eval_set_version": fp,
                     "cost": paired["variant"]["stats"].get("cost", 0),
                     "created_at": datetime.now(UTC).isoformat(),

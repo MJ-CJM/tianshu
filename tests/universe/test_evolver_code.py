@@ -147,9 +147,10 @@ class FakeEvalHarness:
 
 
 class FakeStorage:
-    def __init__(self):
+    def __init__(self, baseline_fitness: dict | None = None):
         self.saved_runs: list[dict] = []
         self.updated_fitness: list[tuple[str, dict]] = []
+        self._baseline_fitness = baseline_fitness
 
     def save_variant_eval_run(self, run: dict) -> None:
         self.saved_runs.append(run)
@@ -158,7 +159,7 @@ class FakeStorage:
         self.updated_fitness.append((uid, fitness))
 
     def latest_baseline_fitness(self, eval_set_version: str) -> dict | None:
-        return None
+        return self._baseline_fitness
 
 
 # ---------------------------------------------------------------------------
@@ -351,3 +352,98 @@ async def test_variant_truncated_propagates_to_saved_fitness(tmp_path):
 
     assert sto.saved_runs[0]["fitness"]["truncated"] is True
     assert sto.updated_fitness[0][1]["truncated"] is True
+
+
+async def test_baseline_cache_hit_passes_bare_dict_through_unchanged(tmp_path):
+    """FakeStorage.latest_baseline_fitness 返回裸 fitness dict(生产真实形态)时。
+
+    evolver 的缓存命中路径应把它原样传给 evaluate_paired 的 cached_baseline 参数,
+    不做二次包裹/改写——包裹逻辑是 EvalHarness.evaluate_paired 内部的职责。
+    """
+    bare_baseline = {"score": 0.75, "samples": 20}
+
+    class _RecordingEvalHarness(FakeEvalHarness):
+        def __init__(self):
+            super().__init__()
+            self.received_cached_baseline: object = "UNSET"
+
+        def evaluate_paired(
+            self, variant_worktree, *, eval_set, baseline_worktree, cached_baseline=None, **kw
+        ):
+            self.received_cached_baseline = cached_baseline
+            variant = self.evaluate(variant_worktree, eval_set=eval_set)
+            return {
+                "variant": variant,
+                "baseline": {
+                    "fitness": {"score": self._baseline_score, "samples": len(eval_set)},
+                    "stats": {},
+                    "n": len(eval_set),
+                    "truncated": False,
+                },
+                "delta": 0.0,
+                "baseline_cached": cached_baseline is not None,
+            }
+
+    sto = FakeStorage(baseline_fitness=bare_baseline)
+    eh = _RecordingEvalHarness()
+    ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh)
+    await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+
+    assert eh.received_cached_baseline is bare_baseline
+
+
+def test_baseline_key_includes_git_head():
+    """_baseline_key() = 冠军位面 + 主干代码版本。
+
+    code_store.repo_root 指向本仓库(真实 git 仓,非临时目录),应拿到非 "nohead"
+    的短 sha——证明主干任何日常提交都会让基线指纹变化,不再静默复用陈旧基线。
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    mgr = FakeManager(champion_uid="champ-xyz")
+    ev = UniverseEvolver(
+        llm_client=MagicMock(),
+        manager=mgr,
+        storage=FakeStorage(),
+        config_manager=_make_config_manager(),
+        code_store=FakeCodeStore(repo_root),
+    )
+    key = ev._baseline_key()
+    champ_part, sep, head_part = key.partition(":")
+    assert champ_part == "champ-xyz"
+    assert sep == ":"
+    assert head_part != "nohead"
+    assert head_part and all(c in "0123456789abcdef" for c in head_part)
+
+
+def test_baseline_key_no_code_store_returns_nohead():
+    """code_store=None 时短路,基线身份退化为 <champion_id>:nohead。"""
+    mgr = FakeManager(champion_uid="champ-xyz")
+    ev = UniverseEvolver(
+        llm_client=MagicMock(),
+        manager=mgr,
+        storage=FakeStorage(),
+        config_manager=_make_config_manager(),
+    )
+    assert ev._baseline_key() == "champ-xyz:nohead"
+
+
+async def test_baseline_truncated_not_cached(tmp_path):
+    """baseline 侧被预算闸截断(truncated=True)时不应入缓存。
+
+    落库存 None,避免下次指纹命中时把"评了一半"的基线当满量基线复用。
+    """
+
+    class _BaselineTruncatedEvalHarness(FakeEvalHarness):
+        def evaluate_paired(self, variant_worktree, *, eval_set, baseline_worktree, **kw):
+            paired = super().evaluate_paired(
+                variant_worktree, eval_set=eval_set, baseline_worktree=baseline_worktree, **kw
+            )
+            paired["baseline"] = {**paired["baseline"], "truncated": True}
+            return paired
+
+    sto = FakeStorage()
+    eh = _BaselineTruncatedEvalHarness()
+    ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh)
+    await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+
+    assert sto.saved_runs[0]["baseline"] is None

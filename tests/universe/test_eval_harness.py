@@ -352,3 +352,36 @@ def test_evaluate_paired_delta_and_cache(tmp_path, monkeypatch):
     assert r2["baseline_cached"] is True
     assert round(r2["delta"], 4) == 0.05
     assert calls == [str(tmp_path / "variant")]  # 命中缓存只评 variant
+
+
+def test_evaluate_paired_bare_fitness_dict_cache(tmp_path, monkeypatch):
+    """cached_baseline 为裸 fitness dict(无 "fitness" 键)时应被自动包裹。
+
+    这是生产真实路径:evolver 把 storage.latest_baseline_fitness() 的裸 dict
+    原样传入 cached_baseline,而非 evaluate_paired 完整返回形态。
+    """
+    from tianshu.universe.eval_harness import EvalHarness
+
+    harness = EvalHarness(storage=None, sandbox_runner=None)
+    calls: list[str] = []
+
+    def _fake_evaluate(worktree, *, eval_set, extra_env=None, **kw):
+        calls.append(str(worktree))
+        return {
+            "fitness": {"score": 0.8, "samples": len(eval_set)},
+            "stats": {"cost": 1.0},
+            "n": len(eval_set),
+            "truncated": False,
+        }
+
+    monkeypatch.setattr(harness, "evaluate", _fake_evaluate)
+
+    r = harness.evaluate_paired(
+        tmp_path / "variant",
+        eval_set=["g1"],
+        baseline_worktree=tmp_path / "main",
+        cached_baseline={"score": 0.75, "samples": 20},  # 裸 dict,无 "fitness" 键
+    )
+    assert r["baseline_cached"] is True
+    assert round(r["delta"], 4) == 0.05  # 0.8 - 0.75
+    assert calls == [str(tmp_path / "variant")]  # 命中缓存,baseline_worktree 未被评估
