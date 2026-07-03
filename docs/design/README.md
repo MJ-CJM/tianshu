@@ -28,7 +28,7 @@
 | Agent 核心 | `executor/agent.py`, `llm.py`, `providers/`, `config_manager.py` | ReAct 循环、工具调用、上下文压缩、模型配置与 provider fallback |
 | 治理与安全 | `tools/`, `executor/policy_hook.py`, `executor/approvals.py`, `auditor/` | 工具注册、tier、PolicyEngine、审批、审计、winding_down 副作用拦截 |
 | 成长系统 | `persona/`, `memory/`, `skills/`, `consultation/` | 六部 persona、PromptBuilder、多层记忆、Skills 渐进加载、会诊、画像合成 |
-| 可观测与持久化 | `storage.py`, `bus/event_bus.py`, `cost/`, `notifier/` | SQLite 真相源、事件总线、成本账本、通知和 WebSocket |
+| 可观测与持久化 | `storage/`, `bus/event_bus.py`, `cost/`, `notifier/` | SQLite 真相源、事件总线、成本账本、通知和 WebSocket |
 | 扩展能力 | `plugins/`, `tools/hongluisi/`, `gateway/feishu/` | 插件注册、外部网络工具、飞书助手模式 |
 
 ## 3. 启动时的依赖装配
@@ -152,9 +152,9 @@ PromptBuilder 把 court、persona、role、memory、drawer L1、近期日志、�
 | 问题 | 优先看 |
 |---|---|
 | 系统怎么启动 | `src/tianshu/app.py` |
-| 下旨后怎么流转 | `gateway/api.py`, `bus/event_bus.py`, `scheduler/scheduler.py`, `planner/planner.py`, `executor/executor.py` |
+| 下旨后怎么流转 | `gateway/edicts_api.py`, `bus/event_bus.py`, `scheduler/scheduler.py`, `planner/planner.py`, `executor/executor.py` |
 | Agent 怎么调用模型和工具 | `executor/agent.py`, `llm.py`, `tools/registry.py` |
 | 长任务如何验收 | `models/acceptance.py`, `executor/orchestrator/loop.py` |
 | 权限审批如何工作 | `tools/policy.py`, `executor/policy_hook.py`, `executor/approvals.py`, `tools/policy_rules/` |
 | 人格和记忆怎么进 prompt | `persona/prompt_builder.py`, `memory/manager.py`, `persona/loader.py` |
-| 数据落在哪里 | `storage.py`, `memory/drawer_store.py`, `memory/markdown_backend.py` |
+| 数据落在哪里 | `storage/`, `memory/drawer_store.py`, `memory/markdown_backend.py` |

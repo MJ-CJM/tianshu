@@ -25,7 +25,7 @@
 
 | 形态 | 入口 | 主要文档 |
 |---|---|---|
-| HTTP / WebSocket | `gateway/api.py`（`/api` 前缀，`/api/ws` 实时流） | [gateway.md](./gateway.md) |
+| HTTP / WebSocket | `gateway/api.py` 兜底 + 15 个域 `*_api.py`（`/api` 前缀，`/api/ws` 实时流） | [gateway.md](./gateway.md) |
 | IM 渠道 | `notifier/`（出站通道）+ `gateway/feishu/`、`gateway/telegram/`（双向 bot） | [channels.md](./channels.md) |
 | Web 前端 | `web/`（React + Ant Design + react-router） | [web.md](./web.md) |
 | CLI | `cli/`（typer，HTTP 薄客户端） | [cli.md](./cli.md) |

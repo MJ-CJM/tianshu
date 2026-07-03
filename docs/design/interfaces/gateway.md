@@ -1,15 +1,13 @@
 # Gateway：HTTP / WebSocket 接口面
 
-> FastAPI 提供天枢的主 API。所有路由定义在 `src/tianshu/gateway/api.py` 的 `gateway_router`，在 `app.py` 以 `prefix="/api"` 挂载。本篇讲接口契约与边界，路由对照源码核实。
+> FastAPI 提供天枢的主 API。路由按领域拆分到 15 个 `gateway/*_api.py` router，`gateway/api.py` 的 `gateway_router` 仅剩 WebSocket + 会诊兜底，均在 `app.py` 以 `prefix="/api"` 挂载。本篇讲接口契约与边界，路由对照源码核实。
 
 ## 1. Router 装配
 
 | Router | 前缀 | 作用 |
 |---|---|---|
-| `gateway_router` | `/api` | Edict/Memorial/审批/记忆/成本/配置/位面/WebSocket 等主 API |
-| `credentials_router` | `/api` | 外部凭证管理 |
-| `hongluisi_router` | `/api` | 鸿胪寺网络能力配置/状态 |
-| `tongzheng_router` | `/api` | 飞书通政司运行配置 |
+| `gateway_router`（`gateway/api.py`） | `/api` | 兜底：WebSocket + 会诊（consultations）；Edict/Memorial/审批/记忆/成本/配置/位面等主 API 已拆到下一行 15 个域 router |
+| `edicts_router` `execution_router` `audit_router` `cost_router` `credentials_router` `mcp_router` `memory_router` `personas_router` `providers_router` `skills_router` `system_router` `hongluisi_router` `tongzheng_router` `config_router` `universes_router` | `/api` | 各领域 CRUD/操作路由，端点明细见 §2-§8 |
 | `/health` | 无 | 健康检查（沙箱/Deployer 探活也用它） |
 | static web | 无 | 按 `settings.static_dir` 条件挂载前端 |
 

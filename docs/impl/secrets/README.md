@@ -16,7 +16,7 @@
 
 ## 2. 落盘位置
 
-凭证全部存 SQLite 的 `network_credentials` 表（建表见 `storage.py` 的 schema 段；迁移见 `_migrate()` 内 `ALTER TABLE network_credentials`）：
+凭证全部存 SQLite 的 `network_credentials` 表（建表见 `storage/schema.py` 的 `SCHEMA_SQL_CORE` 段；迁移见 `storage/migrations.py` 的 `run_migrations()` 内 `ALTER TABLE network_credentials`）：
 
 | 列 | 说明 |
 |---|---|
@@ -32,7 +32,7 @@
 
 master key 不落盘，仅来自环境变量 `TIANSHU_SECRET_MASTER_KEY`（`Fernet.generate_key()` 的输出）。
 
-## 3. Storage 层方法（`storage.py`）
+## 3. Storage 层方法（`storage/credential_repo.py`）
 
 `CredentialStore` 不直接写 SQL，全走 `Storage` 方法：`insert_credential` / `get_credential_by_id` / `list_credentials(kind=…)` / `find_credentials_by_host`（仅 `edict_auth`）/ `find_credentials_by_provider`（仅 `engine_provider`）/ `update_credential` / `mark_credential_used` / `soft_delete_credential`。所有读查询带 `WHERE deleted_at IS NULL`。
 

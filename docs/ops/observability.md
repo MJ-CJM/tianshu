@@ -24,7 +24,7 @@
 
 ## 2. 单次 run 的 trace 结构 + edict_id 作 correlation
 
-一次 run 没有独立的 trace_id —— **`edict_id` 就是 correlation key**。`events` 表 schema（`storage.py` 建表）：
+一次 run 没有独立的 trace_id —— **`edict_id` 就是 correlation key**。`events` 表 schema（`storage/schema.py` 建表）：
 
 | 列 | 含义 |
 |---|---|
@@ -35,7 +35,7 @@
 | `payload_json` | 事件载荷 JSON 文本（`json.dumps(..., default=str)`） |
 | `created_at` | UTC ISO8601 字符串 |
 
-排序基准：`get_events` 用 `ORDER BY created_at ASC`（`storage.py`）。同毫秒并发时 `created_at` 可能并列，必要时叠加 `id ASC` 做稳定 tiebreaker。索引 `idx_events_edict_id` 保证按 `edict_id` 查询走索引。
+排序基准：`get_events` 用 `ORDER BY created_at ASC`（`storage/event_repo.py`）。同毫秒并发时 `created_at` 可能并列，必要时叠加 `id ASC` 做稳定 tiebreaker。索引 `idx_events_edict_id` 保证按 `edict_id` 查询走索引。
 
 一次完整 run 的 trace 层级：
 
@@ -137,7 +137,7 @@ L2 会插入一次 consultation（咨询），失败则补一条 `outer_loop.esc
 
 ## 5. 导出 / 检查时间线
 
-### 5.1 HTTP 路由（`gateway/api.py`）
+### 5.1 HTTP 路由（`edicts_api.py` / `system_api.py` / `audit_api.py`）
 
 | 路由 | 用途 |
 |---|---|

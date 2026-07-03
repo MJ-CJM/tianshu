@@ -4,7 +4,7 @@
 
 ## 1. 单库与 PRAGMA
 
-`Storage(db_path).init_db()` 的装配（`storage.py:55`）：
+`Storage(db_path).init_db()` 的装配（`storage/_base.py`）：
 
 | 步骤 | 内容 |
 |---|---|
@@ -19,7 +19,7 @@
 
 ## 2. 控制面表（按分组）
 
-> 表名、列名均以 `storage.py` 的 `_create_tables` + `_migrate` 为准。领域核心四表的字段语义见 domain-model。
+> 表名、列名均以 `storage/schema.py`（DDL）+ `storage/migrations.py`（迁移）为准。领域核心四表的字段语义见 domain-model。
 
 **任务核心**
 

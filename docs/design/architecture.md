@@ -127,7 +127,7 @@
            └───────────────────────────────────────────────────────────┘
 
                                    ┌──────────┐
-                                   │ Storage  │  SQLite（18 表 + FTS5）
+                                   │ Storage  │  SQLite（38+ 表 + FTS5）
                                    │  WAL     │  + ~/.tianshu/memory/drawers.sqlite3
                                    └──────────┘
 ```
@@ -218,7 +218,7 @@ execution.completed → MemoryManager.on_agent_end
 - **3 层 Compaction**：`reactive`（溢出时救急）+ `micro`（每轮末尾预防）+ `auto`（阈值触发 LLM 摘要）
 - **Skills 渐进加载**：`load_index`（索引，LLM 按需用 `skill_view`）+ `load_always`（常驻）
 - **Anthropic prompt_caching**：system + 最后 3 非 system 消息插 `cache_control: ephemeral` 断点，~75% 输入 token 节省
-- **Streaming**：`StreamCallback` protocol + `WebSocketStreamCallback` 桥到前端 OpsMonitorPage
+- **Streaming**：`StreamCallback` protocol + `WebSocketStreamCallback` 桥到前端都察院运维 Tab
 
 ### feat_phase4：Hermes agent 借鉴
 

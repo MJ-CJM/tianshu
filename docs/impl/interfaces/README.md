@@ -8,8 +8,8 @@
 
 | 区域 | 路径 | 关键类 / 文件 |
 |---|---|---|
-| HTTP/WS 路由 | `gateway/api.py` | `gateway_router`（单文件全路由，~3300 行）+ `/ws` WebSocket |
-| 辅路由 | `gateway/credentials_api.py` `hongluisi_api.py` `tongzheng_api.py` | 凭证 / 鸿胪寺 / 通政司 router |
+| HTTP/WS 路由（兜底） | `gateway/api.py` | `gateway_router`：`/ws` WebSocket + `/consultations`（67 行；原单文件全路由已拆分为下一行的域 router） |
+| 域 router（15 个） | `gateway/{audit,config,cost,credentials,edicts,execution,hongluisi,mcp,memory,personas,providers,skills,system,tongzheng,universes}_api.py` | 各领域 CRUD/操作路由，`app.py` 统一 `include_router(prefix="/api")` |
 | IM 门面 | `gateway/feishu/__init__.py`、`gateway/telegram/__init__.py` | `FeishuBot`、`TelegramBot` |
 | 多实例管理 | `gateway/bot_manager.py`、`gateway/instance.py` | `ChannelBotManager`、`ChannelInstance` |
 | 出站通知 | `notifier/notifier.py`、`channel_registry.py`、`renderer.py` | `Notifier`、`ChannelRegistry`、`render_*` |
@@ -17,12 +17,12 @@
 | CLI | `cli/main.py`、`cli/client.py`、`cli/commands/*.py` | typer app + httpx 客户端 |
 | 前端 | `web/src/App.tsx`、`web/src/pages/*`、`web/src/api/*` | React 路由 + 页面 + api 层 |
 
-## 2. 路由实现（`gateway/api.py`）
+## 2. 路由实现（`gateway/api.py` + 15 个域 router）
 
-- 单一 `gateway_router = APIRouter()`（无内置前缀），在 `app.py:788` 以 `prefix="/api"` 挂载。
-- 处理函数从 `request.app.state.*` 取依赖（`storage` / `notifier` / `universe_manager` / `executor` / `config_manager` 等），无 DI 容器。
-- 位面路由在 `api.py:622-777`；下划线前缀路由（`/universes/_diff`、`/universes/_status`）声明在 `/universes/{id}` 之前避免被吞。
-- WebSocket：`api.py:872` `websocket_endpoint` → `notifier.register_ws/unregister_ws`。
+- 原单文件 `gateway_router`（~3300 行全路由）已按领域拆分为 15 个 `*_api.py`（见上表）；`gateway/api.py` 现仅剩 `gateway_router` 兜底：`/ws` WebSocket（`websocket_endpoint`，:25）+ `/consultations`（:39-67）。`app.py`（131 行）在 `create_app()` 内逐个 `include_router(prefix="/api")`（`gateway_router` :101，域 router 紧随其后）。
+- 处理函数从 `request.app.state.*` 取依赖（`storage` / `notifier` / `universe_manager` / `executor` / `config_manager` 等），无 DI 容器；各域 router 沿用同一模式。
+- 位面路由在 `universes_api.py`；下划线前缀路由（`/universes/_diff`、`/universes/_status`）仍声明在 `/universes/{id}` 之前避免被吞。
+- WebSocket：`gateway/api.py:25` `websocket_endpoint` → `notifier.register_ws/unregister_ws`。
 
 完整路由族见 [../../design/interfaces/gateway.md](../../design/interfaces/gateway.md)。
 
@@ -75,7 +75,7 @@ include_router(gateway_router, prefix="/api") + credentials/hongluisi/tongzheng
 
 | 想做 | 怎么扩 |
 |---|---|
-| 加 HTTP 路由 | 在 `gateway/api.py` 加 `@gateway_router.<verb>`，从 `request.app.state` 取依赖 |
+| 加 HTTP 路由 | 在对应域 `*_api.py`（或新建一个）加 `@xxx_router.<verb>`，从 `request.app.state` 取依赖，`app.py` 里 `include_router` |
 | 加出站渠道 | 实现 `NotificationChannel`（`name` + `async send`），在 `app.py` `channel_registry.register(...)` |
 | 加 IM 平台 | 镜像 `gateway/telegram/` 结构，复用 `EdictBridge`/`PersonaRenderer`/审批解析，重写平台连接/出站层 |
 | 加 CLI 命令族 | 新建 `cli/commands/<x>.py` 的 `typer.Typer()`，在 `main.py` `add_typer` |

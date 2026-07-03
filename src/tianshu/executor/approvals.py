@@ -140,7 +140,7 @@ class ApprovalManager:
     def list_pending_tool_calls(self) -> list[dict]:
         """List in-memory pending tool approvals enriched with metadata.
 
-        Used by 御书房 (ApprovalQueuePage) to render mid-execution tool approval
+        Used by 御书房 (RoyalStudyPage) to render mid-execution tool approval
         cards. Each entry is built from `_pending` + `_pending_tool` plus the most
         recent `tool.approval_required` event for the memorial.
         """

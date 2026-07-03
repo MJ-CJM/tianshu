@@ -32,7 +32,7 @@ EventBus 是天枢模块间的**稳定解耦协议**：生产者只管发事件�
 
 两类场景必须用 fire：
 
-1. **HTTP 不能阻塞**。`POST /edicts`（`gateway/api.py`）`fire(edict.submitted)` 后立即返回 202，整条 scheduler→planner→executor 链路在后台跑，请求不会挂在那里等任务完成。
+1. **HTTP 不能阻塞**。`POST /edicts`（`gateway/edicts_api.py`）`fire(edict.submitted)` 后立即返回 202，整条 scheduler→planner→executor 链路在后台跑，请求不会挂在那里等任务完成。
 2. **handler 内触发下游、不想自我阻塞**。如 `policy_hook.py`、`universe/evolver.py`、`skills/reviewer.py` 在自己的 handler 里 `fire(...)` 发后续事件 —— 用 emit 会让当前 handler 等下游全跑完才返回，fire 则把下游解耦到独立后台任务。
 
 ## 3. 优先级排序

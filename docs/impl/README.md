@@ -59,7 +59,7 @@
 |---|---|---|
 | `app.py` | FastAPI lifespan 入口 | 本文 |
 | `gateway/`, `gateway.py` | HTTP/WS 路由 | — |
-| `storage.py` | SQLite 单一真相源 | `storage-and-events.md` |
+| `storage/` | SQLite 单一真相源（`_base` + 15 领域 Mixin + facade） | `storage-and-events.md` |
 | `bus/` | EventBus 发布-订阅 | `bus/README.md` |
 | `models/` | 数据契约（Edict/Memorial/Decree/Event/Plan/…） | — |
 | `executor/` | Agent 循环 + DAG + Hook + Policy | `executor.md` |
@@ -82,7 +82,7 @@
 | `web/`, `web.py` | 静态前端挂载 | — |
 | `cli/` | 管理 CLI | — |
 
-## SQLite 表（共 18 张含 FTS）
+## SQLite 表（共 38+ 张业务表，含 FTS）
 
 由 `Storage.init_db()` 创建：
 
@@ -135,14 +135,14 @@
 
 | 页面 | 主要后端路由（`/api` 前缀） |
 |---|---|
-| `EdictCreatePage` / `ListPage` / `DetailPage` | `POST /edicts`, `GET /edicts`, `GET /edicts/{id}`, `GET /edicts/{id}/events`, `PATCH /edicts/{id}`, `DELETE /edicts/{id}` |
-| `ApprovalQueuePage` | `GET /approvals/pending_tool_calls`, `POST /approvals/decide`, `GET /edicts` (open) |
+| `EdictCreatePage` / `EdictDetailPage` | `POST /edicts`, `GET /edicts/{id}`, `GET /edicts/{id}/events`, `PATCH /edicts/{id}`, `DELETE /edicts/{id}` |
+| `RoyalStudyPage`（御书房，合并页双 Tab；`EdictListPage`/`ApprovalQueuePage` 已退役） | `GET /edicts`（status=open 或分页查询）, `POST /edicts/latest-memorials`（批量最新奏折）, `GET /approvals/pending_tool_calls`, `POST /approvals/tool_decision`, `POST /decrees`, `DELETE /edicts/{id}` |
 | `MemoryDashboardPage` | `GET /memory/{persona_id}`, `POST /memory/recall`, `POST /memory-palace/search`, `POST /memory-palace/l1` |
 | `PersonaDashboardPage` / `PersonaDetailPage` | `GET /personas`, `GET /personas/{id}`, `POST /personas`, `GET /personas/{id}/prompt_preview` |
 | `AuditDashboardPage` | `GET /audit/stats`, `GET /audit/recent` |
 | `CostDashboardPage` | `GET /costs/summary`, `GET /costs/budgets` |
 | `SchedulerPage` | `GET /scheduler/jobs`, `DELETE /scheduler/jobs/{id}` |
-| `OpsMonitorPage` | `WS /ws`（实时事件流） |
+| `AuditDashboardPage`（都察院运维 Tab：EventBus/Workers/Hooks，原 `OpsMonitorPage` 死页壳已删） | `GET /event-bus/stats`, `GET /event-bus/recent`, `GET /hooks/registry`, `GET /workers/status`, `GET /notifications/channels` |
 | `ConsultationPage` | `POST /consultation`, `GET /consultation/{id}` |
 | `SessionRulesPage` | `GET/POST /session_rules` |
 | `SystemManagementPage` | `GET/POST /config`, `GET/POST /llm_configs`, `/providers/*`, `/plugins/*` |
@@ -151,7 +151,7 @@
 
 | 路径 | 用途 |
 |---|---|
-| `~/.tianshu/tianshu.db` | 主 SQLite（18 表） |
+| `~/.tianshu/tianshu.db` | 主 SQLite（38+ 表） |
 | `~/.tianshu/memory/drawers.sqlite3` | Drawer 独立库 |
 | `~/.tianshu/memory/{persona_id}/MEMORY.md` + `logs/` | 持久记忆 |
 | `~/.tianshu/personas/{id}/` | 运行时人格覆盖（`SOUL.md`, `ROLE.md`） |

@@ -44,7 +44,7 @@ CLOSED_STATES = {EdictStatus.COMPLETED, EdictStatus.CANCELLED}
 
 
 def _build_history(edict: Edict, memorials: list[Memorial]) -> list[dict]:
-    """与 gateway.api._build_history 等价的本地实现。
+    """与 gateway._helpers._build_history 等价的本地实现。
 
     避免反向依赖 gateway.api（router 层不应被 gateway/feishu 直接引用）。
 

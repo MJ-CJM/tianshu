@@ -31,13 +31,13 @@
 | `~/.tianshu/universes/worktrees/_meta/{id}.json` | 代码变体 sidecar：`{branch, start_ref}` |
 | `~/.tianshu/universes/deploy_ptr.json` | Deployer 指针 `{current, previous}` |
 
-## 3. 数据库（`storage.py`）
+## 3. 数据库（`storage/universe_repo.py`）
 
 | 表 / 列 | 说明 |
 |---|---|
-| `universes` | `id / name / parent_universe_id / status / origin / mutation_reason / description / fitness_json / code_ref / created_at`（建表见 `storage.py:294`） |
-| `memorials.universe_id` | 迁移加列（`storage.py:686`），执行开始固化诏令归属 |
-| `variant_eval_runs` | 代码变体每次评估记录，按 `universe_id` 建索引（`storage.py:309`） |
+| `universes` | `id / name / parent_universe_id / status / origin / mutation_reason / description / fitness_json / code_ref / created_at`（建表见 `storage/schema.py:224`） |
+| `memorials.universe_id` | 迁移加列（`storage/migrations.py:157`），执行开始固化诏令归属 |
+| `variant_eval_runs` | 代码变体每次评估记录，按 `universe_id` 建索引（`storage/schema.py:249`） |
 
 主要方法：`save_universe` / `get_universe` / `list_universes` / `get_champion_universe` / `set_universe_status` / `update_universe_fitness` / `delete_universe` / `universe_memorial_stats` / `save_variant_eval_run` / `list_variant_eval_runs`。
 
@@ -74,7 +74,7 @@ config 的 snapshot/apply 是注入回调（`_universe_config_snapshot` / `_univ
 
 ## 6. HTTP 路由
 
-见 [../../design/interfaces/gateway.md](../../design/interfaces/gateway.md)（`/api/universes*`），实现在 `gateway/api.py:622-777`，前端在 `web/src/pages/UniversePage.tsx`。
+见 [../../design/interfaces/gateway.md](../../design/interfaces/gateway.md)（`/api/universes*`），实现在 `gateway/universes_api.py`，前端在 `web/src/pages/UniversePage.tsx`。
 
 ## 7. 扩展点
 

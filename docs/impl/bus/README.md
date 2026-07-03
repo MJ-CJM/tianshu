@@ -62,7 +62,7 @@ event_bus.on("audit.completed",     ...)  /  on("execution.failed", ...)  / ...
 发事件统一用 `make_event(event_type, edict_id=..., memorial_id=..., payload=...)` 造 envelope，再 `emit`/`fire`：
 
 - **emit（保序、需 await）**：scheduler/planner/executor 主链路在 handler 里 `await bus.emit(make_event("plan.completed", ...))`，让下游接力按序跑完。
-- **fire（非阻塞）**：典型站点 —— `gateway/api.py`（提交任务后立即 202）、`tools/submit_edict.py`、`executor/policy_hook.py`（审批事件）、`universe/evolver.py` 与 `manager.py`、`skills/reviewer.py`、`skills/curator.py`、`persona/profile_synthesizer.py`、`gateway/feishu/edict_bridge.py`。
+- **fire（非阻塞）**：典型站点 —— `gateway/edicts_api.py`（提交任务后立即 202）、`tools/submit_edict.py`、`executor/policy_hook.py`（审批事件）、`universe/evolver.py` 与 `manager.py`、`skills/reviewer.py`、`skills/curator.py`、`persona/profile_synthesizer.py`、`gateway/feishu/edict_bridge.py`。
 
 ## 6. 持久化路径
 

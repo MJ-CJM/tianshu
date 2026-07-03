@@ -19,10 +19,9 @@
 
 | 路由 | 页面组件 | 侧栏标签 | 用途 |
 |---|---|---|---|
-| `/` | `EdictListPage` | 任务列表 | Edict 列表 |
+| `/`、`/approvals` | `RoyalStudyPage` | 审批中心 | 御书房合并页，双 Tab：待处置（含工具/plan 审批，带待办计数徽标）/ 全部（Edict 列表）；原 `EdictListPage`/`ApprovalQueuePage` 已退役，两条路径共享同一页面避免书签失效 |
 | `/edicts/create` | `EdictCreatePage` | 新建任务 | 下旨 |
 | `/edicts/:edictId` | `EdictDetailPage` | — | 任务详情 + 实时事件流 |
-| `/approvals` | `ApprovalQueuePage` | 审批中心 | 工具/plan 审批（带待办计数徽标） |
 | `/scheduler` | `SchedulerPage` | 调度器 | 定时/周期 job |
 | `/audit` | `AuditDashboardPage` | 审计中心 | 审计统计、网络事件 |
 | `/cost` | `CostDashboardPage` | 财务中心 | 成本汇总/预算 |
@@ -37,6 +36,8 @@
 | `/session-rules` | `SessionRulesPage` | 会话规则 | 策略会话规则 |
 | `/universes` | `UniversePage` | 位面 | 平行位面管理（分支/切换/对比/演化/代码变体） |
 | `/dag/:dagId` | `DagBattleMapPage`（lazy） | — | DAG 战图可视化 |
+
+侧栏（`AppSidebar.tsx`）按 4 组呈现，非扁平列表：**敕令**（御书房/调度器）、**治理**（内阁/群议/审计中心/会话规则）、**成长**（角色管理/知识库/位面）、**系统**（系统管理/外部接入/通知中心/财务中心）；`EdictCreatePage`/`EdictDetailPage`/`PersonaDetailPage`/`DagBattleMapPage` 不占侧栏条目，靠页内导航到达。
 
 ## 3. API 层（`web/src/api/`）
 

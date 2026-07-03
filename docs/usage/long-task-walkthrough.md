@@ -5,7 +5,7 @@
 **相关实现**：[../impl/agent/](../impl/agent/)
 
 > 触发条件：只要 `Edict.acceptance` 非空，执行就从普通 ReAct 切换到 orchestrator outer loop。不配 `acceptance` 的诏令走普通单轮路径，本篇不适用。
-> 入口契约见 `AcceptanceCriteria`（`src/tianshu/models/acceptance.py`），HTTP 路由在 `gateway/api.py`。
+> 入口契约见 `AcceptanceCriteria`（`src/tianshu/models/acceptance.py`），HTTP 路由在 `gateway/edicts_api.py`。
 
 ## 1. 带 acceptance_criteria 下诏
 

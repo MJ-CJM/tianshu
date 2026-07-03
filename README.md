@@ -33,7 +33,7 @@
 ## ✨ 核心特性
 
 - **🏛️ 六部官制** — 多官员各司其职：规划 / 执行 / 审计 / 通知 / 记忆 / 成本，由「朝廷」共享上下文协同。
-- **🔄 事件驱动闭环** — 全链路以事件解耦，带 `edict_id` 的事件落库成时间线，任务流转全程可追踪、可复盘。
+- **🔄 主干事件解耦** — 主链路里程碑（`edict.submitted` → … → `audit.completed`）以事件解耦，带 `edict_id` 落库成时间线；子系统内部仍是直调，任务流转全程可追踪、可复盘。
 - **🧠 记忆宫殿 + 成长飞轮** — 多层记忆（Markdown 真相源 + SQLite/FTS5 索引 + Drawer 快照）、技能渐进学习与修撰、人格画像合成，越用越懂你。
 - **🛡️ 治理优先** — 工具分级(tier) + 策略管线 + 人工批红 + 会话规则；网络能力受 SSRF、host 白名单、凭证托管约束。能力强，但始终受控。
 - **🌌 平行位面演化** — 把行为配置（乃至代码）捕获成可分支、可切换、可对比的快照；候选位面小流量探索，按**适应度**自动择优晋升——一套「宫殿版 git」式的自进化。
@@ -45,13 +45,15 @@
 
 | 层 | 模块 | 职责 |
 |---|---|---|
-| 入口与接口 | `gateway/` `web/` `cli/` | HTTP/WS、Web 前端、CLI、飞书/Telegram |
+| 入口与接口 | `gateway/`（15 个域 router + `core/` 双通道共享层）`web/` `cli/` | HTTP/WS、Web 前端、CLI、飞书/Telegram |
+| 跨层契约 | `kernel/` | Hook 类型与注册中心、ExitReason、ambient 上下文（不依赖业务模块） |
+| 应用装配 | `bootstrap/` | FastAPI lifespan 按子系统拆分的 `wire_xxx()` 装配函数 |
 | 领域契约 | `models/` | Edict / Memorial / Decree / Plan / AcceptanceCriteria |
 | 流程编排 | `scheduler/` `planner/` `executor/` `dag/` | 事件主链路、LLM 规划、单任务/DAG/长任务执行 |
 | Agent 核心 | `executor/agent.py` `llm.py` `providers/` | ReAct 循环、工具调用、上下文压缩、Provider fallback |
 | 治理与安全 | `tools/` `executor/policy_hook.py` `auditor/` | 工具注册、策略引擎、人工审批、审计 |
 | 成长系统 | `persona/` `memory/` `skills/` | 六部人格、记忆宫殿、技能学习与画像 |
-| 可观测与存储 | `storage.py` `bus/` `cost/` `notifier/` | SQLite 真相源、事件总线、成本账本、通知 |
+| 可观测与存储 | `storage/`（`_base` + 15 领域 Mixin + facade）`bus/` `cost/` `notifier/` | SQLite 真相源、事件总线、成本账本、通知 |
 | 自进化 | `universe/` | 平行位面、代码变体、适应度演化 |
 
 > 完整设计见 [`docs/design/`](docs/design/)，实现现状见 [`docs/impl/`](docs/impl/)，两者按功能子系统一一对应。
@@ -71,6 +73,8 @@ uvicorn tianshu.app:create_app --factory --reload --port 8000
 # 2) 前端（另开一个终端）
 cd web && npm install && npm run dev
 ```
+
+飞书/Telegram/网页抓取/MCP 等可选能力按 extras 拆分，按需安装：`pip install -e ".[feishu,telegram,web,mcp]"`，或一次装全 `pip install -e ".[all]"`。
 
 前端开发服务器在 `http://localhost:3000`（自动代理 `/api` 到后端 8000）。**开发时访问 3000。**
 

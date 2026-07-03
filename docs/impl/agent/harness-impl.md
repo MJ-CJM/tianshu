@@ -19,7 +19,9 @@
 | 取消/重试入口 | `executor/executor.py` | `Executor.cancel_dag()`、`retry_dag()`、`set_dag_scheduler()`、`set_lane_manager()` |
 | 图操作 | `dag/graph.py` | `DAG.propagate_failure`、`mark_failed`/`mark_completed`、`get_ready_nodes`、`is_complete` |
 
-## 2. 装配（`app.py` lifespan）
+## 2. 装配（`bootstrap/wiring_executor.py`：`wire_worker_lane` + `wire_executor`）
+
+lifespan 装配已从 `app.py` 内联拆到 `bootstrap/wiring_executor.py` 的两个 `wire_xxx()` 函数，对象构造顺序不变：
 
 ```text
 WorkerPool(max_concurrency=settings.max_global_concurrency)        # 默认 8
