@@ -21,7 +21,7 @@
 
 ## 2. 入站消息 → edict 的转换链路
 
-平台层（飞书 webhook/ws 收到的 `FeishuMessage`）经分支落到 `EdictBridge`（`gateway/feishu/edict_bridge.py`）——这是**平台无关核心**，Telegram 复用同一份。核心方法 `continue_or_create` 用一棵决策树把「一条自然语言消息」映射成「续接 vs 新建 vs 拒绝」：
+平台层（飞书 webhook/ws 收到的 `FeishuMessage`）经分支落到 `EdictBridge`（`gateway/core/edict_bridge.py`）——这是**平台无关核心**，Telegram 复用同一份。核心方法 `continue_or_create` 用一棵决策树把「一条自然语言消息」映射成「续接 vs 新建 vs 拒绝」：
 
 ```text
 continue_or_create(chat_id, sender, text)

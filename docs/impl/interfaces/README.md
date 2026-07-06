@@ -53,7 +53,7 @@ include_router(gateway_router, prefix="/api") + credentials/hongluisi/tongzheng
 |---|---|
 | 连接 | `feishu/connection.py`：`WebSocketConnection` / `WebhookConnection`（webhook 路由 `attach_webhook_router` 挂 FastAPI） |
 | 双模式 | `feishu/mode_router.py` `ModeRouter` 读 `SessionAnchor` 分发 `AssistantBranch` / `EdictBranch` |
-| 平台无关核心 | `feishu/edict_bridge.py` `EdictBridge`、`persona_renderer.py`、`approval_commands.py`、`markdown_compat.py`（telegram 直接 import 复用） |
+| 平台无关核心 | `core/edict_bridge.py` `EdictBridge`、`core/persona_renderer.py`、`approval_commands.py`、`markdown_compat.py`（telegram 直接 import 复用） |
 | 审批 | `feishu/approval_card.py` + `card_action_dispatcher.py`；telegram `approval_kb.py`（inline keyboard） |
 | 多实例隔离 | `instance_id` 贯穿 anchor / bridge / outbound / approval；进程锁 `~/.tianshu/feishu_app_lock.{app_id}` |
 | 热加载 | `FeishuBot.reload`：重建 connection，切 persona renderer，不重订阅 EventBus |

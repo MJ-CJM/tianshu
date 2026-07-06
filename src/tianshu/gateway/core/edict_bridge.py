@@ -22,7 +22,7 @@ from tianshu.bus.event_bus import EventBus
 from tianshu.edict_ops import submit_new_edict
 from tianshu.executor.executor import Executor
 from tianshu.gateway.core.errors import EdictBusyError  # re-export，向后兼容
-from tianshu.gateway.feishu.session_anchor import SessionAnchor
+from tianshu.gateway.core.session_anchor import SessionAnchor
 from tianshu.models.common import EdictStatus, TaskStatus
 from tianshu.models.edict import Edict, title_from_goal
 from tianshu.models.memorial import Memorial

@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from tianshu.bus.event_bus import EventBus
-from tianshu.gateway.feishu.edict_bridge import EdictBridge, EdictBusyError
-from tianshu.gateway.feishu.session_anchor import SessionAnchor
+from tianshu.gateway.core.edict_bridge import EdictBridge, EdictBusyError
+from tianshu.gateway.core.session_anchor import SessionAnchor
 from tianshu.models.common import EdictStatus, TaskStatus
 
 

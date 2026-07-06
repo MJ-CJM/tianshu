@@ -7,8 +7,9 @@ class EdictBusyError(RuntimeError):
     """敕令仍有 active memorial，无法立即 follow_up。caller 应向用户提示。
 
     原定义于 gateway/feishu/edict_bridge.py（EdictBridge 抛出，telegram 分支
-    代码一直跨通道直接 import）；本批（B3-T1 批 C）上移 core，feishu 原位置
-    留 re-export 保持向后兼容。
+    代码一直跨通道直接 import）；批 B3-T1-C 上移 core（feishu 原位置一度留
+    re-export 保持向后兼容）；EdictBridge 自身随后整体迁至 core/edict_bridge.py，
+    re-export 随之一并迁走。
     """
 
 

@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tianshu.gateway.core.edict_bridge import EdictBusyError
 from tianshu.gateway.feishu.dispatcher import FeishuMessage
 from tianshu.gateway.feishu.edict_branch import EdictBranch
-from tianshu.gateway.feishu.edict_bridge import EdictBusyError
 from tianshu.gateway.feishu.mode_router import ModeContext
 
 
@@ -42,7 +42,7 @@ def _renderer():
 
 @pytest.fixture
 def branch():
-    from tianshu.gateway.feishu.edict_bridge import EdictBridgeResult
+    from tianshu.gateway.core.edict_bridge import EdictBridgeResult
 
     storage = MagicMock()
     anchor = MagicMock()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tianshu.gateway.feishu.session_anchor import SessionAnchor
+from tianshu.gateway.core.session_anchor import SessionAnchor
 
 
 @pytest.mark.asyncio

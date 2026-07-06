@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from tianshu.gateway.feishu.persona_renderer import (
+from tianshu.gateway.core.persona_renderer import (
     DEFAULT_EMOJI,
     DEFAULT_NAME,
     PersonaRenderer,

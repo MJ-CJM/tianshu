@@ -29,11 +29,11 @@ from tianshu.models.common import EdictStatus
 if TYPE_CHECKING:
     from tianshu.gateway.core.approval import ApprovalCommandHandler
     from tianshu.gateway.core.assistant_branch import AssistantBranchBase
+    from tianshu.gateway.core.edict_bridge import EdictBridge
     from tianshu.gateway.core.message import ChatMessage
     from tianshu.gateway.core.mode_router import ModeContext
     from tianshu.gateway.core.outbound import Outbound
-    from tianshu.gateway.feishu.edict_bridge import EdictBridge
-    from tianshu.gateway.feishu.persona_renderer import PersonaRenderer
+    from tianshu.gateway.core.persona_renderer import PersonaRenderer
     from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)

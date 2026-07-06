@@ -4,8 +4,8 @@
 分支（AssistantBranch/EdictBranch）、SessionAnchor、Settings 仍是各通道自己的
 实现，这里用 Protocol 做结构化约束——组合 + 显式参数 seam，不搞继承。
 
-EdictBridge 本身已是通道无关的共享类，只是物理位置仍在 feishu/ 包（历史遗留，
-待迁 core，见批 C 或后续）；这里仅按类型引用（TYPE_CHECKING，无运行时依赖）。
+EdictBridge 本身已是通道无关的共享类，物理位置已迁至 core/ 包；这里仍仅按
+类型引用（TYPE_CHECKING，避免不必要的运行时依赖）。
 
 状态机：
 - anchor 不存在 / current_edict_id is None → 助手模式 → AssistantBranch
@@ -19,8 +19,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
+    from tianshu.gateway.core.edict_bridge import EdictBridge
     from tianshu.gateway.core.message import ChatMessage
-    from tianshu.gateway.feishu.edict_bridge import EdictBridge  # 待迁 core（批 C 或后续）
     from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)

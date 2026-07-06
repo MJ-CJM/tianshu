@@ -47,7 +47,7 @@ def _renderer():
 
 @pytest.fixture
 def branch():
-    from tianshu.gateway.feishu.edict_bridge import EdictBridgeResult
+    from tianshu.gateway.core.edict_bridge import EdictBridgeResult
 
     storage = MagicMock()
     anchor = MagicMock()
@@ -246,7 +246,7 @@ async def test_natural_language_adds_typing_reaction(branch):
 @pytest.mark.asyncio
 async def test_natural_language_busy_replies_with_error(branch):
     """v2: 纯文本时 EdictBusyError 应回错误提示。"""
-    from tianshu.gateway.feishu.edict_bridge import EdictBusyError
+    from tianshu.gateway.core.edict_bridge import EdictBusyError
 
     b, _, _, outbound, _, bridge = branch
     bridge.continue_or_create = AsyncMock(side_effect=EdictBusyError("敕令处理中"))
