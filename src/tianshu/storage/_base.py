@@ -3,6 +3,7 @@
 import sqlite3
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tianshu.storage.migrations import run_migrations
 from tianshu.storage.schema import (
@@ -20,10 +21,16 @@ class _StorageBase:
     _db_path: str
     _fts_available: bool
 
+    if TYPE_CHECKING:
+        # 仅供类型检查器可见：真实实现在 PersonaMixin（persona_repo.py），
+        # 通过 Storage 的多重继承在运行时解析；此处声明避免遮蔽 MRO 解析。
+        def _seed_departments(self) -> None: ...
+
     def __init__(self, db_path: str) -> None:
         self._db_path = str(Path(db_path).expanduser())
         self._lock = threading.Lock()
-        self._conn: sqlite3.Connection | None = None
+        # _conn 对外（Mixin）声明为非 Optional 供跨文件复用；此处仅是 init_db() 前的瞬时占位。
+        self._conn = None  # type: ignore[assignment]  # TODO(治理): 全面 Optional 化需级联标注所有 15 个 Mixin，超出本次任务范围
 
     def init_db(self) -> None:
         path = Path(self._db_path)
@@ -113,4 +120,4 @@ class _StorageBase:
     def close(self) -> None:
         if self._conn:
             self._conn.close()
-            self._conn = None
+            self._conn = None  # type: ignore[assignment]  # TODO(治理): 同上，close() 后瞬时置空

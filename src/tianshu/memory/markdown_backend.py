@@ -17,7 +17,7 @@ import re
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from tianshu.storage import Storage
@@ -280,6 +280,8 @@ class MarkdownMemoryBackend:
             if mode in ("replace", "remove"):
                 raise FileNotFoundError(f"section {section!r} not found in MEMORY.md")
             # append / set：创建新段，追加到文件末尾
+            # write_section() 已校验 mode in (append,replace,set) 时 content 非空
+            assert content is not None
             base = existing.rstrip()
             sep = "\n\n" if base else ""
             return f"{base}{sep}{section}\n\n{content.rstrip()}\n"
@@ -288,20 +290,29 @@ class MarkdownMemoryBackend:
         before = "".join(lines[:start])
         # 保留 section header 与 body
         if mode == "append":
+            # write_section() 已校验 mode=append 时 content 非空
+            assert content is not None
             # 去重：内容若完全包含在已有 body 中则拒绝
             if content.strip() in section_body:
                 raise ValueError("content already present in this section (dedupe)")
             new_body = section_body.rstrip() + "\n\n" + content.rstrip() + "\n"
             new_section = f"{section}\n{new_body}"
         elif mode == "set":
+            # write_section() 已校验 mode=set 时 content 非空
+            assert content is not None
             # 整段 body 覆盖：只动本 section，其余 section 原样保留
             new_section = f"{section}\n\n{content.rstrip()}\n"
         elif mode == "replace":
+            # write_section() 已校验 mode=replace 时 old_text/content 均非空
+            assert old_text is not None
+            assert content is not None
             if old_text not in section_body:
                 raise FileNotFoundError(f"old_text not found in section {section!r}")
             new_body = section_body.replace(old_text, content, 1)
             new_section = f"{section}\n{new_body}"
         else:  # remove
+            # write_section() 已校验 mode=remove 时 old_text 非空
+            assert old_text is not None
             if old_text not in section_body:
                 raise FileNotFoundError(f"old_text not found in section {section!r}")
             new_body = section_body.replace(old_text, "", 1)
@@ -520,7 +531,12 @@ class MarkdownMemoryBackend:
         _LOG_RE = re.compile(
             r"^- \[(\d{2}:\d{2})\] \[([WBOS])\] (.+)$",
         )
-        category_map = {"W": "observation", "B": "entity", "O": "insight", "S": "summary"}
+        category_map: dict[str, Literal["observation", "insight", "entity", "summary"]] = {
+            "W": "observation",
+            "B": "entity",
+            "O": "insight",
+            "S": "summary",
+        }
 
         synced = 0
 

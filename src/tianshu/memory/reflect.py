@@ -10,6 +10,7 @@ from tianshu.memory.models import MemoryEntry
 
 if TYPE_CHECKING:
     from tianshu.config_manager import ConfigManager
+    from tianshu.memory.markdown_backend import MarkdownMemoryBackend
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class Reflector:
     def __init__(
         self,
         config_manager: ConfigManager,
-        md_backend: object | None = None,
+        md_backend: MarkdownMemoryBackend | None = None,
     ) -> None:
         self._config_manager = config_manager
         self._md_backend = md_backend

@@ -142,7 +142,7 @@ wiring_llm / wiring_executor / wiring_channels / wiring_scheduler / wiring_unive
 | `EdictCreatePage` / `EdictDetailPage` | `POST /edicts`, `GET /edicts/{id}`, `GET /edicts/{id}/events`, `PATCH /edicts/{id}`, `DELETE /edicts/{id}` |
 | `RoyalStudyPage`（御书房，合并页双 Tab；`EdictListPage`/`ApprovalQueuePage` 已退役） | `GET /edicts`（status=open 或分页查询）, `POST /edicts/latest-memorials`（批量最新奏折）, `GET /approvals/pending_tool_calls`, `POST /approvals/tool_decision`, `POST /decrees`, `DELETE /edicts/{id}` |
 | `MemoryDashboardPage` | `GET /memory/{persona_id}`, `POST /memory/recall`, `POST /memory-palace/search`, `POST /memory-palace/l1` |
-| `PersonaDashboardPage` / `PersonaDetailPage` | `GET /personas`, `GET /personas/{id}`, `POST /personas`, `GET /personas/{id}/prompt_preview` |
+| `PersonaDashboardPage` / `PersonaDetailPage` | `GET /personas`（详情页由列表本地过滤,无单条 GET 路由）, `POST /personas`, `PUT/DELETE /personas/{id}`, `GET /personas/{id}/metrics`, `GET /personas/{id}/profile` |
 | `AuditDashboardPage` | `GET /audit/stats`, `GET /audit/recent` |
 | `CostDashboardPage` | `GET /costs/summary`, `GET /costs/budgets` |
 | `SchedulerPage` | `GET /scheduler/jobs`, `DELETE /scheduler/jobs/{id}` |

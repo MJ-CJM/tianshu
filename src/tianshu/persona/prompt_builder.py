@@ -17,12 +17,17 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tianshu.memory.config import MemoryConfig
 from tianshu.memory.markdown_backend import MarkdownMemoryBackend
 from tianshu.models.edict import Edict
 from tianshu.persona.model import AgentPersona
 from tianshu.skills.loader import SkillsLoader
+
+if TYPE_CHECKING:
+    from tianshu.memory.drawer import MemoryBackend
+    from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +75,9 @@ class PromptBuilder:
         skills_loader: SkillsLoader,
         memory_dir: Path | None = None,
         metrics_store: object | None = None,
-        drawer_store: object | None = None,
+        drawer_store: MemoryBackend | None = None,
         memory_config: MemoryConfig | None = None,
-        storage: object | None = None,
+        storage: Storage | None = None,
     ) -> None:
         self._personas_dir = personas_dir
         self._skills = skills_loader
@@ -496,6 +501,8 @@ class PromptBuilder:
         from tianshu.memory.layers import MemoryStack
 
         try:
+            # 调用方均已用 `if self._drawer_store` 守卫，此处仅为 mypy 窄化
+            assert self._drawer_store is not None
             stack = MemoryStack(store=self._drawer_store, config=self._memory_config)
             return await stack.get_l1(persona_id)
         except Exception:

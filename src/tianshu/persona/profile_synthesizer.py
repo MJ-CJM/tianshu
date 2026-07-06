@@ -551,7 +551,11 @@ class ProfileSynthesizer:
             if isinstance(review_raw, Exception):
                 logger.warning("llm_memory_review raised: %s", review_raw)
 
-            degraded = self._is_degraded(inputs, specialties, degradations)
+            # TODO(治理): gather(..., return_exceptions=True) 可能返回 BaseException 而非
+            # Exception 子类(如 CancelledError),上面的 isinstance(x, Exception) 未覆盖此情形,
+            # 与下方 review_raw 的 isinstance(x, list) 做法不一致 —— 疑似真实缺口,涉及行为改动
+            # 未在本次注解任务中处理,需人工确认后再修。
+            degraded = self._is_degraded(inputs, specialties, degradations)  # type: ignore[arg-type]
 
             from tianshu.persona.profile_renderer import (
                 detect_manual_section,
@@ -569,10 +573,13 @@ class ProfileSynthesizer:
             )
 
             sections = ProfileSections(
-                specialties_md=_format_specialties(specialties),
+                # 下两处 ignore 同 §gather 结果窄化问题:isinstance(x, Exception) 不覆盖
+                # CancelledError(BaseException),类型上 specialties/degradations 可能仍含
+                # 异常对象。TODO(治理): 统一改 isinstance(x, list) 正向判定后移除。
+                specialties_md=_format_specialties(specialties),  # type: ignore[arg-type]
                 task_distribution_md=_format_task_distribution(task_dist),
                 health_md=_format_health(health),
-                degradations_md=_format_degradations(candidates, degradations),
+                degradations_md=_format_degradations(candidates, degradations),  # type: ignore[arg-type]
             )
             now_iso = datetime.now(UTC).isoformat(timespec="seconds")
             auto_section = render_auto_section(

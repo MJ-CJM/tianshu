@@ -4,6 +4,7 @@ import json
 import logging
 import sqlite3
 from datetime import datetime
+from typing import Any
 
 from tianshu.models import (
     AuditResult,
@@ -182,7 +183,7 @@ def _row_to_edict(row: sqlite3.Row) -> Edict:
             runtime,
         )
 
-    constraints = []
+    constraints: list[str] = []
     if "constraints_json" in keys and row["constraints_json"]:
         constraints = _load_json_field(
             row["constraints_json"],
@@ -192,7 +193,7 @@ def _row_to_edict(row: sqlite3.Row) -> Edict:
             constraints,
         )
 
-    metadata = {}
+    metadata: dict[str, Any] = {}
     if "metadata_json" in keys and row["metadata_json"]:
         metadata = _load_json_field(
             row["metadata_json"],

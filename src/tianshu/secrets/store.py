@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
+from typing import Literal
 
 from ulid import ULID
 
@@ -27,6 +28,7 @@ def _row_to_credential(row) -> Credential:
     # Handle old schema rows pre-migration defensively.
     # NOTE: row 是 sqlite3.Row，非 dict —— `in row` 会走 __iter__ 逐值比较，
     # 语义与 `in row.keys()`（比较列名）不同，不能按 SIM118 建议改写。
+    kind: Literal["edict_auth", "engine_provider"]
     try:
         kind = row["kind"] if "kind" in row.keys() else "edict_auth"  # noqa: SIM118
     except (IndexError, KeyError):

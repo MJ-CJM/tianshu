@@ -29,6 +29,7 @@ from tianshu.memory.reflect import Reflector
 
 if TYPE_CHECKING:
     from tianshu.config_manager import ConfigManager
+    from tianshu.memory.drawer import MemoryBackend
     from tianshu.models.events import EventEnvelope
     from tianshu.storage import Storage
 
@@ -57,7 +58,7 @@ class MemoryManager:
         hook_registry: object | None = None,
         personas_dir: Path | None = None,
         memory_dir: Path | None = None,
-        drawer_store: object | None = None,
+        drawer_store: MemoryBackend | None = None,
         memory_config: MemoryConfig | None = None,
     ) -> None:
         self._storage = storage
