@@ -53,7 +53,7 @@ def mgr(tmp_path: Path) -> UniverseManager:
     store = UniverseStore(tmp_path / "universes", tmp_path / "personas", tmp_path / "skills")
     code_store = CodeVariantStore(repo, tmp_path / "worktrees")
     cfg = {"agent_config": {}}
-    return UniverseManager(
+    yield UniverseManager(
         s,
         store,
         _FakePersona(tmp_path / "personas"),
@@ -62,6 +62,7 @@ def mgr(tmp_path: Path) -> UniverseManager:
         config_apply=lambda m: None,
         code_store=code_store,
     )
+    s.close()
 
 
 def test_branch_code_variant_creates_universe_and_worktree(mgr: UniverseManager):
@@ -131,7 +132,8 @@ class _FakeDeployer:
         self.stage_calls.append({"ref": ref, "worktree": worktree})
 
 
-def _make_mgr_with_deployer(tmp_path: Path) -> tuple[UniverseManager, _FakeDeployer]:
+@pytest.fixture
+def mgr_with_deployer(tmp_path: Path):
     """Build a fresh manager that has a fake deployer injected."""
     (p := tmp_path / "personas" / "bingbu").mkdir(parents=True)
     (p / "SOUL.md").write_text("v1")
@@ -166,11 +168,12 @@ def _make_mgr_with_deployer(tmp_path: Path) -> tuple[UniverseManager, _FakeDeplo
         code_store=code_store,
         deployer=fake_deployer,
     )
-    return mgr, fake_deployer
+    yield mgr, fake_deployer
+    s.close()
 
 
-def test_promote_code_variant_flips_and_stages(tmp_path: Path):
-    mgr, fake_deployer = _make_mgr_with_deployer(tmp_path)
+def test_promote_code_variant_flips_and_stages(mgr_with_deployer):
+    mgr, fake_deployer = mgr_with_deployer
     g = mgr.ensure_genesis()
     cv = mgr.branch_code_variant(g["id"], "perf-exp")
 
@@ -189,8 +192,8 @@ def test_promote_code_variant_flips_and_stages(tmp_path: Path):
     assert call["worktree"] == expected_wt
 
 
-def test_promote_code_variant_requires_deployer(tmp_path: Path):
-    mgr, _ = _make_mgr_with_deployer(tmp_path)
+def test_promote_code_variant_requires_deployer(mgr_with_deployer):
+    mgr, _ = mgr_with_deployer
     # Replace deployer with None
     mgr._deployer = None  # noqa: SLF001
     g = mgr.ensure_genesis()
@@ -200,8 +203,8 @@ def test_promote_code_variant_requires_deployer(tmp_path: Path):
         mgr.promote_code_variant(cv["id"])
 
 
-def test_promote_code_variant_rejects_data_universe(tmp_path: Path):
-    mgr, _ = _make_mgr_with_deployer(tmp_path)
+def test_promote_code_variant_rejects_data_universe(mgr_with_deployer):
+    mgr, _ = mgr_with_deployer
     g = mgr.ensure_genesis()
 
     with pytest.raises(ValueError, match="code variant"):

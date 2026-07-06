@@ -86,6 +86,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("[mcp] manager shutdown error")
     await app.state.bot_manager.stop_all()
+    app.state.drawer_store.close()
     app.state.storage.close()
     logger.info("Tianshu shutdown complete")
 

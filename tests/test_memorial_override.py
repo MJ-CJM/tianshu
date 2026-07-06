@@ -11,6 +11,8 @@ from __future__ import annotations
 import tempfile
 from unittest.mock import MagicMock
 
+import pytest
+
 from tianshu.executor.executor import Executor
 from tianshu.models.acceptance import AcceptanceCriteria, CriticSpec
 from tianshu.models.edict import Edict, EdictRuntime
@@ -22,6 +24,13 @@ def _make_storage() -> Storage:
     s = Storage(tempfile.mktemp(suffix=".db"))
     s.init_db()
     return s
+
+
+@pytest.fixture
+def s() -> Storage:
+    store = _make_storage()
+    yield store
+    store.close()
 
 
 def _make_executor(storage: Storage) -> Executor:
@@ -36,8 +45,7 @@ def _make_executor(storage: Storage) -> Executor:
 # ---------- Storage round-trip ----------
 
 
-def test_memorial_persists_runtime_override():
-    s = _make_storage()
+def test_memorial_persists_runtime_override(s):
     e = Edict(goal="g")
     s.save_edict(e)
     m = Memorial(
@@ -52,8 +60,7 @@ def test_memorial_persists_runtime_override():
     assert fetched.acceptance_override is None
 
 
-def test_memorial_persists_acceptance_override():
-    s = _make_storage()
+def test_memorial_persists_acceptance_override(s):
     e = Edict(goal="g")
     s.save_edict(e)
     ao = AcceptanceCriteria(
@@ -71,8 +78,7 @@ def test_memorial_persists_acceptance_override():
     assert fetched.acceptance_override.critic.persona_ids == ["ducha"]
 
 
-def test_memorial_default_overrides_are_none():
-    s = _make_storage()
+def test_memorial_default_overrides_are_none(s):
     e = Edict(goal="g")
     s.save_edict(e)
     m = Memorial(edict_id=e.id)
@@ -87,18 +93,16 @@ def test_memorial_default_overrides_are_none():
 # ---------- Executor merge ----------
 
 
-def test_apply_override_returns_same_edict_when_empty():
+def test_apply_override_returns_same_edict_when_empty(s):
     """情况 1：override 全空 → 返回原 edict（identity，不复制）。"""
-    s = _make_storage()
     ex = _make_executor(s)
     e = Edict(goal="g", runtime=EdictRuntime(timeout_seconds=300))
     m = Memorial(edict_id=e.id)
     assert ex._apply_memorial_override(e, m) is e
 
 
-def test_apply_runtime_override_field_level_merge():
+def test_apply_runtime_override_field_level_merge(s):
     """情况 3：runtime_override 字段级浅合并 — 只覆盖填了的字段。"""
-    s = _make_storage()
     ex = _make_executor(s)
     e = Edict(
         goal="g",
@@ -116,9 +120,8 @@ def test_apply_runtime_override_field_level_merge():
     assert e.runtime.timeout_seconds == 300
 
 
-def test_apply_acceptance_override_replaces_completely():
+def test_apply_acceptance_override_replaces_completely(s):
     """情况 2：原 edict 无 acceptance，override 提供则整体注入（升级长任务）。"""
-    s = _make_storage()
     ex = _make_executor(s)
     e = Edict(goal="g")
     assert e.acceptance is None
@@ -136,9 +139,8 @@ def test_apply_acceptance_override_replaces_completely():
     assert e.acceptance is None
 
 
-def test_apply_acceptance_override_when_edict_already_has_acceptance():
+def test_apply_acceptance_override_when_edict_already_has_acceptance(s):
     """edict 已有 acceptance，override 整体替换（不深合并）。"""
-    s = _make_storage()
     ex = _make_executor(s)
     e = Edict(
         goal="g",
@@ -158,8 +160,7 @@ def test_apply_acceptance_override_when_edict_already_has_acceptance():
     assert merged.acceptance.critic.persona_ids == ["b"]
 
 
-def test_apply_both_overrides_simultaneously():
-    s = _make_storage()
+def test_apply_both_overrides_simultaneously(s):
     ex = _make_executor(s)
     e = Edict(goal="g", runtime=EdictRuntime(timeout_seconds=300))
     m = Memorial(

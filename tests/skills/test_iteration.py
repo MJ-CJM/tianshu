@@ -319,7 +319,8 @@ class TestSkillMetricsStoreIncrements:
         db.init_db()
         ms = SkillMetricsStore(db._conn)
         ms.ensure_exists("skill-a", created_by="agent")
-        return ms
+        yield ms
+        db.close()
 
     def test_increment_usage(self, store: SkillMetricsStore) -> None:
         store.increment_usage("skill-a")

@@ -8,7 +8,8 @@ from tianshu.memory.drawer_store import DrawerStore
 def store(tmp_path):
     db_path = tmp_path / "test.sqlite3"
     s = DrawerStore(str(db_path))
-    return s
+    yield s
+    s.close()
 
 
 @pytest.fixture

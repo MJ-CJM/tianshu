@@ -38,7 +38,7 @@ def mgr(tmp_path: Path) -> UniverseManager:
     s.init_db()
     store = UniverseStore(tmp_path / "universes", tmp_path / "personas", tmp_path / "skills")
     cfg = {"agent_config": {}}
-    return UniverseManager(
+    yield UniverseManager(
         s,
         store,
         _FakePersona(tmp_path / "personas"),
@@ -46,6 +46,7 @@ def mgr(tmp_path: Path) -> UniverseManager:
         config_snapshot=lambda: cfg,
         config_apply=lambda m: None,
     )
+    s.close()
 
 
 def test_ensure_genesis_is_champion(mgr: UniverseManager):

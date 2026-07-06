@@ -9,7 +9,9 @@ from tianshu.memory.layers import MemoryStack
 
 @pytest.fixture
 def store(tmp_path):
-    return DrawerStore(str(tmp_path / "test.sqlite3"))
+    s = DrawerStore(str(tmp_path / "test.sqlite3"))
+    yield s
+    s.close()
 
 
 @pytest.fixture

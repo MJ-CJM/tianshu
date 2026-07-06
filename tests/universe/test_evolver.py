@@ -110,57 +110,62 @@ def test_evolver_lands_persona_mutation(tmp_path):
 
     s = Storage(str(tmp_path / "t.db"))
     s.init_db()
-    store = UniverseStore(tmp_path / "universes", tmp_path / "personas", tmp_path / "skills")
+    try:
+        store = UniverseStore(tmp_path / "universes", tmp_path / "personas", tmp_path / "skills")
 
-    class FP:
-        runtime_dir = tmp_path / "personas"
+        class FP:
+            runtime_dir = tmp_path / "personas"
 
-        def repoint_runtime(self, _):
-            pass
+            def repoint_runtime(self, _):
+                pass
 
-    class FS:
-        _user_dir = tmp_path / "skills"
+        class FS:
+            _user_dir = tmp_path / "skills"
 
-        @property
-        def user_dir(self):
-            return self._user_dir
+            @property
+            def user_dir(self):
+                return self._user_dir
 
-        def repoint_user_dir(self, _):
-            pass
+            def repoint_user_dir(self, _):
+                pass
 
-    mgr = UniverseManager(
-        s,
-        store,
-        FP(),
-        FS(),
-        config_snapshot=lambda: {"agent_config": {}},
-        config_apply=lambda m: None,
-    )
-    g = mgr.ensure_genesis()
+        mgr = UniverseManager(
+            s,
+            store,
+            FP(),
+            FS(),
+            config_snapshot=lambda: {"agent_config": {}},
+            config_apply=lambda m: None,
+        )
+        g = mgr.ensure_genesis()
 
-    cfg = _cfg()
-    cm = MagicMock()
-    cm.agent_config = cfg
+        cfg = _cfg()
+        cm = MagicMock()
+        cm.agent_config = cfg
 
-    llm = AsyncMock()
-    llm.chat.side_effect = [
-        type(
-            "R",
-            (),
-            {"content": '{"target": "persona:bingbu/ROLE.md", "reason": "更主动", "name": "实验"}'},
-        )(),
-        type("R", (), {"content": "改写后的职责：主动协同"})(),
-    ]
+        llm = AsyncMock()
+        llm.chat.side_effect = [
+            type(
+                "R",
+                (),
+                {
+                    "content": '{"target": "persona:bingbu/ROLE.md", "reason": "更主动", "name": "实验"}'
+                },
+            )(),
+            type("R", (), {"content": "改写后的职责：主动协同"})(),
+        ]
 
-    ev = UniverseEvolver(llm, mgr, s, cm)
-    r = asyncio.run(ev.run(trigger_source="manual"))
+        ev = UniverseEvolver(llm, mgr, s, cm)
+        r = asyncio.run(ev.run(trigger_source="manual"))
 
-    assert r.created_challenger is not None
-    assert r.mutation_applied is True
-    child_role = (store.personas_dir(r.created_challenger) / "bingbu" / "ROLE.md").read_text()
-    champ_role = (store.personas_dir(g["id"]) / "bingbu" / "ROLE.md").read_text()
-    assert child_role != champ_role
-    assert child_role == "改写后的职责：主动协同"
+        assert r.created_challenger is not None
+        assert r.mutation_applied is True
+        child_role = (store.personas_dir(r.created_challenger) / "bingbu" / "ROLE.md").read_text()
+        champ_role = (store.personas_dir(g["id"]) / "bingbu" / "ROLE.md").read_text()
+        assert child_role != champ_role
+        assert child_role == "改写后的职责：主动协同"
+    finally:
+        s.close()
 
 
 # --- 行为层 challenger 沙箱配对评估：delta 分流(归档/推荐/留观) ---

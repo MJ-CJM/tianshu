@@ -21,7 +21,8 @@ def _ago(seconds: int) -> datetime:
 def storage(tmp_path):
     s = Storage(str(tmp_path / "t.db"))
     s.init_db()
-    return s
+    yield s
+    s.close()
 
 
 def _mem(s, edict, hb_ago=None, status=TaskStatus.RUNNING):

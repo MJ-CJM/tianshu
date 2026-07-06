@@ -19,6 +19,7 @@ def storage():
         s = Storage(str(db))
         s.init_db()
         yield s
+        s.close()
 
 
 def test_edict_runtime_default_lifecycle_phase_is_active():

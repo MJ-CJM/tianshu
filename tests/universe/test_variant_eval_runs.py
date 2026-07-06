@@ -1,7 +1,6 @@
 """Tests for variant_eval_runs storage + code_variant config defaults."""
 
 from tianshu.config_manager import AgentConfigState
-from tianshu.storage import Storage
 
 
 def test_code_variant_config_defaults():
@@ -13,9 +12,8 @@ def test_code_variant_config_defaults():
     assert "src/tianshu/planner/" in s.code_variant_evolvable_paths
 
 
-def test_variant_eval_run_roundtrip(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_variant_eval_run_roundtrip(storage):
+    s = storage
     s.save_variant_eval_run(
         {
             "id": "r1",
@@ -37,7 +35,5 @@ def test_variant_eval_run_roundtrip(tmp_path):
     assert r["cost"] == 1.25
 
 
-def test_list_variant_eval_runs_empty(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
-    assert s.list_variant_eval_runs("nope") == []
+def test_list_variant_eval_runs_empty(storage):
+    assert storage.list_variant_eval_runs("nope") == []

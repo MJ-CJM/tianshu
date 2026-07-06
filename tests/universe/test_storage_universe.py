@@ -1,11 +1,8 @@
 """Tests for Storage universe CRUD methods."""
 
-from tianshu.storage import Storage
 
-
-def test_universe_crud_and_single_champion(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_universe_crud_and_single_champion(storage):
+    s = storage
     s.save_universe(
         {
             "id": "u1",
@@ -33,21 +30,18 @@ def test_universe_crud_and_single_champion(tmp_path):
     assert s.get_universe("u2")["fitness"]["score"] == 0.9
 
 
-def test_get_universe_returns_none_for_missing(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_get_universe_returns_none_for_missing(storage):
+    s = storage
     assert s.get_universe("nonexistent") is None
 
 
-def test_get_champion_returns_none_when_empty(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_get_champion_returns_none_when_empty(storage):
+    s = storage
     assert s.get_champion_universe() is None
 
 
-def test_list_excludes_archived_when_requested(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_list_excludes_archived_when_requested(storage):
+    s = storage
     s.save_universe(
         {
             "id": "a",
@@ -70,9 +64,8 @@ def test_list_excludes_archived_when_requested(tmp_path):
     assert len(s.list_universes()) == 2
 
 
-def test_universe_fitness_defaults_to_empty(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_universe_fitness_defaults_to_empty(storage):
+    s = storage
     s.save_universe(
         {
             "id": "u1",
@@ -86,9 +79,8 @@ def test_universe_fitness_defaults_to_empty(tmp_path):
     assert u["fitness"] == {} or u["fitness"] is None
 
 
-def test_universe_roundtrip_optional_fields(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_universe_roundtrip_optional_fields(storage):
+    s = storage
     s.save_universe(
         {
             "id": "u1",
@@ -106,9 +98,8 @@ def test_universe_roundtrip_optional_fields(tmp_path):
     assert u["description"] == "desc"
 
 
-def test_universe_code_ref_roundtrip(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_universe_code_ref_roundtrip(storage):
+    s = storage
     s.save_universe(
         {
             "id": "cv1",
@@ -124,9 +115,8 @@ def test_universe_code_ref_roundtrip(tmp_path):
     assert u["origin"] == "code_variant"
 
 
-def test_universe_code_ref_defaults_none(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_universe_code_ref_defaults_none(storage):
+    s = storage
     s.save_universe(
         {
             "id": "d1",
@@ -139,9 +129,8 @@ def test_universe_code_ref_defaults_none(tmp_path):
     assert s.get_universe("d1")["code_ref"] is None
 
 
-def test_delete_universe_removes_row_and_eval_runs(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_delete_universe_removes_row_and_eval_runs(storage):
+    s = storage
     s.save_universe(
         {
             "id": "u1",
@@ -174,9 +163,8 @@ def test_delete_universe_removes_row_and_eval_runs(tmp_path):
     assert s.list_variant_eval_runs("u1") == []
 
 
-def test_delete_universe_nonexistent_is_noop(tmp_path):
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
+def test_delete_universe_nonexistent_is_noop(storage):
+    s = storage
     # Should not raise
     s.delete_universe("ghost-id")
 

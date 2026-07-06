@@ -95,3 +95,22 @@ class TestBootstrapSmoke:
     @pytest.mark.parametrize("key", NULLABLE_STATE_KEYS)
     async def test_nullable_state_key_present(self, booted_app, key):
         assert hasattr(booted_app.state, key), f"app.state.{key} 应存在（值可为 None）"
+
+    async def test_lifespan_closes_drawer_store(self):
+        # 不复用 booted_app fixture：需要在 lifespan 退出*之后*断言 close 是否
+        # 被调用，而 booted_app 的 teardown（lifespan __aexit__）发生在测试体
+        # 结束之后，body 内看不到 teardown 的效果，因此这里手动管理上下文。
+        # mock.patch 的 with 块会在其自身退出时把 close 还原，若还原发生在
+        # 断言之前会掩盖调用记录，故用手动包装函数采集调用证据。
+        app = create_app()
+        calls: list[int] = []
+        async with lifespan(app):
+            drawer_store = app.state.drawer_store  # 属性不存在时此处即红
+            orig_close = drawer_store.close
+
+            def _tracking_close() -> None:
+                calls.append(1)
+                orig_close()
+
+            drawer_store.close = _tracking_close
+        assert calls, "lifespan 退出应调用 drawer_store.close()"

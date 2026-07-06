@@ -259,45 +259,48 @@ async def test_generate_supervision_report_resume_history_empty(tmp_path):
     storage = Storage(str(tmp_path / "t.db"))
     if hasattr(storage, "init_db"):
         storage.init_db()
-    # 模拟之前已落库的迭代
-    storage.save_outer_loop_iteration(
-        {
-            "id": "i1",
-            "edict_id": "e1",
-            "iteration": 0,
-            "level": "L0",
-            "actor_output": "落库的旧 output",
-            "checks_result": "{}",
-            "critic_result": '{"verdict":"fail","issue_class":"factual_error","feedback":"x"}',
-            "cost_cny": 0.001,
-            "started_at": "2026-04-27T00:00:00Z",
-            "finished_at": "2026-04-27T00:01:00Z",
-        }
-    )
-
-    edict = Edict(id="e1", goal="g")
-    state = OuterLoopState(edict_id="e1", iteration=2, history=(), total_cost_cny=0.005)
-    persona = _make_persona()
-
-    captured = []
-
-    async def capture_chat(messages):
-        captured.append(messages)
-        return MagicMock(
-            content='{"issues_observed":[],"well_done":[],"poorly_done":[],"recommendation":"x"}'
+    try:
+        # 模拟之前已落库的迭代
+        storage.save_outer_loop_iteration(
+            {
+                "id": "i1",
+                "edict_id": "e1",
+                "iteration": 0,
+                "level": "L0",
+                "actor_output": "落库的旧 output",
+                "checks_result": "{}",
+                "critic_result": '{"verdict":"fail","issue_class":"factual_error","feedback":"x"}',
+                "cost_cny": 0.001,
+                "started_at": "2026-04-27T00:00:00Z",
+                "finished_at": "2026-04-27T00:01:00Z",
+            }
         )
 
-    llm = MagicMock()
-    llm.chat = AsyncMock(side_effect=capture_chat)
+        edict = Edict(id="e1", goal="g")
+        state = OuterLoopState(edict_id="e1", iteration=2, history=(), total_cost_cny=0.005)
+        persona = _make_persona()
 
-    report = await generate_supervision_report(
-        edict,
-        state,
-        TaskStatus.COMPLETED,
-        persona,
-        llm,
-        storage=storage,
-    )
-    # 验证回查 DB 后 prompt 含旧 actor_output
-    assert "落库的旧 output" in captured[0][1]["content"]
-    assert report.recommendation == "x"
+        captured = []
+
+        async def capture_chat(messages):
+            captured.append(messages)
+            return MagicMock(
+                content='{"issues_observed":[],"well_done":[],"poorly_done":[],"recommendation":"x"}'
+            )
+
+        llm = MagicMock()
+        llm.chat = AsyncMock(side_effect=capture_chat)
+
+        report = await generate_supervision_report(
+            edict,
+            state,
+            TaskStatus.COMPLETED,
+            persona,
+            llm,
+            storage=storage,
+        )
+        # 验证回查 DB 后 prompt 含旧 actor_output
+        assert "落库的旧 output" in captured[0][1]["content"]
+        assert report.recommendation == "x"
+    finally:
+        storage.close()
