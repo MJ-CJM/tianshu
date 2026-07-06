@@ -76,7 +76,7 @@ cd web && npm install && npm run dev
 
 飞书/Telegram/网页抓取/MCP 等可选能力按 extras 拆分，按需安装：`pip install -e ".[feishu,telegram,web,mcp]"`，或一次装全 `pip install -e ".[all]"`。
 
-前端开发服务器在 `http://localhost:3000`（自动代理 `/api` 到后端 8000）。**开发时访问 3000。**
+前端开发服务器在 `http://localhost:7999`（自动代理 `/api` 到后端 8000）。**开发时访问 7999。**
 
 ### 一体化运行（单端口）
 
@@ -176,6 +176,8 @@ curl -X POST http://localhost:8000/api/edicts \
 ## 🤝 贡献
 
 欢迎 Issue 与 PR。提交前请阅读 [`CLAUDE.md`](CLAUDE.md) 与 [`.claude/rules/`](.claude/rules/) 中的工程约定（简洁优先、外科手术式改动、80% 测试覆盖等）。
+
+开发验证：`.venv/bin/pytest -m "not slow"` · `.venv/bin/ruff check src tests` · `.venv/bin/lint-imports  # 分层契约检查`。
 
 ## 📄 License
 
