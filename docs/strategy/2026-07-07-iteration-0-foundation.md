@@ -525,7 +525,7 @@ gh pr create --base main --title "迭代 0「地基」:CI/卫生四件套/Cancel
 - [ ] CI frontend job 绿(lint/typecheck/vitest/build)
 - [ ] 本地无 .env 预演通过
 
-对应计划:docs/strategy/2026-07-07-iteration-0-foundation.md(spec §七 迭代 0)
+对应计划:docs/strategy/2026-07-07-iteration-0-foundation.md(spec §八 迭代 0)
 EOF
 )"
 ```
@@ -611,12 +611,12 @@ Expected: 两条均无输出(历史无误提交的密钥文件、源码/文档�
 - [ ] `.venv/bin/pytest -m "not slow" -q` 全绿(含 CancelledError 回归测试)
 - [ ] `cd web && npm run lint && npm test -- --run` 全绿
 - [ ] 仓库 Public,v0.2.0 tag 可见
-- [ ] **不做任何宣传动作**(正式宣发在迭代 3.5 后,见 spec §七)
+- [ ] **不做任何宣传动作**(正式宣发在迭代 3.5 后,见 spec §七宣发叙事与 §八排期)
 
 ---
 
 ## Self-Review 记录
 
-- **Spec 覆盖**:spec §七迭代 0 行的六项——CI 五件套+前端质量线(Task 4/5)、LICENSE/CHANGELOG/CONTRIBUTING/pre-commit(Task 3)、合 main(Task 6)、CancelledError 修复(Task 1)、抖动定位(Task 2)、eslint+vitest 起步(Task 4)——全部有对应 task;soft launch 出口由 Task 7 承接。✓
+- **Spec 覆盖**:spec §八迭代 0 行的六项——CI 五件套+前端质量线(Task 4/5)、LICENSE/CHANGELOG/CONTRIBUTING/pre-commit(Task 3)、合 main(Task 6)、CancelledError 修复(Task 1)、抖动定位(Task 2)、eslint+vitest 起步(Task 4)——全部有对应 task;soft launch 出口由 Task 7 承接。✓
 - **占位符扫描**:pre-commit 的 `rev: v0.5.7` 是显式声明的占位,同一步骤内以 `pre-commit autoupdate` 消解,非悬空 TBD。其余步骤均为完整代码/命令。✓
 - **类型/命名一致性**:`_narrow_list_result` 在 Task 1 的测试与实现中签名一致;`npm run lint`/`npm test` 脚本名与 Task 5 CI 调用一致;pytest marker 口径在 Task 2→3→5 三处联动(均已标注条件分支)。✓
