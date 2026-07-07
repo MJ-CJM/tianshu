@@ -46,3 +46,11 @@ _Avoid_: multi-agent 协作(作为卖点时)、agent teamwork
 **技能修撰 (Skill Curation)**:
 按运行指标(usage/success)筛选自建技能候选、LLM 修订、经效果门(评估提升才生效)的技能自优化闭环;SKILL.md diff 人类可读,是自进化的展示窗口。
 _Avoid_: 技能自动更新、skill tuning
+
+**廷议 (Court Deliberation)**:
+高风险决策的多视角审议原语:官员按职能视角出具立场(赞成/反对/有条件赞成)、条件与论据,言官强制唱反调,纪要留痕进批红/晋升/审计。与司礼监代批成对:小事快批,大事慎议。
+_Avoid_: 会诊(留给太医诊断器)、会商、multi-agent debate(作为卖点时)
+
+**言官 (Court Censor)**:
+廷议中被指定强制唱反调的官员角色:职责是找出议案的最大漏洞,即使内心赞成;立场记入纪要。
+_Avoid_: 批评者、devil's advocate(泛称)
