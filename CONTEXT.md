@@ -38,3 +38,11 @@ _Avoid_: 分支(git 语境)、版本
 **司礼监代批 (Silijian auto-approval)**:
 学习用户批红习惯后对低风险裁决的自动代批,受四道闸约束(低风险白名单、留痕可撤、一键收权、准确率考核)。
 _Avoid_: 自动审批(泛称)、auto-approve(不带闸门语境时)
+
+**组织新陈代谢 (Organizational Metabolism)**:
+天枢对多官员体系的叙事定位:官员是有生命周期的组织成员——被考核(京察)、被进化(位面变异)、被淘汰(致仕)、准入要考试(科举)。第二幕双引擎口诀:记忆感知,进化固化。
+_Avoid_: multi-agent 协作(作为卖点时)、agent teamwork
+
+**技能修撰 (Skill Curation)**:
+按运行指标(usage/success)筛选自建技能候选、LLM 修订、经效果门(评估提升才生效)的技能自优化闭环;SKILL.md diff 人类可读,是自进化的展示窗口。
+_Avoid_: 技能自动更新、skill tuning
