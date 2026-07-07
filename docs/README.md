@@ -28,6 +28,7 @@
 | [ops/](ops/) | 部署 / 运维 | 凭证、飞书/Telegram 接入、多 Bot、MCP 配置 |
 | [reference/](reference/) | 想了解借鉴与术语 | 借鉴融合的开源项目总览、六部隐喻术语表 |
 | [plan/](plan/) | 想了解路线图 | Phase 0–3 分阶段交付计划 |
+| [strategy/](strategy/) | 想了解竞争力与发展战略 | 2026-07 竞争力复盘、发展战略与迭代排期、当期迭代实施计划 |
 | [superpowers/](superpowers/) | 想追溯某个特性怎么落地 | 50+ 特性的设计 spec 与实现 plan（见 [INDEX](superpowers/INDEX.md)） |
 
 ## 推荐阅读路径

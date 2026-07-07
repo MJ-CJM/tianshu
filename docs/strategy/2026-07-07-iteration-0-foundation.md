@@ -8,7 +8,7 @@
 
 **Tech Stack:** GitHub Actions + uv(仓库已有 `uv.lock`)/ pre-commit + ruff-pre-commit / eslint 9(flat config)+ typescript-eslint / vitest(node 环境,首批只测纯函数,不引入 jsdom)。
 
-**Spec:** [docs/superpowers/specs/2026-07-07-development-strategy-design.md](../specs/2026-07-07-development-strategy-design.md) §七 迭代 0 行。
+**Spec:** [docs/strategy/2026-07-07-development-strategy-design.md](./2026-07-07-development-strategy-design.md) §七 迭代 0 行。
 
 ## Global Constraints
 
@@ -525,7 +525,7 @@ gh pr create --base main --title "迭代 0「地基」:CI/卫生四件套/Cancel
 - [ ] CI frontend job 绿(lint/typecheck/vitest/build)
 - [ ] 本地无 .env 预演通过
 
-对应计划:docs/superpowers/plans/2026-07-07-iteration-0-foundation.md(spec §七 迭代 0)
+对应计划:docs/strategy/2026-07-07-iteration-0-foundation.md(spec §七 迭代 0)
 EOF
 )"
 ```

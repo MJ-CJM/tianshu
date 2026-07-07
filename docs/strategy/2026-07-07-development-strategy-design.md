@@ -1,7 +1,7 @@
 # 天枢发展战略与迭代排期设计
 
 > 状态:已与决策人逐项确认(2026-07-07)。
-> 分析依据:[docs/plan/2026-07-07-competitiveness-review-and-roadmap.md](../../plan/2026-07-07-competitiveness-review-and-roadmap.md)(工程体检 + 市场调研 + 8 参考项目源码挖掘 + 三路一手来源核查)。本 spec 是其**决策收敛**:定方向、定排期;能力细节与来源证据以该文档为准,不在此重复。
+> 分析依据:[docs/strategy/2026-07-07-competitiveness-review-and-roadmap.md](./2026-07-07-competitiveness-review-and-roadmap.md)(工程体检 + 市场调研 + 8 参考项目源码挖掘 + 三路一手来源核查)。本 spec 是其**决策收敛**:定方向、定排期;能力细节与来源证据以该文档为准,不在此重复。
 
 ---
 
