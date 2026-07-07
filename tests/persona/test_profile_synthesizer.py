@@ -267,3 +267,26 @@ async def test_run_end_to_end_with_fakes(tmp_path):
     assert "检索" in content
     # 首次合成没有历史文件 → previous_profile_md=None → detect_conflict 恒为 False，正常回写
     assert synthesizer.detect_conflict(None, result.auto_section) is False
+
+
+class TestNarrowListResult:
+    """gather(return_exceptions=True) 结果窄化 —— CancelledError(BaseException)回归锚点。"""
+
+    def test_list_passes_through(self):
+        from tianshu.persona.profile_synthesizer import _narrow_list_result
+
+        assert _narrow_list_result([{"name": "x"}], "llm_specialties") == [{"name": "x"}]
+
+    def test_exception_downgrades_to_empty(self):
+        from tianshu.persona.profile_synthesizer import _narrow_list_result
+
+        assert _narrow_list_result(ValueError("boom"), "llm_specialties") == []
+
+    def test_cancelled_error_downgrades_to_empty(self):
+        # CancelledError 继承 BaseException 而非 Exception,
+        # 旧代码 isinstance(x, Exception) 漏判 —— 本缺陷的直接回归用例
+        import asyncio
+
+        from tianshu.persona.profile_synthesizer import _narrow_list_result
+
+        assert _narrow_list_result(asyncio.CancelledError(), "llm_specialties") == []

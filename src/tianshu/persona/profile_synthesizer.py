@@ -22,6 +22,18 @@ from tianshu.memory.drawer import Drawer
 logger = logging.getLogger(__name__)
 
 
+def _narrow_list_result(value: object, label: str) -> list:
+    """gather(return_exceptions=True) 结果正向窄化:非 list 一律降级为空列表并告警。
+
+    正向判定覆盖 Exception 与 BaseException(如 CancelledError)——
+    后者用 isinstance(x, Exception) 会漏判,导致异常对象流入后续格式化。
+    """
+    if isinstance(value, list):
+        return value
+    logger.warning("%s raised or returned non-list: %r", label, value)
+    return []
+
+
 @dataclass(frozen=True)
 class ProfileSynthesisInput:
     persona_id: str
@@ -541,21 +553,13 @@ class ProfileSynthesizer:
                 memory_review_task,
                 return_exceptions=True,
             )
-            if isinstance(specialties, Exception):
-                logger.warning("llm_specialties raised: %s", specialties)
-                specialties = []
-            if isinstance(degradations, Exception):
-                logger.warning("llm_degradations raised: %s", degradations)
-                degradations = []
-            review_items: list[dict[str, str]] = review_raw if isinstance(review_raw, list) else []
-            if isinstance(review_raw, Exception):
-                logger.warning("llm_memory_review raised: %s", review_raw)
+            specialties = _narrow_list_result(specialties, "llm_specialties")
+            degradations = _narrow_list_result(degradations, "llm_degradations")
+            review_items: list[dict[str, str]] = _narrow_list_result(
+                review_raw, "llm_memory_review"
+            )
 
-            # TODO(治理): gather(..., return_exceptions=True) 可能返回 BaseException 而非
-            # Exception 子类(如 CancelledError),上面的 isinstance(x, Exception) 未覆盖此情形,
-            # 与下方 review_raw 的 isinstance(x, list) 做法不一致 —— 疑似真实缺口,涉及行为改动
-            # 未在本次注解任务中处理,需人工确认后再修。
-            degraded = self._is_degraded(inputs, specialties, degradations)  # type: ignore[arg-type]
+            degraded = self._is_degraded(inputs, specialties, degradations)
 
             from tianshu.persona.profile_renderer import (
                 detect_manual_section,
@@ -573,13 +577,10 @@ class ProfileSynthesizer:
             )
 
             sections = ProfileSections(
-                # 下两处 ignore 同 §gather 结果窄化问题:isinstance(x, Exception) 不覆盖
-                # CancelledError(BaseException),类型上 specialties/degradations 可能仍含
-                # 异常对象。TODO(治理): 统一改 isinstance(x, list) 正向判定后移除。
-                specialties_md=_format_specialties(specialties),  # type: ignore[arg-type]
+                specialties_md=_format_specialties(specialties),
                 task_distribution_md=_format_task_distribution(task_dist),
                 health_md=_format_health(health),
-                degradations_md=_format_degradations(candidates, degradations),  # type: ignore[arg-type]
+                degradations_md=_format_degradations(candidates, degradations),
             )
             now_iso = datetime.now(UTC).isoformat(timespec="seconds")
             auto_section = render_auto_section(
