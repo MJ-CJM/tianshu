@@ -9,6 +9,7 @@ from tianshu.cli.commands import (
     cost,
     dag,
     decree,
+    doctor,
     edict,
     event,
     health,
@@ -34,6 +35,7 @@ app.add_typer(plugin.app, name="plugin", help="Plugin management")
 app.add_typer(dag.app, name="dag", help="DAG execution management")
 app.add_typer(worker.app, name="worker", help="Worker pool management")
 app.command()(health.health)
+app.command()(doctor.doctor)
 app.command()(watch)
 
 
