@@ -4,13 +4,28 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from tianshu.kernel.ambient import get_current_edict
+from tianshu.storage import Storage
+from tianshu.tools.hongluisi.engine_registry import build_engines
+from tianshu.tools.hongluisi.tools import register_hongluisi
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
+if TYPE_CHECKING:
+    from tianshu.bus.event_bus import EventBus
+    from tianshu.persona.loader import PersonaLoader
 
-def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
+
+def register_builtins(
+    registry: ToolRegistry,
+    workspace_dir: str,
+    storage: Storage | None = None,
+    event_bus: EventBus | None = None,
+    persona_loader: PersonaLoader | None = None,
+) -> None:
     workspace = Path(workspace_dir).resolve()
 
     async def shell_exec(command: str, cwd: str | None = None) -> ToolResult:
@@ -31,7 +46,7 @@ def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
             proc.kill()
             await asyncio.shield(proc.communicate())
             raise
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await asyncio.shield(proc.communicate())
             return error_result("shell_exec: command timed out after 60s")
@@ -70,21 +85,57 @@ def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
                 },
                 "required": ["command"],
             },
-            tier=ToolTier.T3_DANGEROUS.value,
+            tier=ToolTier.T4_DANGEROUS.value,
             max_result_chars=16000,
+            side_effect=True,
         ),
     )
 
-    async def read_file(path: str) -> ToolResult:
+    async def read_file(
+        path: str,
+        offset: int | None = None,
+        limit: int | None = None,
+    ) -> ToolResult:
+        """Read a file. Supports line-based slicing (1-indexed offset).
+
+        Behavior aligned with Anthropic's Read tool:
+        - 默认整体读取，超 10000 字符截断
+        - 提供 offset/limit 时按行切片：从 offset 行开始读 limit 行
+          （offset=1 表示第一行；limit=None 表示读到结尾）
+        """
         file_path = safe_path(workspace, path)
         if not file_path.is_file():
             return error_result(f"Error: file '{path}' does not exist")
+
+        size = file_path.stat().st_size
+        if offset is not None or limit is not None:
+            # 行切片模式
+            start = max(0, (offset or 1) - 1)  # 1-indexed → 0-indexed
+            with file_path.open("r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+            total_lines = len(lines)
+            end = min(total_lines, start + limit) if limit is not None else total_lines
+            sliced = "".join(lines[start:end])
+            truncated = len(sliced) > 10000
+            content = sliced[:10000]
+            return ok_result(
+                content,
+                details={
+                    "size": size,
+                    "truncated": truncated,
+                    "lines_returned": max(0, end - start),
+                    "total_lines": total_lines,
+                    "offset": start + 1,
+                },
+            )
+
+        # 整体读模式（向后兼容原行为）
         content = file_path.read_text(encoding="utf-8", errors="replace")
         truncated = len(content) > 10000
         content = content[:10000]
         return ok_result(
             content,
-            details={"size": file_path.stat().st_size, "truncated": truncated},
+            details={"size": size, "truncated": truncated},
         )
 
     registry.register(
@@ -92,13 +143,33 @@ def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
         read_file,
         ToolDefinition(
             name="read_file",
-            description="Read the contents of a file in the workspace.",
+            description=(
+                "Read the contents of a file in the workspace. "
+                "For large files, use offset (1-indexed start line) "
+                "and limit (max lines to read) to slice."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
                         "description": "File path relative to workspace",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": (
+                            "Optional: 1-indexed line number to start reading from. "
+                            "Default: read from the beginning."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": (
+                            "Optional: max number of lines to read starting at offset. "
+                            "Default: read to end of file."
+                        ),
                     },
                 },
                 "required": ["path"],
@@ -137,6 +208,7 @@ def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
                 "required": ["path", "content"],
             },
             tier=ToolTier.T1_WORKSPACE.value,
+            side_effect=True,
         ),
     )
 
@@ -150,3 +222,31 @@ def register_builtins(registry: ToolRegistry, workspace_dir: str) -> None:
     register_list_dir(registry, workspace)
     register_grep(registry, workspace)
     register_find_files(registry, workspace)
+
+    # === hongluisi: 对外网络工具 ===
+    # 所有 engine 构造（fetch / search / api / extract）+ vault/store 初始化都收敛到 engine_registry；
+    # 启动期 build_engines(storage) 把 storage 引用存进 registry，供后续 rebuild_engines() 热更凭证。
+    build_engines(storage=storage)
+    register_hongluisi(registry, edict_getter=get_current_edict)
+
+    # 飞书 lark-cli 透传工具（写操作经 LarkCliSafetyRule 升级审批）
+    from tianshu.tools.lark_cli import register_lark_cli
+
+    register_lark_cli(registry)
+
+    # === 敕令管理工具集：让助手 LLM 在对话中颁敕、查阅、追踪 ===
+    # 默认注册到 registry，但通政司 enable_edict_submission toggle 控制启用；
+    # submit_edict（写）、list_edicts / get_edict_status（读）作为同一捆绑能力。
+    if storage is not None and event_bus is not None:
+        from tianshu.tools.submit_edict import register_submit_edict
+
+        register_submit_edict(
+            registry,
+            storage=storage,
+            event_bus=event_bus,
+            persona_loader=persona_loader,
+        )
+    if storage is not None:
+        from tianshu.tools.edict_query import register_edict_query
+
+        register_edict_query(registry, storage=storage)

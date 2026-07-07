@@ -8,8 +8,7 @@ from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
-from tianshu.dag.models import DAGExecution
-from tianshu.executor.hooks import HookRegistry, HookType
+from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models.common import TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
@@ -45,7 +44,9 @@ class Executor:
         self._dag_scheduler = None  # set via set_dag_scheduler()
         self._lane_manager = None  # set via set_lane_manager()
         self._persona_loader = None  # set via set_persona_loader()
+        self._universe_manager = None  # set via set_universe_manager()
         self._running_tasks: set[asyncio.Task] = set()
+        self._orchestrator_ctx = None  # set via set_orchestrator_context()
 
     def set_agent(self, agent: object) -> None:
         self._agent = agent
@@ -58,6 +59,13 @@ class Executor:
 
     def set_persona_loader(self, persona_loader: object) -> None:
         self._persona_loader = persona_loader
+
+    def set_universe_manager(self, manager: object) -> None:
+        self._universe_manager = manager
+
+    def set_orchestrator_context(self, orch_ctx: object) -> None:
+        """注入 orchestrator 依赖（agent/storage/bus/llms/...）。"""
+        self._orchestrator_ctx = orch_ctx
 
     @property
     def running_tasks(self) -> set[asyncio.Task]:
@@ -81,11 +89,28 @@ class Executor:
         memorial_id = event.memorial_id
         memorial = self._storage.get_memorial(memorial_id) if memorial_id else None
 
+        # follow-up 时 memorial 可能携带 override，合并到 edict 副本（不持久化）
+        edict = self._apply_memorial_override(edict, memorial)
+
+        # 长任务 outer loop 路径（仅当 edict.acceptance 不为 None 且 ctx 已注入）
+        if edict.acceptance is not None and self._orchestrator_ctx is not None:
+            logger.info(
+                "[EXEC] Edict %s: 走 orchestrator outer loop 路径（profile=%s）",
+                edict.id,
+                edict.execution_profile,
+            )
+            task = asyncio.create_task(self._execute_outer_loop(edict, memorial))
+            self._running_tasks.add(task)
+            task.add_done_callback(self._running_tasks.discard)
+            return
+
         # Multi-task plan → DAG execution
         if plan and len(plan.tasks) > 1 and self._dag_scheduler:
             logger.debug(
                 "[EXEC] Edict %s: using DAG path, %d tasks, max_concurrency=%d",
-                edict.id, len(plan.tasks), edict.runtime.max_concurrency,
+                edict.id,
+                len(plan.tasks),
+                edict.runtime.max_concurrency,
             )
             task = asyncio.create_task(self._execute_dag(edict, plan, memorial=memorial))
         else:
@@ -94,8 +119,41 @@ class Executor:
         self._running_tasks.add(task)
         task.add_done_callback(self._running_tasks.discard)
 
+    async def handle_resume(self, event: EventEnvelope) -> None:
+        """EventBus handler for edict.resume —— 续跑被 sweeper 判为孤儿的长任务（Multica 借鉴 #1）。
+
+        仅长任务 outer loop（edict.acceptance 不为 None）可续跑：orchestrator 会
+        _load_checkpoint 从断点恢复；无 checkpoint 时从头跑一遍（幂等）。
+        """
+        edict_id = event.edict_id
+        if not edict_id:
+            return
+        edict = self._storage.get_edict(edict_id)
+        memorial = self._storage.get_memorial(event.memorial_id) if event.memorial_id else None
+        if not edict or not memorial:
+            logger.error("Resume: edict/memorial not found for %s", edict_id)
+            return
+        if edict.acceptance is None or self._orchestrator_ctx is None:
+            logger.warning(
+                "Resume ignored for edict %s: no acceptance / orchestrator ctx",
+                edict_id,
+            )
+            return
+        edict = self._apply_memorial_override(edict, memorial)
+        logger.info(
+            "[EXEC] Resuming outer loop for edict %s (memorial %s)",
+            edict_id,
+            memorial.id,
+        )
+        task = asyncio.create_task(self._execute_outer_loop(edict, memorial))
+        self._running_tasks.add(task)
+        task.add_done_callback(self._running_tasks.discard)
+
     async def _execute_dag(
-        self, edict: Edict, plan: Plan, memorial: Memorial | None = None,
+        self,
+        edict: Edict,
+        plan: Plan,
+        memorial: Memorial | None = None,
     ) -> None:
         """Create DAG from plan and run via DAGScheduler."""
         max_concurrency = edict.runtime.max_concurrency
@@ -106,6 +164,7 @@ class Executor:
             root_memorial = memorial
             root_memorial.status = TaskStatus.RUNNING
             root_memorial.started_at = datetime.now(UTC)
+            self._stamp_universe(root_memorial)
             self._storage.update_memorial(root_memorial)
         else:
             root_memorial = Memorial(
@@ -114,6 +173,7 @@ class Executor:
                 status=TaskStatus.RUNNING,
                 started_at=datetime.now(UTC),
             )
+            self._stamp_universe(root_memorial)
             self._storage.save_memorial(root_memorial)
         execution.root_memorial_id = root_memorial.id
 
@@ -125,7 +185,8 @@ class Executor:
         global_lane = None
         if self._lane_manager:
             session_lane = self._lane_manager.get_session_lane(
-                edict.id, max_concurrency,
+                edict.id,
+                max_concurrency,
             )
             global_lane = self._lane_manager.global_lane
             self._dag_scheduler._session_lane = session_lane
@@ -136,6 +197,98 @@ class Executor:
         finally:
             if self._lane_manager:
                 self._lane_manager.remove_session(edict.id)
+
+    def _stamp_universe(self, memorial: Memorial) -> None:
+        """执行开始时固化 memorial 所属位面（一旦设定，本次运行内不变）。"""
+        if self._universe_manager is not None and memorial.universe_id is None:
+            memorial.universe_id = self._universe_manager.route_for_memorial(memorial.id)
+
+    def _apply_memorial_override(
+        self,
+        edict: Edict,
+        memorial: Memorial | None,
+    ) -> Edict:
+        """合并 memorial 的 runtime_override / acceptance_override 到 edict 副本。
+
+        - runtime_override：dict 字段级浅合并（用户未填字段保留 edict 原值）
+        - acceptance_override：整体替换 edict.acceptance（None = 沿用）
+        - 不修改原 edict 行，仅本次执行内生效。
+        """
+        if memorial is None:
+            return edict
+        update_kwargs: dict = {}
+        if memorial.runtime_override:
+            try:
+                update_kwargs["runtime"] = edict.runtime.model_copy(
+                    update=memorial.runtime_override,
+                )
+            except Exception as e:
+                logger.warning(
+                    "apply runtime_override failed for memorial %s: %s; falling back to edict.runtime",
+                    memorial.id,
+                    e,
+                )
+        if memorial.acceptance_override is not None:
+            update_kwargs["acceptance"] = memorial.acceptance_override
+        if not update_kwargs:
+            return edict
+        logger.info(
+            "[EXEC] Edict %s memorial %s: applied override(runtime=%s, acceptance=%s)",
+            edict.id,
+            memorial.id,
+            "runtime" in update_kwargs,
+            "acceptance" in update_kwargs,
+        )
+        return edict.model_copy(update=update_kwargs)
+
+    async def _execute_outer_loop(
+        self,
+        edict: Edict,
+        memorial: Memorial | None,
+    ) -> None:
+        """通过 orchestrator 跑长任务 outer loop。"""
+        from tianshu.executor.orchestrator import run as orch_run
+
+        if memorial is None:
+            memorial = Memorial(
+                edict_id=edict.id,
+                instruction=edict.goal,
+                status=TaskStatus.RUNNING,
+                started_at=datetime.now(UTC),
+            )
+            self._stamp_universe(memorial)
+            self._storage.save_memorial(memorial)
+        else:
+            memorial.status = TaskStatus.RUNNING
+            memorial.started_at = datetime.now(UTC)
+            self._stamp_universe(memorial)
+            self._storage.update_memorial(memorial)
+
+        try:
+            result = await orch_run(edict, memorial, self._orchestrator_ctx)
+            memorial.status = result.status
+            memorial.result = result.final_output
+            # outer-loop 的 final_output 已是验收通过的最终产物
+            memorial.final_output = result.final_output
+            memorial.error = result.error
+        except Exception as e:
+            logger.exception("orchestrator failed for edict %s", edict.id)
+            memorial.status = TaskStatus.FAILED
+            memorial.error = f"orchestrator error: {e}"
+        finally:
+            memorial.completed_at = datetime.now(UTC)
+            self._storage.update_memorial(memorial)
+            await self._bus.emit(
+                make_event(
+                    "execution.completed"
+                    if memorial.status == TaskStatus.COMPLETED
+                    else "execution.failed",
+                    edict_id=edict.id,
+                    memorial_id=memorial.id,
+                    producer="executor",
+                    payload={"status": memorial.status.value, "error": memorial.error},
+                )
+            )
 
     async def execute_edict(
         self,
@@ -161,23 +314,37 @@ class Executor:
             )
             self._storage.save_memorial(memorial)
 
+        # follow-up 时本次 memorial 可能携带 runtime/acceptance override，
+        # 合并到 edict 副本上（不写回 edict 行）。
+        edict = self._apply_memorial_override(edict, memorial)
+
+        # 合并后若有 acceptance（情况 2：follow-up 升级到长任务）→ 切到 outer loop。
+        if edict.acceptance is not None and self._orchestrator_ctx is not None:
+            logger.info(
+                "[EXEC] Edict %s memorial %s: 走 orchestrator outer loop 路径（profile=%s）",
+                edict.id,
+                memorial.id,
+                edict.execution_profile,
+            )
+            await self._execute_outer_loop(edict, memorial)
+            return
+
         # Set persona_id: plan assignment > edict assignment > default
         if not memorial.persona_id:
             plan_persona = None
             if plan and plan.tasks:
                 plan_persona = plan.tasks[0].assigned_official
-            memorial.persona_id = (
-                edict.assigned_persona_id
-                or plan_persona
-                or DEFAULT_EXECUTOR_ID
-            )
+            memorial.persona_id = edict.assigned_persona_id or plan_persona or DEFAULT_EXECUTOR_ID
         logger.debug(
             "[EXEC] Edict %s: start execution, persona=%s, timeout=%ds, max_iter=%d",
-            edict.id, memorial.persona_id,
-            edict.runtime.timeout_seconds, edict.runtime.max_iterations,
+            edict.id,
+            memorial.persona_id,
+            edict.runtime.timeout_seconds,
+            edict.runtime.max_iterations,
         )
         memorial.status = TaskStatus.RUNNING
         memorial.started_at = datetime.now(UTC)
+        self._stamp_universe(memorial)
         self._storage.update_memorial(memorial)
 
         await self._bus.emit(
@@ -191,10 +358,7 @@ class Executor:
         )
 
         # Spec Section 5: 展开 PolicyProfile 为 edict-scope session rules
-        if (
-            edict.runtime.policy_profile is not None
-            and self._session_rule_store is not None
-        ):
+        if edict.runtime.policy_profile is not None and self._session_rule_store is not None:
             try:
                 from tianshu.tools.policy_profile import (
                     PolicyProfile,
@@ -211,7 +375,9 @@ class Executor:
                     template_name=payload.template_name,
                 )
                 created = await expand_profile_to_rules(
-                    profile, edict, self._session_rule_store,
+                    profile,
+                    edict,
+                    self._session_rule_store,
                 )
                 self._storage.append_event(
                     edict.id,
@@ -226,7 +392,8 @@ class Executor:
                 )
             except Exception:
                 logger.exception(
-                    "[EXEC] Edict %s: failed to expand policy profile", edict.id,
+                    "[EXEC] Edict %s: failed to expand policy profile",
+                    edict.id,
                 )
 
         # Session start hook
@@ -281,8 +448,11 @@ class Executor:
             memorial.status = result.status
             memorial.summary = result.summary
             memorial.result = result.result
+            # 单 task / 短任务路径：result 即最终交付物（无中间过程混淆）
+            memorial.final_output = result.result
             memorial.usage = result.usage
             memorial.error = result.error
+            memorial.reasoning_content = result.reasoning_content
             event_type = {
                 TaskStatus.COMPLETED: "execution.completed",
                 TaskStatus.FAILED: "execution.failed",
@@ -294,7 +464,7 @@ class Executor:
             memorial.error = "Task was cancelled"
             event_type = "execution.cancelled"
             raise
-        except asyncio.TimeoutError:
+        except TimeoutError:
             memorial.status = TaskStatus.FAILED
             memorial.error = f"Execution timed out after {edict.runtime.timeout_seconds}s"
             event_type = "execution.failed"
@@ -307,7 +477,9 @@ class Executor:
             memorial.completed_at = datetime.now(UTC)
             logger.debug(
                 "[EXEC] Edict %s: finished status=%s, error=%s",
-                edict.id, memorial.status.value, memorial.error,
+                edict.id,
+                memorial.status.value,
+                memorial.error,
             )
 
             # Save memorial BEFORE emitting event so auditor reads fresh data
@@ -367,7 +539,9 @@ class Executor:
             ):
                 logger.info(
                     "Auto-retry edict %s: attempt %d/%d",
-                    edict.id, memorial.attempt + 1, edict.runtime.retry_limit,
+                    edict.id,
+                    memorial.attempt + 1,
+                    edict.runtime.retry_limit,
                 )
                 retry_memorial = Memorial(
                     edict_id=edict.id,
@@ -376,9 +550,7 @@ class Executor:
                     parent_memorial_id=memorial.id,
                 )
                 self._storage.save_memorial(retry_memorial)
-                retry_task = asyncio.create_task(
-                    self.execute_edict(edict, memorial=retry_memorial)
-                )
+                retry_task = asyncio.create_task(self.execute_edict(edict, memorial=retry_memorial))
                 self._running_tasks.add(retry_task)
                 retry_task.add_done_callback(self._running_tasks.discard)
 
@@ -399,17 +571,21 @@ class Executor:
         canceller = CascadeCanceller(self._storage, worker_pool)
         cancelled = await canceller.cancel(execution)
 
-        await self._bus.emit(make_event(
-            "dag.cancelled",
-            edict_id=execution.edict_id,
-            producer="executor",
-            payload={"dag_id": dag_id, "cancelled_nodes": cancelled},
-        ))
+        await self._bus.emit(
+            make_event(
+                "dag.cancelled",
+                edict_id=execution.edict_id,
+                producer="executor",
+                payload={"dag_id": dag_id, "cancelled_nodes": cancelled},
+            )
+        )
 
         return cancelled
 
     async def retry_dag(
-        self, dag_id: str, from_node_ids: list[str] | None = None,
+        self,
+        dag_id: str,
+        from_node_ids: list[str] | None = None,
     ) -> list[str]:
         """Retry failed nodes in a DAG execution."""
         from tianshu.executor.retry import PartialRetrier
@@ -418,7 +594,9 @@ class Executor:
         if not execution:
             raise ValueError(f"DAG execution '{dag_id}' not found")
         if execution.status not in ("failed", "cancelled"):
-            raise ValueError(f"DAG execution must be failed/cancelled to retry, got {execution.status}")
+            raise ValueError(
+                f"DAG execution must be failed/cancelled to retry, got {execution.status}"
+            )
 
         retrier = PartialRetrier(self._storage)
         reset_ids = retrier.prepare_retry(execution, from_node_ids)

@@ -17,4 +17,4 @@ def health():
         console.print("[green]OK[/green] Tianshu is running", style="bold")
     except SystemExit:
         console.print("[red]FAIL[/red] Tianshu is not available", style="bold")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 
-from tianshu.dag.models import DAGExecution, DAGNode, DAGNodeStatus
+from tianshu.models.dag import DAGExecution, DAGNode, DAGNodeStatus
 
 
 class DAG:
@@ -56,10 +56,7 @@ class DAG:
             if node.status != DAGNodeStatus.PENDING:
                 continue
             deps = self._edges.get(nid, [])
-            if all(
-                self._nodes[d].status == DAGNodeStatus.COMPLETED
-                for d in deps
-            ):
+            if all(self._nodes[d].status == DAGNodeStatus.COMPLETED for d in deps):
                 ready.append(node)
         return ready
 
@@ -97,9 +94,7 @@ class DAG:
         return all(n.status in terminal for n in self._nodes.values())
 
     def has_failures(self) -> bool:
-        return any(
-            n.status == DAGNodeStatus.FAILED for n in self._nodes.values()
-        )
+        return any(n.status == DAGNodeStatus.FAILED for n in self._nodes.values())
 
     @classmethod
     def from_execution(cls, execution: DAGExecution) -> DAG:

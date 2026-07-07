@@ -5,6 +5,7 @@ import {
   createPersona,
   updatePersona,
   deletePersona,
+  regeneratePersonaIdentity,
 } from "../api/personas";
 import type { PersonaCreateRequest, PersonaUpdateRequest } from "../api/types";
 
@@ -50,6 +51,16 @@ export function useDeletePersona() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deletePersona(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["personas"] });
+    },
+  });
+}
+
+export function useRegeneratePersonaIdentity() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => regeneratePersonaIdentity(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["personas"] });
     },

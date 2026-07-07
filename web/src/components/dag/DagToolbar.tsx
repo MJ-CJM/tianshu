@@ -3,6 +3,7 @@ import {
   StopOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
+import { useT } from "../../i18n";
 
 interface DagToolbarProps {
   dagId: string;
@@ -29,6 +30,7 @@ export default function DagToolbar({
   cancelLoading,
   retryLoading,
 }: DagToolbarProps) {
+  const t = useT();
   const canCancel = status === 'running' || status === 'pending';
   const canRetry = status === 'failed' || status === 'cancelled';
 
@@ -49,16 +51,16 @@ export default function DagToolbar({
       </Space>
       <Space>
         {canCancel && (
-          <Popconfirm title="确定取消整个 DAG 执行？" onConfirm={onCancel}>
+          <Popconfirm title={t("comp.dag.cancelConfirm")} onConfirm={onCancel}>
             <Button icon={<StopOutlined />} danger loading={cancelLoading} size="small">
-              取消
+              {t("action.cancel")}
             </Button>
           </Popconfirm>
         )}
         {canRetry && (
-          <Popconfirm title="重试失败的节点？" onConfirm={onRetry}>
+          <Popconfirm title={t("comp.dag.retryConfirm")} onConfirm={onRetry}>
             <Button icon={<ReloadOutlined />} loading={retryLoading} size="small">
-              重试
+              {t("action.retry")}
             </Button>
           </Popconfirm>
         )}

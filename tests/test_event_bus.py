@@ -1,6 +1,5 @@
 """Tests for EventBus."""
 
-import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -23,10 +22,13 @@ class TestEventBus:
 
     async def test_priority_ordering(self, bus):
         order = []
+
         async def h1(e):
             order.append("h1")
+
         async def h2(e):
             order.append("h2")
+
         async def h3(e):
             order.append("h3")
 
@@ -71,6 +73,7 @@ class TestEventBus:
 
     async def test_persists_to_storage(self, storage):
         from tianshu.models import Edict
+
         edict = Edict(goal="test")
         storage.save_edict(edict)
 

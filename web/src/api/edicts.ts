@@ -1,5 +1,29 @@
 import apiClient from "./client";
-import type { ApiResponse, Edict, EdictCreateRequest, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent } from "./types";
+import type { AcceptanceCriteria, ApiResponse, Edict, EdictCreateRequest, EdictRuntime, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent, OuterLoopIteration, SupervisionReport } from "./types";
+
+export async function getOuterLoopIterations(edictId: string): Promise<ApiResponse<OuterLoopIteration[]>> {
+  const { data } = await apiClient.get<ApiResponse<OuterLoopIteration[]>>(
+    `/edicts/${edictId}/iterations`,
+  );
+  return data;
+}
+
+export async function getSupervisionReports(edictId: string): Promise<SupervisionReport[]> {
+  try {
+    const { data } = await apiClient.get<ApiResponse<SupervisionReport[]>>(
+      `/edicts/${edictId}/supervision-reports`,
+    );
+    return data.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** @deprecated 用 getSupervisionReports 复数版（多监督官） */
+export async function getSupervisionReport(edictId: string): Promise<SupervisionReport | null> {
+  const list = await getSupervisionReports(edictId);
+  return list.length > 0 ? list[0]! : null;
+}
 
 export async function createEdict(body: EdictCreateRequest): Promise<ApiResponse<Edict>> {
   const { data } = await apiClient.post<ApiResponse<Edict>>(
@@ -46,6 +70,16 @@ export async function getEdictMemorials(
   return data;
 }
 
+export async function getLatestMemorialsBatch(
+  edictIds: string[],
+): Promise<ApiResponse<Record<string, Memorial | null>>> {
+  const { data } = await apiClient.post<ApiResponse<Record<string, Memorial | null>>>(
+    "/edicts/latest-memorials",
+    { edict_ids: edictIds },
+  );
+  return data;
+}
+
 export async function getEdictEvents(
   edictId: string,
 ): Promise<ApiResponse<EdictEvent[]>> {
@@ -55,9 +89,18 @@ export async function getEdictEvents(
   return data;
 }
 
+export interface FollowUpRequest {
+  instruction: string;
+  context?: string;
+  /** 本次 follow-up 单独覆盖 edict.runtime（仅含填写字段） */
+  runtime_override?: Partial<EdictRuntime>;
+  /** 本次 follow-up 单独覆盖 edict.acceptance（整体替换） */
+  acceptance_override?: AcceptanceCriteria;
+}
+
 export async function followUpEdict(
   edictId: string,
-  body: { instruction: string; context?: string },
+  body: FollowUpRequest,
 ): Promise<ApiResponse<Memorial>> {
   const { data } = await apiClient.post<ApiResponse<Memorial>>(
     `/edicts/${edictId}/follow-up`,
@@ -109,4 +152,48 @@ export async function updateEdictStatus(
     { status },
   );
   return data;
+}
+
+export async function pauseEdict(
+  edictId: string,
+): Promise<ApiResponse<{ id: string; lifecycle_phase: string }>> {
+  const { data } = await apiClient.post<ApiResponse<{ id: string; lifecycle_phase: string }>>(
+    `/edicts/${edictId}/pause`,
+  );
+  return data;
+}
+
+export async function resumeEdict(
+  edictId: string,
+): Promise<ApiResponse<{ id: string; lifecycle_phase: string }>> {
+  const { data } = await apiClient.post<ApiResponse<{ id: string; lifecycle_phase: string }>>(
+    `/edicts/${edictId}/resume`,
+  );
+  return data;
+}
+
+export interface EdictDraft {
+  goal?: string;
+  title?: string;
+  context?: string;
+  priority?: string;
+  schedule?: {
+    type: "immediate" | "once" | "cron";
+    cron?: string;
+    at?: string;
+    timezone?: string;
+  };
+}
+
+export interface ParseEdictResult {
+  draft: EdictDraft;
+  notes: string;
+}
+
+export async function parseEdict(text: string): Promise<ParseEdictResult> {
+  const { data } = await apiClient.post<{ success: boolean; data: ParseEdictResult }>(
+    "/edicts/parse",
+    { text },
+  );
+  return data.data;
 }

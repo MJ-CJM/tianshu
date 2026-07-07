@@ -21,9 +21,7 @@ def register_list_dir(registry: ToolRegistry, workspace: Path) -> None:
         try:
             entries = os.listdir(dir_path)
         except PermissionError:
-            return error_result(
-                f"Error: permission denied for '{path}'"
-            )
+            return error_result(f"Error: permission denied for '{path}'")
 
         # Classify and format entries
         lines: list[str] = []

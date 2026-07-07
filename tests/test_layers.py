@@ -1,21 +1,30 @@
-import pytest
 from unittest.mock import AsyncMock
 
-from tianshu.memory.layers import MemoryStack
-from tianshu.memory.drawer import DrawerResult
+import pytest
+
 from tianshu.memory.config import MemoryConfig
+from tianshu.memory.drawer import DrawerResult
+from tianshu.memory.layers import MemoryStack
 
 
 @pytest.fixture
 def mock_store():
     store = AsyncMock()
-    store.get_l1 = AsyncMock(return_value="## L1 — 关键事实 (bingbu)\n\n[execution]\n  - Deploy lesson")
-    store.search = AsyncMock(return_value=[
-        DrawerResult(
-            drawer_id="drw_001", content="DATABASE_URL was missing",
-            wing="bingbu", room="execution", score=0.9, matched_via="bm25",
-        ),
-    ])
+    store.get_l1 = AsyncMock(
+        return_value="## L1 — 关键事实 (bingbu)\n\n[execution]\n  - Deploy lesson"
+    )
+    store.search = AsyncMock(
+        return_value=[
+            DrawerResult(
+                drawer_id="drw_001",
+                content="DATABASE_URL was missing",
+                wing="bingbu",
+                room="execution",
+                score=0.9,
+                matched_via="bm25",
+            ),
+        ]
+    )
     return store
 
 

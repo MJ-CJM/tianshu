@@ -43,9 +43,7 @@ class MemoryCompactor:
                 summary="Too few entries to compact",
             )
 
-        entries_text = "\n".join(
-            f"- [{e.category}] {e.content}" for e in entries
-        )
+        entries_text = "\n".join(f"- [{e.category}] {e.content}" for e in entries)
 
         from tianshu.llm import LLMClient
 
@@ -62,10 +60,12 @@ class MemoryCompactor:
             persona_id=persona_id,
             entries_text=entries_text,
         )
-        response = await llm.chat([
-            {"role": "system", "content": "You are a concise memory compaction agent."},
-            {"role": "user", "content": prompt},
-        ])
+        response = await llm.chat(
+            [
+                {"role": "system", "content": "You are a concise memory compaction agent."},
+                {"role": "user", "content": prompt},
+            ]
+        )
 
         summary = response.content or "Compaction failed"
         tokens_saved = sum(len(e.content) // 4 for e in entries) - len(summary) // 4

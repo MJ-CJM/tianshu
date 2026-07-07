@@ -1,0 +1,7 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20 # 占位,由 pre-commit autoupdate 提升到最新
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format

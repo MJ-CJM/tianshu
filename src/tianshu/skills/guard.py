@@ -67,32 +67,38 @@ class GuardResult:
 
 # --------------- Invisible Unicode Characters ---------------
 
-INVISIBLE_CHARS: frozenset[str] = frozenset({
-    "\u200b",  # zero-width space
-    "\u200c",  # zero-width non-joiner
-    "\u200d",  # zero-width joiner
-    "\u2060",  # word joiner
-    "\u2062",  # invisible times
-    "\u2063",  # invisible separator
-    "\u2064",  # invisible plus
-    "\ufeff",  # BOM / zero-width no-break space
-    "\u202a",  # LTR embedding
-    "\u202b",  # RTL embedding
-    "\u202c",  # pop directional formatting
-    "\u202d",  # LTR override
-    "\u202e",  # RTL override
-    "\u2066",  # LTR isolate
-    "\u2067",  # RTL isolate
-    "\u2068",  # first strong isolate
-    "\u2069",  # pop directional isolate
-})
+INVISIBLE_CHARS: frozenset[str] = frozenset(
+    {
+        "\u200b",  # zero-width space
+        "\u200c",  # zero-width non-joiner
+        "\u200d",  # zero-width joiner
+        "\u2060",  # word joiner
+        "\u2062",  # invisible times
+        "\u2063",  # invisible separator
+        "\u2064",  # invisible plus
+        "\ufeff",  # BOM / zero-width no-break space
+        "\u202a",  # LTR embedding
+        "\u202b",  # RTL embedding
+        "\u202c",  # pop directional formatting
+        "\u202d",  # LTR override
+        "\u202e",  # RTL override
+        "\u2066",  # LTR isolate
+        "\u2067",  # RTL isolate
+        "\u2068",  # first strong isolate
+        "\u2069",  # pop directional isolate
+    }
+)
 
 # --------------- Threat Patterns ---------------
 
 _I = re.IGNORECASE
 
-def _p(id_: str, cat: GuardCategory, pattern: str, sev: Severity, desc: str, flags: int = 0) -> GuardPattern:
+
+def _p(
+    id_: str, cat: GuardCategory, pattern: str, sev: Severity, desc: str, flags: int = 0
+) -> GuardPattern:
     return GuardPattern(id_, cat, re.compile(pattern, flags), sev, desc)
+
 
 # fmt: off
 THREAT_PATTERNS: tuple[GuardPattern, ...] = (
@@ -296,9 +302,9 @@ THREAT_PATTERNS: tuple[GuardPattern, ...] = (
 
 # (safe, caution, dangerous) → action
 INSTALL_POLICY: dict[TrustLevel, tuple[str, str, str]] = {
-    TrustLevel.BUILTIN:       ("allow", "allow", "allow"),
-    TrustLevel.TRUSTED:       ("allow", "allow", "block"),
-    TrustLevel.COMMUNITY:     ("allow", "block", "block"),
+    TrustLevel.BUILTIN: ("allow", "allow", "allow"),
+    TrustLevel.TRUSTED: ("allow", "allow", "block"),
+    TrustLevel.COMMUNITY: ("allow", "block", "block"),
     TrustLevel.AGENT_CREATED: ("allow", "allow", "ask"),
 }
 
@@ -309,22 +315,26 @@ INSTALL_POLICY: dict[TrustLevel, tuple[str, str, str]] = {
 class SkillsGuard:
     """Security scanner for skill content."""
 
-    def scan_content(self, content: str, trust_level: TrustLevel = TrustLevel.COMMUNITY) -> GuardResult:
+    def scan_content(
+        self, content: str, trust_level: TrustLevel = TrustLevel.COMMUNITY
+    ) -> GuardResult:
         """Scan skill content for security threats."""
         findings: list[GuardFinding] = []
 
         # Pattern matching
         for pat in THREAT_PATTERNS:
             for match in pat.regex.finditer(content):
-                line_num = content[:match.start()].count("\n") + 1
-                snippet = content[max(0, match.start() - 20):min(len(content), match.end() + 20)]
-                findings.append(GuardFinding(
-                    category=pat.category,
-                    severity=pat.severity,
-                    message=f"{pat.description} [{pat.id}]",
-                    line_number=line_num,
-                    snippet=snippet,
-                ))
+                line_num = content[: match.start()].count("\n") + 1
+                snippet = content[max(0, match.start() - 20) : min(len(content), match.end() + 20)]
+                findings.append(
+                    GuardFinding(
+                        category=pat.category,
+                        severity=pat.severity,
+                        message=f"{pat.description} [{pat.id}]",
+                        line_number=line_num,
+                        snippet=snippet,
+                    )
+                )
 
         # Invisible unicode scan
         findings.extend(self.scan_invisible_unicode(content))
@@ -340,13 +350,15 @@ class SkillsGuard:
             if ch in INVISIBLE_CHARS:
                 line_num = content[:i].count("\n") + 1
                 char_name = f"U+{ord(ch):04X}"
-                findings.append(GuardFinding(
-                    category=GuardCategory.INVISIBLE_UNICODE,
-                    severity=Severity.HIGH,
-                    message=f"Invisible unicode character {char_name} at position {i}",
-                    line_number=line_num,
-                    snippet=repr(content[max(0, i - 5):i + 5]),
-                ))
+                findings.append(
+                    GuardFinding(
+                        category=GuardCategory.INVISIBLE_UNICODE,
+                        severity=Severity.HIGH,
+                        message=f"Invisible unicode character {char_name} at position {i}",
+                        line_number=line_num,
+                        snippet=repr(content[max(0, i - 5) : i + 5]),
+                    )
+                )
         return findings
 
     @staticmethod

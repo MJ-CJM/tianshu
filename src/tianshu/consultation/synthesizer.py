@@ -61,7 +61,10 @@ class Synthesizer:
         )
 
         messages = [
-            {"role": "system", "content": "You are a senior advisor synthesizing multi-perspective analysis."},
+            {
+                "role": "system",
+                "content": "You are a senior advisor synthesizing multi-perspective analysis.",
+            },
             {"role": "user", "content": prompt},
         ]
 

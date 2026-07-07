@@ -8,11 +8,11 @@ from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.dag.graph import DAG
-from tianshu.dag.models import DAGExecution, DAGNode, DAGNodeStatus
-from tianshu.executor.agent import Agent, AgentResult
+from tianshu.executor.agent import Agent
 from tianshu.executor.worker import Worker
-from tianshu.executor.worker_pool import WorkItem, WorkerPool
+from tianshu.executor.worker_pool import WorkerPool, WorkItem
 from tianshu.models.common import TaskStatus, UsageSummary
+from tianshu.models.dag import DAGExecution, DAGNode, DAGNodeStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import make_event
 from tianshu.persona.loader import PersonaLoader
@@ -66,12 +66,14 @@ class DAGScheduler:
         execution.status = "running"
         self._storage.update_dag_execution_status(execution.id, "running")
 
-        await self._bus.emit(make_event(
-            "dag.started",
-            edict_id=edict.id,
-            producer="dag_scheduler",
-            payload={"dag_id": execution.id},
-        ))
+        await self._bus.emit(
+            make_event(
+                "dag.started",
+                edict_id=edict.id,
+                producer="dag_scheduler",
+                payload={"dag_id": execution.id},
+            )
+        )
 
         # Scheduling loop
         completion_event = asyncio.Event()
@@ -84,29 +86,40 @@ class DAGScheduler:
                 cancelled = dag.propagate_failure(node_id)
                 for cid in cancelled:
                     self._storage.update_dag_node_status(
-                        execution.id, cid, DAGNodeStatus.CANCELLED.value,
+                        execution.id,
+                        cid,
+                        DAGNodeStatus.CANCELLED.value,
                     )
                 self._storage.update_dag_node_status(
-                    execution.id, node_id, DAGNodeStatus.FAILED.value, error=error,
+                    execution.id,
+                    node_id,
+                    DAGNodeStatus.FAILED.value,
+                    error=error,
                 )
-                await self._bus.emit(make_event(
-                    "dag.node.failed",
-                    edict_id=edict.id,
-                    producer="dag_scheduler",
-                    payload={"dag_id": execution.id, "node_id": node_id, "error": error},
-                ))
+                await self._bus.emit(
+                    make_event(
+                        "dag.node.failed",
+                        edict_id=edict.id,
+                        producer="dag_scheduler",
+                        payload={"dag_id": execution.id, "node_id": node_id, "error": error},
+                    )
+                )
             else:
                 logger.debug("[DAG] Edict %s: node %s completed", edict.id, node_id)
                 dag.mark_completed(node_id)
                 self._storage.update_dag_node_status(
-                    execution.id, node_id, DAGNodeStatus.COMPLETED.value,
+                    execution.id,
+                    node_id,
+                    DAGNodeStatus.COMPLETED.value,
                 )
-                await self._bus.emit(make_event(
-                    "dag.node.completed",
-                    edict_id=edict.id,
-                    producer="dag_scheduler",
-                    payload={"dag_id": execution.id, "node_id": node_id},
-                ))
+                await self._bus.emit(
+                    make_event(
+                        "dag.node.completed",
+                        edict_id=edict.id,
+                        producer="dag_scheduler",
+                        payload={"dag_id": execution.id, "node_id": node_id},
+                    )
+                )
 
             # Schedule next batch
             if dag.is_complete():
@@ -150,30 +163,52 @@ class DAGScheduler:
             for node in execution.nodes:
                 node_result = self._node_results.get(node.node_id)
                 if node_result:
-                    result_parts.append(
-                        f"## {node.node_id}: {node.description}\n\n{node_result}"
-                    )
+                    result_parts.append(f"## {node.node_id}: {node.description}\n\n{node_result}")
             combined_result = "\n\n---\n\n".join(result_parts) if result_parts else None
+
+            # 抽取最终交付物：叶子节点（不被任何其他节点依赖）的输出
+            # 用于外发渠道（飞书/邮件等）单独呈现"用户关心的产物"
+            depended_on: set[str] = set()
+            for n in execution.nodes:
+                depended_on.update(n.depends_on)
+            leaf_results: list[str] = []
+            for n in execution.nodes:
+                if n.node_id in depended_on:
+                    continue
+                r = self._node_results.get(n.node_id)
+                if r:
+                    leaf_results.append(r)
+            if len(leaf_results) == 1:
+                final_output = leaf_results[0]
+            elif leaf_results:
+                final_output = "\n\n---\n\n".join(leaf_results)
+            else:
+                final_output = None
 
             root = self._storage.get_memorial(execution.root_memorial_id)
             if root:
                 root.usage = total_usage
                 root.result = combined_result
-                root.status = TaskStatus.COMPLETED if execution.status == "completed" else TaskStatus.FAILED
+                root.final_output = final_output
+                root.status = (
+                    TaskStatus.COMPLETED if execution.status == "completed" else TaskStatus.FAILED
+                )
                 root.completed_at = datetime.now(UTC)
                 self._storage.update_memorial(root)
 
         event_type = f"execution.{execution.status}"
-        await self._bus.emit(make_event(
-            event_type,
-            edict_id=edict.id,
-            memorial_id=execution.root_memorial_id,
-            producer="dag_scheduler",
-            payload={
-                "dag_id": execution.id,
-                "status": execution.status,
-            },
-        ))
+        await self._bus.emit(
+            make_event(
+                event_type,
+                edict_id=edict.id,
+                memorial_id=execution.root_memorial_id,
+                producer="dag_scheduler",
+                payload={
+                    "dag_id": execution.id,
+                    "status": execution.status,
+                },
+            )
+        )
 
     async def _schedule_ready(
         self,
@@ -187,12 +222,17 @@ class DAGScheduler:
         for node in ready_nodes:
             logger.debug(
                 "[DAG] Edict %s: scheduling node %s, persona=%s, deps=%s",
-                edict.id, node.node_id, node.assigned_official, node.depends_on,
+                edict.id,
+                node.node_id,
+                node.assigned_official,
+                node.depends_on,
             )
             dag.mark_running(node.node_id)
             node.started_at = datetime.now(UTC)
             self._storage.update_dag_node_status(
-                execution.id, node.node_id, DAGNodeStatus.RUNNING.value,
+                execution.id,
+                node.node_id,
+                DAGNodeStatus.RUNNING.value,
             )
 
             # Resolve persona
@@ -207,7 +247,9 @@ class DAGScheduler:
                     logger.warning(
                         "[DAG] Edict %s node %s: assigned_official '%s' not found, "
                         "falling back to bingbu",
-                        edict.id, node.node_id, node.assigned_official,
+                        edict.id,
+                        node.node_id,
+                        node.assigned_official,
                     )
 
             # Gather upstream results
@@ -234,7 +276,10 @@ class DAGScheduler:
                     await _global_lane.acquire()
                 try:
                     result = await self._worker.execute_node(
-                        edict, _node, _upstream, persona=_persona,
+                        edict,
+                        _node,
+                        _upstream,
+                        persona=_persona,
                     )
                     if result.result:
                         self._node_results[_node.node_id] = result.result

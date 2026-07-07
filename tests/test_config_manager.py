@@ -2,7 +2,7 @@
 
 import pytest
 
-from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
+from tianshu.config_manager import ConfigManager, LLMConfigState
 
 
 class TestConfigManager:

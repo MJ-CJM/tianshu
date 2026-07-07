@@ -11,12 +11,13 @@ it is seeded from personas/{persona}/MEMORY.md (the git-tracked template).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from tianshu.storage import Storage
@@ -57,12 +58,14 @@ class MarkdownMemoryBackend:
                 if template.exists():
                     shutil.copy2(template, target_memory)
                     logger.info(
-                        "Seeded %s/MEMORY.md from template", pid,
+                        "Seeded %s/MEMORY.md from template",
+                        pid,
                     )
                 else:
                     # Create empty MEMORY.md
                     target_memory.write_text(
-                        f"# {pid} Memory\n\n", encoding="utf-8",
+                        f"# {pid} Memory\n\n",
+                        encoding="utf-8",
                     )
 
     # ------------------------------------------------------------------
@@ -115,6 +118,215 @@ class MarkdownMemoryBackend:
         return path
 
     # ------------------------------------------------------------------
+    # Section-anchored writes (memory_write tool 后端)
+    # ------------------------------------------------------------------
+
+    def list_sections_by_size(self, persona_id: str) -> list[tuple[str, int]]:
+        """返回 [(section_header, body_chars), ...]，按 body_chars 倒序，便于 trim 提示。
+
+        section_header 形如 '## xxx'；body_chars 不含 header 行本身。
+        文件不存在或无 H2 段时返回空列表。
+        """
+        path = self._memory_dir / persona_id / "MEMORY.md"
+        if not path.exists():
+            return []
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return []
+        lines = text.splitlines(keepends=True)
+        sections: list[tuple[str, int]] = []
+        cur_header: str | None = None
+        cur_chars = 0
+        for line in lines:
+            if line.startswith("## "):
+                if cur_header is not None:
+                    sections.append((cur_header, cur_chars))
+                cur_header = line.rstrip("\n")
+                cur_chars = 0
+            elif cur_header is not None:
+                cur_chars += len(line)
+        if cur_header is not None:
+            sections.append((cur_header, cur_chars))
+        sections.sort(key=lambda x: x[1], reverse=True)
+        return sections
+
+    def write_section(
+        self,
+        persona_id: str,
+        section: str,
+        *,
+        mode: str = "append",
+        content: str | None = None,
+        old_text: str | None = None,
+    ) -> tuple[Path, int]:
+        """以 H2 section 为锚定的安全写入。
+
+        参数
+        ----
+        persona_id: 写到 ~/.tianshu/memory/{persona_id}/MEMORY.md
+        section:    完整的 H2 锚（如 "## 心学要旨"）；调用方应已通过
+                    safety.normalize_section 归一化
+        mode:       "append" | "replace" | "remove" | "set"
+        content:    append/replace/set 必填
+        old_text:   replace/remove 必填
+
+        返回
+        ----
+        (写入后的文件路径, 写入后的总字符数)
+
+        副作用
+        ----
+        - 写前 cp 一份到 MEMORY.md.bak（覆盖式，仅保留最近一份）
+        - 原子写：写到 .tmp 然后 os.replace
+        - macOS/Linux 上加 fcntl.flock 排他锁
+
+        异常
+        ----
+        - FileNotFoundError: replace/remove 时 section 或 old_text 不存在
+        - ValueError: 参数缺失（如 append/replace/set 缺 content）
+        - 调用方应在调用前用 safety.validate_content / check_file_size 做内容校验
+        """
+        if mode not in ("append", "replace", "remove", "set"):
+            raise ValueError(f"unsupported write_section mode: {mode}")
+        if mode in ("append", "replace", "set") and not content:
+            raise ValueError(f"mode={mode} requires non-empty content")
+        if mode in ("replace", "remove") and not old_text:
+            raise ValueError(f"mode={mode} requires old_text")
+        if not section.startswith("## "):
+            raise ValueError("section must be normalized to '## xxx' form")
+
+        persona_dir = self._memory_dir / persona_id
+        persona_dir.mkdir(parents=True, exist_ok=True)
+        path = persona_dir / "MEMORY.md"
+
+        # 锁 + 读现有内容 + 计算新内容 + 原子写
+        import fcntl
+        import os
+
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        new_text = self._mutate_section(
+            existing,
+            section,
+            mode=mode,
+            content=content,
+            old_text=old_text,
+        )
+
+        # 整文件上限：前置检查并附 trim 建议
+        from tianshu.memory.safety import MAX_FILE_CHARS, MemorySafetyError
+
+        if len(new_text) > MAX_FILE_CHARS:
+            top = self.list_sections_by_size(persona_id)[:3]
+            if top:
+                hint_lines = ["最大的 3 个 section（建议先 remove 旧条目腾位）："]
+                for h, c in top:
+                    hint_lines.append(f"  - {h}：{c} 字")
+                hint_lines.append(
+                    f'示例：memory_write(action="remove", scope=…, section="{top[0][0]}", old_text="…要删的旧文本…")',
+                )
+                hint = "\n".join(hint_lines)
+            else:
+                hint = "（暂无可清理 section，请用 replace 缩短现有 content）"
+            raise MemorySafetyError(
+                f"MEMORY.md 写入后将达 {len(new_text)} 字，超出 {MAX_FILE_CHARS} 字上限。\n{hint}",
+            )
+
+        # 备份（仅当文件已存在时）
+        if path.exists():
+            try:
+                shutil.copy2(path, path.with_suffix(".md.bak"))
+            except OSError:
+                logger.warning("backup MEMORY.md.bak failed for %s", persona_id)
+
+        tmp_path = path.with_suffix(".md.tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            with contextlib.suppress(OSError, AttributeError):  # Windows 或不支持 flock 的 fs
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            f.write(new_text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+
+        return path, len(new_text)
+
+    @staticmethod
+    def _mutate_section(
+        existing: str,
+        section: str,
+        *,
+        mode: str,
+        content: str | None,
+        old_text: str | None,
+    ) -> str:
+        """纯函数：在文本中按 H2 section 锚点执行 append/replace/remove。
+
+        section 不存在时：append 创建新段；replace/remove 抛 FileNotFoundError。
+        """
+        # 切片：找到 section 的起止行
+        lines = existing.splitlines(keepends=True)
+        start = -1
+        end = len(lines)
+        for i, line in enumerate(lines):
+            if start < 0 and line.rstrip("\n") == section:
+                start = i
+                continue
+            if start >= 0 and line.startswith("## "):
+                end = i
+                break
+
+        if start < 0:
+            # section 不存在
+            if mode in ("replace", "remove"):
+                raise FileNotFoundError(f"section {section!r} not found in MEMORY.md")
+            # append / set：创建新段，追加到文件末尾
+            # write_section() 已校验 mode in (append,replace,set) 时 content 非空
+            assert content is not None
+            base = existing.rstrip()
+            sep = "\n\n" if base else ""
+            return f"{base}{sep}{section}\n\n{content.rstrip()}\n"
+
+        section_body = "".join(lines[start + 1 : end])
+        before = "".join(lines[:start])
+        # 保留 section header 与 body
+        if mode == "append":
+            # write_section() 已校验 mode=append 时 content 非空
+            assert content is not None
+            # 去重：内容若完全包含在已有 body 中则拒绝
+            if content.strip() in section_body:
+                raise ValueError("content already present in this section (dedupe)")
+            new_body = section_body.rstrip() + "\n\n" + content.rstrip() + "\n"
+            new_section = f"{section}\n{new_body}"
+        elif mode == "set":
+            # write_section() 已校验 mode=set 时 content 非空
+            assert content is not None
+            # 整段 body 覆盖：只动本 section，其余 section 原样保留
+            new_section = f"{section}\n\n{content.rstrip()}\n"
+        elif mode == "replace":
+            # write_section() 已校验 mode=replace 时 old_text/content 均非空
+            assert old_text is not None
+            assert content is not None
+            if old_text not in section_body:
+                raise FileNotFoundError(f"old_text not found in section {section!r}")
+            new_body = section_body.replace(old_text, content, 1)
+            new_section = f"{section}\n{new_body}"
+        else:  # remove
+            # write_section() 已校验 mode=remove 时 old_text 非空
+            assert old_text is not None
+            if old_text not in section_body:
+                raise FileNotFoundError(f"old_text not found in section {section!r}")
+            new_body = section_body.replace(old_text, "", 1)
+            # 若移除后 section body 全空，则把整个 section 也移掉
+            new_section = "" if not new_body.strip() else f"{section}\n{new_body}"
+
+        after = "".join(lines[end:])
+        result = before + new_section + after
+        # 规整连续空行
+        while "\n\n\n\n" in result:
+            result = result.replace("\n\n\n\n", "\n\n\n")
+        return result
+
+    # ------------------------------------------------------------------
     # Search & retrieval
     # ------------------------------------------------------------------
 
@@ -145,11 +357,13 @@ class MarkdownMemoryBackend:
 
             for line in text.splitlines():
                 if query_lower in line.lower():
-                    results.append({
-                        "file": log_file.name,
-                        "date": log_file.stem,
-                        "content": line.strip(),
-                    })
+                    results.append(
+                        {
+                            "file": log_file.name,
+                            "date": log_file.stem,
+                            "content": line.strip(),
+                        }
+                    )
                     if len(results) >= limit:
                         return results
 
@@ -174,9 +388,7 @@ class MarkdownMemoryBackend:
             try:
                 text = log_file.read_text(encoding="utf-8")
                 entries.extend(
-                    line.strip()
-                    for line in text.splitlines()
-                    if line.strip().startswith("- ")
+                    line.strip() for line in text.splitlines() if line.strip().startswith("- ")
                 )
             except Exception:
                 continue
@@ -237,7 +449,9 @@ class MarkdownMemoryBackend:
     # Delete operations
     # ------------------------------------------------------------------
 
-    def delete_line(self, persona_id: str, content: str, created_at: datetime | None = None) -> bool:
+    def delete_line(
+        self, persona_id: str, content: str, created_at: datetime | None = None
+    ) -> bool:
         """Delete a matching line from the daily log file.
 
         Matches by content substring. If created_at is provided, narrows to
@@ -317,7 +531,12 @@ class MarkdownMemoryBackend:
         _LOG_RE = re.compile(
             r"^- \[(\d{2}:\d{2})\] \[([WBOS])\] (.+)$",
         )
-        category_map = {"W": "observation", "B": "entity", "O": "insight", "S": "summary"}
+        category_map: dict[str, Literal["observation", "insight", "entity", "summary"]] = {
+            "W": "observation",
+            "B": "entity",
+            "O": "insight",
+            "S": "summary",
+        }
 
         synced = 0
 
@@ -337,7 +556,8 @@ class MarkdownMemoryBackend:
                 time_str, cat_code, content = m.groups()
                 try:
                     ts = datetime.strptime(
-                        f"{date_str} {time_str}", "%Y-%m-%d %H:%M",
+                        f"{date_str} {time_str}",
+                        "%Y-%m-%d %H:%M",
                     ).replace(tzinfo=UTC)
                 except ValueError:
                     ts = datetime.now(UTC)

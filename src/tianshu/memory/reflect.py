@@ -10,6 +10,7 @@ from tianshu.memory.models import MemoryEntry
 
 if TYPE_CHECKING:
     from tianshu.config_manager import ConfigManager
+    from tianshu.memory.markdown_backend import MarkdownMemoryBackend
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class Reflector:
     def __init__(
         self,
         config_manager: ConfigManager,
-        md_backend: object | None = None,
+        md_backend: MarkdownMemoryBackend | None = None,
     ) -> None:
         self._config_manager = config_manager
         self._md_backend = md_backend
@@ -77,10 +78,12 @@ class Reflector:
             observations=obs_text,
         )
 
-        response = await llm.chat([
-            {"role": "system", "content": "You produce concise strategic insights."},
-            {"role": "user", "content": prompt},
-        ])
+        response = await llm.chat(
+            [
+                {"role": "system", "content": "You produce concise strategic insights."},
+                {"role": "user", "content": prompt},
+            ]
+        )
 
         self._last_reflection[persona_id] = datetime.now(UTC)
 
@@ -92,13 +95,15 @@ class Reflector:
                 line = line[2:].strip()
             if not line:
                 continue
-            insights.append(MemoryEntry(
-                persona_id=persona_id,
-                category="insight",
-                content=line,
-                source="reflection",
-                confidence=0.8,
-            ))
+            insights.append(
+                MemoryEntry(
+                    persona_id=persona_id,
+                    category="insight",
+                    content=line,
+                    source="reflection",
+                    confidence=0.8,
+                )
+            )
 
         # Write insights to persona MEMORY.md (source of truth)
         if insights and self._md_backend and hasattr(self._md_backend, "write_core_memory"):
@@ -117,9 +122,7 @@ class Reflector:
             if persona_id != "court":
                 try:
                     court_existing = self._md_backend.read_core_memory("court")
-                    court_section = (
-                        f"\n## {persona_id} Insights ({date_str})\n{insight_lines}\n"
-                    )
+                    court_section = f"\n## {persona_id} Insights ({date_str})\n{insight_lines}\n"
                     self._md_backend.write_core_memory("court", court_existing + court_section)
                 except Exception:
                     logger.debug("Failed to write cross-persona insights to court MEMORY.md")

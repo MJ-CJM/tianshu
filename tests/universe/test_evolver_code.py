@@ -1,0 +1,635 @@
+"""Tests for UniverseEvolver.propose_code_variant (2c / Phase 2 increment 2c-C2)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+
+from tianshu.universe.evolver import UniverseEvolver
+from tianshu.universe.gate import GateResult
+
+# ---------------------------------------------------------------------------
+# Helpers / fakes
+# ---------------------------------------------------------------------------
+
+
+def _make_cfg(**overrides):
+    defaults = dict(
+        code_variant_enabled=True,
+        code_variant_eval_set_size=5,
+        code_variant_auto_promote=False,
+        universe_promote_margin=0.05,
+    )
+    defaults.update(overrides)
+    return type("Cfg", (), defaults)()
+
+
+def _make_config_manager(cfg=None):
+    cm = MagicMock()
+    cm.agent_config = cfg or _make_cfg()
+    return cm
+
+
+class FakeManager:
+    """Minimal fake for UniverseManager."""
+
+    def __init__(self, champion_uid="champ-001"):
+        self._champion_uid = champion_uid
+        self.branched: list[dict] = []
+        self.archived: list[str] = []
+
+    def champion_id(self) -> str | None:
+        return self._champion_uid
+
+    def champion(self) -> dict | None:
+        if self._champion_uid:
+            return {"id": self._champion_uid, "fitness": {"score": 0.5}}
+        return None
+
+    def branch_code_variant(
+        self, parent_id: str, name: str, *, start_ref="HEAD", description=""
+    ) -> dict:
+        uid = f"child-{len(self.branched):03d}"
+        rec = {"id": uid, "parent": parent_id, "name": name, "description": description}
+        self.branched.append(rec)
+        return rec
+
+    def archive(self, uid: str) -> None:
+        self.archived.append(uid)
+
+
+class FakeCodeStore:
+    def __init__(self, tmp_path: Path):
+        self._root = tmp_path
+
+    @property
+    def repo_root(self) -> Path:
+        return self._root
+
+    def worktree_dir(self, uid: str) -> Path:
+        d = self._root / uid
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+
+class FakeCodeMutator:
+    def __init__(self, *, applied: bool = True, reason: str = "ok"):
+        self._applied = applied
+        self._reason = reason
+
+    async def mutate(self, worktree: Path, *, target_path: str, hypothesis: str) -> dict:
+        return {
+            "applied": self._applied,
+            "target": target_path,
+            "commit": "abc123" if self._applied else None,
+            "reason": self._reason,
+        }
+
+
+class FakeGate:
+    def __init__(self, *, passed: bool = True, stage: str = "ok", detail: str = ""):
+        self._result = GateResult(passed=passed, stage=stage, detail=detail)
+
+    def run(self, worktree: Path, *, run_tests: bool = True) -> GateResult:
+        return self._result
+
+
+class FakeEvalHarness:
+    def __init__(self, *, fitness_score: float = 0.7, n: int = 3, baseline_score: float = 0.5):
+        self._score = fitness_score
+        self._n = n
+        self._baseline_score = baseline_score
+        self.received_champion_key: str | None = None
+
+    def select_eval_set(self, size: int) -> list[str]:
+        return [f"goal-{i}" for i in range(min(size, self._n))]
+
+    def eval_set_fingerprint(self, eval_set: list[str], champion_key: str) -> str:
+        self.received_champion_key = champion_key
+        return "fp-test"
+
+    def evaluate(
+        self, worktree: Path, *, eval_set: list[str], seed_db=None, budget_cny=None
+    ) -> dict:
+        fitness = {"score": self._score, "samples": len(eval_set)}
+        stats = {"cost": 0.01, "total": len(eval_set), "success": len(eval_set)}
+        return {
+            "fitness": fitness,
+            "stats": stats,
+            "n": len(eval_set),
+            "truncated": False,
+        }
+
+    def evaluate_paired(
+        self,
+        variant_worktree: Path,
+        *,
+        eval_set: list[str],
+        baseline_worktree: Path,
+        budget_cny=None,
+        cached_baseline: dict | None = None,
+        **kw,
+    ) -> dict:
+        variant = self.evaluate(variant_worktree, eval_set=eval_set, budget_cny=budget_cny)
+        baseline = cached_baseline or {
+            "fitness": {"score": self._baseline_score, "samples": len(eval_set)},
+            "stats": {"cost": 0.0},
+            "n": len(eval_set),
+            "truncated": False,
+        }
+        delta = round(variant["fitness"]["score"] - baseline["fitness"]["score"], 4)
+        return {
+            "variant": variant,
+            "baseline": baseline,
+            "delta": delta,
+            "baseline_cached": cached_baseline is not None,
+        }
+
+
+class FakeStorage:
+    def __init__(self, baseline_fitness: dict | None = None, *, lock_acquired: bool = True):
+        self.saved_runs: list[dict] = []
+        self.updated_fitness: list[tuple[str, dict]] = []
+        self._baseline_fitness = baseline_fitness
+        self._lock_acquired = lock_acquired
+        self.lock_calls: list[dict] = []  # 记录 try_acquire 和 release 调用
+
+    def save_variant_eval_run(self, run: dict) -> None:
+        self.saved_runs.append(run)
+
+    def update_universe_fitness(self, uid: str, fitness: dict) -> None:
+        self.updated_fitness.append((uid, fitness))
+
+    def latest_baseline_fitness(self, eval_set_version: str) -> dict | None:
+        return self._baseline_fitness
+
+    def last_activity_at(self) -> str | None:
+        """返回 None,表示无活动记录(idle 满足)。"""
+        return None
+
+    def try_acquire_synthesis_lock(self, key: str) -> bool:
+        self.lock_calls.append({"action": "try_acquire", "key": key})
+        return self._lock_acquired
+
+    def release_synthesis_lock(self, key: str) -> None:
+        self.lock_calls.append({"action": "release", "key": key})
+
+
+# ---------------------------------------------------------------------------
+# Fixture
+# ---------------------------------------------------------------------------
+
+
+def _build_evolver(
+    tmp_path: Path,
+    *,
+    cfg=None,
+    manager: FakeManager | None = None,
+    storage: FakeStorage | None = None,
+    code_mutator: FakeCodeMutator | None = None,
+    gate: FakeGate | None = None,
+    eval_harness: FakeEvalHarness | None = None,
+    diagnostician: Any = None,
+    omit_collaborators: bool = False,
+) -> tuple[UniverseEvolver, FakeManager, FakeStorage]:
+    mgr = manager or FakeManager()
+    sto = storage or FakeStorage()
+    cm = _make_config_manager(cfg)
+
+    code_store = FakeCodeStore(tmp_path)
+    mutator = code_mutator or FakeCodeMutator()
+    g = gate or FakeGate()
+    eh = eval_harness or FakeEvalHarness()
+
+    if omit_collaborators:
+        ev = UniverseEvolver(
+            llm_client=MagicMock(),
+            manager=mgr,
+            storage=sto,
+            config_manager=cm,
+            diagnostician=diagnostician,
+        )
+    else:
+        ev = UniverseEvolver(
+            llm_client=MagicMock(),
+            manager=mgr,
+            storage=sto,
+            config_manager=cm,
+            code_store=code_store,
+            gate=g,
+            eval_harness=eh,
+            code_mutator=mutator,
+            diagnostician=diagnostician,
+        )
+    return ev, mgr, sto
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+async def test_disabled_returns_disabled(tmp_path):
+    cfg = _make_cfg(code_variant_enabled=False)
+    ev, _, _ = _build_evolver(tmp_path, cfg=cfg)
+    result = await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+    assert result["status"] == "disabled"
+
+
+async def test_no_collaborators_when_none_injected(tmp_path):
+    ev, _, _ = _build_evolver(tmp_path, omit_collaborators=True)
+    result = await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+    assert result["status"] == "no_collaborators"
+
+
+async def test_no_champion_returns_no_champion(tmp_path):
+    mgr = FakeManager(champion_uid=None)
+    ev, _, _ = _build_evolver(tmp_path, manager=mgr)
+    result = await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+    assert result["status"] == "no_champion"
+
+
+async def test_no_mutation_archives_and_returns(tmp_path):
+    mutator = FakeCodeMutator(applied=False, reason="target outside evolvable allowlist")
+    ev, mgr, _ = _build_evolver(tmp_path, code_mutator=mutator)
+    result = await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+    assert result["status"] == "no_mutation"
+    assert result["detail"] == "target outside evolvable allowlist"
+    # archive must be called on the branched child
+    assert len(mgr.archived) == 1
+    assert mgr.archived[0] == result["universe_id"]
+
+
+async def test_gate_failed_saves_run_not_archived(tmp_path):
+    gate = FakeGate(passed=False, stage="static", detail="SyntaxError in foo.py")
+    ev, mgr, sto = _build_evolver(tmp_path, gate=gate)
+    result = await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+    assert result["status"] == "gate_failed"
+    assert result["detail"] == "static"
+    # eval run saved with gate_passed=False
+    assert len(sto.saved_runs) == 1
+    assert sto.saved_runs[0]["gate_passed"] is False
+    assert sto.saved_runs[0]["gate_detail"]["stage"] == "static"
+    # NOT archived on gate fail (kept for human inspection)
+    assert len(mgr.archived) == 0
+
+
+async def test_gate_fail_detail_truncated_to_1000(tmp_path):
+    long_detail = "x" * 2000
+    gate = FakeGate(passed=False, stage="test", detail=long_detail)
+    ev, _, sto = _build_evolver(tmp_path, gate=gate)
+    await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+    saved_detail = sto.saved_runs[0]["gate_detail"]["detail"]
+    assert len(saved_detail) <= 1000
+
+
+async def test_recommended_when_variant_beats_champion_by_margin(tmp_path):
+    # paired baseline=0.5, variant score=0.7, margin=0.05 → delta=0.2 >= 0.05 → recommended
+    sto = FakeStorage()
+    eh = FakeEvalHarness(fitness_score=0.7)
+    ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh)
+    result = await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+    assert result["status"] == "recommended"
+    assert result["fitness"]["score"] == pytest.approx(0.7)
+    assert result["delta"] == pytest.approx(0.2)
+    # fitness saved to storage
+    assert len(sto.updated_fitness) == 1
+    assert len(sto.saved_runs) == 1
+    assert sto.saved_runs[0]["gate_passed"] is True
+    assert sto.saved_runs[0]["baseline"] == {"score": 0.5, "samples": 3}
+
+
+async def test_evaluated_when_variant_within_margin(tmp_path):
+    # paired baseline=0.5, variant score=0.52, margin=0.05 → delta=0.02 < 0.05 → evaluated
+    sto = FakeStorage()
+    eh = FakeEvalHarness(fitness_score=0.52)
+    ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh)
+    result = await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+    assert result["status"] == "evaluated"
+    assert result["fitness"]["score"] == pytest.approx(0.52)
+    assert result["delta"] == pytest.approx(0.02)
+
+
+async def test_explicit_parent_id_used_over_champion(tmp_path):
+    mgr = FakeManager(champion_uid="champ-001")
+    ev, mgr, _ = _build_evolver(tmp_path, manager=mgr)
+    result = await ev.propose_code_variant(
+        target_path="src/foo.py",
+        hypothesis="try this",
+        parent_id="explicit-parent",
+    )
+    # branched from the explicit parent, not champion
+    assert mgr.branched[0]["parent"] == "explicit-parent"
+    assert result["status"] in {"recommended", "evaluated"}
+
+
+async def test_error_returns_error_status(tmp_path):
+    # Simulate an unexpected exception from manager
+    mgr = MagicMock()
+    mgr.champion_id.side_effect = RuntimeError("unexpected DB error")
+    ev, _, _ = _build_evolver(tmp_path, manager=mgr)
+    result = await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+    assert result["status"] == "error"
+    assert "unexpected DB error" in result["detail"]
+
+
+async def test_eval_run_saved_with_required_fields(tmp_path):
+    sto = FakeStorage()
+    eh = FakeEvalHarness(fitness_score=0.8, n=5)
+    cfg = _make_cfg(code_variant_eval_set_size=5)
+    ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh, cfg=cfg)
+    await ev.propose_code_variant(target_path="src/foo.py", hypothesis="improve throughput")
+    assert len(sto.saved_runs) == 1
+    run = sto.saved_runs[0]
+    assert "id" in run
+    assert "universe_id" in run
+    assert run["gate_passed"] is True
+    assert "fitness" in run
+    assert "baseline" in run
+    assert "eval_set_version" in run
+    assert "created_at" in run
+
+
+async def test_variant_truncated_propagates_to_saved_fitness(tmp_path):
+    """evaluate_paired 的 variant 侧带 truncated=True 时,落库 fitness 与位面 fitness 都要带上该标记。"""
+
+    class _TruncatedEvalHarness(FakeEvalHarness):
+        def evaluate_paired(self, variant_worktree, *, eval_set, baseline_worktree, **kw):
+            paired = super().evaluate_paired(
+                variant_worktree, eval_set=eval_set, baseline_worktree=baseline_worktree, **kw
+            )
+            paired["variant"] = {**paired["variant"], "truncated": True}
+            return paired
+
+    sto = FakeStorage()
+    eh = _TruncatedEvalHarness()
+    ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh)
+    await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+
+    assert sto.saved_runs[0]["fitness"]["truncated"] is True
+    assert sto.updated_fitness[0][1]["truncated"] is True
+
+
+async def test_baseline_cache_hit_passes_bare_dict_through_unchanged(tmp_path):
+    """FakeStorage.latest_baseline_fitness 返回裸 fitness dict(生产真实形态)时。
+
+    evolver 的缓存命中路径应把它原样传给 evaluate_paired 的 cached_baseline 参数,
+    不做二次包裹/改写——包裹逻辑是 EvalHarness.evaluate_paired 内部的职责。
+    """
+    bare_baseline = {"score": 0.75, "samples": 20}
+
+    class _RecordingEvalHarness(FakeEvalHarness):
+        def __init__(self):
+            super().__init__()
+            self.received_cached_baseline: object = "UNSET"
+
+        def evaluate_paired(
+            self, variant_worktree, *, eval_set, baseline_worktree, cached_baseline=None, **kw
+        ):
+            self.received_cached_baseline = cached_baseline
+            variant = self.evaluate(variant_worktree, eval_set=eval_set)
+            return {
+                "variant": variant,
+                "baseline": {
+                    "fitness": {"score": self._baseline_score, "samples": len(eval_set)},
+                    "stats": {},
+                    "n": len(eval_set),
+                    "truncated": False,
+                },
+                "delta": 0.0,
+                "baseline_cached": cached_baseline is not None,
+            }
+
+    sto = FakeStorage(baseline_fitness=bare_baseline)
+    eh = _RecordingEvalHarness()
+    ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh)
+    await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+
+    assert eh.received_cached_baseline is bare_baseline
+
+
+def test_baseline_key_includes_git_head():
+    """_baseline_key() = 冠军位面 + 主干代码版本。
+
+    code_store.repo_root 指向本仓库(真实 git 仓,非临时目录),应拿到非 "nohead"
+    的短 sha——证明主干任何日常提交都会让基线指纹变化,不再静默复用陈旧基线。
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    mgr = FakeManager(champion_uid="champ-xyz")
+    ev = UniverseEvolver(
+        llm_client=MagicMock(),
+        manager=mgr,
+        storage=FakeStorage(),
+        config_manager=_make_config_manager(),
+        code_store=FakeCodeStore(repo_root),
+    )
+    key = ev._baseline_key()
+    champ_part, sep, head_part = key.partition(":")
+    assert champ_part == "champ-xyz"
+    assert sep == ":"
+    assert head_part != "nohead"
+    assert head_part and all(c in "0123456789abcdef" for c in head_part)
+
+
+async def test_propose_code_variant_wires_sha_bearing_champion_key_into_fingerprint(tmp_path):
+    """接线回归:propose_code_variant 传给 eval_set_fingerprint 的 champion_key 必须是
+    _baseline_key() 的产物(含 ':' 分隔的短 sha 段),而非裸 champion_id——防止日后改动
+    悄悄绕开 Task 4 的基线指纹修复,退回感知不到主干新提交的旧口径。
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+
+    class _RealRepoRootCodeStore(FakeCodeStore):
+        """worktree 落在 tmp_path(不脏写真实仓),repo_root 指向真实项目根(供 git rev-parse)。"""
+
+        @property
+        def repo_root(self) -> Path:
+            return repo_root
+
+    eh = FakeEvalHarness()
+    ev = UniverseEvolver(
+        llm_client=MagicMock(),
+        manager=FakeManager(champion_uid="champ-xyz"),
+        storage=FakeStorage(),
+        config_manager=_make_config_manager(),
+        code_store=_RealRepoRootCodeStore(tmp_path),
+        gate=FakeGate(),
+        eval_harness=eh,
+        code_mutator=FakeCodeMutator(),
+    )
+    await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+
+    assert eh.received_champion_key is not None
+    champ_part, sep, head_part = eh.received_champion_key.partition(":")
+    assert champ_part == "champ-xyz"
+    assert sep == ":"
+    assert head_part != "nohead"
+    assert head_part and all(c in "0123456789abcdef" for c in head_part)
+
+
+def test_baseline_key_no_code_store_returns_nohead():
+    """code_store=None 时短路,基线身份退化为 <champion_id>:nohead。"""
+    mgr = FakeManager(champion_uid="champ-xyz")
+    ev = UniverseEvolver(
+        llm_client=MagicMock(),
+        manager=mgr,
+        storage=FakeStorage(),
+        config_manager=_make_config_manager(),
+    )
+    assert ev._baseline_key() == "champ-xyz:nohead"
+
+
+async def test_baseline_truncated_not_cached(tmp_path):
+    """baseline 侧被预算闸截断(truncated=True)时不应入缓存。
+
+    落库存 None,避免下次指纹命中时把"评了一半"的基线当满量基线复用。
+    """
+
+    class _BaselineTruncatedEvalHarness(FakeEvalHarness):
+        def evaluate_paired(self, variant_worktree, *, eval_set, baseline_worktree, **kw):
+            paired = super().evaluate_paired(
+                variant_worktree, eval_set=eval_set, baseline_worktree=baseline_worktree, **kw
+            )
+            paired["baseline"] = {**paired["baseline"], "truncated": True}
+            return paired
+
+    sto = FakeStorage()
+    eh = _BaselineTruncatedEvalHarness()
+    ev, _, sto = _build_evolver(tmp_path, storage=sto, eval_harness=eh)
+    await ev.propose_code_variant(target_path="src/foo.py", hypothesis="try this")
+
+    assert sto.saved_runs[0]["baseline"] is None
+
+
+# ---------------------------------------------------------------------------
+# auto_propose_codes (Task 8 — 自主提案接线：配额、cron、API)
+# ---------------------------------------------------------------------------
+
+
+async def test_auto_propose_respects_quota_and_disabled(tmp_path, monkeypatch):
+    ev, _, _ = _build_evolver(tmp_path)  # cfg.code_variant_enabled=True by default
+
+    # 关开关 → skipped
+    ev._config.agent_config.code_variant_auto_propose = False
+    assert (await ev.auto_propose_codes())["skipped"] == "disabled"
+
+    # 开开关:诊断出 3 条,quota=2 → 只提 2 个
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._config.agent_config.code_variant_daily_propose_quota = 2
+
+    class _FakeDiag:
+        async def diagnose(self, *, max_hypotheses):
+            assert max_hypotheses == 2
+            return [
+                {"target_path": "src/tianshu/planner/p.py", "hypothesis": f"h{i}", "rationale": ""}
+                for i in range(max_hypotheses)
+            ]
+
+    ev._diagnostician = _FakeDiag()
+    proposed = []
+
+    async def _fake_propose(*, target_path, hypothesis, parent_id=None):
+        proposed.append(hypothesis)
+        return {"status": "evaluated", "universe_id": f"u-{hypothesis}"}
+
+    monkeypatch.setattr(ev, "propose_code_variant", _fake_propose)
+    out = await ev.auto_propose_codes(trigger_source="manual")
+    assert out["proposed"] == 2
+    assert proposed == ["h0", "h1"]
+
+
+async def test_auto_propose_no_diagnostician_skips(tmp_path):
+    ev, _, _ = _build_evolver(tmp_path)
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._diagnostician = None
+    assert (await ev.auto_propose_codes())["skipped"] == "no_diagnostician"
+
+
+async def test_auto_propose_lock_held_skips_and_no_release(tmp_path):
+    """lock_held 路径:try_acquire 返回 False → skipped='lock_held',release 未被调用。"""
+
+    class _FakeDiag:
+        async def diagnose(self, *, max_hypotheses):
+            return []
+
+    sto = FakeStorage(lock_acquired=False)  # try_acquire 返回 False
+    ev, _, _ = _build_evolver(tmp_path, storage=sto)
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._diagnostician = _FakeDiag()
+
+    result = await ev.auto_propose_codes()
+    assert result["skipped"] == "lock_held"
+    # 验证 try_acquire 被调用但 release 未被调用
+    assert any(call["action"] == "try_acquire" for call in sto.lock_calls)
+    assert not any(call["action"] == "release" for call in sto.lock_calls)
+
+
+async def test_auto_propose_not_idle_skips_for_cron(tmp_path, monkeypatch):
+    """not_idle 路径:trigger_source='cron' 且 idle 不满足 → skipped='not_idle'。"""
+
+    class _FakeDiag:
+        async def diagnose(self, *, max_hypotheses):
+            return []
+
+    ev, _, _ = _build_evolver(tmp_path)
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._diagnostician = _FakeDiag()
+
+    # monkeypatch _idle_ok 返回 False,模拟 idle 门槛不满足
+    monkeypatch.setattr(ev, "_idle_ok", lambda hours: False)
+
+    result = await ev.auto_propose_codes(trigger_source="cron")
+    assert result["skipped"] == "not_idle"
+
+
+async def test_auto_propose_error_releases_lock_on_diagnose_failure(tmp_path):
+    """error 释放锁:diagnose 抛异常 → skipped='error',release_synthesis_lock 被调用。"""
+
+    class _FailingDiagnostician:
+        async def diagnose(self, *, max_hypotheses):
+            raise RuntimeError("diagnose failed")
+
+    sto = FakeStorage(lock_acquired=True)
+    ev, _, _ = _build_evolver(tmp_path, storage=sto)
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._diagnostician = _FailingDiagnostician()
+
+    result = await ev.auto_propose_codes()
+    assert result["skipped"] == "error"
+    assert "diagnose failed" in result["detail"]
+    # 验证 release 被调用（finally 生效）
+    assert any(call["action"] == "release" for call in sto.lock_calls)
+
+
+async def test_auto_propose_respects_quota_truncation(tmp_path, monkeypatch):
+    """配额防御:diagnose 返回 5 条(超过 quota=2) → 只 propose 2 条。"""
+
+    class _FakeDiagIgnoringMax:
+        async def diagnose(self, *, max_hypotheses):
+            # 无视 max_hypotheses,返回 5 条
+            return [
+                {"target_path": "src/tianshu/planner/p.py", "hypothesis": f"h{i}", "rationale": ""}
+                for i in range(5)
+            ]
+
+    sto = FakeStorage(lock_acquired=True)
+    ev, _, _ = _build_evolver(tmp_path, storage=sto)
+    ev._config.agent_config.code_variant_auto_propose = True
+    ev._config.agent_config.code_variant_daily_propose_quota = 2
+    ev._diagnostician = _FakeDiagIgnoringMax()
+
+    proposed = []
+
+    async def _fake_propose(*, target_path, hypothesis, parent_id=None):
+        proposed.append(hypothesis)
+        return {"status": "evaluated", "universe_id": f"u-{hypothesis}"}
+
+    monkeypatch.setattr(ev, "propose_code_variant", _fake_propose)
+    result = await ev.auto_propose_codes()
+
+    # 只应该提 2 条([:quota] 截断)
+    assert result["proposed"] == 2
+    assert proposed == ["h0", "h1"]
+    assert len(result["results"]) == 2

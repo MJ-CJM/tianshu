@@ -10,7 +10,7 @@ from typing import Literal
 from tianshu.bus.event_bus import EventBus
 from tianshu.models.common import TaskStatus
 from tianshu.models.decree import Decree
-from tianshu.models.edict import Edict
+from tianshu.models.edict import Edict, title_from_goal
 from tianshu.models.events import make_event
 from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
@@ -36,6 +36,10 @@ class ApprovalManager:
         self._results: dict[str, Decree] = {}
         # Spec Section 4: 记录 wait_for_approval 时的 tool_name，方便 _handle_approve 生成 session rule
         self._pending_tool: dict[str, str] = {}
+        # 长任务 outer loop L3 审批（独立队列，与 tool-call 审批并存）
+        self._outer_loop_pending: dict[str, asyncio.Event] = {}
+        self._outer_loop_results: dict[str, object] = {}  # HumanDecision
+        self._outer_loop_payload: dict[str, dict] = {}  # 等审批时附带的展示数据（for UI）
 
     async def on_before_tool_call(self, **context: object) -> object:
         """Deprecated pre-Step-2 entry point.
@@ -67,7 +71,7 @@ class ApprovalManager:
         try:
             await asyncio.wait_for(evt.wait(), timeout=APPROVAL_TIMEOUT)
             return self._results.pop(memorial_id, None)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "Approval timeout for memorial %s, auto-rejecting",
                 memorial_id,
@@ -77,10 +81,66 @@ class ApprovalManager:
             self._pending.pop(memorial_id, None)
             self._pending_tool.pop(memorial_id, None)
 
+    # --- 长任务 outer loop L3 审批接口（独立于 tool-call 审批）---
+
+    async def wait_for_outer_loop_decision(
+        self,
+        edict_id: str,
+        payload: dict | None = None,
+        timeout_seconds: float = 86400.0,
+    ) -> object | None:
+        """阻塞直到某 edict 的 outer-loop L3 审批被提交，或超时。
+
+        payload：当前最佳产出 / critic feedback / 迭代轮数等，存供 UI 列表查询。
+        返回 HumanDecision pydantic 对象；超时返 None（caller 按 on_approval_timeout 处理）。
+        """
+        evt = asyncio.Event()
+        self._outer_loop_pending[edict_id] = evt
+        if payload is not None:
+            self._outer_loop_payload[edict_id] = payload
+        logger.info(
+            "Waiting for outer-loop approval on edict %s (timeout=%ds)",
+            edict_id,
+            int(timeout_seconds),
+        )
+        try:
+            await asyncio.wait_for(evt.wait(), timeout=timeout_seconds)
+            return self._outer_loop_results.pop(edict_id, None)
+        except TimeoutError:
+            logger.warning("Outer-loop approval timeout for edict %s", edict_id)
+            return None
+        finally:
+            self._outer_loop_pending.pop(edict_id, None)
+            self._outer_loop_payload.pop(edict_id, None)
+
+    def submit_outer_loop_decision(self, edict_id: str, decision: object) -> bool:
+        """前端 POST 决策时调；返 True 表示真触发了等待中的 wait_for_outer_loop_decision。"""
+        if edict_id not in self._outer_loop_pending:
+            logger.warning(
+                "submit_outer_loop_decision: no edict '%s' is awaiting decision",
+                edict_id,
+            )
+            return False
+        self._outer_loop_results[edict_id] = decision
+        self._outer_loop_pending[edict_id].set()
+        return True
+
+    def list_pending_outer_loop(self) -> list[dict]:
+        """列出所有等审批的 outer-loop edict 及附带 payload。前端御书房用。"""
+        out: list[dict] = []
+        for edict_id, payload in self._outer_loop_payload.items():
+            out.append(
+                {
+                    "edict_id": edict_id,
+                    **payload,
+                }
+            )
+        return out
+
     def list_pending_tool_calls(self) -> list[dict]:
         """List in-memory pending tool approvals enriched with metadata.
 
-        Used by 批红台 (ApprovalQueuePage) to render mid-execution tool approval
+        Used by 御书房 (RoyalStudyPage) to render mid-execution tool approval
         cards. Each entry is built from `_pending` + `_pending_tool` plus the most
         recent `tool.approval_required` event for the memorial.
         """
@@ -146,6 +206,26 @@ class ApprovalManager:
         if not memorial:
             raise ValueError(f"Memorial '{memorial_id}' not found")
 
+        # 安全降级：bash 类工具禁止 always scope（policy_store.assert_can_grant 硬约束）。
+        # 前置检测，把 grant_scope 改为 once，并通过事件 payload 透出 downgraded 标记，
+        # 让前端能给出"已降级为本次"的提示，避免用户误以为永久放行了。
+        tool_name = self._pending_tool.get(memorial_id) or ""
+        original_grant_scope = grant_scope
+        downgrade_reason: str | None = None
+        if action == "approve" and grant_scope == "always":
+            try:
+                from tianshu.tools.policy_store import assert_can_grant
+
+                assert_can_grant(tool_name, "always")
+            except ValueError as e:
+                downgrade_reason = str(e)
+                grant_scope = "once"
+                logger.info(
+                    "submit_tool_decision: downgrading grant_scope always→once for %r — %s",
+                    tool_name,
+                    e,
+                )
+
         decree = Decree(
             memorial_id=memorial_id,
             action=action,
@@ -167,8 +247,12 @@ class ApprovalManager:
                     "decree_id": decree.id,
                     "comment": decree.comment,
                     "mid_execution": True,
-                    "tool_name": self._pending_tool.get(memorial_id),
+                    "tool_name": tool_name,
                     "grant_scope": grant_scope,
+                    "requested_grant_scope": original_grant_scope,
+                    "grant_downgraded": downgrade_reason is not None,
+                    "grant_downgrade_reason": downgrade_reason,
+                    "actor": actor,
                 },
             )
         )
@@ -293,7 +377,7 @@ class ApprovalManager:
         if decree.amended_goal:
             new_edict = Edict(
                 goal=decree.amended_goal,
-                title=decree.amended_goal[:20] + "..." if len(decree.amended_goal) > 20 else decree.amended_goal,
+                title=title_from_goal(decree.amended_goal),
                 context=f"Amended from memorial {memorial.id}",
             )
             self._storage.save_edict(new_edict)
@@ -322,7 +406,9 @@ class ApprovalManager:
         )
 
     async def _write_session_rule_from_decree(
-        self, memorial: Memorial, decree: Decree,
+        self,
+        memorial: Memorial,
+        decree: Decree,
     ) -> None:
         """根据 decree.grant_scope 写 session rule，供后续调用直接命中。"""
         from tianshu.tools.policy_store import (
@@ -335,7 +421,8 @@ class ApprovalManager:
         if not tool_name:
             logger.warning(
                 "decree %s: no tool_name recorded for memorial %s, skip session rule",
-                decree.id, decree.memorial_id,
+                decree.id,
+                decree.memorial_id,
             )
             return
 
@@ -379,7 +466,10 @@ class ApprovalManager:
         )
 
     def _fetch_latest_approval_args(
-        self, memorial_id: str, edict_id: str, tool_name: str,
+        self,
+        memorial_id: str,
+        edict_id: str,
+        tool_name: str,
     ) -> dict:
         """从 events 表反查最近一次 tool.approval_required 的 args_summary。"""
         try:

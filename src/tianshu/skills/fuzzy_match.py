@@ -104,7 +104,7 @@ def _unicode_normalized(content: str, pattern: str) -> FuzzyMatchResult | None:
 
 def _block_anchor(content: str, pattern: str) -> FuzzyMatchResult | None:
     """Match by first + last non-empty lines as anchors, verify middle ≥ 50% similarity."""
-    p_lines = [l.strip() for l in pattern.split("\n") if l.strip()]
+    p_lines = [ln.strip() for ln in pattern.split("\n") if ln.strip()]
     if len(p_lines) < 2:
         return None
 
@@ -122,7 +122,7 @@ def _block_anchor(content: str, pattern: str) -> FuzzyMatchResult | None:
             if c_lines[j].strip() != last_line:
                 continue
             # Check middle similarity
-            candidate = [l.strip() for l in c_lines[i : j + 1]]
+            candidate = [ln.strip() for ln in c_lines[i : j + 1]]
             if _line_similarity(p_lines, candidate) >= 0.5:
                 start = sum(len(c_lines[k]) + 1 for k in range(i))
                 end = sum(len(c_lines[k]) + 1 for k in range(j + 1)) - 1

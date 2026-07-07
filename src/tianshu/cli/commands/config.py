@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 import typer
 from rich import print as rprint
@@ -110,14 +109,14 @@ def config_add(
 @app.command("set")
 def config_set(
     name: str = typer.Argument(help="Configuration name to update"),
-    model: Optional[str] = typer.Option(None, "--model", help="LLM model name"),
-    api_key: Optional[str] = typer.Option(None, "--api-key", help="API key"),
-    api_base: Optional[str] = typer.Option(None, "--api-base", help="Custom API base URL"),
-    max_retries: Optional[int] = typer.Option(None, "--max-retries", help="Max retries (0-10)"),
-    temperature: Optional[float] = typer.Option(None, "--temperature", help="Temperature (0-2)"),
-    top_p: Optional[float] = typer.Option(None, "--top-p", help="Top P (0-1)"),
-    max_tokens: Optional[int] = typer.Option(None, "--max-tokens", help="Max tokens (1-128000)"),
-    enabled: Optional[bool] = typer.Option(None, "--enabled/--disabled", help="Enable/disable"),
+    model: str | None = typer.Option(None, "--model", help="LLM model name"),
+    api_key: str | None = typer.Option(None, "--api-key", help="API key"),
+    api_base: str | None = typer.Option(None, "--api-base", help="Custom API base URL"),
+    max_retries: int | None = typer.Option(None, "--max-retries", help="Max retries (0-10)"),
+    temperature: float | None = typer.Option(None, "--temperature", help="Temperature (0-2)"),
+    top_p: float | None = typer.Option(None, "--top-p", help="Top P (0-1)"),
+    max_tokens: int | None = typer.Option(None, "--max-tokens", help="Max tokens (1-128000)"),
+    enabled: bool | None = typer.Option(None, "--enabled/--disabled", help="Enable/disable"),
 ) -> None:
     """Update an existing LLM configuration."""
     payload: dict = {}

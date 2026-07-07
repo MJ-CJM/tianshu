@@ -49,6 +49,20 @@ class TestEdictStorage:
         edicts, total = storage.list_edicts(search="needle")
         assert total == 1
 
+    def test_list_edicts_exclude_assistant_chat(self, storage):
+        """v2: list_edicts(exclude_assistant_chat=True) 排除 chat 敕令。"""
+        e1 = Edict(title="业务", goal="干活")
+        e2 = Edict(title="聊天", goal="对话", metadata={"assistant_chat": True})
+        storage.save_edict(e1)
+        storage.save_edict(e2)
+
+        all_edicts, all_total = storage.list_edicts()
+        assert all_total == 2
+
+        filtered, ftotal = storage.list_edicts(exclude_assistant_chat=True)
+        assert ftotal == 1
+        assert filtered[0].title == "业务"
+
     def test_update_edict(self, storage):
         edict = Edict(goal="original", title="orig")
         storage.save_edict(edict)
@@ -114,6 +128,34 @@ class TestMemorialStorage:
         assert loaded.status == TaskStatus.COMPLETED
         assert loaded.result == "done"
         assert loaded.usage.total_tokens == 100
+
+    def test_final_output_persists(self, storage):
+        """final_output 字段独立持久化，与 result 分离。"""
+        edict = Edict(goal="test")
+        storage.save_edict(edict)
+        memorial = Memorial(edict_id=edict.id)
+        storage.save_memorial(memorial)
+
+        # 模拟多 task 场景：result 含全量过程，final_output 仅最终交付物
+        memorial.status = TaskStatus.COMPLETED
+        memorial.result = "## t1: 调研...\n\n---\n\n## t2: 编脚本...\n\n---\n\n## t3: 推送..."
+        memorial.final_output = "上海今日多云 22°C，湿度 65%"
+        storage.update_memorial(memorial)
+
+        loaded = storage.get_memorial(memorial.id)
+        assert loaded.result.startswith("## t1: 调研")
+        assert loaded.final_output == "上海今日多云 22°C，湿度 65%"
+        # 两个字段独立，不应混淆
+        assert loaded.final_output != loaded.result
+
+    def test_final_output_defaults_none(self, storage):
+        """新建 memorial 时 final_output 应为 None（兼容老 memorial）。"""
+        edict = Edict(goal="test")
+        storage.save_edict(edict)
+        memorial = Memorial(edict_id=edict.id)
+        storage.save_memorial(memorial)
+        loaded = storage.get_memorial(memorial.id)
+        assert loaded.final_output is None
 
     def test_get_by_edict(self, storage):
         edict = Edict(goal="test")
@@ -182,3 +224,26 @@ class TestEventStorage:
         assert len(events) == 1
         assert events[0]["event_type"] == "test.event"
         assert events[0]["payload"]["key"] == "val"
+
+
+@pytest.mark.unit
+def test_engine_preferences_roundtrip_with_toggles(storage):
+    storage.set_engine_preferences(
+        fetch_chain=["scrapling", "local"],
+        search_provider="duckduckgo",
+        fallback_mode="on_error_or_empty",
+        scrapling_dynamic_enabled=True,
+        scrapling_stealthy_enabled=False,
+    )
+    prefs = storage.get_engine_preferences()
+    assert prefs["fetch_chain"] == ["scrapling", "local"]
+    assert prefs["search_provider"] == "duckduckgo"
+    assert prefs["scrapling_dynamic_enabled"] is True
+    assert prefs["scrapling_stealthy_enabled"] is False
+
+
+@pytest.mark.unit
+def test_engine_preferences_defaults_when_empty(storage):
+    prefs = storage.get_engine_preferences()
+    assert prefs["scrapling_dynamic_enabled"] is False
+    assert prefs["scrapling_stealthy_enabled"] is False

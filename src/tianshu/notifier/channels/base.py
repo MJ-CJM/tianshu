@@ -19,6 +19,6 @@ class NotificationChannel(ABC):
         """Send a notification. Returns True on success."""
         ...
 
-    async def close(self) -> None:
+    async def close(self) -> None:  # noqa: B027 -- 有意的默认 no-op，非所有渠道都需要清理
         """Cleanup resources."""
         pass

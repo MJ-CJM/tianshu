@@ -1,0 +1,1934 @@
+{
+  "nav": {
+    "edictCreate": "新建任务",
+    "approvals": "审批中心",
+    "cabinet": "规划中心",
+    "tax": "财务中心",
+    "audit": "审计中心",
+    "knowledge": "知识库",
+    "consultation": "群议",
+    "foreign": "外部接入",
+    "notify": "通知中心",
+    "scheduler": "调度器",
+    "persona": "角色管理",
+    "system": "系统管理",
+    "sessionRules": "会话规则",
+    "universe": "位面",
+    "group": {
+      "edict": "任务",
+      "gov": "治理",
+      "growth": "成长",
+      "system": "系统"
+    }
+  },
+  "sidebar": {
+    "darkMode": "深色模式",
+    "lightMode": "浅色模式",
+    "collapse": "收起侧栏",
+    "expand": "展开",
+    "switchToDark": "切换深色",
+    "switchToLight": "切换浅色"
+  },
+  "entity": {
+    "edict": "任务",
+    "memorial": "执行记录",
+    "decree": "审批决策"
+  },
+  "action": {
+    "approve": "批准",
+    "reject": "拒绝",
+    "cancel": "撤销",
+    "retry": "重试",
+    "amend": "修改",
+    "issue": "下发",
+    "review": "审批",
+    "pause": "暂停",
+    "resume": "恢复",
+    "revoke": "撤销",
+    "add": "添加",
+    "refresh": "刷新",
+    "create": "创建",
+    "ok": "确定",
+    "delete": "删除",
+    "edit": "修改"
+  },
+  "status": {
+    "submitted": "已提交",
+    "running": "运行中",
+    "needs_review": "待审批",
+    "completed": "已完成",
+    "failed": "已失败",
+    "cancelled": "已取消",
+    "scheduled": "已调度",
+    "planning": "规划中",
+    "auditing": "审计中"
+  },
+  "edictStatus": {
+    "open": "进行中",
+    "completed": "已完成",
+    "cancelled": "已取消"
+  },
+  "phase": {
+    "running": "运行中",
+    "needs_review": "待审批",
+    "idle": "待处理",
+    "no_memorial": "未启动"
+  },
+  "event": {
+    "label": {
+      "edict.submitted": "任务提交",
+      "execution.started": "开始执行",
+      "execution.completed": "执行完成",
+      "execution.failed": "执行失败",
+      "execution.cancelled": "执行取消",
+      "iteration.started": "迭代开始",
+      "tool.completed": "工具调用",
+      "tool.failed": "工具失败",
+      "followup.submitted": "后续指令",
+      "edict.updated": "任务编辑",
+      "edict.closed": "任务关闭",
+      "edict.scheduled": "调度排期",
+      "plan.completed": "规划完成",
+      "plan.pending_review": "规划待审批",
+      "plan.approved": "规划已批准",
+      "plan.rejected": "规划已驳回",
+      "audit.completed": "审计完成",
+      "decree.approved": "审批：批准",
+      "decree.rejected": "审批：拒绝",
+      "decree.retry": "审批：重试",
+      "decree.cancelled": "审批：撤销",
+      "tool.blocked": "工具拦截",
+      "edict.audit.executed": "完成审计",
+      "edict.continuation.injected": "续转反哺",
+      "edict.wind_down.entered": "进入收尾",
+      "edict.lifecycle.changed": "生命周期变更",
+      "outer_loop.paused": "已暂停",
+      "outer_loop.resumed": "已恢复"
+    },
+    "field": {
+      "tokens": "Token",
+      "cost": "费用",
+      "time": "时间"
+    },
+    "group": {
+      "label": {
+        "initial": "初始指令",
+        "followUp": "后续指令",
+        "edictAction": "任务操作"
+      },
+      "status": {
+        "completed": "完成",
+        "failed": "失败",
+        "cancelled": "取消",
+        "running": "执行中"
+      },
+      "itemsCount": "{n} 条",
+      "unknownInstruction": "未知指令"
+    },
+    "detail": {
+      "iteration": "轮次",
+      "usagePct": "已用 {pct}%",
+      "dimension": "维度",
+      "auditPassed": "通过",
+      "auditFailed": "未过（{n} 项缺口）",
+      "executorActorSelf": "actor 自审",
+      "executorCritic": "critic"
+    },
+    "timeline": {
+      "title": "执行记录"
+    },
+    "decree": {
+      "approved": "审批：批准",
+      "rejected": "审批：拒绝",
+      "retry": "审批：重试",
+      "cancelled": "审批：撤销"
+    }
+  },
+  "lifecycle": {
+    "active": "运行",
+    "paused": "暂停",
+    "winding_down": "收尾",
+    "complete": "终结"
+  },
+  "audit": {
+    "title": "审计中心",
+    "tab": {
+      "stats": "审计统计",
+      "policy": "Policy Decisions",
+      "eventbus": "事件流",
+      "workers": "并发控制",
+      "hooks": "Hooks & 通知",
+      "network": "网络访问",
+      "rules": "规则管理"
+    },
+    "stat": {
+      "totalTokens": "Token 总量",
+      "totalMemorials": "执行记录总数",
+      "passRate": "审计通过率",
+      "flagRate": "标记率"
+    },
+    "section": {
+      "usage": "任务 Token 用量",
+      "recent": "最近审计结果",
+      "auditRules": "审计规则",
+      "reviewPolicies": "审阅策略"
+    },
+    "empty": {
+      "usage": "暂无数据",
+      "recent": "暂无审计记录",
+      "rules": "暂无规则"
+    },
+    "usageTable": {
+      "edict": "任务",
+      "priority": "优先级",
+      "memorialCount": "执行记录数",
+      "prompt": "Prompt",
+      "completion": "Completion",
+      "total": "Total",
+      "budget": "预算"
+    },
+    "recentTable": {
+      "memorialId": "记录编号",
+      "edict": "任务",
+      "verdict": "审计结论",
+      "reasons": "原因",
+      "reviewStatus": "复核状态",
+      "time": "时间"
+    },
+    "hookEvents": {
+      "title": "Hook 触发记录",
+      "expand": "展开",
+      "collapse": "折叠"
+    },
+    "network": {
+      "filter": {
+        "tool": "工具",
+        "host": "host (精确匹配)",
+        "status": "状态",
+        "success": "成功",
+        "fail": "失败"
+      },
+      "table": {
+        "time": "时间",
+        "edict": "任务",
+        "tool": "工具",
+        "host": "Host",
+        "method": "方法",
+        "http": "HTTP",
+        "bytes": "字节",
+        "credential": "凭证",
+        "cached": "缓存"
+      }
+    },
+    "rulesTable": {
+      "name": "规则名称",
+      "description": "描述",
+      "severity": "严重级别",
+      "status": "状态",
+      "enabled": "启用",
+      "disabled": "禁用"
+    },
+    "reviewPolicy": {
+      "valuePrefix": "（值：",
+      "valueSuffix": "）"
+    }
+  },
+  "memorial": {
+    "title": "执行记录",
+    "attemptLabel": "(第 {n} 次)",
+    "field": {
+      "instruction": "指令",
+      "summary": "要旨",
+      "detail": "详文",
+      "report": "结果",
+      "error": "失败",
+      "artifacts": "附件"
+    },
+    "review": {
+      "pending": "待审批"
+    }
+  },
+  "pendingTool": {
+    "title": "工具调用待审批",
+    "grantScope": "授权范围",
+    "scope": {
+      "once": "本次",
+      "edict": "本任务",
+      "always": "全局"
+    },
+    "approve": "放行",
+    "reject": "拒绝",
+    "action": "批准/拒绝",
+    "comment": "备注（可选）"
+  },
+  "statusFilter": {
+    "all": "全部状态"
+  },
+  "common": {
+    "search": "搜索",
+    "confirm": "确认",
+    "cancel": "取消",
+    "submit": "提交"
+  },
+  "decree": {
+    "title": "审批决策",
+    "memorialId": "执行 ID",
+    "auditResult": "审计结果",
+    "okText": {
+      "submit": "提交",
+      "cancel": "确认撤销"
+    },
+    "actionOption": {
+      "approve": "批准 — 同意执行",
+      "reject": "拒绝 — 驳回",
+      "retry": "重试 — 原目标",
+      "amend": "修改 — 修改目标后重试",
+      "cancel": "撤销 — 取消任务"
+    }
+  },
+  "empty": {
+    "noMatch": "无匹配的任务",
+    "noOpenEdict": "暂无进行中的任务"
+  },
+  "phaseFilter": {
+    "all": "全部阶段"
+  },
+  "page": {
+    "edictDetail": {
+      "title": "任务详情",
+      "notFound": "未找到该任务",
+      "viewBattleMap": "查看 DAG",
+      "backToList": "返回列表",
+      "planCardTitle": "规划方案",
+      "planExecuted": "已执行",
+      "planTaskColumn": {
+        "task": "任务",
+        "executor": "执行者",
+        "depends": "依赖",
+        "tools": "工具"
+      },
+      "planApprove": "批准（执行此方案）",
+      "planReject": "拒绝（驳回方案）",
+      "decreePrompt": "有执行结果待审批，请选择操作：",
+      "followupTitle": "继续追加指令",
+      "followupPlaceholder": "输入后续指令...",
+      "followupSubmit": "提交 (Ctrl+Enter)",
+      "closeButton": "关闭任务",
+      "cancelButton": "取消任务",
+      "confirmClose": {
+        "title": "确认关闭？",
+        "description": "关闭后将无法继续下达指令"
+      },
+      "confirmCancel": {
+        "title": "确认取消？",
+        "description": "取消后任务将被标记为已撤销"
+      },
+      "editModal": {
+        "title": "编辑任务",
+        "fieldTitle": "任务标题",
+        "fieldGoal": "目标",
+        "fieldContext": "上下文"
+      },
+      "details": {
+        "priority": "优先级",
+        "reviewPolicy": "审核策略",
+        "schedule": "调度方式",
+        "source": "来源",
+        "executionMode": "执行方式",
+        "plannerPersona": "规划者",
+        "cabinetDecision": "自动规划",
+        "globalConfig": "全局配置",
+        "constraints": "约束条件",
+        "outputFormat": "输出格式",
+        "runtimeSection": "执行参数",
+        "timeout": "超时",
+        "maxIterations": "最大迭代",
+        "concurrency": "并发",
+        "retry": "重试",
+        "tokenBudget": "Token 预算",
+        "costBudget": "费用预算",
+        "timeBudget": "时间预算",
+        "longTaskTag": "长任务模式",
+        "maxOuterRounds": "最多 {n} 轮",
+        "timeBudgetMin": "时间预算 {n} 分钟",
+        "exhaustionPrefix": "耗尽 → ",
+        "checksCount": "{n} 项 checks",
+        "criticLabel": "审核者:"
+      }
+    },
+    "edictCreate": {
+      "title": "创建新任务",
+      "successTitle": "任务已创建",
+      "successDesc": "系统正在执行"
+    },
+    "sessionRules": {
+      "title": "会话规则",
+      "alertTitle": "Session Rules 是工具调用的免审令牌",
+      "alertDesc": "当你在审批中心审批工具调用时选择「本任务」或「全局」范围，系统会自动创建 session rule。你也可以手动添加规则来预配置免审权限。注意：shell_exec/bash 工具不允许设为全局免审。",
+      "addRule": "添加规则",
+      "addModalTitle": "添加免审规则",
+      "summary": "共 {n} 条规则",
+      "empty": "暂无规则 — 点击右上角「添加规则」手动创建，或在审批工具调用时选择「本任务/全局」自动生成"
+    }
+  },
+  "form": {
+    "search": {
+      "edict": "搜索任务..."
+    },
+    "decree": {
+      "field": {
+        "action": "操作",
+        "amendedGoal": "修改后目标",
+        "comment": "备注（可选）"
+      },
+      "placeholder": {
+        "amendedGoal": "请输入修改后的任务目标",
+        "comment": "可选备注"
+      },
+      "validation": {
+        "amendedGoalRequired": "修改操作须填写修改后目标"
+      }
+    },
+    "edict": {
+      "field": {
+        "title": "任务标题（可选）",
+        "goal": "任务目标",
+        "context": "上下文（可选）",
+        "executionMode": "执行方式",
+        "assignedPersona": "执行者",
+        "plannerPersona": "规划者（可选）",
+        "planReview": "规划审批",
+        "scheduleType": "调度方式",
+        "cronExpr": "Cron 表达式",
+        "scheduleAt": "执行时间",
+        "priority": "优先级",
+        "reviewPolicy": "审核策略",
+        "constraints": "约束条件",
+        "outputFormat": "输出格式",
+        "timeoutSeconds": "超时时间 (秒)",
+        "maxIterations": "最大迭代次数",
+        "maxConcurrency": "DAG 并发度",
+        "retryLimit": "重试次数",
+        "tokenBudget": "Token 预算",
+        "costBudget": "费用预算 (CNY)",
+        "longTaskEnabled": "启用长任务模式",
+        "templatePreset": "模板预设",
+        "executionProfile": "执行模型",
+        "maxOuterIterations": "最多迭代轮数",
+        "minOuterIterations": "最少迭代轮数 (持续优化模式)",
+        "criticStrictness": "Critic 严苛度",
+        "deadline": "截止时间 (可选)",
+        "onExhaustion": "耗尽时",
+        "onCriticUnavailable": "Critic 故障时",
+        "criticPersonas": "审核者 (Critic Personas，可多选)",
+        "sameIssueThreshold": "同类问题升级阈值",
+        "l1MaxRounds": "L1 最多重试轮数",
+        "l2MaxRounds": "L2 最多重试轮数",
+        "nlLabel": "用一句话描述",
+        "nlPlaceholder": "例如：每天早上9点给我推送上海天气",
+        "nlButton": "智能填充",
+        "nlFailed": "没太理解，请换种说法或手动填写下方表单。"
+      },
+      "placeholder": {
+        "title": "留空则自动截取目标前 20 字",
+        "goal": "请输入任务目标...",
+        "context": "补充背景信息或约束条件...",
+        "assignedPersona": "选择执行者",
+        "plannerPersona": "自动（使用全局配置）",
+        "cronExpr": "例如 0 9 * * 1-5",
+        "scheduleAt": "ISO 8601 时间，例如 2026-03-20T09:00:00",
+        "constraints": "输入约束条件后按回车添加",
+        "outputFormat": "指定期望的输出格式，如 JSON、Markdown 表格等",
+        "timeoutSeconds": "默认 300",
+        "maxIterations": "默认 20",
+        "maxConcurrency": "默认 1",
+        "retryLimit": "默认 0",
+        "tokenBudget": "不限",
+        "costBudget": "不限",
+        "maxOuterIterations": "默认 5",
+        "minOuterIterations": "默认 1（不持续优化）",
+        "sameIssueThreshold": "默认 2",
+        "l1MaxRounds": "默认 2",
+        "l2MaxRounds": "默认 1",
+        "criticPersonas": "可选多位 persona（推荐审计/规划部门）",
+        "deadlineHours": "时",
+        "deadlineMinutes": "分"
+      },
+      "validation": {
+        "goalRequired": "请输入任务目标",
+        "assignedPersonaRequired": "请选择执行者",
+        "cronExprRequired": "请输入 Cron 表达式",
+        "scheduleAtRequired": "请输入执行时间",
+        "criticPersonasRequired": "启用长任务时至少选择一位审核者"
+      },
+      "tooltip": {
+        "plannerPersona": "选择哪位规划者进行规划，不同 persona 可使用不同的 LLM",
+        "planReview": "开启后，规划方案需人工审批通过后才会执行",
+        "longTaskEnabled": "启用后任务走 actor → checks → critic 的多轮迭代路径，可自驱收敛；不启用则走单回合 agent loop（默认）",
+        "templatePreset": "一键填入常用配置；填完仍可在下方继续微调",
+        "executionProfile": "foreground=同进程；checkpointed=每轮 checkpoint 可续跑；background=后台跑（用户可关页面）",
+        "maxOuterIterations": "actor → critic 一回合算一轮；超过此数走 on_exhaustion 决策",
+        "minOuterIterations": "≥2 时即使 critic 第一轮就 PASS 也强制继续；critic 的'可优化方向'会注入下一轮 actor。让审核者真正持续推动优化。",
+        "criticStrictness": "lenient=合格即 PASS（默认） / balanced=高标准倾向 fail / strict=优秀才 PASS",
+        "deadline": "超过则触发 EXHAUSTED；全留空 = 无硬截止",
+        "onExhaustion": "超过 max_outer_iterations / deadline / cost_budget 时的处理",
+        "onCriticUnavailable": "critic LLM 调用全部失败的兜底",
+        "criticPersonas": "谁来审核任务质量。多选时每轮并发评审，按'全过则过'聚合；任意一位 FAIL 即不过。终态后每位审核者独立产出审核报告。",
+        "sameIssueThreshold": "critic 连续 N 轮报同类问题（issue_class）则升 L1"
+      },
+      "option": {
+        "autoPlanning": "自动规划（系统决策分配）",
+        "directAssign": "直接指派 persona",
+        "scheduleImmediate": "立即执行",
+        "scheduleOnce": "定时执行",
+        "scheduleCron": "周期执行"
+      },
+      "section": {
+        "advanced": "高级选项",
+        "runtime": "执行参数",
+        "longTask": "长任务模式 (Outer Loop)",
+        "checks": "可验收指标 Checks（可选，零或多条）",
+        "more": "更多设置"
+      },
+      "template": {
+        "analysis": "📊 数据分析型",
+        "creative": "✍️ 内容创作型",
+        "coding": "🛠 代码实现型",
+        "research": "🔬 深度研究型"
+      },
+      "warning": {
+        "criticSelfReviewTitle": "执行者与审核者重合",
+        "criticSelfReviewDesc": "同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议审核者选用审计 / 知识库等不参与执行的 persona。"
+      }
+    },
+    "check": {
+      "field": {
+        "name": "名称",
+        "kind": "类型",
+        "rubric": "Rubric 提示词",
+        "passThreshold": "通过阈值",
+        "command": "Shell 命令",
+        "timeout": "超时 (秒)"
+      },
+      "placeholder": {
+        "name": "例如 pytest / tone-check",
+        "rubric": "评估标准描述，要求 LLM 回 0~1 分",
+        "command": "例如 pytest tests/ -q"
+      },
+      "validation": {
+        "nameRequired": "必填",
+        "rubricRequired": "rubric 必填",
+        "commandRequired": "command 必填"
+      },
+      "action": {
+        "addBashLint": "添加 Bash/Lint Check",
+        "addRubric": "添加 Rubric Check"
+      }
+    },
+    "sessionRule": {
+      "field": {
+        "toolName": "工具名称",
+        "scope": "范围",
+        "expiresDays": "有效天数",
+        "reason": "原因 / 备注"
+      },
+      "placeholder": {
+        "toolName": "搜索或选择工具…",
+        "expiresDays": "30",
+        "reason": "可选，记录为什么添加此规则"
+      },
+      "tooltip": {
+        "expiresDays": "留空或填 0 表示永不过期（全局规则默认 30 天）"
+      },
+      "validation": {
+        "toolNameRequired": "请选择工具"
+      },
+      "scopeOption": {
+        "always": "全局 — 所有任务生效",
+        "edict": "任务级 — 仅当前指定任务"
+      }
+    }
+  },
+  "table": {
+    "sessionRules": {
+      "column": {
+        "tool": "工具",
+        "fingerprint": "参数指纹",
+        "scope": "范围",
+        "source": "来源",
+        "grantedAt": "授予时间",
+        "expiresAt": "过期时间",
+        "reason": "原因",
+        "action": "操作"
+      },
+      "cell": {
+        "anyArg": "任意参数",
+        "never": "永不"
+      }
+    }
+  },
+  "sessionRules": {
+    "scope": {
+      "always": "全局",
+      "edict": "任务级"
+    },
+    "source": {
+      "approval": "审批授予",
+      "profile": "策略模板",
+      "manual": "手动添加"
+    },
+    "tier": {
+      "0": "T0 只读",
+      "1": "T1 工作区",
+      "2": "T2 写入",
+      "3": "T3 危险"
+    },
+    "scopeFilter": {
+      "all": "全部范围",
+      "always": "全局 (always)",
+      "edict": "任务级 (edict)"
+    },
+    "sourceFilter": {
+      "all": "全部来源",
+      "approval": "审批授予",
+      "profile": "策略模板",
+      "manual": "手动添加"
+    },
+    "popconfirm": {
+      "title": "确定撤销此规则？",
+      "description": "撤销后相关工具调用将重新需要审批"
+    }
+  },
+  "priority": {
+    "urgent": "紧急",
+    "normal": "普通",
+    "low": "低"
+  },
+  "reviewPolicy": {
+    "always": "始终人工复核",
+    "on_flag": "自动（审计标记时人工复核）",
+    "on_failure": "失败时人工复核",
+    "never": "跳过人工复核"
+  },
+  "scheduleType": {
+    "immediate": "立即",
+    "once": "定时",
+    "cron": "周期"
+  },
+  "executionProfile": {
+    "foreground": "前台",
+    "checkpointed": "可续跑",
+    "background": "后台"
+  },
+  "strictness": {
+    "lenient": "宽松",
+    "balanced": "高标准",
+    "strict": "严苛"
+  },
+  "exhaustion": {
+    "escalate": "上报人工 (L3)",
+    "best_effort": "取最近一轮当成果",
+    "fail": "直接失败",
+    "shortEscalate": "上报人工",
+    "shortBestEffort": "取最近一轮",
+    "shortFail": "直接失败"
+  },
+  "criticUnavail": {
+    "skip": "跳过当作通过",
+    "escalate": "上报人工"
+  },
+  "checkKind": {
+    "bash": "Bash",
+    "lint": "Lint",
+    "rubric": "Rubric (LLM 评分)"
+  },
+  "dept": {
+    "ducha": "审计",
+    "neige": "规划",
+    "bingbu": "执行",
+    "hubu": "财务",
+    "wenyuan": "知识库",
+    "tongzheng": "通知"
+  },
+  "unit": {
+    "hours": "小时",
+    "minutes": "分钟",
+    "seconds": "秒",
+    "days": "天"
+  },
+  "button": {
+    "save": "保存",
+    "close": "关闭",
+    "cancel": "取消",
+    "pause": "暂停",
+    "resume": "恢复"
+  },
+  "common2": {
+    "unlimited": "不限",
+    "enabled": "启用",
+    "disabled": "关闭",
+    "optional": "可选",
+    "save": "保存"
+  },
+  "toast": {
+    "toolApproved": "已放行 {tool}",
+    "toolApprovedWithRule": "已放行并写入 session rule ({scope})",
+    "toolRejected": "已拒绝 {tool}",
+    "actionFailed": "操作失败",
+    "planApproved": "规划方案已批准，开始执行",
+    "planApproveFailed": "批准规划失败",
+    "planRejected": "规划方案已拒绝",
+    "planRejectFailed": "拒绝规划失败",
+    "followupFailed": "提交后续指令失败",
+    "edictClosed": "任务已关闭",
+    "closeFailed": "关闭失败",
+    "edictCancelled": "任务已取消",
+    "cancelFailed": "取消失败",
+    "edictPaused": "任务已暂停",
+    "pauseFailed": "暂停失败",
+    "edictResumed": "任务已恢复",
+    "resumeFailed": "恢复失败",
+    "edictUpdated": "任务已更新",
+    "updateFailed": "更新失败",
+    "ruleRevoked": "规则已撤销",
+    "ruleRevokeFailed": "撤销失败",
+    "ruleCreated": "规则已创建",
+    "ruleCreateFailed": "创建失败"
+  },
+  "locale": {
+    "zh-classic": "彩蛋",
+    "zh-modern": "通用",
+    "en": "English"
+  },
+  "ops": {
+    "eventbus": {
+      "stat": {
+        "total": "事件总数",
+        "types": "事件类型数",
+        "handlers": "已注册 Handler",
+        "recent": "最近事件"
+      },
+      "table": {
+        "type": "事件类型",
+        "edict": "任务",
+        "memorial": "执行记录",
+        "detail": "详情",
+        "time": "时间"
+      },
+      "dist": "事件类型分布",
+      "handlersTitle": "已注册 Handler",
+      "recentTitle": "最近事件流",
+      "handlerCol": "Handler",
+      "priority": "优先级",
+      "emptyHandlers": "暂无注册",
+      "emptyEvents": "暂无事件"
+    },
+    "workers": {
+      "empty": "无法获取 Worker 状态",
+      "active": "活跃任务",
+      "maxConcurrency": "最大并发",
+      "queue": "排队中",
+      "completed": "已完成",
+      "failed": "失败",
+      "globalLane": "GlobalLane — 系统级并发",
+      "active2": "活跃",
+      "available": "可用",
+      "slotUsage": "槽位占用",
+      "sessionLane": "SessionLane — 任务级并发",
+      "edictId": "任务 ID",
+      "availableSlot": "可用槽",
+      "status": "状态",
+      "running": "执行中",
+      "idle": "空闲",
+      "emptySession": "暂无活跃会话",
+      "emptySessionDesc": "暂无活跃的 Session Lane"
+    },
+    "hooks": {
+      "registered": "已注册 Hook",
+      "types": "Hook 类型",
+      "channels": "通知渠道",
+      "registryTitle": "Hooks 注册列表",
+      "type": "Hook 类型",
+      "handler": "Handler",
+      "priority": "优先级",
+      "priorityHighest": "最高",
+      "priorityHigh": "高",
+      "priorityMid": "中",
+      "priorityLow": "低",
+      "emptyRegistry": "暂无注册",
+      "channelsTitle": "通知渠道",
+      "channelName": "渠道名称",
+      "channelType": "类型",
+      "rateLimit": "速率限制",
+      "recentSends": "近期发送",
+      "emptyChannels": "暂无注册渠道",
+      "emptyChannelsDesc": "暂无注册的通知渠道",
+      "label": {
+        "before_agent_start": "启动前",
+        "before_tool_call": "工具调用前",
+        "after_tool_call": "工具调用后",
+        "llm_input": "LLM 输入",
+        "llm_output": "LLM 输出",
+        "agent_end": "执行结束",
+        "before_iteration": "迭代前",
+        "before_compaction": "压缩前",
+        "session_start": "会话开始",
+        "session_end": "会话结束"
+      }
+    }
+  },
+  "comp": {
+    "usage": {
+      "title": "用量统计",
+      "prompt": "Prompt",
+      "completion": "Completion",
+      "total": "合计",
+      "cost": "费用",
+      "model": "模型"
+    },
+    "policyTimeline": {
+      "title": "Policy Timeline",
+      "filterAll": "全部事件",
+      "filterPolicy": "策略决策 (policy.*)",
+      "filterApproval": "工具审批 (tool.approval_required)",
+      "filterDecree": "审批决策 (decree.*)",
+      "filterHook": "Hook 事件 (hook.*)",
+      "emptyAll": "暂无策略事件",
+      "emptyFiltered": "当前筛选下无事件"
+    },
+    "network": {
+      "title": "网络能力",
+      "tooltipDisabled": "需要切换到 \"trusted-automation\" profile 才能启用 api_request",
+      "allowedHosts": "允许调用的 API host",
+      "allowedHostsDesc": "api_request 工具仅允许访问这些 host",
+      "hostPlaceholder": "从已有凭证选择或输入 host",
+      "allowWrite": "允许写方法 (POST/PUT/DELETE/PATCH) — 需要审批",
+      "writeHosts": "允许写入的 host（必须是上面列表的子集）",
+      "writeHostPlaceholder": "从上面的 host 中选择"
+    },
+    "edictTable": {
+      "id": "任务编号",
+      "title": "任务标题",
+      "status": "状态",
+      "priority": "优先级",
+      "createdAt": "创建时间",
+      "actions": "操作",
+      "deleteConfirm": "确认删除？",
+      "deleteDesc": "删除后关联的执行记录和事件将一并清除",
+      "selected": "已选 {n} 项",
+      "batchDeleteConfirm": "确认删除选中的 {n} 条任务？",
+      "batchDelete": "批量删除",
+      "clearSelection": "取消选择",
+      "toastDeleted": "任务已删除",
+      "toastDeleteFailed": "删除失败",
+      "toastRenamed": "已重命名",
+      "toastRenameFailed": "重命名失败",
+      "toastBatchDeleted": "已删除 {n} 条任务",
+      "toastBatchDeleteFailed": "批量删除失败"
+    },
+    "policyProfile": {
+      "title": "工具权限策略（可选）",
+      "templateLabel": "预设模板",
+      "templatePlaceholder": "选择预设模板（可选）",
+      "templateHint": "选择模板后可进一步自定义",
+      "pathsLabel": "允许路径 (glob)",
+      "pathsPlaceholder": "每行一条，例如：\nsrc/**\ntests/**",
+      "bashLabel": "允许 Bash 前缀",
+      "bashPlaceholder": "每行一条，例如：\ngit status\nls\npytest",
+      "autoApproveLabel": "自动放行最高 Tier",
+      "autoApproveTooltip": "Tier ≤ 该值的工具将自动放行，不需要审批",
+      "expiresLabel": "规则有效期 (秒)",
+      "expiresTooltip": "留空表示永久有效（直到任务结束）",
+      "expiresPlaceholder": "留空 = 永久",
+      "tier0": "T0 只读",
+      "tier1": "T1 工作区",
+      "tier2": "T2 写操作",
+      "tier3": "T3 危险"
+    },
+    "outerLoop": {
+      "title": "长任务迭代时间线",
+      "rounds": "{n} 轮",
+      "totalCost": "总成本 ¥{cost}",
+      "criticPass": "通过",
+      "criticFail": "打回",
+      "checksFailed": "checks 未过",
+      "archived": "已归档",
+      "noFeedback": "(无 feedback)",
+      "suggestion": "建议：",
+      "expand": "展开",
+      "actorOutputArchived": "actor_output 已归档（仅保留摘要）"
+    },
+    "supervision": {
+      "title": "监督报告",
+      "failTitle": "监督报告生成失败或解析异常",
+      "rawOutput": "原始输出：",
+      "issues": "观察到的问题（{n}）",
+      "wellDone": "做得好的地方（{n}）",
+      "poorlyDone": "做得不够的地方（{n}）",
+      "recommendation": "建议",
+      "expand": "展开",
+      "supervisorCount": "{n} 位监督者",
+      "iterCost": "{n} 轮 · ¥{cost}",
+      "iterTotalCost": "{n} 轮 · 总成本 ¥{cost}",
+      "status": {
+        "completed": "完成",
+        "failed": "失败",
+        "cancelled": "取消",
+        "running": "进行中",
+        "submitted": "已提交"
+      }
+    },
+    "edictActivity": {
+      "pendingTool": "工具待审 ({n})",
+      "createdAt": "创建于 {time}",
+      "initializing": "正在初始化…",
+      "executing": "执行中…",
+      "auditReasons": "审计原因："
+    },
+    "appHeader": {
+      "brand": "天枢",
+      "tagline": "成功只有一个——按照自己的方式，去度过人生。"
+    },
+    "healthDot": {
+      "ok": "在线",
+      "err": "离线"
+    },
+    "connection": {
+      "online": "实时",
+      "offline": "离线",
+      "onlineTitle": "WebSocket 已连接",
+      "offlineTitle": "WebSocket 已断开，轮询降级中"
+    },
+    "dag": {
+      "battleEmpty": "暂无 DAG 数据",
+      "cancelConfirm": "确定取消整个 DAG 执行？",
+      "retryConfirm": "重试失败的节点？"
+    },
+    "worker": {
+      "completed": "已完成",
+      "failed": "失败",
+      "globalLane": "全局 Lane"
+    },
+    "profile": {
+      "loading": "加载成长档案…",
+      "loadFailed": "加载失败",
+      "empty": "暂无成长档案。首版将在 AGENT_END 每 20 次 或每日 03:00 自动生成；也可点击\"立即合成\"。",
+      "synthesize": "立即合成",
+      "history": "📜 历史版本",
+      "editManual": "编辑手写",
+      "synthesizedAt": "合成于 {date}",
+      "userEdited": "用户手改",
+      "degraded": "⚠️ 降级",
+      "manualEditTitle": "编辑手写段(synthesizer 不会覆盖)",
+      "manualEditPlaceholder": "在这里写下你希望补充的内容(Markdown 支持)",
+      "toast": {
+        "synthesisFailed": "合成失败",
+        "synthesisCompleted": "合成完成",
+        "synthesisDegraded": "合成完成(降级模式)",
+        "synthesisSkipped": "已跳过(并发运行中)",
+        "manualSaved": "手写段已保存"
+      }
+    },
+    "policyToast": {
+      "downgradedTitle": "永久授权已降级为本次",
+      "downgradedDescDefault": "{tool} 不支持 always 授权，已降级为 once。",
+      "approvalRequired": "需要审批",
+      "policyDeny": "Policy 拒绝",
+      "fallbackTool": "该工具"
+    },
+    "error": {
+      "budgetCost": "💴 费用预算已用尽",
+      "budgetTime": "⏱️ 时间预算已用尽",
+      "budgetTokens": "🔢 Token 预算已用尽",
+      "budgetGeneric": "💸 预算已用尽",
+      "usagePctSuffix": " (已用 {pct}%)",
+      "exhausted": "🔁 已达最大迭代次数",
+      "abortedHuman": "🛑 人工中止",
+      "exhaustedAbort": "🛑 达最大迭代次数后被人工中止",
+      "checksConfig": "⚙️ acceptance.checks 配置错误",
+      "longTaskRuntime": "⚠️ 长任务运行时错误"
+    },
+    "followUp": {
+      "hint": "留空 = 沿用本任务配置；填写即本次覆盖（不影响后续继续批示）。",
+      "advanced": "高级选项（本次覆盖）",
+      "longTask": "长任务模式 (本次覆盖)",
+      "timeoutLabel": "超时时间 (秒)",
+      "maxIterLabel": "最大迭代次数",
+      "tokenBudgetLabel": "Token 预算",
+      "costBudgetLabel": "费用预算 (CNY)",
+      "reviewPolicyLabel": "审核策略",
+      "longTaskEnableLabel": "本次启用长任务模式",
+      "longTaskEnableTooltip": "启用后本次 follow-up 走 actor → checks → critic 多轮路径",
+      "criticLabel": "监督者 (可多选)",
+      "criticRequired": "至少选一位监督者",
+      "criticPlaceholder": "选择监督者",
+      "criticOverlapTitle": "执行者与监督者重合",
+      "criticOverlapDesc": "本任务的执行者（{id}）也被选为监督者，自我审议会显著降低 critic 客观性，建议改选独立角色。",
+      "strictnessLabel": "Critic 严苛度",
+      "maxOuterLabel": "最多迭代轮数",
+      "minOuterLabel": "最少迭代轮数 (持续优化)",
+      "minOuterTooltip": "≥2 时即使 critic 第一轮 PASS 也强制继续",
+      "exhaustionLabel": "耗尽时",
+      "placeholderInherit": "留空沿用"
+    }
+  },
+  "cabinet": {
+    "title": "规划中心",
+    "overview": "规划概览",
+    "noPersonas": "未找到规划角色",
+    "globalDefault": "全局默认",
+    "thresholdHint": "规划阈值：goal < 100 字 且无约束/输出格式 → 跳过规划（直通执行）",
+    "stats": "规划统计",
+    "history": "近期规划记录",
+    "stat": {
+      "total": "总任务数",
+      "passthrough": "直通（跳过规划）",
+      "dag": "DAG 生成",
+      "avgTasks": "均子任务数"
+    },
+    "table": {
+      "edict": "任务",
+      "planType": "规划结果",
+      "planner": "规划角色",
+      "assigned": "指派",
+      "taskCount": "子任务数",
+      "createdAt": "创建时间"
+    },
+    "planType": {
+      "dag": "DAG 规划",
+      "passthrough": "直通"
+    },
+    "tag": {
+      "global": "全局",
+      "auto": "自动"
+    },
+    "empty": "暂无规划记录"
+  },
+  "consultation": {
+    "title": "讨论",
+    "submit": "发起讨论",
+    "topic": "议题",
+    "context": "背景（选填）",
+    "participants": "参与角色",
+    "topicPlaceholder": "请输入议题",
+    "contextPlaceholder": "提供额外上下文信息",
+    "participantsPlaceholder": "选择参与讨论的角色",
+    "history": "历史：",
+    "round": "讨论 #{n}",
+    "preparing": "讨论准备中...",
+    "running": "讨论进行中...",
+    "failedTitle": "讨论失败",
+    "failedSubtitle": "请稍后重试",
+    "synthesisTitle": "综合意见",
+    "decisionTitle": "决策"
+  },
+  "hongluisi": {
+    "title": "网络中心",
+    "section": {
+      "tools": "工具状态",
+      "preferences": "引擎偏好（系统默认）",
+      "credentials": "凭证管理",
+      "recent": "最近访问"
+    },
+    "tool": {
+      "enabled": "已启用",
+      "disabled": "未启用",
+      "apiRequestCredentialTooltip": "每次调用按 URL host 从凭证库里查对应 token 动态注入 Authorization；不依赖全局 provider key。配置路径：系统 → 外部凭证 → 任务凭证",
+      "apiRequestCredentialTag": "凭证: 系统 (任务级)",
+      "keyPrefix": "Key:"
+    },
+    "toolsHint1": "启用情况取决于 profile + env keys + 主密钥（",
+    "toolsHint2": " 控制 api_request；",
+    "toolsHint3": " 控制 web_extract）。",
+    "preferences": {
+      "save": "保存",
+      "intro": "覆盖 profile 预设的引擎选择；任务创建时的 override 优先级最高。留空 = 沿用 profile 默认。改动立即生效，无需重启。",
+      "fetchChainLabel": "web_fetch 引擎链（按顺序尝试，第一个 ok 即返回）",
+      "fetchChainPlaceholder": "留空 = 沿用 profile（如 DEFAULT=local+jina）",
+      "fallbackLabel": "fallback_mode（引擎失败/空时是否切下一个）",
+      "fallbackProfile": "沿用 profile",
+      "fallbackOnErrorOrEmpty": "失败/空即切",
+      "fallbackNone": "只用首个引擎",
+      "searchLabel": "web_search provider",
+      "browserEnginesLabel": "Scrapling 浏览器引擎",
+      "browserEnginesHint": "浏览器引擎需要浏览器二进制 —— 请先运行 `scrapling install`。",
+      "enableDynamic": "启用 scrapling_dynamic（Chromium，渲染 JS）",
+      "enableStealthy": "启用 scrapling_stealthy（Camoufox，过 Cloudflare）"
+    },
+    "credentials": {
+      "goto": "前往系统",
+      "desc1": "外部 API 凭证（GitHub / Notion / ...）由",
+      "desc2": " 系统 · 外部凭证 ",
+      "desc3": "加密托管（Fernet 对称加密，主密钥来自 env）。LLM 全程不可见 credential value，只按 host 匹配自动注入 Authorization header。"
+    },
+    "recent": {
+      "viewAll": "查看全部",
+      "empty": "还没有网络工具调用记录"
+    },
+    "table": {
+      "time": "时间",
+      "tool": "工具",
+      "host": "Host",
+      "method": "方法",
+      "status": "状态",
+      "credential": "凭证"
+    },
+    "toast": {
+      "saved": "已保存，立即生效",
+      "saveFailed": "保存失败"
+    }
+  },
+  "tongzheng": {
+    "title": "通知中心",
+    "section": {
+      "bot": "飞书机器人",
+      "assistant": "飞书助手"
+    },
+    "status": {
+      "running": "运行中（{mode}）",
+      "off": "未启用",
+      "fromEnv": "来自环境变量（保存后切换为 DB）",
+      "fromDb": "来自 DB"
+    },
+    "alert": {
+      "tipTitle": "提示",
+      "tip1Prefix": "保存配置需要先设置环境变量 ",
+      "tip1Suffix": "（用 cryptography.fernet 生成）",
+      "tip2Prefix": "修改 ",
+      "tip2Suffix": " 后保存才会写入 DB；空着保存 = 不修改",
+      "tip3": "保存后自动热加载，无需重启服务",
+      "tip4Prefix": "需先在飞书开发者后台开启「机器人」「事件订阅」「卡片回调」等能力，详见 ",
+      "tip4Suffix": "",
+      "assistantTitle": "助手是飞书侧的命令路由 + 自然语言对话层",
+      "assistant1": "选一个规划角色兼任飞书助手，借用其名字 + emoji 作为回信人格",
+      "assistant2": "非命令消息默认进入 chat 任务，与该角色进行多轮对话"
+    },
+    "field": {
+      "appId": "App ID",
+      "appSecret": "App Secret",
+      "appSecretConfigured": "（已配置）",
+      "appSecretMissing": "（未配置）",
+      "appSecretExtra": "留空 = 不修改；填新值 = 替换；空字符串 = 清空",
+      "domain": "域",
+      "connectionMode": "连接模式",
+      "webhookPath": "Webhook 路径",
+      "allowedUsers": "允许用户（Allowlist）",
+      "allowedUsersExtra": "逗号分隔的 open_id；留空 = 任何人都放行（与 hermes 一致）。生产环境建议填写以避免误开放。",
+      "homeChannel": "Home 频道（可选）",
+      "homeChannelExtra": "cron 触发结果与无源任务审批的兜底 chat_id",
+      "botOpenId": "机器人 Open ID（群 @ 检测）",
+      "encryptKey": "加密密钥（Webhook 模式）",
+      "verificationToken": "校验 Token（Webhook 模式）",
+      "wsReconnect": "WS 重连间隔（秒）",
+      "textBatchDelay": "文本批处理静默期（秒）",
+      "dedupCacheSize": "消息去重缓存大小",
+      "assistantPersona": "助手 Persona",
+      "assistantPersonaExtra": "助手用此角色的人格渲染回信；不影响该角色原本的任务",
+      "enableEdict": "允许助手下发任务",
+      "enableEdictExtra": "开启后助手可在对话中调用 submit_edict 工具新建任务（与 cli `tianshu edict submit` 同路径）。关闭则只回答不下发。"
+    },
+    "placeholder": {
+      "appSecretConfigured": "已存储，留空不修改",
+      "appSecretMissing": "secret_xxx",
+      "allowedUsers": "留空 = 放行任意；或填 ou_a,ou_b 限制",
+      "homeChannel": "oc_xxxxxxxxx",
+      "botOpenId": "ou_bot_xxx",
+      "encryptKey": "可选",
+      "verificationToken": "可选",
+      "assistantPersona": "选择一个角色"
+    },
+    "option": {
+      "domainFeishu": "feishu (China)",
+      "domainLark": "lark (国际)",
+      "modeWebsocket": "WebSocket（推荐，无需公网）",
+      "modeWebhook": "Webhook（HTTP 回调）"
+    },
+    "action": {
+      "save": "保存并热加载",
+      "reset": "重置"
+    },
+    "toast": {
+      "saved": "已保存",
+      "savedReloaded": "配置已保存并热加载完成",
+      "savedNoReload": "配置已保存（{reason}）",
+      "saveFailed": "保存失败"
+    },
+    "tg": {
+      "section": {
+        "bot": "Telegram 机器人",
+        "assistant": "Telegram 助手"
+      },
+      "alert": {
+        "tipTitle": "配置提示",
+        "tip1": "在 @BotFather 创建机器人获取 Bot Token",
+        "tip2": "默认长轮询（polling）无需公网；webhook 需公网 HTTPS + Secret",
+        "tip3": "allowlist 为空 = 放行任意用户，生产环境务必配置",
+        "tip4": "Home 频道用于 cron 结果 / 无源审批兜底（私聊或群 chat_id，群为负数）"
+      },
+      "field": {
+        "botToken": "Bot Token",
+        "botTokenConfigured": "（已配置）",
+        "botTokenMissing": "（未配置）",
+        "botTokenExtra": "留空 = 不修改；清空内容并保存 = 删除",
+        "connectionMode": "连接模式",
+        "allowedUsers": "允许用户（user_id，逗号分隔）",
+        "allowedUsersExtra": "Telegram 数字 user_id；空 = 放行任意",
+        "homeChannel": "Home 频道（可选）",
+        "homeChannelExtra": "cron / 无源审批兜底 chat_id",
+        "webhookPath": "Webhook 路径",
+        "webhookSecret": "Webhook Secret",
+        "pollTimeout": "长轮询超时（秒）",
+        "textBatchDelay": "文本批处理延迟（秒）",
+        "dedupCacheSize": "去重缓存大小"
+      },
+      "placeholder": {
+        "botTokenConfigured": "已配置（留空不改）",
+        "botTokenMissing": "123456:ABC-DEF...",
+        "allowedUsers": "如 123456789,987654321",
+        "homeChannel": "如 123456789 或 -1001234567890",
+        "webhookSecret": "32 字节随机串（webhook 模式必填）"
+      },
+      "option": {
+        "modePolling": "长轮询（推荐，无需公网）",
+        "modeWebhook": "Webhook（需公网 HTTPS）"
+      }
+    },
+    "instances": {
+      "title": "渠道实例",
+      "addFeishuBtn": "+ 新增飞书实例",
+      "addTelegramBtn": "+ 新增 Telegram 实例",
+      "addFeishu": "新增飞书实例",
+      "addTelegram": "新增 Telegram 实例",
+      "editTitle": "编辑实例",
+      "colLabel": "标签",
+      "colChannel": "渠道",
+      "colRunning": "运行",
+      "colEnabled": "启用",
+      "colActions": "操作",
+      "edit": "编辑",
+      "delete": "删除",
+      "deleteConfirm": "确认删除该实例？此操作不可撤销。",
+      "defaultTag": "默认",
+      "stopped": "未运行",
+      "secretConfigured": "（已配置，留空不改）",
+      "fieldLabel": "标签",
+      "fieldLabelPlaceholder": "便于识别的名称，如「客服飞书」",
+      "fieldEnabled": "启用",
+      "botName": "机器人名称",
+      "botNamePlaceholder": "可选，用于群 @ 检测",
+      "intentLlm": "意图识别（LLM）"
+    }
+  },
+  "cost": {
+    "title": "成本中心",
+    "period": {
+      "day": "今日",
+      "week": "本周",
+      "month": "本月"
+    },
+    "summary": {
+      "totalCost": "总成本 (CNY)",
+      "totalTokens": "总 Token",
+      "promptTokens": "输入 Token",
+      "completionTokens": "输出 Token"
+    },
+    "budget": {
+      "title": "预算",
+      "empty": "暂未设置预算",
+      "set": "设置预算",
+      "edit": "修改预算",
+      "remaining": "剩余: ¥{remaining} ({period})",
+      "amountInvalid": "预算金额须大于零",
+      "updated": "预算已更新"
+    },
+    "trend": {
+      "title": "成本趋势",
+      "empty": "暂无成本记录",
+      "date": "日期",
+      "tokens": "Token",
+      "cost": "成本 (CNY)"
+    },
+    "record": {
+      "time": "时间",
+      "edictId": "任务编号",
+      "model": "模型",
+      "promptTokens": "输入",
+      "completionTokens": "输出",
+      "totalTokens": "总量",
+      "cost": "成本 (CNY)"
+    },
+    "pricing": {
+      "title": "提供方计价",
+      "perKHint": "每千 token CNY；空白字段落默认价表",
+      "viewDefault": "查看默认价表",
+      "name": "名称",
+      "model": "模型",
+      "miss": "Input miss ¥/1K",
+      "hit": "Input hit ¥/1K",
+      "out": "Output ¥/1K",
+      "source": "来源",
+      "actions": "操作",
+      "sourceLabel": {
+        "custom": "自定义",
+        "mixed": "部分自定义",
+        "default": "默认价表"
+      },
+      "edit": "编辑",
+      "reset": "重置",
+      "resetConfirm": "重置为默认价表？",
+      "resetDesc": "清空自定义 3 维价，回退到 _DEFAULT_PRICING。",
+      "editTitle": "编辑「{name}」三维价",
+      "promptLabel": "Input ¥/1K（缓存未中）",
+      "promptPlaceholder": "留空 = 用默认价表",
+      "cacheLabel": "Input ¥/1K（缓存命中折扣价）",
+      "cachePlaceholder": "留空 = 与未中价相同（无折扣）",
+      "outputLabel": "Output ¥/1K",
+      "tip": "提示：留空字段会落回 _DEFAULT_PRICING。修改立即生效，下次 LLM 调用按新价计费。",
+      "defaultTitle": "默认价表 (_DEFAULT_PRICING)",
+      "defaultIntro": "provider 自定义价格未填字段时，按 model 名匹配此表。匹配不到则用兜底价。",
+      "fallback": "兜底价（未命中表时）：",
+      "saved": "已保存",
+      "saveFailed": "保存失败：{err}",
+      "resetDone": "已重置为默认价表",
+      "resetFailed": "重置失败：{err}",
+      "loadDefaultFailed": "加载默认价表失败：{err}"
+    }
+  },
+  "persona": {
+    "title": "角色管理",
+    "tab": {
+      "personas": "角色列表",
+      "departments": "部门管理",
+      "routing": "路由规则"
+    },
+    "action": {
+      "addPersona": "添加角色",
+      "addDept": "添加部门"
+    },
+    "empty": {
+      "noPersonas": "暂无角色配置",
+      "noDeptPersonas": "该部门下无角色",
+      "noDepartments": "暂无部门",
+      "noMapping": "暂无映射",
+      "noRules": "暂无规则"
+    },
+    "filter": {
+      "deptAll": "全部部门",
+      "byDept": "按部门筛选"
+    },
+    "card": {
+      "delegate": "可委派",
+      "globalRead": "全局读",
+      "toolPermission": "工具权限",
+      "specifiedTools": "指定工具",
+      "deniedTools": "禁用工具",
+      "skills": "技能注入",
+      "delegatesTo": "可委派至",
+      "llmConfig": "LLM 配置",
+      "allSkills": "全部技能（无过滤）"
+    },
+    "tier": {
+      "tier0": "仅监控/审核，不操作工具",
+      "tier1": "基础工具（只读）",
+      "tierN": "可使用 tier ≤ {n} 的所有工具"
+    },
+    "metric": {
+      "total": "总执行",
+      "completed": "完成",
+      "failed": "失败",
+      "successRate": "成功率",
+      "totalTokens": "总 Token",
+      "avgTokens": "均 Token",
+      "totalCost": "总成本",
+      "avgDuration": "均耗时",
+      "empty": "暂无指标数据"
+    },
+    "confirm": {
+      "deletePersona": "确定删除该角色？",
+      "deletePersonaDesc": "删除后不可恢复",
+      "deleteDept": "确定删除该部门？",
+      "deleteDeptDesc": "仅当部门下无角色时可删除"
+    },
+    "department": {
+      "table": {
+        "id": "ID",
+        "name": "名称",
+        "description": "描述",
+        "personaCount": "角色数量",
+        "actions": "操作"
+      }
+    },
+    "routing": {
+      "defaultMapTitle": "默认任务映射",
+      "keywordMapTitle": "关键词匹配规则",
+      "delegationChainTitle": "委派链路",
+      "table": {
+        "taskType": "任务类型",
+        "status": "状态",
+        "personaId": "角色 ID",
+        "personaName": "角色名称",
+        "department": "部门",
+        "preferredDept": "期望部门",
+        "keywords": "关键词",
+        "fromName": "委派方",
+        "fromId": "委派方 ID",
+        "delegatesTo": "可委派至"
+      },
+      "fallback": "回退",
+      "normal": "正常",
+      "fallbackTooltip": "缺少 {dept} 部门的角色，已回退"
+    },
+    "toast": {
+      "personaCreated": "角色已创建",
+      "personaUpdated": "角色已更新",
+      "personaDeleted": "角色已删除",
+      "deptCreated": "部门已创建",
+      "deptUpdated": "部门已更新",
+      "deptDeleted": "部门已删除",
+      "deptDeleteFailed": "删除失败，该部门下仍有角色",
+      "regenerateSuccess": "角色档案已重新生成",
+      "regenerateSuccessDesc": "SOUL.md / ROLE.md 已基于姓名、部门、职务重写。",
+      "regenerateFailed": "重新生成失败"
+    },
+    "detail": {
+      "title": "角色详情",
+      "notFound": "未找到该角色",
+      "pageTitle": "{name}: {dept}",
+      "pageTitleWithTitle": "{name}（{title}）: {dept}",
+      "regenerate": "重新生成角色档案",
+      "regenerateConfirm": "重新生成角色档案？",
+      "regenerateDesc": "将基于当前姓名/部门/职务覆盖 SOUL.md 与 ROLE.md，原文件内容会丢失。",
+      "regenerateOk": "覆盖重写",
+      "back": "返回{name}",
+      "tab": {
+        "overview": "概览",
+        "prompt": "指令文件",
+        "history": "执行记录",
+        "memory": "记忆",
+        "profile": "成长档案"
+      },
+      "section": {
+        "identity": "身份信息",
+        "toolsSkills": "工具与技能",
+        "delegation": "权限与委派",
+        "metrics": "执行指标",
+        "instructionFiles": "指令文件",
+        "memoryEntries": "记忆条目"
+      },
+      "field": {
+        "id": "ID",
+        "name": "名称",
+        "dept": "部门",
+        "title": "职务",
+        "llmConfig": "LLM 配置",
+        "toolPermission": "工具权限等级",
+        "toolsAllowed": "允许工具",
+        "toolsDenied": "禁用工具",
+        "skills": "技能注入",
+        "canDelegate": "可委派",
+        "memoryGlobalRead": "读取全部记忆",
+        "delegatesTo": "可委派至"
+      },
+      "value": {
+        "notAssigned": "未指派",
+        "globalConfig": "全局配置",
+        "yes": "是",
+        "no": "否",
+        "none": "无",
+        "allSkills": "全部技能（无过滤）",
+        "noSpecified": "无指定（按 tier 过滤）"
+      },
+      "previewBtn": "预览完整 Prompt",
+      "history": {
+        "empty": "暂无执行记录",
+        "viewEdict": "查看任务",
+        "count": "{n} 条执行记录"
+      },
+      "memory": {
+        "count": "{n} 条"
+      }
+    },
+    "form": {
+      "persona": {
+        "addTitle": "添加角色",
+        "editTitle": "编辑角色",
+        "field": {
+          "id": "ID",
+          "name": "名称",
+          "title": "职务（部门内岗位）",
+          "department": "部门",
+          "llmConfig": "LLM 配置",
+          "toolsAllowed": "允许工具",
+          "toolsDenied": "禁用工具",
+          "skills": "技能",
+          "tierMax": "最大工具等级",
+          "canDelegate": "可委派",
+          "memoryGlobalRead": "读取全部记忆",
+          "delegatesTo": "可委派目标",
+          "template": "角色模板",
+          "templateLang": "模板语言"
+        },
+        "placeholder": {
+          "id": "如 bingbu, neige",
+          "name": "如 王阳明、负责人",
+          "title": "如 主管、协助员（可选）",
+          "department": "选择部门",
+          "llmConfig": "使用全局配置（默认）",
+          "toolsAllowed": "选择允许使用的工具",
+          "toolsDenied": "选择禁用的工具",
+          "skills": "选择技能（留空 = 全部注入）",
+          "delegatesTo": "选择可委派的角色",
+          "template": "可选：选一个角色模板自动生成人格与职责"
+        },
+        "validation": {
+          "idRequired": "请输入 ID",
+          "idPattern": "仅允许小写字母、数字和下划线",
+          "nameRequired": "请输入名称",
+          "titleMax": "最多 32 字",
+          "departmentRequired": "请选择部门"
+        },
+        "tooltip": {
+          "title": "如：主管、协助员、参谋。可选；填了之后会写入角色卡，自报家门更准确。",
+          "template": "选择后会用模板内容生成 SOUL（人格）和 ROLE（职责）并预填名称；不选则按部门生成基础骨架。"
+        },
+        "llmConfigGlobal": "使用全局配置（默认）",
+        "mcpAllOf": "MCP server '{name}' 的全部工具",
+        "toolsWildcardHint": "可输入工具名或 fnmatch 通配符（例：mcp_context7_* 整个 server 一键授权，mcp_*_delete_* 禁所有 delete 工具）。",
+        "soulPreview": "SOUL · 人格预览",
+        "rolePreview": "ROLE · 职责预览",
+        "fieldHint": {
+          "memoryGlobalRead": "高权限：可读全体角色记忆，谨慎开启"
+        }
+      },
+      "department": {
+        "addTitle": "添加部门",
+        "editTitle": "编辑部门",
+        "field": {
+          "id": "部门 ID",
+          "name": "部门名称",
+          "description": "描述"
+        },
+        "placeholder": {
+          "id": "如 bingbu, neige",
+          "name": "如 执行部 (Execution)",
+          "description": "部门职责描述（可选）"
+        },
+        "validation": {
+          "idRequired": "请输入部门 ID",
+          "idPattern": "仅允许小写字母、数字和下划线",
+          "nameRequired": "请输入部门名称"
+        }
+      }
+    }
+  },
+  "memory": {
+    "title": "记忆中心",
+    "tab": {
+      "memory": "记忆摘要",
+      "history": "对话历史",
+      "maintenance": "维护"
+    },
+    "search": {
+      "placeholder": "搜索记忆...",
+      "submit": "检索",
+      "summary": "找到 {n} 条匹配 \"{q}\" 的记忆"
+    },
+    "selection": {
+      "selected": "已选 {n} 条",
+      "batchDelete": "批量删除",
+      "clearSelection": "取消选择",
+      "confirmBatchDelete": "确认删除选中的 {n} 条记忆？",
+      "confirmDelete": "确定删除此记忆？"
+    },
+    "summary": "{name} — 记忆",
+    "count": "{n} 条",
+    "empty": "暂无记忆",
+    "policy": {
+      "title": "访问策略",
+      "canRead": "可读取",
+      "canWrite": "可写入",
+      "shareLevel": "共享级别",
+      "none": "无",
+      "missing": "该模块暂无策略配置"
+    },
+    "table": {
+      "category": "分类",
+      "content": "内容",
+      "source": "来源",
+      "access": "权限",
+      "confidence": "置信度",
+      "time": "时间"
+    },
+    "category": {
+      "observation": "观察",
+      "insight": "洞察",
+      "entity": "实体",
+      "summary": "摘要"
+    },
+    "history": {
+      "empty": "暂无对话历史",
+      "expand": "展开",
+      "count": "{n} 条对话"
+    },
+    "stats": {
+      "entries": "记忆条目",
+      "tokens": "估算 Token",
+      "files": "Markdown 文件",
+      "size": "文件大小",
+      "byCategory": "分类统计"
+    },
+    "compact": {
+      "title": "记忆压缩",
+      "desc": "将超过指定天数的旧记忆压缩为摘要，节省 Token 用量。",
+      "prefix": "压缩",
+      "suffix": "天前的记忆",
+      "submit": "执行压缩"
+    },
+    "reflect": {
+      "title": "记忆反思",
+      "desc": "使用 LLM 从观察记忆中提取洞察和模式。每个模块有 1 小时冷却期。",
+      "submit": "触发反思"
+    },
+    "toast": {
+      "deleted": "记忆已删除",
+      "batchDeleted": "已删除 {n} 条记忆",
+      "batchDeleteFailed": "批量删除失败",
+      "compactCompleted": "压缩完成",
+      "compactCompletedDesc": "{from} → {to} 条，节省约 {tokens} tokens",
+      "compactSkipped": "跳过压缩",
+      "compactResult": "压缩结果",
+      "reflectCompleted": "反思完成",
+      "reflectCompletedDesc": "生成 {n} 条洞察",
+      "reflectCooldown": "冷却中",
+      "reflectResult": "反思结果"
+    }
+  },
+  "scheduler": {
+    "title": "调度中心",
+    "table": {
+      "jobId": "调度 ID",
+      "edictId": "任务 ID",
+      "scheduleType": "调度类型",
+      "nextRun": "下次执行",
+      "actions": "操作"
+    },
+    "popconfirm": {
+      "cancel": "确认取消此排期？"
+    },
+    "empty": "暂无排期任务",
+    "toast": {
+      "cancelled": "排期已取消",
+      "cancelFailed": "取消失败"
+    }
+  },
+  "system": {
+    "title": "系统管理",
+    "tab": {
+      "skills": "技能库",
+      "secretSkills": "习得技能",
+      "tools": "工具箱",
+      "prompt": "Prompt 模板",
+      "providers": "模型供应",
+      "plugins": "插件",
+      "config": "全局配置",
+      "externalCreds": "外部凭证",
+      "mcp": "MCP"
+    },
+    "skills": {
+      "charsLoaded": "已加载 {n} chars",
+      "newSkill": "新建技能",
+      "detail": "技能详情",
+      "detailWithName": "技能: {name}",
+      "notFound": "未找到技能",
+      "createTitle": "新建技能",
+      "confirmDelete": "确认删除此技能？",
+      "table": {
+        "name": "名称",
+        "description": "描述",
+        "source": "来源",
+        "toolTier": "工具等级",
+        "chars": "字符数",
+        "actions": "操作"
+      },
+      "form": {
+        "name": "技能名称",
+        "content": "SKILL.md 内容",
+        "namePlaceholder": "例如 my-skill",
+        "contentPlaceholder": "在此输入 SKILL.md 内容...",
+        "nameRequired": "请输入技能名称",
+        "namePattern": "仅支持字母、数字、下划线、连字符"
+      }
+    },
+    "tools": {
+      "liveAlert": "工具启用开关 live 生效 — 关闭后 LLM 在下一轮调用里看不到此工具；无需重启。",
+      "table": {
+        "enabled": "启用",
+        "name": "名称",
+        "description": "描述",
+        "tier": "等级",
+        "personas": "关联 Persona"
+      }
+    },
+    "prompt": {
+      "layeredAnalysis": "Prompt 分层分析",
+      "totalChars": "总字符数",
+      "estTokens": "估算 Token",
+      "layerCount": "层数",
+      "layeredFor": "{name} — Prompt 分层",
+      "templateFiles": "部门模板文件",
+      "emptyFiles": "暂无 Prompt 文件",
+      "usingTemplate": "使用此模板的官员（点击查看/编辑 Prompt 分层）",
+      "preview": "预览",
+      "editFile": "编辑文件",
+      "editFileTitle": "编辑: {personaId}/{filename}",
+      "previewModalTitle": "System Prompt 预览: {persona}",
+      "previewEmpty": "无法生成预览",
+      "table": {
+        "layer": "层",
+        "name": "名称",
+        "source": "来源",
+        "chars": "字符",
+        "tokensEst": "Token (est)",
+        "percent": "占比",
+        "actions": "操作"
+      }
+    },
+    "providers": {
+      "listTitle": "Provider 列表",
+      "llmConfigTitle": "LLM 配置",
+      "addConfig": "添加配置",
+      "addConfigTitle": "添加模型配置",
+      "active": "活跃",
+      "activate": "激活",
+      "empty": "暂无 Provider",
+      "confirmDeleteProvider": "确定删除？",
+      "confirmDeleteConfig": "确认删除此配置？",
+      "costNoCustom": "未配置自定义价 — 落 _DEFAULT_PRICING 默认表",
+      "costAllCustom": "全部自定义",
+      "costPartial": "部分自定义（其余字段落默认价表）",
+      "table": {
+        "name": "名称",
+        "model": "模型",
+        "status": "状态",
+        "priority": "优先级",
+        "rpm": "RPM",
+        "cost": "三维价 ¥/1K"
+      },
+      "form": {
+        "name": "配置名称",
+        "model": "模型",
+        "namePlaceholder": "例如 gpt-4o",
+        "modelPlaceholder": "例如 gpt-4o",
+        "apiKeyPlaceholder": "可选",
+        "apiBasePlaceholder": "可选",
+        "newKeyPlaceholder": "输入新 Key 以更新",
+        "apiBaseExample": "https://open.bigmodel.cn/api/paas/v4",
+        "nameRequired": "请输入配置名称",
+        "modelRequired": "请输入模型名"
+      }
+    },
+    "plugins": {
+      "empty": "暂无插件",
+      "table": {
+        "name": "名称",
+        "version": "版本",
+        "status": "状态",
+        "sha256": "SHA256",
+        "installedAt": "安装时间"
+      }
+    },
+    "globalConfig": {
+      "agentSection": "Agent 参数",
+      "agentMaxIter": "最大迭代次数",
+      "agentTimeout": "执行超时 (秒)",
+      "skillSection": "Skill 参数",
+      "skillCharBudget": "字符预算",
+      "apply": "应用"
+    },
+    "externalCreds": {
+      "edictAuthLabel": "任务凭证",
+      "engineLabel": "引擎配置",
+      "add": "新增",
+      "engineAlertMsg": "引擎配置用于给 web_fetch / web_search / web_extract 使用的 Jina / Tavily / Firecrawl 服务传入 API Key。",
+      "engineAlertDesc": "DB 里配置后优先使用；没有则回落 .env；修改后立即生效（后端 live rebuild）。",
+      "edictEmpty": "还没添加任何外部凭证。点右上角「新增」开始。",
+      "engineEmpty": "还没配置任何引擎 Provider key。",
+      "addEdictTitle": "新增外部凭证",
+      "addEngineTitle": "新增引擎 Provider Key",
+      "editEngineTitle": "修改 Provider Key",
+      "editCredTitle": "修改凭证",
+      "immutableHint": "名称 / host / template / provider 不可修改（改动请删除重建）",
+      "edit": "修改",
+      "delEdictPopconfirm": "删除此凭证？引用它的任务将无法再注入 header。",
+      "delEnginePopconfirm": "删除此 provider key？对应引擎立即降级（回落 env 或关闭）。",
+      "vaultTitle": "尚未配置主密钥 TIANSHU_SECRET_MASTER_KEY",
+      "vaultDescPara1": "外部凭证用 Fernet 对称加密存储，需要先给系统配置一把主密钥才能启用。密钥丢失等于所有已存凭证不可恢复，请妥善备份。",
+      "vaultStepLabel": "配置步骤",
+      "vaultStep1": "1) 生成一把 Fernet 密钥：",
+      "vaultStep2": "2) 把输出写进项目根目录的 .env：",
+      "vaultStep3": "3) 重启系统后台进程 → 刷新本页。其它已注册的网络工具（web_fetch / web_search / web_extract）不受影响。",
+      "vaultRecheck": "我已配置，重新检测",
+      "infoLabel": "名称：",
+      "infoProvider": "Provider：",
+      "infoHost": "匹配域：",
+      "infoHeader": "Header 模板：",
+      "table": {
+        "name": "名称",
+        "enabled": "启用",
+        "hostPattern": "匹配域",
+        "headerTemplate": "Header 模板",
+        "provider": "Provider",
+        "lastUsed": "最近使用",
+        "actions": "操作"
+      },
+      "form": {
+        "name": "名称",
+        "hostPattern": "匹配域 (例: api.github.com 或 *.notion.com)",
+        "headerTemplate": "Header 模板",
+        "provider": "Provider",
+        "value": "Value",
+        "newValue": "新 Value",
+        "extraHeaders": "Extra Headers (JSON)",
+        "namePlaceholderEdict": "github-prod-token",
+        "namePlaceholderEngine": "jina-prod",
+        "hostPlaceholder": "api.github.com",
+        "providerPlaceholder": "选择服务提供方",
+        "valuePlaceholder": "不会回显",
+        "newValuePlaceholder": "留空 = 保留原 value",
+        "extraHeadersPlaceholder": "例: {\"Notion-Version\": \"2022-06-28\"}",
+        "headerTemplateTooltip": "用 {value} 做占位符",
+        "newValueTooltip": "留空 = 不修改 value"
+      }
+    },
+    "toast": {
+      "skillSaved": "技能已保存",
+      "skillCreated": "技能 \"{name}\" 已创建",
+      "skillDeleted": "技能 \"{name}\" 已删除",
+      "toolEnabled": "已启用 {name}",
+      "toolDisabled": "已禁用 {name}",
+      "actionFailed": "操作失败",
+      "fileSaved": "文件已保存",
+      "noChanges": "无变更",
+      "llmConfigUpdated": "配置已更新",
+      "llmConfigAdded": "配置 \"{name}\" 已添加",
+      "llmConfigDuplicate": "名称已存在",
+      "providerDeleted": "Provider \"{name}\" 已删除",
+      "llmConfigSwitched": "已切换活跃配置为 \"{name}\"",
+      "llmConfigDeleted": "配置 \"{name}\" 已删除",
+      "agentParamsUpdated": "执行参数已更新",
+      "credLoadFailed": "加载凭证失败",
+      "credCreated": "凭证已创建",
+      "credCreatedLive": "已创建，立即生效",
+      "credCreateFailed": "创建失败",
+      "credDeleted": "凭证已删除",
+      "credDeleteFailed": "删除失败",
+      "credSaved": "已保存",
+      "credSaveFailed": "保存失败",
+      "credToggleFailed": "切换失败",
+      "extraHeadersInvalid": "extra_headers 不是合法 JSON"
+    },
+    "mcp": {
+      "reload": "重载",
+      "configHint": "编辑 ~/.tianshu/mcp_servers.yaml 后点重载生效。",
+      "empty": "尚未配置任何 MCP server。创建 ~/.tianshu/mcp_servers.yaml 来添加。",
+      "lastError": "最近一次错误",
+      "defaultTier": "默认 tier",
+      "timeout": "超时",
+      "enabled": "开",
+      "disabled": "关",
+      "discoveredTools": "发现的工具（{n}）",
+      "noTools": "未发现工具",
+      "status": {
+        "connected": "已连接",
+        "reconnecting": "重连中",
+        "error": "错误",
+        "stopped": "已停止",
+        "pending": "启动中",
+        "disabled": "已禁用",
+        "unknown": "未知"
+      },
+      "notify": {
+        "savedTitle": "已保存覆写",
+        "savedNeedReload": "点击重载以使变更生效。",
+        "errorTitle": "MCP 操作失败",
+        "reloadedTitle": "MCP 已重载",
+        "reloadedDesc": "已配置 {servers} 个 server，活跃会话 {active} 个。",
+        "createdTitle": "已创建 server",
+        "createdDesc": "{name} → {status}"
+      },
+      "addServer": "新增 server",
+      "create": {
+        "title": "新增 MCP server",
+        "submit": "创建",
+        "name": "名称",
+        "nameRequired": "名称必填",
+        "namePattern": "仅允许字母 / 数字 / 点 / 短横（不能含下划线）",
+        "nameHint": "用作命名空间前缀 mcp_<name>_<tool>，不能含下划线。",
+        "transport": "传输方式",
+        "command": "可执行命令",
+        "commandRequired": "stdio 方式必填 command",
+        "args": "命令参数",
+        "argsHint": "一行一个；不会解析引号/转义。",
+        "env": "环境变量",
+        "envHint": "${VAR} 在连接时从进程环境读取；日志/错误中 token 会自动脱敏。",
+        "url": "URL",
+        "urlRequired": "streamable-http 方式必填 URL",
+        "urlInvalid": "URL 格式不合法",
+        "headers": "请求头",
+        "advanced": "高级",
+        "defaultTier": "默认 tier",
+        "defaultTierHint": "工具默认权限。T2=网络（默认，需审批），T0=只读（快路径）。",
+        "timeout": "工具超时（秒）",
+        "connectTimeout": "连接超时（秒）",
+        "enabled": "启用",
+        "toolsInclude": "白名单（一行一个，空 = 全开）",
+        "toolsExclude": "黑名单",
+        "toolsFilterHint": "对应 server 的 tools/list 中的名字，用来隐藏不需要的工具。",
+        "addRow": "添加"
+      }
+    }
+  },
+  "skillsPage": {
+    "title": "技能管控面",
+    "table": {
+      "name": "名称",
+      "description": "描述",
+      "source": "来源",
+      "state": "状态",
+      "usage": "调用 / 成功率",
+      "flags": "标记",
+      "createdAt": "创建时间",
+      "actions": "操作"
+    },
+    "badge": {
+      "autoCurated": "自动固化",
+      "humanCurated": "人工校订（不会被自动迭代覆盖）",
+      "humanCuratedShort": "人工",
+      "pinned": "已 Pin（不会被自动清理）",
+      "pinnedShort": "Pin"
+    },
+    "action": {
+      "archive": "撤销",
+      "edit": "编辑",
+      "pin": "Pin",
+      "unpin": "取消 Pin"
+    },
+    "confirmArchive": "确认撤销此技能？归档后将不再生效（可恢复）。",
+    "editDialog": {
+      "title": "编辑技能",
+      "titleWithName": "编辑技能: {name}"
+    },
+    "toast": {
+      "archived": "技能「{name}」已归档",
+      "pinned": "技能「{name}」已 Pin",
+      "unpinned": "技能「{name}」已取消 Pin",
+      "editSaved": "已保存。已标记为人工校订（不会被自动迭代覆盖）。"
+    }
+  },
+  "study": {
+    "tab": {
+      "pending": "待处理",
+      "all": "全部任务"
+    }
+  }
+}

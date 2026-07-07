@@ -11,6 +11,7 @@ from tianshu.config_manager import ConfigManager
 from tianshu.models.common import AuditResult, EdictStatus, TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
+from tianshu.models.memorial import Memorial
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -30,20 +31,21 @@ class Auditor:
         self._rules = RulesEngine()
         self._reviewer = LLMReviewer(config_manager)
 
-    async def audit(self, edict: Edict, memorial: "Memorial") -> AuditResult:
+    async def audit(self, edict: Edict, memorial: Memorial) -> AuditResult:
         logger.debug("[AUDIT] Edict %s: start audit, policy=%s", edict.id, edict.review_policy)
         # Layer 1: fast rules
         result = self._rules.check(edict, memorial)
 
         # Layer 2: LLM review only if rules flagged
         if result.verdict == "flag" and edict.review_policy != "never":
-            result = await self._reviewer.review(
-                edict, memorial, result.reasons
-            )
+            result = await self._reviewer.review(edict, memorial, result.reasons)
 
         logger.debug(
             "[AUDIT] Edict %s: verdict=%s, reasons=%s, llm_reviewed=%s",
-            edict.id, result.verdict, result.reasons, result.verdict == "flag" and edict.review_policy != "never",
+            edict.id,
+            result.verdict,
+            result.reasons,
+            result.verdict == "flag" and edict.review_policy != "never",
         )
         return result
 
@@ -72,11 +74,12 @@ class Auditor:
         # Skip audit if policy is "never"
         if edict.review_policy == "never":
             audit_result = AuditResult(verdict="pass", rules_checked=0)
-        elif edict.review_policy == "always":
-            audit_result = await self.audit(edict, memorial)
-        elif edict.review_policy == "on_failure" and memorial.status == TaskStatus.FAILED:
-            audit_result = await self.audit(edict, memorial)
-        elif edict.review_policy == "on_flag":
+        elif (
+            edict.review_policy == "always"
+            or edict.review_policy == "on_failure"
+            and memorial.status == TaskStatus.FAILED
+            or edict.review_policy == "on_flag"
+        ):
             audit_result = await self.audit(edict, memorial)
         else:
             audit_result = AuditResult(verdict="pass", rules_checked=0)
@@ -99,12 +102,14 @@ class Auditor:
 
         self._storage.update_memorial(memorial)
 
-        # Auto-close edict if no human review required and execution succeeded
+        # Auto-close edict if no human review required and execution succeeded.
+        # 周期性敕令（cron/interval）每次运行后必须保持 OPEN，否则 _cron_loop /
+        # _interval_loop 下一轮会因 edict 非 open 而停止、重启时 _restore_jobs 也会取消。
         if (
             memorial.status == TaskStatus.COMPLETED
             and memorial.review_status == "not_required"
             and edict.status == EdictStatus.OPEN
-            and edict.schedule.type != "cron"
+            and edict.schedule.type not in ("cron", "interval")
         ):
             edict.status = EdictStatus.COMPLETED
             self._storage.update_edict(edict)

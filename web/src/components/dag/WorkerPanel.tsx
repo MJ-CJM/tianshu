@@ -1,4 +1,5 @@
 import { Card, Progress, Statistic, Space } from 'antd';
+import { useT } from "../../i18n";
 
 interface WorkerPanelProps {
   poolStatus?: {
@@ -14,6 +15,7 @@ interface WorkerPanelProps {
 }
 
 export default function WorkerPanel({ poolStatus, laneStatus }: WorkerPanelProps) {
+  const t = useT();
   if (!poolStatus) return null;
 
   const utilizationPct = poolStatus.max_concurrency > 0
@@ -30,19 +32,19 @@ export default function WorkerPanel({ poolStatus, laneStatus }: WorkerPanelProps
       />
       <Space direction="vertical" size={4} style={{ marginTop: 8, width: '100%' }}>
         <Statistic
-          title="已完成"
+          title={t("comp.worker.completed")}
           value={poolStatus.completed_count}
           valueStyle={{ fontSize: 16, color: '#52c41a' }}
         />
         <Statistic
-          title="失败"
+          title={t("comp.worker.failed")}
           value={poolStatus.failed_count}
           valueStyle={{ fontSize: 16, color: '#ff4d4f' }}
         />
       </Space>
       {laneStatus?.global && (
         <div style={{ marginTop: 8, borderTop: '1px solid #f0f0f0', paddingTop: 8 }}>
-          <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>全局 Lane</div>
+          <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>{t("comp.worker.globalLane")}</div>
           <Progress
             percent={
               laneStatus.global.max_concurrency > 0

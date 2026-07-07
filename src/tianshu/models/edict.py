@@ -8,14 +8,19 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from ulid import ULID
 
+from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import EdictStatus
 
 
 class EdictSchedule(BaseModel):
-    type: Literal["immediate", "once", "cron"] = "immediate"
+    type: Literal["immediate", "once", "cron", "interval"] = "immediate"
     at: datetime | None = None
     cron: str | None = None
+    interval_seconds: int | None = None  # type=="interval": 周期间隔秒数
     timezone: str = "UTC"
+    # 周期任务并发去重（Multica 借鉴 #2-A）：skip=上次未结束则跳过本次；allow=放行并发。
+    # queue/replace 语义需任务队列基础设施，收敛到 #3 Worker 队列。
+    concurrency_policy: Literal["skip", "allow"] = "skip"
 
 
 class EdictDispatch(BaseModel):
@@ -51,6 +56,19 @@ class EdictRuntime(BaseModel):
     # Spec Section 5: Policy Profile 预配权限
     policy_profile: PolicyProfilePayload | None = None
     tier_overrides: dict[str, int] = Field(default_factory=dict)
+    # 2026-04-21 web access: 钉死 engine / provider，存在则强制关闭 fallback
+    fetch_engine_override: str | None = None
+    search_provider_override: str | None = None
+    api_request_hosts: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="允许 api_request 调用的 host 列表（读方法）",
+    )
+    api_request_write_hosts: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="允许 api_request 写方法 (POST/PUT/DELETE/PATCH) 的 host；必须 ⊆ api_request_hosts",
+    )
+    # 新增：纯运行时 lifecycle 状态（独立于 EdictStatus）
+    lifecycle_phase: Literal["active", "paused", "winding_down", "complete"] = "active"
 
 
 class Edict(BaseModel):
@@ -72,6 +90,17 @@ class Edict(BaseModel):
     dispatch: EdictDispatch | None = None
     runtime: EdictRuntime = Field(default_factory=EdictRuntime)
     assigned_persona_id: str | None = None  # None = 内阁决策; 具体 ID = 直接指派
-    planner_persona_id: str | None = None  # None = 全局配置规划; 具体 ID = 指定内阁 persona 的 LLM 配置
+    planner_persona_id: str | None = (
+        None  # None = 全局配置规划; 具体 ID = 指定内阁 persona 的 LLM 配置
+    )
     plan_review: bool = False  # True = 规划需人工审批后再执行
+    acceptance: AcceptanceCriteria | None = None
+    execution_profile: Literal["foreground", "checkpointed", "background"] = "foreground"
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def title_from_goal(goal: str, title: str | None = None) -> str:
+    """缺省标题 = goal 前 20 字符（超长加省略号）。"""
+    if title:
+        return title
+    return goal[:20] + "…" if len(goal) > 20 else goal

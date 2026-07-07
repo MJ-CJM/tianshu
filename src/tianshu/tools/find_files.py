@@ -14,18 +14,13 @@ _MAX_OUTPUT_BYTES = 50_000
 
 
 def register_find_files(registry: ToolRegistry, workspace: Path) -> None:
-    async def find_files(
-        pattern: str, path: str = ".", limit: int = 1000
-    ) -> ToolResult:
+    async def find_files(pattern: str, path: str = ".", limit: int = 1000) -> ToolResult:
         search_path = safe_path(workspace, path)
         if not search_path.is_dir():
             return error_result(f"Error: '{path}' is not a directory")
 
         # Choose glob vs rglob based on pattern
-        if "**" in pattern:
-            matches_iter = search_path.glob(pattern)
-        else:
-            matches_iter = search_path.rglob(pattern)
+        matches_iter = search_path.glob(pattern) if "**" in pattern else search_path.rglob(pattern)
 
         # Collect up to limit entries without materializing the full iterator
         results: list[str] = []

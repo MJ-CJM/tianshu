@@ -7,9 +7,18 @@ function getWsUrl(): string {
   return `${protocol}//${loc.host}/api/ws`;
 }
 
+export type WsListener = (msg: WsMessage) => void;
+
 export function useWebSocket(): {
   isConnected: boolean;
   lastMessage: WsMessage | null;
+  /** 注册同步消息监听器；返回取消函数。
+   *
+   * 用于解决 React 18 自动批处理可能丢消息的场景：相邻两条 WS 消息
+   * 间隔很短时，setState 单值会被合并/覆盖，导致 useEffect 跑不到中间消息。
+   * 用 subscribe 注册的回调在 ws.onmessage 同步触发，每条消息都会被处理。
+   */
+  subscribe: (listener: WsListener) => () => void;
 } {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WsMessage | null>(null);
@@ -17,6 +26,14 @@ export function useWebSocket(): {
   const retryCountRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  const listenersRef = useRef<Set<WsListener>>(new Set());
+
+  const subscribe = useCallback((listener: WsListener) => {
+    listenersRef.current.add(listener);
+    return () => {
+      listenersRef.current.delete(listener);
+    };
+  }, []);
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
@@ -34,6 +51,16 @@ export function useWebSocket(): {
       if (!mountedRef.current) return;
       try {
         const msg: WsMessage = JSON.parse(event.data);
+        // 同步派发给所有 listener — 不走 React state，避免批处理丢消息
+        listenersRef.current.forEach((l) => {
+          try {
+            l(msg);
+          } catch (err) {
+            // 单个 listener 异常不影响其他 listener
+            // eslint-disable-next-line no-console
+            console.error("ws listener error:", err);
+          }
+        });
         setLastMessage(msg);
       } catch {
         // ignore non-JSON messages
@@ -68,5 +95,5 @@ export function useWebSocket(): {
     };
   }, [connect]);
 
-  return { isConnected, lastMessage };
+  return { isConnected, lastMessage, subscribe };
 }

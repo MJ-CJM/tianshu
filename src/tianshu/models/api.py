@@ -6,13 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import EdictStatus
-
-
-class EdictScheduleRequest(BaseModel):
-    type: str = "immediate"
-    cron: str | None = None
-    at: str | None = None
 
 
 class EdictRuntimeRequest(BaseModel):
@@ -22,6 +17,22 @@ class EdictRuntimeRequest(BaseModel):
     retry_limit: int | None = Field(default=None, ge=0, le=10)
     token_budget: int | None = None
     cost_budget_cny: float | None = None
+    fetch_engine_override: str | None = Field(
+        default=None,
+        description="Pin web_fetch to specific engine: local | jina | firecrawl",
+    )
+    search_provider_override: str | None = Field(
+        default=None,
+        description="Pin web_search to specific provider: tavily | jina",
+    )
+    api_request_hosts: list[str] = Field(
+        default_factory=list,
+        description="允许 api_request 调用的 host 列表（读方法）",
+    )
+    api_request_write_hosts: list[str] = Field(
+        default_factory=list,
+        description="允许 api_request 写方法 (POST/PUT/DELETE/PATCH) 的 host；必须是 api_request_hosts 的子集",
+    )
 
 
 class EdictCreateRequest(BaseModel):
@@ -30,7 +41,6 @@ class EdictCreateRequest(BaseModel):
     context: str | None = None
     idempotency_key: str | None = None
     submitter: str | None = None
-    schedule: EdictScheduleRequest | None = None
     priority: str | None = None
     review_policy: str | None = None
     constraints: list[str] | None = None
@@ -39,11 +49,22 @@ class EdictCreateRequest(BaseModel):
     assigned_persona_id: str | None = None
     planner_persona_id: str | None = None
     plan_review: bool = False
+    # 长任务 outer loop（None = 走老路径单回合 agent）
+    acceptance: AcceptanceCriteria | None = None
+    execution_profile: Literal["foreground", "checkpointed", "background"] = "foreground"
+
+
+class ParseEdictRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
 
 
 class FollowUpRequest(BaseModel):
     instruction: str = Field(min_length=1)
     context: str | None = None
+    # 2026-04-28: 本次 follow-up 单独覆盖 edict.runtime / acceptance；
+    # 留 None = 沿用 edict 原配置；填写即本次覆盖（不影响后续 follow-up）。
+    runtime_override: EdictRuntimeRequest | None = None
+    acceptance_override: AcceptanceCriteria | None = None
 
 
 class EdictUpdateRequest(BaseModel):

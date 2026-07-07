@@ -1,6 +1,6 @@
 """Tests for ExitReason enum."""
 
-from tianshu.executor.exit_reason import ExitReason
+from tianshu.kernel.exit_reason import ExitReason
 
 
 class TestExitReason:
@@ -19,6 +19,7 @@ class TestExitReason:
             "budget_exhausted",
             "llm_error",
             "output_truncated",
+            "repeated_tool_failure",
         }
         actual = {r.value for r in ExitReason}
         assert actual == expected

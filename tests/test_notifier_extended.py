@@ -1,11 +1,10 @@
 """Extended Notifier tests."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from tianshu.models import Edict, Memorial, TaskStatus
-from tianshu.models.common import AuditResult
 from tianshu.models.events import make_event
 from tianshu.notifier.notifier import Notifier
 

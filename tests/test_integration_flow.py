@@ -1,6 +1,6 @@
 """Integration test — full event chain: submit → schedule → plan → execute → audit → notify."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -9,7 +9,7 @@ from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
 from tianshu.executor.agent import Agent, AgentResult
 from tianshu.executor.executor import Executor
-from tianshu.executor.hooks import HookRegistry
+from tianshu.kernel.hooks import HookRegistry
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.events import make_event
 from tianshu.notifier.notifier import Notifier
@@ -43,17 +43,24 @@ class TestFullEventChain:
         async def track(e):
             events_seen.append(e.event_type)
 
-        for etype in ("edict.submitted", "edict.scheduled", "plan.completed",
-                       "execution.started", "execution.completed",
-                       "audit.completed"):
+        for etype in (
+            "edict.submitted",
+            "edict.scheduled",
+            "plan.completed",
+            "execution.started",
+            "execution.completed",
+            "audit.completed",
+        ):
             event_bus.on(etype, track, priority=999)
 
         # Create components
         scheduler = Scheduler(event_bus=event_bus, storage=storage)
         planner = Planner(event_bus=event_bus, storage=storage, config_manager=config_manager)
         executor = Executor(
-            event_bus=event_bus, storage=storage,
-            config_manager=config_manager, hook_registry=hooks,
+            event_bus=event_bus,
+            storage=storage,
+            config_manager=config_manager,
+            hook_registry=hooks,
         )
         auditor = Auditor(event_bus=event_bus, storage=storage, config_manager=config_manager)
         notifier = Notifier(storage=storage)
@@ -88,6 +95,7 @@ class TestFullEventChain:
 
         # Wait for async tasks
         import asyncio
+
         await asyncio.sleep(0.5)
 
         # Verify the chain executed
@@ -116,9 +124,7 @@ class TestFullEventChain:
 
         event_bus.on("plan.completed", capture)
 
-        await planner.handle_scheduled(
-            make_event("edict.scheduled", edict_id=edict.id)
-        )
+        await planner.handle_scheduled(make_event("edict.scheduled", edict_id=edict.id))
 
         assert len(plan_events) == 1
         plan_data = plan_events[0].payload["plan"]

@@ -6,7 +6,6 @@ import json
 
 import typer
 from rich.console import Console
-from rich.table import Table
 
 from tianshu.cli.client import api_get, api_post
 
@@ -17,7 +16,9 @@ console = Console()
 @app.command()
 def submit(
     memorial_id: str = typer.Option(..., "--memorial-id", "-m", help="Memorial ID"),
-    action: str = typer.Option(..., "--action", "-a", help="Action: approve|reject|retry|amend|cancel"),
+    action: str = typer.Option(
+        ..., "--action", "-a", help="Action: approve|reject|retry|amend|cancel"
+    ),
     comment: str = typer.Option(None, "--comment", help="Optional comment"),
     amended_goal: str = typer.Option(None, "--amended-goal", help="New goal (required for amend)"),
     fmt: str = typer.Option("table", "--format", "-f", help="Output format: table|json"),
@@ -40,7 +41,7 @@ def submit(
         return
 
     decree = data.get("data", {})
-    console.print(f"\n[bold]Decree submitted[/bold]")
+    console.print("\n[bold]Decree submitted[/bold]")
     console.print(f"  ID:          {decree.get('id', 'N/A')}")
     console.print(f"  Memorial ID: {decree.get('memorial_id', 'N/A')}")
     console.print(f"  Action:      {decree.get('action', 'N/A')}")

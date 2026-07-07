@@ -6,8 +6,12 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from tianshu.config import TianshuSettings
+
 if TYPE_CHECKING:
     from tianshu.storage import Storage
+
+_SETTINGS_DEFAULTS = TianshuSettings.model_fields
 
 
 @dataclass(frozen=True)
@@ -16,21 +20,53 @@ class LLMConfigState:
     model: str
     api_key: str
     api_base: str = ""
-    max_retries: int = 3
-    temperature: float = 0.7
-    top_p: float = 1.0
-    max_tokens: int = 4096
+    max_retries: int = _SETTINGS_DEFAULTS["llm_max_retries"].default
+    temperature: float = _SETTINGS_DEFAULTS["llm_temperature"].default
+    top_p: float = _SETTINGS_DEFAULTS["llm_top_p"].default
+    max_tokens: int = _SETTINGS_DEFAULTS["llm_max_tokens"].default
     enabled: bool = True
 
 
 @dataclass(frozen=True)
 class AgentConfigState:
-    agent_max_iterations: int = 20
-    agent_timeout_seconds: int = 300
-    skills_char_budget: int = 30000
+    agent_max_iterations: int = _SETTINGS_DEFAULTS["agent_max_iterations"].default
+    agent_timeout_seconds: int = _SETTINGS_DEFAULTS["agent_timeout_seconds"].default
+    skills_char_budget: int = _SETTINGS_DEFAULTS["skills_char_budget"].default
     skill_review_enabled: bool = True
     skill_review_interval: int = 5
     fallback_llm_config_name: str | None = None
+    # Skill curator (修撰) — periodic self-optimization of the agent skill library
+    skill_curator_enabled: bool = True
+    skill_curator_idle_hours: int = 2
+    skill_stale_after_days: int = 30
+    skill_archive_after_days: int = 90
+    skill_curator_prune_builtins: bool = False
+    # 前景主导技能学习
+    skill_guard_agent_created: bool = True
+    skill_iterate_min_success_rate: float = 0.5
+    skill_iterate_min_usage: int = 3
+    # 平行位面（parallel universe）
+    parallel_universe_enabled: bool = False
+    universe_min_samples: int = 20
+    universe_promote_margin: float = 0.05
+    universe_auto_promote: bool = False
+    universe_evolver_idle_hours: int = 2
+    # fitness 权重（success/cost/audit/retry/feedback）
+    universe_fitness_weights: tuple[float, ...] = (0.4, 0.15, 0.2, 0.1, 0.15)
+    # Phase 2 / 2b — 代码变体
+    code_variant_enabled: bool = False
+    code_variant_evolvable_paths: tuple[str, ...] = (
+        "src/tianshu/persona/selector.py",
+        "src/tianshu/planner/",
+        "src/tianshu/tools/",
+    )
+    code_variant_auto_promote: bool = False
+    code_variant_sandbox_timeout_s: int = 900
+    code_variant_sandbox_mem_mb: int = 2048
+    code_variant_eval_set_size: int = 20
+    code_variant_eval_budget_cny: float = 20.0
+    code_variant_auto_propose: bool = False
+    code_variant_daily_propose_quota: int = 2
 
 
 class ConfigManager:
@@ -84,18 +120,20 @@ class ConfigManager:
             return
         if is_active is None:
             is_active = state.name == self._active_name
-        self._storage.save_llm_config({
-            "name": state.name,
-            "model": state.model,
-            "api_key": state.api_key,
-            "api_base": state.api_base,
-            "max_retries": state.max_retries,
-            "temperature": state.temperature,
-            "top_p": state.top_p,
-            "max_tokens": state.max_tokens,
-            "enabled": state.enabled,
-            "is_active": is_active,
-        })
+        self._storage.save_llm_config(
+            {
+                "name": state.name,
+                "model": state.model,
+                "api_key": state.api_key,
+                "api_base": state.api_base,
+                "max_retries": state.max_retries,
+                "temperature": state.temperature,
+                "top_p": state.top_p,
+                "max_tokens": state.max_tokens,
+                "enabled": state.enabled,
+                "is_active": is_active,
+            }
+        )
 
     @property
     def state(self) -> LLMConfigState:
@@ -171,19 +209,12 @@ class ConfigManager:
             return self._agent_config
 
     def update_agent_config(self, **kwargs: object) -> AgentConfigState:
+        from dataclasses import fields, replace
+
         with self._lock:
-            current = self._agent_config
-            self._agent_config = AgentConfigState(
-                agent_max_iterations=kwargs.get(
-                    "agent_max_iterations", current.agent_max_iterations
-                ),
-                agent_timeout_seconds=kwargs.get(
-                    "agent_timeout_seconds", current.agent_timeout_seconds
-                ),
-                skills_char_budget=kwargs.get(
-                    "skills_char_budget", current.skills_char_budget
-                ),
-            )
+            valid = {f.name for f in fields(AgentConfigState)}
+            filtered = {k: v for k, v in kwargs.items() if k in valid}
+            self._agent_config = replace(self._agent_config, **filtered)
             return self._agent_config
 
     @staticmethod

@@ -1,7 +1,5 @@
 """Tests for PersonaMemoryManager."""
 
-from pathlib import Path
-
 import pytest
 
 from tianshu.models import Edict, Memorial, TaskStatus

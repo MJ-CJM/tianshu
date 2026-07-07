@@ -6,13 +6,14 @@ import logging
 from typing import TYPE_CHECKING
 
 from tianshu.plugins.manifest import PluginManifest
+from tianshu.tools.registry import ToolDefinition
 
 if TYPE_CHECKING:
-    from tianshu.executor.hooks import HookHandler, HookRegistry, HookType
+    from tianshu.kernel.hooks import HookHandler, HookRegistry, HookType
     from tianshu.notifier.channel_registry import ChannelRegistry
     from tianshu.notifier.channels.base import NotificationChannel
+    from tianshu.providers.capabilities import ProviderInfo
     from tianshu.providers.manager import ProviderManager
-    from tianshu.providers.protocol import ProviderInfo
     from tianshu.skills.loader import SkillsLoader
     from tianshu.storage import Storage
     from tianshu.tools.registry import ToolRegistry
@@ -51,18 +52,32 @@ class PluginApi:
     def register_plugin(self, manifest: PluginManifest) -> None:
         """Register a plugin and persist its metadata."""
         self._registered_plugins[manifest.name] = manifest
-        self._storage.save_plugin({
-            "name": manifest.name,
-            "version": manifest.version,
-            "manifest": manifest.model_dump(),
-            "sha256": manifest.sha256,
-        })
+        self._storage.save_plugin(
+            {
+                "name": manifest.name,
+                "version": manifest.version,
+                "manifest": manifest.model_dump(),
+                "sha256": manifest.sha256,
+            }
+        )
         logger.info("Plugin registered: %s v%s", manifest.name, manifest.version)
 
     def register_tool(self, name: str, handler, schema: dict | None = None) -> None:
-        """Register a tool via ToolRegistry."""
+        """Register a tool via ToolRegistry.
+
+        schema 支持键：description / parameters（JSON schema）/ tier / max_result_chars / side_effect。
+        """
         if self._tools:
-            self._tools.register(name, handler, schema)
+            s = schema or {}
+            definition = ToolDefinition(
+                name=name,
+                description=s.get("description", name),
+                parameters=s.get("parameters", {"type": "object", "properties": {}}),
+                tier=s.get("tier", 0),
+                max_result_chars=s.get("max_result_chars", 8000),
+                side_effect=s.get("side_effect", False),
+            )
+            self._tools.register(name, handler, definition)
             logger.info("Plugin tool registered: %s", name)
 
     def register_hook(

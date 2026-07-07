@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from tianshu.executor.hooks import HookResult
+from tianshu.kernel.hooks import HookResult
 from tianshu.tools.policy import PolicyContext, PolicyDecision, PolicyEngine
 from tianshu.tools.types import ToolTier
 
@@ -31,6 +31,7 @@ class PolicyHook:
         session_rule_store: object | None = None,
         approval_manager: object | None = None,
         notifier: object | None = None,
+        event_bus: object | None = None,
     ) -> None:
         self._engine = engine
         self._workspace_root = workspace_root.resolve()
@@ -39,6 +40,7 @@ class PolicyHook:
         self._session_rule_store = session_rule_store
         self._approval_manager = approval_manager
         self._notifier = notifier
+        self._event_bus = event_bus
 
     async def on_before_tool_call(self, **context: object) -> HookResult | None:
         tool_name = context.get("tool_name")
@@ -52,11 +54,11 @@ class PolicyHook:
 
         # 解析 tool tier（fail-secure → 缺失 = T3）
         defn = self._tool_registry.get_definition(tool_name) if self._tool_registry else None
-        tier_val = defn.tier if defn else ToolTier.T3_DANGEROUS.value
+        tier_val = defn.tier if defn else ToolTier.T4_DANGEROUS.value
         try:
             tool_tier = ToolTier(int(tier_val))
         except (TypeError, ValueError):
-            tool_tier = ToolTier.T3_DANGEROUS
+            tool_tier = ToolTier.T4_DANGEROUS
 
         ctx = PolicyContext(
             tool_name=str(tool_name),
@@ -82,7 +84,11 @@ class PolicyHook:
                     verdict="allow",
                     rule_id=f"session_rule:{rule.rule_id}",
                     reason=f"matched session rule (scope={rule.scope}, source={rule.source})",
-                    metadata={"session_rule_id": rule.rule_id, "scope": rule.scope, "source": rule.source},
+                    metadata={
+                        "session_rule_id": rule.rule_id,
+                        "scope": rule.scope,
+                        "source": rule.source,
+                    },
                 )
                 self._emit_event(ctx, "policy.session_rule_matched", decision)
 
@@ -100,7 +106,9 @@ class PolicyHook:
         return None
 
     async def _request_approval(
-        self, ctx: PolicyContext, decision: PolicyDecision,
+        self,
+        ctx: PolicyContext,
+        decision: PolicyDecision,
     ) -> HookResult | None:
         """走已有 ApprovalManager UI 流 —— 写 tool.approval_required 事件并 wait。"""
         if self._approval_manager is None:
@@ -126,26 +134,38 @@ class PolicyHook:
             "args_summary": self._summarize_args(ctx.args),
         }
         edict_id = getattr(ctx.edict, "id", "")
-        try:
-            self._storage.append_event(  # type: ignore[attr-defined]
-                edict_id,
-                memorial_id,
-                "tool.approval_required",
-                approval_payload,
-            )
-        except Exception:
-            logger.exception("policy_hook: failed to append tool.approval_required event")
+
+        # tool.approval_required 通过 EventBus.fire 单点持久化（_persist 自动写入 events 表）
+        # + 派发给订阅者（飞书机器人等）。避免双写导致 PolicyTimeline/EventTimeline 重复显示。
+        if self._event_bus is not None:
+            try:
+                from tianshu.models.events import make_event
+
+                self._event_bus.fire(  # type: ignore[attr-defined]
+                    make_event(
+                        "tool.approval_required",
+                        edict_id=edict_id,
+                        memorial_id=memorial_id,
+                        producer="policy_hook",
+                        payload=approval_payload,
+                    )
+                )
+            except Exception:
+                logger.exception("policy_hook: failed to fire tool.approval_required to EventBus")
 
         # Broadcast to WS so frontend can show toast
         if self._notifier is not None:
             try:
                 import asyncio
-                coro = self._notifier.broadcast_ws({  # type: ignore[attr-defined]
-                    "type": "tool.approval_required",
-                    "edict_id": edict_id,
-                    "memorial_id": memorial_id,
-                    "payload": approval_payload,
-                })
+
+                coro = self._notifier.broadcast_ws(
+                    {  # type: ignore[attr-defined]
+                        "type": "tool.approval_required",
+                        "edict_id": edict_id,
+                        "memorial_id": memorial_id,
+                        "payload": approval_payload,
+                    }
+                )
                 asyncio.create_task(coro)
             except Exception:
                 logger.exception("policy_hook: failed to broadcast tool.approval_required")
@@ -201,12 +221,15 @@ class PolicyHook:
         ):
             try:
                 import asyncio
-                coro = self._notifier.broadcast_ws({  # type: ignore[attr-defined]
-                    "type": "policy.decision",
-                    "edict_id": edict_id,
-                    "memorial_id": memorial_id,
-                    "payload": payload,
-                })
+
+                coro = self._notifier.broadcast_ws(
+                    {  # type: ignore[attr-defined]
+                        "type": "policy.decision",
+                        "edict_id": edict_id,
+                        "memorial_id": memorial_id,
+                        "payload": payload,
+                    }
+                )
                 asyncio.create_task(coro)
             except Exception:
                 logger.exception("policy_hook: failed to broadcast policy.decision")

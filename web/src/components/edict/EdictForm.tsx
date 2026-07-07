@@ -1,10 +1,19 @@
 import { useState } from "react";
-import { Form, Input, InputNumber, Button, Collapse, Select, Divider, Radio, Switch } from "antd";
+import { Alert, Form, Input, Button, Collapse, Select, Radio, Switch, Space } from "antd";
 import { SendOutlined } from "@ant-design/icons";
+import { parseEdict } from "../../api/edicts";
 import { usePersonas } from "../../hooks/usePersonas";
-import type { EdictCreateRequest, EdictRuntime } from "../../api/types";
-import PolicyProfilePanel from "../policy/PolicyProfilePanel";
+import { useT } from "../../i18n";
+import type {
+  AcceptanceCriteria,
+  CheckSpec,
+  EdictCreateRequest,
+  EdictRuntime,
+  ExecutionProfile,
+} from "../../api/types";
 import type { PolicyProfileValue } from "../policy/PolicyProfilePanel";
+import RuntimeConfigSection from "./RuntimeConfigSection";
+import AcceptanceConfigSection from "./AcceptanceConfigSection";
 
 interface EdictFormProps {
   onSubmit: (values: EdictCreateRequest) => void;
@@ -12,11 +21,21 @@ interface EdictFormProps {
 }
 
 export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
+  const t = useT();
   const [form] = Form.useForm();
-  const [scheduleType, setScheduleType] = useState("immediate");
   const [assignMode, setAssignMode] = useState<"auto" | "direct">("auto");
   const [policyProfile, setPolicyProfile] =
     useState<PolicyProfileValue | null>(null);
+  const [longTaskEnabled, setLongTaskEnabled] = useState(false);
+  const [activePanels, setActivePanels] = useState<string[]>([]);
+  const [nlText, setNlText] = useState("");
+  const [nlLoading, setNlLoading] = useState(false);
+  const [nlNotes, setNlNotes] = useState<string | null>(null);
+  const [nlError, setNlError] = useState<string | null>(null);
+  const [netState, setNetState] = useState<{
+    api_request_hosts: string[];
+    api_request_write_hosts: string[];
+  }>({ api_request_hosts: [], api_request_write_hosts: [] });
   const { data: personas } = usePersonas();
 
   const personaOptions = (personas ?? []).map((p) => ({
@@ -30,21 +49,38 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     label: `${p.name}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
   }));
 
+  const handleSmartFill = async () => {
+    if (!nlText.trim()) return;
+    setNlLoading(true);
+    setNlError(null);
+    setNlNotes(null);
+    try {
+      const { draft, notes } = await parseEdict(nlText.trim());
+      const patch: Record<string, unknown> = {};
+      if (draft.goal) patch.goal = draft.goal;
+      if (draft.title) patch.title = draft.title;
+      if (draft.context) patch.context = draft.context;
+      if (draft.priority) patch.priority = draft.priority;
+      form.setFieldsValue(patch);
+      if (draft.context || draft.priority) {
+        setActivePanels((prev) =>
+          prev.includes("advanced") ? prev : [...prev, "advanced"],
+        );
+      }
+      if (notes) setNlNotes(notes);
+    } catch {
+      setNlError(t("form.edict.field.nlFailed"));
+    } finally {
+      setNlLoading(false);
+    }
+  };
+
   const handleFinish = (values: Record<string, unknown>) => {
     const req: EdictCreateRequest = {
       goal: values.goal as string,
       title: (values.title as string) || undefined,
       context: (values.context as string) || undefined,
     };
-
-    const st = (values.schedule_type as string) ?? "immediate";
-    if (st !== "immediate") {
-      req.schedule = {
-        type: st,
-        ...(st === "cron" ? { cron: values.cron_expr as string } : {}),
-        ...(st === "once" ? { at: values.schedule_at as string } : {}),
-      };
-    }
 
     const priority = values.priority as string | undefined;
     if (priority && priority !== "normal") {
@@ -99,6 +135,12 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     ) {
       runtime.policy_profile = policyProfile;
     }
+    if (netState.api_request_hosts.length > 0) {
+      runtime.api_request_hosts = netState.api_request_hosts;
+    }
+    if (netState.api_request_write_hosts.length > 0) {
+      runtime.api_request_write_hosts = netState.api_request_write_hosts;
+    }
     if (Object.keys(runtime).length > 0) {
       req.runtime = runtime;
     }
@@ -115,6 +157,84 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       req.plan_review = true;
     }
 
+    if (longTaskEnabled) {
+      const acceptance: AcceptanceCriteria = {};
+      const maxOuter = values.max_outer_iterations as number | undefined;
+      if (maxOuter !== undefined && maxOuter !== 5) {
+        acceptance.max_outer_iterations = maxOuter;
+      }
+      const deadlineHours = (values.deadline_hours as number | undefined) ?? 0;
+      const deadlineMinutes = (values.deadline_minutes as number | undefined) ?? 0;
+      const deadlineSeconds = deadlineHours * 3600 + deadlineMinutes * 60;
+      if (deadlineSeconds > 0) {
+        acceptance.deadline_seconds = deadlineSeconds;
+      }
+      const onExhaustion = values.on_exhaustion as
+        | "escalate"
+        | "best_effort"
+        | "fail"
+        | undefined;
+      if (onExhaustion && onExhaustion !== "escalate") {
+        acceptance.on_exhaustion = onExhaustion;
+      }
+      const onCriticUnavail = values.on_critic_unavailable as
+        | "escalate"
+        | "skip"
+        | undefined;
+      if (onCriticUnavail && onCriticUnavail !== "skip") {
+        acceptance.on_critic_unavailable = onCriticUnavail;
+      }
+      const sameIssueThreshold = values.same_issue_threshold as
+        | number
+        | undefined;
+      const criticPersonaIds = values.critic_persona_ids as string[] | undefined;
+      const strictness = values.critic_strictness as
+        | "lenient"
+        | "balanced"
+        | "strict"
+        | undefined;
+      if (
+        sameIssueThreshold !== undefined ||
+        (criticPersonaIds && criticPersonaIds.length > 0) ||
+        (strictness && strictness !== "lenient")
+      ) {
+        acceptance.critic = {
+          ...(criticPersonaIds && criticPersonaIds.length > 0
+            ? { persona_ids: criticPersonaIds }
+            : {}),
+          ...(sameIssueThreshold !== undefined && sameIssueThreshold !== 2
+            ? { same_issue_threshold: sameIssueThreshold }
+            : {}),
+          ...(strictness && strictness !== "lenient" ? { strictness } : {}),
+        };
+      }
+      const minOuter = values.min_outer_iterations as number | undefined;
+      if (minOuter !== undefined && minOuter > 1) {
+        acceptance.min_outer_iterations = minOuter;
+      }
+      const checksRaw = values.checks as CheckSpec[] | undefined;
+      if (checksRaw && checksRaw.length > 0) {
+        acceptance.checks = checksRaw.filter((c) => c?.name);
+      }
+      const l1Max = values.l1_max_rounds as number | undefined;
+      const l2Max = values.l2_max_rounds as number | undefined;
+      if (
+        (l1Max !== undefined && l1Max !== 2) ||
+        (l2Max !== undefined && l2Max !== 1)
+      ) {
+        acceptance.escalation = {
+          ...(l1Max !== undefined && l1Max !== 2 ? { l1_max_rounds: l1Max } : {}),
+          ...(l2Max !== undefined && l2Max !== 1 ? { l2_max_rounds: l2Max } : {}),
+        };
+      }
+      req.acceptance = acceptance;
+
+      const profile = values.execution_profile as ExecutionProfile | undefined;
+      if (profile && profile !== "foreground") {
+        req.execution_profile = profile;
+      }
+    }
+
     onSubmit(req);
   };
 
@@ -125,29 +245,61 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       onFinish={handleFinish}
       requiredMark={false}
       initialValues={{
-        schedule_type: "immediate",
         priority: "normal",
         review_policy: "always",
       }}
       style={{ maxWidth: 640 }}
     >
-      <Form.Item name="title" label="敕令标题（可选）">
-        <Input placeholder="留空则自动截取旨意前 20 字" />
+      <Collapse
+        ghost
+        style={{ marginBottom: 8 }}
+        items={[
+          {
+            key: "nl",
+            label: t("form.edict.field.nlLabel"),
+            children: (
+              <>
+                <Space.Compact style={{ width: "100%" }}>
+                  <Input.TextArea
+                    rows={2}
+                    value={nlText}
+                    onChange={(e) => setNlText(e.target.value)}
+                    placeholder={t("form.edict.field.nlPlaceholder")}
+                    style={{ resize: "vertical" }}
+                  />
+                  <Button type="primary" loading={nlLoading} onClick={handleSmartFill}>
+                    {t("form.edict.field.nlButton")}
+                  </Button>
+                </Space.Compact>
+                {nlNotes && (
+                  <Alert type="info" showIcon style={{ marginTop: 8 }} message={nlNotes} />
+                )}
+                {nlError && (
+                  <Alert type="warning" showIcon style={{ marginTop: 8 }} message={nlError} />
+                )}
+              </>
+            ),
+          },
+        ]}
+      />
+
+      <Form.Item name="title" label={t("form.edict.field.title")}>
+        <Input placeholder={t("form.edict.placeholder.title")} />
       </Form.Item>
 
       <Form.Item
         name="goal"
-        label="敕令旨意"
-        rules={[{ required: true, message: "请拟定敕令旨意" }]}
+        label={t("form.edict.field.goal")}
+        rules={[{ required: true, message: t("form.edict.validation.goalRequired") }]}
       >
         <Input.TextArea
           rows={4}
-          placeholder="请拟定敕令旨意..."
+          placeholder={t("form.edict.placeholder.goal")}
           style={{ resize: "vertical" }}
         />
       </Form.Item>
 
-      <Form.Item label="执行方式">
+      <Form.Item label={t("form.edict.field.executionMode")}>
         <Radio.Group
           value={assignMode}
           onChange={(e) => {
@@ -157,18 +309,18 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
             }
           }}
         >
-          <Radio value="auto">内阁决策（自动规划分配）</Radio>
-          <Radio value="direct">直接指派官员</Radio>
+          <Radio value="auto">{t("form.edict.option.autoPlanning")}</Radio>
+          <Radio value="direct">{t("form.edict.option.directAssign")}</Radio>
         </Radio.Group>
       </Form.Item>
 
       {assignMode === "direct" && (
         <Form.Item
           name="assigned_persona_id"
-          rules={[{ required: true, message: "请选择执行官员" }]}
+          rules={[{ required: true, message: t("form.edict.validation.assignedPersonaRequired") }]}
         >
           <Select
-            placeholder="选择官员"
+            placeholder={t("form.edict.placeholder.assignedPersona")}
             options={personaOptions}
             showSearch
             optionFilterProp="label"
@@ -179,11 +331,11 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       {assignMode === "auto" && cabinetPersonas.length > 1 && (
         <Form.Item
           name="planner_persona_id"
-          label="规划官（可选）"
-          tooltip="选择使用哪位内阁官员进行规划，不同官员可使用不同的 LLM"
+          label={t("form.edict.field.plannerPersona")}
+          tooltip={t("form.edict.tooltip.plannerPersona")}
         >
           <Select
-            placeholder="自动（使用全局配置）"
+            placeholder={t("form.edict.placeholder.plannerPersona")}
             options={plannerOptions}
             allowClear
             showSearch
@@ -195,147 +347,100 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       {assignMode === "auto" && (
         <Form.Item
           name="plan_review"
-          label="规划审批"
+          label={t("form.edict.field.planReview")}
           valuePropName="checked"
-          tooltip="开启后，规划方案需人工审批通过后才会执行"
+          tooltip={t("form.edict.tooltip.planReview")}
         >
           <Switch />
         </Form.Item>
       )}
 
-      <Form.Item name="context" label="附则（可选）">
-        <Input.TextArea
-          rows={3}
-          placeholder="补充背景信息或约束条件..."
-          style={{ resize: "vertical" }}
-        />
-      </Form.Item>
-
       <Collapse
         ghost
         style={{ marginBottom: 24 }}
+        activeKey={activePanels}
+        onChange={(keys) => setActivePanels(keys as string[])}
         items={[
           {
             key: "advanced",
-            label: "高级选项",
+            label: t("form.edict.section.more"),
             children: (
               <>
-                <Form.Item
-                  name="schedule_type"
-                  label="调度方式"
-                >
-                  <Select
-                    onChange={(v) => setScheduleType(v)}
-                    options={[
-                      { value: "immediate", label: "即时执行" },
-                      { value: "once", label: "定时执行" },
-                      { value: "cron", label: "周期执行" },
-                    ]}
+                <Form.Item name="context" label={t("form.edict.field.context")}>
+                  <Input.TextArea
+                    rows={3}
+                    placeholder={t("form.edict.placeholder.context")}
+                    style={{ resize: "vertical" }}
                   />
                 </Form.Item>
 
-                {scheduleType === "cron" && (
-                  <Form.Item
-                    name="cron_expr"
-                    label="Cron 表达式"
-                    rules={[{ required: true, message: "请输入 Cron 表达式" }]}
-                  >
-                    <Input placeholder="例如 0 9 * * 1-5" />
-                  </Form.Item>
-                )}
-
-                {scheduleType === "once" && (
-                  <Form.Item
-                    name="schedule_at"
-                    label="执行时间"
-                    rules={[{ required: true, message: "请输入执行时间" }]}
-                  >
-                    <Input placeholder="ISO 8601 时间，例如 2026-03-20T09:00:00" />
-                  </Form.Item>
-                )}
-
                 <Form.Item
                   name="priority"
-                  label="优先级"
+                  label={t("form.edict.field.priority")}
                 >
                   <Select
                     options={[
-                      { value: "urgent", label: "紧急" },
-                      { value: "normal", label: "普通" },
-                      { value: "low", label: "低" },
+                      { value: "urgent", label: t("priority.urgent") },
+                      { value: "normal", label: t("priority.normal") },
+                      { value: "low", label: t("priority.low") },
                     ]}
                   />
                 </Form.Item>
 
                 <Form.Item
                   name="review_policy"
-                  label="审核策略"
+                  label={t("form.edict.field.reviewPolicy")}
                 >
                   <Select
                     options={[
-                      { value: "always", label: "始终人工复核" },
-                      { value: "on_flag", label: "自动（审计标记时人工复核）" },
-                      { value: "on_failure", label: "失败时人工复核" },
-                      { value: "never", label: "跳过人工复核" },
+                      { value: "always", label: t("reviewPolicy.always") },
+                      { value: "on_flag", label: t("reviewPolicy.on_flag") },
+                      { value: "on_failure", label: t("reviewPolicy.on_failure") },
+                      { value: "never", label: t("reviewPolicy.never") },
                     ]}
                   />
                 </Form.Item>
 
                 <Form.Item
                   name="constraints"
-                  label="约束条件"
+                  label={t("form.edict.field.constraints")}
                 >
                   <Select
                     mode="tags"
-                    placeholder="输入约束条件后按回车添加"
+                    placeholder={t("form.edict.placeholder.constraints")}
                     tokenSeparators={[","]}
                   />
                 </Form.Item>
 
                 <Form.Item
                   name="output_format"
-                  label="输出格式"
+                  label={t("form.edict.field.outputFormat")}
                 >
                   <Input.TextArea
                     rows={2}
-                    placeholder="指定期望的输出格式，如 JSON、Markdown 表格等"
+                    placeholder={t("form.edict.placeholder.outputFormat")}
                     style={{ resize: "vertical" }}
                   />
                 </Form.Item>
 
-                <Divider style={{ margin: "12px 0" }} />
-                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 12 }}>
-                  执行参数
-                </div>
-
-                <Form.Item name="timeout_seconds" label="超时时间 (秒)">
-                  <InputNumber min={10} max={3600} style={{ width: "100%" }} placeholder="默认 300" />
-                </Form.Item>
-
-                <Form.Item name="max_iterations" label="最大迭代次数">
-                  <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder="默认 20" />
-                </Form.Item>
-
-                <Form.Item name="max_concurrency" label="DAG 并发度">
-                  <InputNumber min={1} max={8} style={{ width: "100%" }} placeholder="默认 1" />
-                </Form.Item>
-
-                <Form.Item name="retry_limit" label="重试次数">
-                  <InputNumber min={0} max={10} style={{ width: "100%" }} placeholder="默认 0" />
-                </Form.Item>
-
-                <Form.Item name="token_budget" label="Token 预算">
-                  <InputNumber min={1} style={{ width: "100%" }} placeholder="不限" />
-                </Form.Item>
-
-                <Form.Item name="cost_budget_cny" label="费用预算 (CNY)">
-                  <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder="不限" />
-                </Form.Item>
-
-                <Divider style={{ margin: "12px 0" }} />
-                <PolicyProfilePanel
-                  value={policyProfile ?? undefined}
-                  onChange={setPolicyProfile}
+                <RuntimeConfigSection
+                  policyProfile={policyProfile}
+                  setPolicyProfile={setPolicyProfile}
+                  netState={netState}
+                  setNetState={setNetState}
+                />
+              </>
+            ),
+          },
+          {
+            key: "long-task",
+            label: t("form.edict.section.longTask"),
+            children: (
+              <>
+                <AcceptanceConfigSection
+                  longTaskEnabled={longTaskEnabled}
+                  setLongTaskEnabled={setLongTaskEnabled}
+                  assignMode={assignMode}
                 />
               </>
             ),
@@ -351,7 +456,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
           icon={<SendOutlined />}
           size="large"
         >
-          颁发敕令
+          {t("nav.edictCreate")}
         </Button>
       </Form.Item>
     </Form>

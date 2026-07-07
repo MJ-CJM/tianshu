@@ -57,6 +57,19 @@ class TestEdictEndpoints:
         assert get_resp.status_code == 200
         assert get_resp.json()["data"]["goal"] == "find me"
 
+    async def test_create_edict_ignores_schedule_field(self, client):
+        """颁发即时化：即使带 schedule 字段也被忽略（edict 恒 immediate）；定时改用 schedule_edict。"""
+        with patch("tianshu.executor.agent.LLMClient"):
+            resp = await client.post(
+                "/api/edicts",
+                json={
+                    "goal": "每天 11 点推送天气",
+                    "schedule": {"type": "cron", "cron": "0 11 * * *"},
+                },
+            )
+        assert resp.status_code == 202
+        assert resp.json()["data"]["schedule"]["type"] == "immediate"
+
 
 class TestMemorialEndpoints:
     async def test_list_memorials(self, client):

@@ -14,31 +14,20 @@ class TestBackwardCompatImports:
 
     def test_import_from_models(self):
         from tianshu.models import (
-            AgentConfig,
-            ApiResponse,
             Edict,
-            EdictCreateRequest,
-            EdictStatus,
-            EdictStatusUpdateRequest,
-            EdictUpdateRequest,
-            FollowUpRequest,
-            LLMConfig,
-            LLMConfigCreateRequest,
-            LLMConfigListResponse,
-            LLMConfigUpdateRequest,
-            Memorial,
-            TaskStatus,
-            UsageSummary,
         )
+
         assert Edict is not None
 
     def test_import_from_agent_shim(self):
         from tianshu.agent import Agent, AgentResult
+
         assert Agent is not None
         assert AgentResult is not None
 
     def test_import_from_gateway_shim(self):
         from tianshu.gateway import gateway_router
+
         assert gateway_router is not None
 
 

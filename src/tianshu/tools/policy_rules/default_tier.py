@@ -33,17 +33,17 @@ class DefaultTierRule:
                 reason=f"tier {ctx.tool_tier.name} <= profile.auto_approve_max_tier {max_auto.name}",
             )
 
-        if ctx.tool_tier == ToolTier.T3_DANGEROUS:
+        if ctx.tool_tier == ToolTier.T4_DANGEROUS:
             return PolicyDecision(
                 verdict="require_approval",
                 rule_id=self.rule_id,
-                reason="T3_DANGEROUS tool requires approval by default",
+                reason="T4_DANGEROUS tool requires approval by default",
             )
-        if ctx.tool_tier == ToolTier.T2_WRITE:
+        if ctx.tool_tier == ToolTier.T3_WRITE:
             return PolicyDecision(
                 verdict="require_approval",
                 rule_id=self.rule_id,
-                reason="T2_WRITE tool requires approval by default",
+                reason="T3_WRITE tool requires approval by default",
             )
 
         return PolicyDecision(

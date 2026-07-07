@@ -1,14 +1,14 @@
 """Tests for auto compact strategy."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from tianshu.executor.loop_state import LoopState
+import pytest
+
 from tianshu.executor.compaction.auto import (
-    COMPACT_THRESHOLD_RATIO,
     auto_compact,
     should_auto_compact,
 )
+from tianshu.executor.loop_state import LoopState
 
 
 class TestAutoCompact:

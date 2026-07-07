@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 _MAX_FILE_SIZE = 256 * 1024  # 256KB
 _MAX_CANDIDATES_PER_DIR = 300
 _L1_MAX_ENTRIES = 8
+_SKILL_RESOURCE_DIRS = ("scripts", "references", "assets", "templates")
+_MAX_RESOURCE_BYTES = 1024 * 1024  # 1 MiB per resource file
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -55,6 +57,15 @@ class SkillsLoader:
         # L2: File stat snapshot for list_all_metadata() — {path: (mtime_ns, size)}
         self._l2_stats: dict[str, tuple[int, int]] = {}
         self._l2_metadata: list[dict] | None = None
+
+    @property
+    def user_dir(self) -> Path | None:
+        return self._user_dir
+
+    def repoint_user_dir(self, new_user_dir: Path) -> None:
+        """切换 user 技能根目录（位面切换时调用）并失效所有缓存。"""
+        self._user_dir = Path(new_user_dir).expanduser()
+        self.invalidate_cache()
 
     def set_char_budget(self, budget: int) -> None:
         self._char_budget = budget
@@ -113,8 +124,11 @@ class SkillsLoader:
         footer = (
             "\n</skills_index>\n\n"
             "If a skill matches your current task, load it with skill_view().\n"
-            "After completing a difficult task, consider saving reusable approaches "
-            "as a new skill with skill_manage()."
+            "When you discover a non-obvious, reusable approach or a script you had "
+            "to figure out, save it RIGHT THEN with skill_manage(action='create') — "
+            "don't wait until the task ends. It becomes available to you immediately "
+            "via skill_view. Bundle helper scripts with "
+            "skill_manage(action='write_file')."
         )
         return header + "\n".join(lines) + footer
 
@@ -157,11 +171,13 @@ class SkillsLoader:
         try:
             updated_content, strategy = fuzzy_replace(content, old, new)
         except ValueError:
-            raise ValueError(f"Pattern not found in skill '{name}'")
+            raise ValueError(f"Pattern not found in skill '{name}'") from None
 
         if strategy != "exact":
             logger.info(
-                "patch_skill('%s'): matched via '%s' strategy", name, strategy,
+                "patch_skill('%s'): matched via '%s' strategy",
+                name,
+                strategy,
             )
         return self.save_skill(name, updated_content)
 
@@ -233,10 +249,9 @@ class SkillsLoader:
         openclaw = meta.get("metadata", {}).get("openclaw", {})
 
         # always=true skips requirement checks
-        if not openclaw.get("always", False):
-            if not self._check_requirements(openclaw):
-                logger.debug("Skill '%s' failed requirements check", name)
-                return
+        if not openclaw.get("always", False) and not self._check_requirements(openclaw):
+            logger.debug("Skill '%s' failed requirements check", name)
+            return
 
         skills[name] = post.content
 
@@ -290,15 +305,17 @@ class SkillsLoader:
         # Injected
         if hasattr(self, "_injected_skills"):
             for name, content in self._injected_skills.items():
-                result.append({
-                    "name": name,
-                    "description": "",
-                    "source": "injected",
-                    "always": False,
-                    "tool_tier": None,
-                    "path": "",
-                    "content_length": len(content),
-                })
+                result.append(
+                    {
+                        "name": name,
+                        "description": "",
+                        "source": "injected",
+                        "always": False,
+                        "tool_tier": None,
+                        "path": "",
+                        "content_length": len(content),
+                    }
+                )
 
         # Populate L2
         self._l2_metadata = result
@@ -338,15 +355,17 @@ class SkillsLoader:
                     post = frontmatter.load(str(skill_file))
                     meta = post.metadata or {}
                     oc = meta.get("metadata", {}).get("openclaw", {})
-                    out.append({
-                        "name": entry.name,
-                        "description": meta.get("description", ""),
-                        "source": source,
-                        "always": oc.get("always", False),
-                        "tool_tier": oc.get("toolTier"),
-                        "path": str(skill_file),
-                        "content_length": len(post.content),
-                    })
+                    out.append(
+                        {
+                            "name": entry.name,
+                            "description": meta.get("description", ""),
+                            "source": source,
+                            "always": oc.get("always", False),
+                            "tool_tier": oc.get("toolTier"),
+                            "path": str(skill_file),
+                            "content_length": len(post.content),
+                        }
+                    )
                 except Exception:
                     logger.warning("Failed to read metadata for skill '%s'", entry.name)
 
@@ -412,7 +431,7 @@ class SkillsLoader:
 
     def save_skill(self, name: str, content: str) -> dict:
         """Write back skill content to its SKILL.md file. SkillsWatcher auto-reloads."""
-        for base, source in self._search_dirs():
+        for base, _source in self._search_dirs():
             skill_file = base / name / "SKILL.md"
             if skill_file.is_file():
                 # Preserve frontmatter, replace content
@@ -450,12 +469,60 @@ class SkillsLoader:
         self._l2_metadata = None  # Invalidate metadata cache
         return self.get_skill(name)  # type: ignore[return-value]
 
+    def _resolve_skill_resource(self, name: str, rel_path: str) -> Path:
+        """Resolve a resource path INSIDE an existing skill dir, safely.
+
+        Rejects absolute paths, traversal, and non-whitelisted top dirs.
+        Returns the absolute target path (parent may not exist yet).
+        """
+        if not rel_path or rel_path.startswith("/") or "\\" in rel_path:
+            raise ValueError(f"invalid resource path: {rel_path!r}")
+        parts = Path(rel_path).parts
+        if ".." in parts:
+            raise ValueError(f"path traversal not allowed: {rel_path!r}")
+        if parts[0] not in _SKILL_RESOURCE_DIRS:
+            raise ValueError(f"top dir must be one of {_SKILL_RESOURCE_DIRS}, got {parts[0]!r}")
+        if len(parts) < 2:
+            raise ValueError(
+                f"resource path must include a filename under the top dir: {rel_path!r}"
+            )
+        for base, _src in self._search_dirs():
+            skill_dir = base / name
+            if (skill_dir / "SKILL.md").is_file():
+                target = (skill_dir / rel_path).resolve()
+                if not str(target).startswith(str(skill_dir.resolve()) + "/"):
+                    raise ValueError(f"resolved path escapes skill dir: {rel_path!r}")
+                return target
+        raise FileNotFoundError(f"Skill '{name}' not found")
+
+    def write_skill_file(self, name: str, rel_path: str, content: str) -> dict:
+        """Write a resource file inside a skill dir. Invalidates caches."""
+        if len(content.encode("utf-8")) > _MAX_RESOURCE_BYTES:
+            raise ValueError(f"resource exceeds {_MAX_RESOURCE_BYTES} bytes")
+        target = self._resolve_skill_resource(name, rel_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(target, content)
+        self._l1_cache.pop(name, None)
+        self._l2_metadata = None
+        return {"name": name, "file": rel_path, "bytes": len(content.encode("utf-8"))}
+
+    def remove_skill_file(self, name: str, rel_path: str) -> bool:
+        """Remove a resource file inside a skill dir. Invalidates caches."""
+        target = self._resolve_skill_resource(name, rel_path)
+        if target.is_file():
+            target.unlink()
+            self._l1_cache.pop(name, None)
+            self._l2_metadata = None
+            return True
+        return False
+
     def delete_skill(self, name: str) -> bool:
         """Delete a user/workspace skill. Builtin skills cannot be deleted."""
         for base in self._writable_dirs():
             skill_dir = base / name
             if skill_dir.is_dir():
                 import shutil as _shutil
+
                 _shutil.rmtree(skill_dir)
                 self._l1_cache.pop(name, None)
                 self._l2_metadata = None
@@ -469,6 +536,45 @@ class SkillsLoader:
         if self._user_dir:
             dirs.append(self._user_dir)
         return dirs
+
+    def archive_skill(self, name: str) -> bool:
+        """Move a user/workspace skill into a sibling ``.archive/`` dir (recoverable).
+
+        Builtin skills are never touched (not in writable dirs). The ``.archive``
+        dir holds no top-level SKILL.md, so archived skills are invisible to the
+        scanner. Returns True if archived.
+        """
+        for base in self._writable_dirs():
+            skill_dir = base / name
+            if skill_dir.is_dir():
+                archive_root = base / ".archive"
+                archive_root.mkdir(parents=True, exist_ok=True)
+                target = archive_root / name
+                if target.exists():
+                    from datetime import UTC, datetime
+
+                    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+                    target = archive_root / f"{name}__{stamp}"
+                shutil.move(str(skill_dir), str(target))
+                self._l1_cache.pop(name, None)
+                self._l2_metadata = None
+                logger.info("Archived skill '%s' → %s", name, target)
+                return True
+        return False
+
+    def restore_skill(self, name: str) -> bool:
+        """Move a skill back out of ``.archive/`` into its writable dir."""
+        for base in self._writable_dirs():
+            src = base / ".archive" / name
+            if src.is_dir():
+                target = base / name
+                if target.exists():
+                    return False
+                shutil.move(str(src), str(target))
+                self._l2_metadata = None
+                logger.info("Restored skill '%s' from archive", name)
+                return True
+        return False
 
 
 class SkillsWatcher:
@@ -524,7 +630,6 @@ class SkillsWatcher:
         logger.info("SkillsWatcher stopped")
 
     def _schedule_reload(self) -> None:
-        import asyncio
 
         if self._loop is None:
             return

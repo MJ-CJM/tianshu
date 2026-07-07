@@ -53,11 +53,13 @@ def worker_status():
 
     if lanes:
         gl = lanes.get("global", {})
-        console.print(f"\n[bold]Global Lane[/bold]")
+        console.print("\n[bold]Global Lane[/bold]")
         console.print(f"  Active: {gl.get('active', 0)} / {gl.get('max_concurrency', 0)}")
 
         sessions = lanes.get("sessions", {})
         if sessions:
-            console.print(f"\n[bold]Session Lanes[/bold]")
+            console.print("\n[bold]Session Lanes[/bold]")
             for eid, info in sessions.items():
-                console.print(f"  {eid}: available={info.get('available', 0)} / max={info.get('max', 0)}")
+                console.print(
+                    f"  {eid}: available={info.get('available', 0)} / max={info.get('max', 0)}"
+                )

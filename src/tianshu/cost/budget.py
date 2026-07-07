@@ -45,18 +45,27 @@ class BudgetChecker:
         # Check global budget
         global_status = self.check_global()
         if global_status and global_status.exceeded:
-            return True, f"Global budget exceeded: ¥{global_status.spent_cny:.4f} / ¥{global_status.budget_cny:.4f}"
+            return (
+                True,
+                f"Global budget exceeded: ¥{global_status.spent_cny:.4f} / ¥{global_status.budget_cny:.4f}",
+            )
 
         # Check edict budget
         edict_status = self.check_edict(edict_id)
         if edict_status and edict_status.exceeded:
-            return True, f"Edict budget exceeded: ¥{edict_status.spent_cny:.4f} / ¥{edict_status.budget_cny:.4f}"
+            return (
+                True,
+                f"Edict budget exceeded: ¥{edict_status.spent_cny:.4f} / ¥{edict_status.budget_cny:.4f}",
+            )
 
         # Check submitter budget
         if submitter:
             sub_status = self.check_submitter(submitter)
             if sub_status and sub_status.exceeded:
-                return True, f"Submitter budget exceeded: ¥{sub_status.spent_cny:.4f} / ¥{sub_status.budget_cny:.4f}"
+                return (
+                    True,
+                    f"Submitter budget exceeded: ¥{sub_status.spent_cny:.4f} / ¥{sub_status.budget_cny:.4f}",
+                )
 
         return False, ""
 

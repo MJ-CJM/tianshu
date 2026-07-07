@@ -13,6 +13,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tianshu.cost.tracker import estimate_cost
 from tianshu.models import UsageSummary
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,9 @@ def _add_cache_control(content: str | list | dict, marker: dict) -> list[dict]:
     if isinstance(content, str):
         blocks = [{"type": "text", "text": content}]
     elif isinstance(content, list):
-        blocks = [dict(b) if isinstance(b, dict) else {"type": "text", "text": str(b)} for b in content]
+        blocks = [
+            dict(b) if isinstance(b, dict) else {"type": "text", "text": str(b)} for b in content
+        ]
     elif isinstance(content, dict):
         blocks = [dict(content)]
     else:
@@ -86,6 +89,136 @@ def _add_cache_control(content: str | list | dict, marker: dict) -> list[dict]:
     if blocks:
         blocks[-1]["cache_control"] = marker
     return blocks
+
+
+def _extract_model_echo(response: object) -> tuple[str | None, str | None]:
+    """从 litellm response 中提取上游真实回显的模型名与 provider。
+
+    用于验证「我们请求的模型」与「网关/上游实际使用的模型」是否一致 ——
+    新中转网关偶尔会做 model rewrite/降级，仅靠请求侧字段无法发现。
+
+    返回 (actual_model, custom_llm_provider)，任一字段不可得时为 None。
+    """
+    actual_model = getattr(response, "model", None)
+    hidden = getattr(response, "_hidden_params", None) or {}
+    provider = None
+    if isinstance(hidden, dict):
+        provider = hidden.get("custom_llm_provider") or hidden.get("model_id")
+    # 边界防御：回显字段须为 str|None（异常类型 → None），避免污染 UsageSummary
+    # 的 str|None 校验（如测试 mock 或畸形上游响应）。
+    if not isinstance(actual_model, str):
+        actual_model = None
+    if not isinstance(provider, str):
+        provider = None
+    return actual_model, provider
+
+
+# 进程级缓存：(api_base, requested_model) → (actual_model, provider)。
+# 用于日志降噪 —— 同一路由首次或回显发生变化时打 INFO，否则降到 DEBUG。
+_MODEL_ECHO_CACHE: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+
+
+def _model_base(name: str | None) -> str:
+    """剥掉 provider 前缀后的裸模型名，用于 mismatch 比较。"""
+    if not name:
+        return ""
+    return name.split("/", 1)[-1].lower()
+
+
+def _log_model_echo(
+    requested: str,
+    actual: str | None,
+    provider: str | None,
+    api_base: str,
+    streaming: bool = False,
+) -> None:
+    """按路由变化分级输出模型回显日志。
+
+    分级规则：
+    - 首次见到 (api_base, requested) 路由 → INFO（用户能确认配置生效）
+    - actual base 与 requested base 不同 → WARNING（网关静默改写或降级，需告警）
+    - 路由 + 回显都没变 → DEBUG（绝大多数情况，避免日志风暴）
+    - 路由相同但回显变了（罕见，例如上游切了通道）→ INFO 重新打一次
+    """
+    key = (api_base or "<default>", requested)
+    cached = _MODEL_ECHO_CACHE.get(key)
+    new_value = (actual, provider)
+    suffix = " (stream)" if streaming else ""
+    msg_args = (requested, actual, provider, api_base or "<default>")
+
+    requested_base = _model_base(requested)
+    actual_base = _model_base(actual)
+    mismatch = bool(actual_base) and bool(requested_base) and actual_base != requested_base
+
+    if mismatch:
+        logger.warning(
+            "[LLM] model mismatch%s: requested=%s actual=%s provider=%s api_base=%s "
+            "（上游可能改写或降级了模型，请核查网关配置）",
+            suffix,
+            *msg_args,
+        )
+    elif cached is None:
+        logger.info(
+            "[LLM] model echo%s: requested=%s actual=%s provider=%s api_base=%s",
+            suffix,
+            *msg_args,
+        )
+    elif cached != new_value:
+        logger.info(
+            "[LLM] model echo changed%s: requested=%s actual=%s provider=%s api_base=%s "
+            "(was actual=%s provider=%s)",
+            suffix,
+            *msg_args,
+            cached[0],
+            cached[1],
+        )
+    else:
+        logger.debug(
+            "[LLM] model echo%s: requested=%s actual=%s provider=%s api_base=%s",
+            suffix,
+            *msg_args,
+        )
+
+    _MODEL_ECHO_CACHE[key] = new_value
+
+
+def _extract_cache_read_tokens(usage_obj: object, model: str) -> int:
+    """从不同 provider 的 usage 对象提取 cache hit token 数。
+
+    多 provider 字段差异（litellm 没统一）：
+    - claude/anthropic: usage.cache_read_input_tokens
+    - deepseek:         usage.prompt_cache_hit_tokens
+    - openai/兼容:      usage.prompt_tokens_details.cached_tokens
+    - 其它:             0（保守）
+
+    用 getattr + dict.get 双路径访问（litellm Usage 对象有时是 pydantic、有时是 dict）。
+    """
+    if usage_obj is None:
+        return 0
+    model_lower = (model or "").lower()
+    base = model_lower.split("/")[-1] if "/" in model_lower else model_lower
+
+    def _get(obj: object, key: str, default: int = 0) -> int:
+        if obj is None:
+            return default
+        v = getattr(obj, key, None)
+        if v is None and isinstance(obj, dict):
+            v = obj.get(key)
+        return int(v) if v else default
+
+    # claude/anthropic 系列
+    if "claude" in base or "anthropic" in base:
+        return _get(usage_obj, "cache_read_input_tokens")
+    # deepseek 系列
+    if "deepseek" in base:
+        return _get(usage_obj, "prompt_cache_hit_tokens")
+    # openai/兼容（gpt、qwen-openai-compat 等）
+    details = getattr(usage_obj, "prompt_tokens_details", None)
+    if details is None and isinstance(usage_obj, dict):
+        details = usage_obj.get("prompt_tokens_details")
+    if details:
+        return _get(details, "cached_tokens")
+    return 0
 
 
 class LLMClient:
@@ -99,6 +232,8 @@ class LLMClient:
         top_p: float = 1.0,
         max_tokens: int = 4096,
         timeout: int = 300,
+        provider_name: str | None = None,
+        pricing_override: tuple[float, float, float] | None = None,
     ) -> None:
         self._model = model
         self._api_key = api_key
@@ -108,6 +243,12 @@ class LLMClient:
         self._top_p = top_p
         self._max_tokens = max_tokens
         self._timeout = timeout
+        self._provider_name = provider_name
+        self._pricing_override = pricing_override
+
+    @property
+    def provider_name(self) -> str | None:
+        return self._provider_name
 
     @retry(
         wait=wait_exponential(min=1, max=4),
@@ -143,18 +284,39 @@ class LLMClient:
 
         logger.debug(
             "[LLM] request: model=%s, messages=%d, tools=%d, temperature=%.1f",
-            model, len(messages), len(tools or []), self._temperature,
+            model,
+            len(messages),
+            len(tools or []),
+            self._temperature,
         )
         response = await litellm.acompletion(**kwargs)
+        actual_model, upstream_provider = _extract_model_echo(response)
+        _log_model_echo(model, actual_model, upstream_provider, api_base)
         choice = response.choices[0]
         message = choice.message
 
-        usage = UsageSummary()
+        usage = UsageSummary(
+            actual_model=actual_model,
+            upstream_provider=upstream_provider,
+        )
         if response.usage:
+            pt = response.usage.prompt_tokens or 0
+            ct = response.usage.completion_tokens or 0
+            cr = _extract_cache_read_tokens(response.usage, model)
             usage = UsageSummary(
-                prompt_tokens=response.usage.prompt_tokens or 0,
-                completion_tokens=response.usage.completion_tokens or 0,
+                prompt_tokens=pt,
+                completion_tokens=ct,
                 total_tokens=response.usage.total_tokens or 0,
+                cache_read_tokens=cr,
+                cost_cny=estimate_cost(
+                    model,
+                    pt,
+                    ct,
+                    cache_read_tokens=cr,
+                    provider_pricing=self._pricing_override,
+                ),
+                actual_model=actual_model,
+                upstream_provider=upstream_provider,
             )
 
         tool_calls = None
@@ -170,8 +332,12 @@ class LLMClient:
 
         logger.debug(
             "[LLM] response: model=%s, tokens=%d/%d/%d, tool_calls=%d, has_reasoning=%s",
-            model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
-            len(tool_calls or []), bool(getattr(message, "reasoning_content", None)),
+            model,
+            usage.prompt_tokens,
+            usage.completion_tokens,
+            usage.total_tokens,
+            len(tool_calls or []),
+            bool(getattr(message, "reasoning_content", None)),
         )
         return LLMResponse(
             content=message.content,
@@ -213,8 +379,20 @@ class LLMClient:
         collected_tool_calls: list[dict] = []
         finish_reason = None
         usage = UsageSummary()
+        echoed_actual: str | None = None
+        echoed_provider: str | None = None
+        echoed = False
 
         async for chunk in response:
+            if not echoed:
+                actual_model, upstream_provider = _extract_model_echo(chunk)
+                if actual_model or upstream_provider:
+                    _log_model_echo(
+                        model, actual_model, upstream_provider, api_base, streaming=True
+                    )
+                    echoed_actual = actual_model
+                    echoed_provider = upstream_provider
+                    echoed = True
             delta = chunk.choices[0].delta if chunk.choices else None
             if not delta:
                 continue
@@ -245,10 +423,23 @@ class LLMClient:
                             tc["args"] += tc_delta.function.arguments
 
             if chunk.usage:
+                pt = chunk.usage.prompt_tokens or 0
+                ct = chunk.usage.completion_tokens or 0
+                cr = _extract_cache_read_tokens(chunk.usage, model)
                 usage = UsageSummary(
-                    prompt_tokens=chunk.usage.prompt_tokens or 0,
-                    completion_tokens=chunk.usage.completion_tokens or 0,
+                    prompt_tokens=pt,
+                    completion_tokens=ct,
                     total_tokens=chunk.usage.total_tokens or 0,
+                    cache_read_tokens=cr,
+                    cost_cny=estimate_cost(
+                        model,
+                        pt,
+                        ct,
+                        cache_read_tokens=cr,
+                        provider_pricing=self._pricing_override,
+                    ),
+                    actual_model=echoed_actual,
+                    upstream_provider=echoed_provider,
                 )
 
         final_tool_calls = None

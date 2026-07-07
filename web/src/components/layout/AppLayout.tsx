@@ -8,9 +8,9 @@ import { useWsPolicyToasts } from "../../hooks/useWsPolicyToasts";
 import styles from "./AppLayout.module.css";
 
 export default function AppLayout() {
-  const { isConnected, lastMessage } = useWebSocket();
+  const { isConnected, lastMessage, subscribe } = useWebSocket();
   useWsQueryInvalidation(lastMessage);
-  useWsPolicyToasts(lastMessage);
+  useWsPolicyToasts(subscribe);
 
   return (
     <Layout className={styles.root}>

@@ -1,12 +1,12 @@
 """Tests for Executor."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.executor import Executor
-from tianshu.executor.hooks import HookRegistry
+from tianshu.kernel.hooks import HookRegistry
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.events import make_event
 
@@ -23,6 +23,7 @@ class TestExecutor:
     @pytest.fixture
     def mock_agent(self):
         from tianshu.executor.agent import AgentResult
+
         agent = AsyncMock()
         agent.execute.return_value = AgentResult(
             status=TaskStatus.COMPLETED,
@@ -53,6 +54,8 @@ class TestExecutor:
         assert len(memorials) == 1
         assert memorials[0].status == TaskStatus.COMPLETED
         assert memorials[0].result == "Task completed"
+        # 单 task 路径：final_output 应等于 result（无中间过程混淆）
+        assert memorials[0].final_output == "Task completed"
 
     async def test_execute_with_existing_memorial(self, executor, storage):
         edict = Edict(goal="test")
@@ -78,6 +81,7 @@ class TestExecutor:
 
         # Wait for background task
         import asyncio
+
         await asyncio.sleep(0.1)
 
         memorials = storage.list_memorials_by_edict(edict.id)

@@ -1,4 +1,9 @@
-"""Feishu (Lark) Bot webhook channel."""
+"""Feishu (Lark) Bot webhook channel.
+
+DEPRECATED (2026-04-28): 新部署应配置 TIANSHU_FEISHU_APP_ID/SECRET 启用 app bot 模式
+(gateway.feishu 子包)，它通过 lark-oapi 直接发消息，不再需要 incoming webhook URL。
+本文件保留以兼容旧部署。当 app_id 未配时仍然生效。
+"""
 
 from __future__ import annotations
 

@@ -18,9 +18,7 @@ def micro_compact(state: LoopState, keep_recent: int = 4) -> LoopState:
         New LoopState with truncated old tool results.
     """
     messages = list(state.messages)
-    tool_indices = [
-        i for i, m in enumerate(messages) if m.get("role") == "tool"
-    ]
+    tool_indices = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
 
     if not tool_indices:
         return state

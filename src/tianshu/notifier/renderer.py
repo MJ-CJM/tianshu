@@ -52,7 +52,7 @@ def render_feishu(memorial: Memorial) -> str:
 def render_dingtalk(memorial: Memorial) -> str:
     """Render memorial as DingTalk markdown."""
     lines = [
-        f"## Tianshu Report",
+        "## Tianshu Report",
         f"- **Status:** {memorial.status.value}",
         f"- **Edict:** {memorial.edict_id}",
     ]
@@ -66,8 +66,8 @@ def render_dingtalk(memorial: Memorial) -> str:
 def render_email(memorial: Memorial) -> str:
     """Render memorial as plain text for email."""
     lines = [
-        f"Tianshu Execution Report",
-        f"========================",
+        "Tianshu Execution Report",
+        "========================",
         f"Status: {memorial.status.value}",
         f"Edict: {memorial.edict_id}",
         f"Memorial: {memorial.id}",

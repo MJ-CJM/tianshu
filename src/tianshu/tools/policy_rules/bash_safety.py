@@ -19,7 +19,7 @@ BASH_DENYLIST_SUBSTRINGS: tuple[str, ...] = (
     "mkfs",
     "dd if=",
     "dd of=/dev",
-    ":(){:|:&};:",             # fork bomb
+    ":(){:|:&};:",  # fork bomb
     "sudo ",
     "curl | sh",
     "curl|sh",
@@ -64,7 +64,9 @@ class BashSafetyRule:
                 verdict="allow",
                 rule_id=self.rule_id,
                 reason="command matched profile bash prefix allow-list",
-                metadata={"matched_prefix": next(p for p in allowed_prefixes if command.startswith(p))},
+                metadata={
+                    "matched_prefix": next(p for p in allowed_prefixes if command.startswith(p))
+                },
             )
 
         # 3. 未命中 → T3 默认审批

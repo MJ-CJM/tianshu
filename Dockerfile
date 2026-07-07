@@ -38,4 +38,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["uvicorn", "tianshu.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# 经 launcher 引导：读 deploy 指针决定从主仓或某代码变体 worktree 启动（支持代码变体晋升后重启生效）
+CMD ["python", "-m", "tianshu.universe.launcher"]

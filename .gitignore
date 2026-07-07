@@ -19,3 +19,12 @@ src/tianshu/web/static/
 web/*.local
 web/tsconfig.tsbuildinfo
 .idea/workspace.xml
+.idea/modules.xml
+.codegraph/
+# 本地实验/演示脚本(保留本地,不入库)
+/test_demo.py
+/weather.py
+/weather.sh
+/test_redline/
+# vite 依赖缓存
+web/.vite/

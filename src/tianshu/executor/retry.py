@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 
 from tianshu.dag.graph import DAG
-from tianshu.dag.models import DAGExecution, DAGNodeStatus
+from tianshu.models.dag import DAGExecution, DAGNodeStatus
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -38,10 +37,7 @@ class PartialRetrier:
         if from_node_ids:
             target_ids = from_node_ids
         else:
-            target_ids = [
-                n.node_id for n in execution.nodes
-                if n.status == DAGNodeStatus.FAILED
-            ]
+            target_ids = [n.node_id for n in execution.nodes if n.status == DAGNodeStatus.FAILED]
 
         if not target_ids:
             return []
@@ -61,7 +57,9 @@ class PartialRetrier:
             node.started_at = None
             node.completed_at = None
             self._storage.update_dag_node_status(
-                execution.id, nid, DAGNodeStatus.PENDING.value,
+                execution.id,
+                nid,
+                DAGNodeStatus.PENDING.value,
             )
 
         # Reset execution status
@@ -81,7 +79,9 @@ class PartialRetrier:
         for nid, node in dag.nodes.items():
             if nid in result:
                 continue
-            if node_id in node.depends_on:
-                if node.status in (DAGNodeStatus.CANCELLED, DAGNodeStatus.FAILED):
-                    result.add(nid)
-                    self._collect_downstream(dag, nid, result)
+            if node_id in node.depends_on and node.status in (
+                DAGNodeStatus.CANCELLED,
+                DAGNodeStatus.FAILED,
+            ):
+                result.add(nid)
+                self._collect_downstream(dag, nid, result)

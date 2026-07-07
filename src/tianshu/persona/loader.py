@@ -49,6 +49,12 @@ class PersonaLoader:
     def runtime_dir(self) -> Path:
         return self._runtime_dir
 
+    def repoint_runtime(self, new_runtime_dir: Path) -> None:
+        """切换 runtime 人格根目录（位面切换时调用）并重载内存中的人格。"""
+        self._runtime_dir = Path(new_runtime_dir).expanduser()
+        self._personas.clear()
+        self.load_all()
+
     def ensure_runtime_identity(
         self,
         persona_id: str,
@@ -70,7 +76,10 @@ class PersonaLoader:
             if template.exists():
                 shutil.copy2(template, target)
                 logger.info(
-                    "Seeded %s/%s from %s", persona_id, fname, template,
+                    "Seeded %s/%s from %s",
+                    persona_id,
+                    fname,
+                    template,
                 )
         return target_dir / "SOUL.md", target_dir / "ROLE.md"
 
@@ -104,6 +113,7 @@ class PersonaLoader:
         persona_dir = self._dir / persona_id
         if persona_dir.is_dir():
             import shutil
+
             shutil.rmtree(persona_dir)
             logger.info("Removed persona directory: %s", persona_dir)
         return deleted
@@ -156,7 +166,9 @@ class PersonaLoader:
             logger.warning(
                 "Persona '%s' missing %s — skipping. "
                 "Create these files in %s to activate this persona.",
-                persona_dir.name, " and ".join(missing), persona_dir,
+                persona_dir.name,
+                " and ".join(missing),
+                persona_dir,
             )
             return None
 
@@ -166,13 +178,15 @@ class PersonaLoader:
 
         # Seed runtime identity from this template dir (persona_id == dir name here)
         soul_path, role_path = self.ensure_runtime_identity(
-            persona_dir.name, persona_dir,
+            persona_dir.name,
+            persona_dir,
         )
 
         return AgentPersona(
             id=persona_dir.name,
             name=name,
             department=department,
+            title=meta.get("title"),
             soul_path=soul_path,
             role_path=role_path,
             memory_path=memory_path,
@@ -181,6 +195,7 @@ class PersonaLoader:
             tools_denied=meta.get("tools_denied", []),
             tool_tier_max=meta.get("tool_tier_max", 0),
             can_delegate=meta.get("can_delegate", False),
+            memory_global_read=meta.get("memory_global_read", False),
             delegates_to=meta.get("delegates_to", []),
             llm_config_name=meta.get("llm_config_name"),
             skills_allowed=meta.get("skills_allowed", []),
@@ -192,11 +207,13 @@ class PersonaLoader:
             "id": persona.id,
             "name": persona.name,
             "department": persona.department,
+            "title": persona.title,
             "tools_allowed": persona.tools_allowed,
             "tools_denied": persona.tools_denied,
             "skills_allowed": persona.skills_allowed,
             "tool_tier_max": persona.tool_tier_max,
             "can_delegate": persona.can_delegate,
+            "memory_global_read": persona.memory_global_read,
             "delegates_to": persona.delegates_to,
             "soul_path": str(persona.soul_path),
             "role_path": str(persona.role_path),
@@ -226,6 +243,7 @@ class PersonaLoader:
             id=d["id"],
             name=d["name"],
             department=d["department"],
+            title=d.get("title"),
             soul_path=soul_path,
             role_path=role_path,
             memory_path=memory_path,
@@ -235,6 +253,7 @@ class PersonaLoader:
             skills_allowed=d.get("skills_allowed", []),
             tool_tier_max=d.get("tool_tier_max", 0),
             can_delegate=d.get("can_delegate", False),
+            memory_global_read=d.get("memory_global_read", False),
             delegates_to=d.get("delegates_to", []),
             llm_config_name=d.get("llm_config_name"),
         )

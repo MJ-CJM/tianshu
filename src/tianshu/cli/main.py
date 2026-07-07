@@ -4,8 +4,20 @@ from __future__ import annotations
 
 import typer
 
-from tianshu.cli.commands import config, cost, decree, edict, event, health, memorial, plugin, provider, schedule
-from tianshu.cli.commands import dag, worker
+from tianshu.cli.commands import (
+    config,
+    cost,
+    dag,
+    decree,
+    edict,
+    event,
+    health,
+    memorial,
+    plugin,
+    provider,
+    schedule,
+    worker,
+)
 from tianshu.cli.commands.watch import watch
 
 app = typer.Typer(name="tianshu", help="Tianshu - AI Execution Platform CLI")

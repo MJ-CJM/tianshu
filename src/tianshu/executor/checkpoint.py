@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 
-from tianshu.dag.models import DAGNode
 from tianshu.models.common import UsageSummary
 from tianshu.storage import Storage
 
@@ -26,11 +25,13 @@ class Checkpoint:
         self.usage = usage
 
     def to_json(self) -> str:
-        return json.dumps({
-            "iteration": self.iteration,
-            "messages": self.messages,
-            "usage": self.usage.model_dump(),
-        })
+        return json.dumps(
+            {
+                "iteration": self.iteration,
+                "messages": self.messages,
+                "usage": self.usage.model_dump(),
+            }
+        )
 
     @classmethod
     def from_json(cls, data: str) -> Checkpoint:
@@ -56,7 +57,9 @@ class CheckpointManager:
     ) -> None:
         """Persist a checkpoint for a node."""
         self._storage.update_dag_node_checkpoint(
-            dag_execution_id, node_id, checkpoint.to_json(),
+            dag_execution_id,
+            node_id,
+            checkpoint.to_json(),
         )
 
     def load(
@@ -74,5 +77,37 @@ class CheckpointManager:
     def clear(self, dag_execution_id: str, node_id: str) -> None:
         """Clear a checkpoint."""
         self._storage.update_dag_node_checkpoint(
-            dag_execution_id, node_id, None,
+            dag_execution_id,
+            node_id,
+            None,
+        )
+
+
+class OuterLoopCheckpoint:
+    """outer loop 状态快照 —— per-edict（区别于 DAG node 的 Checkpoint）。"""
+
+    KIND = "outer_loop"
+
+    def __init__(self, edict_id: str, state_dict: dict, saved_at: str) -> None:
+        self.edict_id = edict_id
+        self.state_dict = state_dict
+        self.saved_at = saved_at
+
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "kind": self.KIND,
+                "edict_id": self.edict_id,
+                "state": self.state_dict,
+                "saved_at": self.saved_at,
+            }
+        )
+
+    @classmethod
+    def from_json(cls, data: str) -> OuterLoopCheckpoint:
+        d = json.loads(data)
+        return cls(
+            edict_id=d["edict_id"],
+            state_dict=d["state"],
+            saved_at=d["saved_at"],
         )

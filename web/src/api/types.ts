@@ -13,6 +13,10 @@ export interface UsageSummary {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cache_read_tokens?: number;
+  cost_cny?: number;
+  actual_model?: string | null;
+  upstream_provider?: string | null;
 }
 
 export type EdictStatus = "open" | "completed" | "cancelled";
@@ -42,6 +46,9 @@ export interface EdictRuntime {
   cost_budget_cny: number | null;
   approval_required_tools: string[];
   policy_profile?: EdictPolicyProfile | null;
+  api_request_hosts?: string[];
+  api_request_write_hosts?: string[];
+  lifecycle_phase: "active" | "paused" | "winding_down" | "complete";
 }
 
 export interface ArtifactRef {
@@ -82,6 +89,8 @@ export interface Edict {
   assigned_persona_id?: string | null;
   planner_persona_id?: string | null;
   plan_review?: boolean;
+  acceptance?: AcceptanceCriteria | null;
+  execution_profile?: ExecutionProfile;
 }
 
 export interface AuditResult {
@@ -122,6 +131,49 @@ export interface EdictEvent {
   payload: Record<string, unknown>;
 }
 
+export interface CheckSpec {
+  kind: "bash" | "lint" | "rubric";
+  name: string;
+  command?: string;
+  rubric?: string;
+  weight?: number;
+  pass_threshold?: number;
+  timeout_seconds?: number;
+}
+
+export interface CriticSpec {
+  persona_ids?: string[];
+  persona_id?: string | null;
+  model?: string | null;
+  same_issue_threshold?: number;
+  /** lenient=合格即 pass / balanced=高标准 / strict=优秀才 pass */
+  strictness?: "lenient" | "balanced" | "strict";
+}
+
+export interface EscalationSpec {
+  enabled_levels?: ("L1" | "L2" | "L3")[];
+  l1_max_rounds?: number;
+  l2_max_rounds?: number;
+  l1_thinking_budget?: number;
+  l1_model_upgrade?: string | null;
+  l2_consultation_personas?: string[];
+}
+
+export interface AcceptanceCriteria {
+  checks?: CheckSpec[];
+  critic?: CriticSpec;
+  escalation?: EscalationSpec;
+  /** 最少迭代轮数（≥2 = 持续优化模式，即使 critic pass 也强制继续） */
+  min_outer_iterations?: number;
+  max_outer_iterations?: number;
+  deadline_seconds?: number | null;
+  on_exhaustion?: "escalate" | "best_effort" | "fail";
+  on_critic_unavailable?: "escalate" | "skip";
+  on_approval_timeout?: "fail" | "best_effort";
+}
+
+export type ExecutionProfile = "foreground" | "checkpointed" | "background";
+
 export interface EdictCreateRequest {
   goal: string;
   title?: string;
@@ -137,6 +189,39 @@ export interface EdictCreateRequest {
   assigned_persona_id?: string | null;
   planner_persona_id?: string | null;
   plan_review?: boolean;
+  acceptance?: AcceptanceCriteria | null;
+  execution_profile?: ExecutionProfile;
+}
+
+export interface OuterLoopIteration {
+  id: string;
+  edict_id: string;
+  iteration: number;
+  level: "L0" | "L1" | "L2" | "L3";
+  actor_output: string | null;
+  checks_result: string | null;  // JSON string
+  critic_result: string | null;  // JSON string
+  cost_cny: number;
+  started_at: string;
+  finished_at: string;
+  archived_at: string | null;
+}
+
+/** 长任务终态后由监督官 (critic persona) 产出的总评报告 */
+export interface SupervisionReport {
+  edict_id: string;
+  memorial_id: string;
+  persona_id: string;
+  persona_name: string;
+  final_status: "completed" | "failed" | "cancelled" | "running" | "submitted";
+  iterations_count: number;
+  total_cost_cny: number;
+  issues_observed: string[];
+  well_done: string[];
+  poorly_done: string[];
+  recommendation: string | null;
+  raw_feedback: string;
+  created_at: string;
 }
 
 export interface EdictUpdateRequest {
@@ -311,6 +396,7 @@ export interface CostRecord {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cache_read_tokens?: number;
   cost_cny: number;
   created_at: string;
 }
@@ -347,7 +433,36 @@ export interface ProviderInfo {
   tpm_current: number;
   cost_per_1k_prompt: number | null;
   cost_per_1k_completion: number | null;
+  cost_per_1k_cache_read: number | null;
   created_at: string;
+}
+
+/** Provider 当前生效的 3 维价（来自 GET /providers/:name/pricing/effective） */
+export interface EffectivePricing {
+  miss: number | null;
+  hit: number | null;
+  out: number | null;
+  /** custom = 三维都自定义；default = 三维都未自定义；mixed = 部分自定义 */
+  source: "custom" | "default" | "mixed";
+}
+
+export interface ProviderPricingUpdate {
+  cost_per_1k_prompt?: number | null;
+  cost_per_1k_cache_read?: number | null;
+  cost_per_1k_completion?: number | null;
+}
+
+/** 默认价表条目（GET /providers/pricing/defaults） */
+export interface DefaultPricingEntry {
+  model: string;
+  miss: number;
+  hit: number;
+  out: number;
+}
+
+export interface DefaultPricingTable {
+  entries: DefaultPricingEntry[];
+  fallback: { miss: number; hit: number; out: number };
 }
 
 // --- Plugin types ---
@@ -416,11 +531,13 @@ export interface PersonaInfo {
   name: string;
   department: string;
   department_name?: string;
+  title?: string | null;
   tools_allowed: string[];
   tools_denied: string[];
   skills_allowed: string[];
   tool_tier_max: number;
   can_delegate: boolean;
+  memory_global_read: boolean;
   delegates_to: string[];
   llm_config_name?: string | null;
 }
@@ -429,23 +546,53 @@ export interface PersonaCreateRequest {
   id: string;
   name: string;
   department: string;
+  title?: string | null;
   tools_allowed?: string[];
   tools_denied?: string[];
   skills_allowed?: string[];
   tool_tier_max?: number;
   can_delegate?: boolean;
+  memory_global_read?: boolean;
   delegates_to?: string[];
   llm_config_name?: string | null;
+  /** Optional role-template seed (see persona-templates endpoints). */
+  template_id?: string;
+  template_lang?: "zh" | "en";
+}
+
+export interface PersonaTemplateInfo {
+  id: string;
+  name: string;
+  description: string;
+  emoji: string;
+}
+
+export interface PersonaTemplateCategory {
+  category: string;
+  templates: PersonaTemplateInfo[];
+}
+
+export interface PersonaTemplateDetail {
+  id: string;
+  lang: "zh" | "en";
+  category: string;
+  name: string;
+  description: string;
+  emoji: string;
+  soul_preview: string;
+  role_preview: string;
 }
 
 export interface PersonaUpdateRequest {
   name?: string;
   department?: string;
+  title?: string | null;
   tools_allowed?: string[];
   tools_denied?: string[];
   skills_allowed?: string[];
   tool_tier_max?: number;
   can_delegate?: boolean;
+  memory_global_read?: boolean;
   delegates_to?: string[];
   llm_config_name?: string | null;
 }
@@ -542,11 +689,22 @@ export interface SkillInfo {
   tool_tier: string | null;
   path: string;
   content_length: number;
+  // Phase 8 metrics fields (agent-created skills only)
+  created_by?: string;
+  state?: string;
+  pinned?: boolean;
+  human_curated?: boolean;
+  usage_count?: number;
+  success_rate?: number | null;
+  created_at?: string;
 }
 
 export interface SkillDetail extends SkillInfo {
   content: string;
 }
+
+// Alias used by the skills control panel (Phase 8)
+export type SkillMeta = SkillInfo;
 
 export interface ToolInfo {
   name: string;
@@ -554,6 +712,7 @@ export interface ToolInfo {
   tier: number;
   parameters: Record<string, unknown>;
   personas: string[];
+  enabled: boolean;
 }
 
 export interface PromptFileInfo {
@@ -723,4 +882,85 @@ export interface ReflectionResult {
   reason?: string;
   insights_generated?: number;
   insights?: string[];
+}
+
+// --- Universe types (平行位面 Phase 8) ---
+
+export interface Universe {
+  id: string;
+  name: string;
+  parent_universe_id: string | null;
+  status: "champion" | "challenger" | "archived";
+  origin: "genesis" | "manual_branch" | "mutation" | "code_variant";
+  mutation_reason: string | null;
+  description: string;
+  /** 数值型适应度分项 + 可能混入的 truncated（预算截断）布尔标记 */
+  fitness: Record<string, number | boolean>;
+  created_at: string;
+  code_ref: string | null;
+}
+
+export interface VariantEvalRun {
+  id: string;
+  universe_id: string;
+  gate_passed: boolean;
+  gate_detail: { stage?: string; detail?: string } | null;
+  /** 数值型适应度分项 + 可能混入的 truncated（预算截断）布尔标记 */
+  fitness: Record<string, number | boolean>;
+  /** 同评估集下的冠军基线分（纯数值，无 truncated 混入）；无基线或基线被截断时为 null */
+  baseline?: Record<string, number> | null;
+  eval_set_version: string | null;
+  cost: number;
+  created_at: string;
+}
+
+// --- External Network Credentials (Spec 2026-04-22 §4) ---
+export interface Credential {
+  id: string;
+  name: string;
+  host_pattern: string;
+  header_template: string;
+  extra_headers: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+  kind: "edict_auth" | "engine_provider";
+  provider_name: string | null;
+  enabled: boolean;
+}
+
+export interface CredentialCreate {
+  name: string;
+  value: string;
+  kind?: "edict_auth" | "engine_provider";
+  host_pattern?: string;
+  header_template?: string;
+  extra_headers?: Record<string, string>;
+  provider_name?: "jina" | "tavily" | "firecrawl";
+}
+
+export interface CredentialUpdate {
+  value?: string;
+  extra_headers?: Record<string, string>;
+  enabled?: boolean;
+}
+
+// --- Network events (鸿胪寺 audit) ---
+export interface NetworkEventRow {
+  event_id: string;
+  created_at: string;
+  edict_id: string;
+  edict_title: string | null;
+  tool: "web_fetch" | "web_search" | "api_request" | "web_extract" | string;
+  host: string | null;
+  method: string | null;
+  http_status: number | null;
+  bytes_out: number | null;
+  credential_name: string | null;
+  cached: boolean;
+  is_error: boolean;
+  reason: string | null;
+  provider: string | null;
+  result_count: number | null;
+  truncated: boolean;
 }

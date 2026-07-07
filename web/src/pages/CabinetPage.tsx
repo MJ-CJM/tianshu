@@ -15,27 +15,29 @@ import { usePersonas } from "../hooks/usePersonas";
 import { usePlannerStats } from "../hooks/useOps";
 import { formatTime } from "../utils/format";
 import type { PersonaInfo, PlannerHistoryItem } from "../api/types";
+import { useT } from "../i18n";
 
 function CabinetOverview({ cabinetPersonas }: { cabinetPersonas: PersonaInfo[] }) {
+  const t = useT();
   const { token } = theme.useToken();
 
   if (cabinetPersonas.length === 0) {
     return (
-      <Card title="内阁概览" size="small">
-        <Typography.Text type="secondary">未找到内阁 persona</Typography.Text>
+      <Card title={t("cabinet.overview")} size="small">
+        <Typography.Text type="secondary">{t("cabinet.noPersonas")}</Typography.Text>
       </Card>
     );
   }
 
   return (
-    <Card title="内阁概览" size="small">
+    <Card title={t("cabinet.overview")} size="small">
       <Row gutter={[16, 12]}>
         {cabinetPersonas.map((p) => (
           <Col key={p.id} span={8}>
             <Card size="small" style={{ background: token.colorBgContainerDisabled }}>
               <Statistic title={p.name} value={p.id} valueStyle={{ fontSize: 14 }} />
               <Tag color="orange" style={{ marginTop: 4, fontSize: 11 }}>
-                {p.llm_config_name || "全局默认"}
+                {p.llm_config_name || t("cabinet.globalDefault")}
               </Tag>
             </Card>
           </Col>
@@ -43,7 +45,7 @@ function CabinetOverview({ cabinetPersonas }: { cabinetPersonas: PersonaInfo[] }
       </Row>
       <div style={{ marginTop: 12 }}>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          规划阈值：goal &lt; 100 字 且无约束/输出格式 → 跳过规划（直通 bingbu）
+          {t("cabinet.thresholdHint")}
         </Typography.Text>
       </div>
     </Card>
@@ -51,6 +53,7 @@ function CabinetOverview({ cabinetPersonas }: { cabinetPersonas: PersonaInfo[] }
 }
 
 export default function CabinetPage() {
+  const t = useT();
   const { data: personas, isLoading: personasLoading } = usePersonas();
   const { data: plannerStats, isLoading: statsLoading } = usePlannerStats();
   const { token } = theme.useToken();
@@ -59,7 +62,7 @@ export default function CabinetPage() {
 
   const historyColumns = [
     {
-      title: "敕令",
+      title: t("cabinet.table.edict"),
       dataIndex: "title",
       key: "title",
       ellipsis: true,
@@ -68,40 +71,40 @@ export default function CabinetPage() {
       ),
     },
     {
-      title: "规划结果",
+      title: t("cabinet.table.planType"),
       dataIndex: "plan_type",
       key: "plan_type",
       width: 120,
       render: (v: string) => (
         <Tag color={v === "dag" ? "blue" : "green"}>
-          {v === "dag" ? "DAG 规划" : "直通"}
+          {v === "dag" ? t("cabinet.planType.dag") : t("cabinet.planType.passthrough")}
         </Tag>
       ),
     },
     {
-      title: "规划官",
+      title: t("cabinet.table.planner"),
       dataIndex: "planner_persona_id",
       key: "planner_persona_id",
       width: 120,
       render: (v: string | null) =>
-        v ? <Tag color="purple">{v}</Tag> : <Tag>全局</Tag>,
+        v ? <Tag color="purple">{v}</Tag> : <Tag>{t("cabinet.tag.global")}</Tag>,
     },
     {
-      title: "指派",
+      title: t("cabinet.table.assigned"),
       dataIndex: "assigned_persona_id",
       key: "assigned_persona_id",
       width: 100,
       render: (v: string | null) =>
-        v ? <Tag color="orange">{v}</Tag> : <Tag>自动</Tag>,
+        v ? <Tag color="orange">{v}</Tag> : <Tag>{t("cabinet.tag.auto")}</Tag>,
     },
     {
-      title: "子任务数",
+      title: t("cabinet.table.taskCount"),
       dataIndex: "task_count",
       key: "task_count",
       width: 80,
     },
     {
-      title: "创建时间",
+      title: t("cabinet.table.createdAt"),
       dataIndex: "created_at",
       key: "created_at",
       width: 160,
@@ -111,7 +114,7 @@ export default function CabinetPage() {
 
   if (personasLoading) {
     return (
-      <PageContainer title="内阁">
+      <PageContainer title={t("cabinet.title")}>
         <div style={{ textAlign: "center", padding: 48 }}>
           <Spin size="large" />
         </div>
@@ -120,34 +123,33 @@ export default function CabinetPage() {
   }
 
   return (
-    <PageContainer title="内阁">
+    <PageContainer title={t("cabinet.title")}>
       <Space direction="vertical" size="middle" style={{ width: "100%" }}>
         <CabinetOverview cabinetPersonas={cabinetPersonas} />
 
-        {/* 规划统计 */}
-        <Card title="规划统计" size="small" loading={statsLoading}>
+        <Card title={t("cabinet.stats")} size="small" loading={statsLoading}>
           {plannerStats && (
             <Row gutter={16}>
               <Col span={6}>
-                <Statistic title="总敕令数" value={plannerStats.total_edicts} />
+                <Statistic title={t("cabinet.stat.total")} value={plannerStats.total_edicts} />
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="直通（跳过规划）"
+                  title={t("cabinet.stat.passthrough")}
                   value={plannerStats.passthrough_count}
                   valueStyle={{ color: token.colorSuccess }}
                 />
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="DAG 生成"
+                  title={t("cabinet.stat.dag")}
                   value={plannerStats.dag_count}
                   valueStyle={{ color: token.colorPrimary }}
                 />
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="均子任务数"
+                  title={t("cabinet.stat.avgTasks")}
                   value={plannerStats.avg_tasks_per_dag}
                   precision={1}
                 />
@@ -156,8 +158,7 @@ export default function CabinetPage() {
           )}
         </Card>
 
-        {/* 规划历史 */}
-        <Card title="近期规划记录" size="small">
+        <Card title={t("cabinet.history")} size="small">
           <Table
             columns={historyColumns}
             dataSource={(plannerStats?.recent_history ?? []).map((h) => ({
@@ -167,7 +168,7 @@ export default function CabinetPage() {
             size="small"
             pagination={false}
             loading={statsLoading}
-            locale={{ emptyText: "暂无规划记录" }}
+            locale={{ emptyText: t("cabinet.empty") }}
           />
         </Card>
       </Space>

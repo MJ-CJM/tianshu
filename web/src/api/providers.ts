@@ -1,4 +1,11 @@
-import type { ApiResponse, ProviderInfo, PluginInfo } from "./types";
+import type {
+  ApiResponse,
+  DefaultPricingTable,
+  EffectivePricing,
+  PluginInfo,
+  ProviderInfo,
+  ProviderPricingUpdate,
+} from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -41,6 +48,45 @@ export async function updateProvider(
 
 export async function deleteProvider(name: string): Promise<void> {
   await fetchJson(`/api/providers/${name}`, { method: "DELETE" });
+}
+
+// --- Provider pricing (3 维：input miss / input hit / output) ---
+
+export async function getEffectivePricing(name: string): Promise<EffectivePricing> {
+  const resp = await fetchJson<ApiResponse<EffectivePricing>>(
+    `/api/providers/${encodeURIComponent(name)}/pricing/effective`,
+  );
+  return resp.data!;
+}
+
+export async function updateProviderPricing(
+  name: string,
+  body: ProviderPricingUpdate,
+): Promise<EffectivePricing> {
+  const resp = await fetchJson<ApiResponse<EffectivePricing>>(
+    `/api/providers/${encodeURIComponent(name)}/pricing`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  return resp.data!;
+}
+
+export async function resetProviderPricing(name: string): Promise<EffectivePricing> {
+  const resp = await fetchJson<ApiResponse<EffectivePricing>>(
+    `/api/providers/${encodeURIComponent(name)}/pricing`,
+    { method: "DELETE" },
+  );
+  return resp.data!;
+}
+
+export async function getDefaultPricingTable(): Promise<DefaultPricingTable> {
+  const resp = await fetchJson<ApiResponse<DefaultPricingTable>>(
+    "/api/providers/pricing/defaults",
+  );
+  return resp.data!;
 }
 
 export async function getPlugins(): Promise<PluginInfo[]> {

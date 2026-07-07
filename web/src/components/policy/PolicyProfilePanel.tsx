@@ -12,6 +12,7 @@ import {
 import { SafetyOutlined } from "@ant-design/icons";
 import { fetchPolicyTemplates } from "../../api/policy";
 import type { PolicyTemplate } from "../../api/policy";
+import { useT } from "../../i18n";
 
 const { Text } = Typography;
 
@@ -42,6 +43,7 @@ export default function PolicyProfilePanel({
   value,
   onChange,
 }: PolicyProfilePanelProps) {
+  const t = useT();
   const [templates, setTemplates] = useState<PolicyTemplate[]>([]);
   const [local, setLocal] = useState<PolicyProfileValue>(value ?? DEFAULT_VALUE);
 
@@ -98,7 +100,7 @@ export default function PolicyProfilePanel({
           label: (
             <Space>
               <SafetyOutlined />
-              <span>工具权限策略（可选）</span>
+              <span>{t("comp.policyProfile.title")}</span>
               {local.template_name && (
                 <Tag color="blue">{local.template_name}</Tag>
               )}
@@ -106,26 +108,26 @@ export default function PolicyProfilePanel({
           ),
           children: (
             <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-              <Form.Item label="预设模板" style={{ marginBottom: 0 }}>
+              <Form.Item label={t("comp.policyProfile.templateLabel")} style={{ marginBottom: 0 }}>
                 <Select
                   allowClear
-                  placeholder="选择预设模板（可选）"
+                  placeholder={t("comp.policyProfile.templatePlaceholder")}
                   value={local.template_name ?? undefined}
                   onChange={applyTemplate}
-                  options={templates.map((t) => ({
-                    value: t.name,
-                    label: t.name,
+                  options={templates.map((tpl) => ({
+                    value: tpl.name,
+                    label: tpl.name,
                   }))}
                 />
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  选择模板后可进一步自定义
+                  {t("comp.policyProfile.templateHint")}
                 </Text>
               </Form.Item>
 
-              <Form.Item label="允许路径 (glob)" style={{ marginBottom: 0 }}>
+              <Form.Item label={t("comp.policyProfile.pathsLabel")} style={{ marginBottom: 0 }}>
                 <Input.TextArea
                   rows={3}
-                  placeholder={"每行一条，例如：\nsrc/**\ntests/**"}
+                  placeholder={t("comp.policyProfile.pathsPlaceholder")}
                   value={local.allowed_paths.join("\n")}
                   onChange={(e) =>
                     update({
@@ -138,10 +140,10 @@ export default function PolicyProfilePanel({
                 />
               </Form.Item>
 
-              <Form.Item label="允许 Bash 前缀" style={{ marginBottom: 0 }}>
+              <Form.Item label={t("comp.policyProfile.bashLabel")} style={{ marginBottom: 0 }}>
                 <Input.TextArea
                   rows={3}
-                  placeholder={"每行一条，例如：\ngit status\nls\npytest"}
+                  placeholder={t("comp.policyProfile.bashPlaceholder")}
                   value={local.allowed_bash_prefixes.join("\n")}
                   onChange={(e) =>
                     update({
@@ -155,31 +157,31 @@ export default function PolicyProfilePanel({
               </Form.Item>
 
               <Form.Item
-                label="自动放行最高 Tier"
+                label={t("comp.policyProfile.autoApproveLabel")}
                 style={{ marginBottom: 0 }}
-                tooltip="Tier ≤ 该值的工具将自动放行，不需要审批"
+                tooltip={t("comp.policyProfile.autoApproveTooltip")}
               >
                 <Select
                   value={local.auto_approve_max_tier}
                   onChange={(v) => update({ auto_approve_max_tier: v })}
                   options={[
-                    { value: 0, label: "T0 只读" },
-                    { value: 1, label: "T1 工作区" },
-                    { value: 2, label: "T2 写操作" },
-                    { value: 3, label: "T3 危险" },
+                    { value: 0, label: t("comp.policyProfile.tier0") },
+                    { value: 1, label: t("comp.policyProfile.tier1") },
+                    { value: 2, label: t("comp.policyProfile.tier2") },
+                    { value: 3, label: t("comp.policyProfile.tier3") },
                   ]}
                 />
               </Form.Item>
 
               <Form.Item
-                label="规则有效期 (秒)"
+                label={t("comp.policyProfile.expiresLabel")}
                 style={{ marginBottom: 0 }}
-                tooltip="留空表示永久有效（直到敕令结束）"
+                tooltip={t("comp.policyProfile.expiresTooltip")}
               >
                 <InputNumber
                   style={{ width: "100%" }}
                   min={60}
-                  placeholder="留空 = 永久"
+                  placeholder={t("comp.policyProfile.expiresPlaceholder")}
                   value={local.expires_after_seconds ?? undefined}
                   onChange={(v) =>
                     update({ expires_after_seconds: v ?? null })

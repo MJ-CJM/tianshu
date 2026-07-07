@@ -1,8 +1,8 @@
 """Tests for compaction strategies."""
 
-import pytest
-
+from tianshu.executor.compaction.micro import micro_compact
 from tianshu.executor.compaction.token_estimator import estimate_tokens
+from tianshu.executor.loop_state import LoopState
 
 
 class TestTokenEstimator:
@@ -46,10 +46,6 @@ class TestTokenEstimator:
             },
         )
         assert estimate_tokens(msgs) == 2  # 1+1
-
-
-from tianshu.executor.loop_state import LoopState
-from tianshu.executor.compaction.micro import micro_compact
 
 
 class TestMicroCompact:

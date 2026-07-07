@@ -50,3 +50,12 @@ export async function deletePersona(
   );
   return data;
 }
+
+export async function regeneratePersonaIdentity(
+  id: string,
+): Promise<ApiResponse<{ id: string; soul_path: string; role_path: string }>> {
+  const { data } = await apiClient.post<
+    ApiResponse<{ id: string; soul_path: string; role_path: string }>
+  >(`/personas/${id}/regenerate-identity`);
+  return data;
+}

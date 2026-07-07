@@ -1,13 +1,20 @@
 import { Layout, theme } from "antd";
 import HealthDot from "../common/HealthDot";
 import ConnectionIndicator from "../common/ConnectionIndicator";
+import LocaleSwitcher from "./LocaleSwitcher";
+import { useT } from "../../i18n";
+import { useLocaleMode } from "../../hooks/useLocale";
 
 interface AppHeaderProps {
   isWsConnected?: boolean;
 }
 
 export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
+  const t = useT();
+  const locale = useLocaleMode();
   const { token } = theme.useToken();
+  const brand = t("comp.appHeader.brand");
+  const isLatinBrand = locale === "en";
 
   return (
     <Layout.Header
@@ -21,23 +28,18 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <img src="/favicon.svg" alt="天枢" style={{ width: 28, height: 28, display: "block" }} />
+        <img src="/favicon.svg" alt={brand} style={{ width: 28, height: 28, display: "block" }} />
         <span
           style={{
             color: token.colorText,
-            fontFamily: "'Noto Serif SC', serif",
+            fontFamily: isLatinBrand ? "'Noto Serif', serif" : "'Noto Serif SC', serif",
             fontWeight: 700,
             fontSize: 18,
-            letterSpacing: 2,
+            letterSpacing: isLatinBrand ? 0.5 : 2,
             lineHeight: 1,
           }}
         >
-          天枢
-        </span>
-        <span
-          style={{ color: token.colorTextSecondary, fontSize: 12, letterSpacing: 1, lineHeight: 1 }}
-        >
-          中枢台
+          {brand}
         </span>
       </div>
       <div
@@ -50,9 +52,10 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
           fontStyle: "italic",
         }}
       >
-        成功只有一个——按照自己的方式，去度过人生。
+        {t("comp.appHeader.tagline")}
       </div>
-      <div style={{ display: "flex", alignItems: "center" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <LocaleSwitcher />
         <ConnectionIndicator isConnected={isWsConnected} />
         <HealthDot />
       </div>

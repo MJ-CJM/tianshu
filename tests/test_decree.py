@@ -93,3 +93,83 @@ class TestApprovalManager:
         decree = Decree(memorial_id="nonexistent", action="approve")
         with pytest.raises(ValueError, match="not found"):
             await manager.submit_decree(decree)
+
+    async def test_tool_decision_downgrades_always_for_shell_exec(
+        self,
+        manager,
+        storage,
+        event_bus,
+    ):
+        """Bug A 回归：shell_exec + always 应被前置降级为 once，且事件 payload
+        透出 grant_downgraded=true，前端可以提示用户'已降级为本次'。"""
+        import asyncio
+
+        edict = Edict(goal="g")
+        storage.save_edict(edict)
+        memorial = Memorial(edict_id=edict.id, status=TaskStatus.RUNNING)
+        storage.save_memorial(memorial)
+
+        # 模拟 PolicyHook 正在等待审批
+        manager._pending[memorial.id] = asyncio.Event()
+        manager._pending_tool[memorial.id] = "shell_exec"
+
+        captured: list = []
+
+        async def collect(evt):
+            captured.append(evt)
+
+        event_bus.on("decree.approved", collect)
+
+        decree = await manager.submit_tool_decision(
+            memorial_id=memorial.id,
+            action="approve",
+            grant_scope="always",
+        )
+
+        # decree 实际落库的 grant_scope 已被降级
+        assert decree.grant_scope == "once"
+
+        # 等事件总线 flush
+        await asyncio.sleep(0.05)
+        assert len(captured) == 1
+        payload = captured[0].payload
+        assert payload["grant_scope"] == "once"
+        assert payload["requested_grant_scope"] == "always"
+        assert payload["grant_downgraded"] is True
+        assert "shell_exec" in (payload["grant_downgrade_reason"] or "")
+
+    async def test_tool_decision_keeps_always_for_non_bash_tool(
+        self,
+        manager,
+        storage,
+        event_bus,
+    ):
+        """非 bash 类工具不会被降级 — always 正常生效。"""
+        import asyncio
+
+        edict = Edict(goal="g")
+        storage.save_edict(edict)
+        memorial = Memorial(edict_id=edict.id, status=TaskStatus.RUNNING)
+        storage.save_memorial(memorial)
+
+        manager._pending[memorial.id] = asyncio.Event()
+        manager._pending_tool[memorial.id] = "read_file"
+
+        captured: list = []
+
+        async def collect(evt):
+            captured.append(evt)
+
+        event_bus.on("decree.approved", collect)
+
+        decree = await manager.submit_tool_decision(
+            memorial_id=memorial.id,
+            action="approve",
+            grant_scope="always",
+        )
+        assert decree.grant_scope == "always"
+
+        await asyncio.sleep(0.05)
+        payload = captured[0].payload
+        assert payload["grant_scope"] == "always"
+        assert payload["grant_downgraded"] is False

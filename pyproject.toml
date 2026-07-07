@@ -21,11 +21,13 @@ dependencies = [
     "jsonschema>=4.0",
     "watchdog>=4.0",
     "croniter>=2.0",
+    "cachetools>=5.3",
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]
 cli = [
-    "typer[all]>=0.12",
+    "typer>=0.12",
     "rich>=13.0",
     "websockets>=12.0",
 ]
@@ -37,7 +39,17 @@ dev = [
     "pytest-cov>=5.0",
     "pytest-asyncio>=0.23",
     "respx>=0.21",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "import-linter>=2.0",
+    "pre-commit>=3.7",
 ]
+scrapling = ["scrapling[fetchers]>=0.3"]
+feishu = ["lark-oapi>=1.4.0"]
+telegram = ["python-telegram-bot>=22.6,<23"]
+web = ["trafilatura>=1.12"]
+mcp = ["mcp>=1.0"]
+all = ["tianshu[feishu,telegram,web,mcp,cli,notify]"]
 
 [project.scripts]
 tianshu = "tianshu.cli.main:app"
@@ -48,3 +60,62 @@ where = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "slow: 真实子进程/慢测试",
+    "unit: 纯单元测试（无 IO / 无外部依赖）",
+    "integration: 跨组件集成测试（真 Storage / 多协作者编排）",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.coverage.run]
+source = ["src/tianshu"]
+
+[tool.coverage.report]
+skip_covered = false
+show_missing = false
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["tianshu.models", "tianshu.kernel", "tianshu.bus", "tianshu.dag", "tianshu.config", "tianshu.storage", "tianshu.secrets", "tianshu.memory", "tianshu.persona", "tianshu.tools.mcp"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC"]
+ignore = [
+    "E501",  # 行宽交给 formatter
+    # 下面 4 条是本次（B1-T8）首次 lint 落地时的残余处置，非长期豁免，后续批次收紧：
+    "UP042",   # str+Enum → StrEnum 会改变 str()/序列化行为（11 处核心枚举），需专项验证后再迁移
+    "ASYNC240",  # async 函数内阻塞 pathlib/os.path 调用（16 处），修复需引入 to_thread 等重构，超出本次 lint-fix 范围
+    "ASYNC221",  # async 函数内阻塞子进程调用（5 处，均为测试代码），同上
+    "ASYNC109",  # async 函数以 timeout 参数暴露超时（2 处），改法是破坏性 API 变更，暂缓
+]
+
+[tool.importlinter]
+root_package = "tianshu"
+
+[[tool.importlinter.contracts]]
+name = "分层:底层契约不得向上依赖"
+type = "layers"
+layers = [
+    "tianshu.gateway : tianshu.executor : tianshu.scheduler : tianshu.bootstrap : tianshu.universe",
+    "tianshu.storage : tianshu.secrets : tianshu.memory : tianshu.persona : tianshu.skills",
+    "tianshu.kernel : tianshu.models : tianshu.config : tianshu.bus",
+]
+ignore_imports = [
+    # EventBus 可选持有 Storage 做事件落盘（DI 注入，非类型断言），历史遗留耦合，拆包时再引入 Protocol 解耦
+    "tianshu.bus.event_bus -> tianshu.storage",
+    # TYPE_CHECKING-only 类型标注（bind_persona 参数类型），运行时零依赖；kernel 在 mypy 覆盖范围内需要该导入解析类型
+    "tianshu.kernel.ambient -> tianshu.persona.model",
+]
+
+[[tool.importlinter.contracts]]
+name = "extras 独立性:telegram 不得依赖 feishu"
+type = "forbidden"
+source_modules = ["tianshu.gateway.telegram"]
+forbidden_modules = ["tianshu.gateway.feishu"]

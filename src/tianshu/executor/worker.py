@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 
-from tianshu.dag.models import DAGNode
 from tianshu.executor.agent import Agent, AgentResult
-from tianshu.models.common import TaskStatus, UsageSummary
+from tianshu.models.common import TaskStatus
+from tianshu.models.dag import DAGNode
 from tianshu.models.edict import Edict
 from tianshu.models.memorial import Memorial
 from tianshu.persona.model import AgentPersona
@@ -111,7 +112,6 @@ class Worker:
                 error=str(e),
             )
         finally:
-            import asyncio as _asyncio  # noqa: F811
             memorial.completed_at = datetime.now(UTC)
             self._storage.update_memorial(memorial)
 

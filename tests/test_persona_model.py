@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from tianshu.persona.loader import PersonaLoader
 from tianshu.persona.model import AgentPersona
 from tianshu.persona.selector import OfficialSelector
@@ -96,4 +94,5 @@ class TestOfficialSelector:
         loader.load_all()
         selector = OfficialSelector(loader)
 
-        assert selector.select("unknown") is None
+        # 未知意图回退到合理的兜底官员（而非 None）——确保任务总有官员承接
+        assert selector.select("unknown") is not None

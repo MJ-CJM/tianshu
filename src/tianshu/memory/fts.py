@@ -45,21 +45,53 @@ def create_fts_table(conn: sqlite3.Connection) -> bool:
         return False
 
 
+def escape_fts5_query(query: str) -> str:
+    """把用户输入转义为 FTS5 安全 query。
+
+    按空白切词,每个 token 包成 phrase("...")并对内部引号转义,token 间隐式
+    AND。避免括号/引号/中文标点等特殊字符触发 FTS5 语法错误——该错误会被
+    fts_search 的 except 吞掉,造成静默零召回。
+    """
+    tokens = [t for t in query.split() if t]
+    if not tokens:
+        return ""
+    return " ".join('"' + t.replace('"', '""') + '"' for t in tokens)
+
+
 def fts_search(
     conn: sqlite3.Connection,
     query: str,
     persona_id: str | None = None,
     limit: int = 20,
+    persona_ids: list[str] | None = None,
 ) -> list[str]:
-    """Search memory via FTS5. Returns list of matching entry IDs."""
+    """Search memory via FTS5. Returns list of matching entry IDs.
+
+    persona_ids 优先级高于 persona_id：
+      - persona_ids = ["wym", "court", "_dept_neige"] → 限定多 ID 集合
+      - persona_id = "wym"（旧用法）→ 单 ID
+      - 都未提供 → 跨 persona 检索（原行为）
+    """
+    safe_query = escape_fts5_query(query)
+    if not safe_query:
+        return []
     try:
-        if persona_id:
+        if persona_ids:
+            placeholders = ",".join("?" for _ in persona_ids)
+            rows = conn.execute(
+                f"""SELECT id FROM memory_fts
+                    WHERE memory_fts MATCH ? AND persona_id IN ({placeholders})
+                    ORDER BY rank
+                    LIMIT ?""",
+                (safe_query, *persona_ids, limit),
+            ).fetchall()
+        elif persona_id:
             rows = conn.execute(
                 """SELECT id FROM memory_fts
                    WHERE memory_fts MATCH ? AND persona_id = ?
                    ORDER BY rank
                    LIMIT ?""",
-                (query, persona_id, limit),
+                (safe_query, persona_id, limit),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -67,7 +99,7 @@ def fts_search(
                    WHERE memory_fts MATCH ?
                    ORDER BY rank
                    LIMIT ?""",
-                (query, limit),
+                (safe_query, limit),
             ).fetchall()
         return [r[0] for r in rows]
     except Exception:

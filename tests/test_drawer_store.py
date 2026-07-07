@@ -1,6 +1,6 @@
 import pytest
 
-from tianshu.memory.drawer import Drawer, DrawerResult, MemoryBackend
+from tianshu.memory.drawer import Drawer, MemoryBackend
 from tianshu.memory.drawer_store import DrawerStore
 
 
@@ -8,16 +8,22 @@ from tianshu.memory.drawer_store import DrawerStore
 def store(tmp_path):
     db_path = tmp_path / "test.sqlite3"
     s = DrawerStore(str(db_path))
-    return s
+    yield s
+    s.close()
 
 
 @pytest.fixture
 def sample_drawer():
     return Drawer(
-        id="drw_001", wing="bingbu", room="execution",
+        id="drw_001",
+        wing="bingbu",
+        room="execution",
         content="Deployment failed because DATABASE_URL was not set in production config.",
-        source_edict_id="edict_abc", timestamp="2026-04-16T10:00:00+00:00",
-        category="W", confidence=0.9, chunk_index=0,
+        source_edict_id="edict_abc",
+        timestamp="2026-04-16T10:00:00+00:00",
+        category="W",
+        confidence=0.9,
+        chunk_index=0,
     )
 
 
@@ -70,11 +76,15 @@ async def test_delete_drawer(store, sample_drawer):
 async def test_get_l1(store):
     for i in range(5):
         d = Drawer(
-            id=f"drw_{i:03d}", wing="bingbu", room="execution",
+            id=f"drw_{i:03d}",
+            wing="bingbu",
+            room="execution",
             content=f"Lesson {i}: important fact number {i}.",
             source_edict_id="edict_abc",
-            timestamp=f"2026-04-{16-i:02d}T10:00:00+00:00",
-            category="W", confidence=0.5 + i * 0.1, chunk_index=0,
+            timestamp=f"2026-04-{16 - i:02d}T10:00:00+00:00",
+            category="W",
+            confidence=0.5 + i * 0.1,
+            chunk_index=0,
         )
         await store.store_drawer(d)
 

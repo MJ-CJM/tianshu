@@ -37,13 +37,24 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
 
         if rg:
             return await _rg_search(
-                rg, pattern, search_path, glob, ignore_case, literal,
-                context, limit,
+                rg,
+                pattern,
+                search_path,
+                glob,
+                ignore_case,
+                literal,
+                context,
+                limit,
             )
         return await asyncio.to_thread(
             _python_search,
-            pattern, search_path, glob, ignore_case, literal,
-            context, limit,
+            pattern,
+            search_path,
+            glob,
+            ignore_case,
+            literal,
+            context,
+            limit,
         )
 
     async def _rg_search(
@@ -57,7 +68,11 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
         limit: int,
     ) -> ToolResult:
         cmd = [
-            rg, "--json", "--line-number", "--color=never", "--hidden",
+            rg,
+            "--json",
+            "--line-number",
+            "--color=never",
+            "--hidden",
             f"--max-count={limit}",
         ]
         if ignore_case:
@@ -77,7 +92,7 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
         )
         try:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.CancelledError):
             proc.kill()
             await proc.communicate()
             return error_result("grep: search timed out")
@@ -150,14 +165,14 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
             if match_count >= limit:
                 break
             try:
-                file_lines = fp.read_text(
-                    encoding="utf-8", errors="replace"
-                ).splitlines()
+                file_lines = fp.read_text(encoding="utf-8", errors="replace").splitlines()
             except (OSError, UnicodeDecodeError):
                 continue
 
             try:
-                rel = os.path.relpath(fp, search_path.parent if search_path.is_file() else search_path)
+                rel = os.path.relpath(
+                    fp, search_path.parent if search_path.is_file() else search_path
+                )
             except ValueError:
                 rel = str(fp)
 
@@ -171,9 +186,7 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
                     for j in range(start, end):
                         prefix = ">" if j == i else " "
                         text = file_lines[j][:_MAX_LINE_LEN]
-                        lines_out.append(
-                            f"{prefix} {rel}:{j + 1}: {text}"
-                        )
+                        lines_out.append(f"{prefix} {rel}:{j + 1}: {text}")
                     match_count += 1
 
         limit_reached = match_count >= limit

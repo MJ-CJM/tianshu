@@ -36,12 +36,15 @@ import {
   UserOutlined,
   DeleteOutlined,
   SearchOutlined,
+  TrophyOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
 import {
   usePersonas,
+  useRegeneratePersonaIdentity,
   usePersonaMetrics,
   useUpdatePersona,
 } from "../hooks/usePersonas";
@@ -53,6 +56,7 @@ import {
   useTools,
   useSkills,
 } from "../hooks/useSystem";
+import { useMCPServers } from "../hooks/useMCP";
 import { usePromptLayers } from "../hooks/useOps";
 import {
   usePersonaMemorials,
@@ -61,6 +65,7 @@ import {
   useRecallMemory,
 } from "../hooks/useMemory";
 import { useDepartments } from "../hooks/useDepartments";
+import ProfileTab from "../components/persona/ProfileTab";
 import { useConfigs } from "../hooks/useConfig";
 import type {
   PersonaInfo,
@@ -70,6 +75,7 @@ import type {
   MemorialBrief,
   PromptFileInfo,
 } from "../api/types";
+import { useT } from "../i18n";
 
 const { Text, Paragraph } = Typography;
 
@@ -109,41 +115,49 @@ function OverviewTab({
   persona: PersonaInfo;
   onEdit: () => void;
 }) {
+  const t = useT();
   const { token } = theme.useToken();
   const { data: metrics, isLoading: metricsLoading } = usePersonaMetrics(persona.id);
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <GlowCard
-        title="身份信息"
+        title={t("persona.detail.section.identity")}
         extra={
           <Button size="small" icon={<EditOutlined />} onClick={onEdit}>
-            编辑
+            {t("action.edit")}
           </Button>
         }
       >
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="ID">
+          <Descriptions.Item label={t("persona.detail.field.id")}>
             <Tag>{persona.id}</Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="名称">{persona.name}</Descriptions.Item>
-          <Descriptions.Item label="部门">
+          <Descriptions.Item label={t("persona.detail.field.name")}>{persona.name}</Descriptions.Item>
+          <Descriptions.Item label={t("persona.detail.field.dept")}>
             <Tag color="blue">{persona.department_name ?? persona.department}</Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="LLM 配置">
+          <Descriptions.Item label={t("persona.detail.field.title")}>
+            {persona.title ? (
+              <Tag color="purple">{persona.title}</Tag>
+            ) : (
+              <Text type="secondary">{t("persona.detail.value.notAssigned")}</Text>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label={t("persona.detail.field.llmConfig")}>
             {persona.llm_config_name ? (
               <Tag color="orange">{persona.llm_config_name}</Tag>
             ) : (
-              <Text type="secondary">全局配置</Text>
+              <Text type="secondary">{t("persona.detail.value.globalConfig")}</Text>
             )}
           </Descriptions.Item>
         </Descriptions>
       </GlowCard>
 
-      <GlowCard title="工具与技能">
+      <GlowCard title={t("persona.detail.section.toolsSkills")}>
         <div style={{ marginBottom: 12 }}>
           <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
-            工具权限等级
+            {t("persona.detail.field.toolPermission")}
           </Text>
           <div style={{ marginTop: 4 }}>
             <Tag
@@ -159,72 +173,75 @@ function OverviewTab({
             </Tag>
             <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>
               {persona.tool_tier_max === 0
-                ? "仅监控/审核，不操作工具"
+                ? t("persona.tier.tier0")
                 : persona.tool_tier_max === 1
-                  ? "基础工具（只读）"
-                  : `可使用 tier <= ${persona.tool_tier_max} 的所有工具`}
+                  ? t("persona.tier.tier1")
+                  : t("persona.tier.tierN", { n: persona.tool_tier_max })}
             </Text>
           </div>
         </div>
 
         <Row gutter={16}>
           <Col span={8}>
-            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>允许工具</Text>
+            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>{t("persona.detail.field.toolsAllowed")}</Text>
             <div style={{ marginTop: 4 }}>
               {persona.tools_allowed.length > 0 ? (
-                persona.tools_allowed.map((t) => (
-                  <Tag key={t} style={{ marginBottom: 4 }}>{t}</Tag>
+                persona.tools_allowed.map((tool) => (
+                  <Tag key={tool} style={{ marginBottom: 4 }}>{tool}</Tag>
                 ))
               ) : (
-                <Text type="secondary" style={{ fontSize: 12 }}>无指定（按 tier 过滤）</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>{t("persona.detail.value.noSpecified")}</Text>
               )}
             </div>
           </Col>
           <Col span={8}>
-            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>禁用工具</Text>
+            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>{t("persona.detail.field.toolsDenied")}</Text>
             <div style={{ marginTop: 4 }}>
               {persona.tools_denied.length > 0 ? (
-                persona.tools_denied.map((t) => (
-                  <Tag key={t} color="red" style={{ marginBottom: 4 }}>{t}</Tag>
+                persona.tools_denied.map((tool) => (
+                  <Tag key={tool} color="red" style={{ marginBottom: 4 }}>{tool}</Tag>
                 ))
               ) : (
-                <Text type="secondary" style={{ fontSize: 12 }}>无</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>{t("persona.detail.value.none")}</Text>
               )}
             </div>
           </Col>
           <Col span={8}>
-            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>技能注入</Text>
+            <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>{t("persona.detail.field.skills")}</Text>
             <div style={{ marginTop: 4 }}>
               {persona.skills_allowed.length > 0 ? (
                 persona.skills_allowed.map((s) => (
                   <Tag key={s} color="purple" style={{ marginBottom: 4 }}>{s}</Tag>
                 ))
               ) : (
-                <Text type="secondary" style={{ fontSize: 12 }}>全部技能（无过滤）</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>{t("persona.detail.value.allSkills")}</Text>
               )}
             </div>
           </Col>
         </Row>
       </GlowCard>
 
-      <GlowCard title="委派关系">
+      <GlowCard title={t("persona.detail.section.delegation")}>
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="可委派">
-            {persona.can_delegate ? <Tag color="green">是</Tag> : <Tag>否</Tag>}
+          <Descriptions.Item label={t("persona.detail.field.canDelegate")}>
+            {persona.can_delegate ? <Tag color="green">{t("persona.detail.value.yes")}</Tag> : <Tag>{t("persona.detail.value.no")}</Tag>}
           </Descriptions.Item>
-          <Descriptions.Item label="可委派至">
+          <Descriptions.Item label={t("persona.detail.field.memoryGlobalRead")}>
+            {persona.memory_global_read ? <Tag color="orange">{t("persona.detail.value.yes")}</Tag> : <Tag>{t("persona.detail.value.no")}</Tag>}
+          </Descriptions.Item>
+          <Descriptions.Item label={t("persona.detail.field.delegatesTo")}>
             {persona.delegates_to.length > 0 ? (
               persona.delegates_to.map((d) => (
                 <Tag key={d} color="cyan" style={{ marginBottom: 4 }}>{d}</Tag>
               ))
             ) : (
-              <Text type="secondary">无</Text>
+              <Text type="secondary">{t("persona.detail.value.none")}</Text>
             )}
           </Descriptions.Item>
         </Descriptions>
       </GlowCard>
 
-      <GlowCard title="执行指标">
+      <GlowCard title={t("persona.detail.section.metrics")}>
         {metricsLoading ? (
           <div style={{ textAlign: "center", padding: 16 }}>
             <Spin size="small" />
@@ -233,18 +250,18 @@ function OverviewTab({
           <Space direction="vertical" size="small" style={{ width: "100%" }}>
             <Row gutter={16}>
               <Col span={6}>
-                <Statistic title="总执行" value={metrics.total_executions} />
+                <Statistic title={t("persona.metric.total")} value={metrics.total_executions} />
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="完成"
+                  title={t("persona.metric.completed")}
                   value={metrics.completed}
                   valueStyle={{ color: token.colorSuccess }}
                 />
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="失败"
+                  title={t("persona.metric.failed")}
                   value={metrics.failed}
                   valueStyle={{ color: token.colorError }}
                 />
@@ -252,7 +269,7 @@ function OverviewTab({
               <Col span={6}>
                 <div>
                   <Text style={{ fontSize: 12, color: token.colorTextSecondary }}>
-                    成功率
+                    {t("persona.metric.successRate")}
                   </Text>
                   <Progress
                     percent={Number(metrics.success_rate.toFixed(1))}
@@ -264,14 +281,14 @@ function OverviewTab({
             </Row>
             <Row gutter={16}>
               <Col span={6}>
-                <Statistic title="总 Token" value={metrics.total_tokens} />
+                <Statistic title={t("persona.metric.totalTokens")} value={metrics.total_tokens} />
               </Col>
               <Col span={6}>
-                <Statistic title="均 Token" value={metrics.avg_tokens_per_execution} />
+                <Statistic title={t("persona.metric.avgTokens")} value={metrics.avg_tokens_per_execution} />
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="总成本"
+                  title={t("persona.metric.totalCost")}
                   value={metrics.total_cost_cny}
                   prefix="¥"
                   precision={4}
@@ -279,7 +296,7 @@ function OverviewTab({
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="均耗时"
+                  title={t("persona.metric.avgDuration")}
                   value={metrics.avg_duration_seconds}
                   suffix="s"
                   precision={1}
@@ -288,7 +305,7 @@ function OverviewTab({
             </Row>
           </Space>
         ) : (
-          <Text type="secondary">暂无指标数据</Text>
+          <Text type="secondary">{t("persona.metric.empty")}</Text>
         )}
       </GlowCard>
     </Space>
@@ -298,6 +315,7 @@ function OverviewTab({
 // ==================== Tab 2: Prompt Files ====================
 
 function PromptFilesTab({ personaId }: { personaId: string }) {
+  const t = useT();
   const { token } = theme.useToken();
   const { data: promptData } = usePromptFiles();
   const promptFiles = promptData?.files ?? [];
@@ -337,7 +355,7 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
       },
       {
         onSuccess: () => {
-          notification.success({ message: "文件已保存" });
+          notification.success({ message: t("system.toast.fileSaved") });
           setEditingFile(null);
         },
       },
@@ -347,15 +365,15 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <GlowCard
-        title="指令文件"
+        title={t("persona.detail.section.instructionFiles")}
         extra={
           <Button icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
-            预览完整 Prompt
+            {t("persona.detail.previewBtn")}
           </Button>
         }
       >
         {personaFiles.length === 0 ? (
-          <Text type="secondary">暂无 Prompt 文件</Text>
+          <Text type="secondary">{t("system.prompt.emptyFiles")}</Text>
         ) : (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
             {personaFiles.map((f: PromptFileInfo) => (
@@ -399,36 +417,36 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
       </GlowCard>
 
       {layers && (
-        <Card title="Prompt 分层分析" size="small" loading={layersLoading}>
+        <Card title={t("system.prompt.layeredAnalysis")} size="small" loading={layersLoading}>
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col span={8}>
-              <Statistic title="总字符数" value={layers.total_chars} />
+              <Statistic title={t("system.prompt.totalChars")} value={layers.total_chars} />
             </Col>
             <Col span={8}>
-              <Statistic title="估算 Token" value={layers.total_tokens_est} />
+              <Statistic title={t("system.prompt.estTokens")} value={layers.total_tokens_est} />
             </Col>
             <Col span={8}>
-              <Statistic title="层数" value={layers.layers.length} />
+              <Statistic title={t("system.prompt.layerCount")} value={layers.layers.length} />
             </Col>
           </Row>
           <Table
             columns={[
-              { title: "层", dataIndex: "layer", key: "layer", width: 60, align: "center" as const },
-              { title: "名称", dataIndex: "name", key: "name", width: 150 },
+              { title: t("system.prompt.table.layer"), dataIndex: "layer", key: "layer", width: 60, align: "center" as const },
+              { title: t("system.prompt.table.name"), dataIndex: "name", key: "name", width: 150 },
               {
-                title: "来源",
+                title: t("system.prompt.table.source"),
                 dataIndex: "source",
                 key: "source",
                 ellipsis: true,
                 render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text>,
               },
-              { title: "字符", dataIndex: "chars", key: "chars", width: 80, align: "right" as const },
-              { title: "Token (est)", dataIndex: "tokens_est", key: "tokens_est", width: 100, align: "right" as const },
+              { title: t("system.prompt.table.chars"), dataIndex: "chars", key: "chars", width: 80, align: "right" as const },
+              { title: t("system.prompt.table.tokensEst"), dataIndex: "tokens_est", key: "tokens_est", width: 100, align: "right" as const },
               {
-                title: "占比",
+                title: t("system.prompt.table.percent"),
                 key: "percent",
                 width: 120,
-                render: (_: unknown, record: { chars: number }) => (
+                render: (_: unknown, record: { chars: number; name: string }) => (
                   <Progress
                     percent={Math.round((record.chars / (layers.total_chars || 1)) * 100)}
                     size="small"
@@ -437,11 +455,11 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
                 ),
               },
               {
-                title: "操作",
+                title: t("system.prompt.table.actions"),
                 key: "actions",
                 width: 70,
                 align: "center" as const,
-                render: (_: unknown, record: { name: string }) => {
+                render: (_: unknown, record: { chars: number; name: string }) => {
                   const editableMap: Record<string, { pid: string; filename: string }> = {
                     "COURT.md": { pid: "court", filename: "COURT.md" },
                     "Court MEMORY.md": { pid: "court", filename: "MEMORY.md" },
@@ -472,8 +490,8 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
       <Drawer
         title={
           editingFile
-            ? `编辑: ${editingFile.personaId}/${editingFile.filename}`
-            : "编辑文件"
+            ? t("system.prompt.editFileTitle", { personaId: editingFile.personaId, filename: editingFile.filename })
+            : t("system.prompt.editFile")
         }
         open={!!editingFile}
         onClose={() => setEditingFile(null)}
@@ -484,7 +502,7 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
             loading={updateMutation.isPending}
             onClick={handleSave}
           >
-            保存
+            {t("button.save")}
           </Button>
         }
       >
@@ -506,7 +524,7 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
       </Drawer>
 
       <Modal
-        title={`System Prompt 预览: ${personaId}`}
+        title={t("system.prompt.previewModalTitle", { persona: personaId })}
         open={previewOpen}
         onCancel={() => setPreviewOpen(false)}
         footer={null}
@@ -522,7 +540,7 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
             style={monoStyle}
           />
         ) : (
-          <Text type="secondary">无法生成预览</Text>
+          <Text type="secondary">{t("system.prompt.previewEmpty")}</Text>
         )}
       </Modal>
     </Space>
@@ -532,6 +550,7 @@ function PromptFilesTab({ personaId }: { personaId: string }) {
 // ==================== Tab 3: Execution History ====================
 
 function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
+  const t = useT();
   const { token } = theme.useToken();
   const isFailed = memorial.status === "failed";
 
@@ -570,7 +589,7 @@ function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
             <Text type="danger" style={{ fontSize: 13 }}>{memorial.error}</Text>
           ) : memorial.result ? (
             <Paragraph
-              ellipsis={{ rows: 6, expandable: true, symbol: "展开" }}
+              ellipsis={{ rows: 6, expandable: true, symbol: t("memory.history.expand") }}
               style={{ marginBottom: 0, fontSize: 13, whiteSpace: "pre-wrap" }}
             >
               {memorial.result}
@@ -594,6 +613,7 @@ function MemorialBubble({ memorial }: { memorial: MemorialBrief }) {
 }
 
 function ExecutionHistoryTab({ personaId }: { personaId: string }) {
+  const t = useT();
   const navigate = useNavigate();
   const { data: groups, isLoading } = usePersonaMemorials(personaId);
 
@@ -606,7 +626,7 @@ function ExecutionHistoryTab({ personaId }: { personaId: string }) {
   }
 
   if (!groups || groups.length === 0) {
-    return <Empty description="暂无执行记录" />;
+    return <Empty description={t("persona.detail.history.empty")} />;
   }
 
   return (
@@ -621,7 +641,7 @@ function ExecutionHistoryTab({ personaId }: { personaId: string }) {
               {group.edict_status}
             </Tag>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {group.memorials.length} 条奏折
+              {t("persona.detail.history.count", { n: group.memorials.length })}
             </Text>
           </Space>
         ),
@@ -634,7 +654,7 @@ function ExecutionHistoryTab({ personaId }: { personaId: string }) {
               navigate(`/edicts/${group.edict_id}`);
             }}
           >
-            查看敕令
+            {t("persona.detail.history.viewEdict")}
           </Button>
         ),
         children: (
@@ -652,6 +672,7 @@ function ExecutionHistoryTab({ personaId }: { personaId: string }) {
 // ==================== Tab 4: Memory ====================
 
 function MemoryTab({ personaId }: { personaId: string }) {
+  const t = useT();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<MemoryEntry[] | null>(null);
 
@@ -672,7 +693,7 @@ function MemoryTab({ personaId }: { personaId: string }) {
 
   const handleDelete = (entryId: string) => {
     deleteMutation.mutate(entryId, {
-      onSuccess: () => notification.success({ message: "记忆已删除" }),
+      onSuccess: () => notification.success({ message: t("memory.toast.deleted") }),
     });
   };
 
@@ -680,29 +701,29 @@ function MemoryTab({ personaId }: { personaId: string }) {
 
   const columns: ColumnsType<MemoryEntry> = [
     {
-      title: "分类",
+      title: t("memory.table.category"),
       dataIndex: "category",
       key: "category",
       width: 110,
       render: (v: string) => <Tag color={categoryColors[v] ?? "default"}>{v}</Tag>,
       filters: [
-        { text: "观察", value: "observation" },
-        { text: "洞察", value: "insight" },
-        { text: "实体", value: "entity" },
-        { text: "摘要", value: "summary" },
+        { text: t("memory.category.observation"), value: "observation" },
+        { text: t("memory.category.insight"), value: "insight" },
+        { text: t("memory.category.entity"), value: "entity" },
+        { text: t("memory.category.summary"), value: "summary" },
       ],
       onFilter: (value, record) => record.category === value,
     },
-    { title: "内容", dataIndex: "content", key: "content", ellipsis: true },
+    { title: t("memory.table.content"), dataIndex: "content", key: "content", ellipsis: true },
     {
-      title: "来源",
+      title: t("memory.table.source"),
       dataIndex: "source",
       key: "source",
       width: 100,
       render: (v: string) => <Tag color={sourceColors[v] ?? "default"}>{v}</Tag>,
     },
     {
-      title: "置信度",
+      title: t("memory.table.confidence"),
       dataIndex: "confidence",
       key: "confidence",
       width: 90,
@@ -710,7 +731,7 @@ function MemoryTab({ personaId }: { personaId: string }) {
       render: (v: number) => `${(v * 100).toFixed(0)}%`,
     },
     {
-      title: "时间",
+      title: t("memory.table.time"),
       dataIndex: "created_at",
       key: "created_at",
       width: 170,
@@ -721,7 +742,7 @@ function MemoryTab({ personaId }: { personaId: string }) {
       key: "actions",
       width: 50,
       render: (_, record) => (
-        <Popconfirm title="确定删除此记忆？" onConfirm={() => handleDelete(record.id)}>
+        <Popconfirm title={t("memory.selection.confirmDelete")} onConfirm={() => handleDelete(record.id)}>
           <Button type="text" danger size="small" icon={<DeleteOutlined />} />
         </Popconfirm>
       ),
@@ -733,7 +754,7 @@ function MemoryTab({ personaId }: { personaId: string }) {
       <Card size="small">
         <Space.Compact style={{ width: "100%" }}>
           <Input
-            placeholder="搜索记忆..."
+            placeholder={t("memory.search.placeholder")}
             prefix={<SearchOutlined />}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -742,22 +763,22 @@ function MemoryTab({ personaId }: { personaId: string }) {
             onClear={() => setSearchResults(null)}
           />
           <Button type="primary" loading={recallMutation.isPending} onClick={handleSearch}>
-            检索
+            {t("memory.search.submit")}
           </Button>
         </Space.Compact>
         {searchResults && (
           <Text type="secondary" style={{ marginTop: 8, display: "block" }}>
-            找到 {searchResults.length} 条匹配 &quot;{searchQuery}&quot; 的记忆
+            {t("memory.search.summary", { n: searchResults.length, q: searchQuery })}
           </Text>
         )}
       </Card>
 
       <Card
-        title="记忆条目"
-        extra={<Text type="secondary">{displayData.length} 条</Text>}
+        title={t("persona.detail.section.memoryEntries")}
+        extra={<Text type="secondary">{t("persona.detail.memory.count", { n: displayData.length })}</Text>}
       >
         {displayData.length === 0 && !isLoading ? (
-          <Empty description="暂无记忆" />
+          <Empty description={t("memory.empty")} />
         ) : (
           <Table<MemoryEntry>
             columns={columns}
@@ -776,6 +797,7 @@ function MemoryTab({ personaId }: { personaId: string }) {
 // ==================== Main Page ====================
 
 export default function PersonaDetailPage() {
+  const t = useT();
   const { personaId } = useParams<{ personaId: string }>();
   const navigate = useNavigate();
 
@@ -784,6 +806,7 @@ export default function PersonaDetailPage() {
   const { data: tools } = useTools();
   const { data: skills } = useSkills();
   const { data: configsData } = useConfigs();
+  const { data: mcpServers } = useMCPServers();
 
   const persona = useMemo(
     () => (personas ?? []).find((p) => p.id === personaId) ?? null,
@@ -793,21 +816,39 @@ export default function PersonaDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [form] = Form.useForm();
   const updateMutation = useUpdatePersona();
+  const regenerateMutation = useRegeneratePersonaIdentity();
 
   const openEdit = () => {
     if (!persona) return;
     form.setFieldsValue({
       name: persona.name,
       department: persona.department,
+      title: persona.title ?? "",
       tools_allowed: persona.tools_allowed,
       tools_denied: persona.tools_denied,
       skills_allowed: persona.skills_allowed,
       tool_tier_max: persona.tool_tier_max,
       can_delegate: persona.can_delegate,
+      memory_global_read: persona.memory_global_read,
       delegates_to: persona.delegates_to,
       llm_config_name: persona.llm_config_name ?? "",
     });
     setEditOpen(true);
+  };
+
+  const handleRegenerate = () => {
+    if (!personaId) return;
+    regenerateMutation.mutate(personaId, {
+      onSuccess: () => {
+        notification.success({
+          message: t("persona.toast.regenerateSuccess"),
+          description: t("persona.toast.regenerateSuccessDesc"),
+        });
+      },
+      onError: (err: Error) => {
+        notification.error({ message: err.message ?? t("persona.toast.regenerateFailed") });
+      },
+    });
   };
 
   const handleSave = (values: PersonaUpdateRequest) => {
@@ -817,7 +858,7 @@ export default function PersonaDetailPage() {
       { id: personaId, body },
       {
         onSuccess: () => {
-          notification.success({ message: "官员已更新" });
+          notification.success({ message: t("persona.toast.personaUpdated") });
           setEditOpen(false);
         },
       },
@@ -834,23 +875,31 @@ export default function PersonaDetailPage() {
 
   if (!persona) {
     return (
-      <PageContainer title="官员详情">
-        <Text type="secondary">未找到该官员</Text>
+      <PageContainer title={t("persona.detail.title")}>
+        <Text type="secondary">{t("persona.detail.notFound")}</Text>
       </PageContainer>
     );
   }
 
   const llmConfigOptions = [
-    { value: "", label: "使用全局配置（默认）" },
+    { value: "", label: t("persona.form.persona.llmConfigGlobal") },
     ...(configsData?.configs ?? []).map((c) => ({
       value: c.name,
       label: `${c.name} (${c.model})`,
     })),
   ];
-  const toolOptions = (tools ?? []).map((t) => ({
-    value: t.name,
-    label: `${t.name} (tier ${t.tier})`,
+  // MCP server 整体授权快捷项：mcp_<server>_*（fnmatch 通配符，后端 P4 支持）
+  const mcpWildcardOptions = (mcpServers ?? []).map((s) => ({
+    value: `mcp_${s.name}_*`,
+    label: `${t("persona.form.persona.mcpAllOf", { name: s.name })} — mcp_${s.name}_*`,
   }));
+  const toolOptions = [
+    ...mcpWildcardOptions,
+    ...(tools ?? []).map((tool) => ({
+      value: tool.name,
+      label: `${tool.name} (tier ${tool.tier})`,
+    })),
+  ];
   const skillOptions = (skills ?? []).map((s) => ({
     value: s.name,
     label: `${s.name}${s.description ? ` — ${s.description}` : ""}`,
@@ -860,16 +909,35 @@ export default function PersonaDetailPage() {
     label: `${d.name} (${d.id})`,
   }));
 
+  const dept = persona.department_name ?? persona.department;
+  const pageTitle = persona.title
+    ? t("persona.detail.pageTitleWithTitle", { name: persona.name, title: persona.title, dept })
+    : t("persona.detail.pageTitle", { name: persona.name, dept });
+
   return (
     <PageContainer
-      title={`${persona.name}: ${persona.department_name ?? persona.department}`}
+      title={pageTitle}
       extra={
         <Space>
           <Button icon={<EditOutlined />} onClick={openEdit}>
-            编辑
+            {t("action.edit")}
           </Button>
+          <Popconfirm
+            title={t("persona.detail.regenerateConfirm")}
+            description={t("persona.detail.regenerateDesc")}
+            onConfirm={handleRegenerate}
+            okText={t("persona.detail.regenerateOk")}
+            cancelText={t("common.cancel")}
+          >
+            <Button
+              icon={<ReloadOutlined />}
+              loading={regenerateMutation.isPending}
+            >
+              {t("persona.detail.regenerate")}
+            </Button>
+          </Popconfirm>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/personas")}>
-            返回百官阁
+            {t("persona.detail.back", { name: t("persona.title") })}
           </Button>
         </Space>
       }
@@ -882,7 +950,7 @@ export default function PersonaDetailPage() {
             label: (
               <Space>
                 <UserOutlined />
-                概览
+                {t("persona.detail.tab.overview")}
               </Space>
             ),
             children: <OverviewTab persona={persona} onEdit={openEdit} />,
@@ -892,7 +960,7 @@ export default function PersonaDetailPage() {
             label: (
               <Space>
                 <FileTextOutlined />
-                指令文件
+                {t("persona.detail.tab.prompt")}
               </Space>
             ),
             children: <PromptFilesTab personaId={persona.id} />,
@@ -902,7 +970,7 @@ export default function PersonaDetailPage() {
             label: (
               <Space>
                 <HistoryOutlined />
-                执行记录
+                {t("persona.detail.tab.history")}
               </Space>
             ),
             children: <ExecutionHistoryTab personaId={persona.id} />,
@@ -912,16 +980,26 @@ export default function PersonaDetailPage() {
             label: (
               <Space>
                 <SearchOutlined />
-                记忆
+                {t("persona.detail.tab.memory")}
               </Space>
             ),
             children: <MemoryTab personaId={persona.id} />,
+          },
+          {
+            key: "profile",
+            label: (
+              <Space>
+                <TrophyOutlined />
+                {t("persona.detail.tab.profile")}
+              </Space>
+            ),
+            children: <ProfileTab personaId={persona.id} />,
           },
         ]}
       />
 
       <Modal
-        title="编辑官员"
+        title={t("persona.form.persona.editTitle")}
         open={editOpen}
         onCancel={() => setEditOpen(false)}
         onOk={() => form.submit()}
@@ -930,34 +1008,67 @@ export default function PersonaDetailPage() {
         width={560}
       >
         <Form form={form} layout="vertical" onFinish={handleSave}>
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入名称" }]}>
+          <Form.Item name="name" label={t("persona.form.persona.field.name")} rules={[{ required: true, message: t("persona.form.persona.validation.nameRequired") }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="department" label="部门" rules={[{ required: true, message: "请选择部门" }]}>
+          <Form.Item
+            name="title"
+            label={t("persona.form.persona.field.title")}
+            rules={[{ max: 32, message: t("persona.form.persona.validation.titleMax") }]}
+            tooltip={t("persona.form.persona.tooltip.title")}
+          >
+            <Input placeholder={t("persona.form.persona.placeholder.title")} maxLength={32} allowClear />
+          </Form.Item>
+          <Form.Item name="department" label={t("persona.form.persona.field.department")} rules={[{ required: true, message: t("persona.form.persona.validation.departmentRequired") }]}>
             <Select options={deptOptions} showSearch optionFilterProp="label" />
           </Form.Item>
-          <Form.Item name="llm_config_name" label="LLM 配置">
+          <Form.Item name="llm_config_name" label={t("persona.form.persona.field.llmConfig")}>
             <Select options={llmConfigOptions} allowClear />
           </Form.Item>
-          <Form.Item name="tools_allowed" label="允许工具">
-            <Select mode="multiple" options={toolOptions} showSearch optionFilterProp="label" placeholder="选择允许使用的工具" />
+          <Form.Item
+            name="tools_allowed"
+            label={t("persona.form.persona.field.toolsAllowed")}
+            extra={t("persona.form.persona.toolsWildcardHint")}
+          >
+            <Select
+              mode="tags"
+              options={toolOptions}
+              showSearch
+              optionFilterProp="label"
+              placeholder={t("persona.form.persona.placeholder.toolsAllowed")}
+              tokenSeparators={[",", " "]}
+            />
           </Form.Item>
-          <Form.Item name="tools_denied" label="禁用工具">
-            <Select mode="multiple" options={toolOptions} showSearch optionFilterProp="label" placeholder="选择禁用的工具" />
+          <Form.Item
+            name="tools_denied"
+            label={t("persona.form.persona.field.toolsDenied")}
+            extra={t("persona.form.persona.toolsWildcardHint")}
+          >
+            <Select
+              mode="tags"
+              options={toolOptions}
+              showSearch
+              optionFilterProp="label"
+              placeholder={t("persona.form.persona.placeholder.toolsDenied")}
+              tokenSeparators={[",", " "]}
+            />
           </Form.Item>
-          <Form.Item name="skills_allowed" label="技能">
-            <Select mode="multiple" options={skillOptions} showSearch optionFilterProp="label" placeholder="选择技能（留空 = 全部注入）" />
+          <Form.Item name="skills_allowed" label={t("persona.form.persona.field.skills")}>
+            <Select mode="multiple" options={skillOptions} showSearch optionFilterProp="label" placeholder={t("persona.form.persona.placeholder.skills")} />
           </Form.Item>
-          <Form.Item name="tool_tier_max" label="最大工具等级">
+          <Form.Item name="tool_tier_max" label={t("persona.form.persona.field.tierMax")}>
             <InputNumber min={0} max={10} style={{ width: "100%" }} />
           </Form.Item>
-          <Form.Item name="can_delegate" label="可委派" valuePropName="checked">
+          <Form.Item name="can_delegate" label={t("persona.form.persona.field.canDelegate")} valuePropName="checked">
             <Switch />
           </Form.Item>
-          <Form.Item name="delegates_to" label="可委派目标">
+          <Form.Item name="memory_global_read" label={t("persona.form.persona.field.memoryGlobalRead")} valuePropName="checked" extra={t("persona.form.persona.fieldHint.memoryGlobalRead")}>
+            <Switch />
+          </Form.Item>
+          <Form.Item name="delegates_to" label={t("persona.form.persona.field.delegatesTo")}>
             <Select
               mode="multiple"
-              placeholder="选择可委派的官员"
+              placeholder={t("persona.form.persona.placeholder.delegatesTo")}
               options={(personas ?? [])
                 .filter((p) => p.id !== personaId)
                 .map((p) => ({ value: p.id, label: `${p.name} (${p.id})` }))}

@@ -11,7 +11,16 @@ UVICORN_LOG="$RUNTIME_DIR/uvicorn.log"
 VITE_LOG="$RUNTIME_DIR/vite.log"
 
 UVICORN_PORT="${TIANSHU_PORT:-8000}"
-VITE_PORT=3000
+# 与 web/vite.config.ts 的 server.port 保持一致
+VITE_PORT="${VITE_PORT:-7999}"
+
+# 优先使用项目 .venv 内的可执行文件,避免依赖调用方 shell 的 PATH
+# (裸 uvicorn/pip 可能解析到其他环境,如 ~/myenv)
+VENV_BIN="$PROJECT_ROOT/.venv/bin"
+UVICORN_BIN="uvicorn"
+PIP_BIN="pip"
+[[ -x "$VENV_BIN/uvicorn" ]] && UVICORN_BIN="$VENV_BIN/uvicorn"
+[[ -x "$VENV_BIN/pip" ]] && PIP_BIN="$VENV_BIN/pip"
 
 usage() {
     cat <<EOF
@@ -71,19 +80,21 @@ stop_by_pid() {
     fi
 
     echo "==> Stopping $label (PID: $pid)..."
-    # Kill the process tree: first children, then parent
-    pkill -P "$pid" 2>/dev/null || true
+    # 只 SIGTERM 父进程:uvicorn reload supervisor / vite 会自行优雅关闭子进程,
+    # 让 lifespan shutdown(storage/drawer_store 等资源释放)有机会跑完
     kill "$pid" 2>/dev/null || true
 
-    # Wait up to 3s for graceful exit
+    # Wait up to 10s for graceful exit
     local waited=0
-    while kill -0 "$pid" 2>/dev/null && (( waited < 30 )); do
+    while kill -0 "$pid" 2>/dev/null && (( waited < 100 )); do
         sleep 0.1
         (( waited++ ))
     done
 
-    # Force kill if still alive
+    # Force kill if still alive (子进程树一并强杀,孙进程可能残留)
     if kill -0 "$pid" 2>/dev/null; then
+        echo "    WARNING: $label did not exit within 10s, force killing..."
+        pkill -P "$pid" 2>/dev/null || true
         kill -9 "$pid" 2>/dev/null || true
     fi
 
@@ -91,17 +102,23 @@ stop_by_pid() {
     return 0
 }
 
-# Kill any process occupying a given port (fallback cleanup)
+# List PIDs LISTENING on a port(必须筛 LISTEN:裸 lsof -ti 会把
+# "作为客户端连着该端口"的进程也列出来,如 vite 的 proxy 连接,误杀无辜)
+listening_pids() {
+    lsof -ti:"$1" -sTCP:LISTEN 2>/dev/null || true
+}
+
+# Kill any process LISTENING on a given port (fallback cleanup)
 kill_port() {
     local port="$1"
     local pids
-    pids=$(lsof -ti:"$port" 2>/dev/null || true)
+    pids=$(listening_pids "$port")
     if [[ -n "$pids" ]]; then
         echo "    Cleaning up port $port (PIDs: $(echo $pids | tr '\n' ' '))..."
         echo "$pids" | xargs kill 2>/dev/null || true
         sleep 0.5
         # Force kill survivors
-        pids=$(lsof -ti:"$port" 2>/dev/null || true)
+        pids=$(listening_pids "$port")
         if [[ -n "$pids" ]]; then
             echo "$pids" | xargs kill -9 2>/dev/null || true
             sleep 0.5
@@ -112,22 +129,39 @@ kill_port() {
 wait_port_free() {
     local port="$1" max_wait="${2:-10}"
     local waited=0
-    while lsof -ti:"$port" >/dev/null 2>&1 && (( waited < max_wait )); do
+    while [[ -n "$(listening_pids "$port")" ]] && (( waited < max_wait )); do
         sleep 0.5
         (( waited++ ))
     done
-    if lsof -ti:"$port" >/dev/null 2>&1; then
+    if [[ -n "$(listening_pids "$port")" ]]; then
         echo "    WARNING: port $port still occupied after ${max_wait}s"
         return 1
     fi
     return 0
 }
 
+# Poll backend /health until healthy (start 后的健康确认,失败非零退出)
+wait_healthy() {
+    local url="http://localhost:${UVICORN_PORT}/health"
+    local waited=0
+    while (( waited < 60 )); do
+        if curl -sf "$url" -o /dev/null 2>/dev/null; then
+            echo "==> Backend healthy: $url"
+            return 0
+        fi
+        sleep 0.5
+        (( waited++ ))
+    done
+    echo "==> ERROR: backend not healthy after 30s. Check logs:"
+    echo "    tail -n 50 $UVICORN_LOG"
+    return 1
+}
+
 # --- Commands ---
 
 cmd_build() {
     echo "==> Installing Python dependencies (editable)..."
-    pip install -e ".[cli]"
+    "$PIP_BIN" install -e ".[cli]"
 
     if [[ -d "$PROJECT_ROOT/web" ]]; then
         echo "==> Installing frontend dependencies..."
@@ -158,6 +192,14 @@ cmd_start() {
         return 1
     fi
 
+    # 后端端口被其他进程 LISTEN 时拒绝启动(不自动 kill:占用者可能是别的重要服务)
+    if [[ -n "$(listening_pids "$UVICORN_PORT")" ]]; then
+        echo "ERROR: port $UVICORN_PORT is already in use by another process:"
+        lsof -i:"$UVICORN_PORT" -sTCP:LISTEN 2>/dev/null | head -5 || true
+        echo "Stop it first, or set TIANSHU_PORT to use a different port."
+        return 1
+    fi
+
     # Save mode for restart
     if $dev_mode; then
         echo "--dev" > "$RUNTIME_DIR/start_args"
@@ -170,7 +212,7 @@ cmd_start() {
 
     if $dev_mode; then
         echo "==> Starting uvicorn (dev mode)..."
-        nohup uvicorn tianshu.app:create_app --factory \
+        nohup "$UVICORN_BIN" tianshu.app:create_app --factory \
             --host "$host" --port "$UVICORN_PORT" \
             --reload --reload-dir src \
             >> "$UVICORN_LOG" 2>&1 &
@@ -193,14 +235,22 @@ cmd_start() {
     else
         echo "==> Starting uvicorn (production mode)..."
         export TIANSHU_STATIC_DIR="${TIANSHU_STATIC_DIR:-$PROJECT_ROOT/src/tianshu/web/static}"
-        nohup uvicorn tianshu.app:create_app --factory \
+        if [[ ! -d "$TIANSHU_STATIC_DIR" ]]; then
+            echo "    WARNING: static dir missing ($TIANSHU_STATIC_DIR)."
+            echo "    Run './scripts/local.sh build' first, or frontend will 404."
+        fi
+        nohup "$UVICORN_BIN" tianshu.app:create_app --factory \
             --host "$host" --port "$UVICORN_PORT" \
             >> "$UVICORN_LOG" 2>&1 &
         echo $! > "$UVICORN_PID_FILE"
         echo "    Uvicorn PID: $(cat "$UVICORN_PID_FILE"), log: $UVICORN_LOG"
     fi
 
+    wait_healthy
     echo "==> Services started."
+    if $dev_mode; then
+        echo "    Frontend (dev): http://localhost:${VITE_PORT}"
+    fi
 }
 
 cmd_stop() {
@@ -214,10 +264,10 @@ cmd_stop() {
         stopped=true
     fi
 
-    # Port-based fallback: clean up orphans
+    # Port-based fallback: clean up orphans (只看 LISTEN,避免误杀客户端连接)
     local vite_orphans uvicorn_orphans
-    vite_orphans=$(lsof -ti:"$VITE_PORT" 2>/dev/null || true)
-    uvicorn_orphans=$(lsof -ti:"$UVICORN_PORT" 2>/dev/null || true)
+    vite_orphans=$(listening_pids "$VITE_PORT")
+    uvicorn_orphans=$(listening_pids "$UVICORN_PORT")
 
     if [[ -n "$vite_orphans" ]]; then
         echo "==> Cleaning up orphan processes on port $VITE_PORT..."

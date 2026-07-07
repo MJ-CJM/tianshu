@@ -11,8 +11,6 @@ def safe_path(workspace: Path, path_str: str) -> Path:
     resolved = (workspace / path_str).resolve()
     workspace_resolved = workspace.resolve()
     workspace_prefix = str(workspace_resolved) + os.sep
-    if resolved != workspace_resolved and not str(resolved).startswith(
-        workspace_prefix
-    ):
+    if resolved != workspace_resolved and not str(resolved).startswith(workspace_prefix):
         raise PermissionError(f"Path '{path_str}' is outside workspace")
     return resolved

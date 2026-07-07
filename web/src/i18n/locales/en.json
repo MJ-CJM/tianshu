@@ -1,0 +1,1935 @@
+{
+  "nav": {
+    "edictCreate": "New Task",
+    "approvals": "Approvals",
+    "cabinet": "Planning",
+    "tax": "Finance",
+    "audit": "Audit",
+    "knowledge": "Knowledge",
+    "consultation": "Consultation",
+    "foreign": "External",
+    "notify": "Notifications",
+    "scheduler": "Scheduler",
+    "persona": "Personas",
+    "system": "System",
+    "sessionRules": "Session Rules",
+    "universe": "Universes",
+    "group": {
+      "edict": "Tasks",
+      "gov": "Governance",
+      "growth": "Growth",
+      "system": "System"
+    }
+  },
+  "sidebar": {
+    "darkMode": "Dark Mode",
+    "lightMode": "Light Mode",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "switchToDark": "Switch to Dark",
+    "switchToLight": "Switch to Light"
+  },
+  "entity": {
+    "edict": "Task",
+    "memorial": "Run",
+    "decree": "Decision"
+  },
+  "action": {
+    "approve": "Approve",
+    "reject": "Reject",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "amend": "Amend",
+    "issue": "Issue",
+    "review": "Review",
+    "pause": "Pause",
+    "resume": "Resume",
+    "revoke": "Revoke",
+    "add": "Add",
+    "refresh": "Refresh",
+    "create": "Create",
+    "ok": "OK",
+    "delete": "Delete",
+    "edit": "Edit"
+  },
+  "status": {
+    "submitted": "Submitted",
+    "running": "Running",
+    "needs_review": "Pending Review",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "scheduled": "Scheduled",
+    "planning": "Planning",
+    "auditing": "Auditing"
+  },
+  "edictStatus": {
+    "open": "Open",
+    "completed": "Completed",
+    "cancelled": "Cancelled"
+  },
+  "phase": {
+    "running": "Running",
+    "needs_review": "Pending Review",
+    "idle": "Idle",
+    "no_memorial": "Not Started"
+  },
+  "event": {
+    "label": {
+      "edict.submitted": "Task Submitted",
+      "execution.started": "Execution Started",
+      "execution.completed": "Execution Completed",
+      "execution.failed": "Execution Failed",
+      "execution.cancelled": "Execution Cancelled",
+      "iteration.started": "Iteration Started",
+      "tool.completed": "Tool Call",
+      "tool.failed": "Tool Failed",
+      "followup.submitted": "Follow-up",
+      "edict.updated": "Task Updated",
+      "edict.closed": "Task Closed",
+      "edict.scheduled": "Scheduled",
+      "plan.completed": "Plan Completed",
+      "plan.pending_review": "Plan Pending Review",
+      "plan.approved": "Plan Approved",
+      "plan.rejected": "Plan Rejected",
+      "audit.completed": "Audit Completed",
+      "decree.approved": "Decision: Approved",
+      "decree.rejected": "Decision: Rejected",
+      "decree.retry": "Decision: Retry",
+      "decree.cancelled": "Decision: Cancelled",
+      "tool.blocked": "Tool Blocked",
+      "edict.audit.executed": "Audit Executed",
+      "edict.continuation.injected": "Continuation Injected",
+      "edict.wind_down.entered": "Winding Down",
+      "edict.lifecycle.changed": "Lifecycle Changed",
+      "outer_loop.paused": "Paused",
+      "outer_loop.resumed": "Resumed"
+    },
+    "field": {
+      "tokens": "Tokens",
+      "cost": "Cost",
+      "time": "Time"
+    },
+    "group": {
+      "label": {
+        "initial": "Initial",
+        "followUp": "Follow-up",
+        "edictAction": "Task Action"
+      },
+      "status": {
+        "completed": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "running": "Running"
+      },
+      "itemsCount": "{n} items",
+      "unknownInstruction": "Unknown instruction"
+    },
+    "detail": {
+      "iteration": "iter",
+      "usagePct": "{pct}% used",
+      "dimension": "dimension",
+      "auditPassed": "passed",
+      "auditFailed": "failed ({n} gaps)",
+      "executorActorSelf": "actor self-audit",
+      "executorCritic": "critic"
+    },
+    "timeline": {
+      "title": "Execution Log"
+    },
+    "decree": {
+      "approved": "Decision: Approved",
+      "rejected": "Decision: Rejected",
+      "retry": "Decision: Retry",
+      "cancelled": "Decision: Cancelled"
+    }
+  },
+  "lifecycle": {
+    "active": "active",
+    "paused": "paused",
+    "winding_down": "winding down",
+    "complete": "complete"
+  },
+  "audit": {
+    "title": "Audit Center",
+    "tab": {
+      "stats": "Audit stats",
+      "policy": "Policy Decisions",
+      "eventbus": "Event bus",
+      "workers": "Concurrency",
+      "hooks": "Hooks & notifications",
+      "network": "Network access",
+      "rules": "Rules"
+    },
+    "stat": {
+      "totalTokens": "Total tokens",
+      "totalMemorials": "Total executions",
+      "passRate": "Audit pass rate",
+      "flagRate": "Flag rate"
+    },
+    "section": {
+      "usage": "Task token usage",
+      "recent": "Recent audit results",
+      "auditRules": "Audit rules",
+      "reviewPolicies": "Review policies"
+    },
+    "empty": {
+      "usage": "No data",
+      "recent": "No audit records",
+      "rules": "No rules"
+    },
+    "usageTable": {
+      "edict": "Task",
+      "priority": "Priority",
+      "memorialCount": "Executions",
+      "prompt": "Prompt",
+      "completion": "Completion",
+      "total": "Total",
+      "budget": "Budget"
+    },
+    "recentTable": {
+      "memorialId": "Record ID",
+      "edict": "Task",
+      "verdict": "Verdict",
+      "reasons": "Reasons",
+      "reviewStatus": "Review status",
+      "time": "Time"
+    },
+    "hookEvents": {
+      "title": "Hook events",
+      "expand": "Expand",
+      "collapse": "Collapse"
+    },
+    "network": {
+      "filter": {
+        "tool": "Tool",
+        "host": "host (exact match)",
+        "status": "Status",
+        "success": "Success",
+        "fail": "Failed"
+      },
+      "table": {
+        "time": "Time",
+        "edict": "Task",
+        "tool": "Tool",
+        "host": "Host",
+        "method": "Method",
+        "http": "HTTP",
+        "bytes": "Bytes",
+        "credential": "Credential",
+        "cached": "Cached"
+      }
+    },
+    "rulesTable": {
+      "name": "Rule name",
+      "description": "Description",
+      "severity": "Severity",
+      "status": "Status",
+      "enabled": "Enabled",
+      "disabled": "Disabled"
+    },
+    "reviewPolicy": {
+      "valuePrefix": " (value: ",
+      "valueSuffix": ")"
+    }
+  },
+  "memorial": {
+    "title": "Run",
+    "attemptLabel": "(attempt {n})",
+    "field": {
+      "instruction": "Instruction",
+      "summary": "Summary",
+      "detail": "Detail",
+      "report": "Report",
+      "error": "Error",
+      "artifacts": "Artifacts"
+    },
+    "review": {
+      "pending": "Pending Review"
+    }
+  },
+  "pendingTool": {
+    "title": "Tool call pending approval",
+    "grantScope": "Grant scope",
+    "scope": {
+      "once": "Once",
+      "edict": "This task",
+      "always": "Always"
+    },
+    "approve": "Approve",
+    "reject": "Reject",
+    "action": "Approve/Reject",
+    "comment": "Comment (optional)"
+  },
+  "statusFilter": {
+    "all": "All Status"
+  },
+  "common": {
+    "search": "Search",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "submit": "Submit"
+  },
+  "decree": {
+    "title": "Decision",
+    "memorialId": "Run ID",
+    "auditResult": "Audit Result",
+    "okText": {
+      "submit": "Submit",
+      "cancel": "Confirm Cancel"
+    },
+    "actionOption": {
+      "approve": "Approve — Confirm execution",
+      "reject": "Reject — Decline",
+      "retry": "Retry — Same goal",
+      "amend": "Amend — Edit goal then retry",
+      "cancel": "Cancel — Stop task"
+    }
+  },
+  "empty": {
+    "noMatch": "No matching tasks",
+    "noOpenEdict": "No active tasks"
+  },
+  "phaseFilter": {
+    "all": "All Phases"
+  },
+  "page": {
+    "edictDetail": {
+      "title": "Task Detail",
+      "notFound": "Task not found",
+      "viewBattleMap": "View DAG",
+      "backToList": "Back",
+      "planCardTitle": "Execution Plan",
+      "planExecuted": "Executed",
+      "planTaskColumn": {
+        "task": "Task",
+        "executor": "Executor",
+        "depends": "Depends",
+        "tools": "Tools"
+      },
+      "planApprove": "Approve (execute plan)",
+      "planReject": "Reject (decline plan)",
+      "decreePrompt": "Run pending review, choose an action:",
+      "followupTitle": "Follow Up",
+      "followupPlaceholder": "Enter follow-up instruction...",
+      "followupSubmit": "Submit (Ctrl+Enter)",
+      "closeButton": "Close",
+      "cancelButton": "Cancel",
+      "confirmClose": {
+        "title": "Confirm close?",
+        "description": "Cannot send further instructions after close"
+      },
+      "confirmCancel": {
+        "title": "Confirm cancel?",
+        "description": "Task will be marked as cancelled"
+      },
+      "editModal": {
+        "title": "Edit Task",
+        "fieldTitle": "Title",
+        "fieldGoal": "Goal",
+        "fieldContext": "Context"
+      },
+      "details": {
+        "priority": "Priority",
+        "reviewPolicy": "Review Policy",
+        "schedule": "Schedule",
+        "source": "Source",
+        "executionMode": "Mode",
+        "plannerPersona": "Planner",
+        "cabinetDecision": "Auto Plan",
+        "globalConfig": "Global config",
+        "constraints": "Constraints",
+        "outputFormat": "Output Format",
+        "runtimeSection": "Runtime",
+        "timeout": "Timeout",
+        "maxIterations": "Max Iter",
+        "concurrency": "Concurrency",
+        "retry": "Retry",
+        "tokenBudget": "Token Budget",
+        "costBudget": "Cost Budget",
+        "timeBudget": "Time Budget",
+        "longTaskTag": "Long Task",
+        "maxOuterRounds": "Max {n} rounds",
+        "timeBudgetMin": "Time {n} min",
+        "exhaustionPrefix": "On Exhaustion → ",
+        "checksCount": "{n} checks",
+        "criticLabel": "Critic:"
+      }
+    },
+    "edictCreate": {
+      "title": "New Task",
+      "successTitle": "Task created",
+      "successDesc": "System is processing"
+    },
+    "sessionRules": {
+      "title": "Session Rules",
+      "alertTitle": "Session Rules are pre-approval tokens for tool calls",
+      "alertDesc": "When approving a tool call in the Approval Center with scope \"This task\" or \"Global\", a session rule is automatically created. You can also add rules manually to pre-configure pre-approved permissions. Note: shell_exec/bash tools cannot be granted global pre-approval.",
+      "addRule": "Add Rule",
+      "addModalTitle": "Add Pre-Approval Rule",
+      "summary": "{n} rules total",
+      "empty": "No rules — click \"Add Rule\" in the top right to create manually, or select \"This task / Global\" when approving tool calls to auto-generate"
+    }
+  },
+  "form": {
+    "search": {
+      "edict": "Search tasks..."
+    },
+    "decree": {
+      "field": {
+        "action": "Action",
+        "amendedGoal": "Amended Goal",
+        "comment": "Comment (optional)"
+      },
+      "placeholder": {
+        "amendedGoal": "Enter amended task goal",
+        "comment": "Optional comment"
+      },
+      "validation": {
+        "amendedGoalRequired": "Amended goal required for amend action"
+      }
+    },
+    "edict": {
+      "field": {
+        "title": "Title (optional)",
+        "goal": "Goal",
+        "context": "Context (optional)",
+        "executionMode": "Execution Mode",
+        "assignedPersona": "Assignee",
+        "plannerPersona": "Planner (optional)",
+        "planReview": "Plan Review",
+        "scheduleType": "Schedule",
+        "cronExpr": "Cron Expression",
+        "scheduleAt": "Run At",
+        "priority": "Priority",
+        "reviewPolicy": "Review Policy",
+        "constraints": "Constraints",
+        "outputFormat": "Output Format",
+        "timeoutSeconds": "Timeout (seconds)",
+        "maxIterations": "Max Iterations",
+        "maxConcurrency": "DAG Concurrency",
+        "retryLimit": "Retry Limit",
+        "tokenBudget": "Token Budget",
+        "costBudget": "Cost Budget (CNY)",
+        "longTaskEnabled": "Enable Long Task Mode",
+        "templatePreset": "Template Preset",
+        "executionProfile": "Execution Profile",
+        "maxOuterIterations": "Max Outer Iterations",
+        "minOuterIterations": "Min Outer Iterations (continuous improvement)",
+        "criticStrictness": "Critic Strictness",
+        "deadline": "Deadline (optional)",
+        "onExhaustion": "On Exhaustion",
+        "onCriticUnavailable": "On Critic Unavailable",
+        "criticPersonas": "Critic Personas (multi-select)",
+        "sameIssueThreshold": "Same-issue Escalation Threshold",
+        "l1MaxRounds": "L1 Max Retry Rounds",
+        "l2MaxRounds": "L2 Max Retry Rounds",
+        "nlLabel": "Describe in one sentence",
+        "nlPlaceholder": "e.g. push Shanghai weather to me every day at 9am",
+        "nlButton": "Smart fill",
+        "nlFailed": "Couldn't understand that — try rephrasing or fill the form manually."
+      },
+      "placeholder": {
+        "title": "Leave blank to auto-extract first 20 chars of goal",
+        "goal": "Enter task goal...",
+        "context": "Additional background or constraints...",
+        "assignedPersona": "Select assignee",
+        "plannerPersona": "Auto (use global config)",
+        "cronExpr": "e.g. 0 9 * * 1-5",
+        "scheduleAt": "ISO 8601 time, e.g. 2026-03-20T09:00:00",
+        "constraints": "Type constraint and press Enter",
+        "outputFormat": "Specify expected output format (JSON, Markdown table, etc.)",
+        "timeoutSeconds": "Default 300",
+        "maxIterations": "Default 20",
+        "maxConcurrency": "Default 1",
+        "retryLimit": "Default 0",
+        "tokenBudget": "Unlimited",
+        "costBudget": "Unlimited",
+        "maxOuterIterations": "Default 5",
+        "minOuterIterations": "Default 1 (no continuous)",
+        "sameIssueThreshold": "Default 2",
+        "l1MaxRounds": "Default 2",
+        "l2MaxRounds": "Default 1",
+        "criticPersonas": "Multi-select personas (audit/planning recommended)",
+        "deadlineHours": "h",
+        "deadlineMinutes": "m"
+      },
+      "validation": {
+        "goalRequired": "Goal is required",
+        "assignedPersonaRequired": "Please select an assignee",
+        "cronExprRequired": "Cron expression required",
+        "scheduleAtRequired": "Run time required",
+        "criticPersonasRequired": "At least one critic required for long task mode"
+      },
+      "tooltip": {
+        "plannerPersona": "Choose which planner persona to use; different personas may use different LLMs",
+        "planReview": "When enabled, plans require human approval before execution",
+        "longTaskEnabled": "When enabled, task runs actor → checks → critic loop with self-driven convergence; otherwise single-round agent loop (default)",
+        "templatePreset": "One-click fill of common configs; you can still tweak below",
+        "executionProfile": "foreground=in-process; checkpointed=resumable per round; background=runs in background (page can close)",
+        "maxOuterIterations": "actor → critic counts as one round; exceeding triggers on_exhaustion",
+        "minOuterIterations": "When ≥2, force continue even if critic PASSes round 1; critic's 'optimization directions' inject into next round actor",
+        "criticStrictness": "lenient=PASS if acceptable (default) / balanced=high bar tends to fail / strict=PASS only if excellent",
+        "deadline": "Trigger EXHAUSTED if exceeded; leave blank for no hard deadline",
+        "onExhaustion": "What to do when max_outer_iterations / deadline / cost_budget exceeded",
+        "onCriticUnavailable": "Fallback when all critic LLM calls fail",
+        "criticPersonas": "Who reviews task quality. Multi-select runs concurrent review per round, aggregated as 'all pass'; any FAIL = fail. Each critic produces an independent report on terminal state.",
+        "sameIssueThreshold": "Escalate to L1 when critic reports same issue_class for N consecutive rounds"
+      },
+      "option": {
+        "autoPlanning": "Auto Plan (system decides)",
+        "directAssign": "Direct Assign",
+        "scheduleImmediate": "Immediate",
+        "scheduleOnce": "Scheduled",
+        "scheduleCron": "Recurring"
+      },
+      "section": {
+        "advanced": "Advanced",
+        "runtime": "Runtime",
+        "longTask": "Long Task Mode (Outer Loop)",
+        "checks": "Acceptance Checks (optional)",
+        "more": "More settings"
+      },
+      "template": {
+        "analysis": "📊 Data Analysis",
+        "creative": "✍️ Content Creation",
+        "coding": "🛠 Code Implementation",
+        "research": "🔬 Deep Research"
+      },
+      "warning": {
+        "criticSelfReviewTitle": "Executor and Critic overlap",
+        "criticSelfReviewDesc": "Same persona executing and self-reviewing significantly reduces critic objectivity. Recommend audit / knowledge-base personas not involved in execution."
+      }
+    },
+    "check": {
+      "field": {
+        "name": "Name",
+        "kind": "Kind",
+        "rubric": "Rubric Prompt",
+        "passThreshold": "Pass Threshold",
+        "command": "Shell Command",
+        "timeout": "Timeout (seconds)"
+      },
+      "placeholder": {
+        "name": "e.g. pytest / tone-check",
+        "rubric": "Evaluation criteria; ask LLM to return 0~1 score",
+        "command": "e.g. pytest tests/ -q"
+      },
+      "validation": {
+        "nameRequired": "Required",
+        "rubricRequired": "rubric required",
+        "commandRequired": "command required"
+      },
+      "action": {
+        "addBashLint": "Add Bash/Lint Check",
+        "addRubric": "Add Rubric Check"
+      }
+    },
+    "sessionRule": {
+      "field": {
+        "toolName": "Tool name",
+        "scope": "Scope",
+        "expiresDays": "Valid days",
+        "reason": "Reason / notes"
+      },
+      "placeholder": {
+        "toolName": "Search or select a tool…",
+        "expiresDays": "30",
+        "reason": "Optional — note why this rule was added"
+      },
+      "tooltip": {
+        "expiresDays": "Leave blank or 0 for never expires (global rules default to 30 days)"
+      },
+      "validation": {
+        "toolNameRequired": "Please select a tool"
+      },
+      "scopeOption": {
+        "always": "Global — applies to all tasks",
+        "edict": "Task-level — only for the specified task"
+      }
+    }
+  },
+  "table": {
+    "sessionRules": {
+      "column": {
+        "tool": "Tool",
+        "fingerprint": "Arg fingerprint",
+        "scope": "Scope",
+        "source": "Source",
+        "grantedAt": "Granted at",
+        "expiresAt": "Expires at",
+        "reason": "Reason",
+        "action": "Action"
+      },
+      "cell": {
+        "anyArg": "Any args",
+        "never": "Never"
+      }
+    }
+  },
+  "sessionRules": {
+    "scope": {
+      "always": "Global",
+      "edict": "Task-level"
+    },
+    "source": {
+      "approval": "Approval-granted",
+      "profile": "Policy profile",
+      "manual": "Manual"
+    },
+    "tier": {
+      "0": "T0 Read-only",
+      "1": "T1 Workspace",
+      "2": "T2 Write",
+      "3": "T3 Dangerous"
+    },
+    "scopeFilter": {
+      "all": "All scopes",
+      "always": "Global (always)",
+      "edict": "Task-level (edict)"
+    },
+    "sourceFilter": {
+      "all": "All sources",
+      "approval": "Approval-granted",
+      "profile": "Policy profile",
+      "manual": "Manual"
+    },
+    "popconfirm": {
+      "title": "Revoke this rule?",
+      "description": "After revocation, related tool calls will require approval again"
+    }
+  },
+  "priority": {
+    "urgent": "Urgent",
+    "normal": "Normal",
+    "low": "Low"
+  },
+  "reviewPolicy": {
+    "always": "Always Manual Review",
+    "on_flag": "Auto (manual on audit flag)",
+    "on_failure": "Manual on Failure",
+    "never": "Skip Manual Review"
+  },
+  "scheduleType": {
+    "immediate": "Immediate",
+    "once": "Scheduled",
+    "cron": "Recurring"
+  },
+  "executionProfile": {
+    "foreground": "Foreground",
+    "checkpointed": "Resumable",
+    "background": "Background"
+  },
+  "strictness": {
+    "lenient": "Lenient",
+    "balanced": "Balanced",
+    "strict": "Strict"
+  },
+  "exhaustion": {
+    "escalate": "Escalate to Human (L3)",
+    "best_effort": "Best Effort (last round)",
+    "fail": "Fail Directly",
+    "shortEscalate": "Escalate",
+    "shortBestEffort": "Best Effort",
+    "shortFail": "Fail"
+  },
+  "criticUnavail": {
+    "skip": "Skip as Pass",
+    "escalate": "Escalate"
+  },
+  "checkKind": {
+    "bash": "Bash",
+    "lint": "Lint",
+    "rubric": "Rubric (LLM scoring)"
+  },
+  "dept": {
+    "ducha": "Audit",
+    "neige": "Planning",
+    "bingbu": "Execution",
+    "hubu": "Finance",
+    "wenyuan": "Knowledge",
+    "tongzheng": "Notify"
+  },
+  "unit": {
+    "hours": "hours",
+    "minutes": "minutes",
+    "seconds": "seconds",
+    "days": "days"
+  },
+  "button": {
+    "save": "Save",
+    "close": "Close",
+    "cancel": "Cancel",
+    "pause": "Pause",
+    "resume": "Resume"
+  },
+  "common2": {
+    "unlimited": "Unlimited",
+    "enabled": "On",
+    "disabled": "Off",
+    "optional": "Optional",
+    "save": "Save"
+  },
+  "toast": {
+    "toolApproved": "Approved {tool}",
+    "toolApprovedWithRule": "Approved and saved session rule ({scope})",
+    "toolRejected": "Rejected {tool}",
+    "actionFailed": "Action failed",
+    "planApproved": "Plan approved, starting execution",
+    "planApproveFailed": "Plan approve failed",
+    "planRejected": "Plan rejected",
+    "planRejectFailed": "Plan reject failed",
+    "followupFailed": "Submit follow-up failed",
+    "edictClosed": "Task closed",
+    "closeFailed": "Close failed",
+    "edictCancelled": "Task cancelled",
+    "cancelFailed": "Cancel failed",
+    "edictPaused": "Task paused",
+    "pauseFailed": "Pause failed",
+    "edictResumed": "Task resumed",
+    "resumeFailed": "Resume failed",
+    "edictUpdated": "Task updated",
+    "updateFailed": "Update failed",
+    "ruleRevoked": "Rule revoked",
+    "ruleRevokeFailed": "Revoke failed",
+    "ruleCreated": "Rule created",
+    "ruleCreateFailed": "Create failed"
+  },
+  "locale": {
+    "zh-classic": "Easter Egg",
+    "zh-modern": "Modern",
+    "en": "English"
+  },
+  "ops": {
+    "eventbus": {
+      "stat": {
+        "total": "Total events",
+        "types": "Event types",
+        "handlers": "Registered handlers",
+        "recent": "Recent events"
+      },
+      "table": {
+        "type": "Event type",
+        "edict": "Task",
+        "memorial": "Execution",
+        "detail": "Detail",
+        "time": "Time"
+      },
+      "dist": "Event type distribution",
+      "handlersTitle": "Registered handlers",
+      "recentTitle": "Recent event stream",
+      "handlerCol": "Handler",
+      "priority": "Priority",
+      "emptyHandlers": "No registrations",
+      "emptyEvents": "No events"
+    },
+    "workers": {
+      "empty": "Unable to fetch worker status",
+      "active": "Active tasks",
+      "maxConcurrency": "Max concurrency",
+      "queue": "Queued",
+      "completed": "Completed",
+      "failed": "Failed",
+      "globalLane": "GlobalLane — system concurrency",
+      "active2": "Active",
+      "available": "Available",
+      "slotUsage": "Slot usage",
+      "sessionLane": "SessionLane — task concurrency",
+      "edictId": "Task ID",
+      "availableSlot": "Available slot",
+      "status": "Status",
+      "running": "Running",
+      "idle": "Idle",
+      "emptySession": "No active sessions",
+      "emptySessionDesc": "No active session lane"
+    },
+    "hooks": {
+      "registered": "Registered hooks",
+      "types": "Hook types",
+      "channels": "Notification channels",
+      "registryTitle": "Hook registry",
+      "type": "Hook type",
+      "handler": "Handler",
+      "priority": "Priority",
+      "priorityHighest": "Highest",
+      "priorityHigh": "High",
+      "priorityMid": "Mid",
+      "priorityLow": "Low",
+      "emptyRegistry": "No registrations",
+      "channelsTitle": "Notification channels",
+      "channelName": "Channel name",
+      "channelType": "Type",
+      "rateLimit": "Rate limit",
+      "recentSends": "Recent sends",
+      "emptyChannels": "No registered channels",
+      "emptyChannelsDesc": "No notification channels registered",
+      "label": {
+        "before_agent_start": "Before agent start",
+        "before_tool_call": "Before tool call",
+        "after_tool_call": "After tool call",
+        "llm_input": "LLM input",
+        "llm_output": "LLM output",
+        "agent_end": "Agent end",
+        "before_iteration": "Before iteration",
+        "before_compaction": "Before compaction",
+        "session_start": "Session start",
+        "session_end": "Session end"
+      }
+    }
+  },
+  "comp": {
+    "usage": {
+      "title": "Usage",
+      "prompt": "Prompt",
+      "completion": "Completion",
+      "total": "Total",
+      "cost": "Cost",
+      "model": "Model"
+    },
+    "policyTimeline": {
+      "title": "Policy Timeline",
+      "filterAll": "All events",
+      "filterPolicy": "Policy decisions (policy.*)",
+      "filterApproval": "Tool approvals (tool.approval_required)",
+      "filterDecree": "Decrees (decree.*)",
+      "filterHook": "Hook events (hook.*)",
+      "emptyAll": "No policy events",
+      "emptyFiltered": "No events match the current filter"
+    },
+    "network": {
+      "title": "Network capabilities",
+      "tooltipDisabled": "Switch to \"trusted-automation\" profile to enable api_request",
+      "allowedHosts": "Allowed API hosts",
+      "allowedHostsDesc": "api_request tool can only access these hosts",
+      "hostPlaceholder": "Pick from existing credentials or enter a host",
+      "allowWrite": "Allow write methods (POST/PUT/DELETE/PATCH) — requires approval",
+      "writeHosts": "Hosts allowed for writes (must be a subset of the list above)",
+      "writeHostPlaceholder": "Select from hosts above"
+    },
+    "edictTable": {
+      "id": "Task ID",
+      "title": "Task title",
+      "status": "Status",
+      "priority": "Priority",
+      "createdAt": "Created at",
+      "actions": "Actions",
+      "deleteConfirm": "Confirm delete?",
+      "deleteDesc": "Related execution records and events will also be cleared",
+      "selected": "{n} selected",
+      "batchDeleteConfirm": "Delete {n} selected tasks?",
+      "batchDelete": "Batch delete",
+      "clearSelection": "Clear selection",
+      "toastDeleted": "Task deleted",
+      "toastDeleteFailed": "Delete failed",
+      "toastRenamed": "Renamed",
+      "toastRenameFailed": "Rename failed",
+      "toastBatchDeleted": "{n} tasks deleted",
+      "toastBatchDeleteFailed": "Batch delete failed"
+    },
+    "policyProfile": {
+      "title": "Tool permission policy (optional)",
+      "templateLabel": "Preset template",
+      "templatePlaceholder": "Select a preset template (optional)",
+      "templateHint": "Customize further after picking a template",
+      "pathsLabel": "Allowed paths (glob)",
+      "pathsPlaceholder": "One per line, e.g.:\nsrc/**\ntests/**",
+      "bashLabel": "Allowed bash prefixes",
+      "bashPlaceholder": "One per line, e.g.:\ngit status\nls\npytest",
+      "autoApproveLabel": "Auto-approve up to tier",
+      "autoApproveTooltip": "Tools at tier ≤ this value are auto-approved without confirmation",
+      "expiresLabel": "Rule TTL (seconds)",
+      "expiresTooltip": "Empty = permanent (until task ends)",
+      "expiresPlaceholder": "Empty = permanent",
+      "tier0": "T0 Read-only",
+      "tier1": "T1 Workspace",
+      "tier2": "T2 Write",
+      "tier3": "T3 Dangerous"
+    },
+    "outerLoop": {
+      "title": "Long task iteration timeline",
+      "rounds": "{n} rounds",
+      "totalCost": "Total ¥{cost}",
+      "criticPass": "PASS",
+      "criticFail": "FAIL",
+      "checksFailed": "checks failed",
+      "archived": "Archived",
+      "noFeedback": "(no feedback)",
+      "suggestion": "Suggestion: ",
+      "expand": "Expand",
+      "actorOutputArchived": "actor_output archived (summary only)"
+    },
+    "supervision": {
+      "title": "Supervision report",
+      "failTitle": "Supervision report generation or parsing failed",
+      "rawOutput": "Raw output: ",
+      "issues": "Issues observed ({n})",
+      "wellDone": "Done well ({n})",
+      "poorlyDone": "Done poorly ({n})",
+      "recommendation": "Recommendation",
+      "expand": "Expand",
+      "supervisorCount": "{n} supervisors",
+      "iterCost": "{n} rounds · ¥{cost}",
+      "iterTotalCost": "{n} rounds · Total ¥{cost}",
+      "status": {
+        "completed": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "running": "Running",
+        "submitted": "Submitted"
+      }
+    },
+    "edictActivity": {
+      "pendingTool": "Tool pending ({n})",
+      "createdAt": "Created {time}",
+      "initializing": "Initializing…",
+      "executing": "Running…",
+      "auditReasons": "Audit reasons: "
+    },
+    "appHeader": {
+      "brand": "Tianshu",
+      "tagline": "There is only one kind of success — to be able to spend your life in your own way."
+    },
+    "healthDot": {
+      "ok": "Online",
+      "err": "Offline"
+    },
+    "connection": {
+      "online": "Live",
+      "offline": "Offline",
+      "onlineTitle": "WebSocket connected",
+      "offlineTitle": "WebSocket disconnected, falling back to polling"
+    },
+    "dag": {
+      "battleEmpty": "No DAG data",
+      "cancelConfirm": "Cancel the entire DAG execution?",
+      "retryConfirm": "Retry failed nodes?"
+    },
+    "worker": {
+      "completed": "Completed",
+      "failed": "Failed",
+      "globalLane": "Global lane"
+    },
+    "profile": {
+      "loading": "Loading profile…",
+      "loadFailed": "Load failed",
+      "empty": "No profile yet. First version is auto-generated every 20 AGENT_END events or daily at 03:00; you can also click \"Synthesize now\".",
+      "synthesize": "Synthesize now",
+      "history": "📜 History",
+      "editManual": "Edit manual",
+      "synthesizedAt": "Synthesized at {date}",
+      "userEdited": "User-edited",
+      "degraded": "⚠️ Degraded",
+      "manualEditTitle": "Edit manual section (synthesizer will not overwrite)",
+      "manualEditPlaceholder": "Write the content you want to add (Markdown supported)",
+      "toast": {
+        "synthesisFailed": "Synthesis failed",
+        "synthesisCompleted": "Synthesis complete",
+        "synthesisDegraded": "Synthesis complete (degraded mode)",
+        "synthesisSkipped": "Skipped (already running)",
+        "manualSaved": "Manual section saved"
+      }
+    },
+    "policyToast": {
+      "downgradedTitle": "Permanent grant downgraded to once",
+      "downgradedDescDefault": "{tool} does not support always grant; downgraded to once.",
+      "approvalRequired": "Approval required",
+      "policyDeny": "Policy denied",
+      "fallbackTool": "the tool"
+    },
+    "error": {
+      "budgetCost": "💴 Cost budget exhausted",
+      "budgetTime": "⏱️ Time budget exhausted",
+      "budgetTokens": "🔢 Token budget exhausted",
+      "budgetGeneric": "💸 Budget exhausted",
+      "usagePctSuffix": " ({pct}% used)",
+      "exhausted": "🔁 Max iterations reached",
+      "abortedHuman": "🛑 Aborted by user",
+      "exhaustedAbort": "🛑 Aborted by user after max iterations",
+      "checksConfig": "⚙️ acceptance.checks misconfigured",
+      "longTaskRuntime": "⚠️ Long task runtime error"
+    },
+    "followUp": {
+      "hint": "Empty = inherit task config; fill in to override for this turn (does not affect future follow-ups).",
+      "advanced": "Advanced (override this turn)",
+      "longTask": "Long task mode (override this turn)",
+      "timeoutLabel": "Timeout (seconds)",
+      "maxIterLabel": "Max iterations",
+      "tokenBudgetLabel": "Token budget",
+      "costBudgetLabel": "Cost budget (CNY)",
+      "reviewPolicyLabel": "Review policy",
+      "longTaskEnableLabel": "Enable long task mode this turn",
+      "longTaskEnableTooltip": "When enabled, this follow-up runs through actor → checks → critic multi-round path",
+      "criticLabel": "Supervisor (multi-select)",
+      "criticRequired": "Pick at least one supervisor",
+      "criticPlaceholder": "Select supervisors",
+      "criticOverlapTitle": "Executor and supervisor overlap",
+      "criticOverlapDesc": "The executor of this task ({id}) is also selected as a supervisor; self-review significantly reduces critic objectivity. Recommend selecting independent personas.",
+      "strictnessLabel": "Critic strictness",
+      "maxOuterLabel": "Max outer iterations",
+      "minOuterLabel": "Min outer iterations (continuous optimization)",
+      "minOuterTooltip": "When ≥2, even if critic passes on round 1, continue iterating",
+      "exhaustionLabel": "On exhaustion",
+      "placeholderInherit": "Empty = inherit"
+    }
+  },
+  "cabinet": {
+    "title": "Planner",
+    "overview": "Planner overview",
+    "noPersonas": "No planner personas found",
+    "globalDefault": "Global default",
+    "thresholdHint": "Planner threshold: goal < 100 chars and no constraints/output format → skip planning (passthrough)",
+    "stats": "Planning stats",
+    "history": "Recent plans",
+    "stat": {
+      "total": "Total tasks",
+      "passthrough": "Passthrough (skip planning)",
+      "dag": "DAG generated",
+      "avgTasks": "Avg subtasks"
+    },
+    "table": {
+      "edict": "Task",
+      "planType": "Plan type",
+      "planner": "Planner",
+      "assigned": "Assigned",
+      "taskCount": "Subtasks",
+      "createdAt": "Created at"
+    },
+    "planType": {
+      "dag": "DAG plan",
+      "passthrough": "Passthrough"
+    },
+    "tag": {
+      "global": "Global",
+      "auto": "Auto"
+    },
+    "empty": "No planning records"
+  },
+  "consultation": {
+    "title": "Consultation",
+    "submit": "Start consultation",
+    "topic": "Topic",
+    "context": "Context (optional)",
+    "participants": "Participants",
+    "topicPlaceholder": "Enter the consultation topic",
+    "contextPlaceholder": "Provide additional context",
+    "participantsPlaceholder": "Select participants",
+    "history": "History:",
+    "round": "Consultation #{n}",
+    "preparing": "Preparing consultation...",
+    "running": "Consultation in progress...",
+    "failedTitle": "Consultation failed",
+    "failedSubtitle": "Please try again later",
+    "synthesisTitle": "Synthesis",
+    "decisionTitle": "Decision"
+  },
+  "hongluisi": {
+    "title": "Network Center",
+    "section": {
+      "tools": "Tool status",
+      "preferences": "Engine preferences (system default)",
+      "credentials": "Credentials",
+      "recent": "Recent access"
+    },
+    "tool": {
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "apiRequestCredentialTooltip": "Each call looks up the corresponding token by URL host from task credentials and injects Authorization dynamically; does not depend on a global provider key. Configure path: System → Credentials → Task credentials",
+      "apiRequestCredentialTag": "Credentials: System (Task-level)",
+      "keyPrefix": "Key:"
+    },
+    "toolsHint1": "Enabled status depends on profile + env keys + master key (",
+    "toolsHint2": " controls api_request; ",
+    "toolsHint3": " controls web_extract).",
+    "preferences": {
+      "save": "Save",
+      "intro": "Overrides the engine selection from profile preset; overrides at task creation take highest precedence. Empty = inherit profile default. Changes take effect immediately, no restart needed.",
+      "fetchChainLabel": "web_fetch engine chain (tries in order, first OK is returned)",
+      "fetchChainPlaceholder": "Empty = inherit profile (e.g. DEFAULT=local+jina)",
+      "fallbackLabel": "fallback_mode (whether to switch to next engine on failure/empty)",
+      "fallbackProfile": "Inherit profile",
+      "fallbackOnErrorOrEmpty": "Switch on error/empty",
+      "fallbackNone": "Use first engine only",
+      "searchLabel": "web_search provider",
+      "browserEnginesLabel": "Scrapling browser engines",
+      "browserEnginesHint": "Browser engines need browser binaries — run `scrapling install` first.",
+      "enableDynamic": "Enable scrapling_dynamic (Chromium, renders JS)",
+      "enableStealthy": "Enable scrapling_stealthy (Camoufox, bypasses Cloudflare)"
+    },
+    "credentials": {
+      "goto": "Go to System",
+      "desc1": "External API credentials (GitHub / Notion / ...) are managed by",
+      "desc2": " System · External Credentials ",
+      "desc3": "with encryption (Fernet symmetric, master key from env). LLM never sees the credential value; Authorization header is auto-injected by host match.",
+      "viewAll": "View all"
+    },
+    "recent": {
+      "viewAll": "View all",
+      "empty": "No network tool call records yet"
+    },
+    "table": {
+      "time": "Time",
+      "tool": "Tool",
+      "host": "Host",
+      "method": "Method",
+      "status": "Status",
+      "credential": "Credential"
+    },
+    "toast": {
+      "saved": "Saved, takes effect immediately",
+      "saveFailed": "Save failed"
+    }
+  },
+  "tongzheng": {
+    "title": "Notify Center",
+    "section": {
+      "bot": "Feishu Bot",
+      "assistant": "Feishu Assistant"
+    },
+    "status": {
+      "running": "Running ({mode})",
+      "off": "Off",
+      "fromEnv": "From env (will switch to DB after save)",
+      "fromDb": "From DB"
+    },
+    "alert": {
+      "tipTitle": "Tips",
+      "tip1Prefix": "Saving config requires the env variable ",
+      "tip1Suffix": " (generated with cryptography.fernet) first",
+      "tip2Prefix": "Modify ",
+      "tip2Suffix": " then save to write to DB; saving empty = no change",
+      "tip3": "Auto hot-reload after save, no restart needed",
+      "tip4Prefix": "Enable \"bot\", \"event subscription\", \"card callback\" capabilities in the Feishu developer console first; see ",
+      "tip4Suffix": "",
+      "assistantTitle": "Assistant is the command routing + natural language conversation layer on Feishu",
+      "assistant1": "Pick a cabinet persona to act as the Feishu assistant, using its name + emoji as the reply persona",
+      "assistant2": "Non-command messages enter chat tasks by default for multi-turn conversation with the persona"
+    },
+    "field": {
+      "appId": "App ID",
+      "appSecret": "App Secret",
+      "appSecretConfigured": " (configured)",
+      "appSecretMissing": " (not configured)",
+      "appSecretExtra": "Empty = no change; new value = replace; empty string = clear",
+      "domain": "Domain",
+      "connectionMode": "Connection mode",
+      "webhookPath": "Webhook path",
+      "allowedUsers": "Allowlist",
+      "allowedUsersExtra": "Comma-separated open_ids; empty = allow anyone (same as hermes). Recommend setting in production to avoid accidental exposure.",
+      "homeChannel": "Home channel (optional)",
+      "homeChannelExtra": "Fallback chat_id for cron-triggered results and source-less task approvals",
+      "botOpenId": "Bot Open ID (group @ detection)",
+      "encryptKey": "Encrypt key (Webhook mode)",
+      "verificationToken": "Verification token (Webhook mode)",
+      "wsReconnect": "WS reconnect interval (seconds)",
+      "textBatchDelay": "Text batch silence (seconds)",
+      "dedupCacheSize": "Dedup cache size",
+      "assistantPersona": "Assistant Persona",
+      "assistantPersonaExtra": "Assistant uses this persona's voice for replies; does not affect this persona's regular tasks",
+      "enableEdict": "Allow assistant to submit tasks",
+      "enableEdictExtra": "When enabled, the assistant can call the submit_edict tool to create tasks (same path as cli `tianshu edict submit`). When disabled, it only replies."
+    },
+    "placeholder": {
+      "appSecretConfigured": "Stored, empty = no change",
+      "appSecretMissing": "secret_xxx",
+      "allowedUsers": "Empty = any; or ou_a,ou_b to restrict",
+      "homeChannel": "oc_xxxxxxxxx",
+      "botOpenId": "ou_bot_xxx",
+      "encryptKey": "Optional",
+      "verificationToken": "Optional",
+      "assistantPersona": "Select a persona"
+    },
+    "option": {
+      "domainFeishu": "feishu (China)",
+      "domainLark": "lark (International)",
+      "modeWebsocket": "WebSocket (recommended, no public IP needed)",
+      "modeWebhook": "Webhook (HTTP callback)"
+    },
+    "action": {
+      "save": "Save & hot reload",
+      "reset": "Reset"
+    },
+    "toast": {
+      "saved": "Saved",
+      "savedReloaded": "Config saved and hot-reloaded",
+      "savedNoReload": "Config saved ({reason})",
+      "saveFailed": "Save failed"
+    },
+    "tg": {
+      "section": {
+        "bot": "Telegram Bot",
+        "assistant": "Telegram Assistant"
+      },
+      "alert": {
+        "tipTitle": "Configuration tips",
+        "tip1": "Create a bot via @BotFather to get the Bot Token",
+        "tip2": "Default long-polling needs no public URL; webhook needs public HTTPS + secret",
+        "tip3": "Empty allowlist = anyone allowed; always configure it in production",
+        "tip4": "Home channel is the fallback chat for cron results / source-less approvals (chat_id, negative for groups)"
+      },
+      "field": {
+        "botToken": "Bot Token",
+        "botTokenConfigured": "(configured)",
+        "botTokenMissing": "(not set)",
+        "botTokenExtra": "Leave blank = keep unchanged; clear and save = delete",
+        "connectionMode": "Connection mode",
+        "allowedUsers": "Allowed users (user_id, comma-separated)",
+        "allowedUsersExtra": "Telegram numeric user_id; empty = allow anyone",
+        "homeChannel": "Home channel (optional)",
+        "homeChannelExtra": "Fallback chat_id for cron / source-less approvals",
+        "webhookPath": "Webhook path",
+        "webhookSecret": "Webhook secret",
+        "pollTimeout": "Polling timeout (s)",
+        "textBatchDelay": "Text batch delay (s)",
+        "dedupCacheSize": "Dedup cache size"
+      },
+      "placeholder": {
+        "botTokenConfigured": "configured (blank = keep)",
+        "botTokenMissing": "123456:ABC-DEF...",
+        "allowedUsers": "e.g. 123456789,987654321",
+        "homeChannel": "e.g. 123456789 or -1001234567890",
+        "webhookSecret": "random 32-byte string (required for webhook)"
+      },
+      "option": {
+        "modePolling": "Long-polling (recommended, no public URL)",
+        "modeWebhook": "Webhook (needs public HTTPS)"
+      }
+    },
+    "instances": {
+      "title": "Channel Instances",
+      "addFeishuBtn": "+ Add Feishu instance",
+      "addTelegramBtn": "+ Add Telegram instance",
+      "addFeishu": "Add Feishu instance",
+      "addTelegram": "Add Telegram instance",
+      "editTitle": "Edit instance",
+      "colLabel": "Label",
+      "colChannel": "Channel",
+      "colRunning": "Running",
+      "colEnabled": "Enabled",
+      "colActions": "Actions",
+      "edit": "Edit",
+      "delete": "Delete",
+      "deleteConfirm": "Delete this instance? This cannot be undone.",
+      "defaultTag": "Default",
+      "stopped": "Stopped",
+      "secretConfigured": "(configured, blank = keep)",
+      "fieldLabel": "Label",
+      "fieldLabelPlaceholder": "A recognizable name, e.g. \"Support Feishu\"",
+      "fieldEnabled": "Enabled",
+      "botName": "Bot name",
+      "botNamePlaceholder": "Optional, used for group @ detection",
+      "intentLlm": "Intent detection (LLM)"
+    }
+  },
+  "cost": {
+    "title": "Cost Center",
+    "period": {
+      "day": "Today",
+      "week": "Week",
+      "month": "Month"
+    },
+    "summary": {
+      "totalCost": "Total cost (CNY)",
+      "totalTokens": "Total tokens",
+      "promptTokens": "Prompt tokens",
+      "completionTokens": "Completion tokens"
+    },
+    "budget": {
+      "title": "Budget",
+      "empty": "No budget set",
+      "set": "Set budget",
+      "edit": "Edit budget",
+      "remaining": "Remaining: ¥{remaining} ({period})",
+      "amountInvalid": "Budget must be greater than zero",
+      "updated": "Budget updated"
+    },
+    "trend": {
+      "title": "Cost trend",
+      "empty": "No cost records",
+      "date": "Date",
+      "tokens": "Tokens",
+      "cost": "Cost (CNY)"
+    },
+    "record": {
+      "time": "Time",
+      "edictId": "Task ID",
+      "model": "Model",
+      "promptTokens": "Prompt",
+      "completionTokens": "Completion",
+      "totalTokens": "Total",
+      "cost": "Cost (CNY)"
+    },
+    "pricing": {
+      "title": "Provider pricing",
+      "perKHint": "Per 1K tokens CNY; empty fields fall back to default pricing",
+      "viewDefault": "View default pricing",
+      "name": "Name",
+      "model": "Model",
+      "miss": "Input miss ¥/1K",
+      "hit": "Input hit ¥/1K",
+      "out": "Output ¥/1K",
+      "source": "Source",
+      "actions": "Actions",
+      "sourceLabel": {
+        "custom": "Custom",
+        "mixed": "Partial custom",
+        "default": "Default"
+      },
+      "edit": "Edit",
+      "reset": "Reset",
+      "resetConfirm": "Reset to default pricing?",
+      "resetDesc": "Clears custom 3-tier pricing and falls back to _DEFAULT_PRICING.",
+      "editTitle": "Edit pricing for \"{name}\"",
+      "promptLabel": "Input ¥/1K (cache miss)",
+      "promptPlaceholder": "Empty = use default pricing",
+      "cacheLabel": "Input ¥/1K (cache hit discount)",
+      "cachePlaceholder": "Empty = same as miss (no discount)",
+      "outputLabel": "Output ¥/1K",
+      "tip": "Tip: empty fields fall back to _DEFAULT_PRICING. Changes take effect on the next LLM call.",
+      "defaultTitle": "Default pricing table (_DEFAULT_PRICING)",
+      "defaultIntro": "When custom pricing is empty, matches by model name from this table. If no match, the fallback price is used.",
+      "fallback": "Fallback (when no match): ",
+      "saved": "Saved",
+      "saveFailed": "Save failed: {err}",
+      "resetDone": "Reset to default pricing",
+      "resetFailed": "Reset failed: {err}",
+      "loadDefaultFailed": "Failed to load default pricing: {err}"
+    }
+  },
+  "persona": {
+    "title": "Personas",
+    "tab": {
+      "personas": "Persona list",
+      "departments": "Departments",
+      "routing": "Routing rules"
+    },
+    "action": {
+      "addPersona": "Add persona",
+      "addDept": "Add department"
+    },
+    "empty": {
+      "noPersonas": "No personas configured",
+      "noDeptPersonas": "No personas in this department",
+      "noDepartments": "No departments",
+      "noMapping": "No mappings",
+      "noRules": "No rules"
+    },
+    "filter": {
+      "deptAll": "All departments",
+      "byDept": "Filter by department"
+    },
+    "card": {
+      "delegate": "Can delegate",
+      "globalRead": "Global read",
+      "toolPermission": "Tool permissions",
+      "specifiedTools": "Specified tools",
+      "deniedTools": "Denied tools",
+      "skills": "Injected skills",
+      "delegatesTo": "Can delegate to",
+      "llmConfig": "LLM Config",
+      "allSkills": "All skills (no filter)"
+    },
+    "tier": {
+      "tier0": "Monitor / review only, no tool use",
+      "tier1": "Basic tools (read-only)",
+      "tierN": "All tools at tier ≤ {n}"
+    },
+    "metric": {
+      "total": "Total",
+      "completed": "Completed",
+      "failed": "Failed",
+      "successRate": "Success rate",
+      "totalTokens": "Total tokens",
+      "avgTokens": "Avg tokens",
+      "totalCost": "Total cost",
+      "avgDuration": "Avg duration",
+      "empty": "No metrics yet"
+    },
+    "confirm": {
+      "deletePersona": "Delete this persona?",
+      "deletePersonaDesc": "Cannot be undone",
+      "deleteDept": "Delete this department?",
+      "deleteDeptDesc": "Only deletable when no personas remain"
+    },
+    "department": {
+      "table": {
+        "id": "ID",
+        "name": "Name",
+        "description": "Description",
+        "personaCount": "Personas",
+        "actions": "Actions"
+      }
+    },
+    "routing": {
+      "defaultMapTitle": "Default task mapping",
+      "keywordMapTitle": "Keyword matching rules",
+      "delegationChainTitle": "Delegation chains",
+      "table": {
+        "taskType": "Task type",
+        "status": "Status",
+        "personaId": "Persona ID",
+        "personaName": "Persona name",
+        "department": "Department",
+        "preferredDept": "Preferred dept",
+        "keywords": "Keywords",
+        "fromName": "Delegator",
+        "fromId": "Delegator ID",
+        "delegatesTo": "Delegates to"
+      },
+      "fallback": "Fallback",
+      "normal": "Normal",
+      "fallbackTooltip": "No persona in {dept}, fell back"
+    },
+    "toast": {
+      "personaCreated": "Persona created",
+      "personaUpdated": "Persona updated",
+      "personaDeleted": "Persona deleted",
+      "deptCreated": "Department created",
+      "deptUpdated": "Department updated",
+      "deptDeleted": "Department deleted",
+      "deptDeleteFailed": "Delete failed — department still has personas",
+      "regenerateSuccess": "Identity files regenerated",
+      "regenerateSuccessDesc": "SOUL.md / ROLE.md rewritten based on name, department, and title.",
+      "regenerateFailed": "Regenerate failed"
+    },
+    "detail": {
+      "title": "Persona detail",
+      "notFound": "Persona not found",
+      "pageTitle": "{name}: {dept}",
+      "pageTitleWithTitle": "{name} ({title}): {dept}",
+      "regenerate": "Regenerate identity files",
+      "regenerateConfirm": "Regenerate identity files?",
+      "regenerateDesc": "SOUL.md and ROLE.md will be overwritten based on the current name / department / title. Original contents will be lost.",
+      "regenerateOk": "Overwrite",
+      "back": "Back to {name}",
+      "tab": {
+        "overview": "Overview",
+        "prompt": "Prompt files",
+        "history": "Execution history",
+        "memory": "Memory",
+        "profile": "Profile"
+      },
+      "section": {
+        "identity": "Identity",
+        "toolsSkills": "Tools & skills",
+        "delegation": "Access & delegation",
+        "metrics": "Metrics",
+        "instructionFiles": "Instruction files",
+        "memoryEntries": "Memory entries"
+      },
+      "field": {
+        "id": "ID",
+        "name": "Name",
+        "dept": "Department",
+        "title": "Title",
+        "llmConfig": "LLM Config",
+        "toolPermission": "Tool permission tier",
+        "toolsAllowed": "Allowed tools",
+        "toolsDenied": "Denied tools",
+        "skills": "Injected skills",
+        "canDelegate": "Can delegate",
+        "memoryGlobalRead": "Read all personas' memory",
+        "delegatesTo": "Can delegate to"
+      },
+      "value": {
+        "notAssigned": "Not assigned",
+        "globalConfig": "Global config",
+        "yes": "Yes",
+        "no": "No",
+        "none": "None",
+        "allSkills": "All skills (no filter)",
+        "noSpecified": "Not specified (filtered by tier)"
+      },
+      "previewBtn": "Preview full prompt",
+      "history": {
+        "empty": "No execution records",
+        "viewEdict": "View task",
+        "count": "{n} executions"
+      },
+      "memory": {
+        "count": "{n} entries"
+      }
+    },
+    "form": {
+      "persona": {
+        "addTitle": "Add persona",
+        "editTitle": "Edit persona",
+        "field": {
+          "id": "ID",
+          "name": "Name",
+          "title": "Title (role within department)",
+          "department": "Department",
+          "llmConfig": "LLM Config",
+          "toolsAllowed": "Allowed tools",
+          "toolsDenied": "Denied tools",
+          "skills": "Skills",
+          "tierMax": "Max tool tier",
+          "canDelegate": "Can delegate",
+          "memoryGlobalRead": "Read all personas' memory",
+          "delegatesTo": "Delegation targets",
+          "template": "Role template",
+          "templateLang": "Template language"
+        },
+        "placeholder": {
+          "id": "e.g. bingbu, neige",
+          "name": "e.g. Wang Yangming, Lead",
+          "title": "e.g. Lead, Coordinator (optional)",
+          "department": "Select department",
+          "llmConfig": "Use global config (default)",
+          "toolsAllowed": "Select allowed tools",
+          "toolsDenied": "Select denied tools",
+          "skills": "Select skills (empty = all injected)",
+          "delegatesTo": "Select delegation targets",
+          "template": "Optional: pick a role template to auto-generate persona & role"
+        },
+        "validation": {
+          "idRequired": "ID is required",
+          "idPattern": "Lowercase letters, digits and underscores only",
+          "nameRequired": "Name is required",
+          "titleMax": "Max 32 characters",
+          "departmentRequired": "Department is required"
+        },
+        "tooltip": {
+          "title": "e.g. Lead, Coordinator, Strategist. Optional; if filled, will be written into the persona card for clearer self-introduction.",
+          "template": "Selecting a template generates SOUL (persona) and ROLE from it and prefills the name; otherwise a basic skeleton is generated from the department."
+        },
+        "llmConfigGlobal": "Use global config (default)",
+        "mcpAllOf": "All tools of MCP server '{name}'",
+        "toolsWildcardHint": "Type a tool name or fnmatch wildcard (e.g. mcp_context7_* to allow the whole MCP server, mcp_*_delete_* to deny all delete tools).",
+        "soulPreview": "SOUL · persona preview",
+        "rolePreview": "ROLE · role preview",
+        "fieldHint": {
+          "memoryGlobalRead": "High privilege: reads all personas' memory. Enable with caution."
+        }
+      },
+      "department": {
+        "addTitle": "Add department",
+        "editTitle": "Edit department",
+        "field": {
+          "id": "Department ID",
+          "name": "Department name",
+          "description": "Description"
+        },
+        "placeholder": {
+          "id": "e.g. bingbu, neige",
+          "name": "e.g. Execution",
+          "description": "Department description (optional)"
+        },
+        "validation": {
+          "idRequired": "Department ID is required",
+          "idPattern": "Lowercase letters, digits and underscores only",
+          "nameRequired": "Department name is required"
+        }
+      }
+    }
+  },
+  "memory": {
+    "title": "Memory Center",
+    "tab": {
+      "memory": "Memory entries",
+      "history": "Conversation history",
+      "maintenance": "Maintenance"
+    },
+    "search": {
+      "placeholder": "Search memories...",
+      "submit": "Search",
+      "summary": "Found {n} memories matching \"{q}\""
+    },
+    "selection": {
+      "selected": "{n} selected",
+      "batchDelete": "Batch delete",
+      "clearSelection": "Clear selection",
+      "confirmBatchDelete": "Delete {n} selected memories?",
+      "confirmDelete": "Delete this memory?"
+    },
+    "summary": "{name} — Memory",
+    "count": "{n} entries",
+    "empty": "No memories",
+    "policy": {
+      "title": "Access policies",
+      "canRead": "Can read",
+      "canWrite": "Can write",
+      "shareLevel": "Share level",
+      "none": "None",
+      "missing": "No policy configured for this module"
+    },
+    "table": {
+      "category": "Category",
+      "content": "Content",
+      "source": "Source",
+      "access": "Access",
+      "confidence": "Confidence",
+      "time": "Time"
+    },
+    "category": {
+      "observation": "Observation",
+      "insight": "Insight",
+      "entity": "Entity",
+      "summary": "Summary"
+    },
+    "history": {
+      "empty": "No conversation history",
+      "expand": "Expand",
+      "count": "{n} conversations"
+    },
+    "stats": {
+      "entries": "Entries",
+      "tokens": "Est. tokens",
+      "files": "Markdown files",
+      "size": "File size",
+      "byCategory": "By category"
+    },
+    "compact": {
+      "title": "Compact memory",
+      "desc": "Compress old memories beyond the specified day count into a summary to save tokens.",
+      "prefix": "Compact memories older than",
+      "suffix": "days",
+      "submit": "Run compaction"
+    },
+    "reflect": {
+      "title": "Memory reflection",
+      "desc": "Use the LLM to extract insights and patterns from observation memories. Each module has a 1-hour cooldown.",
+      "submit": "Trigger reflection"
+    },
+    "toast": {
+      "deleted": "Memory deleted",
+      "batchDeleted": "{n} memories deleted",
+      "batchDeleteFailed": "Batch delete failed",
+      "compactCompleted": "Compaction complete",
+      "compactCompletedDesc": "{from} → {to} entries, saved ~{tokens} tokens",
+      "compactSkipped": "Compaction skipped",
+      "compactResult": "Compaction result",
+      "reflectCompleted": "Reflection complete",
+      "reflectCompletedDesc": "Generated {n} insights",
+      "reflectCooldown": "Cooling down",
+      "reflectResult": "Reflection result"
+    }
+  },
+  "scheduler": {
+    "title": "Scheduler",
+    "table": {
+      "jobId": "Job ID",
+      "edictId": "Task ID",
+      "scheduleType": "Schedule type",
+      "nextRun": "Next run",
+      "actions": "Actions"
+    },
+    "popconfirm": {
+      "cancel": "Cancel this schedule?"
+    },
+    "empty": "No scheduled jobs",
+    "toast": {
+      "cancelled": "Schedule cancelled",
+      "cancelFailed": "Cancel failed"
+    }
+  },
+  "system": {
+    "title": "System",
+    "tab": {
+      "skills": "Skills",
+      "secretSkills": "Learned Skills",
+      "tools": "Tools",
+      "prompt": "Prompts",
+      "providers": "Providers",
+      "plugins": "Plugins",
+      "config": "Config",
+      "externalCreds": "Credentials",
+      "mcp": "MCP"
+    },
+    "skills": {
+      "charsLoaded": "{n} chars loaded",
+      "newSkill": "New skill",
+      "detail": "Skill detail",
+      "detailWithName": "Skill: {name}",
+      "notFound": "Skill not found",
+      "createTitle": "New skill",
+      "confirmDelete": "Delete this skill?",
+      "table": {
+        "name": "Name",
+        "description": "Description",
+        "source": "Source",
+        "toolTier": "Tool tier",
+        "chars": "Chars",
+        "actions": "Actions"
+      },
+      "form": {
+        "name": "Skill name",
+        "content": "SKILL.md content",
+        "namePlaceholder": "e.g. my-skill",
+        "contentPlaceholder": "Enter SKILL.md content...",
+        "nameRequired": "Skill name is required",
+        "namePattern": "Only letters, digits, underscores and hyphens allowed"
+      }
+    },
+    "tools": {
+      "liveAlert": "Tool toggles take effect live — once disabled, the LLM will not see the tool on the next call; no restart needed.",
+      "table": {
+        "enabled": "Enabled",
+        "name": "Name",
+        "description": "Description",
+        "tier": "Tier",
+        "personas": "Personas"
+      }
+    },
+    "prompt": {
+      "layeredAnalysis": "Prompt layer breakdown",
+      "totalChars": "Total chars",
+      "estTokens": "Est. tokens",
+      "layerCount": "Layers",
+      "layeredFor": "{name} — Prompt layers",
+      "templateFiles": "Template files",
+      "emptyFiles": "No prompt files",
+      "usingTemplate": "Officers using this template (click to view/edit prompt layers)",
+      "preview": "Preview",
+      "editFile": "Edit file",
+      "editFileTitle": "Edit: {personaId}/{filename}",
+      "previewModalTitle": "System prompt preview: {persona}",
+      "previewEmpty": "Cannot generate preview",
+      "table": {
+        "layer": "Layer",
+        "name": "Name",
+        "source": "Source",
+        "chars": "Chars",
+        "tokensEst": "Tokens (est)",
+        "percent": "Share",
+        "actions": "Actions"
+      }
+    },
+    "providers": {
+      "listTitle": "Provider list",
+      "llmConfigTitle": "LLM Config",
+      "addConfig": "Add config",
+      "addConfigTitle": "Add model config",
+      "active": "Active",
+      "activate": "Activate",
+      "empty": "No providers",
+      "confirmDeleteProvider": "Confirm delete?",
+      "confirmDeleteConfig": "Delete this config?",
+      "costNoCustom": "No custom pricing — falls back to _DEFAULT_PRICING",
+      "costAllCustom": "All custom",
+      "costPartial": "Partially custom (other fields fall back to default pricing)",
+      "table": {
+        "name": "Name",
+        "model": "Model",
+        "status": "Status",
+        "priority": "Priority",
+        "rpm": "RPM",
+        "cost": "3-tier ¥/1K"
+      },
+      "form": {
+        "name": "Config name",
+        "model": "Model",
+        "namePlaceholder": "e.g. gpt-4o",
+        "modelPlaceholder": "e.g. gpt-4o",
+        "apiKeyPlaceholder": "Optional",
+        "apiBasePlaceholder": "Optional",
+        "newKeyPlaceholder": "Enter new key to update",
+        "apiBaseExample": "https://open.bigmodel.cn/api/paas/v4",
+        "nameRequired": "Config name is required",
+        "modelRequired": "Model name is required"
+      }
+    },
+    "plugins": {
+      "empty": "No plugins",
+      "table": {
+        "name": "Name",
+        "version": "Version",
+        "status": "Status",
+        "sha256": "SHA256",
+        "installedAt": "Installed at"
+      }
+    },
+    "globalConfig": {
+      "agentSection": "Agent parameters",
+      "agentMaxIter": "Max iterations",
+      "agentTimeout": "Timeout (seconds)",
+      "skillSection": "Skill parameters",
+      "skillCharBudget": "Char budget",
+      "apply": "Apply"
+    },
+    "externalCreds": {
+      "edictAuthLabel": "Task credentials",
+      "engineLabel": "Engine config",
+      "add": "Add",
+      "engineAlertMsg": "Engine config provides API keys for Jina / Tavily / Firecrawl used by web_fetch / web_search / web_extract.",
+      "engineAlertDesc": "DB-stored config takes precedence; falls back to .env when not set; takes effect immediately after edit (live rebuild).",
+      "edictEmpty": "No external credentials yet. Click \"Add\" in the top right to start.",
+      "engineEmpty": "No engine provider keys configured.",
+      "addEdictTitle": "Add external credential",
+      "addEngineTitle": "Add engine provider key",
+      "editEngineTitle": "Edit provider key",
+      "editCredTitle": "Edit credential",
+      "immutableHint": "Name / host / template / provider cannot be modified (delete and recreate to change)",
+      "edit": "Edit",
+      "delEdictPopconfirm": "Delete this credential? Tasks referencing it will no longer inject the header.",
+      "delEnginePopconfirm": "Delete this provider key? The engine will be downgraded immediately (falls back to env or off).",
+      "vaultTitle": "Master key TIANSHU_SECRET_MASTER_KEY not configured",
+      "vaultDescPara1": "External credentials are encrypted with Fernet symmetric encryption. A master key must be configured for the system to enable this feature. Losing the key means all stored credentials are unrecoverable — please back it up safely.",
+      "vaultStepLabel": "Setup steps",
+      "vaultStep1": "1) Generate a Fernet key:",
+      "vaultStep2": "2) Write the output into the project root .env file:",
+      "vaultStep3": "3) Restart the Tianshu backend → refresh this page. Other registered network tools (web_fetch / web_search / web_extract) are not affected.",
+      "vaultRecheck": "I have configured it, recheck",
+      "infoLabel": "Name: ",
+      "infoProvider": "Provider: ",
+      "infoHost": "Host pattern: ",
+      "infoHeader": "Header template: ",
+      "table": {
+        "name": "Name",
+        "enabled": "Enabled",
+        "hostPattern": "Host pattern",
+        "headerTemplate": "Header template",
+        "provider": "Provider",
+        "lastUsed": "Last used",
+        "actions": "Actions"
+      },
+      "form": {
+        "name": "Name",
+        "hostPattern": "Host pattern (e.g. api.github.com or *.notion.com)",
+        "headerTemplate": "Header template",
+        "provider": "Provider",
+        "value": "Value",
+        "newValue": "New value",
+        "extraHeaders": "Extra Headers (JSON)",
+        "namePlaceholderEdict": "github-prod-token",
+        "namePlaceholderEngine": "jina-prod",
+        "hostPlaceholder": "api.github.com",
+        "providerPlaceholder": "Select service provider",
+        "valuePlaceholder": "Will not echo",
+        "newValuePlaceholder": "Empty = keep current value",
+        "extraHeadersPlaceholder": "e.g. {\"Notion-Version\": \"2022-06-28\"}",
+        "headerTemplateTooltip": "Use {value} as placeholder",
+        "newValueTooltip": "Empty = do not change value"
+      }
+    },
+    "toast": {
+      "skillSaved": "Skill saved",
+      "skillCreated": "Skill \"{name}\" created",
+      "skillDeleted": "Skill \"{name}\" deleted",
+      "toolEnabled": "Enabled {name}",
+      "toolDisabled": "Disabled {name}",
+      "actionFailed": "Action failed",
+      "fileSaved": "File saved",
+      "noChanges": "No changes",
+      "llmConfigUpdated": "Config updated",
+      "llmConfigAdded": "Config \"{name}\" added",
+      "llmConfigDuplicate": "Name already exists",
+      "providerDeleted": "Provider \"{name}\" deleted",
+      "llmConfigSwitched": "Switched active config to \"{name}\"",
+      "llmConfigDeleted": "Config \"{name}\" deleted",
+      "agentParamsUpdated": "Runtime parameters updated",
+      "credLoadFailed": "Failed to load credentials",
+      "credCreated": "Credential created",
+      "credCreatedLive": "Created, took effect immediately",
+      "credCreateFailed": "Create failed",
+      "credDeleted": "Credential deleted",
+      "credDeleteFailed": "Delete failed",
+      "credSaved": "Saved",
+      "credSaveFailed": "Save failed",
+      "credToggleFailed": "Toggle failed",
+      "extraHeadersInvalid": "extra_headers is not valid JSON"
+    },
+    "mcp": {
+      "reload": "Reload",
+      "configHint": "Edit ~/.tianshu/mcp_servers.yaml then click Reload to apply.",
+      "empty": "No MCP servers configured. Create ~/.tianshu/mcp_servers.yaml to add one.",
+      "lastError": "Last error",
+      "defaultTier": "default tier",
+      "timeout": "timeout",
+      "enabled": "On",
+      "disabled": "Off",
+      "discoveredTools": "Discovered tools ({n})",
+      "noTools": "No tools discovered",
+      "status": {
+        "connected": "connected",
+        "reconnecting": "reconnecting",
+        "error": "error",
+        "stopped": "stopped",
+        "pending": "starting",
+        "disabled": "disabled",
+        "unknown": "unknown"
+      },
+      "notify": {
+        "savedTitle": "Override saved",
+        "savedNeedReload": "Click Reload to apply changes.",
+        "errorTitle": "MCP operation failed",
+        "reloadedTitle": "MCP reloaded",
+        "reloadedDesc": "{servers} server(s) configured, {active} active session(s).",
+        "createdTitle": "Server created",
+        "createdDesc": "{name} → {status}"
+      },
+      "addServer": "Add server",
+      "create": {
+        "title": "Add MCP server",
+        "submit": "Create",
+        "name": "Name",
+        "nameRequired": "Name is required",
+        "namePattern": "Letters, digits, dot, dash only (no underscore)",
+        "nameHint": "Used as namespace prefix: mcp_<name>_<tool>. No underscore.",
+        "transport": "Transport",
+        "command": "Command",
+        "commandRequired": "Command is required for stdio",
+        "args": "Arguments",
+        "argsHint": "One per line. Quotes/escapes are not parsed — write literal tokens.",
+        "env": "Environment variables",
+        "envHint": "${VAR} will be replaced from process environment at connect time. Tokens are redacted in logs.",
+        "url": "URL",
+        "urlRequired": "URL is required for streamable-http",
+        "urlInvalid": "Must be a valid URL",
+        "headers": "Headers",
+        "advanced": "Advanced",
+        "defaultTier": "Default tier",
+        "defaultTierHint": "Per-tool tier. T2 = network, requires approval. T0 = readonly, fast path.",
+        "timeout": "Tool timeout (s)",
+        "connectTimeout": "Connect timeout (s)",
+        "enabled": "Enabled",
+        "toolsInclude": "Whitelist (one per line, empty = all)",
+        "toolsExclude": "Blacklist",
+        "toolsFilterHint": "Names from server's tools/list. Use to hide tools you don't need.",
+        "addRow": "Add"
+      }
+    }
+  },
+  "skillsPage": {
+    "title": "Skills Control",
+    "table": {
+      "name": "Name",
+      "description": "Description",
+      "source": "Source",
+      "state": "State",
+      "usage": "Usage / Rate",
+      "flags": "Flags",
+      "createdAt": "Created At",
+      "actions": "Actions"
+    },
+    "badge": {
+      "autoCurated": "Auto",
+      "humanCurated": "Human-reviewed (won't be auto-overwritten)",
+      "humanCuratedShort": "Human",
+      "pinned": "Pinned (protected from pruning)",
+      "pinnedShort": "Pinned"
+    },
+    "action": {
+      "archive": "Archive",
+      "edit": "Edit",
+      "pin": "Pin",
+      "unpin": "Unpin"
+    },
+    "confirmArchive": "Archive this skill? It will be removed from active use (recoverable).",
+    "editDialog": {
+      "title": "Edit skill",
+      "titleWithName": "Edit skill: {name}"
+    },
+    "toast": {
+      "archived": "Skill \"{name}\" archived",
+      "pinned": "Skill \"{name}\" pinned",
+      "unpinned": "Skill \"{name}\" unpinned",
+      "editSaved": "Saved. Marked as human-reviewed — auto-iteration will not overwrite it."
+    }
+  },
+  "study": {
+    "tab": {
+      "pending": "Pending",
+      "all": "All Tasks"
+    }
+  }
+}

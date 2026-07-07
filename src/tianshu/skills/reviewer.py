@@ -9,8 +9,8 @@ from typing import Any
 import litellm
 
 from tianshu.config_manager import ConfigManager
-from tianshu.executor.exit_reason import ExitReason
-from tianshu.executor.hooks import HookResult
+from tianshu.kernel.exit_reason import ExitReason
+from tianshu.kernel.hooks import HookResult
 from tianshu.skills.loader import SkillsLoader
 from tianshu.skills.validator import SkillValidator
 
@@ -56,11 +56,17 @@ class SkillReviewHandler:
         skills: SkillsLoader,
         config_manager: ConfigManager,
         validator: SkillValidator | None = None,
+        metrics_store: Any | None = None,
     ) -> None:
         self._skills = skills
         self._config = config_manager
         self._validator = validator or SkillValidator()
+        self._metrics = metrics_store
         self._tasks_since_last_review = 0
+        self._event_bus: Any = None
+
+    def attach_event_bus(self, bus: Any) -> None:
+        self._event_bus = bus
 
     async def on_agent_end(self, **context: Any) -> HookResult | None:
         """AGENT_END hook handler. Triggers skill review if conditions are met."""
@@ -107,6 +113,7 @@ class SkillReviewHandler:
 
         edict = context.get("edict")
         goal = getattr(edict, "goal", "unknown") if edict else "unknown"
+        edict_id = getattr(edict, "id", None) if edict else None
 
         prompt = _REVIEW_PROMPT.format(
             goal=goal,
@@ -120,7 +127,7 @@ class SkillReviewHandler:
         if not response:
             return
 
-        self._apply_review_result(response)
+        self._apply_review_result(response, edict_id)
 
     @staticmethod
     def _build_tool_summary(events: list) -> list[str]:
@@ -140,9 +147,7 @@ class SkillReviewHandler:
 
     def _build_skills_index(self) -> str:
         index_meta = self._skills.list_all_metadata()
-        return "\n".join(
-            f"  - {m['name']}: {m.get('description', '')}" for m in index_meta
-        )
+        return "\n".join(f"  - {m['name']}: {m.get('description', '')}" for m in index_meta)
 
     @staticmethod
     async def _call_llm(config_state: Any, prompt: str) -> str | None:
@@ -168,7 +173,7 @@ class SkillReviewHandler:
         response = await litellm.acompletion(**kwargs)
         return response.choices[0].message.content or None
 
-    def _apply_review_result(self, content: str) -> None:
+    def _apply_review_result(self, content: str, edict_id: str | None = None) -> None:
         """Parse LLM JSON response and apply skill create/update."""
         try:
             cleaned = content.strip()
@@ -189,11 +194,19 @@ class SkillReviewHandler:
             return
 
         if action == "create":
-            self._handle_create(skill_name, result.get("content", ""), reason)
+            self._handle_create(skill_name, result.get("content", ""), reason, edict_id)
         elif action == "update":
-            self._handle_update(skill_name, result.get("patch_old", ""), result.get("patch_new", ""), reason)
+            self._handle_update(
+                skill_name, result.get("patch_old", ""), result.get("patch_new", ""), reason
+            )
 
-    def _handle_create(self, name: str, content: str, reason: str) -> None:
+    def _handle_create(
+        self,
+        name: str,
+        content: str,
+        reason: str,
+        edict_id: str | None = None,
+    ) -> None:
         if not content:
             logger.warning("[SKILL_REVIEW] Create action but no content provided")
             return
@@ -206,9 +219,37 @@ class SkillReviewHandler:
 
         try:
             self._skills.create_skill(name, content)
+            # Tag provenance so the curator (修撰) can recognize agent-authored skills.
+            if self._metrics is not None:
+                try:
+                    self._metrics.ensure_exists(
+                        name,
+                        created_by="agent",
+                        source_edict_id=edict_id,
+                    )
+                except Exception:
+                    logger.debug("[SKILL_REVIEW] metrics ensure_exists failed", exc_info=True)
             logger.info("[SKILL_REVIEW] Created skill '%s': %s", name, reason)
+            self._emit_learned(name, reason, edict_id, created_by="reviewer")
         except ValueError as e:
             logger.warning("[SKILL_REVIEW] Failed to create skill '%s': %s", name, e)
+
+    def _emit_learned(self, name: str, reason: str, edict_id: str | None, created_by: str) -> None:
+        if not self._event_bus:
+            return
+        try:
+            from tianshu.models.events import make_event
+
+            ev = make_event(
+                event_type="skill.learned",
+                edict_id=edict_id,
+                memorial_id=None,
+                producer="skill_reviewer",
+                payload={"name": name, "reason": reason, "created_by": created_by},
+            )
+            self._event_bus.fire(ev)
+        except Exception:
+            logger.debug("[SKILL_REVIEW] emit skill.learned failed", exc_info=True)
 
     def _handle_update(self, name: str, patch_old: str, patch_new: str, reason: str) -> None:
         if not patch_old or not patch_new:

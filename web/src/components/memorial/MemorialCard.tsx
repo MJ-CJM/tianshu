@@ -7,20 +7,16 @@ import type { Memorial } from "../../api/types";
 import { usePersonas } from "../../hooks/usePersonas";
 import GlowCard from "../common/GlowCard";
 import StatusTag from "../edict/StatusTag";
-import { formatDuration } from "../../utils/format";
+import { formatDuration, formatTime } from "../../utils/format";
+import { parseErrorMessage } from "../../utils/errorMessage";
 import { STATUS_COLORS } from "../../utils/constants";
+import { useT } from "../../i18n";
 import glowStyles from "../common/GlowCard.module.css";
 
 const AUDIT_COLORS: Record<string, string> = {
   pass: "success",
   flag: "warning",
   block: "error",
-};
-
-const AUDIT_LABELS: Record<string, string> = {
-  pass: "审计通过",
-  flag: "审计标记",
-  block: "审计拦截",
 };
 
 interface MemorialCardProps {
@@ -32,8 +28,10 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
   const { token } = theme.useToken();
   const navigate = useNavigate();
   const { data: personas } = usePersonas();
-  const attemptLabel = memorial.attempt > 1 ? ` (第 ${memorial.attempt} 次)` : "";
-  const title = index !== undefined ? `奏折 #${index + 1}${attemptLabel}` : `奏折${attemptLabel}`;
+  const t = useT();
+  const memorialTitle = t("memorial.title");
+  const attemptLabel = memorial.attempt > 1 ? ` ${t("memorial.attemptLabel", { n: memorial.attempt })}` : "";
+  const title = index !== undefined ? `${memorialTitle} #${index + 1}${attemptLabel}` : `${memorialTitle}${attemptLabel}`;
   const isRunning = memorial.status === "running";
   const borderColor = STATUS_COLORS[memorial.status] ?? token.colorBorder;
   const duration = formatDuration(memorial.started_at, memorial.completed_at);
@@ -53,25 +51,24 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
               icon={<SafetyCertificateOutlined />}
               color={AUDIT_COLORS[memorial.audit.verdict] ?? "default"}
             >
-              {AUDIT_LABELS[memorial.audit.verdict] ?? memorial.audit.verdict}
+              {t(`audit.label.${memorial.audit.verdict}`)}
             </Tag>
           )}
           {memorial.review_status === "pending" && (
             <Button
               type="link"
               size="small"
-              onClick={() => navigate("/approvals")}
+              onClick={() => navigate(`/edicts/${memorial.edict_id}`)}
               style={{ padding: 0 }}
             >
-              待批红
+              {t("memorial.review.pending")}
             </Button>
           )}
-          {hasDuration && (
-            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
-              <ClockCircleOutlined style={{ marginRight: 4 }} />
-              {duration}
-            </Typography.Text>
-          )}
+          <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
+            <ClockCircleOutlined style={{ marginRight: 4 }} />
+            {formatTime(memorial.started_at ?? memorial.created_at)}
+            {hasDuration && ` · ${duration}`}
+          </Typography.Text>
           {memorial.persona_id && (() => {
             const persona = (personas ?? []).find((p) => p.id === memorial.persona_id);
             return (
@@ -98,7 +95,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
       {memorial.instruction && (
         <div style={{ marginBottom: 12 }}>
           <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 12 }}>
-            指令：
+            {t("memorial.field.instruction")}：
           </Typography.Text>
           <Typography.Text style={{ color: token.colorText }}>
             {memorial.instruction}
@@ -109,7 +106,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
       {showSummary && (
         <div style={{ marginBottom: 12 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            要旨
+            {t("memorial.field.summary")}
           </Typography.Text>
           <Typography.Paragraph
             style={{ color: token.colorText, marginTop: 4, marginBottom: 0 }}
@@ -122,7 +119,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
       {memorial.result && (
         <div>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {showSummary ? "详文" : "奏报"}
+            {showSummary ? t("memorial.field.detail") : t("memorial.field.report")}
           </Typography.Text>
           <div
             className="memorial-markdown"
@@ -145,30 +142,58 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
         </div>
       )}
 
-      {memorial.error && (
-        <div style={{ marginTop: 12 }}>
-          <Typography.Text type="danger" style={{ fontSize: 12 }}>
-            未竟
-          </Typography.Text>
-          <Typography.Paragraph
-            style={{
-              color: token.colorError,
-              marginTop: 4,
-              marginBottom: 0,
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 13,
-            }}
-          >
-            {memorial.error}
-          </Typography.Paragraph>
-        </div>
-      )}
+      {memorial.error && (() => {
+        const parsed = parseErrorMessage(memorial.error, t);
+        return (
+          <div style={{ marginTop: 12 }}>
+            <Typography.Text type="danger" style={{ fontSize: 12 }}>
+              {t("memorial.field.error")}
+            </Typography.Text>
+            {parsed && parsed.headline !== parsed.raw ? (
+              <>
+                <Typography.Paragraph
+                  style={{
+                    color: token.colorError,
+                    marginTop: 4,
+                    marginBottom: 0,
+                    fontSize: 14,
+                    fontWeight: 500,
+                  }}
+                >
+                  {parsed.headline}
+                </Typography.Paragraph>
+                <Typography.Text
+                  style={{
+                    color: token.colorTextSecondary,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 11,
+                  }}
+                >
+                  {parsed.raw}
+                </Typography.Text>
+              </>
+            ) : (
+              <Typography.Paragraph
+                style={{
+                  color: token.colorError,
+                  marginTop: 4,
+                  marginBottom: 0,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 13,
+                }}
+              >
+                {memorial.error}
+              </Typography.Paragraph>
+            )}
+          </div>
+        );
+      })()}
 
       {memorial.artifacts && memorial.artifacts.length > 0 && (
         <div style={{ marginTop: 12 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             <PaperClipOutlined style={{ marginRight: 4 }} />
-            附件
+            {t("memorial.field.artifacts")}
           </Typography.Text>
           <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8 }}>
             {memorial.artifacts.map((artifact, i) => (

@@ -1,8 +1,8 @@
-"""MemoryManager — split-write architecture (no dual-write).
+"""MemoryManager — Markdown source-of-truth + write-through index.
 
 Write routing:
-  Agent execution → Markdown only (source of truth)
-  Web/API display → SQLite (derived index, rebuilt from MD)
+  Agent execution → Markdown (source of truth) + SQLite write-through (FTS 即时可召回)
+  Web/API display → SQLite (derived index, rebuildable from MD via sync_index)
 
 Read routing:
   Agent (prompt injection) → Markdown files
@@ -29,6 +29,7 @@ from tianshu.memory.reflect import Reflector
 
 if TYPE_CHECKING:
     from tianshu.config_manager import ConfigManager
+    from tianshu.memory.drawer import MemoryBackend
     from tianshu.models.events import EventEnvelope
     from tianshu.storage import Storage
 
@@ -39,7 +40,7 @@ _ENTITY_REF_PATTERN = re.compile(r"@([\w\-]+)")
 
 
 class MemoryManager:
-    """Unified memory management — split-write, no dual-write.
+    """Unified memory management — Markdown source-of-truth + write-through index.
 
     Markdown files = Source of Truth (under ~/.tianshu/memory/)
     SQLite = Derived search index (for API queries, Web display, FTS5)
@@ -57,7 +58,7 @@ class MemoryManager:
         hook_registry: object | None = None,
         personas_dir: Path | None = None,
         memory_dir: Path | None = None,
-        drawer_store: object | None = None,
+        drawer_store: MemoryBackend | None = None,
         memory_config: MemoryConfig | None = None,
     ) -> None:
         self._storage = storage
@@ -102,7 +103,7 @@ class MemoryManager:
         return self._memory_dir
 
     # ------------------------------------------------------------------
-    # Core operations — Markdown-only write path
+    # Core operations — Markdown source-of-truth + write-through index
     # ------------------------------------------------------------------
 
     def store(
@@ -110,13 +111,15 @@ class MemoryManager:
         entry: MemoryEntry,
         writer: str | None = None,
     ) -> MemoryEntry:
-        """Store a memory entry — writes to Markdown ONLY (no SQLite).
+        """Store a memory entry — writes Markdown (source of truth) + SQLite index (write-through).
 
         Extracts @entity_name references from content.
         """
         if writer and not self._access_control.can_store(writer, entry):
             logger.warning(
-                "Access denied: %s cannot write to %s", writer, entry.persona_id,
+                "Access denied: %s cannot write to %s",
+                writer,
+                entry.persona_id,
             )
             return entry
 
@@ -146,8 +149,22 @@ class MemoryManager:
 
         logger.debug(
             "[MEM] store: persona=%s, category=%s, content_len=%d",
-            entry.persona_id, entry.category, len(entry.content),
+            entry.persona_id,
+            entry.category,
+            len(entry.content),
         )
+
+        # write-through 索引：MD 写完后同步刷 SQLite + FTS（memory_fts trigger 自动维护）。
+        # MD 仍是唯一真相；索引写失败不阻断，可后续 sync_index 修复。
+        try:
+            self._backend.save(entry)
+        except Exception:
+            logger.exception(
+                "Index write-through failed for %s content=%.60r (MD already persisted)",
+                entry.id,
+                entry.content,
+            )
+
         return entry
 
     async def retain_drawers(
@@ -163,8 +180,6 @@ class MemoryManager:
         if not self._drawer_store or not self._memory_config.enabled:
             return []
 
-        from datetime import timezone
-
         from ulid import ULID
 
         chunks = chunk_text(
@@ -174,7 +189,7 @@ class MemoryManager:
         )
 
         ids: list[str] = []
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = datetime.now(UTC).isoformat()
         for i, chunk in enumerate(chunks):
             drawer = Drawer(
                 id=str(ULID()),
@@ -213,11 +228,15 @@ class MemoryManager:
         """
         logger.debug(
             "[MEM] recall: persona=%s, query=%.80s, source=%s",
-            query.persona_id, query.query, source,
+            query.persona_id,
+            query.query,
+            source,
         )
         if source == "markdown" and query.query:
             md_results = self._md_backend.search_daily_logs(
-                query.persona_id, query.query, limit=query.limit,
+                query.persona_id,
+                query.query,
+                limit=query.limit,
             )
             entries = [
                 MemoryEntry(
@@ -244,10 +263,6 @@ class MemoryManager:
 
     def delete(self, entry_id: str) -> bool:
         """Delete a memory entry from both SQLite index and Markdown source."""
-        # Read entry details before deleting from SQLite
-        entries = self._storage.search_memory(
-            persona_id="", query=None, category=None, limit=1,
-        )
         # Direct lookup by id
         with self._storage._lock:
             row = self._storage._conn.execute(
@@ -329,7 +344,7 @@ class MemoryManager:
     # ------------------------------------------------------------------
 
     async def compact(self, persona_id: str) -> CompactionResult:
-        """Compact old memories into a summary, written to MEMORY.md."""
+        """Compact old memories into a summary, written to the '## 历史摘要' section of MEMORY.md."""
         # Read recent daily entries as the compaction source
         daily_entries = self._md_backend.list_daily_entries(persona_id, days=30)
         if len(daily_entries) <= 5:
@@ -341,7 +356,8 @@ class MemoryManager:
 
         # BEFORE_COMPACTION hook
         if self._hooks and hasattr(self._hooks, "run"):
-            from tianshu.executor.hooks import HookType
+            from tianshu.kernel.hooks import HookType
+
             await self._hooks.run(
                 HookType.BEFORE_COMPACTION,
                 persona_id=persona_id,
@@ -360,8 +376,17 @@ class MemoryManager:
         ]
         result = await self._compactor.compact(persona_id, entries)
 
-        # Write compacted summary to MEMORY.md (overwrite)
-        self._md_backend.write_core_memory(persona_id, result.summary)
+        # 非破坏写入：只更新「## 历史摘要」section，保留 memory_write / reflect 写入的其余 section
+        try:
+            self._md_backend.write_section(
+                persona_id,
+                "## 历史摘要",
+                mode="set",
+                content=result.summary,
+            )
+        except Exception:
+            # 写失败无害：daily logs 全量保留，下次 compact 会重新生成摘要
+            logger.exception("compact write_section failed for %s", persona_id)
 
         return result
 
@@ -412,7 +437,11 @@ class MemoryManager:
             return persona.id
         if plan and hasattr(plan, "tasks") and plan.tasks:
             first_task = plan.tasks[0]
-            if first_task and hasattr(first_task, "assigned_official") and first_task.assigned_official:
+            if (
+                first_task
+                and hasattr(first_task, "assigned_official")
+                and first_task.assigned_official
+            ):
                 return first_task.assigned_official
         return DEFAULT_EXECUTOR_ID
 
@@ -435,9 +464,62 @@ class MemoryManager:
                 return room
         return "general"
 
+    def _recall_fulltext(
+        self,
+        persona_id: str,
+        goal: str,
+        department: str | None = None,
+        limit: int = 5,
+    ) -> list[str]:
+        """执行前召回：全量 FTS5（persona + court [+ dept]）+ recency 加权。
+
+        返回注入用的 content 列表，按 BM25 位次 × 时间衰减排序，取 top-limit。
+        转义已内置于 fts_search，此处无需再转义。
+        """
+        import math
+
+        from tianshu.memory.fts import fts_search
+
+        visible_ids = [persona_id, "court"]
+        if department:
+            visible_ids.append(f"_dept_{department}")
+
+        with self._storage._lock:
+            ids = fts_search(
+                self._storage._conn,
+                goal,
+                persona_ids=visible_ids,
+                limit=limit * 4,
+            )
+        if not ids:
+            return []
+
+        rank = {entry_id: i for i, entry_id in enumerate(ids)}
+        placeholders = ",".join("?" for _ in ids)
+        with self._storage._lock:
+            rows = self._storage._conn.execute(
+                f"SELECT id, content, created_at FROM memory_entries WHERE id IN ({placeholders})",
+                ids,
+            ).fetchall()
+
+        now = datetime.now(UTC)
+        scored: list[tuple[float, str]] = []
+        for row in rows:
+            bm25 = 1.0 / (1.0 + rank.get(row["id"], len(ids)))
+            try:
+                ts = datetime.fromisoformat(row["created_at"])
+                age_days = (now - ts).total_seconds() / 86400
+                recency = math.exp(-0.693 * age_days / 30)  # half-life = 30 天
+            except (TypeError, ValueError):
+                recency = 0.5
+            scored.append((bm25 * (0.5 + 0.5 * recency), row["content"]))
+
+        scored.sort(key=lambda x: -x[0])
+        return [content for _, content in scored[:limit]]
+
     async def on_before_agent_start(self, **context: object) -> object:
         """BEFORE_AGENT_START hook — inject relevant memories from Markdown + Palace."""
-        from tianshu.executor.hooks import HookResult
+        from tianshu.kernel.hooks import HookResult
 
         edict = context.get("edict")
         if not edict:
@@ -452,26 +534,28 @@ class MemoryManager:
 
         history_messages: list[dict] = []
 
-        # Existing: search Markdown daily logs
-        md_results = self._md_backend.search_daily_logs(
-            persona_id, goal, limit=10,
-        )
-        for r in md_results[:5]:
+        # 全量 FTS5 召回（write-through 索引，任意时间 + recency 加权，已移除 30 天窗口）
+        persona = context.get("persona")
+        department = getattr(persona, "department", None) if persona else None
+        for content in self._recall_fulltext(persona_id, goal, department=department, limit=5):
             history_messages.append(
-                {"role": "user", "content": f"[Memory context — do not respond to this] {r['content']}"}
+                {"role": "user", "content": f"[Memory context — do not respond to this] {content}"}
             )
 
         # NEW: drawer-based L2 recall
         if self._drawer_store and self._memory_config.l2_recall_enabled:
             try:
                 from tianshu.memory.layers import MemoryStack
+
                 stack = MemoryStack(store=self._drawer_store, config=self._memory_config)
                 results = await stack.recall(goal, wing=persona_id, include_court=True)
                 for r in results[:5]:
-                    history_messages.append({
-                        "role": "user",
-                        "content": f"[Palace 记忆 | {r.wing}/{r.room}] {r.content}",
-                    })
+                    history_messages.append(
+                        {
+                            "role": "user",
+                            "content": f"[Palace 记忆 | {r.wing}/{r.room}] {r.content}",
+                        }
+                    )
             except Exception:
                 logger.exception("Failed to recall drawers for %s", persona_id)
 
@@ -506,7 +590,7 @@ class MemoryManager:
             content=f"Task '{edict_goal[:60]}' -> {status.value}: {summary[:150]}",
             source="agent",
         )
-        self.store(entry)  # Markdown only
+        self.store(entry)  # MD (source of truth) + write-through index
 
         # Also store as drawers for Memory Palace
         if self._drawer_store and summary:
