@@ -6,6 +6,7 @@
 
 *An async, governable AI execution platform — organized like an imperial court, growing with every task.*
 
+[![CI](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml/badge.svg)](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
@@ -143,6 +144,8 @@ curl -X POST http://localhost:8000/api/edicts \
 | [使用 usage/](docs/usage/) | 快速开始、使用指南、开发者扩展指南 |
 | [运维 ops/](docs/ops/) | 部署、凭证、飞书/Telegram 接入 |
 | [参考 reference/](docs/reference/) | 借鉴的开源项目、术语表 |
+| [战略 strategy/](docs/strategy/) | 竞争力复盘、发展战略与迭代排期、[决策台账](docs/strategy/DECISIONS.md) |
+| [决策记录 adr/](docs/adr/) · [术语 CONTEXT.md](CONTEXT.md) | 不可逆决策的 why · 战略层 canonical 术语(中英对照) |
 | [路线图 plan/](docs/plan/) · [特性 superpowers/](docs/superpowers/INDEX.md) | 分阶段计划与特性落地记录 |
 
 ## 🛠️ 技术栈
@@ -175,10 +178,17 @@ curl -X POST http://localhost:8000/api/edicts \
 
 ## 🤝 贡献
 
-欢迎 Issue 与 PR。提交前请阅读 [`CLAUDE.md`](CLAUDE.md) 与 [`.claude/rules/`](.claude/rules/) 中的工程约定（简洁优先、外科手术式改动、80% 测试覆盖等）。
+欢迎 Issue 与 PR——首发期实行「窄门贡献」：特性 PR 请先开 issue 对齐，详见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。工程约定见 [`CLAUDE.md`](CLAUDE.md) 与 [`.claude/rules/`](.claude/rules/)（简洁优先、外科手术式改动、80% 测试覆盖等）。
 
-开发验证：`.venv/bin/pytest -m "not slow"` · `.venv/bin/ruff check src tests` · `.venv/bin/lint-imports  # 分层契约检查`。
+开发验证：
+
+```bash
+.venv/bin/ruff check . && .venv/bin/ruff format --check .   # lint + 格式
+.venv/bin/mypy && .venv/bin/lint-imports                    # 类型 + 分层契约
+.venv/bin/pytest -m "not slow" -q                           # 测试
+cd web && npm run lint && npm run typecheck && npm test -- --run && cd ..
+```
 
 ## 📄 License
 
-本项目计划以 [MIT License](LICENSE) 开源。
+本项目以 [MIT License](LICENSE) 开源。

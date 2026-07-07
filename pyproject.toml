@@ -42,6 +42,7 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "import-linter>=2.0",
+    "pre-commit>=3.7",
 ]
 scrapling = ["scrapling[fetchers]>=0.3"]
 feishu = ["lark-oapi>=1.4.0"]
