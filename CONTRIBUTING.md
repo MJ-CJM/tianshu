@@ -24,6 +24,8 @@ cd web && npm run lint && npm run typecheck && npm test -- --run
 - 新增代码测试覆盖尽量 ≥ 90%;仓库整体覆盖率目标 80%(现状 63%,每迭代递增)
 - 术语以根目录 [CONTEXT.md](CONTEXT.md) 为准;架构决策见 [docs/adr/](docs/adr/)
 
+> 前端 eslint 现有三条规则暂为 warn(`no-explicit-any` / `set-state-in-effect` / `immutability`,存量 34 处),迭代 5 前端质量线收紧为 error——新增代码请勿引入这三类告警。
+
 ## 测试
 
 - 慢测试(真实子进程)标记 `@pytest.mark.slow`,CI 默认排除

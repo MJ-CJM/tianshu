@@ -139,7 +139,7 @@ export default function CreateMCPServerModal({
           rules={[
             { required: true, message: t("system.mcp.create.nameRequired") },
             {
-              pattern: /^[A-Za-z0-9.\-]+$/,
+              pattern: /^[A-Za-z0-9.-]+$/,
               message: t("system.mcp.create.namePattern"),
             },
           ]}
