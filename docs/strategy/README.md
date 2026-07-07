@@ -6,9 +6,13 @@
 
 | # | 文档 | 是什么 | 状态 |
 |---|---|---|---|
+| 0 | [**DECISIONS.md 决策台账**](./DECISIONS.md) | **追踪层**:全部决策的单一索引(S1–S21 已批准 + D1–D19 待验证),每项可追到分析上下文/ADR/排期落点;状态流转记录 | 持续维护 |
 | 1 | [竞争力复盘与发展规划](./2026-07-07-competitiveness-review-and-roadmap.md) | **分析层**:全仓工程体检(当日实测)、2026 市场格局对标(经三路一手来源核查)、8 个参考项目源码级增量能力清单(deer-flow/claude-mem/mempalace/crush/opencode/zeroclaw/kimi-cli/multica)、P0–P3 机会全景与不做清单 | 已核查定稿 |
-| 2 | [发展战略与迭代排期 spec](./2026-07-07-development-strategy-design.md) | **决策层**:七项拍板(开源定位/高吞吐带宽/两段式发布/细粒度特性流/客卿/起居注/明制补全)、核心竞争力定性、迭代 0–7 排期至 v0.4.x 年终版 | ✅ 已批准 |
-| 3 | [迭代 0「地基」实施计划](./2026-07-07-iteration-0-foundation.md) | **执行层**:7 个任务的逐步实施计划(CancelledError 修复/抖动定位/卫生四件套/前端质量线/CI/合 main/soft launch),每步含代码与验证命令 | 待执行 |
+| 2 | [发展战略与迭代排期 spec](./2026-07-07-development-strategy-design.md) | **决策层**:十四项拍板(定位/发布/客卿/起居注/明制补全/宣发叙事/重资产分层/廷议/全功能审计)、核心竞争力定性、迭代 0–7 排期至 v0.4.x 年终版 | ✅ 已批准(#14 待验证) |
+| 3 | [全功能竞争力审计](./2026-07-08-full-feature-competitiveness-audit.md) | **分析层**:19 个功能逐项四段式审计(现状/诊断/业界/拍板),决策点 D1–D19 的分析上下文 | ⏳ 自主拍板待验证 |
+| 4 | [迭代 0「地基」实施计划](./2026-07-07-iteration-0-foundation.md) | **执行层**:7 个任务的逐步实施计划(CancelledError 修复/抖动定位/卫生四件套/前端质量线/CI/合 main/soft launch),每步含代码与验证命令 | 待执行 |
+
+配套:不可逆决策的 why 沉淀在 [docs/adr/](../adr/)(0001–0009);战略层 canonical 术语在根目录 [CONTEXT.md](../../CONTEXT.md)。
 
 ## 一页速览
 

@@ -110,6 +110,7 @@
 | 11 | 首发期贡献策略 | **窄门贡献,先议后 PR**:欢迎 issue/文档/小修 PR,特性 PR 须先开 issue 对齐;尽力 48h 响应、明示无 SLA;CoC 用 Contributor Covenant;年末视热度放宽 → [ADR-0005](../adr/0005-narrow-gate-contribution.md);进迭代 0 CONTRIBUTING |
 | 12 | 重资产叙事角色分层(grill-with-docs 三轮 07-08) | 记忆升**第二幕双引擎**(记忆感知/进化固化,填 ADR-0004 默认关的首周体验空窗);协作打**「组织新陈代谢」**牌,不打 multi-agent 红海牌;**技能修撰=展示窗口**(SKILL.md diff 人类可读)且迭代 6 补**效果门**;harness/loop 走**内容轨道**(每迭代一篇深度文,自 25% 社区带宽出)→ [ADR-0006](../adr/0006-heavy-assets-narrative-roles.md)、[ADR-0007](../adr/0007-skill-curation-effect-gate.md) |
 | 13 | 廷议定位与言官制度(grill-with-docs 四轮 07-08) | 廷议=治理原语**「大事慎决」**,与司礼监「小事快批」成对:L2 升级(已有)+ **高风险批红一键召廷议**(迭代 5)+ **位面晋升廷议门**(迭代 6);**职能视角 + 言官强制反调**破单模型趋同;**废 confidence 换 stance**(赞成/反对/有条件 + 条件清单 + 论据);"会诊/会商/廷议"三词随迭代 5 统一为「廷议」→ [ADR-0008](../adr/0008-court-deliberation-censor-structured-stance.md) |
+| 14 | 全功能竞争力审计(grill-with-docs 五轮 07-08,**自主拍板待验证**) | 19 个决策点 D1–D19(强化 8/维持 6/联动 5):通知三级制+免打扰(迭代 5)、`tianshu doctor` 提前(迭代 1)、MCP 治理三件套+密钥轮换(迭代 3)、拒绝动态 DAG([ADR-0009](../adr/0009-static-dag-no-dynamic-graph.md))、三处防重复建设(实录馆=digest 升级/京察=PROFILE 视图/六科自动触发票拟)等——分析上下文见[审计文档](./2026-07-08-full-feature-competitiveness-audit.md),状态流转见 [DECISIONS.md](./DECISIONS.md) |
 
 > 拍板 1–3、7–8 及 MIT 决策已沉淀为 [ADR 0001–0003](../adr/);术语表(中英 canonical)在根目录 [CONTEXT.md](../../CONTEXT.md)。
 
@@ -122,15 +123,15 @@
 | 迭代 | 时间 | 内容 | 出口 |
 |---|---|---|---|
 | **0 · 地基** | 7/07–7/14(1 周) | CI 五件套 + 前端质量线(eslint/vitest 起步);LICENSE(MIT)/CHANGELOG/CONTRIBUTING/pre-commit;feat_phase8 合 main;profile_synthesizer CancelledError 修复 + 测试抖动定位 | **v0.2.0 + soft launch** |
-| **1 · 接入** | 7/14–7/28(2 周) | MCP server 化(FastMCP 3.x `http_app()` 挂载,手选 5–10 tools);LLM 可靠性(litellm.Router 配置化 + 持久配额记账 + 失败诊断轨迹,锁 litellm 版本) | v0.2.x;Claude Code 可直接驱动天枢 |
+| **1 · 接入** | 7/14–7/28(2 周) | MCP server 化(FastMCP 3.x `http_app()` 挂载,手选 5–10 tools);LLM 可靠性(litellm.Router 配置化 + 持久配额记账 + 失败诊断轨迹,锁 litellm 版本);**`tianshu doctor` 装机自检**(配置/连通性/DB/端口,D5) | v0.2.x;Claude Code 可直接驱动天枢;装完一条命令自检 |
 | **2 · 证明** | 7/28–8/18(3 周) | Evals v1(配对沙箱评估泛化为平台级回归评测);Memorial `failure_reason` 14 类 + 历史回填 | v0.2.x;一条命令出评测报告 |
-| **3 · 深防御** | 8/18–9/01(2 周) | 出站脱敏 redact / bash AST 风险分级 / clean-env / 分级急停(统称**锦衣卫**·运行时监察);OTel GenAI 埋点(薄封装)+ Phoenix PoC;**出厂预算护栏默认值**(每日上限,超限熔断+通知)+ **opt-in 遥测最小实现**(版本+启动事件,见 §七) | v0.2.x;红队用例全拦截 |
+| **3 · 深防御** | 8/18–9/01(2 周) | 出站脱敏 redact / bash AST 风险分级 / clean-env / 分级急停(统称**锦衣卫**·运行时监察);OTel GenAI 埋点(薄封装)+ Phoenix PoC;**出厂预算护栏默认值**(每日上限,超限熔断+通知)+ **opt-in 遥测最小实现**(版本+启动事件,见 §七);**MCP 治理三件套**(server 准入清单+子进程 clean-env+文档诚实声明边界,D15)+ 凭证主密钥轮换脚本(D16) | v0.2.x;红队用例全拦截 |
 | **3.5 · 客卿** | 9/01–9/13(2 周) | 客卿执行器 v1(见 §四);**影子快照最小版**(独立 GIT_DIR + 每执行节点快照 + CLI 一键 revert,放手四保险第③条,见 §七) | v0.2.x;天枢派 Claude Code 出工并全程审计;任务文件改动可一键回滚 |
 | **🚀 宣发** | 9 月中旬 | 双语 README + 隐喻对照表、GIF 三镜头(手机批红/预算触顶停手/一键回滚)、客卿演示视频、架构博文、SECURITY.md、成本基线实测;**主战场国内**(V2EX/即刻/掘金),HN 留年末第二波(见 §七);留 1 周处理反馈 | **v0.3.0 正式发布** |
 | **4 · 记忆 2.0** | 9/22–10/20 | sqlite-vec 混合检索(brute-force,勿押 ANN)/ 渐进披露三工具 / 时序 KG / 记忆 ROI / 后台史官;**起居注 v1**(信号蒸馏 → USER_PROFILE + KG 偏好 → PromptBuilder 注入,见 §五) | v0.3.x;官员开工前可见主人偏好 |
-| **5 · 执行 2.0** | 10/20–11/10 | 影子 git 快照**完整版**(UI 回滚/事件对齐;最小版已在 3.5)/ 新鲜度守卫 / 溢出转文件 / steer 注入 / 澄清请示 / 批红"驳回+指导" / LSP 诊断(basedpyright CLI 起步);Hooks UI 可视化一并落地;**廷议 2.0**(职能视角+言官强制反调+结构化纪要,高风险批红一键召廷议,废 confidence 换 stance,措辞统一,ADR-0008) | v0.3.x |
+| **5 · 执行 2.0** | 10/20–11/10 | 影子 git 快照**完整版**(UI 回滚/事件对齐;最小版已在 3.5)/ 新鲜度守卫 / 溢出转文件 / steer 注入 / 澄清请示 / 批红"驳回+指导" / LSP 诊断(basedpyright CLI 起步);Hooks UI 可视化一并落地;**廷议 2.0**(职能视角+言官强制反调+结构化纪要,高风险批红一键召廷议,废 confidence 换 stance,措辞统一,ADR-0008);**通政司通知三级制**(紧急穿透/普通日间/低入 digest + 免打扰时段,"睡觉干活"的产品答案,D2) | v0.3.x |
 | **6 · 演化 2.0** | 11/10–12/05 | feature-flag 灰度晋升(自研 SQLite 表)/ SKILL.md 开放标准对齐 + 技能安全安装管线(**科举**门禁)+ **修撰效果门**(修撰后须配对评估提升才生效,ADR-0007)/ 变体沙箱容器化(OrbStack + 禁网 + 限额);**画像驱动进化**(变异 prompt 注入画像 / fitness 隐式满意度 / 评估集按用户负载加权,见 §五);行为层演化「请旨解锁」机制(默认关+阈值上奏折,ADR-0004);**位面晋升廷议门**(晋升审批附多视角廷议纪要,ADR-0008) | **v0.4.0(12 月初)** |
-| **7 · 制度补全** | 12/05–12/22(2.5 周) | must:司礼监代批 v1 / 六科封驳(预检+预算预估)/ 实录馆周报;nice:巡按巡检 / 京察考核 v1(见 §六) | **v0.4.x 年终版** |
+| **7 · 制度补全** | 12/05–12/22(2.5 周) | must:司礼监代批 v1 / 六科封驳(预检+预算预估,**预估超阈自动置 plan_review 联动票拟**,D9)/ 实录馆周报(**基于既有 DigestGenerator 升级**,D3);nice:巡按巡检 / 京察考核 v1(**基于 PROFILE 数据做考核视图**,D19)/ 审计规则 YAML 可配(D13)/ 太医双出口「太医奏折」(D14)(见 §六) | **v0.4.x 年终版** |
 | **2027H1 · P3** | — | kaos OS 抽象 → Runtime/Worker 解耦 → Polymorphic Actor → WS 房间;PG 可选后端;客卿 v2/A2A 评估;翰林院储才/宗人府(C 类) | v0.5+ |
 
 **排序理由**:迭代 1 先 MCP+Router——MCP 是外部接入最低门槛(宣发依赖),Evals 要大量跑批须先稳 provider 层;客卿排 3.5 因依赖迭代 3 的 clean-env/隔离;迭代 4→5→6 是依赖序(记忆检索被执行层复用、LSP 信号喂演化门禁、**起居注画像层先行才能在迭代 6 接进化**),演化 2.0 最贴护城河压轴年末版本。
