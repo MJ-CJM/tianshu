@@ -160,6 +160,15 @@ def _render_persona_identity_files(
     return soul_path, role_path
 
 
+@personas_router.get("/personas/jingcha")
+def persona_jingcha(request: Request):
+    """京察·官员考核(迭代 7):全体官员绩效考语 + 汇总。"""
+    from tianshu.persona.jingcha import Jingcha
+
+    storage: Storage = request.app.state.storage
+    return ApiResponse(success=True, data=Jingcha(storage).review())
+
+
 @personas_router.get("/personas")
 def list_personas(request: Request):
     selector: OfficialSelector = request.app.state.official_selector

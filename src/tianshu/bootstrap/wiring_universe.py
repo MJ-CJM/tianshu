@@ -107,6 +107,7 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         storage,
         evolvable_paths=_cfg.code_variant_evolvable_paths,
     )
+    app.state.diagnostician = diagnostician  # 太医奏折(迭代 7)出口用
 
     # feature-flag 灰度(迭代 6):自研 SQLite flag 表,晋升灰度旋钮 / 秒级回退的控制面
     from tianshu.feature_flags import FeatureFlags

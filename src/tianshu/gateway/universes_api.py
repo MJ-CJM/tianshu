@@ -95,6 +95,15 @@ def _flags(request: Request):
     return flags
 
 
+@universes_router.get("/taiyi/report", response_model=ApiResponse)
+async def taiyi_report(request: Request):
+    """太医奏折(迭代 7):诊断双出口——面向用户的系统健康奏折(自进化关时也能看)。"""
+    diagnostician = getattr(request.app.state, "diagnostician", None)
+    if diagnostician is None:
+        raise HTTPException(status_code=503, detail="diagnostician not wired")
+    return ApiResponse(success=True, data=await diagnostician.report())
+
+
 @universes_router.get("/flags")
 def list_flags(request: Request):
     return ApiResponse(success=True, data=_flags(request).list_all())

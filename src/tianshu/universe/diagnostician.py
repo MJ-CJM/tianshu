@@ -37,6 +37,37 @@ _USER = """\
 {{"target_path": "src/tianshu/...", "hypothesis": "改什么、为何能减少上述失败", "rationale": "对应哪些症状"}}
 无可提之处输出 []。"""
 
+_MEMORIAL_TYPE = "taiyi.memorial"
+_MEMORIAL_TITLE = "太医奏折"
+_HEALTHY_SUMMARY = "太医巡诊,未见沉疴。"
+
+
+def compile_memorial(diagnoses: list[dict]) -> dict:
+    """把 diagnose 的诊断清单汇编成面向用户的「太医奏折」。
+
+    太医的第二出口:纯函数,不碰 storage/LLM。即便自进化关闭,用户
+    也能凭此奏折一览太医对平台健康的判断;无诊断项则呈报未见沉疴。
+
+    :param diagnoses: diagnose 的输出,每项含 target_path 与 hypothesis。
+    :return: 奏折 dict——type / title / summary / findings / count。
+    """
+    findings = [
+        {
+            "target": str(d.get("target_path") or ""),
+            "hypothesis": str(d.get("hypothesis") or ""),
+        }
+        for d in diagnoses
+    ]
+    count = len(findings)
+    summary = _HEALTHY_SUMMARY if count == 0 else f"太医巡诊,察得 {count} 处可调之症,详列于后。"
+    return {
+        "type": _MEMORIAL_TYPE,
+        "title": _MEMORIAL_TITLE,
+        "summary": summary,
+        "findings": findings,
+        "count": count,
+    }
+
 
 class Diagnostician:
     def __init__(self, llm_client: Any, storage: Any, *, evolvable_paths: tuple[str, ...]) -> None:
@@ -77,6 +108,22 @@ class Diagnostician:
             if len(out) >= max_hypotheses:
                 break
         return out
+
+    async def report(self, *, max_hypotheses: int = 5) -> dict:
+        """太医的第二出口:汇编面向用户的健康奏折(诊断摘要)。
+
+        调 diagnose 取诊断清单,再交 compile_memorial 汇编成奏折。失败安全:
+        diagnose 抛异常或无症状,皆回落为 count=0 的空奏折,绝不外抛。
+
+        :param max_hypotheses: 最多纳入奏折的诊断条数。
+        :return: 奏折 dict,结构同 compile_memorial。
+        """
+        try:
+            diagnoses = await self.diagnose(max_hypotheses=max_hypotheses)
+        except Exception:  # noqa: BLE001
+            logger.warning("report: diagnose failed, empty memorial", exc_info=True)
+            diagnoses = []
+        return compile_memorial(diagnoses)
 
     def _collect_failures(self, limit: int = 30) -> str:
         """近期失败 memorial 的症状行:goal / error / 审计意见。"""

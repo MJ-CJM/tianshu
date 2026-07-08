@@ -99,6 +99,16 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     if body.runtime:
         rt_data.update({k: v for k, v in body.runtime.model_dump().items() if v is not None})
     edict_kwargs["runtime"] = EdictRuntime(**rt_data)
+    # 六科给事中·封驳(迭代 7):提交预检——超长封还 / 成本超阈升 plan_review 票拟(D9)
+    from tianshu.executor.liuke import Liuke
+
+    precheck = Liuke(storage, request.app.state.config_manager).precheck(
+        body.goal, rt_data.get("cost_budget_cny")
+    )
+    if precheck.verdict == "reject":
+        raise HTTPException(422, f"六科封还:{precheck.reason}")
+    if precheck.verdict == "plan_review":
+        edict_kwargs["plan_review"] = True
     if body.assigned_persona_id:
         persona_loader = request.app.state.persona_loader
         if not persona_loader.get(body.assigned_persona_id):

@@ -56,6 +56,17 @@ class AgentConfigState:
     skill_effect_gate_enabled: bool = False
     skill_effect_gate_margin: float = 0.05
     skill_effect_gate_eval_set_size: int = 10
+    # 司礼监·代批（迭代 7,制度补全）：学习用户批红习惯,对低风险 decree 自动代批,解审批疲劳。
+    # 默认关(保守 + 防"宦官专权");开启后仍受四道闸约束(低风险类/留痕可撤/急停即停/进京察)。
+    silijian_enabled: bool = False
+    silijian_max_tier: int = 1  # 仅代批 ≤ T1_WORKSPACE 的低风险工具
+    silijian_min_approval_rate: float = 0.9  # 近期人工批红通过率阈值
+    silijian_min_samples: int = 10  # 达此人工样本量才敢代批(冷启动不代批)
+    # 六科给事中·封驳（迭代 7）：诏令提交时预检——超长封还(入站防护)、成本预估超阈自动置
+    # plan_review 联动票拟(D9,非硬拒,升级为人工规划审批)。默认开(只升级不删事,非破坏)。
+    liuke_enabled: bool = True
+    liuke_max_goal_chars: int = 8000  # 目标超此长度直接封还(zeroclaw body 上限类比)
+    liuke_cost_threshold_cny: float = 5.0  # 预估/声明成本超此则升 plan_review
     # 平行位面（parallel universe）
     parallel_universe_enabled: bool = False
     universe_min_samples: int = 20
