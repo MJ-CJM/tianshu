@@ -263,3 +263,25 @@ class MemorialMixin:
                 )
                 updated += 1
         return updated
+
+    # --- 后台史官(迭代 4「记忆 2.0」)---
+
+    def list_undistilled_memorials(self, limit: int = 10) -> list[Memorial]:
+        """成功终态且史官尚未蒸馏的 memorial(最近优先)——史官蒸馏执行知识用。"""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT * FROM memorials
+                   WHERE status IN ('completed', 'approved')
+                   AND id NOT IN (SELECT memorial_id FROM historian_log)
+                   ORDER BY created_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [_row_to_memorial(r) for r in rows]
+
+    def mark_distilled(self, memorial_id: str, insight_written: bool, now_iso: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO historian_log
+                   (memorial_id, distilled_at, insight_written) VALUES (?, ?, ?)""",
+                (memorial_id, now_iso, 1 if insight_written else 0),
+            )
