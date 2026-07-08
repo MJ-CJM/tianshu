@@ -82,12 +82,23 @@ async def create_edict(body: EdictCreateRequest, request: Request):
         edict_kwargs["output_format"] = body.output_format
     if body.runtime is not None:
         _validate_network_runtime(body.runtime)
-    if body.runtime:
-        from tianshu.models.edict import EdictRuntime
+    # Q7:平台级默认打底,body.runtime 覆盖差异——全局设一次,创建不用逐字段重填。
+    from tianshu.models.edict import EdictRuntime
 
-        rt_data = {k: v for k, v in body.runtime.model_dump().items() if v is not None}
-        if rt_data:
-            edict_kwargs["runtime"] = EdictRuntime(**rt_data)
+    agent_cfg = request.app.state.config_manager.agent_config
+    rt_data: dict = {
+        "timeout_seconds": agent_cfg.agent_timeout_seconds,
+        "max_iterations": agent_cfg.agent_max_iterations,
+        "max_concurrency": agent_cfg.agent_max_concurrency,
+        "retry_limit": agent_cfg.agent_retry_limit,
+    }
+    if agent_cfg.agent_token_budget:
+        rt_data["token_budget"] = agent_cfg.agent_token_budget
+    if agent_cfg.agent_cost_budget_cny:
+        rt_data["cost_budget_cny"] = agent_cfg.agent_cost_budget_cny
+    if body.runtime:
+        rt_data.update({k: v for k, v in body.runtime.model_dump().items() if v is not None})
+    edict_kwargs["runtime"] = EdictRuntime(**rt_data)
     if body.assigned_persona_id:
         persona_loader = request.app.state.persona_loader
         if not persona_loader.get(body.assigned_persona_id):

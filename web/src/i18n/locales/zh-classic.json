@@ -1768,7 +1768,12 @@
       "agentTimeout": "执行超时 (秒)",
       "skillSection": "Skill 参数",
       "skillCharBudget": "字符预算",
-      "apply": "应用"
+      "apply": "应用",
+      "agentMaxConcurrency": "默认并办数",
+      "agentRetryLimit": "默认再试上限",
+      "agentCostBudget": "默认度支(¥/敕)",
+      "agentTokenBudget": "默认字元度支",
+      "unlimited": "空=不限"
     },
     "externalCreds": {
       "edictAuthLabel": "Edict 凭证",

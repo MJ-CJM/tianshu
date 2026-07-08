@@ -142,6 +142,10 @@ class LLMConfigListResponse(BaseModel):
 class AgentConfig(BaseModel):
     agent_max_iterations: int
     agent_timeout_seconds: int
+    agent_max_concurrency: int
+    agent_retry_limit: int
+    agent_token_budget: int | None
+    agent_cost_budget_cny: float | None
     skills_char_budget: int
     skill_review_enabled: bool
     skill_review_interval: int
@@ -151,6 +155,10 @@ class AgentConfig(BaseModel):
 class AgentConfigUpdateRequest(BaseModel):
     agent_max_iterations: int | None = Field(default=None, ge=1, le=200)
     agent_timeout_seconds: int | None = Field(default=None, ge=10, le=3600)
+    agent_max_concurrency: int | None = Field(default=None, ge=1, le=8)
+    agent_retry_limit: int | None = Field(default=None, ge=0, le=10)
+    agent_token_budget: int | None = Field(default=None, ge=1)
+    agent_cost_budget_cny: float | None = Field(default=None, ge=0)
     skills_char_budget: int | None = Field(default=None, ge=1000, le=500000)
     skill_review_enabled: bool | None = None
     skill_review_interval: int | None = Field(default=None, ge=1, le=100)

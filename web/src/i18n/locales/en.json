@@ -1769,7 +1769,12 @@
       "agentTimeout": "Timeout (seconds)",
       "skillSection": "Skill parameters",
       "skillCharBudget": "Char budget",
-      "apply": "Apply"
+      "apply": "Apply",
+      "agentMaxConcurrency": "Default concurrency",
+      "agentRetryLimit": "Default retry limit",
+      "agentCostBudget": "Default cost budget (¥/edict)",
+      "agentTokenBudget": "Default token budget",
+      "unlimited": "blank = unlimited"
     },
     "externalCreds": {
       "edictAuthLabel": "Task credentials",

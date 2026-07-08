@@ -30,6 +30,10 @@ def _state_to_agent_config(state) -> AgentConfig:
     return AgentConfig(
         agent_max_iterations=state.agent_max_iterations,
         agent_timeout_seconds=state.agent_timeout_seconds,
+        agent_max_concurrency=state.agent_max_concurrency,
+        agent_retry_limit=state.agent_retry_limit,
+        agent_token_budget=state.agent_token_budget,
+        agent_cost_budget_cny=state.agent_cost_budget_cny,
         skills_char_budget=state.skills_char_budget,
         skill_review_enabled=state.skill_review_enabled,
         skill_review_interval=state.skill_review_interval,
