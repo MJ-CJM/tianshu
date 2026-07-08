@@ -1644,7 +1644,8 @@
       "plugins": "插件",
       "config": "全局配置",
       "externalCreds": "外部凭证",
-      "mcp": "MCP"
+      "mcp": "MCP",
+      "estop": "急停"
     },
     "skills": {
       "charsLoaded": "已加载 {n} chars",
@@ -1968,5 +1969,23 @@
     "setName": "名称",
     "goalCount": "条数",
     "source": "来源"
+  },
+  "estop": {
+    "intro": "锦衣卫急刹车:随时切断执行中的任务。三档可叠加,状态持久化并留审计痕。",
+    "statusEngaged": "已启动急停",
+    "statusClear": "正常运行,未启动急停",
+    "reason": "原因",
+    "reasonPlaceholder": "本次急停原因(可选,记入审计)",
+    "killAll": "全停",
+    "killAllTitle": "全停(kill_all)",
+    "killAllDesc": "拒绝所有工具调用——运行中任务在下次工具调用即被切断。",
+    "networkKill": "掐网",
+    "networkKillTitle": "掐网(network_kill)",
+    "networkKillDesc": "拒绝网络类工具(fetch/search/api/shell)——本地读写不受影响。",
+    "allClear": "一键全部解除",
+    "engaged": "已启动:{what}",
+    "resumed": "已解除:{what}",
+    "actionFailed": "操作失败",
+    "unavailable": "急停管理器未就绪(需要后端启用)。"
   }
 }

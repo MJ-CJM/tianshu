@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tianshu.kernel.ambient import get_current_edict
+from tianshu.security.clean_env import build_clean_env
 from tianshu.storage import Storage
 from tianshu.tools.hongluisi.engine_registry import build_engines
 from tianshu.tools.hongluisi.tools import register_hongluisi
@@ -39,6 +40,9 @@ def register_builtins(
             cwd=str(work_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            # 锦衣卫·clean-env(迭代 3):白名单构造,不透传 TIANSHU_* 等 secrets;
+            # 业务额外变量经 TIANSHU_SHELL_ENV_PASSTHROUGH 显式声明
+            env=build_clean_env(),
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)

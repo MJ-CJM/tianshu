@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tianshu"
-version = "0.2.2"
+version = "0.2.3"
 description = "Tianshu - Async AI Execution Platform"
 requires-python = ">=3.12"
 dependencies = [
@@ -49,6 +49,12 @@ feishu = ["lark-oapi>=1.4.0"]
 telegram = ["python-telegram-bot>=22.6,<23"]
 web = ["trafilatura>=1.12"]
 mcp = ["mcp>=1.0"]
+# OTel GenAI 埋点(迭代 3):默认不装、默认关;设 TIANSHU_OTEL_ENDPOINT 才导出。
+# semconv gen_ai.* 仍 experimental,故薄封装集中定义属性,升级只改一处。
+otel = [
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
+]
 all = ["tianshu[feishu,telegram,web,mcp,cli,notify]"]
 
 [project.scripts]
@@ -80,7 +86,7 @@ show_missing = false
 
 [tool.mypy]
 python_version = "3.12"
-packages = ["tianshu.models", "tianshu.kernel", "tianshu.bus", "tianshu.dag", "tianshu.config", "tianshu.storage", "tianshu.secrets", "tianshu.memory", "tianshu.persona", "tianshu.tools.mcp"]
+packages = ["tianshu.models", "tianshu.kernel", "tianshu.bus", "tianshu.dag", "tianshu.config", "tianshu.storage", "tianshu.secrets", "tianshu.memory", "tianshu.persona", "tianshu.tools.mcp", "tianshu.security"]
 ignore_missing_imports = true
 check_untyped_defs = true
 warn_unused_ignores = true

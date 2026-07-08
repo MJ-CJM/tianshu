@@ -125,3 +125,10 @@ def wire_cost_manager(app: FastAPI, settings: TianshuSettings) -> None:
     # --- CostManager（提前创建：FeishuBot /budget 卡片需要）---
     cost_manager = CostManager(storage=storage, event_bus=event_bus)
     app.state.cost_manager = cost_manager
+
+    # --- 出厂预算护栏(迭代 3,放手四保险第④条)---
+    # 首次启动若无 global 预算,落出厂默认每日上限;已有则尊重用户设置不覆盖。
+    guardrail = settings.daily_budget_guardrail_cny
+    if guardrail > 0 and storage.get_budget("global") is None:
+        cost_manager.set_budget("global", guardrail, period="daily")
+        logger.info("[budget] 出厂预算护栏已就绪:每日全局上限 ¥%.2f", guardrail)

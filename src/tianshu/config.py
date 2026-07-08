@@ -82,3 +82,16 @@ class TianshuSettings(BaseSettings):
     eval_llm_api_key: str = ""
     eval_llm_api_base: str = ""
     eval_llm_model: str = ""
+    # --- 迭代 3「深防御」---
+    # 出厂预算护栏(放手四保险第④条):每日全局预算上限(CNY),0=不设护栏。
+    # 首次启动若库中无 global 预算,自动落此默认值(超限熔断 + 通知)。
+    daily_budget_guardrail_cny: float = 20.0
+    # opt-in 遥测(ADR-0003):默认关;设 TIANSHU_TELEMETRY=on 才启用;
+    # 仅上报版本 + 启动事件,代码可审计,一行 env 永久关。
+    telemetry: str = "off"  # off | on
+    telemetry_endpoint: str = ""  # 空 → 只记本地遥测日志,不外发
+    # OTel GenAI 埋点:默认关;设 OTLP endpoint 才导出。
+    otel_endpoint: str = ""  # 例 http://localhost:4318 (Phoenix/OTLP)
+    # MCP 治理·准入清单(D15):逗号分隔的 server 名白名单。空=不强制(允许全部
+    # enabled server,启动时明示未设护栏);非空=只启动清单内 server,其余拒并告警。
+    mcp_server_allowlist: str = ""

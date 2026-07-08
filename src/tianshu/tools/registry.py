@@ -28,6 +28,12 @@ class ToolRegistry:
         self._tools: dict[str, tuple[ToolDefinition, Callable[..., Awaitable[ToolResult]]]] = {}
         self._hooks: list[ToolHook] = []
         self._disabled: set[str] = set()
+        # 锦衣卫·分级急停(迭代 3):非 None 时每次 execute 入口先过 check()
+        self._estop: object | None = None
+
+    def set_estop(self, estop: object) -> None:
+        """注入 EstopManager(security.estop);置于 execute 最前,含 T0 快路径。"""
+        self._estop = estop
 
     def register(
         self,
@@ -87,6 +93,13 @@ class ToolRegistry:
 
         if name not in self._tools:
             return error_result(f"Error: tool '{name}' not found")
+
+        # 急停最优先:先于 disabled/tier/快路径,kill_all 下 T0 只读也拒
+        if self._estop is not None:
+            estop_reason = self._estop.check(name)  # type: ignore[attr-defined]
+            if estop_reason:
+                logger.warning("[TOOL] %s rejected by estop: %s", name, estop_reason)
+                return error_result(f"Tool '{name}' rejected: {estop_reason}")
 
         if name in self._disabled:
             return error_result(f"Tool '{name}' is disabled by admin")

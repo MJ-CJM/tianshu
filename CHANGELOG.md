@@ -2,6 +2,24 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.2.3] - 2026-07(迭代 3「深防御」)
+
+治理是天枢最强卖点,这一迭代把它做深到运行时。锦衣卫四件套 + 出厂护栏。
+
+### Added
+- **锦衣卫·出站脱敏**:WS 广播 / webhook / 通知渠道外发前统一 redact(API key/PEM/JWT/DB 连接串/Bearer/家目录,语料合并 multica+zeroclaw 两独立实现)
+- **锦衣卫·bash 风险分级**:quote-aware 分段后**逐段**判定,堵死 `git log; rm -rf /`(白名单前缀 + 分号藏危险命令)这类绕过;命令替换/重定向/后台 & 等结构绕过一律升级审批
+- **锦衣卫·子进程 clean-env**:`shell_exec` 白名单构造环境变量,不透传 `TIANSHU_*` 等 secrets(经 `TIANSHU_SHELL_ENV_PASSTHROUGH` 显式声明额外变量)
+- **锦衣卫·分级急停**:三档(全停 kill_all / 掐网 network_kill / 冻结工具 tool_freeze),工具管线入口每次调用先过 estop、先于所有判定;SQLite 单行状态持久化、损坏 fail-closed;`GET/POST /api/estop/*` + web「系统管理 → 急停」控制台 + 事件留痕
+- **出厂预算护栏**(放手四保险第④条):默认每日全局上限 ¥20(`TIANSHU_DAILY_BUDGET_GUARDRAIL_CNY`),超限熔断;daily/weekly 预算周期自动滚动清零
+- **opt-in 遥测**(ADR-0003):默认关,`TIANSHU_TELEMETRY=on` 才启用,仅上报版本+启动事件,首启明示,一行 env 永久关
+- **OTel GenAI 埋点薄封装**:默认关,设 `TIANSHU_OTEL_ENDPOINT`(如 Phoenix)才导出;gen_ai.* 属性集中定义(semconv experimental,升级只改一处);`pip install 'tianshu[otel]'`
+- **MCP 治理·准入清单**(D15):`TIANSHU_MCP_SERVER_ALLOWLIST` 非空则只加载清单内 server;未设则明示告警(stdio 子进程 env 由官方 SDK 白名单托底)
+- **凭证主密钥轮换**(D16):`tianshu secrets rotate-master-key`——旧密钥全量解密→新密钥重加密回写,干跑校验+自动备份+解不开即中止(不破坏数据)
+
+### Changed
+- 版本口径对齐 0.2.3(含此前一直遗漏的 `tianshu.__version__` 自 0.1.0);mypy 覆盖扩至 11 包(新增 `tianshu.security`)
+
 ## [0.2.2] - 2026-07(迭代 2「证明」)
 
 ### Added

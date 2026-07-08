@@ -106,6 +106,13 @@ def wire_policy(app: FastAPI, settings: TianshuSettings) -> None:
     event_bus = app.state.event_bus
     hook_registry = app.state.hook_registry
 
+    # --- 锦衣卫·分级急停(迭代 3):注入工具管线入口,先于所有判定 ---
+    from tianshu.security.estop import EstopManager
+
+    estop_manager = EstopManager(storage)
+    tools.set_estop(estop_manager)
+    app.state.estop_manager = estop_manager
+
     # --- PolicyEngine + PolicyHook ---
     policy_engine = PolicyEngine(rules=build_default_rules())
     app.state.policy_engine = policy_engine

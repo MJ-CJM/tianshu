@@ -1644,7 +1644,8 @@
       "plugins": "插件",
       "config": "全局配置",
       "externalCreds": "外部凭证",
-      "mcp": "外援"
+      "mcp": "外援",
+      "estop": "缇骑急发"
     },
     "skills": {
       "charsLoaded": "已加载 {n} chars",
@@ -1968,5 +1969,23 @@
     "setName": "卷名",
     "goalCount": "题数",
     "source": "出处"
+  },
+  "estop": {
+    "intro": "锦衣卫缇骑,随时勒停在役之差事。三档可并施,状态存档并录入起居注。",
+    "statusEngaged": "缇骑已发",
+    "statusClear": "诸事如常,缇骑未发",
+    "reason": "缘由",
+    "reasonPlaceholder": "此番急发缘由(可略,录入案卷)",
+    "killAll": "尽停",
+    "killAllTitle": "尽停(kill_all)",
+    "killAllDesc": "诸般器用一概不许——在役差事于下次动用器用时立断。",
+    "networkKill": "断网",
+    "networkKillTitle": "断网(network_kill)",
+    "networkKillDesc": "网路器用(采、搜、访、壳)一概不许——本地读写不碍。",
+    "allClear": "一举尽解",
+    "engaged": "已发:{what}",
+    "resumed": "已解:{what}",
+    "actionFailed": "施为不果",
+    "unavailable": "缇骑衙署未备(须后端启用)。"
   }
 }

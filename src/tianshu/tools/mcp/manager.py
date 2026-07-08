@@ -32,12 +32,23 @@ class MCPManager:
         tool_registry: ToolRegistry,
         config_path: str | Path = "~/.tianshu/mcp_servers.yaml",
         storage: object | None = None,
+        allowlist: str | None = None,
     ) -> None:
         self._tools = tool_registry
         self._config_path = Path(config_path).expanduser()
         self._storage = storage
+        # MCP 治理·准入清单(D15):非空 → 只启动清单内 server。空/None → 不强制。
+        self._allowlist: frozenset[str] | None = (
+            frozenset(n.strip() for n in allowlist.split(",") if n.strip())
+            if allowlist and allowlist.strip()
+            else None
+        )
         self._config: MCPConfig = MCPConfig()
         self._sessions: dict[str, MCPServerSession] = {}
+
+    def _admitted(self, name: str) -> bool:
+        """准入判定:无清单则全允(启动时另有明示告警);有清单则须在册。"""
+        return self._allowlist is None or name in self._allowlist
 
     # -- 配置 ---------------------------------------------------------------
 
@@ -103,10 +114,21 @@ class MCPManager:
         """
         import asyncio
 
-        enabled = [(name, cfg) for name, cfg in self._config.mcp_servers.items() if cfg.enabled]
+        if self._allowlist is None:
+            logger.warning(
+                "[mcp] 未设准入清单(TIANSHU_MCP_SERVER_ALLOWLIST):所有 enabled server "
+                "将被加载。生产环境建议显式配置白名单(D15 治理护栏)。"
+            )
+        enabled = [
+            (name, cfg)
+            for name, cfg in self._config.mcp_servers.items()
+            if cfg.enabled and self._admitted(name)
+        ]
         for name, cfg in self._config.mcp_servers.items():
             if not cfg.enabled:
                 logger.info("[mcp] skip disabled server: %s", name)
+            elif not self._admitted(name):
+                logger.warning("[mcp] server %s 未在准入清单内,拒绝加载(D15)", name)
 
         async def _start_one(name: str, cfg) -> tuple[str, MCPServerSession | None]:
             session = MCPServerSession(config=cfg)

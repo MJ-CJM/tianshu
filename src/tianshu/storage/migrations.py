@@ -202,6 +202,17 @@ def run_migrations(conn: sqlite3.Connection) -> None:
                 created_at TEXT NOT NULL
             )""",
         "CREATE INDEX IF NOT EXISTS idx_eval_runs_fingerprint ON eval_runs(eval_set_fingerprint)",
+        # 2026-07-08: 迭代 3「深防御」—— 分级急停单行状态(锦衣卫)
+        """CREATE TABLE IF NOT EXISTS estop_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                kill_all INTEGER NOT NULL DEFAULT 0,
+                network_kill INTEGER NOT NULL DEFAULT 0,
+                frozen_tools_json TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT,
+                reason TEXT
+            )""",
+        # 2026-07-08: 迭代 3 —— 预算周期滚动(daily/weekly 预算跨期自动清零)
+        "ALTER TABLE cost_budgets ADD COLUMN period_start TEXT",
     ]
     for sql in migrations:
         try:

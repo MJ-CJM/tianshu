@@ -37,6 +37,7 @@
 - **🔄 主干事件解耦** — 主链路里程碑（`edict.submitted` → … → `audit.completed`）以事件解耦，带 `edict_id` 落库成时间线；子系统内部仍是直调，任务流转全程可追踪、可复盘。
 - **🧠 记忆宫殿 + 成长飞轮** — 多层记忆（Markdown 真相源 + SQLite/FTS5 索引 + Drawer 快照）、技能渐进学习与修撰、人格画像合成，越用越懂你。
 - **🛡️ 治理优先** — 工具分级(tier) + 策略管线 + 人工批红 + 会话规则；网络能力受 SSRF、host 白名单、凭证托管约束。能力强，但始终受控。
+- **🥷 锦衣卫·运行时深防御** — 出站脱敏(外发前抹 secret)+ bash 分段风险分级(堵 `git log; rm -rf /` 类绕过)+ 子进程 clean-env + 分级急停(全停/掐网/冻结工具,一键刹车)。见 [SECURITY.md](SECURITY.md)。
 - **🌌 平行位面演化** — 把行为配置（乃至代码）捕获成可分支、可切换、可对比的快照；候选位面小流量探索，按**适应度**自动择优晋升——一套「宫殿版 git」式的自进化。
 - **📏 回归评测与失败归因** — `tianshu evals run` 一条命令沙箱回放历史任务出评测报告，自进化「变好了」有据可查；17 类失败分类学落库自动归因，失败分布进审计面板。
 - **⚙️ 长任务自检** — 验收标准(AcceptanceCriteria) + critic 监督 + L0–L3 升级，长任务自己迭代到达标，必要时升级人工。
@@ -142,6 +143,22 @@ tianshu evals failures --days 30         # 失败归因分布（17 类失败分�
 ```
 
 评测跑批只在 CLI（花钱的重活不开 HTTP 触发面）；报告在 Web「评测中心」与 `GET /api/evals/runs` 可查。评测凭证可用 `TIANSHU_EVAL_LLM_API_KEY` 与主配额隔离。
+
+### 急停与密钥轮换（迭代 3「深防御」）
+
+出事时的急刹车、以及凭证主密钥的安全轮换：
+
+```bash
+# 分级急停（也可在 Web「系统管理 → 急停」操作）
+curl -X POST http://localhost:8000/api/estop/engage -d '{"kill_all": true, "reason": "手动排查"}'
+curl -X POST http://localhost:8000/api/estop/resume -d '{"all_clear": true}'
+
+# 凭证主密钥轮换（旧密钥解密 → 新密钥重加密，干跑校验 + 自动备份）
+tianshu secrets gen-key                                  # 生成新密钥
+tianshu secrets rotate-master-key --new-key <新密钥>      # 轮换后更新 env 并重启
+```
+
+出厂默认每日预算护栏 ¥20（`TIANSHU_DAILY_BUDGET_GUARDRAIL_CNY`）、遥测默认关（`TIANSHU_TELEMETRY=on` 才启）、OTel 埋点默认关（设 `TIANSHU_OTEL_ENDPOINT` 才导出）。
 
 ## 🧩 二次开发
 
