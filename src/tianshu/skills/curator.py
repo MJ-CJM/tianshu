@@ -136,6 +136,7 @@ class SkillCurator:
         config_manager: Any,
         runtime_dir: Path,
         validator: SkillValidator | None = None,
+        effect_evaluator: Any = None,
     ) -> None:
         self._llm = llm_client
         self._loader = loader
@@ -145,6 +146,9 @@ class SkillCurator:
         self._runtime_dir = Path(runtime_dir).expanduser()
         self._validator = validator or SkillValidator()
         self._event_bus: Any | None = None
+        # 修撰效果门(ADR-0007):async (skill_name, old_md, new_md) -> float|None(delta)。
+        # None = 评估未能进行;配置门 + 该 evaluator 均就绪时才启用效果门。
+        self._effect_evaluator = effect_evaluator
 
     def attach_event_bus(self, bus: Any) -> None:
         self._event_bus = bus
@@ -323,11 +327,40 @@ class SkillCurator:
                 v = self._validator.validate(m.skill_name, new_md, source="agent-created")
                 if not v.valid:
                     continue
+                ok, reason = await self._effect_gate(m.skill_name, skill.get("content", ""), new_md)
+                if not ok:
+                    await self._emit(
+                        "skill.iterate_gated",
+                        {"skill": m.skill_name, "reason": reason},
+                    )
+                    continue
                 self._loader.save_skill(m.skill_name, new_md)
                 improved.append(m.skill_name)
             except Exception:  # noqa: BLE001
                 logger.debug("[CURATOR] iterate failed for %s", m.skill_name, exc_info=True)
         return improved
+
+    async def _effect_gate(self, name: str, old_md: str, new_md: str) -> tuple[bool, str]:
+        """修撰效果门(ADR-0007):修撰后须过与位面同源的配对评估,提升达标才生效。
+
+        默认关(skill_effect_gate_enabled)或未装配 evaluator → 直接放行(沿用仅结构校验的
+        旧行为,非破坏)。开启后:评估未能进行(None)或提升不足 → 不激活(fail-safe,
+        "提升才生效");delta ≥ margin 才放行。技能 diff 人类可读,由此成为自进化展示窗口。
+        """
+        cfg = self._config.agent_config
+        if not getattr(cfg, "skill_effect_gate_enabled", False) or self._effect_evaluator is None:
+            return True, "gate_off"
+        try:
+            delta = await self._effect_evaluator(name, old_md, new_md)
+        except Exception:  # noqa: BLE001
+            logger.exception("[CURATOR] effect gate eval failed for %s", name)
+            return False, "eval_error"
+        if delta is None:
+            return False, "eval_unavailable"
+        margin = getattr(cfg, "skill_effect_gate_margin", 0.05)
+        if delta >= margin:
+            return True, f"delta={delta:.3f}"
+        return False, f"no_improvement(delta={delta:.3f})"
 
     # --- audit ---
 

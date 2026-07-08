@@ -95,6 +95,9 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         fitness_weights=_cfg.universe_fitness_weights,
         base_env=eval_base_env,
     )
+    # 修撰效果门(迭代 6,ADR-0007)复用同一评估器 + 变体仓根 —— curator 惰性取用
+    app.state.code_eval_harness = code_eval_harness
+    app.state.code_variant_store = code_variant_store
     code_mutator = CodeMutator(
         provider_manager.get_client(),
         evolvable_paths=_cfg.code_variant_evolvable_paths,
@@ -104,6 +107,12 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         storage,
         evolvable_paths=_cfg.code_variant_evolvable_paths,
     )
+
+    # feature-flag 灰度(迭代 6):自研 SQLite flag 表,晋升灰度旋钮 / 秒级回退的控制面
+    from tianshu.feature_flags import FeatureFlags
+
+    feature_flags = FeatureFlags(storage)
+    app.state.feature_flags = feature_flags
 
     universe_evolver = UniverseEvolver(
         llm_client=provider_manager.get_client(),
@@ -116,6 +125,12 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         eval_harness=code_eval_harness,
         code_mutator=code_mutator,
         diagnostician=diagnostician,
+        feature_flags=feature_flags,
+        consultation=getattr(app.state, "consultation", None),
+        # 画像驱动进化(迭代 6):延迟读取起居注画像——diarist 在 wire_digest 才装配
+        profile_provider=lambda: (
+            app.state.diarist.read_profile() if getattr(app.state, "diarist", None) else ""
+        ),
     )
     universe_evolver.attach_event_bus(event_bus)
     app.state.universe_evolver = universe_evolver

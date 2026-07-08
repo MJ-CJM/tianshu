@@ -262,6 +262,26 @@ def run_migrations(conn: sqlite3.Connection) -> None:
                 created_at TEXT NOT NULL
             )""",
         "CREATE INDEX IF NOT EXISTS idx_steers_edict ON pending_steers(edict_id)",
+        # 2026-07-08: 迭代 6「演化 2.0」—— feature-flag 灰度(自研,不接 OpenFeature)
+        """CREATE TABLE IF NOT EXISTS feature_flags (
+                key TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                rollout_pct INTEGER NOT NULL DEFAULT 100,
+                description TEXT,
+                updated_at TEXT NOT NULL
+            )""",
+        # 2026-07-09: 迭代 6「演化 2.0」—— 自进化「请旨解锁」奏折(ADR-0004:默认关,
+        # 行为层达阈值系统主动上奏折请旨,用户批红后开启;代码层永远手动无自动请旨)
+        """CREATE TABLE IF NOT EXISTS evolution_petitions (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                reason TEXT,
+                plan TEXT,
+                created_at TEXT NOT NULL,
+                resolved_at TEXT
+            )""",
+        "CREATE INDEX IF NOT EXISTS idx_petitions_status ON evolution_petitions(kind, status)",
     ]
     for sql in migrations:
         try:

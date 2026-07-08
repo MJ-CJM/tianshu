@@ -17,6 +17,12 @@ from tianshu.skills.guard import SkillsGuard
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _MAX_CONTENT_SIZE = 256 * 1024
 
+# agentskills.io 开放标准(2025-12-18)认可的顶层键。平台特有字段应收敛进
+# ``metadata`` 命名空间,顶层出现其它键仅告警(warning),不阻断安装以保持兼容。
+_STANDARD_KEYS = frozenset(
+    {"name", "description", "license", "allowed-tools", "metadata", "version"}
+)
+
 _guard = SkillsGuard()
 
 
@@ -118,6 +124,30 @@ class SkillValidator:
                     level="error",
                     check="frontmatter",
                     message="Frontmatter missing required field 'description'",
+                )
+            )
+
+        # agentskills.io 开放标准对齐:非标准顶层键建议收敛进 metadata 命名空间。
+        for key in meta:
+            if key not in _STANDARD_KEYS:
+                findings.append(
+                    ValidationFinding(
+                        level="warning",
+                        check="open_standard",
+                        message=f"非标准字段 '{key}' 建议移入 metadata 命名空间",
+                    )
+                )
+
+        # allowed-tools 按实验性字段对待:若存在须为 list[str],否则告警。
+        tools = meta.get("allowed-tools")
+        if tools is not None and not (
+            isinstance(tools, list) and all(isinstance(t, str) for t in tools)
+        ):
+            findings.append(
+                ValidationFinding(
+                    level="warning",
+                    check="allowed_tools",
+                    message="'allowed-tools' 应为字符串列表(list[str])",
                 )
             )
         return findings

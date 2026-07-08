@@ -41,6 +41,83 @@ async def enable_parallel_universe(request: Request):
     return ApiResponse(success=True, data=genesis)
 
 
+# --- 自进化「请旨解锁」奏折(迭代 6,ADR-0004) ---
+
+
+def _get_unlock(request: Request):
+    """取 EvolutionUnlock;未装配时用 app.state 现成依赖临时构造(奏折状态在库,无状态丢失)。"""
+    unlock = getattr(request.app.state, "evolution_unlock", None)
+    if unlock is not None:
+        return unlock
+    from tianshu.universe.unlock import EvolutionUnlock
+
+    return EvolutionUnlock(
+        request.app.state.storage,
+        request.app.state.config_manager,
+        notifier=getattr(request.app.state, "notifier", None),
+        bus=getattr(request.app.state, "event_bus", None),
+    )
+
+
+@universes_router.get("/petitions")
+def list_petitions(request: Request):
+    storage: Storage = request.app.state.storage
+    return ApiResponse(success=True, data=storage.list_petitions())
+
+
+@universes_router.post("/petitions/{petition_id}/grant", response_model=ApiResponse)
+async def grant_petition(petition_id: str, request: Request):
+    unlock = _get_unlock(request)
+    result = unlock.grant(petition_id)
+    if result.get("error") == "not_found":
+        raise HTTPException(status_code=404, detail="petition not found")
+    if "granted" in result:
+        request.app.state.universe_manager.ensure_genesis()
+    return ApiResponse(success=True, data=result)
+
+
+@universes_router.post("/petitions/{petition_id}/dismiss", response_model=ApiResponse)
+async def dismiss_petition(petition_id: str, request: Request):
+    unlock = _get_unlock(request)
+    result = unlock.dismiss(petition_id)
+    if result.get("error") == "not_found":
+        raise HTTPException(status_code=404, detail="petition not found")
+    return ApiResponse(success=True, data=result)
+
+
+# --- feature-flag 灰度控制面(迭代 6):晋升灰度放量 / 秒级回退 ---
+
+
+def _flags(request: Request):
+    flags = getattr(request.app.state, "feature_flags", None)
+    if flags is None:
+        raise HTTPException(status_code=503, detail="feature flags not wired")
+    return flags
+
+
+@universes_router.get("/flags")
+def list_flags(request: Request):
+    return ApiResponse(success=True, data=_flags(request).list_all())
+
+
+@universes_router.put("/flags/{key}", response_model=ApiResponse)
+async def set_flag(key: str, request: Request):
+    body = await request.json()
+    _flags(request).set(
+        key,
+        enabled=bool(body.get("enabled", False)),
+        rollout_pct=int(body.get("rollout_pct", 100)),
+        description=body.get("description"),
+    )
+    return ApiResponse(success=True, data={"key": key})
+
+
+@universes_router.delete("/flags/{key}", response_model=ApiResponse)
+def delete_flag(key: str, request: Request):
+    _flags(request).delete(key)
+    return ApiResponse(success=True, data={"key": key})
+
+
 @universes_router.post("/feedback", response_model=ApiResponse)
 async def universe_feedback(request: Request):
     storage: Storage = request.app.state.storage

@@ -39,6 +39,9 @@ _USER = """\
 冠军行为概要（可改写的官员人格）：
 {summary}
 
+主上画像（起居注蒸馏，变异方向应贴合其偏好；无则忽略）：
+{profile}
+
 近期已尝试过的变异(含结局,请勿重复相同或相近方向):
 {history}
 
@@ -88,6 +91,9 @@ class UniverseEvolver:
         eval_harness: Any = None,
         code_mutator: Any = None,
         diagnostician: Any = None,
+        feature_flags: Any = None,
+        consultation: Any = None,
+        profile_provider: Any = None,
     ) -> None:
         self._llm = llm_client
         self._mgr = manager
@@ -100,6 +106,9 @@ class UniverseEvolver:
         self._eval_harness = eval_harness
         self._code_mutator = code_mutator
         self._diagnostician = diagnostician
+        self._flags = feature_flags
+        self._consultation = consultation
+        self._profile_provider = profile_provider
 
     def attach_event_bus(self, bus: Any) -> None:
         self._bus = bus
@@ -132,6 +141,69 @@ class UniverseEvolver:
                 f" (score={f.get('score', 'n/a')})"
             )
         return "\n".join(lines) or "(无历史尝试)"
+
+    def _register_promotion_flag(self, child_id: str, delta: float) -> str | None:
+        """晋升灰度旋钮(迭代 6 feature-flag):默认关、rollout 0%,操作者据此灰度放量 /
+        秒级回退(设 enabled=False)——已过评估门未全量的进化产物的安全阀。"""
+        if self._flags is None:
+            return None
+        key = f"universe:promote:{child_id}"
+        try:
+            self._flags.set(
+                key,
+                enabled=False,
+                rollout_pct=0,
+                description=f"候选 {child_id} 晋升灰度(delta={delta:.3f})",
+            )
+            return key
+        except Exception:  # noqa: BLE001
+            logger.exception("[EVOLVER] register promotion flag failed")
+            return None
+
+    async def _deliberate_promotion(self, child: dict, delta: float) -> dict | None:
+        """位面晋升廷议门(迭代 6,ADR-0008):晋升审批附多视角白话论证,而非只有 fitness 数字。
+        廷议缺席(未装配)或失败时返回 None——失败安全,不阻断推荐。"""
+        if self._consultation is None:
+            return None
+        try:
+            resp = await self._consultation.start(self._build_promotion_consultation(child, delta))
+            return {
+                "synthesis": getattr(resp, "synthesis", None),
+                "opinions": [
+                    {"persona": o.persona_name, "stance": o.stance, "opinion": o.opinion}
+                    for o in getattr(resp, "opinions", [])
+                ],
+            }
+        except Exception:  # noqa: BLE001
+            logger.exception("[EVOLVER] promotion deliberation failed")
+            return None
+
+    def _build_promotion_consultation(self, child: dict, delta: float) -> Any:
+        from tianshu.consultation.models import ConsultationRequest
+
+        return ConsultationRequest(
+            topic=f"位面晋升评议:{child.get('name') or child['id']}",
+            context=(
+                f"候选位面相对冠军的评估提升 delta={delta:.3f};"
+                f"变异理由:{child.get('mutation_reason') or '(无)'}。"
+                "请从各自职能视角判断:是否应把该候选晋升为新冠军?"
+            ),
+        )
+
+    async def _on_promotion_recommended(self, child: dict, delta: float, samples: int) -> dict:
+        """推荐晋升(非自动):挂灰度旋钮(B) + 召廷议附白话论证(E),汇成事件载荷。"""
+        payload: dict[str, Any] = {
+            "universe_id": child["id"],
+            "delta": delta,
+            "samples": samples,
+        }
+        flag_key = self._register_promotion_flag(child["id"], delta)
+        if flag_key:
+            payload["flag_key"] = flag_key
+        deliberation = await self._deliberate_promotion(child, delta)
+        if deliberation:
+            payload["deliberation"] = deliberation
+        return payload
 
     async def run(self, trigger_source: str = "manual") -> EvolveResult:
         cfg = self._config.agent_config
@@ -195,14 +267,10 @@ class UniverseEvolver:
                                     },
                                 )
                             else:
-                                await self._emit(
-                                    "universe.promotion_recommended",
-                                    {
-                                        "universe_id": child["id"],
-                                        "delta": paired["delta"],
-                                        "samples": samples,
-                                    },
+                                payload = await self._on_promotion_recommended(
+                                    child, paired["delta"], samples
                                 )
+                                await self._emit("universe.promotion_recommended", payload)
 
             await self._emit("universe.evolved", result.to_dict())
             return result
@@ -225,6 +293,7 @@ class UniverseEvolver:
                 [c.get("fitness", {}) for c in challengers], ensure_ascii=False
             ),
             summary=self._champion_summary(champ),
+            profile=self._user_profile(),
             history=self._mutation_history(),
         )
         for _ in range(3):
@@ -244,6 +313,19 @@ class UniverseEvolver:
             except Exception:  # noqa: BLE001
                 await asyncio.sleep(1)
         return {}
+
+    def _user_profile(self, limit: int = 1500) -> str:
+        """起居注蒸馏的主上画像(画像驱动进化,迭代 6):变异 prompt 注入,方向贴合偏好。
+        provider 缺失或读取失败时降级为占位——失败安全,画像缺席不阻断变异。"""
+        if self._profile_provider is None:
+            return "(暂无画像)"
+        try:
+            text = (self._profile_provider() or "").strip()
+        except Exception:  # noqa: BLE001
+            return "(暂无画像)"
+        if not text:
+            return "(暂无画像)"
+        return text[:limit] + ("…" if len(text) > limit else "")
 
     def _champion_summary(self, champ: dict) -> str:
         store = self._mgr._store  # noqa: SLF001
