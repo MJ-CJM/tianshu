@@ -26,11 +26,29 @@ class Notifier:
         self,
         storage: Storage,
         channel_registry: object | None = None,
+        quiet_hours_start: int = 23,
+        quiet_hours_end: int = 8,
     ) -> None:
         self._storage = storage
         self._channel_registry = channel_registry
         self._ws_clients: set[WebSocket] = set()
         self._debounce_timers: dict[str, asyncio.Task] = {}
+        # 通知三级制免打扰时段(迭代 5,D2):start==end 关闭
+        self._quiet_start = quiet_hours_start
+        self._quiet_end = quiet_hours_end
+
+    def _in_quiet_hours(self, hour: int) -> bool:
+        """当前小时是否落在免打扰时段(支持跨午夜,如 23–8)。"""
+        s, e = self._quiet_start, self._quiet_end
+        if s == e:
+            return False
+        return s <= hour < e if s < e else (hour >= s or hour < e)
+
+    def _now_hour(self) -> int:
+        """当前本地小时(抽成方法便于测试注入)。"""
+        from datetime import datetime
+
+        return datetime.now().hour
 
     def register_ws(self, ws: WebSocket) -> None:
         self._ws_clients.add(ws)
@@ -122,36 +140,73 @@ class Notifier:
         )
 
     async def _dispatch_external(self, event, memorial, message: dict) -> None:
-        """Dispatch to external notification channels based on edict dispatch config."""
+        """通知三级制外发(迭代 5,D2):urgent 穿透免打扰 / normal 免打扰时段攒起来
+        醒后补推 / low 不即时外发入 digest。WS 广播不受影响(前端可见,不打扰手机)。"""
         if not self._channel_registry:
             return
-
         edict_id = event.edict_id
         if not edict_id:
             return
-
         edict = self._storage.get_edict(edict_id)
         if not edict or not edict.dispatch or not edict.dispatch.channels:
             return
 
-        # Render per-channel
-        channel_names = edict.dispatch.channels
+        quiet = self._in_quiet_hours(self._now_hour())
+        # 非免打扰时段:先补推之前攒下的(懒 flush,醒来第一条通知触发)
+        if not quiet:
+            await self._flush_pending()
+
+        priority = getattr(edict, "priority", "normal")
+        channels = list(edict.dispatch.channels)
+        if priority == "low":
+            return  # 低优先不即时外发,digest 兜底
+        if priority == "normal" and quiet:
+            self._save_pending(edict_id, getattr(memorial, "id", None), message, channels)
+            return
+        # urgent 穿透 / normal 非免打扰 → 立即外发
+        await self._do_dispatch_channels(memorial, message, channels)
+
+    async def _do_dispatch_channels(self, memorial, message: dict, channel_names: list) -> None:
         renderers = {
             "feishu": render_feishu,
             "dingtalk": render_dingtalk,
             "email": render_email,
         }
-
         for ch_name in channel_names:
             renderer = renderers.get(ch_name, render_feishu)
-            # 出站脱敏:渠道外发是不可撤回面,渲染文本统一 redact
             rendered = redact_text(renderer(memorial))
-            channel = self._channel_registry.get(ch_name)
+            channel = self._channel_registry.get(ch_name)  # type: ignore[union-attr]
             if channel:
                 try:
                     await channel.send(redact_mapping(message), rendered)
                 except Exception:
                     logger.exception("External channel %s failed", ch_name)
+
+    def _save_pending(self, edict_id, memorial_id, message: dict, channels: list) -> None:
+        from datetime import UTC, datetime
+
+        from ulid import ULID
+
+        self._storage.save_pending_notification(
+            {
+                "id": str(ULID()),
+                "edict_id": edict_id,
+                "memorial_id": memorial_id,
+                "message": message,
+                "channels": channels,
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+        )
+
+    async def _flush_pending(self) -> None:
+        """补推免打扰时段攒下的通知(用当前 memorial 重新渲染)。"""
+        for p in self._storage.list_pending_notifications():
+            memorial = (
+                self._storage.get_memorial(p["memorial_id"]) if p.get("memorial_id") else None
+            )
+            if memorial:
+                await self._do_dispatch_channels(memorial, p["message"], p["channels"])
+            self._storage.delete_pending_notification(p["id"])
 
     async def _debounced_broadcast(self, key: str, message: dict) -> None:
         """Debounce broadcasts for the same memorial within DEBOUNCE_SECONDS."""

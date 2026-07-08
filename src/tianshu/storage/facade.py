@@ -20,6 +20,7 @@ from tianshu.storage.feishu_repo import FeishuMixin
 from tianshu.storage.kg_repo import KgMixin
 from tianshu.storage.memorial_repo import MemorialMixin
 from tianshu.storage.memory_repo import MemoryMixin
+from tianshu.storage.notify_repo import NotifyMixin
 from tianshu.storage.orchestrator_repo import OrchestratorMixin
 from tianshu.storage.persona_repo import PersonaMixin
 from tianshu.storage.scheduler_repo import SchedulerMixin
@@ -43,6 +44,7 @@ class Storage(
     EvalsMixin,
     SecurityMixin,
     KgMixin,
+    NotifyMixin,
     CredentialMixin,
     OrchestratorMixin,
     ChannelMixin,

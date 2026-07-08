@@ -77,7 +77,12 @@ def wire_channels(app: FastAPI, settings: TianshuSettings) -> None:
         )
 
     # --- Notifier ---
-    notifier = Notifier(storage=storage, channel_registry=channel_registry)
+    notifier = Notifier(
+        storage=storage,
+        channel_registry=channel_registry,
+        quiet_hours_start=settings.notify_quiet_hours_start,
+        quiet_hours_end=settings.notify_quiet_hours_end,
+    )
     app.state.notifier = notifier
 
     # --- SessionRuleStore ---

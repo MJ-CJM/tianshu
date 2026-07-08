@@ -95,3 +95,8 @@ class TianshuSettings(BaseSettings):
     # MCP 治理·准入清单(D15):逗号分隔的 server 名白名单。空=不强制(允许全部
     # enabled server,启动时明示未设护栏);非空=只启动清单内 server,其余拒并告警。
     mcp_server_allowlist: str = ""
+    # --- 迭代 5:通政司通知三级制(D2)---
+    # 免打扰时段(保守默认 23:00–08:00):normal 通知在此时段攒起来、醒后补推;
+    # urgent 穿透免打扰立即外发;low 不即时外发、入 digest。start==end 关闭免打扰。
+    notify_quiet_hours_start: int = 23
+    notify_quiet_hours_end: int = 8
