@@ -183,7 +183,7 @@ class ApprovalManager:
     async def submit_tool_decision(
         self,
         memorial_id: str,
-        action: Literal["approve", "reject"],
+        action: Literal["approve", "reject", "guide"],
         *,
         comment: str | None = None,
         grant_scope: Literal["once", "edict", "always"] | None = None,
@@ -236,7 +236,13 @@ class ApprovalManager:
         )
         self._storage.save_decree(decree)
 
-        event_type = "decree.approved" if action == "approve" else "decree.rejected"
+        event_type = (
+            "decree.approved"
+            if action == "approve"
+            else "decree.guided"
+            if action == "guide"
+            else "decree.rejected"
+        )
         await self._bus.emit(
             make_event(
                 event_type,

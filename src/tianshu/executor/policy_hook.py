@@ -178,6 +178,15 @@ class PolicyHook:
             )
         if decree.action == "approve":
             return None  # 放行
+        if decree.action == "guide":
+            # 驳回+指导(迭代 5):驳回本次工具,但把纠正意见注入,agent 据此换方式续跑
+            return HookResult(
+                block=True,
+                reason=(
+                    f"[{decision.rule_id}] 本次操作被驳回并给出指导:"
+                    f"{decree.comment or '(未附具体指导)'}。请据此调整方式后重试,不要重复原操作。"
+                ),
+            )
         return HookResult(
             block=True,
             reason=f"[{decision.rule_id}] rejected by decree: {decree.comment or 'no reason'}",

@@ -271,7 +271,9 @@
     "approve": "Approve",
     "reject": "Reject",
     "action": "Approve/Reject",
-    "comment": "Comment (optional)"
+    "comment": "Comment (optional)",
+    "guide": "Reject + guide",
+    "guideNeedsComment": "Please write guidance below first"
   },
   "statusFilter": {
     "all": "All Status"
@@ -717,7 +719,8 @@
     "ruleRevoked": "Rule revoked",
     "ruleRevokeFailed": "Revoke failed",
     "ruleCreated": "Rule created",
-    "ruleCreateFailed": "Create failed"
+    "ruleCreateFailed": "Create failed",
+    "toolGuided": "Rejected with guidance: {tool}"
   },
   "locale": {
     "zh-classic": "Easter Egg",

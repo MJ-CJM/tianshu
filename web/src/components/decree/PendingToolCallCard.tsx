@@ -12,6 +12,7 @@ import {
   App,
 } from "antd";
 import {
+  BulbOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   ThunderboltOutlined,
@@ -79,6 +80,26 @@ export default function PendingToolCallCard({ pending }: Props) {
     );
   };
 
+  const handleGuide = () => {
+    if (!comment.trim()) {
+      message.warning(t("pendingTool.guideNeedsComment"));
+      return;
+    }
+    mutation.mutate(
+      { memorial_id: pending.memorial_id, action: "guide", comment, actor: "user" },
+      {
+        onSuccess: () => {
+          message.info(t("toast.toolGuided", { tool: pending.tool_name }));
+          setOpen(false);
+          setComment("");
+        },
+        onError: (err: unknown) => {
+          message.error(err instanceof Error ? err.message : t("toast.actionFailed"));
+        },
+      },
+    );
+  };
+
   const popover = (
     <div style={{ minWidth: 260 }}>
       <div style={{ marginBottom: 8 }}>
@@ -123,6 +144,14 @@ export default function PendingToolCallCard({ pending }: Props) {
           onClick={handleReject}
         >
           {t("pendingTool.reject")}
+        </Button>
+        <Button
+          size="small"
+          icon={<BulbOutlined />}
+          loading={mutation.isPending}
+          onClick={handleGuide}
+        >
+          {t("pendingTool.guide")}
         </Button>
       </Space>
     </div>

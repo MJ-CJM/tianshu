@@ -92,7 +92,7 @@ class ToolDecisionRequest(BaseModel):
     """
 
     memorial_id: str = Field(min_length=1)
-    action: Literal["approve", "reject"]
+    action: Literal["approve", "reject", "guide"]  # guide=驳回+指导(迭代 5)
     comment: str | None = None
     actor: str = "human"
     grant_scope: Literal["once", "edict", "always"] | None = None

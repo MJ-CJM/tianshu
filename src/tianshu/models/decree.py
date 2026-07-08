@@ -12,7 +12,8 @@ from ulid import ULID
 class Decree(BaseModel):
     id: str = Field(default_factory=lambda: str(ULID()))
     memorial_id: str
-    action: Literal["approve", "reject", "retry", "amend", "cancel"]
+    # guide(迭代 5):驳回+指导——驳回本次工具但给纠正意见,agent 据此换方式续跑
+    action: Literal["approve", "reject", "retry", "amend", "cancel", "guide"]
     comment: str | None = None
     amended_goal: str | None = None
     actor: str = "human"

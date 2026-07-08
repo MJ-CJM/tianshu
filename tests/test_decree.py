@@ -173,3 +173,45 @@ class TestApprovalManager:
         payload = captured[0].payload
         assert payload["grant_scope"] == "always"
         assert payload["grant_downgraded"] is False
+
+
+class TestDecreeGuidance:
+    """批红「驳回+指导」(迭代 5)——驳回工具但注入纠正意见,agent 据此续跑。"""
+
+    @pytest.fixture
+    def event_bus(self):
+        from tianshu.bus.event_bus import EventBus
+
+        return EventBus()
+
+    @pytest.fixture
+    def manager(self, event_bus, storage):
+        from tianshu.executor.approvals import ApprovalManager
+
+        return ApprovalManager(event_bus=event_bus, storage=storage)
+
+    async def test_guide_emits_guided_event_and_wakes_wait(self, manager, storage, event_bus):
+        import asyncio
+
+        edict = Edict(goal="g")
+        storage.save_edict(edict)
+        memorial = Memorial(edict_id=edict.id, status=TaskStatus.RUNNING)
+        storage.save_memorial(memorial)
+        manager._pending[memorial.id] = asyncio.Event()
+        manager._pending_tool[memorial.id] = "shell_exec"
+
+        captured: list = []
+        event_bus.on("decree.guided", lambda e: captured.append(e))
+
+        decree = await manager.submit_tool_decision(
+            memorial_id=memorial.id,
+            action="guide",
+            comment="改用 read_file 而非 shell cat",
+        )
+        assert decree.action == "guide"
+        # 唤醒等待的工具调用
+        assert manager._pending[memorial.id].is_set()
+        await asyncio.sleep(0.05)
+        assert (
+            len(captured) == 1 and captured[0].payload["comment"] == "改用 read_file 而非 shell cat"
+        )
