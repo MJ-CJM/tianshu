@@ -54,10 +54,17 @@ def wire_auditor(app: FastAPI, settings: TianshuSettings) -> None:
     config_manager = app.state.config_manager
 
     # --- Auditor ---
+    # 审计规则 YAML 可配(迭代 7,D13):缺省文件不存在则全默认(向后兼容)
+    from pathlib import Path
+
+    from tianshu.auditor.rules_config import load_audit_rules
+
+    rules_path = Path("~/.tianshu/audit_rules.yaml").expanduser()
     auditor = Auditor(
         event_bus=event_bus,
         storage=storage,
         config_manager=config_manager,
+        rules_config=load_audit_rules(rules_path if rules_path.exists() else None),
     )
     app.state.auditor = auditor
 

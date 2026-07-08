@@ -6,6 +6,7 @@ import logging
 
 from tianshu.auditor.reviewer import LLMReviewer
 from tianshu.auditor.rules import RulesEngine
+from tianshu.auditor.rules_config import AuditRulesConfig
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
 from tianshu.models.common import AuditResult, EdictStatus, TaskStatus
@@ -25,9 +26,17 @@ class Auditor:
         event_bus: EventBus,
         storage: Storage,
         config_manager: ConfigManager,
+        rules_config: AuditRulesConfig | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
+        # 审计规则外部配置(YAML 可调)。默认 None → 内置默认,既有调用不破。
+        # TODO(制度补全 D13): 目前仅作为 seam 存储。真正接入需把 self._rules_config
+        #   下发给两处消费方:①RulesEngine(rules.py)按 check_* 开关门控三条规则、
+        #   并用 risk_keywords 做命中扫描;②LLMReviewer(reviewer.py)用
+        #   review_temperature / review_max_tokens 覆盖 LLMClient 调用参数。
+        #   二者均在本次改动范围之外,故此处仅留接入点。参见 rules_config.AuditRulesConfig。
+        self._rules_config = rules_config if rules_config is not None else AuditRulesConfig()
         self._rules = RulesEngine()
         self._reviewer = LLMReviewer(config_manager)
 

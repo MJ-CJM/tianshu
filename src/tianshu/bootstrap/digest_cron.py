@@ -34,6 +34,7 @@ async def _digest_cron_loop(
     historian: object | None = None,
     diarist: object | None = None,
     evolution_unlock: object | None = None,
+    xunan: object | None = None,
 ) -> None:
     """Run daily digest at roughly every 24h; 顺带跑后台史官 + 起居注蒸馏(迭代 4)。"""
     day = 0
@@ -59,6 +60,15 @@ async def _digest_cron_loop(
                 weekly = digest_generator.generate_weekly()
                 await notifier.broadcast_ws(weekly)
                 await channel_registry.send_all(weekly, weekly.get("narrative", str(weekly)))
+            # 巡按御史·主动巡检(迭代 7):异常则主动上奏(健康则不打扰)
+            if xunan is not None:
+                report = xunan.patrol()  # type: ignore[attr-defined]
+                if not report.get("healthy", True):
+                    msg = {"type": "xunan.report", "title": "巡按奏报", **report}
+                    await notifier.broadcast_ws(msg)
+                    await channel_registry.send_all(
+                        msg, f"巡按奏报:{len(report['findings'])} 项异常"
+                    )
         except asyncio.CancelledError:
             break
         except Exception:
@@ -98,6 +108,12 @@ def wire_digest(app: FastAPI, settings: TianshuSettings) -> None:
     )
     app.state.evolution_unlock = evolution_unlock
 
+    # --- 巡按御史(迭代 7)——随 digest cron 周期巡检系统健康 ---
+    from tianshu.executor.xunan import Xunan
+
+    xunan = Xunan(storage)
+    app.state.xunan = xunan
+
     # Schedule daily digest via cron loop
     digest_task = asyncio.create_task(
         _digest_cron_loop(
@@ -108,6 +124,7 @@ def wire_digest(app: FastAPI, settings: TianshuSettings) -> None:
             historian,
             diarist,
             evolution_unlock,
+            xunan,
         )
     )
     app.state._digest_task = digest_task
