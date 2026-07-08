@@ -245,6 +245,15 @@ def run_migrations(conn: sqlite3.Connection) -> None:
                 distilled_at TEXT NOT NULL,
                 insight_written INTEGER NOT NULL DEFAULT 0
             )""",
+        # 2026-07-08: 迭代 5「执行 2.0」—— 免打扰待发通知(醒后补推,不丢)
+        """CREATE TABLE IF NOT EXISTS pending_notifications (
+                id TEXT PRIMARY KEY,
+                edict_id TEXT,
+                memorial_id TEXT,
+                message_json TEXT NOT NULL,
+                channels_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""",
     ]
     for sql in migrations:
         try:
