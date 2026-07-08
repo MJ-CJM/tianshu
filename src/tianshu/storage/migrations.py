@@ -224,6 +224,21 @@ def run_migrations(conn: sqlite3.Connection) -> None:
                 created_at TEXT NOT NULL
             )""",
         "CREATE INDEX IF NOT EXISTS idx_shadow_edict ON shadow_snapshots(edict_id)",
+        # 2026-07-08: 迭代 4「记忆 2.0」—— 时序知识图谱(三元组 + 有效期 + as_of 查询)
+        """CREATE TABLE IF NOT EXISTS kg_triples (
+                id TEXT PRIMARY KEY,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT 'court',
+                valid_from TEXT NOT NULL,
+                valid_to TEXT,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                source TEXT NOT NULL DEFAULT 'agent',
+                created_at TEXT NOT NULL
+            )""",
+        "CREATE INDEX IF NOT EXISTS idx_kg_sp ON kg_triples(scope, subject, predicate)",
+        "CREATE INDEX IF NOT EXISTS idx_kg_valid ON kg_triples(valid_to)",
     ]
     for sql in migrations:
         try:

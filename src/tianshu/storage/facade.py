@@ -17,6 +17,7 @@ from tianshu.storage.edict_repo import EdictMixin
 from tianshu.storage.evals_repo import EvalsMixin
 from tianshu.storage.event_repo import EventMixin
 from tianshu.storage.feishu_repo import FeishuMixin
+from tianshu.storage.kg_repo import KgMixin
 from tianshu.storage.memorial_repo import MemorialMixin
 from tianshu.storage.memory_repo import MemoryMixin
 from tianshu.storage.orchestrator_repo import OrchestratorMixin
@@ -41,6 +42,7 @@ class Storage(
     UniverseMixin,
     EvalsMixin,
     SecurityMixin,
+    KgMixin,
     CredentialMixin,
     OrchestratorMixin,
     ChannelMixin,
