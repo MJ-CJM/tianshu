@@ -2,6 +2,18 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.2.8] - 2026-07(迭代 5「执行 2.0」+ 廷议 2.0 + 通知三级制)
+
+### Added
+- **通政司通知三级制**(D2):免打扰 23:00–08:00(可配跨午夜);urgent 穿透 / normal 免打扰时段攒起来醒后补推(`pending_notifications` 表持久化,不丢)/ low 入 digest。「睡觉干活」的产品答案
+- **廷议 2.0**(ADR-0008):废硬编码 confidence 换结构化 stance(赞成/反对/有条件 + 条件清单 + 论据);职能视角发言;**言官强制反调**破六官同构的意见趋同;web stance 标签 + 言官标记
+- **批红「驳回+指导」**:除 approve/reject,加 `guide`——驳回本次工具但注入纠正意见,agent 据此换方式续跑(比二元更贴治理);approve_for_session 已由 grant_scope 覆盖
+- **steer 中途注入**:长任务运行中随时注入一句纠偏,下一轮 actor 吸收(搭 critic/廷议注入机制);`POST /edicts/{id}/steer` + web SteerPanel(仅运行中)
+- **LSP 诊断**:`edit_file` 编辑 .py 落盘即跑 basedpyright,类型/语义错误回灌 agent;默认关(`TIANSHU_LSP_ENABLED`),`pip install 'tianshu[lsp]'`,未装静默降级——同时作为代码变体位面的快速 fitness 信号
+
+### 后续(nice)
+- 影子快照完整版核心(客卿隔离工作区快照+一键回滚)已在 v0.2.4(迭代 3.5)交付;native 执行快照 + 事件对齐为增量。澄清请示(agent 主动问)与 steer 同属在线纠偏
+
 ## [0.2.7] - 2026-07(迭代 4「记忆 2.0」)
 
 记忆宫殿从"存"升级为"懂"。按拍板**跳向量层**(FTS5 保持),先做结构化事实 + 后台蒸馏 + 用户画像。

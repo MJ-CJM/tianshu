@@ -60,10 +60,17 @@ def register_edit_file(registry: ToolRegistry, workspace: Path) -> None:
             new_content = new_content.replace("\n", "\r\n")
         file_path.write_text(new_content, encoding="utf-8")
 
-        return ok_result(
-            f"Edited {path}",
-            details={"diff": diff, "first_changed_line": first_changed_line},
-        )
+        # LSP 诊断(迭代 5):编辑 .py 落盘即跑 basedpyright,类型/语义错误回灌 agent。
+        # 默认关 + 优雅降级(未装/非 py/超时返回空),不阻断编辑。
+        from tianshu.lsp.diagnostics import format_diagnostics, run_diagnostics
+
+        diags = run_diagnostics(file_path)
+        details: dict = {"diff": diff, "first_changed_line": first_changed_line}
+        content = f"Edited {path}"
+        if diags:
+            details["diagnostics"] = diags
+            content = f"{content}\n\n{format_diagnostics(diags)}"
+        return ok_result(content, details=details)
 
     registry.register(
         "edit_file",

@@ -100,3 +100,6 @@ class TianshuSettings(BaseSettings):
     # urgent 穿透免打扰立即外发;low 不即时外发、入 digest。start==end 关闭免打扰。
     notify_quiet_hours_start: int = 23
     notify_quiet_hours_end: int = 8
+    # LSP 诊断(迭代 5):默认关。开启后 edit_file 编辑 .py 落盘即跑 basedpyright,
+    # 类型/语义诊断回灌 agent(需 `pip install 'tianshu[lsp]'`,未装则静默跳过)。
+    lsp_enabled: bool = False
