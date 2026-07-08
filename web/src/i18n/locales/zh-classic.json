@@ -439,7 +439,8 @@
         "nlLabel": "一句话拟旨",
         "nlPlaceholder": "例如：每日卯时为朕呈递上海天象",
         "nlButton": "智能拟旨",
-        "nlFailed": "未能会意，请换一种说法或移步下方手拟。"
+        "nlFailed": "未能会意，请换一种说法或移步下方手拟。",
+        "executor": "执事"
       },
       "placeholder": {
         "title": "留空则自动截取旨意前 20 字",
@@ -486,7 +487,8 @@
         "onExhaustion": "超过 max_outer_iterations / deadline / cost_budget 时的处理",
         "onCriticUnavailable": "critic LLM 调用全部失败的兜底",
         "criticPersonas": "谁来监督任务质量。多选时每轮并发评审，按'全过则过'聚合；任意一位 FAIL 即不过。终态后每位监督官独立产出监督报告。",
-        "sameIssueThreshold": "critic 连续 N 轮报同类问题（issue_class）则升 L1"
+        "sameIssueThreshold": "critic 连续 N 轮报同类问题（issue_class）则升 L1",
+        "executor": "native=自研引擎(默认);keqing:*=遣外府客卿(Claude Code/Codex)办差,全程受朝廷节制(批红/核验/度支/影卷)"
       },
       "option": {
         "autoPlanning": "内阁决策（自动规划分配）",
@@ -1987,5 +1989,21 @@
     "resumed": "已解:{what}",
     "actionFailed": "施为不果",
     "unavailable": "缇骑衙署未备(须后端启用)。"
+  },
+  "shadow": {
+    "title": "影卷",
+    "keqing": "客卿",
+    "intro": "客卿(外府执事)每番办差后,于隔离工房所留之影卷——自成一册,不犯尔家 .git。可一举还原文书改动(放手四险其三)。",
+    "label": "题记",
+    "time": "时刻",
+    "revert": "还原至此",
+    "reverted": "已还原至 {sha}",
+    "revertFailed": "还原不果",
+    "revertConfirm": "将工房文书还原至此影卷?(还原自留一新卷,可再往前)"
+  },
+  "executor": {
+    "native": "自研引擎(默认)",
+    "claudeCode": "客卿·Claude Code",
+    "codex": "客卿·Codex"
   }
 }

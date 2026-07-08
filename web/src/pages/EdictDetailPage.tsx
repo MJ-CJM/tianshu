@@ -14,6 +14,7 @@ import EventTimeline from "../components/memorial/EventTimeline";
 import OuterLoopTimeline from "../components/edict/OuterLoopTimeline";
 import SupervisionReportCard from "../components/edict/SupervisionReportCard";
 import FollowUpOverridePanel from "../components/edict/FollowUpOverridePanel";
+import ShadowSnapshotPanel from "../components/edict/ShadowSnapshotPanel";
 import type { FollowUpOverrideValue } from "../components/edict/FollowUpOverridePanel";
 import DecreeModal from "../components/decree/DecreeModal";
 import PendingToolCallCard from "../components/decree/PendingToolCallCard";
@@ -648,6 +649,8 @@ export default function EdictDetailPage() {
       ))}
 
       {hasUsage && <UsageDisplay usage={aggregatedUsage} />}
+
+      {edictId && <ShadowSnapshotPanel edictId={edictId} />}
 
       {hasPendingReview && edict.status === "open" && (
         <GlowCard title={t("decree.title")} style={{ marginBottom: 24 }}>

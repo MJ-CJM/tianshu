@@ -49,6 +49,18 @@ export interface EdictRuntime {
   api_request_hosts?: string[];
   api_request_write_hosts?: string[];
   lifecycle_phase: "active" | "paused" | "winding_down" | "complete";
+  /** 迭代 3.5：执行 backend（native | keqing:claude-code | keqing:codex） */
+  executor?: string;
+}
+
+export interface ShadowSnapshot {
+  id: string;
+  edict_id: string;
+  memorial_id: string | null;
+  sha: string;
+  label: string;
+  work_tree: string;
+  created_at: string;
 }
 
 export interface ArtifactRef {
