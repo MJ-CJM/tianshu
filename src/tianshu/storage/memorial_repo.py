@@ -187,6 +187,25 @@ class MemorialMixin:
             for r in rows
         ]
 
+    def list_recent_decrees(self, limit: int = 50) -> list[Decree]:
+        """最近批红行为(全局)——起居注读它蒸馏用户批红习惯(迭代 4)。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM decrees ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [
+            Decree(
+                id=r["id"],
+                memorial_id=r["memorial_id"],
+                action=r["action"],
+                comment=r["comment"],
+                amended_goal=r["amended_goal"],
+                actor=r["actor"],
+                created_at=datetime.fromisoformat(r["created_at"]),
+            )
+            for r in rows
+        ]
+
     # --- Edict active memorial check ---
 
     def has_active_memorials(self, edict_id: str) -> bool:

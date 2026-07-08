@@ -32,8 +32,9 @@ async def _digest_cron_loop(
     channel_registry: ChannelRegistry,
     storage: Storage,
     historian: object | None = None,
+    diarist: object | None = None,
 ) -> None:
-    """Run daily digest at roughly every 24h; 顺带跑后台史官蒸馏(迭代 4)。"""
+    """Run daily digest at roughly every 24h; 顺带跑后台史官 + 起居注蒸馏(迭代 4)。"""
     while True:
         try:
             await asyncio.sleep(86400)  # 24 hours
@@ -42,9 +43,11 @@ async def _digest_cron_loop(
             # Dispatch to all registered external channels
             await channel_registry.send_all(digest, str(digest))
             archive_old_iterations(storage)
-            # 后台史官:蒸馏成功 memorial 的可复用执行知识(零对话 token)
+            # 后台史官 + 起居注:蒸馏执行知识 / 用户偏好(零对话 token)
             if historian is not None:
                 await historian.distill_recent()  # type: ignore[attr-defined]
+            if diarist is not None:
+                await diarist.synthesize()  # type: ignore[attr-defined]
         except asyncio.CancelledError:
             break
         except Exception:
@@ -61,14 +64,20 @@ def wire_digest(app: FastAPI, settings: TianshuSettings) -> None:
     digest_generator = DigestGenerator(storage=storage)
     app.state.digest_generator = digest_generator
 
-    # --- 后台史官(迭代 4)——与摘要 cron 共用周期,蒸馏可复用执行知识 ---
+    # --- 后台史官 + 起居注(迭代 4)——与摘要 cron 共用周期 ---
+    from tianshu.memory.diarist import Diarist
     from tianshu.memory.historian import Historian
+    from tianshu.memory.kg import KnowledgeGraph
 
     historian = Historian(storage, app.state.config_manager)
     app.state.historian = historian
+    kg = KnowledgeGraph(storage)
+    app.state.knowledge_graph = kg
+    diarist = Diarist(storage, app.state.config_manager, kg)
+    app.state.diarist = diarist
 
     # Schedule daily digest via cron loop
     digest_task = asyncio.create_task(
-        _digest_cron_loop(digest_generator, notifier, channel_registry, storage, historian)
+        _digest_cron_loop(digest_generator, notifier, channel_registry, storage, historian, diarist)
     )
     app.state._digest_task = digest_task

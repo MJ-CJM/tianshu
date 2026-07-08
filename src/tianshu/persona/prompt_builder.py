@@ -175,6 +175,13 @@ class PromptBuilder:
             if court_mem_text:
                 parts.append(f"# Court Memory\n\n{court_mem_text}")
 
+            # Layer 6.2: 起居注·主人偏好(迭代 4)——官员开工前见主人习惯,不等进化立即贴合
+            profile_path = self._memory_dir / "court" / "USER_PROFILE.md"
+            if profile_path.exists():
+                profile_text = profile_path.read_text(encoding="utf-8").strip()
+                if profile_text:
+                    parts.append(f"# 主人偏好(起居注)\n\n{profile_text}")
+
             # Layer 6.5: Peer Profiles (同僚近况)
             peer_text = await self._build_peer_profiles(persona.id, edict)
             if peer_text:
