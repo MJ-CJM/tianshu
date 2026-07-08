@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -69,8 +70,35 @@ async def lifespan(app: FastAPI):
     # --- Start scheduler ---
     await app.state.scheduler.start()
 
+    # --- MCP server session manager(stateless 模式仍需运行;挂载见 create_app)---
+    # 放独立后台 task:anyio TaskGroup 的 cancel scope 必须在同一 task 进出,
+    # 而 lifespan 的 startup/teardown 可能被测试框架驱动在不同 task 上。
+    _mcp_stop: asyncio.Event | None = None
+    _mcp_task: asyncio.Task | None = None
+    mcp_server = getattr(app.state, "tianshu_mcp_server", None)
+    if mcp_server is not None:
+        _mcp_stop = asyncio.Event()
+        _mcp_ready: asyncio.Event = asyncio.Event()
+
+        async def _run_mcp_session_manager() -> None:
+            async with mcp_server.session_manager.run():
+                _mcp_ready.set()
+                assert _mcp_stop is not None
+                await _mcp_stop.wait()
+
+        _mcp_task = asyncio.create_task(_run_mcp_session_manager())
+        await _mcp_ready.wait()
+
     logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     yield
+
+    # --- MCP server session manager 停止 ---
+    if _mcp_stop is not None and _mcp_task is not None:
+        _mcp_stop.set()
+        try:
+            await _mcp_task
+        except Exception:
+            logger.exception("[mcp-server] session manager shutdown error")
 
     # --- Graceful shutdown ---
     app.state.agent.request_shutdown()
@@ -121,6 +149,17 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health():
         return {"status": "ok"}
+
+    # MCP server(可选能力:mcp extra 未安装则跳过)——外部 MCP 宿主经 POST /mcp 驱动天枢
+    try:
+        from tianshu.gateway.mcp_server import build_mcp_server
+
+        mcp_server = build_mcp_server(app)
+        app.state.tianshu_mcp_server = mcp_server
+        app.mount("/mcp", mcp_server.streamable_http_app())
+        logger.info("MCP server mounted at /mcp")
+    except ImportError:
+        logger.info("mcp extra not installed; MCP server disabled")
 
     # Conditionally mount frontend static files (container-integrated mode)
     settings = TianshuSettings()
