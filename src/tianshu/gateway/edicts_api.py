@@ -6,7 +6,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.edict_ops import submit_new_edict
@@ -260,6 +260,37 @@ def pause_edict(edict_id: str, request: Request):
         },
     )
     return ApiResponse(success=True, data={"id": edict_id, "lifecycle_phase": "paused"})
+
+
+class SteerRequest(BaseModel):
+    note: str = Field(min_length=1, max_length=2000)
+
+
+@edicts_router.post("/{edict_id}/steer", response_model=ApiResponse, status_code=202)
+async def steer_edict(edict_id: str, body: SteerRequest, request: Request):
+    """向运行中的长任务中途注入一条 steer 指示——下一轮 actor 边界吸收(迭代 5)。"""
+    from datetime import UTC, datetime
+
+    from ulid import ULID
+
+    storage: Storage = request.app.state.storage
+    edict = storage.get_edict(edict_id)
+    if not edict:
+        raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
+    storage.save_steer(str(ULID()), edict_id, body.note.strip(), datetime.now(UTC).isoformat())
+    bus = getattr(request.app.state, "event_bus", None)
+    if bus is not None:
+        from tianshu.models.events import make_event
+
+        await bus.emit(
+            make_event(
+                "edict.steer.submitted",
+                edict_id=edict_id,
+                producer="gateway",
+                payload={"note": body.note[:200]},
+            )
+        )
+    return ApiResponse(success=True, data={"id": edict_id, "steered": True})
 
 
 @edicts_router.post("/{edict_id}/resume", response_model=ApiResponse)

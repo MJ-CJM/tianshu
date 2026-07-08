@@ -49,3 +49,24 @@ class NotifyMixin:
     def delete_pending_notification(self, pending_id: str) -> None:
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM pending_notifications WHERE id = ?", (pending_id,))
+
+    # --- steer 中途注入(迭代 5「执行 2.0」)---
+
+    def save_steer(self, steer_id: str, edict_id: str, note: str, created_at: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO pending_steers (id, edict_id, note, created_at) VALUES (?, ?, ?, ?)",
+                (steer_id, edict_id, note, created_at),
+            )
+
+    def list_and_clear_steers(self, edict_id: str) -> list[str]:
+        """取出该 edict 的待注入 steer 并删除(取即消费,不重复注入)。"""
+        with self._lock, self._conn:
+            rows = self._conn.execute(
+                "SELECT id, note FROM pending_steers WHERE edict_id = ? ORDER BY created_at ASC",
+                (edict_id,),
+            ).fetchall()
+            notes = [r["note"] for r in rows]
+            if rows:
+                self._conn.execute("DELETE FROM pending_steers WHERE edict_id = ?", (edict_id,))
+        return notes

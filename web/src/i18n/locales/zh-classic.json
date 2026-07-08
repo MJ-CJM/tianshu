@@ -2051,5 +2051,13 @@
       "label": "遣客卿",
       "summary": "遣 Claude Code·影卷兜底"
     }
+  },
+  "steer": {
+    "title": "中途谕示(steer)",
+    "hint": "差事在办之际,可随时降一句谕示,下一轮承旨者先纳——不必待其毕事再追敕。",
+    "placeholder": "如:留意并发之安 / 优先用现成器用",
+    "send": "降谕",
+    "submitted": "谕已降,下轮即行",
+    "failed": "降谕不果"
   }
 }

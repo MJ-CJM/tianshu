@@ -2051,5 +2051,13 @@
       "label": "客卿模式",
       "summary": "派 Claude Code·影子快照兜底"
     }
+  },
+  "steer": {
+    "title": "中途纠偏(steer)",
+    "hint": "任务运行中随时给一句指示,下一轮 actor 会优先吸收——不用等它跑完再 follow-up。",
+    "placeholder": "例:记得考虑并发安全 / 优先用现有工具",
+    "send": "注入",
+    "submitted": "已注入,下一轮生效",
+    "failed": "注入失败"
   }
 }

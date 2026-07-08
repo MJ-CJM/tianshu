@@ -80,6 +80,8 @@ def derive_actor_override(
                 extra_msg_parts.append(f"建议修复：{last_record.critic_result.suggested_fix}")
     if state.consultation_advice:
         extra_msg_parts.append(f"九卿会议建议：\n{state.consultation_advice}")
+    if state.steer_note:
+        extra_msg_parts.append(f"主人中途指示（steer，请优先吸收）：\n{state.steer_note}")
 
     extra = "\n\n".join(extra_msg_parts) if extra_msg_parts else None
 
@@ -294,6 +296,18 @@ async def _finalize_with_supervision(
         state=state,
         error=error,
     )
+
+
+def _inject_steer(
+    ctx: OrchestratorContext,
+    edict: Edict,
+    state: OuterLoopState,
+) -> OuterLoopState:
+    """取出该 edict 待注入的 steer(取即消费),塞进 state.steer_note;无则清空上一轮。"""
+    from dataclasses import replace
+
+    notes = ctx.storage.list_and_clear_steers(edict.id)
+    return replace(state, steer_note="\n".join(notes) if notes else None)
 
 
 async def _check_pause(
@@ -852,6 +866,9 @@ async def run(
         edict, pause_exit = await _check_pause(ctx, edict, memorial, state)
         if pause_exit is not None:
             return pause_exit
+
+        # steer 中途注入(迭代 5):取出该 edict 待注入的 steer,塞进本轮 actor 上下文
+        state = _inject_steer(ctx, edict, state)
 
         state, edict, budget_exit = await _check_budget(ctx, edict, memorial, state, acceptance)
         if budget_exit is not None:

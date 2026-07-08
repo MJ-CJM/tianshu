@@ -15,6 +15,7 @@ import OuterLoopTimeline from "../components/edict/OuterLoopTimeline";
 import SupervisionReportCard from "../components/edict/SupervisionReportCard";
 import FollowUpOverridePanel from "../components/edict/FollowUpOverridePanel";
 import ShadowSnapshotPanel from "../components/edict/ShadowSnapshotPanel";
+import SteerPanel from "../components/edict/SteerPanel";
 import type { FollowUpOverrideValue } from "../components/edict/FollowUpOverridePanel";
 import DecreeModal from "../components/decree/DecreeModal";
 import PendingToolCallCard from "../components/decree/PendingToolCallCard";
@@ -649,6 +650,8 @@ export default function EdictDetailPage() {
       ))}
 
       {hasUsage && <UsageDisplay usage={aggregatedUsage} />}
+
+      {edictId && hasActiveMemorial && <SteerPanel edictId={edictId} />}
 
       {edictId && <ShadowSnapshotPanel edictId={edictId} />}
 
