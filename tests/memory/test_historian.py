@@ -30,7 +30,7 @@ def _seed_success(storage, goal="build a report", n_events=1):
     storage.save_edict(e)
     m = Memorial(edict_id=e.id, status=TaskStatus.COMPLETED, instruction=goal)
     storage.save_memorial(m)
-    for i in range(n_events):
+    for _ in range(n_events):
         storage.append_event(
             e.id, m.id, "tool.completed", {"type": "tool.completed", "tool": "bash"}
         )
