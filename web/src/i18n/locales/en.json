@@ -1044,7 +1044,13 @@
     "failedTitle": "Consultation failed",
     "failedSubtitle": "Please try again later",
     "synthesisTitle": "Synthesis",
-    "decisionTitle": "Decision"
+    "decisionTitle": "Decision",
+    "stance": {
+      "support": "Support",
+      "oppose": "Oppose",
+      "conditional": "Conditional"
+    },
+    "censor": "Censor · dissent"
   },
   "hongluisi": {
     "title": "Network Center",

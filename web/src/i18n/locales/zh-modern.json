@@ -1044,7 +1044,13 @@
     "failedTitle": "讨论失败",
     "failedSubtitle": "请稍后重试",
     "synthesisTitle": "综合意见",
-    "decisionTitle": "决策"
+    "decisionTitle": "决策",
+    "stance": {
+      "support": "赞成",
+      "oppose": "反对",
+      "conditional": "有条件"
+    },
+    "censor": "言官·反调"
   },
   "hongluisi": {
     "title": "网络中心",
