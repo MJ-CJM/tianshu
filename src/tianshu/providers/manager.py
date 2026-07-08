@@ -32,6 +32,37 @@ class ProviderManager:
     ) -> None:
         self._storage = storage
         self._config_manager = config_manager
+        # 共享 litellm.Router(spec P1-A):configs 指纹变更时懒重建
+        self._router: object | None = None
+        self._router_fp: tuple | None = None
+        self._router_names: set[str] = set()
+
+    # --- LLM Router(可靠性配置化,见 llm_router.py)---
+
+    def _get_router(self) -> object | None:
+        """构建/复用共享 Router;LLM 配置(增删改/启停)变更时自动重建。"""
+        from tianshu.llm_router import build_router, configs_fingerprint
+
+        configs, active_name = self._config_manager.list_configs()
+        fp = configs_fingerprint(configs)
+        if fp != self._router_fp:
+            self._router = build_router(configs, active_name)
+            self._router_fp = fp
+            self._router_names = {c.name for c in configs if c.enabled and c.api_key}
+            if self._router is not None:
+                logger.info(
+                    "[llm-router] built with %d deployment(s): %s",
+                    len(self._router_names),
+                    sorted(self._router_names),
+                )
+        return self._router
+
+    def _router_kwargs(self, config_name: str) -> dict:
+        """构造 LLMClient 的 Router 注入参数;配置名不在 deployments 中则回退直连。"""
+        router = self._get_router()
+        if router is not None and config_name in self._router_names:
+            return {"router": router, "router_model_name": config_name}
+        return {}
 
     # --- Config ↔ Provider sync ---
 
@@ -183,6 +214,7 @@ class ProviderManager:
                     max_tokens=cfg.max_tokens,
                     provider_name=cfg.name,
                     pricing_override=pricing,
+                    **self._router_kwargs(cfg.name),
                 )
             logger.warning(
                 "Persona LLM config '%s' not found or disabled, falling back",
@@ -227,6 +259,7 @@ class ProviderManager:
             max_tokens=state.max_tokens,
             provider_name=selected.name,
             pricing_override=self.get_effective_pricing(selected.name),
+            **self._router_kwargs(selected.name),
         )
 
     def _fallback_client(self) -> LLMClient:
@@ -244,6 +277,7 @@ class ProviderManager:
             max_tokens=state.max_tokens,
             provider_name=state.name,
             pricing_override=pricing,
+            **self._router_kwargs(state.name),
         )
 
     def record_usage(self, name: str, tokens: int = 0) -> None:
