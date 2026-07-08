@@ -61,6 +61,7 @@ class OuterLoopState:
     l1_rounds_used: int = 0
     l2_rounds_used: int = 0
     consultation_advice: str | None = None
+    steer_note: str | None = None  # 迭代 5:用户中途 steer 注入的纠偏(下一轮注入 actor)
     history: tuple[IterationRecord, ...] = field(default_factory=tuple)
     total_cost_cny: float = 0.0
 

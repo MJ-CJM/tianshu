@@ -172,6 +172,18 @@ export async function resumeEdict(
   return data;
 }
 
+/** steer 中途注入(迭代 5)：向运行中的长任务注入一条纠偏指示，下一轮 actor 吸收 */
+export async function steerEdict(
+  edictId: string,
+  note: string,
+): Promise<ApiResponse<{ id: string; steered: boolean }>> {
+  const { data } = await apiClient.post<ApiResponse<{ id: string; steered: boolean }>>(
+    `/edicts/${edictId}/steer`,
+    { note },
+  );
+  return data;
+}
+
 export interface EdictDraft {
   goal?: string;
   title?: string;

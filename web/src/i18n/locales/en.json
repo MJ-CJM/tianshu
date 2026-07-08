@@ -2052,5 +2052,13 @@
       "label": "Keqing",
       "summary": "Dispatch Claude Code · shadow snapshots"
     }
+  },
+  "steer": {
+    "title": "Mid-run steer",
+    "hint": "Inject a course-correction while the task runs; the next actor turn absorbs it first — no need to wait and follow up.",
+    "placeholder": "e.g. mind concurrency safety / prefer existing tools",
+    "send": "Inject",
+    "submitted": "Injected, effective next turn",
+    "failed": "Inject failed"
   }
 }

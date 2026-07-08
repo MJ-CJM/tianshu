@@ -254,6 +254,14 @@ def run_migrations(conn: sqlite3.Connection) -> None:
                 channels_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )""",
+        # 2026-07-08: 迭代 5「执行 2.0」—— steer 中途注入(长任务在线纠偏,下一轮吸收)
+        """CREATE TABLE IF NOT EXISTS pending_steers (
+                id TEXT PRIMARY KEY,
+                edict_id TEXT NOT NULL,
+                note TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""",
+        "CREATE INDEX IF NOT EXISTS idx_steers_edict ON pending_steers(edict_id)",
     ]
     for sql in migrations:
         try:
