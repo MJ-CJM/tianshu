@@ -271,7 +271,9 @@
     "approve": "放行",
     "reject": "拒绝",
     "action": "准/驳",
-    "comment": "批注（可选）"
+    "comment": "批注（可选）",
+    "guide": "驳而训之",
+    "guideNeedsComment": "请先于下方书训示"
   },
   "statusFilter": {
     "all": "全部状态"
@@ -717,7 +719,8 @@
     "ruleRevoked": "规则已撤销",
     "ruleRevokeFailed": "撤销失败",
     "ruleCreated": "规则已创建",
-    "ruleCreateFailed": "创建失败"
+    "ruleCreateFailed": "创建失败",
+    "toolGuided": "已驳并训:{tool}"
   },
   "locale": {
     "zh-classic": "彩蛋",

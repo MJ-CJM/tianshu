@@ -275,9 +275,10 @@ export interface PendingToolCall {
   created_at: string | null;
 }
 
+/** guide=驳回+指导(迭代 5):驳回本次工具但给纠正意见,agent 据此换方式续跑 */
 export interface ToolDecisionRequest {
   memorial_id: string;
-  action: "approve" | "reject";
+  action: "approve" | "reject" | "guide";
   comment?: string;
   actor?: string;
   grant_scope?: ToolGrantScope;
