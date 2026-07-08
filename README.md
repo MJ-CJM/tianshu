@@ -38,6 +38,7 @@
 - **🧠 记忆宫殿 + 成长飞轮** — 多层记忆（Markdown 真相源 + SQLite/FTS5 索引 + Drawer 快照）、技能渐进学习与修撰、人格画像合成，越用越懂你。
 - **🛡️ 治理优先** — 工具分级(tier) + 策略管线 + 人工批红 + 会话规则；网络能力受 SSRF、host 白名单、凭证托管约束。能力强，但始终受控。
 - **🌌 平行位面演化** — 把行为配置（乃至代码）捕获成可分支、可切换、可对比的快照；候选位面小流量探索，按**适应度**自动择优晋升——一套「宫殿版 git」式的自进化。
+- **📏 回归评测与失败归因** — `tianshu evals run` 一条命令沙箱回放历史任务出评测报告，自进化「变好了」有据可查；17 类失败分类学落库自动归因，失败分布进审计面板。
 - **⚙️ 长任务自检** — 验收标准(AcceptanceCriteria) + critic 监督 + L0–L3 升级，长任务自己迭代到达标，必要时升级人工。
 - **🔌 多入口同源** — Web / HTTP API / CLI / 飞书 / Telegram 共享同一后端契约。
 - **💸 成本治理** — Token 计量、预算熔断、按模型/任务/官员多维归因。
@@ -129,6 +130,18 @@ curl -X POST http://localhost:8000/api/edicts \
 ```
 
 下旨后可在 Web、`tianshu event list` 或 WebSocket `/api/ws` 观察任务流转（规划→执行→审计→通知）。完整流程与全部入口见 [`docs/usage/user-guide.md`](docs/usage/user-guide.md)。
+
+### 回归评测与失败归因（迭代 2「证明」）
+
+自进化说「变好了」，评测负责拿出证据——一条命令沙箱回放历史任务、量化打分：
+
+```bash
+tianshu evals sample baseline --size 8   # 分层混采历史任务，固化为可重复回归集
+tianshu evals run --set baseline         # 沙箱跑批 → 报告（fitness 分项 / 逐条结果 / Δ vs 上次）
+tianshu evals failures --days 30         # 失败归因分布（17 类失败分类学自动归因）
+```
+
+评测跑批只在 CLI（花钱的重活不开 HTTP 触发面）；报告在 Web「评测中心」与 `GET /api/evals/runs` 可查。评测凭证可用 `TIANSHU_EVAL_LLM_API_KEY` 与主配额隔离。
 
 ## 🧩 二次开发
 

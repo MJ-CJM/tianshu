@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -154,6 +155,39 @@ class EvalHarness:
             "feedback": feedback,
         }
 
+    def collect_goal_results(self, db_path: Path) -> list[dict]:
+        """沙箱 DB 的 per-goal 明细(instruction/status/failure_reason/cost)。
+
+        平台级评测报告用(失败归因分布、逐条结果表)。SELECT * + keys 判断
+        以兼容旧代码变体的沙箱 DB(可能没有 failure_reason 列);缺表/坏库
+        宽容返回空(评估失败安全:per-goal 明细是增值信息,不阻断打分)。
+        """
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute("SELECT * FROM memorials ORDER BY created_at ASC").fetchall()
+        except sqlite3.OperationalError as e:
+            logger.warning("eval: goal results unavailable from %s: %s", db_path, e)
+            return []
+        finally:
+            conn.close()
+        results: list[dict] = []
+        for r in rows:
+            keys = r.keys()
+            cost = 0.0
+            with contextlib.suppress(ValueError, TypeError):
+                cost = float(json.loads(r["usage_json"] or "{}").get("cost_cny", 0.0) or 0.0)
+            results.append(
+                {
+                    "instruction": r["instruction"] if "instruction" in keys else None,
+                    "status": r["status"],
+                    "error": r["error"],
+                    "failure_reason": (r["failure_reason"] if "failure_reason" in keys else None),
+                    "cost": round(cost, 6),
+                }
+            )
+        return results
+
     def evaluate(
         self,
         worktree: Path,
@@ -196,7 +230,14 @@ class EvalHarness:
                     )
                     break
             stats = self.aggregate_db_stats(h.db_path)
-        return {"fitness": self.score(stats), "stats": stats, "n": ran, "truncated": truncated}
+            goal_results = self.collect_goal_results(h.db_path)
+        return {
+            "fitness": self.score(stats),
+            "stats": stats,
+            "n": ran,
+            "truncated": truncated,
+            "goal_results": goal_results,
+        }
 
     @staticmethod
     def eval_set_fingerprint(eval_set: list[str], champion_key: str) -> str:

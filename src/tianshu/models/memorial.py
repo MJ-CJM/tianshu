@@ -58,3 +58,6 @@ class Memorial(BaseModel):
     universe_id: str | None = None
     # 显式反馈分（2026-06-08）：+1 赞 / -1 踩 / 0 无
     feedback_score: int = 0
+    # 失败原因分类（2026-07-08 迭代 2）：status=failed 时由 models.failure 分类学
+    # 在落库写路径自动填充（显式赋值优先）；非 failed 终态恒为 None。
+    failure_reason: str | None = None

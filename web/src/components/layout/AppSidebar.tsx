@@ -22,6 +22,7 @@ import {
   GlobalOutlined,
   MessageOutlined,
   DeploymentUnitOutlined,
+  ExperimentOutlined,
 } from "@ant-design/icons";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
@@ -104,6 +105,11 @@ export default function AppSidebar() {
           key: "/universes",
           icon: <DeploymentUnitOutlined />,
           label: t("nav.universe"),
+        },
+        {
+          key: "/evals",
+          icon: <ExperimentOutlined />,
+          label: t("nav.evals"),
         },
       ],
     },

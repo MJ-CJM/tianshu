@@ -5,7 +5,7 @@ import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
 
-from tianshu.models import Decree, Memorial, UsageSummary
+from tianshu.models import Decree, Memorial, UsageSummary, resolve_failure_reason
 from tianshu.storage.mappers import _memorial_to_params, _row_to_memorial
 
 
@@ -22,8 +22,9 @@ class MemorialMixin:
                     attempt, parent_memorial_id, review_status, audit_json,
                     artifacts_json, timeline_json, dag_node_id, persona_id,
                     runtime_override_json, acceptance_override_json,
-                    reasoning_content, final_output, universe_id, last_heartbeat_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    reasoning_content, final_output, universe_id, last_heartbeat_at,
+                    failure_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 _memorial_to_params(memorial),
             )
 
@@ -38,7 +39,7 @@ class MemorialMixin:
                    dag_node_id=?, persona_id=?,
                    runtime_override_json=?, acceptance_override_json=?,
                    reasoning_content=?, final_output=?, universe_id=?,
-                   last_heartbeat_at=?
+                   last_heartbeat_at=?, failure_reason=?
                    WHERE id=?""",
                 (
                     memorial.status.value,
@@ -63,6 +64,9 @@ class MemorialMixin:
                     memorial.final_output,
                     memorial.universe_id,
                     memorial.last_heartbeat_at.isoformat() if memorial.last_heartbeat_at else None,
+                    resolve_failure_reason(
+                        memorial.status.value, memorial.error, memorial.failure_reason
+                    ),
                     memorial.id,
                 ),
             )
@@ -217,3 +221,45 @@ class MemorialMixin:
                 "UPDATE memorials SET feedback_score = ? WHERE id = ?",
                 (score, memorial_id),
             )
+
+    # --- 失败归因（迭代 2「证明」）---
+
+    def failure_reason_distribution(self, days: int | None = None) -> list[dict]:
+        """failed memorial 的归因分布(reason/count/最近样例),喂审计面板与太医诊断。"""
+        sql = (
+            "SELECT failure_reason AS reason, COUNT(*) AS count, MAX(created_at) AS last_seen "
+            "FROM memorials WHERE status = 'failed'"
+        )
+        params: tuple = ()
+        if days is not None:
+            cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+            sql += " AND created_at >= ?"
+            params = (cutoff,)
+        sql += " GROUP BY failure_reason ORDER BY count DESC"
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [
+            {
+                "reason": r["reason"] or "unclassified",
+                "count": r["count"],
+                "last_seen": r["last_seen"],
+            }
+            for r in rows
+        ]
+
+    def backfill_failure_reasons(self, *, reclassify: bool = False) -> int:
+        """按分类学回填历史 failed 行;reclassify=True 时全量重分类(分类器升级后用)。
+
+        与写路径共用 resolve_failure_reason,保证在库口径统一。返回更新行数。
+        """
+        where = "status = 'failed'" + ("" if reclassify else " AND failure_reason IS NULL")
+        with self._lock, self._conn:
+            rows = self._conn.execute(f"SELECT id, error FROM memorials WHERE {where}").fetchall()
+            updated = 0
+            for r in rows:
+                reason = resolve_failure_reason("failed", r["error"], None)
+                self._conn.execute(
+                    "UPDATE memorials SET failure_reason = ? WHERE id = ?", (reason, r["id"])
+                )
+                updated += 1
+        return updated

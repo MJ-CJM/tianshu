@@ -109,6 +109,8 @@ export interface Memorial {
   result: string | null;
   usage: UsageSummary;
   error: string | null;
+  /** 失败原因分类（迭代 2）：status=failed 时落库自动归因，非失败为 null */
+  failure_reason?: string | null;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -963,4 +965,55 @@ export interface NetworkEventRow {
   provider: string | null;
   result_count: number | null;
   truncated: boolean;
+}
+
+// --- Platform evals & failure attribution (迭代 2「证明」) ---
+
+export interface EvalGoalResult {
+  instruction: string | null;
+  status: string;
+  error: string | null;
+  failure_reason: string | null;
+  cost: number;
+}
+
+export interface EvalFitness {
+  score: number;
+  samples: number;
+  success_rate: number;
+  audit_rate: number;
+  retry_score: number;
+  cost_score: number;
+  feedback: number;
+}
+
+export interface EvalRunBrief {
+  id: string;
+  eval_set_name: string | null;
+  eval_set_fingerprint: string;
+  target: string;
+  fitness: EvalFitness;
+  n: number;
+  truncated: boolean;
+  delta_vs_prev: number | null;
+  created_at: string;
+}
+
+export interface EvalRun extends EvalRunBrief {
+  stats: Record<string, number>;
+  goal_results: EvalGoalResult[];
+  failure_distribution: FailureDistributionItem[];
+}
+
+export interface EvalSet {
+  name: string;
+  goals: string[];
+  source: string;
+  created_at: string;
+}
+
+export interface FailureDistributionItem {
+  reason: string;
+  count: number;
+  last_seen?: string | null;
 }

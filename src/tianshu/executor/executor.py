@@ -12,6 +12,7 @@ from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models.common import TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
+from tianshu.models.failure import resolve_failure_reason
 from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan
 from tianshu.persona.model import DEFAULT_EXECUTOR_ID
@@ -286,7 +287,14 @@ class Executor:
                     edict_id=edict.id,
                     memorial_id=memorial.id,
                     producer="executor",
-                    payload={"status": memorial.status.value, "error": memorial.error},
+                    payload={
+                        "status": memorial.status.value,
+                        "error": memorial.error,
+                        # 失败诊断轨迹入账本(迭代 2):事件即带归因,面板/太医免回查
+                        "failure_reason": resolve_failure_reason(
+                            memorial.status.value, memorial.error, memorial.failure_reason
+                        ),
+                    },
                 )
             )
 
@@ -499,6 +507,9 @@ class Executor:
                         payload={
                             "status": memorial.status.value,
                             "error": memorial.error,
+                            "failure_reason": resolve_failure_reason(
+                                memorial.status.value, memorial.error, memorial.failure_reason
+                            ),
                         },
                     )
                 )

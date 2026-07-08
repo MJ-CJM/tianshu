@@ -177,6 +177,31 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_schedule_run_source ON schedule_run(source)",
         # 2026-07-04: 位面竞争力——配对基线(冠军同集沙箱评估分)落台账
         "ALTER TABLE variant_eval_runs ADD COLUMN baseline_json TEXT",
+        # 2026-07-08: 迭代 2「证明」—— 失败原因分类学(multica 14 类 + 天枢平台侧 3 类)
+        "ALTER TABLE memorials ADD COLUMN failure_reason TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_memorials_failure_reason "
+        "ON memorials(failure_reason) WHERE failure_reason IS NOT NULL",
+        # 2026-07-08: 迭代 2「证明」—— 平台级回归评测(评测集 + 评测运行台账)
+        """CREATE TABLE IF NOT EXISTS eval_sets (
+                name TEXT PRIMARY KEY,
+                goals_json TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'sampled',
+                created_at TEXT NOT NULL
+            )""",
+        """CREATE TABLE IF NOT EXISTS eval_runs (
+                id TEXT PRIMARY KEY,
+                eval_set_name TEXT,
+                eval_set_fingerprint TEXT NOT NULL,
+                target TEXT NOT NULL,
+                fitness_json TEXT NOT NULL,
+                stats_json TEXT NOT NULL,
+                goal_results_json TEXT,
+                n INTEGER NOT NULL,
+                truncated INTEGER NOT NULL DEFAULT 0,
+                delta_vs_prev REAL,
+                created_at TEXT NOT NULL
+            )""",
+        "CREATE INDEX IF NOT EXISTS idx_eval_runs_fingerprint ON eval_runs(eval_set_fingerprint)",
     ]
     for sql in migrations:
         try:
@@ -197,4 +222,19 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         except sqlite3.OperationalError as e:
             if "duplicate column name" not in str(e) and "no such column" not in str(e):
                 raise
+    conn.commit()
+
+    # 2026-07-08 迭代 2:历史 failed 行的 failure_reason 自动回填(multica MUL-1949
+    # backfill 思路)。只补 NULL 行故幂等;与写路径共用同一分类函数保证在库口径统一。
+    # 分类器升级后的全量重分类走 `tianshu evals backfill --re-classify`。
+    from tianshu.models.failure import resolve_failure_reason
+
+    rows = conn.execute(
+        "SELECT id, error FROM memorials WHERE status = 'failed' AND failure_reason IS NULL"
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            "UPDATE memorials SET failure_reason = ? WHERE id = ?",
+            (resolve_failure_reason("failed", row["error"], None), row["id"]),
+        )
     conn.commit()
