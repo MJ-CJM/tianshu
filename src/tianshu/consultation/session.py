@@ -54,13 +54,14 @@ class ConsultationSession:
                 all_personas = self._personas.load_all()
                 persona_ids = list(all_personas.keys())
 
-            # Run parallel analysis
+            # Run parallel analysis;言官(第一位,人数>1 时)强制反调破意见趋同(ADR-0008)
             tasks = []
-            for pid in persona_ids:
+            for idx, pid in enumerate(persona_ids):
                 persona = self._personas.get(pid)
                 if not persona:
                     continue
-                tasks.append(self._get_opinion(persona, request))
+                is_censor = idx == 0 and len(persona_ids) > 1
+                tasks.append(self._get_opinion(persona, request, is_censor=is_censor))
 
             opinions = await asyncio.gather(*tasks, return_exceptions=True)
             response.opinions = [o for o in opinions if isinstance(o, PersonaOpinion)]
@@ -115,6 +116,7 @@ class ConsultationSession:
         self,
         persona,
         request: ConsultationRequest,
+        is_censor: bool = False,
     ) -> PersonaOpinion:
         """Get a single persona's opinion via LLM call."""
         from tianshu.llm import LLMClient
@@ -138,11 +140,16 @@ class ConsultationSession:
             prompt += f"\nContext: {request.context}\n"
 
         prompt += (
-            "\nProvide your opinion with:\n"
-            "1. A summary opinion\n"
-            "2. Key points (as a numbered list)\n"
-            "3. Your confidence level (0.0-1.0)\n"
+            "\n从你的职能视角给出意见,严格按以下格式:\n"
+            "STANCE: support / oppose / conditional 三选一(赞成/反对/有条件)\n"
+            "CONDITIONS: 若 conditional,列出条件(分号分隔);否则留空\n"
+            "OPINION: 你的核心意见与论据\n"
         )
+        if is_censor:
+            prompt += (
+                "\n【你是言官】职责是唱反调:即使个人倾向赞成,也要找出这个提案**最强的"
+                "反对理由**、被忽视的风险、隐藏的代价。宁可偏 oppose/conditional,不随大流。\n"
+            )
 
         messages = [
             {"role": "system", "content": f"You are {persona.name}, {persona.department}."},
@@ -150,12 +157,39 @@ class ConsultationSession:
         ]
 
         response = await llm.chat(messages)
-
+        stance, conditions, opinion_text = self._parse_opinion(response.content or "")
         return PersonaOpinion(
             persona_id=persona.id,
             persona_name=persona.name,
             department=persona.department,
-            opinion=response.content or "",
-            confidence=0.8,
-            key_points=[],
+            opinion=opinion_text,
+            stance=stance,
+            conditions=conditions,
+            is_censor=is_censor,
         )
+
+    @staticmethod
+    def _parse_opinion(content: str) -> tuple[str, list[str], str]:
+        """从 LLM 响应解析结构化 stance(废 confidence,ADR-0008)。"""
+        stance = "support"
+        conditions: list[str] = []
+        opinion = content.strip()
+        for line in content.splitlines():
+            u = line.strip()
+            upper = u.upper()
+            if upper.startswith("STANCE:"):
+                v = u.split(":", 1)[1].strip().lower()
+                stance = (
+                    "oppose"
+                    if "oppose" in v
+                    else "conditional"
+                    if "conditional" in v
+                    else "support"
+                )
+            elif upper.startswith("CONDITIONS:"):
+                c = u.split(":", 1)[1].strip()
+                if c:
+                    conditions = [x.strip() for x in c.split(";") if x.strip()]
+            elif upper.startswith("OPINION:"):
+                opinion = u.split(":", 1)[1].strip()
+        return stance, conditions, opinion

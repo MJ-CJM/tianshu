@@ -667,8 +667,11 @@ export interface PersonaOpinion {
   persona_name: string;
   department: string;
   opinion: string;
-  confidence: number;
+  /** ADR-0008：废 confidence 换结构化 stance（赞成/反对/有条件）+ 条件 + 言官反调 */
+  stance: "support" | "oppose" | "conditional";
+  conditions: string[];
   key_points: string[];
+  is_censor: boolean;
 }
 
 export type ConsultationStatus = "pending" | "running" | "completed" | "failed";

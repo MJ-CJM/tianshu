@@ -1044,7 +1044,13 @@
     "failedTitle": "廷议失败",
     "failedSubtitle": "请稍后重试",
     "synthesisTitle": "综合意见",
-    "decisionTitle": "决策"
+    "decisionTitle": "决策",
+    "stance": {
+      "support": "赞",
+      "oppose": "驳",
+      "conditional": "有议"
+    },
+    "censor": "言官·执异"
   },
   "hongluisi": {
     "title": "鸿胪寺",

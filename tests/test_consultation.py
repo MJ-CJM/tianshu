@@ -3,9 +3,8 @@
 LLM 用 fake（非 mock 库）：FakeProviderManager.get_client() 返回 FakeLLM，按 system
 prompt 区分"persona 意见"与"会诊综合"两种调用，避免依赖 asyncio.gather 的调度顺序。
 
-注意（项目记忆 project_consultation_confidence_placeholder）：
-ConsultationSession._get_opinion 里 confidence=0.8 是硬编码占位值，不是真汇聚结果。
-本文件按现状断言 confidence == 0.8，不"修正"它。
+ADR-0008 已落地（迭代 5 廷议 2.0）：废硬编码 confidence=0.8 换结构化 stance
+（赞成/反对/有条件 + 条件 + 论据），并加言官强制反调破六官同构的意见趋同。
 """
 
 from __future__ import annotations
@@ -99,8 +98,9 @@ class TestConsultationSessionStart:
 
         assert resp.status == "completed"
         assert {o.persona_id for o in resp.opinions} == {"neige", "ducha", "hubu"}
-        # 现状断言：confidence 是 session.py 里硬编码的占位值 0.8，不是真汇聚结果
-        assert all(o.confidence == 0.8 for o in resp.opinions)
+        # ADR-0008：废 confidence 换结构化 stance；恰一位官员为言官强制反调
+        assert all(o.stance in ("support", "oppose", "conditional") for o in resp.opinions)
+        assert sum(1 for o in resp.opinions if o.is_censor) == 1
         assert resp.synthesis == "各部意见一致，均建议推进。"
         assert resp.decision == "批准执行。"
         assert resp.completed_at is not None
@@ -193,3 +193,29 @@ class TestConsultationSessionGet:
         loader = _FakePersonaLoader(personas=_personas())
         session = ConsultationSession(persona_loader=loader, config_manager=config_manager)
         assert session.get("no-such-id") is None
+
+
+class TestStanceParsing:
+    """ADR-0008：结构化 stance 解析(废 confidence)。"""
+
+    def test_parse_oppose_with_conditions(self):
+        from tianshu.consultation.session import ConsultationSession
+
+        stance, conditions, opinion = ConsultationSession._parse_opinion(
+            "STANCE: conditional\nCONDITIONS: 需先做预算评估; 需灰度\nOPINION: 谨慎推进"
+        )
+        assert stance == "conditional"
+        assert conditions == ["需先做预算评估", "需灰度"]
+        assert opinion == "谨慎推进"
+
+    def test_parse_oppose(self):
+        from tianshu.consultation.session import ConsultationSession
+
+        stance, _c, _o = ConsultationSession._parse_opinion("STANCE: oppose\nOPINION: 风险过高")
+        assert stance == "oppose"
+
+    def test_parse_defaults_support_when_unformatted(self):
+        from tianshu.consultation.session import ConsultationSession
+
+        stance, conditions, opinion = ConsultationSession._parse_opinion("我觉得可以推进")
+        assert stance == "support" and conditions == [] and "推进" in opinion

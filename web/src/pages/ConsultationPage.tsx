@@ -9,6 +9,12 @@ import { usePersonas } from "../hooks/usePersonas";
 import type { ConsultationRequest, PersonaOpinion } from "../api/types";
 import { useT } from "../i18n";
 
+const STANCE_COLORS: Record<string, string> = {
+  support: "green",
+  oppose: "red",
+  conditional: "orange",
+};
+
 export default function ConsultationPage() {
   const t = useT();
   const { token } = theme.useToken();
@@ -161,7 +167,10 @@ export default function ConsultationPage() {
                       <Space>
                         <span>{opinion.persona_name}</span>
                         <Tag>{opinion.department}</Tag>
-                        <Tag color="blue">{(opinion.confidence * 100).toFixed(0)}%</Tag>
+                        <Tag color={STANCE_COLORS[opinion.stance] ?? "default"}>
+                          {t(`consultation.stance.${opinion.stance}`)}
+                        </Tag>
+                        {opinion.is_censor && <Tag color="volcano">{t("consultation.censor")}</Tag>}
                       </Space>
                     }
                   >

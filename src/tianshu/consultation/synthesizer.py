@@ -40,7 +40,10 @@ class Synthesizer:
             )
 
         opinions_text = "\n\n".join(
-            f"**{o.persona_name}** ({o.department}, confidence={o.confidence}):\n{o.opinion}"
+            f"**{o.persona_name}** ({o.department}, 立场={o.stance}"
+            + (f", 条件=[{'; '.join(o.conditions)}]" if o.conditions else "")
+            + (" 【言官·反调】" if o.is_censor else "")
+            + f"):\n{o.opinion}"
             for o in opinions
         )
 
