@@ -33,6 +33,7 @@ async def _digest_cron_loop(
     storage: Storage,
     historian: object | None = None,
     diarist: object | None = None,
+    evolution_unlock: object | None = None,
 ) -> None:
     """Run daily digest at roughly every 24h; 顺带跑后台史官 + 起居注蒸馏(迭代 4)。"""
     while True:
@@ -48,6 +49,9 @@ async def _digest_cron_loop(
                 await historian.distill_recent()  # type: ignore[attr-defined]
             if diarist is not None:
                 await diarist.synthesize()  # type: ignore[attr-defined]
+            # 自进化请旨解锁:行为层达阈值主动上奏折(迭代 6,ADR-0004)
+            if evolution_unlock is not None:
+                await evolution_unlock.check_and_petition()  # type: ignore[attr-defined]
         except asyncio.CancelledError:
             break
         except Exception:
@@ -76,8 +80,27 @@ def wire_digest(app: FastAPI, settings: TianshuSettings) -> None:
     diarist = Diarist(storage, app.state.config_manager, kg)
     app.state.diarist = diarist
 
+    # --- 自进化请旨解锁(迭代 6,ADR-0004)——同周期检查行为层是否达阈值上奏折 ---
+    from tianshu.universe.unlock import EvolutionUnlock
+
+    evolution_unlock = EvolutionUnlock(
+        storage,
+        app.state.config_manager,
+        notifier=notifier,
+        bus=getattr(app.state, "event_bus", None),
+    )
+    app.state.evolution_unlock = evolution_unlock
+
     # Schedule daily digest via cron loop
     digest_task = asyncio.create_task(
-        _digest_cron_loop(digest_generator, notifier, channel_registry, storage, historian, diarist)
+        _digest_cron_loop(
+            digest_generator,
+            notifier,
+            channel_registry,
+            storage,
+            historian,
+            diarist,
+            evolution_unlock,
+        )
     )
     app.state._digest_task = digest_task

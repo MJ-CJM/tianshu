@@ -17,12 +17,14 @@ from tianshu.storage.edict_repo import EdictMixin
 from tianshu.storage.evals_repo import EvalsMixin
 from tianshu.storage.event_repo import EventMixin
 from tianshu.storage.feishu_repo import FeishuMixin
+from tianshu.storage.flag_repo import FlagMixin
 from tianshu.storage.kg_repo import KgMixin
 from tianshu.storage.memorial_repo import MemorialMixin
 from tianshu.storage.memory_repo import MemoryMixin
 from tianshu.storage.notify_repo import NotifyMixin
 from tianshu.storage.orchestrator_repo import OrchestratorMixin
 from tianshu.storage.persona_repo import PersonaMixin
+from tianshu.storage.petition_repo import PetitionMixin
 from tianshu.storage.scheduler_repo import SchedulerMixin
 from tianshu.storage.security_repo import SecurityMixin
 from tianshu.storage.telegram_repo import TelegramMixin
@@ -45,6 +47,8 @@ class Storage(
     SecurityMixin,
     KgMixin,
     NotifyMixin,
+    FlagMixin,
+    PetitionMixin,
     CredentialMixin,
     OrchestratorMixin,
     ChannelMixin,

@@ -297,6 +297,14 @@ class MemorialMixin:
             ).fetchall()
         return [_row_to_memorial(r) for r in rows]
 
+    def count_successful_memorials(self) -> int:
+        """审计通过(成功终态)的 memorial 总数——自进化请旨解锁的阈值口径(ADR-0004)。"""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM memorials WHERE status IN ('completed', 'approved')"
+            ).fetchone()
+        return int(row[0]) if row else 0
+
     def mark_distilled(self, memorial_id: str, insight_written: bool, now_iso: str) -> None:
         with self._lock, self._conn:
             self._conn.execute(
