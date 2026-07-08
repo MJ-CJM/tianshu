@@ -1645,7 +1645,8 @@
       "plugins": "Plugins",
       "config": "Config",
       "externalCreds": "Credentials",
-      "mcp": "MCP"
+      "mcp": "MCP",
+      "estop": "E-Stop"
     },
     "skills": {
       "charsLoaded": "{n} chars loaded",
@@ -1969,5 +1970,23 @@
     "setName": "Name",
     "goalCount": "Goals",
     "source": "Source"
+  },
+  "estop": {
+    "intro": "Emergency brake: sever running tasks at any moment. Three tiers stack, state is persisted and audited.",
+    "statusEngaged": "Emergency stop ENGAGED",
+    "statusClear": "Running normally, no stop engaged",
+    "reason": "Reason",
+    "reasonPlaceholder": "Reason for this stop (optional, audited)",
+    "killAll": "Kill all",
+    "killAllTitle": "Kill all (kill_all)",
+    "killAllDesc": "Reject every tool call — running tasks are cut off at their next tool call.",
+    "networkKill": "Network kill",
+    "networkKillTitle": "Network kill (network_kill)",
+    "networkKillDesc": "Reject network tools (fetch/search/api/shell) — local read/write unaffected.",
+    "allClear": "Clear all",
+    "engaged": "Engaged: {what}",
+    "resumed": "Resumed: {what}",
+    "actionFailed": "Action failed",
+    "unavailable": "E-stop manager unavailable (backend not enabled)."
   }
 }

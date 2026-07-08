@@ -22,6 +22,7 @@ from tianshu.storage.memory_repo import MemoryMixin
 from tianshu.storage.orchestrator_repo import OrchestratorMixin
 from tianshu.storage.persona_repo import PersonaMixin
 from tianshu.storage.scheduler_repo import SchedulerMixin
+from tianshu.storage.security_repo import SecurityMixin
 from tianshu.storage.telegram_repo import TelegramMixin
 from tianshu.storage.universe_repo import UniverseMixin
 
@@ -39,6 +40,7 @@ class Storage(
     PersonaMixin,
     UniverseMixin,
     EvalsMixin,
+    SecurityMixin,
     CredentialMixin,
     OrchestratorMixin,
     ChannelMixin,

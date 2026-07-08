@@ -15,6 +15,7 @@ from tenacity import (
 
 from tianshu.cost.tracker import estimate_cost
 from tianshu.models import UsageSummary
+from tianshu.observability import genai_span, record_usage
 
 logger = logging.getLogger(__name__)
 
@@ -309,42 +310,45 @@ class LLMClient:
             len(tools or []),
             self._temperature,
         )
-        if self._router is not None and self._router_model_name:
-            r_kwargs = dict(kwargs)
-            r_kwargs.pop("api_key", None)  # 凭证由 Router deployment 自带
-            r_kwargs.pop("api_base", None)
-            r_kwargs["model"] = self._router_model_name
-            response = await self._router.acompletion(**r_kwargs)  # type: ignore[attr-defined]
-        else:
-            response = await litellm.acompletion(**kwargs)
-        actual_model, upstream_provider = _extract_model_echo(response)
-        _log_model_echo(model, actual_model, upstream_provider, api_base)
-        choice = response.choices[0]
-        message = choice.message
+        # OTel GenAI inference span(迭代 3):未启用时零成本 no-op
+        with genai_span("chat", model=model) as _span:
+            if self._router is not None and self._router_model_name:
+                r_kwargs = dict(kwargs)
+                r_kwargs.pop("api_key", None)  # 凭证由 Router deployment 自带
+                r_kwargs.pop("api_base", None)
+                r_kwargs["model"] = self._router_model_name
+                response = await self._router.acompletion(**r_kwargs)  # type: ignore[attr-defined]
+            else:
+                response = await litellm.acompletion(**kwargs)
+            actual_model, upstream_provider = _extract_model_echo(response)
+            _log_model_echo(model, actual_model, upstream_provider, api_base)
+            choice = response.choices[0]
+            message = choice.message
 
-        usage = UsageSummary(
-            actual_model=actual_model,
-            upstream_provider=upstream_provider,
-        )
-        if response.usage:
-            pt = response.usage.prompt_tokens or 0
-            ct = response.usage.completion_tokens or 0
-            cr = _extract_cache_read_tokens(response.usage, model)
             usage = UsageSummary(
-                prompt_tokens=pt,
-                completion_tokens=ct,
-                total_tokens=response.usage.total_tokens or 0,
-                cache_read_tokens=cr,
-                cost_cny=estimate_cost(
-                    model,
-                    pt,
-                    ct,
-                    cache_read_tokens=cr,
-                    provider_pricing=self._pricing_override,
-                ),
                 actual_model=actual_model,
                 upstream_provider=upstream_provider,
             )
+            if response.usage:
+                pt = response.usage.prompt_tokens or 0
+                ct = response.usage.completion_tokens or 0
+                cr = _extract_cache_read_tokens(response.usage, model)
+                usage = UsageSummary(
+                    prompt_tokens=pt,
+                    completion_tokens=ct,
+                    total_tokens=response.usage.total_tokens or 0,
+                    cache_read_tokens=cr,
+                    cost_cny=estimate_cost(
+                        model,
+                        pt,
+                        ct,
+                        cache_read_tokens=cr,
+                        provider_pricing=self._pricing_override,
+                    ),
+                    actual_model=actual_model,
+                    upstream_provider=upstream_provider,
+                )
+                record_usage(_span, input_tokens=pt, output_tokens=ct)
 
         tool_calls = None
         if message.tool_calls:

@@ -10,6 +10,7 @@ import ProvidersTab from "../components/system/ProvidersTab";
 import PluginsTab from "../components/system/PluginsTab";
 import GlobalConfigTab from "../components/system/GlobalConfigTab";
 import ExternalCredentialsTab from "../components/system/ExternalCredentialsTab";
+import EstopTab from "../components/system/EstopTab";
 import { useT } from "../i18n";
 
 export default function SystemManagementPage() {
@@ -67,6 +68,11 @@ export default function SystemManagementPage() {
             key: "external-creds",
             label: t("system.tab.externalCreds"),
             children: <ExternalCredentialsTab />,
+          },
+          {
+            key: "estop",
+            label: t("system.tab.estop"),
+            children: <EstopTab />,
           },
         ]}
       />

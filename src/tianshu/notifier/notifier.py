@@ -11,6 +11,7 @@ from fastapi import WebSocket
 
 from tianshu.models.events import EventEnvelope
 from tianshu.notifier.renderer import render_dingtalk, render_email, render_feishu, render_status
+from tianshu.security.redact import redact_mapping, redact_text
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -38,10 +39,14 @@ class Notifier:
         self._ws_clients.discard(ws)
 
     async def broadcast_ws(self, message: dict) -> None:
-        """Send message to all connected WebSocket clients."""
+        """Send message to all connected WebSocket clients.
+
+        锦衣卫·出站脱敏(迭代 3):WS 是最宽的出站面(含流式 delta),统一在此
+        redact。流式把 secret 切进两个 chunk 时单片匹配不到,属已知局限。
+        """
         if not self._ws_clients:
             return
-        data = json.dumps(message, default=str)
+        data = json.dumps(redact_mapping(message), default=str)
         dead: list[WebSocket] = []
         for ws in self._ws_clients:
             try:
@@ -55,7 +60,7 @@ class Notifier:
         """Send a webhook POST request."""
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(url, json=payload)
+                resp = await client.post(url, json=redact_mapping(payload))
                 if resp.status_code >= 400:
                     logger.warning("Webhook to %s returned %s", url, resp.status_code)
         except Exception:
@@ -139,11 +144,12 @@ class Notifier:
 
         for ch_name in channel_names:
             renderer = renderers.get(ch_name, render_feishu)
-            rendered = renderer(memorial)
+            # 出站脱敏:渠道外发是不可撤回面,渲染文本统一 redact
+            rendered = redact_text(renderer(memorial))
             channel = self._channel_registry.get(ch_name)
             if channel:
                 try:
-                    await channel.send(message, rendered)
+                    await channel.send(redact_mapping(message), rendered)
                 except Exception:
                     logger.exception("External channel %s failed", ch_name)
 

@@ -2,7 +2,7 @@
 
 import sqlite3
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from ulid import ULID
 
@@ -98,7 +98,40 @@ class CostMixin:
             row = self._conn.execute(
                 "SELECT * FROM cost_budgets WHERE scope = ?", (scope,)
             ).fetchone()
-        return dict(row) if row else None
+            if not row:
+                return None
+            data = dict(row)
+            # 周期滚动(迭代 3):daily/weekly 预算跨期后 spent 自动清零,
+            # 否则每日护栏会退化成永不复位的终身上限。month/monthly 暂不滚动
+            # (沿用既有 get_cost_summary 的月度语义,避免行为漂移)。
+            reset = self._rolled_period_start(data.get("period"), data.get("period_start"))
+            if reset is not None:
+                self._conn.execute(
+                    "UPDATE cost_budgets SET spent_cny = 0, period_start = ? WHERE scope = ?",
+                    (reset, scope),
+                )
+                self._conn.commit()
+                data["spent_cny"] = 0.0
+                data["period_start"] = reset
+        return data
+
+    @staticmethod
+    def _rolled_period_start(period: str | None, period_start: str | None) -> str | None:
+        """返回需要写回的新周期起点;None = 无需滚动。"""
+        if period not in ("daily", "weekly"):
+            return None
+        now = datetime.now(UTC)
+        cur_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if period == "weekly":
+            cur_start = cur_start - timedelta(days=now.weekday())
+        cur_iso = cur_start.isoformat()
+        if not period_start:
+            return cur_iso  # 首次记账:落当期起点
+        try:
+            prev = datetime.fromisoformat(period_start)
+        except (ValueError, TypeError):
+            return cur_iso
+        return cur_iso if prev < cur_start else None
 
     def upsert_budget(
         self,
@@ -118,9 +151,10 @@ class CostMixin:
                 )
             else:
                 self._conn.execute(
-                    """INSERT INTO cost_budgets (id, scope, budget_cny, period, created_at)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (str(ULID()), scope, budget_cny, period, now),
+                    """INSERT INTO cost_budgets
+                       (id, scope, budget_cny, period, created_at, period_start)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (str(ULID()), scope, budget_cny, period, now, now),
                 )
 
     def update_budget_spent(self, scope: str, amount_cny: float) -> None:

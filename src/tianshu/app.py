@@ -17,6 +17,7 @@ from tianshu.gateway.config_api import config_router
 from tianshu.gateway.cost_api import cost_router
 from tianshu.gateway.credentials_api import credentials_router
 from tianshu.gateway.edicts_api import edicts_router
+from tianshu.gateway.estop_api import estop_router
 from tianshu.gateway.evals_api import evals_router
 from tianshu.gateway.execution_api import execution_router
 from tianshu.gateway.hongluisi_api import hongluisi_router
@@ -90,6 +91,21 @@ async def lifespan(app: FastAPI):
         _mcp_task = asyncio.create_task(_run_mcp_session_manager())
         await _mcp_ready.wait()
 
+    # --- OTel GenAI 埋点(迭代 3):默认关;设 TIANSHU_OTEL_ENDPOINT 才导出 ---
+    from tianshu import observability
+
+    observability.init_tracing(settings)
+
+    # --- opt-in 遥测(迭代 3,ADR-0003):默认关;首启明示,一行 env 永久关 ---
+    from tianshu import telemetry
+
+    if telemetry.is_enabled(settings.telemetry):
+        logger.info(
+            "[telemetry] 已启用(opt-in):仅上报版本+启动事件,不含任务内容。"
+            "设 TIANSHU_TELEMETRY=off 永久关闭。"
+        )
+        await telemetry.emit_startup(settings, instance_id=f"{settings.host}:{settings.port}")
+
     logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     yield
 
@@ -121,7 +137,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Tianshu", version="0.2.2", lifespan=lifespan)
+    app = FastAPI(title="Tianshu", version="0.2.3", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -134,6 +150,7 @@ def create_app() -> FastAPI:
     app.include_router(cost_router, prefix="/api")
     app.include_router(credentials_router, prefix="/api")
     app.include_router(edicts_router, prefix="/api")
+    app.include_router(estop_router, prefix="/api")
     app.include_router(evals_router, prefix="/api")
     app.include_router(execution_router, prefix="/api")
     app.include_router(hongluisi_router, prefix="/api")

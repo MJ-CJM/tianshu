@@ -59,7 +59,7 @@ async def wire_tools(app: FastAPI, settings: TianshuSettings) -> ToolRegistry:
     # 惰性导入：mcp 属可选能力，保持 import 时不加载（对应原 lifespan 的函数内导入）。
     from tianshu.tools.mcp import MCPManager
 
-    mcp_manager = MCPManager(tools, storage=storage)
+    mcp_manager = MCPManager(tools, storage=storage, allowlist=settings.mcp_server_allowlist)
     app.state.mcp_manager = mcp_manager
     try:
         mcp_manager.load_config()

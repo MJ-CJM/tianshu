@@ -18,6 +18,7 @@ from tianshu.cli.commands import (
     plugin,
     provider,
     schedule,
+    secrets,
     worker,
 )
 from tianshu.cli.commands.watch import watch
@@ -36,6 +37,7 @@ app.add_typer(plugin.app, name="plugin", help="Plugin management")
 app.add_typer(dag.app, name="dag", help="DAG execution management")
 app.add_typer(worker.app, name="worker", help="Worker pool management")
 app.add_typer(evals.app, name="evals", help="Platform regression evals & failure attribution")
+app.add_typer(secrets.app, name="secrets", help="Credential master-key management")
 app.command()(health.health)
 app.command()(doctor.doctor)
 app.command()(watch)
