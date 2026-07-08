@@ -2,6 +2,19 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.2.7] - 2026-07(迭代 4「记忆 2.0」)
+
+记忆宫殿从"存"升级为"懂"。按拍板**跳向量层**(FTS5 保持),先做结构化事实 + 后台蒸馏 + 用户画像。
+
+### Added
+- **时序知识图谱**:三元组(subject-predicate-object)带有效期,`as_of` 查询见某时刻有效事实;**事实校勘门**(断言前比对,object 同则幂等、不同则时序更新——旧事实盖 valid_to 退场、新事实接位);偏好漂移可表达、过时事实可作废。记忆宫殿结构化事实层,与 Markdown 真相源互补
+- **后台史官**:从已 audited 的成功 memorial 蒸馏一句可复用执行知识写 court 记忆;后台异步、零对话 token(挂 digest cron);`historian_log` 防重复
+- **起居注 v1**(护城河):从用户行为信号(批红 approve/reject/amend、feedback、runtime/acceptance override、提交模式)蒸馏「主人偏好」→ `USER_PROFILE.md` + 偏好三元组入时序 KG(scope=user,经校勘门,偏好漂移可表达);PromptBuilder 新增注入层——**官员开工前见主人习惯,不等进化立即贴合**。与史官共用蒸馏管线
+- 全局 `list_recent_decrees`(批红习惯信号源);`KnowledgeGraph` 接入 app.state
+
+### 后续(nice,弹性伸缩)
+- 渐进披露 timeline/fetch 工具(`memory_search` 已覆盖主检索)、记忆 ROI 账本、向量混合检索(拍板暂不做)
+
 ## [0.2.6] - 2026-07(平台级默认下沉全局设置 · 表单 UX Q7)
 
 ### Added
