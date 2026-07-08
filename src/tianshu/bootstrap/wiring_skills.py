@@ -49,7 +49,11 @@ def wire_skills(app: FastAPI, settings: TianshuSettings) -> tuple[SkillsLoader, 
     workspace_path = (
         Path(settings.workspace_dir).resolve() if settings.workspace_dir != "." else None
     )
-    user_skills_dir = Path("~/.tianshu/skills").expanduser()
+    # 修撰效果门(迭代 6,ADR-0007)配对评估:子进程经此 env 重定向到变体技能库(同 personas 机制)
+    import os
+
+    _skills_override = os.environ.get("TIANSHU_RUNTIME_SKILLS_DIR")
+    user_skills_dir = Path(_skills_override or "~/.tianshu/skills").expanduser()
     user_skills_dir.mkdir(parents=True, exist_ok=True)
     skills = SkillsLoader(
         builtin_dir=builtin_skills_dir,
@@ -94,6 +98,9 @@ def wire_skill_curator(app: FastAPI, settings: TianshuSettings) -> None:
     event_bus = app.state.event_bus
 
     # --- SkillCurator (修撰) — 周期性技能库自优化 ---
+    # 修撰效果门(迭代 6,ADR-0007):惰性配对评估器——eval_harness 在 wire_universe 才装配
+    from tianshu.skills.effect_gate import SkillEffectEvaluator
+
     skill_curator = SkillCurator(
         llm_client=provider_manager.get_client(),
         loader=skills,
@@ -101,6 +108,7 @@ def wire_skill_curator(app: FastAPI, settings: TianshuSettings) -> None:
         storage=storage,
         config_manager=config_manager,
         runtime_dir=Path("~/.tianshu/runtime").expanduser(),
+        effect_evaluator=SkillEffectEvaluator(app, config_manager, skills),
     )
     skill_curator.attach_event_bus(event_bus)
     app.state.skill_curator = skill_curator

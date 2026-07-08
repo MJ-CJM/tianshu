@@ -95,6 +95,9 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         fitness_weights=_cfg.universe_fitness_weights,
         base_env=eval_base_env,
     )
+    # 修撰效果门(迭代 6,ADR-0007)复用同一评估器 + 变体仓根 —— curator 惰性取用
+    app.state.code_eval_harness = code_eval_harness
+    app.state.code_variant_store = code_variant_store
     code_mutator = CodeMutator(
         provider_manager.get_client(),
         evolvable_paths=_cfg.code_variant_evolvable_paths,

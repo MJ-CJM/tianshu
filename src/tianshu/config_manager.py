@@ -51,6 +51,11 @@ class AgentConfigState:
     skill_guard_agent_created: bool = True
     skill_iterate_min_success_rate: float = 0.5
     skill_iterate_min_usage: int = 3
+    # 修撰效果门（迭代 6,ADR-0007）：修撰后须过配对评估提升才生效。默认关(保守 +
+    # 依赖 eval 装配 + 子进程 skills 重定向路径需实机验证);开启后未过门的修撰不激活(fail-safe)。
+    skill_effect_gate_enabled: bool = False
+    skill_effect_gate_margin: float = 0.05
+    skill_effect_gate_eval_set_size: int = 10
     # 平行位面（parallel universe）
     parallel_universe_enabled: bool = False
     universe_min_samples: int = 20
