@@ -440,7 +440,8 @@
         "nlPlaceholder": "e.g. push Shanghai weather to me every day at 9am",
         "nlButton": "Smart fill",
         "nlFailed": "Couldn't understand that — try rephrasing or fill the form manually.",
-        "executor": "Executor"
+        "executor": "Executor",
+        "taskType": "Task type"
       },
       "placeholder": {
         "title": "Leave blank to auto-extract first 20 chars of goal",
@@ -452,14 +453,14 @@
         "scheduleAt": "ISO 8601 time, e.g. 2026-03-20T09:00:00",
         "constraints": "Type constraint and press Enter",
         "outputFormat": "Specify expected output format (JSON, Markdown table, etc.)",
-        "timeoutSeconds": "Default 300",
+        "timeoutSeconds": "Default 300s",
         "maxIterations": "Default 20",
         "maxConcurrency": "Default 1",
-        "retryLimit": "Default 0",
+        "retryLimit": "Default 0 (no retry)",
         "tokenBudget": "Unlimited",
         "costBudget": "Unlimited",
         "maxOuterIterations": "Default 5",
-        "minOuterIterations": "Default 1 (no continuous)",
+        "minOuterIterations": "Default 1",
         "sameIssueThreshold": "Default 2",
         "l1MaxRounds": "Default 2",
         "l2MaxRounds": "Default 1",
@@ -502,7 +503,8 @@
         "runtime": "Runtime",
         "longTask": "Long Task Mode (Outer Loop)",
         "checks": "Acceptance Checks (optional)",
-        "more": "More settings"
+        "more": "More settings",
+        "advancedAcceptance": "Advanced acceptance params"
       },
       "template": {
         "analysis": "📊 Data Analysis",
@@ -513,6 +515,14 @@
       "warning": {
         "criticSelfReviewTitle": "Executor and Critic overlap",
         "criticSelfReviewDesc": "Same persona executing and self-reviewing significantly reduces critic objectivity. Recommend audit / knowledge-base personas not involved in execution."
+      },
+      "expertMode": "Expert mode",
+      "expertHint": "Tweak field by field (usually not needed once you pick a task type)",
+      "group": {
+        "execution": "Execution",
+        "budget": "Budget",
+        "permission": "Permissions & network",
+        "acceptance": "Acceptance (long-running)"
       }
     },
     "check": {
@@ -2006,5 +2016,27 @@
     "native": "Built-in engine (default)",
     "claudeCode": "Keqing: Claude Code",
     "codex": "Keqing: Codex"
+  },
+  "preset": {
+    "quick": {
+      "label": "Quick",
+      "summary": "Single task · native engine · always review"
+    },
+    "analysis": {
+      "label": "Analysis",
+      "summary": "Long-run · 5 outer · review on flag"
+    },
+    "coding": {
+      "label": "Coding",
+      "summary": "Checkpointed · 1h deadline"
+    },
+    "research": {
+      "label": "Research",
+      "summary": "Background · 15 outer · strict"
+    },
+    "keqing": {
+      "label": "Keqing",
+      "summary": "Dispatch Claude Code · shadow snapshots"
+    }
   }
 }

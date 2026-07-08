@@ -440,7 +440,8 @@
         "nlPlaceholder": "例如：每日卯时为朕呈递上海天象",
         "nlButton": "智能拟旨",
         "nlFailed": "未能会意，请换一种说法或移步下方手拟。",
-        "executor": "执事"
+        "executor": "执事",
+        "taskType": "差事类别"
       },
       "placeholder": {
         "title": "留空则自动截取旨意前 20 字",
@@ -452,14 +453,14 @@
         "scheduleAt": "ISO 8601 时间，例如 2026-03-20T09:00:00",
         "constraints": "输入约束条件后按回车添加",
         "outputFormat": "指定期望的输出格式，如 JSON、Markdown 表格等",
-        "timeoutSeconds": "默认 300",
-        "maxIterations": "默认 20",
-        "maxConcurrency": "默认 1",
-        "retryLimit": "默认 0",
+        "timeoutSeconds": "默认三百息",
+        "maxIterations": "默认二十回",
+        "maxConcurrency": "默认一",
+        "retryLimit": "默认零(不再试)",
         "tokenBudget": "不限",
         "costBudget": "不限",
-        "maxOuterIterations": "默认 5",
-        "minOuterIterations": "默认 1（不持续优化）",
+        "maxOuterIterations": "默认五",
+        "minOuterIterations": "默认一",
         "sameIssueThreshold": "默认 2",
         "l1MaxRounds": "默认 2",
         "l2MaxRounds": "默认 1",
@@ -502,7 +503,8 @@
         "runtime": "执行参数",
         "longTask": "长任务模式 (Outer Loop)",
         "checks": "可验收指标 Checks（可选，零或多条）",
-        "more": "更多设置"
+        "more": "更多设置",
+        "advancedAcceptance": "验收进阶参数"
       },
       "template": {
         "analysis": "📊 数据分析型",
@@ -513,6 +515,14 @@
       "warning": {
         "criticSelfReviewTitle": "执行官与监督官重合",
         "criticSelfReviewDesc": "同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议监督官选用都察院 / 文渊阁等不参与执行的 persona。"
+      },
+      "expertMode": "详参",
+      "expertHint": "逐项细调(既择类别,通常无须展开)",
+      "group": {
+        "execution": "办差设置",
+        "budget": "度支",
+        "permission": "权柄与网路",
+        "acceptance": "验收(长程差事)"
       }
     },
     "check": {
@@ -2005,5 +2015,27 @@
     "native": "自研引擎(默认)",
     "claudeCode": "客卿·Claude Code",
     "codex": "客卿·Codex"
+  },
+  "preset": {
+    "quick": {
+      "label": "速办",
+      "summary": "单差·自研引擎·每回御览"
+    },
+    "analysis": {
+      "label": "案陈",
+      "summary": "长程·外环五·遇疑呈览"
+    },
+    "coding": {
+      "label": "编纂",
+      "summary": "长程立契·限一时辰"
+    },
+    "research": {
+      "label": "穷究",
+      "summary": "后台长程·外环十五·从严"
+    },
+    "keqing": {
+      "label": "遣客卿",
+      "summary": "遣 Claude Code·影卷兜底"
+    }
   }
 }
