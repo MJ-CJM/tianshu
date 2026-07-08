@@ -19,7 +19,8 @@
       "gov": "政要",
       "growth": "百官",
       "system": "外朝"
-    }
+    },
+    "evals": "考成"
   },
   "sidebar": {
     "darkMode": "深色模式",
@@ -171,7 +172,8 @@
       "usage": "敕令 Token 用量",
       "recent": "最近审计结果",
       "auditRules": "审计规则",
-      "reviewPolicies": "审阅策略"
+      "reviewPolicies": "审阅策略",
+      "failureAttribution": "失事缘由分布"
     },
     "empty": {
       "usage": "暂无数据",
@@ -231,6 +233,16 @@
     "reviewPolicy": {
       "valuePrefix": "（值：",
       "valueSuffix": "）"
+    },
+    "failure": {
+      "days7": "近七日",
+      "days30": "近三十日",
+      "all": "通计",
+      "none": "未有失事",
+      "reason": "缘由",
+      "count": "次数",
+      "share": "占比",
+      "lastSeen": "最近一次"
     }
   },
   "memorial": {
@@ -1930,5 +1942,31 @@
       "pending": "待处置",
       "all": "全部敕令"
     }
+  },
+  "evals": {
+    "title": "考成院",
+    "subtitle": "回放旧敕于沙箱,量核政绩之进退。开考之令:tianshu evals run",
+    "firstRun": "初考",
+    "goal": "敕命",
+    "status": "状情",
+    "failureReason": "失事缘由",
+    "cost": "靡费",
+    "score": "考成总分",
+    "deltaVsPrev": "较前次",
+    "successRate": "成事率",
+    "auditRate": "核验通过率",
+    "target": "所考对象",
+    "truncated": "靡费触限而止",
+    "goalResults": "逐条考语",
+    "failureDistribution": "失事缘由分布",
+    "noFailures": "未有失事",
+    "emptyHint": "未有考成记录。于终端行此令,即得首份考成册:",
+    "evalSet": "考卷",
+    "adhocSample": "临场抽题",
+    "time": "时刻",
+    "savedSets": "既存考卷",
+    "setName": "卷名",
+    "goalCount": "题数",
+    "source": "出处"
   }
 }

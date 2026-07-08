@@ -19,6 +19,7 @@ from tianshu.models import (
     Memorial,
     TaskStatus,
     UsageSummary,
+    resolve_failure_reason,
 )
 from tianshu.models.acceptance import AcceptanceCriteria
 
@@ -282,6 +283,7 @@ def _row_to_memorial(row: sqlite3.Row) -> Memorial:
         final_output=(row["final_output"] if "final_output" in keys else None),
         universe_id=row["universe_id"] if "universe_id" in keys else None,
         feedback_score=row["feedback_score"] if "feedback_score" in keys else 0,
+        failure_reason=row["failure_reason"] if "failure_reason" in keys else None,
     )
 
 
@@ -333,4 +335,6 @@ def _memorial_to_params(m: Memorial) -> tuple:
         m.final_output,
         m.universe_id,
         m.last_heartbeat_at.isoformat() if m.last_heartbeat_at else None,
+        # 写路径自动归因:failed 且未显式给值时从 error 文本分类(迭代 2)
+        resolve_failure_reason(m.status.value, m.error, m.failure_reason),
     )

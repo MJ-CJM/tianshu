@@ -19,7 +19,8 @@
       "gov": "治理",
       "growth": "成长",
       "system": "系统"
-    }
+    },
+    "evals": "评测"
   },
   "sidebar": {
     "darkMode": "深色模式",
@@ -171,7 +172,8 @@
       "usage": "任务 Token 用量",
       "recent": "最近审计结果",
       "auditRules": "审计规则",
-      "reviewPolicies": "审阅策略"
+      "reviewPolicies": "审阅策略",
+      "failureAttribution": "失败归因分布"
     },
     "empty": {
       "usage": "暂无数据",
@@ -231,6 +233,16 @@
     "reviewPolicy": {
       "valuePrefix": "（值：",
       "valueSuffix": "）"
+    },
+    "failure": {
+      "days7": "近 7 天",
+      "days30": "近 30 天",
+      "all": "全部",
+      "none": "没有失败记录",
+      "reason": "原因",
+      "count": "次数",
+      "share": "占比",
+      "lastSeen": "最近一次"
     }
   },
   "memorial": {
@@ -1930,5 +1942,31 @@
       "pending": "待处理",
       "all": "全部任务"
     }
+  },
+  "evals": {
+    "title": "评测中心",
+    "subtitle": "平台级回归评测——沙箱回放历史任务,量化「变好了吗」。跑批入口:tianshu evals run",
+    "firstRun": "首跑",
+    "goal": "任务",
+    "status": "状态",
+    "failureReason": "失败归因",
+    "cost": "成本",
+    "score": "综合分",
+    "deltaVsPrev": "Δ vs 上次",
+    "successRate": "成功率",
+    "auditRate": "审计通过率",
+    "target": "评测对象",
+    "truncated": "预算截断",
+    "goalResults": "逐条结果",
+    "failureDistribution": "失败归因分布",
+    "noFailures": "无失败",
+    "emptyHint": "暂无评测运行。在终端跑一条命令即可产出第一份评测报告:",
+    "evalSet": "评测集",
+    "adhocSample": "临时采样",
+    "time": "时间",
+    "savedSets": "已保存评测集",
+    "setName": "名称",
+    "goalCount": "条数",
+    "source": "来源"
   }
 }

@@ -19,7 +19,8 @@
       "gov": "Governance",
       "growth": "Growth",
       "system": "System"
-    }
+    },
+    "evals": "Evals"
   },
   "sidebar": {
     "darkMode": "Dark Mode",
@@ -171,7 +172,8 @@
       "usage": "Task token usage",
       "recent": "Recent audit results",
       "auditRules": "Audit rules",
-      "reviewPolicies": "Review policies"
+      "reviewPolicies": "Review policies",
+      "failureAttribution": "Failure attribution"
     },
     "empty": {
       "usage": "No data",
@@ -231,6 +233,16 @@
     "reviewPolicy": {
       "valuePrefix": " (value: ",
       "valueSuffix": ")"
+    },
+    "failure": {
+      "days7": "Last 7 days",
+      "days30": "Last 30 days",
+      "all": "All time",
+      "none": "No failures recorded",
+      "reason": "Reason",
+      "count": "Count",
+      "share": "Share",
+      "lastSeen": "Last seen"
     }
   },
   "memorial": {
@@ -1931,5 +1943,31 @@
       "pending": "Pending",
       "all": "All Tasks"
     }
+  },
+  "evals": {
+    "title": "Evals",
+    "subtitle": "Platform-level regression evals — replay historical tasks in a sandbox to quantify improvement. Run via: tianshu evals run",
+    "firstRun": "first run",
+    "goal": "Goal",
+    "status": "Status",
+    "failureReason": "Failure reason",
+    "cost": "Cost",
+    "score": "Score",
+    "deltaVsPrev": "Δ vs previous",
+    "successRate": "Success rate",
+    "auditRate": "Audit pass rate",
+    "target": "Target",
+    "truncated": "Budget truncated",
+    "goalResults": "Per-goal results",
+    "failureDistribution": "Failure distribution",
+    "noFailures": "No failures",
+    "emptyHint": "No eval runs yet. Run this command in your terminal to produce the first report:",
+    "evalSet": "Eval set",
+    "adhocSample": "ad-hoc sample",
+    "time": "Time",
+    "savedSets": "Saved eval sets",
+    "setName": "Name",
+    "goalCount": "Goals",
+    "source": "Source"
   }
 }

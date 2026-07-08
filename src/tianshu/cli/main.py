@@ -11,6 +11,7 @@ from tianshu.cli.commands import (
     decree,
     doctor,
     edict,
+    evals,
     event,
     health,
     memorial,
@@ -34,6 +35,7 @@ app.add_typer(provider.app, name="provider", help="Provider management")
 app.add_typer(plugin.app, name="plugin", help="Plugin management")
 app.add_typer(dag.app, name="dag", help="DAG execution management")
 app.add_typer(worker.app, name="worker", help="Worker pool management")
+app.add_typer(evals.app, name="evals", help="Platform regression evals & failure attribution")
 app.command()(health.health)
 app.command()(doctor.doctor)
 app.command()(watch)

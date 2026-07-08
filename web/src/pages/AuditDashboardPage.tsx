@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, Row, Col, Statistic, Table, Tag, Tooltip, Timeline, Tabs, Space, Descriptions, Select, Input } from "antd";
+import { Button, Card, Row, Col, Statistic, Table, Tag, Tooltip, Timeline, Tabs, Space, Descriptions, Select, Input, Typography } from "antd";
 import {
   ReloadOutlined,
   ThunderboltOutlined,
@@ -32,7 +32,8 @@ import {
 import type { EdictUsageRow, RecentAuditRow, ReviewPolicyInfo } from "../api/types";
 import apiClient from "../api/client";
 import { listNetworkEvents } from "../api/network_events";
-import type { NetworkEventRow } from "../api/types";
+import { getFailureDistribution } from "../api/evals";
+import type { NetworkEventRow, FailureDistributionItem } from "../api/types";
 import { useT } from "../i18n";
 
 interface HookEvent {
@@ -46,6 +47,76 @@ interface HookEvent {
     error?: string | null;
   };
   created_at: string;
+}
+
+function FailureAttributionCard() {
+  const t = useT();
+  const [days, setDays] = useState<number | undefined>(30);
+  const { data } = useQuery({
+    queryKey: ["evals", "failure-distribution", days],
+    queryFn: () => getFailureDistribution(days),
+  });
+  const dist = data?.data ?? [];
+  const total = dist.reduce((acc, d) => acc + d.count, 0);
+
+  return (
+    <Card
+      title={t("audit.section.failureAttribution")}
+      style={{ marginTop: 24 }}
+      size="small"
+      extra={
+        <Select
+          size="small"
+          value={days ?? 0}
+          style={{ width: 120 }}
+          onChange={(v: number) => setDays(v === 0 ? undefined : v)}
+          options={[
+            { value: 7, label: t("audit.failure.days7") },
+            { value: 30, label: t("audit.failure.days30") },
+            { value: 0, label: t("audit.failure.all") },
+          ]}
+        />
+      }
+    >
+      {dist.length === 0 ? (
+        <Typography.Text type="secondary">{t("audit.failure.none")}</Typography.Text>
+      ) : (
+        <Table<FailureDistributionItem>
+          rowKey="reason"
+          size="small"
+          pagination={false}
+          dataSource={dist}
+          columns={[
+            {
+              title: t("audit.failure.reason"),
+              dataIndex: "reason",
+              render: (r: string) => <MonoText>{r}</MonoText>,
+            },
+            {
+              title: t("audit.failure.count"),
+              dataIndex: "count",
+              width: 90,
+              align: "right" as const,
+            },
+            {
+              title: t("audit.failure.share"),
+              key: "share",
+              width: 100,
+              align: "right" as const,
+              render: (_: unknown, rec: FailureDistributionItem) =>
+                total ? `${((rec.count / total) * 100).toFixed(1)}%` : "—",
+            },
+            {
+              title: t("audit.failure.lastSeen"),
+              dataIndex: "last_seen",
+              width: 180,
+              render: (ts: string | null) => (ts ? formatTime(ts) : "—"),
+            },
+          ]}
+        />
+      )}
+    </Card>
+  );
 }
 
 function HookEventsCard() {
@@ -556,6 +627,8 @@ export default function AuditDashboardPage() {
                     locale={{ emptyText: t("audit.empty.recent") }}
                   />
                 </Card>
+
+                <FailureAttributionCard />
 
                 <HookEventsCard />
               </>

@@ -1,8 +1,9 @@
 """SQLite storage layer - system truth source.
 
-Storage 由 _StorageBase（连接生命周期：建库/建表/迁移/关闭）与 15 个领域 Mixin 组合而成：
+Storage 由 _StorageBase（连接生命周期：建库/建表/迁移/关闭）与 16 个领域 Mixin 组合而成：
 edict/memorial/event/memory/cost/dag/scheduler（批 B）+
-config/persona/universe/credential/orchestrator/channel/feishu/telegram（批 C）。
+config/persona/universe/credential/orchestrator/channel/feishu/telegram（批 C）+
+evals（迭代 2）。
 本文件仅保留跨域方法（涉及多张表 JOIN，无法唯一归入某个领域表）与 Storage 组合声明本身。
 """
 
@@ -13,6 +14,7 @@ from tianshu.storage.cost_repo import CostMixin
 from tianshu.storage.credential_repo import CredentialMixin
 from tianshu.storage.dag_repo import DagMixin
 from tianshu.storage.edict_repo import EdictMixin
+from tianshu.storage.evals_repo import EvalsMixin
 from tianshu.storage.event_repo import EventMixin
 from tianshu.storage.feishu_repo import FeishuMixin
 from tianshu.storage.memorial_repo import MemorialMixin
@@ -36,6 +38,7 @@ class Storage(
     ConfigMixin,
     PersonaMixin,
     UniverseMixin,
+    EvalsMixin,
     CredentialMixin,
     OrchestratorMixin,
     ChannelMixin,

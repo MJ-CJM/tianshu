@@ -231,14 +231,15 @@ def test_evaluate_orchestration_with_fakes(tmp_path, tmp_storage, monkeypatch):
 
     result = harness.evaluate(worktree, eval_set=eval_set)
 
-    # 返回结构正确
-    assert set(result.keys()) == {"fitness", "stats", "n", "truncated"}
+    # 返回结构正确(迭代 2 起含 goal_results per-goal 明细)
+    assert set(result.keys()) == {"fitness", "stats", "n", "truncated", "goal_results"}
     assert result["n"] == len(eval_set)
     assert isinstance(result["fitness"], dict)
     assert "score" in result["fitness"]
     assert isinstance(result["stats"], dict)
     assert "total" in result["stats"]
     assert result["truncated"] is False
+    assert isinstance(result["goal_results"], list)
 
     # _run_goal 被调用了 len(eval_set) 次
     assert run_goal_calls == eval_set
