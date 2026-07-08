@@ -440,7 +440,8 @@
         "nlPlaceholder": "例如：每天早上9点给我推送上海天气",
         "nlButton": "智能填充",
         "nlFailed": "没太理解，请换种说法或手动填写下方表单。",
-        "executor": "执行器"
+        "executor": "执行器",
+        "taskType": "任务类型"
       },
       "placeholder": {
         "title": "留空则自动截取目标前 20 字",
@@ -452,14 +453,14 @@
         "scheduleAt": "ISO 8601 时间，例如 2026-03-20T09:00:00",
         "constraints": "输入约束条件后按回车添加",
         "outputFormat": "指定期望的输出格式，如 JSON、Markdown 表格等",
-        "timeoutSeconds": "默认 300",
-        "maxIterations": "默认 20",
+        "timeoutSeconds": "默认 300 秒",
+        "maxIterations": "默认 20 轮",
         "maxConcurrency": "默认 1",
-        "retryLimit": "默认 0",
+        "retryLimit": "默认 0(不重试)",
         "tokenBudget": "不限",
         "costBudget": "不限",
         "maxOuterIterations": "默认 5",
-        "minOuterIterations": "默认 1（不持续优化）",
+        "minOuterIterations": "默认 1",
         "sameIssueThreshold": "默认 2",
         "l1MaxRounds": "默认 2",
         "l2MaxRounds": "默认 1",
@@ -502,7 +503,8 @@
         "runtime": "执行参数",
         "longTask": "长任务模式 (Outer Loop)",
         "checks": "可验收指标 Checks（可选，零或多条）",
-        "more": "更多设置"
+        "more": "更多设置",
+        "advancedAcceptance": "进阶验收参数"
       },
       "template": {
         "analysis": "📊 数据分析型",
@@ -513,6 +515,14 @@
       "warning": {
         "criticSelfReviewTitle": "执行者与审核者重合",
         "criticSelfReviewDesc": "同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议审核者选用审计 / 知识库等不参与执行的 persona。"
+      },
+      "expertMode": "专家模式",
+      "expertHint": "逐字段微调(选了任务类型通常无需展开)",
+      "group": {
+        "execution": "执行设置",
+        "budget": "预算",
+        "permission": "权限与网络",
+        "acceptance": "验收(长程任务)"
       }
     },
     "check": {
@@ -2005,5 +2015,27 @@
     "native": "自研引擎(默认)",
     "claudeCode": "客卿:Claude Code",
     "codex": "客卿:Codex"
+  },
+  "preset": {
+    "quick": {
+      "label": "快速执行",
+      "summary": "单任务·自研引擎·每次审阅"
+    },
+    "analysis": {
+      "label": "分析报告",
+      "summary": "长程·外环5·flag时审阅"
+    },
+    "coding": {
+      "label": "编码任务",
+      "summary": "长程检查点·截止1h"
+    },
+    "research": {
+      "label": "长程研究",
+      "summary": "后台长程·外环15·严格"
+    },
+    "keqing": {
+      "label": "客卿模式",
+      "summary": "派 Claude Code·影子快照兜底"
+    }
   }
 }

@@ -1,6 +1,20 @@
 import { useState } from "react";
-import { Alert, Form, Input, Button, Collapse, Select, Radio, Switch, Space } from "antd";
-import { SendOutlined } from "@ant-design/icons";
+import {
+  Alert,
+  Button,
+  Card,
+  Collapse,
+  Divider,
+  Form,
+  Input,
+  InputNumber,
+  Radio,
+  Select,
+  Space,
+  Switch,
+  Typography,
+} from "antd";
+import { SendOutlined, ToolOutlined } from "@ant-design/icons";
 import { parseEdict } from "../../api/edicts";
 import { usePersonas } from "../../hooks/usePersonas";
 import { useT } from "../../i18n";
@@ -12,8 +26,10 @@ import type {
   ExecutionProfile,
 } from "../../api/types";
 import type { PolicyProfileValue } from "../policy/PolicyProfilePanel";
-import RuntimeConfigSection from "./RuntimeConfigSection";
+import PolicyProfilePanel from "../policy/PolicyProfilePanel";
+import NetworkCapabilitySection from "./NetworkCapabilitySection";
 import AcceptanceConfigSection from "./AcceptanceConfigSection";
+import { EDICT_PRESETS, getPreset } from "./edictPresets";
 
 interface EdictFormProps {
   onSubmit: (values: EdictCreateRequest) => void;
@@ -24,10 +40,10 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
   const t = useT();
   const [form] = Form.useForm();
   const [assignMode, setAssignMode] = useState<"auto" | "direct">("auto");
-  const [policyProfile, setPolicyProfile] =
-    useState<PolicyProfileValue | null>(null);
+  const [policyProfile, setPolicyProfile] = useState<PolicyProfileValue | null>(null);
   const [longTaskEnabled, setLongTaskEnabled] = useState(false);
-  const [activePanels, setActivePanels] = useState<string[]>([]);
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [expertMode, setExpertMode] = useState(false);
   const [nlText, setNlText] = useState("");
   const [nlLoading, setNlLoading] = useState(false);
   const [nlNotes, setNlNotes] = useState<string | null>(null);
@@ -49,6 +65,15 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     label: `${p.name}${p.llm_config_name ? ` (${p.llm_config_name})` : ""}`,
   }));
 
+  const applyPreset = (key: string) => {
+    const preset = getPreset(key);
+    if (!preset) return;
+    setSelectedPreset(key);
+    setLongTaskEnabled(preset.longTask);
+    if (preset.assignMode) setAssignMode(preset.assignMode);
+    form.setFieldsValue(preset.fields);
+  };
+
   const handleSmartFill = async () => {
     if (!nlText.trim()) return;
     setNlLoading(true);
@@ -62,11 +87,6 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       if (draft.context) patch.context = draft.context;
       if (draft.priority) patch.priority = draft.priority;
       form.setFieldsValue(patch);
-      if (draft.context || draft.priority) {
-        setActivePanels((prev) =>
-          prev.includes("advanced") ? prev : [...prev, "advanced"],
-        );
-      }
       if (notes) setNlNotes(notes);
     } catch {
       setNlError(t("form.edict.field.nlFailed"));
@@ -152,11 +172,9 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     if (assignMode === "direct" && values.assigned_persona_id) {
       req.assigned_persona_id = values.assigned_persona_id as string;
     }
-
     if (assignMode === "auto" && values.planner_persona_id) {
       req.planner_persona_id = values.planner_persona_id as string;
     }
-
     if (assignMode === "auto" && values.plan_review) {
       req.plan_review = true;
     }
@@ -173,30 +191,17 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       if (deadlineSeconds > 0) {
         acceptance.deadline_seconds = deadlineSeconds;
       }
-      const onExhaustion = values.on_exhaustion as
-        | "escalate"
-        | "best_effort"
-        | "fail"
-        | undefined;
+      const onExhaustion = values.on_exhaustion as "escalate" | "best_effort" | "fail" | undefined;
       if (onExhaustion && onExhaustion !== "escalate") {
         acceptance.on_exhaustion = onExhaustion;
       }
-      const onCriticUnavail = values.on_critic_unavailable as
-        | "escalate"
-        | "skip"
-        | undefined;
+      const onCriticUnavail = values.on_critic_unavailable as "escalate" | "skip" | undefined;
       if (onCriticUnavail && onCriticUnavail !== "skip") {
         acceptance.on_critic_unavailable = onCriticUnavail;
       }
-      const sameIssueThreshold = values.same_issue_threshold as
-        | number
-        | undefined;
+      const sameIssueThreshold = values.same_issue_threshold as number | undefined;
       const criticPersonaIds = values.critic_persona_ids as string[] | undefined;
-      const strictness = values.critic_strictness as
-        | "lenient"
-        | "balanced"
-        | "strict"
-        | undefined;
+      const strictness = values.critic_strictness as "lenient" | "balanced" | "strict" | undefined;
       if (
         sameIssueThreshold !== undefined ||
         (criticPersonaIds && criticPersonaIds.length > 0) ||
@@ -222,10 +227,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       }
       const l1Max = values.l1_max_rounds as number | undefined;
       const l2Max = values.l2_max_rounds as number | undefined;
-      if (
-        (l1Max !== undefined && l1Max !== 2) ||
-        (l2Max !== undefined && l2Max !== 1)
-      ) {
+      if ((l1Max !== undefined && l1Max !== 2) || (l2Max !== undefined && l2Max !== 1)) {
         acceptance.escalation = {
           ...(l1Max !== undefined && l1Max !== 2 ? { l1_max_rounds: l1Max } : {}),
           ...(l2Max !== undefined && l2Max !== 1 ? { l2_max_rounds: l2Max } : {}),
@@ -242,67 +244,8 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     onSubmit(req);
   };
 
-  return (
-    <Form
-      form={form}
-      layout="vertical"
-      onFinish={handleFinish}
-      requiredMark={false}
-      initialValues={{
-        priority: "normal",
-        review_policy: "always",
-      }}
-      style={{ maxWidth: 640 }}
-    >
-      <Collapse
-        ghost
-        style={{ marginBottom: 8 }}
-        items={[
-          {
-            key: "nl",
-            label: t("form.edict.field.nlLabel"),
-            children: (
-              <>
-                <Space.Compact style={{ width: "100%" }}>
-                  <Input.TextArea
-                    rows={2}
-                    value={nlText}
-                    onChange={(e) => setNlText(e.target.value)}
-                    placeholder={t("form.edict.field.nlPlaceholder")}
-                    style={{ resize: "vertical" }}
-                  />
-                  <Button type="primary" loading={nlLoading} onClick={handleSmartFill}>
-                    {t("form.edict.field.nlButton")}
-                  </Button>
-                </Space.Compact>
-                {nlNotes && (
-                  <Alert type="info" showIcon style={{ marginTop: 8 }} message={nlNotes} />
-                )}
-                {nlError && (
-                  <Alert type="warning" showIcon style={{ marginTop: 8 }} message={nlError} />
-                )}
-              </>
-            ),
-          },
-        ]}
-      />
-
-      <Form.Item name="title" label={t("form.edict.field.title")}>
-        <Input placeholder={t("form.edict.placeholder.title")} />
-      </Form.Item>
-
-      <Form.Item
-        name="goal"
-        label={t("form.edict.field.goal")}
-        rules={[{ required: true, message: t("form.edict.validation.goalRequired") }]}
-      >
-        <Input.TextArea
-          rows={4}
-          placeholder={t("form.edict.placeholder.goal")}
-          style={{ resize: "vertical" }}
-        />
-      </Form.Item>
-
+  const executionGroup = (
+    <>
       <Form.Item label={t("form.edict.field.executionMode")}>
         <Radio.Group
           value={assignMode}
@@ -359,121 +302,210 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
         </Form.Item>
       )}
 
+      <Form.Item name="executor" label={t("form.edict.field.executor")} tooltip={t("form.edict.tooltip.executor")}>
+        <Select
+          options={[
+            { value: "native", label: t("executor.native") },
+            { value: "keqing:claude-code", label: t("executor.claudeCode") },
+            { value: "keqing:codex", label: t("executor.codex") },
+          ]}
+        />
+      </Form.Item>
+
+      <Form.Item name="review_policy" label={t("form.edict.field.reviewPolicy")}>
+        <Select
+          options={[
+            { value: "always", label: t("reviewPolicy.always") },
+            { value: "on_flag", label: t("reviewPolicy.on_flag") },
+            { value: "on_failure", label: t("reviewPolicy.on_failure") },
+            { value: "never", label: t("reviewPolicy.never") },
+          ]}
+        />
+      </Form.Item>
+
+      <Form.Item name="priority" label={t("form.edict.field.priority")}>
+        <Select
+          options={[
+            { value: "urgent", label: t("priority.urgent") },
+            { value: "normal", label: t("priority.normal") },
+            { value: "low", label: t("priority.low") },
+          ]}
+        />
+      </Form.Item>
+
+      <Form.Item name="context" label={t("form.edict.field.context")}>
+        <Input.TextArea rows={3} placeholder={t("form.edict.placeholder.context")} style={{ resize: "vertical" }} />
+      </Form.Item>
+
+      <Form.Item name="constraints" label={t("form.edict.field.constraints")}>
+        <Select mode="tags" placeholder={t("form.edict.placeholder.constraints")} tokenSeparators={[","]} />
+      </Form.Item>
+
+      <Form.Item name="output_format" label={t("form.edict.field.outputFormat")}>
+        <Input.TextArea rows={2} placeholder={t("form.edict.placeholder.outputFormat")} style={{ resize: "vertical" }} />
+      </Form.Item>
+
+      <Divider style={{ margin: "12px 0" }} />
+
+      <Form.Item name="timeout_seconds" label={t("form.edict.field.timeoutSeconds")}>
+        <InputNumber min={10} max={3600} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.timeoutSeconds")} />
+      </Form.Item>
+      <Form.Item name="max_iterations" label={t("form.edict.field.maxIterations")}>
+        <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxIterations")} />
+      </Form.Item>
+      <Form.Item name="max_concurrency" label={t("form.edict.field.maxConcurrency")}>
+        <InputNumber min={1} max={8} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxConcurrency")} />
+      </Form.Item>
+      <Form.Item name="retry_limit" label={t("form.edict.field.retryLimit")}>
+        <InputNumber min={0} max={10} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.retryLimit")} />
+      </Form.Item>
+    </>
+  );
+
+  const budgetGroup = (
+    <>
+      <Form.Item name="cost_budget_cny" label={t("form.edict.field.costBudget")}>
+        <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.costBudget")} />
+      </Form.Item>
+      <Form.Item name="token_budget" label={t("form.edict.field.tokenBudget")}>
+        <InputNumber min={1} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.tokenBudget")} />
+      </Form.Item>
+    </>
+  );
+
+  const permissionGroup = (
+    <>
+      <PolicyProfilePanel value={policyProfile ?? undefined} onChange={setPolicyProfile} />
+      <NetworkCapabilitySection
+        profileTemplate={policyProfile?.template_name ?? null}
+        apiRequestHosts={netState.api_request_hosts}
+        apiRequestWriteHosts={netState.api_request_write_hosts}
+        onChange={(patch) => setNetState((prev) => ({ ...prev, ...patch }))}
+      />
+    </>
+  );
+
+  return (
+    <Form
+      form={form}
+      layout="vertical"
+      onFinish={handleFinish}
+      requiredMark={false}
+      initialValues={{ priority: "normal", review_policy: "always" }}
+      style={{ maxWidth: 640 }}
+    >
+      {/* --- 第一层:极简默认(标题 / 目标 / 智能填充) --- */}
+      <Form.Item name="title" label={t("form.edict.field.title")}>
+        <Input placeholder={t("form.edict.placeholder.title")} />
+      </Form.Item>
+
+      <Form.Item
+        name="goal"
+        label={t("form.edict.field.goal")}
+        rules={[{ required: true, message: t("form.edict.validation.goalRequired") }]}
+      >
+        <Input.TextArea rows={4} placeholder={t("form.edict.placeholder.goal")} style={{ resize: "vertical" }} />
+      </Form.Item>
+
       <Collapse
         ghost
-        style={{ marginBottom: 24 }}
-        activeKey={activePanels}
-        onChange={(keys) => setActivePanels(keys as string[])}
+        style={{ marginBottom: 8 }}
         items={[
           {
-            key: "advanced",
-            label: t("form.edict.section.more"),
+            key: "nl",
+            label: t("form.edict.field.nlLabel"),
             children: (
               <>
-                <Form.Item name="context" label={t("form.edict.field.context")}>
-                  <Input.TextArea
-                    rows={3}
-                    placeholder={t("form.edict.placeholder.context")}
-                    style={{ resize: "vertical" }}
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  name="priority"
-                  label={t("form.edict.field.priority")}
-                >
-                  <Select
-                    options={[
-                      { value: "urgent", label: t("priority.urgent") },
-                      { value: "normal", label: t("priority.normal") },
-                      { value: "low", label: t("priority.low") },
-                    ]}
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  name="review_policy"
-                  label={t("form.edict.field.reviewPolicy")}
-                >
-                  <Select
-                    options={[
-                      { value: "always", label: t("reviewPolicy.always") },
-                      { value: "on_flag", label: t("reviewPolicy.on_flag") },
-                      { value: "on_failure", label: t("reviewPolicy.on_failure") },
-                      { value: "never", label: t("reviewPolicy.never") },
-                    ]}
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  name="executor"
-                  label={t("form.edict.field.executor")}
-                  tooltip={t("form.edict.tooltip.executor")}
-                >
-                  <Select
-                    options={[
-                      { value: "native", label: t("executor.native") },
-                      { value: "keqing:claude-code", label: t("executor.claudeCode") },
-                      { value: "keqing:codex", label: t("executor.codex") },
-                    ]}
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  name="constraints"
-                  label={t("form.edict.field.constraints")}
-                >
-                  <Select
-                    mode="tags"
-                    placeholder={t("form.edict.placeholder.constraints")}
-                    tokenSeparators={[","]}
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  name="output_format"
-                  label={t("form.edict.field.outputFormat")}
-                >
+                <Space.Compact style={{ width: "100%" }}>
                   <Input.TextArea
                     rows={2}
-                    placeholder={t("form.edict.placeholder.outputFormat")}
+                    value={nlText}
+                    onChange={(e) => setNlText(e.target.value)}
+                    placeholder={t("form.edict.field.nlPlaceholder")}
                     style={{ resize: "vertical" }}
                   />
-                </Form.Item>
-
-                <RuntimeConfigSection
-                  policyProfile={policyProfile}
-                  setPolicyProfile={setPolicyProfile}
-                  netState={netState}
-                  setNetState={setNetState}
-                />
-              </>
-            ),
-          },
-          {
-            key: "long-task",
-            label: t("form.edict.section.longTask"),
-            children: (
-              <>
-                <AcceptanceConfigSection
-                  longTaskEnabled={longTaskEnabled}
-                  setLongTaskEnabled={setLongTaskEnabled}
-                  assignMode={assignMode}
-                />
+                  <Button type="primary" loading={nlLoading} onClick={handleSmartFill}>
+                    {t("form.edict.field.nlButton")}
+                  </Button>
+                </Space.Compact>
+                {nlNotes && <Alert type="info" showIcon style={{ marginTop: 8 }} message={nlNotes} />}
+                {nlError && <Alert type="warning" showIcon style={{ marginTop: 8 }} message={nlError} />}
               </>
             ),
           },
         ]}
       />
 
+      {/* --- 第二层:意图预设卡 --- */}
+      <Form.Item label={t("form.edict.field.taskType")}>
+        <Space wrap>
+          {EDICT_PRESETS.map((p) => (
+            <Card
+              key={p.key}
+              size="small"
+              hoverable
+              onClick={() => applyPreset(p.key)}
+              styles={{ body: { padding: "8px 14px" } }}
+              style={{
+                cursor: "pointer",
+                borderColor: selectedPreset === p.key ? "#1677ff" : undefined,
+                borderWidth: selectedPreset === p.key ? 2 : 1,
+                minWidth: 120,
+              }}
+            >
+              <div style={{ fontWeight: 500 }}>
+                {p.icon} {t(`preset.${p.key}.label`)}
+              </div>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t(`preset.${p.key}.summary`)}
+              </Typography.Text>
+            </Card>
+          ))}
+        </Space>
+      </Form.Item>
+
+      {/* --- 第三层:专家模式(默认收起) --- */}
       <Form.Item>
-        <Button
-          type="primary"
-          htmlType="submit"
-          loading={loading}
-          icon={<SendOutlined />}
-          size="large"
-        >
+        <Space>
+          <Switch
+            checked={expertMode}
+            onChange={setExpertMode}
+            checkedChildren={<ToolOutlined />}
+            unCheckedChildren={<ToolOutlined />}
+          />
+          <span>{t("form.edict.expertMode")}</span>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t("form.edict.expertHint")}
+          </Typography.Text>
+        </Space>
+      </Form.Item>
+
+      {expertMode && (
+        <Collapse
+          ghost
+          defaultActiveKey={["execution"]}
+          style={{ marginBottom: 16 }}
+          items={[
+            { key: "execution", label: t("form.edict.group.execution"), children: executionGroup },
+            { key: "budget", label: t("form.edict.group.budget"), children: budgetGroup },
+            { key: "permission", label: t("form.edict.group.permission"), children: permissionGroup },
+            {
+              key: "acceptance",
+              label: t("form.edict.group.acceptance"),
+              children: (
+                <AcceptanceConfigSection
+                  longTaskEnabled={longTaskEnabled}
+                  setLongTaskEnabled={setLongTaskEnabled}
+                  assignMode={assignMode}
+                />
+              ),
+            },
+          ]}
+        />
+      )}
+
+      <Form.Item>
+        <Button type="primary" htmlType="submit" loading={loading} icon={<SendOutlined />} size="large">
           {t("nav.edictCreate")}
         </Button>
       </Form.Item>

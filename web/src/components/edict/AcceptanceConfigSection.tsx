@@ -1,4 +1,4 @@
-import { Alert, Form, Input, InputNumber, Button, Select, Divider, Radio, Switch, Space, Card } from "antd";
+import { Alert, Form, Input, InputNumber, Button, Select, Divider, Radio, Switch, Space, Card, Collapse } from "antd";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import { usePersonas } from "../../hooks/usePersonas";
 import { useT } from "../../i18n";
@@ -139,14 +139,6 @@ export default function AcceptanceConfigSection({
           </Form.Item>
 
           <Form.Item
-            name="min_outer_iterations"
-            label={t("form.edict.field.minOuterIterations")}
-            tooltip={t("form.edict.tooltip.minOuterIterations")}
-          >
-            <InputNumber min={1} max={20} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.minOuterIterations")} />
-          </Form.Item>
-
-          <Form.Item
             name="critic_strictness"
             label={t("form.edict.field.criticStrictness")}
             tooltip={t("form.edict.tooltip.criticStrictness")}
@@ -255,21 +247,43 @@ export default function AcceptanceConfigSection({
             }}
           </Form.Item>
 
-          <Form.Item
-            name="same_issue_threshold"
-            label={t("form.edict.field.sameIssueThreshold")}
-            tooltip={t("form.edict.tooltip.sameIssueThreshold")}
-          >
-            <InputNumber min={1} max={10} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.sameIssueThreshold")} />
-          </Form.Item>
+          <Collapse
+            ghost
+            style={{ marginBottom: 8 }}
+            items={[
+              {
+                key: "adv-acceptance",
+                label: t("form.edict.section.advancedAcceptance"),
+                children: (
+                  <>
+                    <Form.Item
+                      name="min_outer_iterations"
+                      label={t("form.edict.field.minOuterIterations")}
+                      tooltip={t("form.edict.tooltip.minOuterIterations")}
+                    >
+                      <InputNumber min={1} max={20} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.minOuterIterations")} />
+                    </Form.Item>
 
-          <Form.Item name="l1_max_rounds" label={t("form.edict.field.l1MaxRounds")}>
-            <InputNumber min={1} max={5} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.l1MaxRounds")} />
-          </Form.Item>
+                    <Form.Item
+                      name="same_issue_threshold"
+                      label={t("form.edict.field.sameIssueThreshold")}
+                      tooltip={t("form.edict.tooltip.sameIssueThreshold")}
+                    >
+                      <InputNumber min={1} max={10} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.sameIssueThreshold")} />
+                    </Form.Item>
 
-          <Form.Item name="l2_max_rounds" label={t("form.edict.field.l2MaxRounds")}>
-            <InputNumber min={1} max={5} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.l2MaxRounds")} />
-          </Form.Item>
+                    <Form.Item name="l1_max_rounds" label={t("form.edict.field.l1MaxRounds")}>
+                      <InputNumber min={1} max={5} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.l1MaxRounds")} />
+                    </Form.Item>
+
+                    <Form.Item name="l2_max_rounds" label={t("form.edict.field.l2MaxRounds")}>
+                      <InputNumber min={1} max={5} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.l2MaxRounds")} />
+                    </Form.Item>
+                  </>
+                ),
+              },
+            ]}
+          />
 
           <Divider style={{ margin: "12px 0" }} />
           <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 12 }}>
