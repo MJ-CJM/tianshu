@@ -48,6 +48,10 @@ class Executor:
         self._universe_manager = None  # set via set_universe_manager()
         self._running_tasks: set[asyncio.Task] = set()
         self._orchestrator_ctx = None  # set via set_orchestrator_context()
+        # 迭代 3.5「客卿」:外部 CLI 执行器(runtime.executor=keqing:<agent> 时路由)
+        from tianshu.executor.keqing import KeqingExecutor
+
+        self._keqing = KeqingExecutor()
 
     def set_agent(self, agent: object) -> None:
         self._agent = agent
@@ -203,6 +207,42 @@ class Executor:
         """执行开始时固化 memorial 所属位面（一旦设定，本次运行内不变）。"""
         if self._universe_manager is not None and memorial.universe_id is None:
             memorial.universe_id = self._universe_manager.route_for_memorial(memorial.id)
+
+    def _snapshot_keqing(self, edict: Edict, memorial: Memorial) -> None:
+        """客卿执行后对其隔离工作区打影子快照并落台账（放手四保险③）。
+
+        影子仓独立 GIT_DIR、不碰用户 .git;失败只告警不阻断（快照是退路,
+        不是执行前置）。
+        """
+        try:
+            from datetime import UTC, datetime
+
+            from ulid import ULID
+
+            from tianshu.executor.shadow_snapshot import ShadowSnapshot
+
+            work = self._keqing.work_dir(edict.id)
+            if not work.exists():
+                return
+            shadow = ShadowSnapshot(work, edict.id)
+            if not shadow.init():
+                return
+            snap = shadow.snapshot(f"keqing:{memorial.id}")
+            if snap is None:
+                return
+            self._storage.save_shadow_snapshot(
+                {
+                    "id": str(ULID()),
+                    "edict_id": edict.id,
+                    "memorial_id": memorial.id,
+                    "sha": snap.sha,
+                    "label": snap.label,
+                    "work_tree": str(work),
+                    "created_at": datetime.now(UTC).isoformat(),
+                }
+            )
+        except Exception:
+            logger.exception("[keqing] shadow snapshot failed for edict %s", edict.id)
 
     def _apply_memorial_override(
         self,
@@ -439,11 +479,17 @@ class Executor:
         def on_event(event: dict) -> None:
             self._storage.append_event(edict.id, memorial.id, event["type"], event)
 
+        # 迭代 3.5:客卿 backend 路由——runtime.executor=keqing:<agent> 时派外部 CLI
+        from tianshu.executor.keqing import parse_keqing_backend
+
+        keqing_backend = parse_keqing_backend(getattr(edict.runtime, "executor", None))
+        executor_impl = self._keqing if keqing_backend else self._agent
+
         result = None  # Capture AgentResult for AGENT_END hook context
         try:
             timeout = edict.runtime.timeout_seconds
             result = await asyncio.wait_for(
-                self._agent.execute(
+                executor_impl.execute(
                     edict,
                     memorial=memorial,
                     on_event=on_event,
@@ -453,6 +499,9 @@ class Executor:
                 ),
                 timeout=timeout,
             )
+            # 客卿执行完打一次影子快照(放手四保险③:文件改动可一键回滚)
+            if keqing_backend:
+                self._snapshot_keqing(edict, memorial)
             memorial.status = result.status
             memorial.summary = result.summary
             memorial.result = result.result

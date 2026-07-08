@@ -127,6 +127,10 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     if (costBudget) {
       runtime.cost_budget_cny = costBudget;
     }
+    const executor = values.executor as string | undefined;
+    if (executor && executor !== "native") {
+      runtime.executor = executor;
+    }
     if (
       policyProfile &&
       (policyProfile.template_name ||
@@ -397,6 +401,20 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
                       { value: "on_flag", label: t("reviewPolicy.on_flag") },
                       { value: "on_failure", label: t("reviewPolicy.on_failure") },
                       { value: "never", label: t("reviewPolicy.never") },
+                    ]}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="executor"
+                  label={t("form.edict.field.executor")}
+                  tooltip={t("form.edict.tooltip.executor")}
+                >
+                  <Select
+                    options={[
+                      { value: "native", label: t("executor.native") },
+                      { value: "keqing:claude-code", label: t("executor.claudeCode") },
+                      { value: "keqing:codex", label: t("executor.codex") },
                     ]}
                   />
                 </Form.Item>

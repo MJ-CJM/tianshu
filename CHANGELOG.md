@@ -2,6 +2,18 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.2.4] - 2026-07(迭代 3.5「客卿」)
+
+双向互操作最后一块拼图:天枢既能被 Claude Code 下旨(MCP server,迭代 1),也能**反向派 Claude Code 出工**——两个方向都在治理框架内。
+
+### Added
+- **客卿执行器 v1**:Edict 可标注 `runtime.executor = keqing:claude-code`(或 `keqing:codex`),把执行面派给外部 CLI(headless `claude -p --output-format stream-json` / `codex exec --json`),**自研引擎仍是默认**。治理集成四件套:①隔离工作区(每 edict 独立目录,不碰主工作区);②clean-env(客卿只带**自身**凭证 ANTHROPIC_API_KEY 等,天枢 TIANSHU_* secrets 一律不透传);③预算熔断(解析 stream-json 成本触顶即杀);④产出照走 memorial → 审计 → 批红管线(客卿产物额外出站脱敏)。适配器注册表可插拔(`tianshu keqing agents`)
+- **影子快照最小版**(放手四保险第③条):客卿每次执行后对隔离工作区打快照——**独立 GIT_DIR**(`~/.tianshu/shadow/<edict>/gitdir`),工作区里不出现 `.git`,**用户版本库毫发无损**;一键回滚且回滚本身留新快照(可再向前)。CLI `tianshu shadow list/revert <edict> <sha>` + web 敕令详情页「影子快照」面板 + `GET/POST /api/edicts/{id}/snapshots`
+- **web**:边建敕表单「执行器」下拉(native / 客卿);敕令详情页影子快照回滚面板;三语言 i18n
+
+### Changed
+- 版本对齐 0.2.4;`EdictRuntime.executor` 字段(默认 `native`,向后兼容)
+
 ## [0.2.3] - 2026-07(迭代 3「深防御」)
 
 治理是天枢最强卖点,这一迭代把它做深到运行时。锦衣卫四件套 + 出厂护栏。

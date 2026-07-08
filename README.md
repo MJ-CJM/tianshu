@@ -12,7 +12,7 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-[文档导航](docs/README.md) · [快速开始](#-快速开始) · [架构一览](#️-架构一览) · [借鉴与致谢](#-借鉴与致谢)
+[English](README.en.md) · [文档导航](docs/README.md) · [快速开始](#-快速开始) · [架构一览](#️-架构一览) · [借鉴与致谢](#-借鉴与致谢)
 
 </div>
 
@@ -42,6 +42,7 @@
 - **📏 回归评测与失败归因** — `tianshu evals run` 一条命令沙箱回放历史任务出评测报告，自进化「变好了」有据可查；17 类失败分类学落库自动归因，失败分布进审计面板。
 - **⚙️ 长任务自检** — 验收标准(AcceptanceCriteria) + critic 监督 + L0–L3 升级，长任务自己迭代到达标，必要时升级人工。
 - **🔌 多入口同源** — Web / HTTP API / CLI / 飞书 / Telegram 共享同一后端契约。
+- **🤝 双向互操作** — 天枢既能被 Claude Code 下旨(MCP server),也能**反向派 Claude Code/Codex 出工**(客卿执行器)——两个方向都在治理框架内。派出去的活有影子快照兜底,文件改动一键回滚。
 - **💸 成本治理** — Token 计量、预算熔断、按模型/任务/官员多维归因。
 
 ## 🏛️ 架构一览
@@ -160,6 +161,20 @@ tianshu secrets rotate-master-key --new-key <新密钥>      # 轮换后更新 e
 
 出厂默认每日预算护栏 ¥20（`TIANSHU_DAILY_BUDGET_GUARDRAIL_CNY`）、遥测默认关（`TIANSHU_TELEMETRY=on` 才启）、OTel 埋点默认关（设 `TIANSHU_OTEL_ENDPOINT` 才导出）。
 
+### 客卿：反向派 Claude Code / Codex 出工（迭代 3.5）
+
+天枢保留全部治理面（规划/批红/审计/预算/成本归因），执行面可插拔为外部 CLI：
+
+```bash
+tianshu keqing agents                       # 列可用客卿 backend
+# 下旨时指定 runtime.executor = keqing:claude-code（web 边建敕表单也有下拉）
+# 客卿改的文件有影子快照兜底，一键回滚：
+tianshu shadow list <edict_id>              # 查该 edict 的影子快照
+tianshu shadow revert <edict_id> <sha>      # 回滚工作区到某快照
+```
+
+客卿在**隔离工作区**运行、用**自己的**凭证（clean-env 不透传天枢 secrets）、成本按 stream-json 归因并受预算熔断，产出照走 memorial → 审计 → 批红管线。影子快照用**独立 GIT_DIR**，不碰你项目的 `.git`。
+
 ## 🧩 二次开发
 
 扩展工具、技能、人格、通知渠道、插件、LLM Provider 的最小步骤与代码落点，见 [`docs/usage/developer-guide.md`](docs/usage/developer-guide.md)。
@@ -175,6 +190,7 @@ tianshu secrets rotate-master-key --new-key <新密钥>      # 轮换后更新 e
 | [运维 ops/](docs/ops/) | 部署、凭证、飞书/Telegram 接入 |
 | [参考 reference/](docs/reference/) | 借鉴的开源项目、术语表 |
 | [战略 strategy/](docs/strategy/) | 竞争力复盘、发展战略与迭代排期、[决策台账](docs/strategy/DECISIONS.md) |
+| [宣发 launch/](docs/launch/) | 宣发工具包:英文 README、架构博文、隐喻对照、GIF/视频分镜、成本基线 |
 | [决策记录 adr/](docs/adr/) · [术语 CONTEXT.md](CONTEXT.md) | 不可逆决策的 why · 战略层 canonical 术语(中英对照) |
 | [路线图 plan/](docs/plan/) · [特性 superpowers/](docs/superpowers/INDEX.md) | 分阶段计划与特性落地记录 |
 

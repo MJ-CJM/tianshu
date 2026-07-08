@@ -1,0 +1,176 @@
+"""客卿适配器 —— 外部 coding agent 的 headless CLI 契约与注册表。
+
+每个适配器声明:①如何拼 argv(headless 非交互模式);②该 CLI 用哪些环境
+变量做自身鉴权(客卿用**自己的**凭证,天枢 clean-env 只放行这些);③如何
+把 CLI 的 JSONL 流解析成统一的 KeqingRunResult(最终文本 + usage/cost + 工具
+事件)。注册表复用鸿胪寺 EngineRegistry 的可插拔模式。
+
+解析刻意做得**宽容**:不同 CLI(乃至同 CLI 不同版本)的 JSONL 字段名有差异,
+逐行尽力抽取 text/usage/cost/tool,抽不到就跳过——评估失败安全,宁可信息
+少也不崩。
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass, field
+from typing import Protocol
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class KeqingRunResult:
+    """一次客卿运行的归一化结果。"""
+
+    final_text: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float | None = None  # CLI 若自报成本(Claude Code total_cost_usd)则填
+    tool_events: list[dict] = field(default_factory=list)
+    error: str | None = None
+    is_error: bool = False
+
+
+class KeqingAdapter(Protocol):
+    name: str
+    auth_env_vars: tuple[str, ...]
+
+    def build_argv(self, prompt: str, *, model: str | None = None) -> list[str]: ...
+
+    def parse_stream(self, lines: list[str]) -> KeqingRunResult: ...
+
+
+def _as_int(v: object) -> int:
+    try:
+        return int(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
+class ClaudeCodeAdapter:
+    """Claude Code headless:`claude -p <prompt> --output-format stream-json --verbose`。
+
+    stream-json 是 JSONL:每行一个事件对象。关注两类:
+    - ``type=assistant`` 的 message.content 里 text/tool_use 块(过程);
+    - ``type=result``(终态):``result`` 文本 + ``usage`` + ``total_cost_usd``。
+    """
+
+    name = "claude-code"
+    # 客卿用自身 Anthropic 凭证;天枢不透传自己的 TIANSHU_* secrets
+    auth_env_vars = (
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+    )
+
+    def build_argv(self, prompt: str, *, model: str | None = None) -> list[str]:
+        argv = [
+            "claude",
+            "-p",
+            prompt,
+            "--output-format",
+            "stream-json",
+            "--verbose",
+        ]
+        if model:
+            argv += ["--model", model]
+        return argv
+
+    def parse_stream(self, lines: list[str]) -> KeqingRunResult:
+        r = KeqingRunResult()
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            etype = evt.get("type")
+            if etype == "assistant":
+                for block in (evt.get("message") or {}).get("content") or []:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        r.tool_events.append(
+                            {"type": "tool.called", "tool": block.get("name", "?")}
+                        )
+            elif etype == "result":
+                # 终态:最终文本 + usage + cost
+                if isinstance(evt.get("result"), str):
+                    r.final_text = evt["result"]
+                usage = evt.get("usage") or {}
+                r.input_tokens = _as_int(usage.get("input_tokens"))
+                r.output_tokens = _as_int(usage.get("output_tokens"))
+                cost = evt.get("total_cost_usd")
+                if isinstance(cost, int | float):
+                    r.cost_usd = float(cost)
+                if evt.get("subtype") not in (None, "success") or evt.get("is_error"):
+                    r.is_error = True
+                    r.error = evt.get("subtype") or "keqing run reported error"
+        return r
+
+
+class CodexAdapter:
+    """Codex headless:`codex exec --json <prompt>`。
+
+    Codex 的 JSONL 事件结构与 Claude Code 不同且随版本演进;这里做宽容解析
+    (抽 text/usage 尽力而为),字段对不上时降级为纯文本拼接。生产使用前建议
+    按实际 CLI 版本校准字段名。
+    """
+
+    name = "codex"
+    auth_env_vars = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_HOME")
+
+    def build_argv(self, prompt: str, *, model: str | None = None) -> list[str]:
+        argv = ["codex", "exec", "--json", prompt]
+        if model:
+            argv += ["--model", model]
+        return argv
+
+    def parse_stream(self, lines: list[str]) -> KeqingRunResult:
+        r = KeqingRunResult()
+        texts: list[str] = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            # 宽容抽取:任何带 text/message/content 字符串的行都并入正文
+            for key in ("text", "message", "content", "delta"):
+                val = evt.get(key)
+                if isinstance(val, str) and val:
+                    texts.append(val)
+            usage = evt.get("usage") or evt.get("token_usage") or {}
+            if isinstance(usage, dict):
+                r.input_tokens = (
+                    _as_int(usage.get("input_tokens") or usage.get("prompt_tokens"))
+                    or r.input_tokens
+                )
+                r.output_tokens = (
+                    _as_int(usage.get("output_tokens") or usage.get("completion_tokens"))
+                    or r.output_tokens
+                )
+            if evt.get("type") in ("tool_call", "function_call"):
+                r.tool_events.append({"type": "tool.called", "tool": evt.get("name", "?")})
+        r.final_text = "\n".join(texts).strip()
+        return r
+
+
+_REGISTRY: dict[str, KeqingAdapter] = {
+    ClaudeCodeAdapter.name: ClaudeCodeAdapter(),
+    CodexAdapter.name: CodexAdapter(),
+}
+
+
+def get_adapter(name: str) -> KeqingAdapter | None:
+    return _REGISTRY.get(name)
+
+
+def list_adapters() -> list[str]:
+    return sorted(_REGISTRY.keys())

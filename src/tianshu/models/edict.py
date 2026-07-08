@@ -69,6 +69,9 @@ class EdictRuntime(BaseModel):
     )
     # 新增：纯运行时 lifecycle 状态（独立于 EdictStatus）
     lifecycle_phase: Literal["active", "paused", "winding_down", "complete"] = "active"
+    # 迭代 3.5「客卿」：执行 backend 选择。"native"=自研引擎(默认);
+    # "keqing:<agent>"=派外部 CLI 客卿出工(如 keqing:claude-code / keqing:codex)。
+    executor: str = "native"
 
 
 class Edict(BaseModel):

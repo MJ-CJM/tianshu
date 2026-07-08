@@ -21,6 +21,7 @@ from tianshu.gateway.estop_api import estop_router
 from tianshu.gateway.evals_api import evals_router
 from tianshu.gateway.execution_api import execution_router
 from tianshu.gateway.hongluisi_api import hongluisi_router
+from tianshu.gateway.keqing_api import keqing_router
 from tianshu.gateway.mcp_api import mcp_router
 from tianshu.gateway.memory_api import memory_router
 from tianshu.gateway.personas_api import personas_router
@@ -137,7 +138,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Tianshu", version="0.2.3", lifespan=lifespan)
+    app = FastAPI(title="Tianshu", version="0.2.4", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -154,6 +155,7 @@ def create_app() -> FastAPI:
     app.include_router(evals_router, prefix="/api")
     app.include_router(execution_router, prefix="/api")
     app.include_router(hongluisi_router, prefix="/api")
+    app.include_router(keqing_router, prefix="/api")
     app.include_router(mcp_router, prefix="/api")
     app.include_router(memory_router, prefix="/api")
     app.include_router(personas_router, prefix="/api")

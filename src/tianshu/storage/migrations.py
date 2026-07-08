@@ -213,6 +213,17 @@ def run_migrations(conn: sqlite3.Connection) -> None:
             )""",
         # 2026-07-08: 迭代 3 —— 预算周期滚动(daily/weekly 预算跨期自动清零)
         "ALTER TABLE cost_budgets ADD COLUMN period_start TEXT",
+        # 2026-07-08: 迭代 3.5「客卿」—— 影子快照台账(放手四保险③)
+        """CREATE TABLE IF NOT EXISTS shadow_snapshots (
+                id TEXT PRIMARY KEY,
+                edict_id TEXT NOT NULL,
+                memorial_id TEXT,
+                sha TEXT NOT NULL,
+                label TEXT NOT NULL,
+                work_tree TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""",
+        "CREATE INDEX IF NOT EXISTS idx_shadow_edict ON shadow_snapshots(edict_id)",
     ]
     for sql in migrations:
         try:

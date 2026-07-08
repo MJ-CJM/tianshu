@@ -14,6 +14,7 @@ from tianshu.cli.commands import (
     evals,
     event,
     health,
+    keqing,
     memorial,
     plugin,
     provider,
@@ -38,6 +39,8 @@ app.add_typer(dag.app, name="dag", help="DAG execution management")
 app.add_typer(worker.app, name="worker", help="Worker pool management")
 app.add_typer(evals.app, name="evals", help="Platform regression evals & failure attribution")
 app.add_typer(secrets.app, name="secrets", help="Credential master-key management")
+app.add_typer(keqing.app, name="keqing", help="Keqing external executors (Claude Code / Codex)")
+app.add_typer(keqing.shadow_app, name="shadow", help="Shadow snapshots (one-click rollback)")
 app.command()(health.health)
 app.command()(doctor.doctor)
 app.command()(watch)

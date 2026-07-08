@@ -439,7 +439,8 @@
         "nlLabel": "Describe in one sentence",
         "nlPlaceholder": "e.g. push Shanghai weather to me every day at 9am",
         "nlButton": "Smart fill",
-        "nlFailed": "Couldn't understand that — try rephrasing or fill the form manually."
+        "nlFailed": "Couldn't understand that — try rephrasing or fill the form manually.",
+        "executor": "Executor"
       },
       "placeholder": {
         "title": "Leave blank to auto-extract first 20 chars of goal",
@@ -486,7 +487,8 @@
         "onExhaustion": "What to do when max_outer_iterations / deadline / cost_budget exceeded",
         "onCriticUnavailable": "Fallback when all critic LLM calls fail",
         "criticPersonas": "Who reviews task quality. Multi-select runs concurrent review per round, aggregated as 'all pass'; any FAIL = fail. Each critic produces an independent report on terminal state.",
-        "sameIssueThreshold": "Escalate to L1 when critic reports same issue_class for N consecutive rounds"
+        "sameIssueThreshold": "Escalate to L1 when critic reports same issue_class for N consecutive rounds",
+        "executor": "native = built-in engine (default); keqing:* = dispatch an external CLI agent (Claude Code/Codex) under full Tianshu governance (approval/audit/budget/shadow snapshots)"
       },
       "option": {
         "autoPlanning": "Auto Plan (system decides)",
@@ -1988,5 +1990,21 @@
     "resumed": "Resumed: {what}",
     "actionFailed": "Action failed",
     "unavailable": "E-stop manager unavailable (backend not enabled)."
+  },
+  "shadow": {
+    "title": "Shadow Snapshots",
+    "keqing": "Keqing",
+    "intro": "Snapshots taken after each keqing (external executor) run over its isolated workspace — an independent repo that never touches your .git. One-click rollback of file changes (hands-off insurance #3).",
+    "label": "Label",
+    "time": "Time",
+    "revert": "Revert here",
+    "reverted": "Reverted to {sha}",
+    "revertFailed": "Revert failed",
+    "revertConfirm": "Roll the workspace files back to this snapshot? (The revert itself is recorded as a new snapshot, so you can go forward again.)"
+  },
+  "executor": {
+    "native": "Built-in engine (default)",
+    "claudeCode": "Keqing: Claude Code",
+    "codex": "Keqing: Codex"
   }
 }
