@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import litellm
 from tenacity import (
-    retry,
+    AsyncRetrying,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -234,6 +234,8 @@ class LLMClient:
         timeout: int = 300,
         provider_name: str | None = None,
         pricing_override: tuple[float, float, float] | None = None,
+        router: object | None = None,
+        router_model_name: str | None = None,
     ) -> None:
         self._model = model
         self._api_key = api_key
@@ -245,20 +247,38 @@ class LLMClient:
         self._timeout = timeout
         self._provider_name = provider_name
         self._pricing_override = pricing_override
+        # litellm.Router 注入(可选):有 router + router_model_name 时,chat/chat_stream
+        # 走 Router(fallback/按类型重试/冷却见 llm_router.py),凭证由 deployment 自带;
+        # 否则保持直连 acompletion(沙箱评估凭证隔离、doctor 等场景依赖此路径)。
+        self._router = router
+        self._router_model_name = router_model_name
 
     @property
     def provider_name(self) -> str | None:
         return self._provider_name
 
-    @retry(
-        wait=wait_exponential(min=1, max=4),
-        stop=stop_after_attempt(3),
-        retry=retry_if_exception_type(
-            (litellm.RateLimitError, litellm.Timeout, litellm.ServiceUnavailableError)
-        ),
-        reraise=True,
-    )
     async def chat(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+    ) -> LLMResponse:
+        if self._router is not None and self._router_model_name:
+            # Router 路径:重试/降级/冷却由 Router 全权负责(llm_router.py 配置),
+            # 外层不再叠加 tenacity,避免重试次数相乘。
+            return await self._chat_once(messages, tools)
+        async for attempt in AsyncRetrying(
+            wait=wait_exponential(min=1, max=4),
+            stop=stop_after_attempt(3),
+            retry=retry_if_exception_type(
+                (litellm.RateLimitError, litellm.Timeout, litellm.ServiceUnavailableError)
+            ),
+            reraise=True,
+        ):
+            with attempt:
+                return await self._chat_once(messages, tools)
+        raise AssertionError("unreachable: AsyncRetrying(reraise=True)")
+
+    async def _chat_once(
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
@@ -289,7 +309,14 @@ class LLMClient:
             len(tools or []),
             self._temperature,
         )
-        response = await litellm.acompletion(**kwargs)
+        if self._router is not None and self._router_model_name:
+            r_kwargs = dict(kwargs)
+            r_kwargs.pop("api_key", None)  # 凭证由 Router deployment 自带
+            r_kwargs.pop("api_base", None)
+            r_kwargs["model"] = self._router_model_name
+            response = await self._router.acompletion(**r_kwargs)  # type: ignore[attr-defined]
+        else:
+            response = await litellm.acompletion(**kwargs)
         actual_model, upstream_provider = _extract_model_echo(response)
         _log_model_echo(model, actual_model, upstream_provider, api_base)
         choice = response.choices[0]
@@ -373,7 +400,14 @@ class LLMClient:
         if tools:
             kwargs["tools"] = tools
 
-        response = await litellm.acompletion(**kwargs)
+        if self._router is not None and self._router_model_name:
+            r_kwargs = dict(kwargs)
+            r_kwargs.pop("api_key", None)  # 凭证由 Router deployment 自带
+            r_kwargs.pop("api_base", None)
+            r_kwargs["model"] = self._router_model_name
+            response = await self._router.acompletion(**r_kwargs)  # type: ignore[attr-defined]
+        else:
+            response = await litellm.acompletion(**kwargs)
 
         collected_content = ""
         collected_tool_calls: list[dict] = []
