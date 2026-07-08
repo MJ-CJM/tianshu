@@ -305,6 +305,30 @@ class MemorialMixin:
             ).fetchone()
         return int(row[0]) if row else 0
 
+    def report_window_stats(self, since_iso: str) -> dict:
+        """窗口(实录馆周报,迭代 7)统计:自 since 起的敕令/执行/代批计数,供《实录》汇编。"""
+        with self._lock:
+            edicts = self._conn.execute(
+                "SELECT COUNT(*) FROM edicts WHERE created_at >= ?", (since_iso,)
+            ).fetchone()[0]
+            rows = self._conn.execute(
+                """SELECT status, COUNT(*) FROM memorials
+                   WHERE created_at >= ? GROUP BY status""",
+                (since_iso,),
+            ).fetchall()
+            auto = self._conn.execute(
+                "SELECT COUNT(*) FROM decrees WHERE actor = 'silijian' AND created_at >= ?",
+                (since_iso,),
+            ).fetchone()[0]
+        by_status = {r[0]: r[1] for r in rows}
+        return {
+            "edicts": int(edicts),
+            "memorials_total": int(sum(by_status.values())),
+            "completed": int(by_status.get("completed", 0) + by_status.get("approved", 0)),
+            "failed": int(by_status.get("failed", 0)),
+            "auto_approvals": int(auto),
+        }
+
     def mark_distilled(self, memorial_id: str, insight_written: bool, now_iso: str) -> None:
         with self._lock, self._conn:
             self._conn.execute(

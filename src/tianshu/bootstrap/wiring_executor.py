@@ -117,6 +117,12 @@ def wire_policy(app: FastAPI, settings: TianshuSettings) -> None:
     policy_engine = PolicyEngine(rules=build_default_rules())
     app.state.policy_engine = policy_engine
 
+    # 司礼监·代批(迭代 7):低风险 decree 自动代批,受四道闸约束(默认关)
+    from tianshu.executor.silijian import Silijian
+
+    silijian = Silijian(storage, app.state.config_manager, estop_manager=estop_manager)
+    app.state.silijian = silijian
+
     policy_hook = PolicyHook(
         engine=policy_engine,
         workspace_root=Path(settings.workspace_dir).resolve(),
@@ -126,6 +132,7 @@ def wire_policy(app: FastAPI, settings: TianshuSettings) -> None:
         approval_manager=approval_manager,
         notifier=notifier,
         event_bus=event_bus,
+        silijian=silijian,
     )
     app.state.policy_hook = policy_hook
     hook_registry.register(

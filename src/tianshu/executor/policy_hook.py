@@ -32,6 +32,7 @@ class PolicyHook:
         approval_manager: object | None = None,
         notifier: object | None = None,
         event_bus: object | None = None,
+        silijian: object | None = None,
     ) -> None:
         self._engine = engine
         self._workspace_root = workspace_root.resolve()
@@ -41,6 +42,7 @@ class PolicyHook:
         self._approval_manager = approval_manager
         self._notifier = notifier
         self._event_bus = event_bus
+        self._silijian = silijian
 
     async def on_before_tool_call(self, **context: object) -> HookResult | None:
         tool_name = context.get("tool_name")
@@ -124,6 +126,15 @@ class PolicyHook:
                 block=True,
                 reason=f"[{decision.rule_id}] approval required but no memorial context",
             )
+
+        # 司礼监·代批(迭代 7):低风险 + 历史高通过率 + 未急停 → 自动代批留痕放行,不扰人工
+        if self._silijian is not None:
+            auto = self._silijian.maybe_auto_approve(  # type: ignore[attr-defined]
+                memorial_id, ctx.tool_tier, decision.rule_id
+            )
+            if auto is not None:
+                self._emit_event(ctx, "decree.auto_approved", decision)
+                return None  # 放行
 
         # 写事件，触发前端 toast
         approval_payload = {

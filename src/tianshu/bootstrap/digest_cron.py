@@ -36,9 +36,11 @@ async def _digest_cron_loop(
     evolution_unlock: object | None = None,
 ) -> None:
     """Run daily digest at roughly every 24h; 顺带跑后台史官 + 起居注蒸馏(迭代 4)。"""
+    day = 0
     while True:
         try:
             await asyncio.sleep(86400)  # 24 hours
+            day += 1
             digest = digest_generator.generate_daily()
             await notifier.broadcast_ws(digest)
             # Dispatch to all registered external channels
@@ -52,6 +54,11 @@ async def _digest_cron_loop(
             # 自进化请旨解锁:行为层达阈值主动上奏折(迭代 6,ADR-0004)
             if evolution_unlock is not None:
                 await evolution_unlock.check_and_petition()  # type: ignore[attr-defined]
+            # 实录馆·自动汇编(迭代 7):每 7 个日循环推一次《实录》周报
+            if day % 7 == 0:
+                weekly = digest_generator.generate_weekly()
+                await notifier.broadcast_ws(weekly)
+                await channel_registry.send_all(weekly, weekly.get("narrative", str(weekly)))
         except asyncio.CancelledError:
             break
         except Exception:

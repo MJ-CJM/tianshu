@@ -71,6 +71,22 @@ class CostMixin:
             "total_cost_cny": row["total_cost_cny"],
         }
 
+    def estimate_edict_cost(self) -> tuple[float, int]:
+        """历史每敕令平均成本(¥)与样本量——六科封驳(迭代 7)的成本预估基线。
+
+        v1 取全体历史敕令的均值(按 goal 相似度加权检索为后续增量);无历史返回 (0.0, 0)。
+        """
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT AVG(ec) AS avg_cost, COUNT(*) AS n FROM (
+                       SELECT SUM(cost_cny) AS ec FROM cost_ledger
+                       WHERE edict_id IS NOT NULL GROUP BY edict_id
+                   )"""
+            ).fetchone()
+        if not row or row["n"] == 0:
+            return 0.0, 0
+        return float(row["avg_cost"] or 0.0), int(row["n"])
+
     def list_cost_records(
         self,
         edict_id: str | None = None,
