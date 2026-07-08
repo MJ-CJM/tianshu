@@ -31,6 +31,12 @@ class LLMConfigState:
 class AgentConfigState:
     agent_max_iterations: int = _SETTINGS_DEFAULTS["agent_max_iterations"].default
     agent_timeout_seconds: int = _SETTINGS_DEFAULTS["agent_timeout_seconds"].default
+    # 平台级 edict 运行时默认(Q7):创建 edict 未显式指定时用这些打底,表单只覆盖差异。
+    # 与 agent_timeout/iterations 一致——内存态,env 设持久值。
+    agent_max_concurrency: int = 1
+    agent_retry_limit: int = 0
+    agent_token_budget: int | None = None
+    agent_cost_budget_cny: float | None = None
     skills_char_budget: int = _SETTINGS_DEFAULTS["skills_char_budget"].default
     skill_review_enabled: bool = True
     skill_review_interval: int = 5

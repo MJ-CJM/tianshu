@@ -36,6 +36,20 @@ export default function GlobalConfigTab() {
     )
       payload.agent_timeout_seconds = agentForm.agent_timeout_seconds;
     if (
+      agentForm.agent_max_concurrency !== undefined &&
+      agentForm.agent_max_concurrency !== agentConfigData.agent_max_concurrency
+    )
+      payload.agent_max_concurrency = agentForm.agent_max_concurrency;
+    if (
+      agentForm.agent_retry_limit !== undefined &&
+      agentForm.agent_retry_limit !== agentConfigData.agent_retry_limit
+    )
+      payload.agent_retry_limit = agentForm.agent_retry_limit;
+    if (agentForm.agent_token_budget !== agentConfigData.agent_token_budget)
+      payload.agent_token_budget = agentForm.agent_token_budget;
+    if (agentForm.agent_cost_budget_cny !== agentConfigData.agent_cost_budget_cny)
+      payload.agent_cost_budget_cny = agentForm.agent_cost_budget_cny;
+    if (
       agentForm.skills_char_budget !== undefined &&
       agentForm.skills_char_budget !== agentConfigData.skills_char_budget
     )
@@ -91,6 +105,51 @@ export default function GlobalConfigTab() {
                   ...prev,
                   agent_timeout_seconds: v ?? 300,
                 }))
+              }
+              style={{ width: "100%" }}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={labelStyle}>{t("system.globalConfig.agentMaxConcurrency")}</div>
+            <InputNumber
+              min={1}
+              max={8}
+              value={agentForm.agent_max_concurrency}
+              onChange={(v) => setAgentForm((prev) => ({ ...prev, agent_max_concurrency: v ?? 1 }))}
+              style={{ width: "100%" }}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={labelStyle}>{t("system.globalConfig.agentRetryLimit")}</div>
+            <InputNumber
+              min={0}
+              max={10}
+              value={agentForm.agent_retry_limit}
+              onChange={(v) => setAgentForm((prev) => ({ ...prev, agent_retry_limit: v ?? 0 }))}
+              style={{ width: "100%" }}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={labelStyle}>{t("system.globalConfig.agentCostBudget")}</div>
+            <InputNumber
+              min={0}
+              step={0.01}
+              value={agentForm.agent_cost_budget_cny}
+              placeholder={t("system.globalConfig.unlimited")}
+              onChange={(v) =>
+                setAgentForm((prev) => ({ ...prev, agent_cost_budget_cny: v ?? null }))
+              }
+              style={{ width: "100%" }}
+            />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={labelStyle}>{t("system.globalConfig.agentTokenBudget")}</div>
+            <InputNumber
+              min={1}
+              value={agentForm.agent_token_budget}
+              placeholder={t("system.globalConfig.unlimited")}
+              onChange={(v) =>
+                setAgentForm((prev) => ({ ...prev, agent_token_budget: v ?? null }))
               }
               style={{ width: "100%" }}
             />

@@ -335,12 +335,20 @@ export interface LLMConfigListResponse {
 export interface AgentConfig {
   agent_max_iterations: number;
   agent_timeout_seconds: number;
+  agent_max_concurrency: number;
+  agent_retry_limit: number;
+  agent_token_budget: number | null;
+  agent_cost_budget_cny: number | null;
   skills_char_budget: number;
 }
 
 export interface AgentConfigUpdateRequest {
   agent_max_iterations?: number;
   agent_timeout_seconds?: number;
+  agent_max_concurrency?: number;
+  agent_retry_limit?: number;
+  agent_token_budget?: number | null;
+  agent_cost_budget_cny?: number | null;
   skills_char_budget?: number;
 }
 

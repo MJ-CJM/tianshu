@@ -2,6 +2,14 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.2.6] - 2026-07(平台级默认下沉全局设置 · 表单 UX Q7)
+
+### Added
+- **平台级 edict 运行时默认下沉全局设置**(表单 UX 决策 Q7):AgentConfig 新增 `agent_max_concurrency`/`agent_retry_limit`/`agent_token_budget`/`agent_cost_budget_cny`(叠加已有 timeout/max_iterations);edict 创建时用这些全局默认**打底**,表单只覆盖差异——全局设一次,颁敕不用逐字段重填。系统管理「全局设置」页可编辑;`GET/PUT /api/agent-config` 暴露
+
+### Changed
+- edict 创建总是带显式 runtime(全局默认打底,值等价旧硬编码默认,行为兼容)
+
 ## [0.2.5] - 2026-07(颁敕表单 UX 重构)
 
 治用户反馈的「颁敕参数选花眼」。分析 + 6 个 ai-example 同类产品对标见 `docs/strategy/2026-07-08-edict-form-ux-analysis.md`。
