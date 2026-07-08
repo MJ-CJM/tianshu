@@ -138,7 +138,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Tianshu", version="0.2.8", lifespan=lifespan)
+    app = FastAPI(title="Tianshu", version="0.4.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

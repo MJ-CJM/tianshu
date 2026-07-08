@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tianshu"
-version = "0.2.8"
+version = "0.4.0"
 description = "Tianshu - Async AI Execution Platform"
 requires-python = ">=3.12"
 dependencies = [

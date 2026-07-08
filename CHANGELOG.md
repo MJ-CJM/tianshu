@@ -2,6 +2,24 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.0] - 2026-07(迭代 6「演化 2.0」)
+
+自进化从"能跑"升级为"敢放手 × 每步被评估"。行为层默认关,达阈值「请旨解锁」;晋升挂灰度旋钮、召廷议白话论证;修撰过效果门才生效。
+
+> 版本号说明:按 roadmap 迭代 6 目标定为 v0.4.0(演化 2.0 里程碑);0.3.0 仍留给正式宣发窗口。
+
+### Added
+- **行为层「请旨解锁」**(ADR-0004):自进化出厂默认关,行为层积累 ≥N 个审计通过 memorial 后系统主动上「臣请开启自我演化」奏折(附做什么/花多少钱/如何回滚白话三段),批红后翻转开启;**代码层演化永不自动请旨**。`evolution_petitions` 表 + `EvolutionUnlock` + `/universes/petitions` 批红/驳回 API,随 digest cron 周期检查。把功能开关做成剧情事件,留存钩子更强
+- **feature-flag 灰度**:自研 SQLite flag 表(deny-by-default + 按 subject 哈希百分比灰度,不接 OpenFeature);推荐晋升挂 `universe:promote:<uid>` 灰度旋钮(默认关 0%)供放量 / 秒级回退,控制面 `/universes/flags`
+- **位面晋升廷议门**(ADR-0008):推荐晋升召廷议,多视角白话论证附 `promotion_recommended` 事件——晋升审批不再只有 fitness 数字
+- **画像驱动进化**:变异 prompt 注入起居注蒸馏的主上画像,变异方向贴合偏好(失败安全)
+- **修撰效果门**(ADR-0007):技能修撰后须过与位面同源的配对评估(变体=只替换该技能的库,`TIANSHU_RUNTIME_SKILLS_DIR` 重定向),提升达标才生效;评估缺席/提升不足/异常一律不激活(fail-safe)。默认关(`skill_effect_gate_enabled`,子进程重定向路径待实机验证)
+- **技能安全安装管线**:validator 对齐 [agentskills.io](https://agentskills.io/specification) 开放标准(非标字段 / allowed-tools 告警);`SkillInstaller` 防路径穿越 / symlink / zip 炸弹 + 结构校验 + guard 信任策略,外部 SKILL.md 技能可安全导入
+- **变体沙箱容器化(可选降级)**:`ContainerRunner` 探测 docker/OrbStack/Apple container,`--network none` + 只读挂载 + CPU/内存限额;无运行时干净降级不崩
+
+### 后续(nice / 待实机)
+- 请旨奏折的手机外发(feishu/telegram 穿透"你的衙门请求进化")与 web 审批卡片为增量;修撰效果门默认开需一次实机配对评估验证子进程 skills 重定向
+
 ## [0.2.8] - 2026-07(迭代 5「执行 2.0」+ 廷议 2.0 + 通知三级制)
 
 ### Added
