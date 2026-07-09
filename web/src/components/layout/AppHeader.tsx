@@ -1,5 +1,4 @@
 import { Layout, theme } from "antd";
-import BrandMark from "../common/BrandMark";
 import HealthDot from "../common/HealthDot";
 import ConnectionIndicator from "../common/ConnectionIndicator";
 import LocaleSwitcher from "./LocaleSwitcher";
@@ -29,8 +28,15 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {/* 品牌标:TS×星空(夜空墨底,端点为星,朱砂四芒=天枢星) */}
-        <BrandMark size={26} />
+        {/* 品牌标:TS×轨道(与 README/favicon 同一枚 logo) */}
+        <img
+          src="/brand.png"
+          alt=""
+          aria-hidden
+          width={26}
+          height={26}
+          style={{ display: "block", borderRadius: 6, flex: "none" }}
+        />
         <span
           style={{
             color: token.colorText,

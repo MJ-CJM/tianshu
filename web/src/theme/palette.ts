@@ -50,12 +50,6 @@ export interface Palette {
   accentSoft: string;
   /** 朱砂实底上的文字色 */
   accentTextOn: string;
-  /** 品牌标夜空底(TS×星空:深夜蓝墨,两种模式都保持夜空) */
-  brandBg: string;
-  /** 品牌标字形/星点——恒为纸白,不随模式翻转 */
-  brandGlyph: string;
-  /** 天枢星(朱砂四芒)——夜空底上恒用亮朱 */
-  brandStar: string;
   /** 语义四色(低饱和器物色,同时喂给 AntD success/warning/error/info) */
   info: string;
   success: string;
@@ -83,9 +77,6 @@ export const palettes: Record<ThemeMode, Palette> = {
     accentHover: "#C14E39",
     accentSoft: "rgba(174, 63, 44, 0.10)",
     accentTextOn: "#FFFFFF",
-    brandBg: "#1A1E28",
-    brandGlyph: "#FBF8F2",
-    brandStar: "#D96C52",
     info: "#3D6C8E",
     success: "#45775A",
     warning: "#8A6B24",
@@ -120,9 +111,6 @@ export const palettes: Record<ThemeMode, Palette> = {
     accentHover: "#E5806A",
     accentSoft: "rgba(217, 108, 82, 0.16)",
     accentTextOn: "#1B120E",
-    brandBg: "#232937",
-    brandGlyph: "#FBF8F2",
-    brandStar: "#D96C52",
     info: "#7FA7C4",
     success: "#82B091",
     warning: "#C9A85C",
