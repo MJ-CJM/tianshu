@@ -23,6 +23,7 @@
 - [ ] About:一句话描述 + Topics(`ai-agent` `llm` `governance` `self-improving`
       `fastapi` `claude-code` `mcp` `automation`)
 - [ ] 重名排查:GitHub 搜 "tianshu",必要时描述带英文副标锚定搜索
+- [ ] Social preview:Settings → Social preview 上传 `docs/launch/assets/social-preview.png`(1280×640 已备好)
 - [ ] Release v0.3.0:附 CHANGELOG 摘要 + GIF
 
 ## 三、首发帖(👤 手工发,以下是草稿骨架)

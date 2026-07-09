@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/launch/assets/logo.png" alt="天枢 · Tianshu" width="220">
+
 # 天枢 · Tianshu
 
 **一座异步办差、全程可治理、与你共同成长的 AI 执行平台**

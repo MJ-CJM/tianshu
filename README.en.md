@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/launch/assets/logo.png" alt="Tianshu" width="220">
+
 # Tianshu
 
 **An async, governable, self-improving AI execution platform — organized like an imperial court.**
