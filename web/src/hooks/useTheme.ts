@@ -1,4 +1,5 @@
 import { createContext, useContext, useCallback, useSyncExternalStore } from "react";
+import { palettes } from "../theme/palette";
 
 export type ThemeMode = "light" | "dark";
 
@@ -9,19 +10,41 @@ interface ThemeContextValue {
 
 const STORAGE_KEY = "tianshu-theme";
 
-const CSS_VARS: Record<string, { light: string; dark: string }> = {
-  "--ts-color-text": { light: "#1a1a1a", dark: "#e8e8e8" },
-  "--ts-color-text-secondary": { light: "#8e8e8e", dark: "#999999" },
-  "--ts-color-text-label": { light: "#666666", dark: "#aaaaaa" },
-  "--ts-color-bg-page": { light: "#f8f8f7", dark: "#141414" },
-  "--ts-color-bg-subtle": { light: "#f9f9f8", dark: "#1f1f1f" },
-  "--ts-color-bg-container": { light: "#ffffff", dark: "#1f1f1f" },
-  "--ts-color-bg-code": { light: "#f5f5f4", dark: "#1a1a1a" },
-  "--ts-color-border": { light: "#e8e8e5", dark: "#303030" },
-  "--ts-color-border-hover": { light: "#d8d8d5", dark: "#555555" },
-  "--ts-color-scrollbar": { light: "#d0d0d0", dark: "#555555" },
-  "--ts-color-scrollbar-hover": { light: "#b0b0b0", dark: "#777777" },
-};
+/** 从调色板生成 CSS 变量表(module.css 与内联样式的取色入口)。 */
+function buildCssVars(mode: ThemeMode): Record<string, string> {
+  const p = palettes[mode];
+  return {
+    "--ts-color-text": p.text,
+    "--ts-color-text-secondary": p.textSecondary,
+    "--ts-color-text-label": p.textTertiary,
+    "--ts-color-bg-page": p.bgPage,
+    "--ts-color-bg-subtle": p.bgSubtle,
+    "--ts-color-bg-container": p.bgContainer,
+    "--ts-color-bg-elevated": p.bgElevated,
+    "--ts-color-bg-code": p.bgCode,
+    "--ts-color-border": p.border,
+    "--ts-color-border-hover": p.borderHover,
+    "--ts-color-scrollbar": p.scrollbar,
+    "--ts-color-scrollbar-hover": p.scrollbarHover,
+    "--ts-color-accent": p.accent,
+    "--ts-color-accent-hover": p.accentHover,
+    "--ts-color-accent-soft": p.accentSoft,
+    "--ts-color-accent-text-on": p.accentTextOn,
+    "--ts-color-info": p.info,
+    "--ts-color-success": p.success,
+    "--ts-color-warning": p.warning,
+    "--ts-color-error": p.error,
+    "--ts-status-running": p.status.running,
+    "--ts-status-completed": p.status.completed,
+    "--ts-status-failed": p.status.failed,
+    "--ts-status-submitted": p.status.submitted,
+    "--ts-status-scheduled": p.status.scheduled,
+    "--ts-status-planning": p.status.planning,
+    "--ts-status-auditing": p.status.auditing,
+    "--ts-status-needs-review": p.status.needs_review,
+    "--ts-status-cancelled": p.status.cancelled,
+  };
+}
 
 function getStoredMode(): ThemeMode {
   try {
@@ -36,8 +59,8 @@ function getStoredMode(): ThemeMode {
 function applyCssVars(mode: ThemeMode) {
   const root = document.documentElement;
   root.dataset.theme = mode;
-  for (const [key, values] of Object.entries(CSS_VARS)) {
-    root.style.setProperty(key, values[mode]);
+  for (const [key, value] of Object.entries(buildCssVars(mode))) {
+    root.style.setProperty(key, value);
   }
 }
 

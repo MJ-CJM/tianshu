@@ -91,9 +91,9 @@ function RunDetail({ runId }: { runId: string }) {
               valueStyle={{
                 color:
                   (run.delta_vs_prev ?? 0) > 0
-                    ? "#3f8600"
+                    ? "var(--ts-color-success)"
                     : (run.delta_vs_prev ?? 0) < 0
-                      ? "#cf1322"
+                      ? "var(--ts-color-error)"
                       : undefined,
               }}
               prefix={(run.delta_vs_prev ?? 0) > 0 ? "+" : ""}

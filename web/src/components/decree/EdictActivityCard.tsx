@@ -10,6 +10,7 @@ import {
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import GlowCard from "../common/GlowCard";
+import SemanticTag from "../common/SemanticTag";
 import PendingToolCallCard from "./PendingToolCallCard";
 import { formatTime } from "../../utils/format";
 import {
@@ -45,7 +46,9 @@ export default function EdictActivityCard({
   };
 
   const hasPendingTool = pendingToolCalls.length > 0;
-  const borderColor = hasPendingTool ? "#faad14" : PHASE_COLORS[phase];
+  const borderColor = hasPendingTool
+    ? "var(--ts-color-warning)"
+    : PHASE_COLORS[phase];
 
   return (
     <GlowCard
@@ -55,9 +58,11 @@ export default function EdictActivityCard({
         <Space>
           <span>{edict.title}</span>
           {edict.priority === "urgent" && (
-            <Tag color="#ff4d4f">{t("priority.urgent")}</Tag>
+            <SemanticTag colorVar="var(--ts-color-error)">{t("priority.urgent")}</SemanticTag>
           )}
-          <Tag color={PHASE_COLORS[phase]}>{PHASE_LABELS[phase]}</Tag>
+          <SemanticTag colorVar={PHASE_COLORS[phase]} solid={phase === "needs_review"}>
+            {PHASE_LABELS[phase]}
+          </SemanticTag>
           {hasPendingTool && (
             <Tag color="orange">{t("comp.edictActivity.pendingTool", { n: pendingToolCalls.length })}</Tag>
           )}

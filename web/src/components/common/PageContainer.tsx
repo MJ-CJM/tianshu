@@ -31,6 +31,7 @@ export default function PageContainer({
             color: token.colorText,
             fontFamily: "'Noto Serif SC', serif",
             fontWeight: 700,
+            letterSpacing: "0.04em",
           }}
         >
           {title}

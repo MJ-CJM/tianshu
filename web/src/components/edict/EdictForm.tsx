@@ -448,7 +448,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
               styles={{ body: { padding: "8px 14px" } }}
               style={{
                 cursor: "pointer",
-                borderColor: selectedPreset === p.key ? "#1677ff" : undefined,
+                borderColor: selectedPreset === p.key ? "var(--ts-color-accent)" : undefined,
                 borderWidth: selectedPreset === p.key ? 2 : 1,
                 minWidth: 120,
               }}

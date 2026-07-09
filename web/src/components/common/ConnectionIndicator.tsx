@@ -7,7 +7,7 @@ interface ConnectionIndicatorProps {
 
 export default function ConnectionIndicator({ isConnected }: ConnectionIndicatorProps) {
   const t = useT();
-  const color = isConnected ? "#52c41a" : "#ff4d4f";
+  const color = isConnected ? "var(--ts-color-success)" : "var(--ts-color-error)";
   const label = isConnected ? t("comp.connection.online") : t("comp.connection.offline");
   const title = isConnected ? t("comp.connection.onlineTitle") : t("comp.connection.offlineTitle");
 

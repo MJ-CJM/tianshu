@@ -476,7 +476,7 @@ export default function ExternalCredentialsTab() {
       >
         <Form form={editForm} layout="vertical" onFinish={onEditSubmit}>
           {editRow && (
-            <div style={{ marginBottom: 12, fontSize: 12, color: "#999" }}>
+            <div style={{ marginBottom: 12, fontSize: 12, color: "var(--ts-color-text-secondary)" }}>
               <div>
                 {t("system.externalCreds.infoLabel")}<code style={monoStyle}>{editRow.name}</code>
               </div>
@@ -497,7 +497,7 @@ export default function ExternalCredentialsTab() {
                   </div>
                 </>
               )}
-              <div style={{ color: "#faad14", marginTop: 4 }}>
+              <div style={{ color: "var(--ts-color-warning)", marginTop: 4 }}>
                 {t("system.externalCreds.immutableHint")}
               </div>
             </div>

@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Button, Input, Popconfirm, Popover, Table, Tag, message, theme } from "antd";
+import { Button, Input, Popconfirm, Popover, Table, message, theme } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, EditOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import type { Edict, EdictStatus } from "../../api/types";
 import { updateEdict } from "../../api/edicts";
 import MonoText from "../common/MonoText";
+import SemanticTag from "../common/SemanticTag";
 import { truncateId, formatTime } from "../../utils/format";
 import { EDICT_STATUS_LABELS, EDICT_STATUS_COLORS, PRIORITY_LABELS, PRIORITY_COLORS } from "../../utils/constants";
 import { useT } from "../../i18n";
@@ -107,9 +108,9 @@ export default function EdictTable({
       dataIndex: "status",
       width: 100,
       render: (status: EdictStatus) => (
-        <Tag color={EDICT_STATUS_COLORS[status]}>
+        <SemanticTag colorVar={EDICT_STATUS_COLORS[status]}>
           {EDICT_STATUS_LABELS[status]}
-        </Tag>
+        </SemanticTag>
       ),
     },
     {
@@ -117,9 +118,9 @@ export default function EdictTable({
       dataIndex: "priority",
       width: 80,
       render: (priority: string) => (
-        <Tag color={PRIORITY_COLORS[priority] ?? "#1890ff"}>
+        <SemanticTag colorVar={PRIORITY_COLORS[priority] ?? "var(--ts-color-info)"}>
           {PRIORITY_LABELS[priority] ?? priority}
-        </Tag>
+        </SemanticTag>
       ),
     },
     {

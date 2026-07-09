@@ -34,17 +34,17 @@ export default function WorkerPanel({ poolStatus, laneStatus }: WorkerPanelProps
         <Statistic
           title={t("comp.worker.completed")}
           value={poolStatus.completed_count}
-          valueStyle={{ fontSize: 16, color: '#52c41a' }}
+          valueStyle={{ fontSize: 16, color: 'var(--ts-color-success)' }}
         />
         <Statistic
           title={t("comp.worker.failed")}
           value={poolStatus.failed_count}
-          valueStyle={{ fontSize: 16, color: '#ff4d4f' }}
+          valueStyle={{ fontSize: 16, color: 'var(--ts-color-error)' }}
         />
       </Space>
       {laneStatus?.global && (
-        <div style={{ marginTop: 8, borderTop: '1px solid #f0f0f0', paddingTop: 8 }}>
-          <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>{t("comp.worker.globalLane")}</div>
+        <div style={{ marginTop: 8, borderTop: '1px solid var(--ts-color-border)', paddingTop: 8 }}>
+          <div style={{ fontSize: 12, color: 'var(--ts-color-text-secondary)', marginBottom: 4 }}>{t("comp.worker.globalLane")}</div>
           <Progress
             percent={
               laneStatus.global.max_concurrency > 0

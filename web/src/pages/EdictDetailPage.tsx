@@ -8,6 +8,7 @@ import { submitUniverseFeedback } from "../api/universe";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
 import MonoText from "../components/common/MonoText";
+import SemanticTag from "../components/common/SemanticTag";
 import MemorialCard from "../components/memorial/MemorialCard";
 import UsageDisplay from "../components/memorial/UsageDisplay";
 import EventTimeline from "../components/memorial/EventTimeline";
@@ -296,9 +297,9 @@ export default function EdictDetailPage() {
         title={
           <Space size="middle">
             <span>{edict.title || t("entity.edict")}</span>
-            <Tag color={EDICT_STATUS_COLORS[edict.status]}>
+            <SemanticTag colorVar={EDICT_STATUS_COLORS[edict.status]}>
               {edictStatusLabels[edict.status]}
-            </Tag>
+            </SemanticTag>
             {edict.runtime.lifecycle_phase !== "active" && (
               <Tag
                 color={
@@ -345,9 +346,9 @@ export default function EdictDetailPage() {
               key: "priority",
               label: t("page.edictDetail.details.priority"),
               children: (
-                <Tag color={PRIORITY_COLORS[edict.priority] ?? "#1890ff"}>
+                <SemanticTag colorVar={PRIORITY_COLORS[edict.priority] ?? "var(--ts-color-info)"}>
                   {t(`priority.${edict.priority}`)}
-                </Tag>
+                </SemanticTag>
               ),
             },
             {
@@ -529,11 +530,11 @@ export default function EdictDetailPage() {
         <GlowCard
           title={
             <Space>
-              <ThunderboltOutlined style={{ color: "#faad14" }} />
+              <ThunderboltOutlined style={{ color: "var(--ts-color-warning)" }} />
               {t("comp.edictActivity.pendingTool", { n: pendingTools.length })}
             </Space>
           }
-          style={{ marginBottom: 24, borderLeft: "3px solid #faad14" }}
+          style={{ marginBottom: 24, borderLeft: "3px solid var(--ts-color-warning)" }}
         >
           {pendingTools.map((p) => (
             <PendingToolCallCard key={p.memorial_id} pending={p} />
@@ -553,7 +554,7 @@ export default function EdictDetailPage() {
               )}
             </Space>
           }
-          style={{ marginBottom: 24, borderLeft: "3px solid #722ed1" }}
+          style={{ marginBottom: 24, borderLeft: "3px solid var(--ts-status-planning)" }}
         >
           <Table
             size="small"

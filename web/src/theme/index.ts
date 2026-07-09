@@ -1,13 +1,18 @@
 import { theme } from "antd";
 import type { ThemeConfig } from "antd";
 import type { ThemeMode } from "../hooks/useTheme";
+import { palettes, presetSeeds } from "./palette";
 
 const sharedToken = {
   fontFamily:
     "'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   fontFamilyCode: "'JetBrains Mono', 'Fira Code', monospace",
-  borderRadius: 10,
+  borderRadius: 8,
+  borderRadiusLG: 12,
+  borderRadiusSM: 6,
   wireframe: false,
+  // AntD 预设调色板种子重调:全部 <Tag color="blue"> 等预设用法随之低饱和化
+  ...presetSeeds,
 };
 
 const sharedComponents = {
@@ -15,80 +20,113 @@ const sharedComponents = {
   Statistic: { titleFontSize: 12, contentFontSize: 22 },
 };
 
-export const lightTheme: ThemeConfig = {
-  token: {
-    ...sharedToken,
-    colorPrimary: "#1a1a1a",
-    colorBgBase: "#f8f8f7",
-    colorBgContainer: "#ffffff",
-    colorBgElevated: "#ffffff",
-    colorBorder: "#e8e8e5",
-    colorText: "#1a1a1a",
-    colorTextSecondary: "#8e8e8e",
-  },
-  components: {
-    ...sharedComponents,
-    Layout: {
-      siderBg: "#ffffff",
-      headerBg: "#ffffff",
-      bodyBg: "transparent",
-    },
-    Menu: {
-      itemBg: "transparent",
-      itemSelectedBg: "rgba(0, 0, 0, 0.04)",
-      itemHoverBg: "rgba(0, 0, 0, 0.02)",
-    },
-    Table: {
-      headerBg: "#fafafa",
-      rowHoverBg: "rgba(0, 0, 0, 0.02)",
-    },
-    Card: {
-      colorBgContainer: "#ffffff",
-      paddingLG: 20,
-    },
-    Button: {
-      primaryShadow: "0 2px 4px rgba(0, 0, 0, 0.06)",
-    },
-  },
-};
+/** 在 base 底色上按 pct 混入 color(等价 color-mix),用于推导状态淡染底/描边。 */
+function mix(color: string, base: string, pct: number): string {
+  const c = parseInt(color.slice(1), 16);
+  const b = parseInt(base.slice(1), 16);
+  const ch = (shift: number) =>
+    Math.round(((c >> shift) & 0xff) * pct + ((b >> shift) & 0xff) * (1 - pct));
+  return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, "0")}`;
+}
 
-export const darkTheme: ThemeConfig = {
-  algorithm: theme.darkAlgorithm,
-  token: {
-    ...sharedToken,
-    colorPrimary: "#e8e8e8",
-    colorBgBase: "#141414",
-    colorBgContainer: "#1f1f1f",
-    colorBgElevated: "#1f1f1f",
-    colorBorder: "#303030",
-    colorText: "#e8e8e8",
-    colorTextSecondary: "#999999",
-  },
-  components: {
-    ...sharedComponents,
-    Layout: {
-      siderBg: "#141414",
-      headerBg: "#141414",
-      bodyBg: "transparent",
+function buildTheme(mode: ThemeMode): ThemeConfig {
+  const p = palettes[mode];
+  const dark = mode === "dark";
+  return {
+    algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
+    token: {
+      ...sharedToken,
+      // 主色 = 墨(浅)/ 米白(深):按钮保持无彩度,朱砂不做普通按钮色
+      colorPrimary: p.text,
+      colorBgBase: p.bgPage,
+      colorBgLayout: p.bgPage,
+      colorBgContainer: p.bgContainer,
+      colorBgElevated: p.bgElevated,
+      colorBorder: p.border,
+      colorBorderSecondary: p.borderSecondary,
+      colorText: p.text,
+      colorTextSecondary: p.textSecondary,
+      colorTextTertiary: p.textTertiary,
+      // 链接:墨字,悬停见朱
+      colorLink: p.text,
+      colorLinkHover: p.accent,
+      colorLinkActive: p.accentHover,
+      // 语义四色接入器物色(Alert/message/Result/Badge 随之统一)
+      colorInfo: p.info,
+      colorSuccess: p.success,
+      colorWarning: p.warning,
+      colorError: p.error,
+      // 状态淡染底/描边与 SemanticTag 同一配方(11% / 30% 混入容器底),
+      // 避免算法推导出浑浊底色
+      colorInfoBg: mix(p.info, p.bgContainer, dark ? 0.16 : 0.11),
+      colorInfoBorder: mix(p.info, p.bgContainer, dark ? 0.32 : 0.3),
+      colorSuccessBg: mix(p.success, p.bgContainer, dark ? 0.16 : 0.11),
+      colorSuccessBorder: mix(p.success, p.bgContainer, dark ? 0.32 : 0.3),
+      colorWarningBg: mix(p.warning, p.bgContainer, dark ? 0.16 : 0.11),
+      colorWarningBorder: mix(p.warning, p.bgContainer, dark ? 0.32 : 0.3),
+      colorErrorBg: mix(p.error, p.bgContainer, dark ? 0.16 : 0.11),
+      colorErrorBorder: mix(p.error, p.bgContainer, dark ? 0.32 : 0.3),
     },
-    Menu: {
-      itemBg: "transparent",
-      itemSelectedBg: "rgba(255, 255, 255, 0.08)",
-      itemHoverBg: "rgba(255, 255, 255, 0.04)",
+    components: {
+      ...sharedComponents,
+      Layout: {
+        siderBg: p.bgContainer,
+        headerBg: p.bgContainer,
+        bodyBg: "transparent",
+      },
+      Menu: {
+        itemBg: "transparent",
+        subMenuItemBg: "transparent",
+        itemSelectedBg: p.bgSubtle,
+        itemSelectedColor: p.text,
+        itemHoverBg: dark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.03)",
+        itemBorderRadius: 6,
+        itemHeight: 36,
+        groupTitleFontSize: 11,
+      },
+      Table: {
+        headerBg: p.bgSubtle,
+        headerSplitColor: "transparent",
+        rowHoverBg: dark ? "rgba(255, 255, 255, 0.03)" : "rgba(31, 30, 27, 0.025)",
+      },
+      Card: {
+        colorBgContainer: p.bgContainer,
+        colorBorderSecondary: p.border,
+        paddingLG: 20,
+      },
+      Button: {
+        primaryShadow: dark ? "none" : "0 1px 2px rgba(31, 30, 27, 0.08)",
+        defaultShadow: "none",
+        dangerShadow: "none",
+        fontWeight: 500,
+        // 深色主色为米白,AntD 不会自动翻转实底按钮文字色,须显式给墨字
+        primaryColor: dark ? "#1B1A17" : "#FFFFFF",
+      },
+      Tabs: {
+        // 选中页签的墨线用朱砂——系统性的"朱笔"落点之一
+        inkBarColor: p.accent,
+        itemSelectedColor: p.text,
+        itemHoverColor: p.text,
+      },
+      Tag: {
+        defaultBg: p.bgSubtle,
+        defaultColor: p.textSecondary,
+      },
+      Modal: {
+        contentBg: p.bgElevated,
+        headerBg: p.bgElevated,
+      },
+      Segmented: {
+        trackBg: p.bgSubtle,
+        itemSelectedBg: p.bgContainer,
+      },
     },
-    Table: {
-      headerBg: "#1a1a1a",
-      rowHoverBg: "rgba(255, 255, 255, 0.04)",
-    },
-    Card: {
-      colorBgContainer: "#1f1f1f",
-      paddingLG: 20,
-    },
-    Button: {
-      primaryShadow: "0 2px 4px rgba(0, 0, 0, 0.2)",
-    },
-  },
-};
+  };
+}
+
+export const lightTheme: ThemeConfig = buildTheme("light");
+
+export const darkTheme: ThemeConfig = buildTheme("dark");
 
 export function getThemeConfig(mode: ThemeMode): ThemeConfig {
   return mode === "dark" ? darkTheme : lightTheme;

@@ -28,7 +28,27 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <img src="/favicon.svg" alt={brand} style={{ width: 28, height: 28, display: "block" }} />
+        {/* 品牌印:朱砂方印「枢」 */}
+        <span
+          aria-hidden
+          style={{
+            width: 26,
+            height: 26,
+            borderRadius: 6,
+            background: "var(--ts-color-accent)",
+            color: "var(--ts-color-accent-text-on)",
+            fontFamily: "'Noto Serif SC', serif",
+            fontWeight: 700,
+            fontSize: 15,
+            lineHeight: 1,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            userSelect: "none",
+          }}
+        >
+          枢
+        </span>
         <span
           style={{
             color: token.colorText,
@@ -47,9 +67,9 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
           flex: 1,
           textAlign: "center",
           color: token.colorTextSecondary,
-          fontSize: 13,
-          letterSpacing: 1,
-          fontStyle: "italic",
+          fontFamily: isLatinBrand ? "'Noto Serif', serif" : "'Noto Serif SC', serif",
+          fontSize: 12.5,
+          letterSpacing: 2,
         }}
       >
         {t("comp.appHeader.tagline")}

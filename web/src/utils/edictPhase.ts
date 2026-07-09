@@ -25,11 +25,12 @@ export const PHASE_LABELS: Record<EdictPhase, string> = {
   no_memorial: "待启动",
 };
 
+// CSS 变量引用,随浅/深主题切换;展示配合 SemanticTag 使用
 export const PHASE_COLORS: Record<EdictPhase, string> = {
-  running: "#1890ff",
-  needs_review: "#fa8c16",
-  idle: "#52c41a",
-  no_memorial: "#faad14",
+  running: "var(--ts-status-running)",
+  needs_review: "var(--ts-status-needs-review)",
+  idle: "var(--ts-status-completed)",
+  no_memorial: "var(--ts-status-submitted)",
 };
 
 export const PHASE_SORT_ORDER: Record<EdictPhase, number> = {

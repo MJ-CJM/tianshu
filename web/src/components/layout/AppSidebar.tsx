@@ -50,7 +50,29 @@ export default function AppSidebar() {
         {
           key: "/",
           icon: <AuditOutlined />,
-          label: reviewCount > 0 ? `${t("nav.approvals")} (${reviewCount})` : t("nav.approvals"),
+          label:
+            reviewCount > 0 ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                {t("nav.approvals")}
+                {/* 待朱批计数:朱砂小盘 */}
+                <span
+                  style={{
+                    background: "var(--ts-color-accent)",
+                    color: "var(--ts-color-accent-text-on)",
+                    borderRadius: 9,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    lineHeight: "16px",
+                    padding: "0 6px",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {reviewCount}
+                </span>
+              </span>
+            ) : (
+              t("nav.approvals")
+            ),
         },
         {
           key: "/scheduler",

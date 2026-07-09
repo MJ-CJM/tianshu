@@ -73,7 +73,7 @@ function ReportContent({ report, t }: { report: SupervisionReport; t: TFunction 
       {report.issues_observed.length > 0 && (
         <div>
           <Typography.Text strong>
-            <CloseCircleOutlined style={{ color: "#ff4d4f", marginRight: 6 }} />
+            <CloseCircleOutlined style={{ color: "var(--ts-color-error)", marginRight: 6 }} />
             {t("comp.supervision.issues", { n: report.issues_observed.length })}
           </Typography.Text>
           <List
@@ -91,7 +91,7 @@ function ReportContent({ report, t }: { report: SupervisionReport; t: TFunction 
       {report.well_done.length > 0 && (
         <div>
           <Typography.Text strong>
-            <CheckCircleOutlined style={{ color: "#52c41a", marginRight: 6 }} />
+            <CheckCircleOutlined style={{ color: "var(--ts-color-success)", marginRight: 6 }} />
             {t("comp.supervision.wellDone", { n: report.well_done.length })}
           </Typography.Text>
           <List
@@ -110,7 +110,7 @@ function ReportContent({ report, t }: { report: SupervisionReport; t: TFunction 
         <div>
           <Typography.Text strong>
             <ExclamationCircleOutlined
-              style={{ color: "#faad14", marginRight: 6 }}
+              style={{ color: "var(--ts-color-warning)", marginRight: 6 }}
             />
             {t("comp.supervision.poorlyDone", { n: report.poorly_done.length })}
           </Typography.Text>
@@ -129,7 +129,7 @@ function ReportContent({ report, t }: { report: SupervisionReport; t: TFunction 
       {report.recommendation && (
         <div>
           <Typography.Text strong>
-            <BulbOutlined style={{ color: "#1890ff", marginRight: 6 }} />
+            <BulbOutlined style={{ color: "var(--ts-color-info)", marginRight: 6 }} />
             {t("comp.supervision.recommendation")}
           </Typography.Text>
           <Typography.Paragraph

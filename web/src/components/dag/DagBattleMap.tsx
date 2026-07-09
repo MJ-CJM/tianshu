@@ -16,17 +16,24 @@ import DagToolbar from './DagToolbar';
 import WorkerPanel from './WorkerPanel';
 import type { DAGExecution, DAGNode as DAGNodeType } from '../../api/types';
 import { useT } from "../../i18n";
+import { useThemeMode, type ThemeMode } from '../../hooks/useTheme';
+import { palettes } from '../../theme/palette';
 
 const nodeTypes = { dagNode: DagNodeComponent };
 
-const EDGE_COLORS: Record<string, string> = {
-  pending: '#d9d9d9',
-  ready: '#1890ff',
-  running: '#faad14',
-  completed: '#52c41a',
-  failed: '#ff4d4f',
-  cancelled: '#bfbfbf',
-};
+// React Flow 的 marker / MiniMap 走 SVG 属性取色,CSS 变量不生效,
+// 因此按当前主题从调色板取字面值。
+function edgeColors(mode: ThemeMode): Record<string, string> {
+  const p = palettes[mode];
+  return {
+    pending: p.borderHover,
+    ready: p.status.running,
+    running: p.warning,
+    completed: p.status.completed,
+    failed: p.status.failed,
+    cancelled: p.status.cancelled,
+  };
+}
 
 interface DagBattleMapProps {
   execution: DAGExecution | null | undefined;
@@ -38,7 +45,11 @@ interface DagBattleMapProps {
   retryLoading?: boolean;
 }
 
-function layoutNodes(dagNodes: DAGNodeType[]): { nodes: Node[]; edges: Edge[] } {
+function layoutNodes(
+  dagNodes: DAGNodeType[],
+  colors: Record<string, string>,
+  fallbackColor: string,
+): { nodes: Node[]; edges: Edge[] } {
   const depthMap = new Map<string, number>();
   const nodeMap = new Map(dagNodes.map((n) => [n.node_id, n]));
 
@@ -92,8 +103,8 @@ function layoutNodes(dagNodes: DAGNodeType[]): { nodes: Node[]; edges: Edge[] } 
           source: depId,
           target: n.node_id,
           animated: n.status === 'running',
-          style: { stroke: EDGE_COLORS[n.status] || '#d9d9d9', strokeWidth: 2 },
-          markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_COLORS[n.status] || '#d9d9d9' },
+          style: { stroke: colors[n.status] || fallbackColor, strokeWidth: 2 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: colors[n.status] || fallbackColor },
         });
       });
     });
@@ -112,9 +123,12 @@ export default function DagBattleMap({
   retryLoading,
 }: DagBattleMapProps) {
   const t = useT();
+  const mode = useThemeMode();
+  const colors = useMemo(() => edgeColors(mode), [mode]);
+  const fallbackColor = palettes[mode].borderHover;
   const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(
-    () => layoutNodes(execution?.nodes || []),
-    [execution?.nodes],
+    () => layoutNodes(execution?.nodes || [], colors, fallbackColor),
+    [execution?.nodes, colors, fallbackColor],
   );
 
   if (!execution) {
@@ -144,7 +158,7 @@ export default function DagBattleMap({
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
           <Controls />
           <MiniMap
-            nodeColor={(n) => EDGE_COLORS[(n.data as any)?.status] || '#d9d9d9'}
+            nodeColor={(n) => colors[(n.data as any)?.status] || fallbackColor}
             style={{ height: 80 }}
           />
         </ReactFlow>

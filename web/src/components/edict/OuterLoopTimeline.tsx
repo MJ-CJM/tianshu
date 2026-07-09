@@ -134,9 +134,9 @@ export default function OuterLoopTimeline({ edictId }: Props) {
           const verdict = critic?.verdict;
           const verdictIcon =
             verdict === "pass" ? (
-              <CheckCircleOutlined style={{ color: "#52c41a" }} />
+              <CheckCircleOutlined style={{ color: "var(--ts-color-success)" }} />
             ) : verdict === "fail" ? (
-              <CloseCircleOutlined style={{ color: "#ff4d4f" }} />
+              <CloseCircleOutlined style={{ color: "var(--ts-color-error)" }} />
             ) : (
               <ClockCircleOutlined />
             );

@@ -57,7 +57,7 @@ export default function SchedulerPage() {
       dataIndex: "next_run",
       width: 180,
       render: (v: string | null) =>
-        v ? formatTime(v) : <span style={{ color: "#8c8c8c" }}>—</span>,
+        v ? formatTime(v) : <span style={{ color: "var(--ts-color-text-secondary)" }}>—</span>,
     },
     {
       title: t("scheduler.table.actions"),
