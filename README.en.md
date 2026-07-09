@@ -11,6 +11,7 @@
 [![CI](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml/badge.svg)](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/MJ-CJM/tianshu?style=flat&logo=github&label=Star&color=CDA95C)](https://github.com/MJ-CJM/tianshu/stargazers)
 
 </div>
 
@@ -103,6 +104,22 @@ A platform that sells cost governance must dare to report its own cost. Typical 
 ## Contributing
 
 Narrow gate during launch: issues / docs / small fixes welcome; feature PRs need an issue first to align. Best-effort 48h response, no SLA. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
+
+## ⭐ Star history
+
+If Tianshu got the job done for you, leave a Star — your star lands on the chart below and marks this project's growth.
+
+<div align="center">
+
+<a href="https://star-history.com/#MJ-CJM/tianshu&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=MJ-CJM/tianshu&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=MJ-CJM/tianshu&type=Date" />
+    <img src="https://api.star-history.com/svg?repos=MJ-CJM/tianshu&type=Date" alt="Tianshu star history" width="640">
+  </picture>
+</a>
+
+</div>
 
 ## License
 
