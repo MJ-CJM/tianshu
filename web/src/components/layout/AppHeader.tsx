@@ -1,4 +1,5 @@
 import { Layout, theme } from "antd";
+import SealMark from "../common/SealMark";
 import HealthDot from "../common/HealthDot";
 import ConnectionIndicator from "../common/ConnectionIndicator";
 import LocaleSwitcher from "./LocaleSwitcher";
@@ -28,27 +29,8 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {/* 品牌印:朱砂方印「枢」 */}
-        <span
-          aria-hidden
-          style={{
-            width: 26,
-            height: 26,
-            borderRadius: 6,
-            background: "var(--ts-color-accent)",
-            color: "var(--ts-color-accent-text-on)",
-            fontFamily: "'Noto Serif SC', serif",
-            fontWeight: 700,
-            fontSize: 15,
-            lineHeight: 1,
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            userSelect: "none",
-          }}
-        >
-          枢
-        </span>
+        {/* 品牌印:朱砂方印「枢」(印面+印框+白文) */}
+        <SealMark size={26} />
         <span
           style={{
             color: token.colorText,

@@ -50,6 +50,10 @@ export interface Palette {
   accentSoft: string;
   /** 朱砂实底上的文字色 */
   accentTextOn: string;
+  /** 品牌印印面(深色下比 accent 深一档,承住白文) */
+  sealBg: string;
+  /** 印上白文与印框——印泥语法,恒为纸白,不随模式翻转 */
+  sealGlyph: string;
   /** 语义四色(低饱和器物色,同时喂给 AntD success/warning/error/info) */
   info: string;
   success: string;
@@ -77,6 +81,8 @@ export const palettes: Record<ThemeMode, Palette> = {
     accentHover: "#C14E39",
     accentSoft: "rgba(174, 63, 44, 0.10)",
     accentTextOn: "#FFFFFF",
+    sealBg: "#AE3F2C",
+    sealGlyph: "#FBF8F2",
     info: "#3D6C8E",
     success: "#45775A",
     warning: "#8A6B24",
@@ -111,6 +117,8 @@ export const palettes: Record<ThemeMode, Palette> = {
     accentHover: "#E5806A",
     accentSoft: "rgba(217, 108, 82, 0.16)",
     accentTextOn: "#1B120E",
+    sealBg: "#B44B37",
+    sealGlyph: "#FBF8F2",
     info: "#7FA7C4",
     success: "#82B091",
     warning: "#C9A85C",
