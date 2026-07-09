@@ -1,45 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- 墨环朱枢:北斗七星 + 枢轴十字,墨色随系统深浅切换,朱砂恒在 -->
-  <style>
-    .ink { stroke: #1F1E1B; }
-    .ink-fill { fill: #1F1E1B; }
-    .zhu { stroke: #AE3F2C; }
-    .zhu-fill { fill: #AE3F2C; }
-    @media (prefers-color-scheme: dark) {
-      .ink { stroke: #EAE6DC; }
-      .ink-fill { fill: #EAE6DC; }
-      .zhu { stroke: #D96C52; }
-      .zhu-fill { fill: #D96C52; }
-    }
-  </style>
-
-  <!-- 外环:轨道 -->
-  <circle cx="16" cy="16" r="14" fill="none" class="ink" stroke-width="1.1" opacity="0.75"/>
-  <!-- 内环:枢 -->
-  <circle cx="16" cy="16" r="9.5" fill="none" class="ink" stroke-width="0.7" opacity="0.4" stroke-dasharray="3 2.4"/>
-
-  <!-- 枢轴十字(朱砂) -->
-  <line x1="16" y1="9.5" x2="16" y2="22.5" class="zhu" stroke-width="1.7"/>
-  <line x1="9.5" y1="16" x2="22.5" y2="16" class="zhu" stroke-width="1.7"/>
-  <!-- 星核 -->
-  <circle cx="16" cy="16" r="2.1" class="zhu-fill"/>
-
-  <!-- 北斗七星(墨) -->
-  <circle cx="8" cy="7" r="1" class="ink-fill" opacity="0.8"/>
-  <circle cx="11.5" cy="6" r="0.8" class="ink-fill" opacity="0.65"/>
-  <circle cx="15" cy="7.5" r="0.7" class="ink-fill" opacity="0.5"/>
-  <circle cx="18.5" cy="9" r="0.7" class="ink-fill" opacity="0.5"/>
-  <circle cx="22" cy="8" r="0.6" class="ink-fill" opacity="0.4"/>
-  <circle cx="24" cy="10.5" r="0.6" class="ink-fill" opacity="0.4"/>
-  <circle cx="21.5" cy="12" r="0.6" class="ink-fill" opacity="0.4"/>
-
-  <!-- 斗柄连线 -->
-  <polyline points="8,7 11.5,6 15,7.5 18.5,9" fill="none" class="ink" stroke-width="0.4" opacity="0.35"/>
-  <polyline points="18.5,9 22,8 24,10.5 21.5,12 18.5,9" fill="none" class="ink" stroke-width="0.35" opacity="0.3"/>
-
-  <!-- 外环四向刻度 -->
-  <line x1="16" y1="1" x2="16" y2="3.5" class="ink" stroke-width="0.8" opacity="0.5"/>
-  <line x1="16" y1="28.5" x2="16" y2="31" class="ink" stroke-width="0.8" opacity="0.5"/>
-  <line x1="1" y1="16" x2="3.5" y2="16" class="ink" stroke-width="0.8" opacity="0.5"/>
-  <line x1="28.5" y1="16" x2="31" y2="16" class="ink" stroke-width="0.8" opacity="0.5"/>
+  <!-- 品牌标「TS × 星空」:夜空墨底,TS 单线字形端点为星,朱砂四芒 = 天枢星(北斗第一星)。
+       与 web/src/components/common/BrandMark.tsx 同一构图,favicon 用固定色(夜空底两种标签栏都清晰)。 -->
+  <rect x="1" y="1" width="30" height="30" rx="5.5" fill="#1A1E28"/>
+  <!-- 远星 -->
+  <circle cx="27.6" cy="6.2" r="0.75" fill="#FBF8F2" opacity="0.5"/>
+  <circle cx="5.6" cy="16.6" r="0.65" fill="#FBF8F2" opacity="0.4"/>
+  <!-- T:横杠向右流向天枢星,立轴为枢 -->
+  <path d="M6.8 10.2 H14.8 M10.8 10.2 V22.8" stroke="#FBF8F2" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+  <!-- S:自天枢星下方展开 -->
+  <path d="M25.3 14.2 C24.4 12.6 21.0 12.2 19.6 13.9 C18.3 15.5 19.9 17.2 21.9 18.05 C24.0 18.9 25.5 20.3 24.5 22.3 C23.4 24.3 19.7 24.2 18.3 22.5" stroke="#FBF8F2" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+  <!-- 笔画端点 = 星节点 -->
+  <circle cx="6.8" cy="10.2" r="1.7" fill="#FBF8F2"/>
+  <circle cx="10.8" cy="22.8" r="1.7" fill="#FBF8F2"/>
+  <circle cx="25.3" cy="14.2" r="1.7" fill="#FBF8F2"/>
+  <circle cx="18.3" cy="22.5" r="1.7" fill="#FBF8F2"/>
+  <!-- 天枢星:朱砂四芒 + 微光晕 -->
+  <circle cx="18.6" cy="8.8" r="3.6" fill="#D96C52" opacity="0.18"/>
+  <path d="M18.6 5.4 C19.2 7.7 19.4 7.9 21.9 8.8 C19.4 9.7 19.2 9.9 18.6 12.2 C18.0 9.9 17.8 9.7 15.3 8.8 C17.8 7.9 18.0 7.7 18.6 5.4 Z" fill="#D96C52"/>
 </svg>

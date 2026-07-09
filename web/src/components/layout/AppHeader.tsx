@@ -1,5 +1,5 @@
 import { Layout, theme } from "antd";
-import SealMark from "../common/SealMark";
+import BrandMark from "../common/BrandMark";
 import HealthDot from "../common/HealthDot";
 import ConnectionIndicator from "../common/ConnectionIndicator";
 import LocaleSwitcher from "./LocaleSwitcher";
@@ -29,8 +29,8 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {/* 品牌印:朱砂方印「枢」(印面+印框+白文) */}
-        <SealMark size={26} />
+        {/* 品牌标:TS×星空(夜空墨底,端点为星,朱砂四芒=天枢星) */}
+        <BrandMark size={26} />
         <span
           style={{
             color: token.colorText,

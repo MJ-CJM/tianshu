@@ -1,0 +1,56 @@
+interface BrandMarkProps {
+  /** 渲染尺寸(px) */
+  size?: number;
+}
+
+/**
+ * 品牌标「TS × 星空」:夜空墨底方标,TS 单线字形的笔画端点即星点
+ * (星座连线语法),朱砂四芒星 = 天枢星(北斗第一星 Dubhe)。
+ * 满盘皆墨,一点为朱——与全局「朱批」宪法同源。
+ */
+export default function BrandMark({ size = 26 }: BrandMarkProps) {
+  const glyph = "var(--ts-color-brand-glyph)";
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 32 32"
+      aria-hidden
+      focusable="false"
+      style={{ display: "block", flex: "none" }}
+    >
+      {/* 夜空 */}
+      <rect x="1" y="1" width="30" height="30" rx="5.5" fill="var(--ts-color-brand-bg)" />
+      {/* 远星 */}
+      <circle cx="27.6" cy="6.2" r="0.75" fill={glyph} opacity="0.5" />
+      <circle cx="5.6" cy="16.6" r="0.65" fill={glyph} opacity="0.4" />
+      {/* T:横杠向右流向天枢星,立轴为枢 */}
+      <path
+        d="M6.8 10.2 H14.8 M10.8 10.2 V22.8"
+        stroke={glyph}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        fill="none"
+      />
+      {/* S:自天枢星下方展开,与 T 近等高 */}
+      <path
+        d="M25.3 14.2 C24.4 12.6 21.0 12.2 19.6 13.9 C18.3 15.5 19.9 17.2 21.9 18.05 C24.0 18.9 25.5 20.3 24.5 22.3 C23.4 24.3 19.7 24.2 18.3 22.5"
+        stroke={glyph}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        fill="none"
+      />
+      {/* 笔画端点 = 星节点 */}
+      <circle cx="6.8" cy="10.2" r="1.7" fill={glyph} />
+      <circle cx="10.8" cy="22.8" r="1.7" fill={glyph} />
+      <circle cx="25.3" cy="14.2" r="1.7" fill={glyph} />
+      <circle cx="18.3" cy="22.5" r="1.7" fill={glyph} />
+      {/* 天枢星:朱砂四芒 + 微光晕,T/S 共同悬挂的枢点 */}
+      <circle cx="18.6" cy="8.8" r="3.6" fill="var(--ts-color-brand-star)" opacity="0.18" />
+      <path
+        d="M18.6 5.4 C19.2 7.7 19.4 7.9 21.9 8.8 C19.4 9.7 19.2 9.9 18.6 12.2 C18.0 9.9 17.8 9.7 15.3 8.8 C17.8 7.9 18.0 7.7 18.6 5.4 Z"
+        fill="var(--ts-color-brand-star)"
+      />
+    </svg>
+  );
+}
