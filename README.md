@@ -13,6 +13,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/MJ-CJM/tianshu?style=flat&logo=github&label=Star&color=CDA95C)](https://github.com/MJ-CJM/tianshu/stargazers)
 
 [English](README.en.md) · [文档导航](docs/README.md) · [快速开始](#-快速开始) · [架构一览](#️-架构一览) · [借鉴与致谢](#-借鉴与致谢)
 
@@ -236,6 +237,22 @@ tianshu shadow revert <edict_id> <sha>      # 回滚工作区到某快照
 .venv/bin/pytest -m "not slow" -q                           # 测试
 cd web && npm run lint && npm run typecheck && npm test -- --run && cd ..
 ```
+
+## ⭐ 星图
+
+如果天枢帮你把活干成了，点一颗 Star——你的星子会落进下面这张星图里，记下这个项目的成长。
+
+<div align="center">
+
+<a href="https://star-history.com/#MJ-CJM/tianshu&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=MJ-CJM/tianshu&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=MJ-CJM/tianshu&type=Date" />
+    <img src="https://api.star-history.com/svg?repos=MJ-CJM/tianshu&type=Date" alt="天枢 Star 增长曲线" width="640">
+  </picture>
+</a>
+
+</div>
 
 ## 📄 License
 
