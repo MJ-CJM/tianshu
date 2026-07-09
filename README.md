@@ -2,7 +2,7 @@
 
 # 天枢 · Tianshu
 
-**一座会与你共同成长的异步 AI 执行平台**
+**一座异步办差、全程可治理、与你共同成长的 AI 执行平台**
 
 *An async, governable AI execution platform — organized like an imperial court, growing with every task.*
 
