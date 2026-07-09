@@ -30,6 +30,8 @@ function buildCssVars(mode: ThemeMode): Record<string, string> {
     "--ts-color-accent-hover": p.accentHover,
     "--ts-color-accent-soft": p.accentSoft,
     "--ts-color-accent-text-on": p.accentTextOn,
+    "--ts-color-seal-bg": p.sealBg,
+    "--ts-color-seal-glyph": p.sealGlyph,
     "--ts-color-info": p.info,
     "--ts-color-success": p.success,
     "--ts-color-warning": p.warning,
