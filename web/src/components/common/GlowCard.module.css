@@ -10,15 +10,25 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
+/* 办理中:朱砂极淡呼吸——执行中的敕令如一炷未燃尽的香 */
 .runningGlow {
-  animation: borderGlow 3s ease-in-out infinite;
+  animation: borderGlow 3.2s ease-in-out infinite;
 }
 
 @keyframes borderGlow {
   0%, 100% {
     border-color: var(--ts-color-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   }
   50% {
-    border-color: #1890ff;
+    border-color: color-mix(in srgb, var(--ts-color-accent) 45%, var(--ts-color-border));
+    box-shadow: 0 0 0 3px var(--ts-color-accent-soft);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runningGlow {
+    animation: none;
+    border-color: color-mix(in srgb, var(--ts-color-accent) 45%, var(--ts-color-border));
   }
 }

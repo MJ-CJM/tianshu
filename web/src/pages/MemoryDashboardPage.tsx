@@ -531,9 +531,9 @@ function MemoryMaintenanceTab({ persona }: { persona: string }) {
                   title={cat}
                   value={count as number}
                   valueStyle={{
-                    color: cat === "insight" ? "#faad14" :
-                      cat === "observation" ? "#1890ff" :
-                      cat === "summary" ? "#722ed1" : "#52c41a",
+                    color: cat === "insight" ? "var(--ts-color-warning)" :
+                      cat === "observation" ? "var(--ts-color-info)" :
+                      cat === "summary" ? "var(--ts-status-planning)" : "var(--ts-color-success)",
                   }}
                 />
               </Col>

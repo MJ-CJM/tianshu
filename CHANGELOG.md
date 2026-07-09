@@ -2,6 +2,22 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与语义化版本。
 
+## [0.4.2] - 2026-07(UI 视觉重塑「朱批」)
+
+墨为骨,朱为睛,纸为气:保持 Geist 级克制,朱砂只出现在「与主上朱笔有关」的地方。
+三方向比稿后用户拍板 A「朱批」,定案见 docs/strategy/2026-07-09-ui-refresh-zhupi.md。
+
+### Changed
+- **调色板单一色源** `web/src/theme/palette.ts`:浅色「宣纸」/深色「烟墨」两套中性色 + 朱砂唯一强调色 + 九态低饱和器物状态色(WCAG AA 已核对);AntD token 与 CSS 变量(`--ts-*`)都从这里取值
+- **状态标签整体重制**:新 `SemanticTag`(淡染底+细描边+本色字)替代实色 Tag;**「待朱批」是全屏唯一实色**(朱砂底);AntD 预设色种子(blue/green/red/…)一并低饱和化,82 处预设 Tag 零改动跟随;`colorInfo/Success/Warning/Error` 及其 Bg/Border 与 SemanticTag 同配方对齐
+- **朱笔语义落点**:侧栏选中项朱杠+待批计数朱砂小盘、页头朱砂方印「枢」、Tabs 朱砂墨线、`::selection` 朱砂淡染、`:focus-visible` 朱砂环、GlowCard 运行光晕改朱砂呼吸(尊重 reduced-motion);朱砂不做普通按钮色
+- **品牌重墨**:favicon 由青蓝辉光星芒改为墨环朱枢(内嵌 prefers-color-scheme,深浅标签栏均清晰)
+- **排印纪律**:全局 `tabular-nums`、页头标语去伪斜体改衬线+字距、标题字距、侧栏分组标题宋体
+- **硬编码色值清零**:约 60 处组件内 AntD v4 糖果色/浅色边框转 CSS 变量(深色模式穿帮修复,含 CostTrendChart/DagToolbar/WorkerPanel/EventTimeline 等);React Flow marker/MiniMap 不支持 var(),按主题从 palette 取字面值
+
+### 后续(验收旋钮)
+- 待朱批实色/朱杠/呼吸光晕/朱砂明度/个别状态色相均为可点名调整项;可选加味(纸面噪点、Empty 闲章)默认未做
+
 ## [0.4.1] - 2026-07(迭代 7「制度补全」)
 
 明制透镜补全:小事快批(司礼监)× 大事慎议(廷议,迭代 5)成对;提交有封驳、绩效有考核、健康有巡按。

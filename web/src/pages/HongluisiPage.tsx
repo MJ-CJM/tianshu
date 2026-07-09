@@ -156,7 +156,7 @@ export default function HongluisiPage() {
               title={name}
               value={isOn ? t("hongluisi.tool.enabled") : t("hongluisi.tool.disabled")}
               valueStyle={{
-                color: isOn ? "#52c41a" : "#999",
+                color: isOn ? "var(--ts-color-success)" : "var(--ts-color-text-secondary)",
                 fontSize: 18,
               }}
             />
@@ -181,7 +181,7 @@ export default function HongluisiPage() {
             title={name}
             value={isOn ? t("hongluisi.tool.enabled") : t("hongluisi.tool.disabled")}
             valueStyle={{
-              color: isOn ? "#52c41a" : "#999",
+              color: isOn ? "var(--ts-color-success)" : "var(--ts-color-text-secondary)",
               fontSize: 18,
             }}
           />

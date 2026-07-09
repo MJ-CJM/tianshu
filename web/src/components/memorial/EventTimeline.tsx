@@ -28,34 +28,34 @@ import { useT, type TFunction } from "../../i18n";
 import type { ReactNode } from "react";
 
 const EVENT_VISUALS: Record<string, { color: string; icon: ReactNode }> = {
-  "edict.submitted": { color: "#faad14", icon: <SendOutlined /> },
-  "execution.started": { color: "#1890ff", icon: <SyncOutlined spin /> },
-  "execution.completed": { color: "#52c41a", icon: <CheckCircleOutlined /> },
-  "execution.failed": { color: "#ff4d4f", icon: <CloseCircleOutlined /> },
-  "execution.cancelled": { color: "#8c8c8c", icon: <CloseCircleOutlined /> },
-  "iteration.started": { color: "#1890ff", icon: <SyncOutlined spin /> },
-  "tool.completed": { color: "#1890ff", icon: <ToolOutlined /> },
-  "tool.failed": { color: "#ff4d4f", icon: <ExclamationCircleOutlined /> },
-  "followup.submitted": { color: "#722ed1", icon: <PlusCircleOutlined /> },
-  "edict.updated": { color: "#faad14", icon: <SendOutlined /> },
-  "edict.closed": { color: "#52c41a", icon: <StopOutlined /> },
-  "edict.scheduled": { color: "#faad14", icon: <ScheduleOutlined /> },
-  "plan.completed": { color: "#722ed1", icon: <BulbOutlined /> },
-  "plan.pending_review": { color: "#faad14", icon: <ExclamationCircleOutlined /> },
-  "plan.approved": { color: "#52c41a", icon: <CheckCircleOutlined /> },
-  "plan.rejected": { color: "#ff4d4f", icon: <CloseCircleOutlined /> },
-  "audit.completed": { color: "#13c2c2", icon: <SafetyCertificateOutlined /> },
-  "decree.approved": { color: "#52c41a", icon: <CheckCircleOutlined /> },
-  "decree.rejected": { color: "#ff4d4f", icon: <CloseCircleOutlined /> },
-  "decree.retry": { color: "#faad14", icon: <RedoOutlined /> },
-  "decree.cancelled": { color: "#8c8c8c", icon: <StopOutlined /> },
-  "tool.blocked": { color: "#ff4d4f", icon: <StopOutlined /> },
-  "edict.audit.executed": { color: "#13c2c2", icon: <AuditOutlined /> },
-  "edict.continuation.injected": { color: "#722ed1", icon: <RollbackOutlined /> },
-  "edict.wind_down.entered": { color: "#fa8c16", icon: <WarningOutlined /> },
-  "edict.lifecycle.changed": { color: "#1890ff", icon: <SwapOutlined /> },
-  "outer_loop.paused": { color: "#faad14", icon: <PauseCircleOutlined /> },
-  "outer_loop.resumed": { color: "#52c41a", icon: <PlayCircleOutlined /> },
+  "edict.submitted": { color: "var(--ts-color-warning)", icon: <SendOutlined /> },
+  "execution.started": { color: "var(--ts-color-info)", icon: <SyncOutlined spin /> },
+  "execution.completed": { color: "var(--ts-color-success)", icon: <CheckCircleOutlined /> },
+  "execution.failed": { color: "var(--ts-color-error)", icon: <CloseCircleOutlined /> },
+  "execution.cancelled": { color: "var(--ts-status-cancelled)", icon: <CloseCircleOutlined /> },
+  "iteration.started": { color: "var(--ts-color-info)", icon: <SyncOutlined spin /> },
+  "tool.completed": { color: "var(--ts-color-info)", icon: <ToolOutlined /> },
+  "tool.failed": { color: "var(--ts-color-error)", icon: <ExclamationCircleOutlined /> },
+  "followup.submitted": { color: "var(--ts-status-planning)", icon: <PlusCircleOutlined /> },
+  "edict.updated": { color: "var(--ts-color-warning)", icon: <SendOutlined /> },
+  "edict.closed": { color: "var(--ts-color-success)", icon: <StopOutlined /> },
+  "edict.scheduled": { color: "var(--ts-color-warning)", icon: <ScheduleOutlined /> },
+  "plan.completed": { color: "var(--ts-status-planning)", icon: <BulbOutlined /> },
+  "plan.pending_review": { color: "var(--ts-color-warning)", icon: <ExclamationCircleOutlined /> },
+  "plan.approved": { color: "var(--ts-color-success)", icon: <CheckCircleOutlined /> },
+  "plan.rejected": { color: "var(--ts-color-error)", icon: <CloseCircleOutlined /> },
+  "audit.completed": { color: "var(--ts-status-auditing)", icon: <SafetyCertificateOutlined /> },
+  "decree.approved": { color: "var(--ts-color-success)", icon: <CheckCircleOutlined /> },
+  "decree.rejected": { color: "var(--ts-color-error)", icon: <CloseCircleOutlined /> },
+  "decree.retry": { color: "var(--ts-color-warning)", icon: <RedoOutlined /> },
+  "decree.cancelled": { color: "var(--ts-status-cancelled)", icon: <StopOutlined /> },
+  "tool.blocked": { color: "var(--ts-color-error)", icon: <StopOutlined /> },
+  "edict.audit.executed": { color: "var(--ts-status-auditing)", icon: <AuditOutlined /> },
+  "edict.continuation.injected": { color: "var(--ts-status-planning)", icon: <RollbackOutlined /> },
+  "edict.wind_down.entered": { color: "var(--ts-color-warning)", icon: <WarningOutlined /> },
+  "edict.lifecycle.changed": { color: "var(--ts-color-info)", icon: <SwapOutlined /> },
+  "outer_loop.paused": { color: "var(--ts-color-warning)", icon: <PauseCircleOutlined /> },
+  "outer_loop.resumed": { color: "var(--ts-color-success)", icon: <PlayCircleOutlined /> },
 };
 
 function eventLabel(t: TFunction, eventType: string): string {
@@ -151,7 +151,7 @@ function renderTimelineItem(
   t: TFunction,
 ) {
   const visual = EVENT_VISUALS[event.event_type];
-  const color = visual?.color ?? "#64748b";
+  const color = visual?.color ?? "var(--ts-status-cancelled)";
   const icon = visual?.icon ?? <ClockCircleOutlined />;
   const baseLabel = visual ? eventLabel(t, event.event_type) : event.event_type;
 

@@ -1,16 +1,18 @@
 import type { EdictStatus, TaskStatus } from "../api/types";
 import { useT } from "../i18n";
 
+// 状态色一律引用 CSS 变量(hooks/useTheme.ts 注入),随浅/深主题切换。
+// 展示请配合 SemanticTag(淡染)使用,不要塞给 <Tag color=>(会渲染成实色块)。
 export const STATUS_COLORS: Record<TaskStatus, string> = {
-  submitted: "#faad14",
-  running: "#1890ff",
-  completed: "#52c41a",
-  failed: "#ff4d4f",
-  cancelled: "#8c8c8c",
-  scheduled: "#faad14",
-  planning: "#722ed1",
-  auditing: "#13c2c2",
-  needs_review: "#fa8c16",
+  submitted: "var(--ts-status-submitted)",
+  running: "var(--ts-status-running)",
+  completed: "var(--ts-status-completed)",
+  failed: "var(--ts-status-failed)",
+  cancelled: "var(--ts-status-cancelled)",
+  scheduled: "var(--ts-status-scheduled)",
+  planning: "var(--ts-status-planning)",
+  auditing: "var(--ts-status-auditing)",
+  needs_review: "var(--ts-status-needs-review)",
 };
 
 export const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -32,9 +34,9 @@ export const EDICT_STATUS_LABELS: Record<EdictStatus, string> = {
 };
 
 export const EDICT_STATUS_COLORS: Record<EdictStatus, string> = {
-  open: "#1890ff",
-  completed: "#52c41a",
-  cancelled: "#8c8c8c",
+  open: "var(--ts-status-running)",
+  completed: "var(--ts-status-completed)",
+  cancelled: "var(--ts-status-cancelled)",
 };
 
 /**
@@ -75,9 +77,9 @@ export const PRIORITY_LABELS: Record<string, string> = {
 };
 
 export const PRIORITY_COLORS: Record<string, string> = {
-  urgent: "#ff4d4f",
-  normal: "#1890ff",
-  low: "#8c8c8c",
+  urgent: "var(--ts-color-error)",
+  normal: "var(--ts-color-info)",
+  low: "var(--ts-status-cancelled)",
 };
 
 export const REVIEW_POLICY_LABELS: Record<string, string> = {
@@ -100,9 +102,9 @@ export const VERDICT_LABELS: Record<string, string> = {
 };
 
 export const VERDICT_COLORS: Record<string, string> = {
-  pass: "#52c41a",
-  flag: "#faad14",
-  block: "#ff4d4f",
+  pass: "var(--ts-color-success)",
+  flag: "var(--ts-color-warning)",
+  block: "var(--ts-color-error)",
 };
 
 export const REVIEW_STATUS_LABELS: Record<string, string> = {

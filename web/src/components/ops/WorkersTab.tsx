@@ -56,7 +56,7 @@ export function WorkersTab() {
               title={t("ops.workers.active")}
               value={pool?.active_count ?? 0}
               suffix={`/ ${pool?.max_concurrency ?? 0}`}
-              valueStyle={{ color: pool?.active_count > 0 ? "#1890ff" : undefined }}
+              valueStyle={{ color: pool?.active_count > 0 ? "var(--ts-color-info)" : undefined }}
             />
           </Card>
         </Col>
@@ -75,7 +75,7 @@ export function WorkersTab() {
             <Statistic
               title={t("ops.workers.completed")}
               value={pool?.completed_count ?? 0}
-              valueStyle={{ color: "#52c41a" }}
+              valueStyle={{ color: "var(--ts-color-success)" }}
             />
           </Card>
         </Col>
@@ -84,7 +84,7 @@ export function WorkersTab() {
             <Statistic
               title={t("ops.workers.failed")}
               value={pool?.failed_count ?? 0}
-              valueStyle={{ color: pool?.failed_count > 0 ? "#ff4d4f" : undefined }}
+              valueStyle={{ color: pool?.failed_count > 0 ? "var(--ts-color-error)" : undefined }}
             />
           </Card>
         </Col>
@@ -127,7 +127,7 @@ export function WorkersTab() {
                 <Progress
                   percent={Math.round((globalLane.active / globalLane.max_concurrency) * 100)}
                   steps={globalLane.max_concurrency}
-                  strokeColor={globalLane.active > globalLane.max_concurrency * 0.8 ? "#ff4d4f" : "#1890ff"}
+                  strokeColor={globalLane.active > globalLane.max_concurrency * 0.8 ? "var(--ts-color-error)" : "var(--ts-color-info)"}
                 />
               </div>
             </Col>

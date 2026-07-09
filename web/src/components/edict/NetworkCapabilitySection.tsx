@@ -39,7 +39,7 @@ export default function NetworkCapabilitySection(props: Props) {
         <Tooltip title={disabled ? t("comp.network.tooltipDisabled") : ""}>
           <div>
             <Text strong>{t("comp.network.allowedHosts")}</Text>
-            <div style={{ color: "#999", fontSize: 12, marginBottom: 4 }}>
+            <div style={{ color: "var(--ts-color-text-secondary)", fontSize: 12, marginBottom: 4 }}>
               {t("comp.network.allowedHostsDesc")}
             </div>
             <Select

@@ -41,13 +41,13 @@ export default function DagToolbar({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        borderBottom: '1px solid #f0f0f0',
-        background: '#fff',
+        borderBottom: '1px solid var(--ts-color-border)',
+        background: 'var(--ts-color-bg-container)',
       }}
     >
       <Space>
         <Tag color={STATUS_COLORS[status] || 'default'}>{status.toUpperCase()}</Tag>
-        <span style={{ fontSize: 12, color: '#8c8c8c' }}>{dagId}</span>
+        <span style={{ fontSize: 12, color: 'var(--ts-color-text-secondary)' }}>{dagId}</span>
       </Space>
       <Space>
         {canCancel && (

@@ -1,0 +1,55 @@
+/*
+ * 天枢全局样式(方案 A「朱批」工艺层)
+ * 颜色一律走 --ts-* CSS 变量(hooks/useTheme.ts 注入),禁止硬编码色值。
+ */
+
+html {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--ts-color-bg-page);
+  /* 数字全局等宽对位:表格、统计、成本金额不再跳动 */
+  font-variant-numeric: tabular-nums;
+}
+
+/* 圈选即朱笔 */
+::selection {
+  background: var(--ts-color-accent-soft);
+}
+
+/* 键盘可达性:focus 环用朱砂,仅键盘聚焦时出现 */
+:focus-visible {
+  outline: 2px solid var(--ts-color-accent);
+  outline-offset: 1px;
+}
+
+/* ── 侧栏:选中项左侧一道朱杠(奏折眉批) ── */
+.ant-menu-inline .ant-menu-item,
+.ant-menu-vertical .ant-menu-item {
+  position: relative;
+}
+
+.ant-menu-inline .ant-menu-item-selected::before,
+.ant-menu-vertical .ant-menu-item-selected::before {
+  content: "";
+  position: absolute;
+  left: 0; /* 须在项内:菜单项 overflow:hidden 会裁掉外置元素 */
+  top: 22%;
+  bottom: 22%;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ts-color-accent);
+}
+
+/* 侧栏分组标题:宋体小字 + 字距,如卷宗签条 */
+.ant-menu .ant-menu-item-group-title {
+  font-family: "Noto Serif SC", serif;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}

@@ -613,7 +613,7 @@ export default function UniversePage() {
         ]}
       >
         <h4>代码改动(相对 fork 起点)</h4>
-        <pre style={{ maxHeight: 320, overflow: "auto", background: "#f6f6f6", padding: 12 }}>
+        <pre style={{ maxHeight: 320, overflow: "auto", background: "var(--ts-color-bg-code)", padding: 12 }}>
           {diffContent || "(无改动或加载中)"}
         </pre>
         <h4>评估记录(变体 vs 冠军基线,同评估集)</h4>
@@ -641,13 +641,13 @@ export default function UniversePage() {
                 const b = r.baseline?.score;
                 if (typeof v !== "number" || typeof b !== "number") return "—";
                 const d = v - b;
-                return <span style={{ color: d >= 0 ? "#3f8600" : "#cf1322" }}>{d.toFixed(4)}</span>;
+                return <span style={{ color: d >= 0 ? "var(--ts-color-success)" : "var(--ts-color-error)" }}>{d.toFixed(4)}</span>;
               },
             },
             { title: "备注", render: (_, r) => (r.fitness?.truncated ? "预算截断" : "") },
           ]}
         />
-        <p style={{ marginTop: 12, color: "#999" }}>
+        <p style={{ marginTop: 12, color: "var(--ts-color-text-secondary)" }}>
           晋升将翻转冠军并暂存部署指针;重启是单独受控步骤,健康检查失败会自动回滚。
         </p>
       </Modal>

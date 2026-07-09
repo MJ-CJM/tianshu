@@ -82,7 +82,7 @@ function PromptLayersCard({
               <Progress
                 percent={Math.round((record.chars / (layers.total_chars || 1)) * 100)}
                 size="small"
-                strokeColor={record.chars > 5000 ? "#faad14" : "#1890ff"}
+                strokeColor={record.chars > 5000 ? "var(--ts-color-warning)" : "var(--ts-color-info)"}
               />
             ),
           },

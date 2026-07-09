@@ -21,6 +21,7 @@ import { WorkersTab } from "../components/ops/WorkersTab";
 import { HooksTab } from "../components/ops/HooksTab";
 import PageContainer from "../components/common/PageContainer";
 import MonoText from "../components/common/MonoText";
+import SemanticTag from "../components/common/SemanticTag";
 import { formatTokens, formatTime, truncateId } from "../utils/format";
 import {
   PRIORITY_LABELS,
@@ -200,7 +201,7 @@ function HookEventsCard() {
                 <MonoText style={{ fontSize: 11 }}>{evt.payload.handler ?? "—"}</MonoText>
                 {evt.payload.blocked && <Tag color="orange" style={{ marginLeft: 4 }}>blocked</Tag>}
                 {evt.payload.error && <Tag color="red" style={{ marginLeft: 4 }}>{evt.payload.error}</Tag>}
-                <span style={{ color: "#888", marginLeft: 8, fontSize: 11 }}>
+                <span style={{ color: "var(--ts-color-text-secondary)", marginLeft: 8, fontSize: 11 }}>
                   {formatTime(evt.created_at)}
                 </span>
               </div>
@@ -237,7 +238,7 @@ function PolicyDecisionsTab() {
           <Statistic
             title="Allow"
             value={stats?.allow ?? 0}
-            valueStyle={{ color: "#52c41a" }}
+            valueStyle={{ color: "var(--ts-color-success)" }}
           />
         </Card>
       </Col>
@@ -246,7 +247,7 @@ function PolicyDecisionsTab() {
           <Statistic
             title="Deny"
             value={stats?.deny ?? 0}
-            valueStyle={{ color: "#ff4d4f" }}
+            valueStyle={{ color: "var(--ts-color-error)" }}
           />
         </Card>
       </Col>
@@ -255,7 +256,7 @@ function PolicyDecisionsTab() {
           <Statistic
             title="Require Approval"
             value={stats?.require_approval ?? 0}
-            valueStyle={{ color: "#fa8c16" }}
+            valueStyle={{ color: "var(--ts-color-warning)" }}
           />
         </Card>
       </Col>
@@ -449,7 +450,9 @@ export default function AuditDashboardPage() {
       dataIndex: "priority",
       width: 80,
       render: (p: string) => (
-        <Tag color={PRIORITY_COLORS[p]}>{PRIORITY_LABELS[p] ?? p}</Tag>
+        <SemanticTag colorVar={PRIORITY_COLORS[p] ?? "var(--ts-color-info)"}>
+          {PRIORITY_LABELS[p] ?? p}
+        </SemanticTag>
       ),
     },
     {
@@ -511,7 +514,9 @@ export default function AuditDashboardPage() {
       dataIndex: "verdict",
       width: 90,
       render: (v: string) => (
-        <Tag color={VERDICT_COLORS[v]}>{VERDICT_LABELS[v] ?? v}</Tag>
+        <SemanticTag colorVar={VERDICT_COLORS[v] ?? "var(--ts-color-info)"}>
+          {VERDICT_LABELS[v] ?? v}
+        </SemanticTag>
       ),
     },
     {
@@ -587,7 +592,7 @@ export default function AuditDashboardPage() {
                         value={passRate}
                         precision={1}
                         suffix="%"
-                        valueStyle={{ color: "#52c41a" }}
+                        valueStyle={{ color: "var(--ts-color-success)" }}
                       />
                     </Card>
                   </Col>
@@ -598,7 +603,7 @@ export default function AuditDashboardPage() {
                         value={flagRate}
                         precision={1}
                         suffix="%"
-                        valueStyle={{ color: "#faad14" }}
+                        valueStyle={{ color: "var(--ts-color-warning)" }}
                       />
                     </Card>
                   </Col>
