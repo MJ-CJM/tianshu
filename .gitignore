@@ -28,3 +28,6 @@ web/tsconfig.tsbuildinfo
 /test_redline/
 # vite 依赖缓存
 web/.vite/
+
+# 本地投图暂存目录(定稿资产归档在 docs/launch/assets/)
+/image/
