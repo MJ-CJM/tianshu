@@ -31,3 +31,7 @@ web/.vite/
 
 # 本地投图暂存目录(定稿资产归档在 docs/launch/assets/)
 /image/
+
+# agent 工具本地镜像(CLAUDE.md / .claude/skills 的副本,不入库)
+/AGENTS.md
+/.agents/
