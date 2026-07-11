@@ -28,8 +28,8 @@
 |---|---|
 | 事件时间线 | `GET /api/edicts/{id}` 详情 / `tianshu event list` |
 | 实时事件流 | WebSocket `/api/ws`（`stream.delta` / `audit.completed` / `outer_loop.*`） |
-| 待审批工具 | `GET /api/approvals/pending_tool_calls` / 前端审批队列页 |
-| 规划审批 | `POST /api/edicts/{id}/plan/approve` 或 `/plan/reject` |
+| 待裁决工具 | `GET /api/approvals/pending_tool_calls` / 前端裁决队列页（`approvals` 为兼容保留的历史 API 名） |
+| 规划裁决 | `POST /api/edicts/{id}/plan/approve` 或 `/plan/reject` |
 | 执行结果（奏折） | `GET /api/edicts/{id}/memorial` / `tianshu memorial get <id>` |
 | 审计 | `GET /api/audit/*` / 前端审计仪表板 |
 | 成本 | `GET /api/cost/*` / `tianshu cost summary` |
@@ -43,7 +43,7 @@
 | 暂停 / 恢复 | `POST /api/edicts/{id}/pause` / `/resume` |
 | 查 / 管定时任务 | `tianshu schedule list` / `cancel`；`GET /api/scheduler/*` |
 | 长任务人工决策（L3） | `GET /api/edicts/outer-loop/pending` → `POST …/outer-loop/decide`（continue / accept_as_is / abort / modify_acceptance） |
-| 批红（工具审批） | `POST /api/decrees` / `tianshu decree submit` |
+| 工具裁决 | `POST /api/decrees` / `tianshu decree submit`（`Decree` 为兼容保留的历史代码名） |
 | 会诊 | `GET/POST /api/consultations*` / 前端会诊页 |
 | 位面切换 / 分支 | `POST /api/universes/{id}/switch`、`/branch`（见 [../design/universe/](../design/universe/)） |
 

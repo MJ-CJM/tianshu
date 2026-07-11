@@ -4,7 +4,7 @@
 
 # Tianshu
 
-**An async, governable, self-improving AI execution platform — organized like an imperial court.**
+**Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously.**
 
 *[中文 README](README.md) · Tianshu (天枢) is the first star of the Big Dipper — the pivot the sky turns around.*
 
@@ -19,7 +19,7 @@
 
 ## What is this
 
-Tianshu is an **async, governable, self-improving** AI execution platform. You issue an **Edict** (a task) via Web, API, CLI, Feishu, or Telegram; the system turns that goal into a **schedulable, approvable, auditable, replayable** execution chain, and settles it into execution records, an event timeline, a cost ledger, long-term memory, and supervision reports.
+Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously. You issue an **Edict** via Web, API, CLI, Feishu, or Telegram; the system turns that goal into a schedulable, decision-aware, auditable execution chain and records execution results, a timeline, cost entries, memory, and supervision reports.
 
 Its organizing metaphor is the six-ministry bureaucracy of Ming-dynasty China: the system is a set of **officials (Personas)**, each with a job — the **Cabinet** plans, the **Ministry of War** executes, the **Censorate** audits, the **Bureau of Transmission** notifies, the **Library** holds memory, the **Ministry of Revenue** tracks cost. The metaphor is just a shell; in code it's cleanly decoupled modules.
 
@@ -28,44 +28,47 @@ Edict → Scheduler → Planner → Agent/DAG/long-task loop
    → Auditor → Notifier → Memory / Profile / Skill growth
 ```
 
-> Unlike a chat-style "ask-and-answer" agent, Tianshu targets **async, long-horizon, governance-heavy** work: after you issue an edict, a background event chain drives it forward, and every step is logged, interruptible, and replayable.
+> **Current v0.4.2 boundary:** Tianshu is for a **trusted local**, single-node environment. Native execution has pre-tool policy and decision hooks. Claude Code/Codex through Keqing is only `contained + experimental`. The local HTTP, WebSocket, and MCP surfaces do not yet have unified authentication and **must not be exposed to an untrusted network**. See the [capability matrix](docs/launch/capability-matrix.md) for verified guarantees and explicit non-guarantees.
+>
+> Unlike a chat-style "ask-and-answer" agent, Tianshu targets async, long-horizon work where supported milestones can be inspected after execution.
 
 ## Positioning: the supervising office above Claude Code
 
-Claude Code is the knife in your hand when you're at the keyboard. **Tianshu is the office that runs while you're away** — and it works both ways:
+Claude Code is the knife in your hand when you're at the keyboard. Tianshu is an office that can coordinate work around it, in two paths with different maturity boundaries:
 
-- **Claude Code can command Tianshu** — Tianshu is an MCP server (`POST /mcp`), so any MCP host issues edicts, checks status, reads results.
-- **Tianshu can dispatch Claude Code** — the *Keqing* (客卿, "guest strategist") executor sends Claude Code or Codex out to work, under full Tianshu governance (approval / audit / budget / cost attribution). Whatever it changes is backed by shadow snapshots — one-click file rollback.
+- **An MCP host can issue an Edict** — the local MCP server can submit work, check status, and read supported results. It is not an authenticated public endpoint in v0.4.2.
+- **Keqing can dispatch an external CLI** — Claude Code or Codex runs in an independent workspace with clean-env and an outer timeout; captured final results and tool events are normalized for the outer chain. This adapter is `contained + experimental`: internal event completeness and Native pre-tool controls are not guaranteed.
 
-Both directions stay inside the governance frame. It borrows Claude Code's power without competing with it.
+The two directions are intentionally not presented as equivalent until the external executor contract is verified at G4.
 
-## The moat: governance × self-improvement
+## Product direction: governance × evidence-backed growth
 
-Most agent frameworks pick one. Tianshu's differentiator is the **intersection**:
+Tianshu is being built around the intersection of two concerns:
 
-- **Governance you can trust with hands off** — tool tiers, a policy pipeline, human approval (sign off from your phone), session rules, and a runtime defense-in-depth layer (outbound secret redaction, per-segment bash risk grading, subprocess clean-env, tiered emergency stop). Power, always under control.
-- **Self-improvement that proves it got better** — behavior + code parallel "universes" (snapshot / branch / roll back), **paired sandbox evaluation** with fitness gating and auto-promotion. Evolution is off by default; after a week of clean runs the system *petitions you* to unlock it.
+- **Governance with explicit boundaries** — Native tool tiers, policy and human Decision hooks, outbound redaction, clean-env, and emergency stop are implemented for the documented local scope.
+- **Growth that must earn promotion** — memory, personas, skill candidates, Universe snapshots, and paired evaluation exist at experimental maturity. Online challenger routing and trusted automatic promotion are planned, not current behavior.
 
-Neither half is unique on its own. The intersection — a platform that both governs tightly and evolves safely — has no complete equivalent on the market.
+This direction is the intended differentiation; the repository does not claim unsupported market uniqueness or a completed self-evolution loop.
 
-## Hands-off insurance (the four brakes)
+## Current safeguards and their limits
 
-"Dare to let go" only works if letting go is safe. Four brakes:
+The current safeguards are useful within the trusted-local boundary, but they are not a blanket safety guarantee:
 
-1. **Budget circuit breaker** — per-edict cost cap, trips on exceed.
-2. **Phone approval** — dangerous actions wait for your sign-off in Feishu/Telegram.
-3. **Shadow snapshot rollback** — every executor run is snapshotted to an *independent* GIT_DIR (never touches your `.git`); revert file changes with one command.
-4. **Factory budget guardrail** — a default daily spend cap ships on; over-limit trips the breaker and notifies you.
+1. **Best-effort cost guardrails** — observed usage is attributed and checked, but a provider can report usage after work has already exceeded the threshold.
+2. **Decision surfaces** — Web and Telegram support current-process decisions; Feishu uses command replies. Pending decisions are not yet restart-durable.
+3. **Post-run shadow snapshots** — when a Keqing run produces a snapshot, its independent `GIT_DIR` can help inspect or revert file state. This is not a pre-run restore point.
+4. **Local emergency stop and redaction** — useful defense in depth, not container or OS isolation.
 
 ## Feature highlights
 
 - **🏛️ Six ministries** — planning / execution / audit / notify / memory / cost officials, coordinating over a shared "court" context.
-- **🧠 Memory palace + growth flywheel** — layered memory (Markdown source of truth + SQLite/FTS5 index + snapshots), progressive skill learning, persona profiling. It understands you more the more you use it.
-- **🥷 Runtime defense-in-depth (Jinyiwei)** — outbound redaction, per-segment bash grading (blocks `git log; rm -rf /`-style bypasses), clean-env, tiered emergency stop. See [SECURITY.md](SECURITY.md).
-- **🌌 Parallel-universe evolution** — capture behavior (and code) as branchable, switchable, comparable snapshots; candidates explored at low traffic, promoted by **fitness** — "palace-flavored git" for self-improvement.
-- **📏 Regression evals + failure attribution** — `tianshu evals run` replays historical tasks in a sandbox and scores them, so "it got better" is provable; a 17-class failure taxonomy auto-attributes every failure.
-- **🤝 Two-way interop** — commanded by Claude Code (MCP server) *and* dispatches Claude Code/Codex (Keqing executor) — both inside governance.
-- **💸 Cost governance** — token metering, budget breakers, attribution by model / task / official.
+- **🏛️ Local Native chain (stable within limits)** — scheduling, planning, Native execution, audit, and SQLite timeline records on one trusted node.
+- **🧠 Memory + growth candidates (experimental)** — layered memory, profile synthesis, and skill candidate records; task-level benefit still needs evidence gates.
+- **🥷 Runtime defense in depth (limited scope)** — outbound redaction, per-segment bash grading, clean-env, and tiered emergency stop. See [SECURITY.md](SECURITY.md).
+- **🌌 Universe operations (experimental)** — snapshot, branch, diff, and manual switch. Current routing remains champion-only.
+- **📏 Paired evaluation (experimental)** — historical samples run in local subprocesses with separate ports and databases. They still share host privileges and network, so this is not a security sandbox.
+- **🤝 External CLI interop (experimental)** — Keqing provides an outer process boundary, not internal tool interception, a hard cost cap, or a pre-run restore point.
+- **💸 Cost records (stable within limits)** — metering and attribution with best-effort budget checks that may overshoot.
 
 ## Quick start
 
@@ -86,20 +89,22 @@ Drive it from Claude Code:
 claude mcp add --transport http tianshu http://localhost:8000/mcp
 ```
 
+This command configures a local endpoint. Keep it on a trusted machine/network until the G1 authentication boundary is delivered.
+
 ## Cost transparency
 
-A platform that sells cost governance must dare to report its own cost. Typical monthly cost range and the measurement method are in [docs/launch/cost-baseline.md](docs/launch/cost-baseline.md). The factory daily budget guardrail is on by default.
+A platform that sells cost governance must report its own cost. The typical monthly range has not yet been measured; [docs/launch/cost-baseline.md](docs/launch/cost-baseline.md) records the repeatable method and the evidence gate required before publishing a number. The factory daily budget guardrail is on by default, but it is a best-effort check rather than a provider-side hard limit.
 
 ## Governance defaults (privacy first)
 
 | Setting | Default | Toggle |
 |---|---|---|
 | Telemetry | **off** | `TIANSHU_TELEMETRY=on` (version + startup event only, one env to disable forever) |
-| Self-evolution | **off** | unlocked by an in-system petition after threshold |
+| Self-evolution | **off** | experimental candidates remain subject to a manual Decision |
 | OTel tracing | **off** | set `TIANSHU_OTEL_ENDPOINT` |
 | Daily budget guardrail | **on**, ¥20 | `TIANSHU_DAILY_BUDGET_GUARDRAIL_CNY` |
 
-"Even telemetry gets approval-level control from you" is the governance stance, not a slogan.
+The full status, evidence, and target gate for every major claim is maintained in the [public capability matrix](docs/launch/capability-matrix.md).
 
 ## Contributing
 

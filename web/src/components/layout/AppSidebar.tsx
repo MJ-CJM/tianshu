@@ -54,7 +54,7 @@ export default function AppSidebar() {
             reviewCount > 0 ? (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                 {t("nav.approvals")}
-                {/* 待朱批计数:朱砂小盘 */}
+                {/* 待裁决计数：朱砂小盘 */}
                 <span
                   style={{
                     background: "var(--ts-color-accent)",

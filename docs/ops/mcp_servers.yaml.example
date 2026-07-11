@@ -19,9 +19,9 @@ mcp_servers:
       - "@modelcontextprotocol/server-filesystem"
       - "/tmp/tianshu-sandbox"
     enabled: true
-    default_tier: 2          # 全部工具默认 T2（需审批）
+    default_tier: 2          # 全部工具默认 T2（需裁决）
     tool_overrides:
-      read_file: 0           # 只读工具改 T0（快路径，不审批）
+      read_file: 0           # 只读工具改 T0（快路径，免裁决）
       list_directory: 0
     timeout: 120
     connect_timeout: 30

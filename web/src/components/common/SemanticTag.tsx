@@ -4,8 +4,8 @@ interface SemanticTagProps extends Omit<TagProps, "color"> {
   /** 语义色,须为 CSS 变量引用(如 "var(--ts-status-running)") */
   colorVar: string;
   /**
-   * 实色模式:朱砂底 + 反白字。整个界面只允许「待朱批」使用,
-   * 保证"全屏唯一实色 = 等你落笔"的语义成立。
+   * 实色模式:朱砂底 + 反白字。整个界面只允许「待裁决」使用,
+   * 保证"全屏唯一实色 = 需要人工裁决"的语义成立。
    */
   solid?: boolean;
 }

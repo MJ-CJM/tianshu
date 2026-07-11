@@ -1,5 +1,5 @@
 /*
- * 天枢全局样式(方案 A「朱批」工艺层)
+ * 天枢全局样式(方案 A「朱砂」工艺层)
  * 颜色一律走 --ts-* CSS 变量(hooks/useTheme.ts 注入),禁止硬编码色值。
  */
 
@@ -18,7 +18,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* 圈选即朱笔 */
+/* 圈选使用朱砂强调色 */
 ::selection {
   background: var(--ts-color-accent-soft);
 }

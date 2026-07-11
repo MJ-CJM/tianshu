@@ -52,7 +52,7 @@ export default function EdictDetailPage() {
   const { data: dagExecution } = useDagByEdict(edictId);
   const hasDag = dagExecution && dagExecution.nodes && dagExecution.nodes.length > 1;
 
-  // 执行中工具待批：就地审批（无需跳转 /approvals）。按当前敕令过滤。
+  // 执行中工具待裁决：就地处理（无需跳转 /approvals）。按当前敕令过滤。
   const { data: allPendingTools = [] } = usePendingToolCalls();
   const pendingTools = useMemo(
     () => allPendingTools.filter((p) => p.edict_id === edictId),

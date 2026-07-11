@@ -33,7 +33,7 @@
   "entity": {
     "edict": "敕令",
     "memorial": "奏折",
-    "decree": "朱批"
+    "decree": "裁决"
   },
   "action": {
     "approve": "准",
@@ -42,7 +42,7 @@
     "retry": "重办",
     "amend": "改批",
     "issue": "颁发",
-    "review": "朱批",
+    "review": "裁决",
     "pause": "搁置",
     "resume": "续办",
     "revoke": "撤销",
@@ -56,7 +56,7 @@
   "status": {
     "submitted": "已呈递",
     "running": "办理中",
-    "needs_review": "待朱批",
+    "needs_review": "待裁决",
     "completed": "已完成",
     "failed": "已驳回",
     "cancelled": "已撤回",
@@ -71,8 +71,8 @@
   },
   "phase": {
     "running": "运行中",
-    "needs_review": "待朱批",
-    "idle": "待批示",
+    "needs_review": "待裁决",
+    "idle": "待裁定",
     "no_memorial": "待启动"
   },
   "event": {
@@ -90,14 +90,14 @@
       "edict.closed": "敕令结案",
       "edict.scheduled": "调度排期",
       "plan.completed": "规划完成",
-      "plan.pending_review": "规划待审批",
+      "plan.pending_review": "规划待裁决",
       "plan.approved": "规划已批准",
       "plan.rejected": "规划已驳回",
       "audit.completed": "审计完成",
-      "decree.approved": "朱批：准",
-      "decree.rejected": "朱批：驳",
-      "decree.retry": "朱批：重办",
-      "decree.cancelled": "朱批：撤回",
+      "decree.approved": "裁决：准",
+      "decree.rejected": "裁决：驳",
+      "decree.retry": "裁决：重办",
+      "decree.cancelled": "裁决：撤回",
       "tool.blocked": "工具拦截",
       "edict.audit.executed": "完成审计",
       "edict.continuation.injected": "续转反哺",
@@ -139,10 +139,10 @@
       "title": "办理记录"
     },
     "decree": {
-      "approved": "朱批：准",
-      "rejected": "朱批：驳",
-      "retry": "朱批：重办",
-      "cancelled": "朱批：撤回"
+      "approved": "裁决：准",
+      "rejected": "裁决：驳",
+      "retry": "裁决：重办",
+      "cancelled": "裁决：撤回"
     }
   },
   "lifecycle": {
@@ -257,11 +257,11 @@
       "artifacts": "附件"
     },
     "review": {
-      "pending": "待朱批"
+      "pending": "待裁决"
     }
   },
   "pendingTool": {
-    "title": "工具调用待批",
+    "title": "工具调用待裁决",
     "grantScope": "授权范围",
     "scope": {
       "once": "本次",
@@ -285,7 +285,7 @@
     "submit": "提交"
   },
   "decree": {
-    "title": "朱批",
+    "title": "裁决",
     "memorialId": "奏折 ID",
     "auditResult": "审计结果",
     "okText": {
@@ -323,7 +323,7 @@
       },
       "planApprove": "准（执行此方案）",
       "planReject": "驳（驳回方案）",
-      "decreePrompt": "有奏折待朱批，请选择操作：",
+      "decreePrompt": "有奏折待裁决，请选择操作：",
       "followupTitle": "继续批示",
       "followupPlaceholder": "输入后续指令...",
       "followupSubmit": "继续批示 (Ctrl+Enter)",
@@ -378,11 +378,11 @@
     "sessionRules": {
       "title": "权印司",
       "alertTitle": "Session Rules 是工具调用的免审令牌",
-      "alertDesc": "当你在御书房朱批工具调用时选择「本敕令」或「全局」范围，系统会自动创建 session rule。你也可以手动添加规则来预配置免审权限。注意：shell_exec/bash 工具不允许设为全局免审。",
+      "alertDesc": "当你在御书房裁决工具调用时选择「本敕令」或「全局」范围，系统会自动创建 session rule。你也可以手动添加规则来预配置免审权限。注意：shell_exec/bash 工具不允许设为全局免审。",
       "addRule": "添加规则",
       "addModalTitle": "添加免审规则",
       "summary": "共 {n} 条规则",
-      "empty": "暂无规则 — 点击右上角「添加规则」手动创建，或在御书房朱批时选择「本敕令/全局」自动生成"
+      "empty": "暂无规则 — 点击右上角「添加规则」手动创建，或在御书房裁决时选择「本敕令/全局」自动生成"
     }
   },
   "form": {
@@ -411,7 +411,7 @@
         "executionMode": "执行方式",
         "assignedPersona": "执行官员",
         "plannerPersona": "规划官（可选）",
-        "planReview": "规划审批",
+        "planReview": "规划裁决",
         "scheduleType": "调度方式",
         "cronExpr": "Cron 表达式",
         "scheduleAt": "执行时间",
@@ -479,7 +479,7 @@
       },
       "tooltip": {
         "plannerPersona": "选择使用哪位内阁官员进行规划，不同官员可使用不同的 LLM",
-        "planReview": "开启后，规划方案需人工审批通过后才会执行",
+        "planReview": "开启后，规划方案需人工裁决通过后才会执行",
         "longTaskEnabled": "启用后 edict 走 actor → checks → critic 的多轮迭代路径，可自驱收敛；不启用则走单回合 agent loop（默认）",
         "templatePreset": "一键填入常用配置；填完仍可在下方继续微调",
         "executionProfile": "foreground=同进程；checkpointed=每轮 checkpoint 可续跑；background=后台跑（用户可关页面）",
@@ -491,7 +491,7 @@
         "onCriticUnavailable": "critic LLM 调用全部失败的兜底",
         "criticPersonas": "谁来监督任务质量。多选时每轮并发评审，按'全过则过'聚合；任意一位 FAIL 即不过。终态后每位监督官独立产出监督报告。",
         "sameIssueThreshold": "critic 连续 N 轮报同类问题（issue_class）则升 L1",
-        "executor": "native=自研引擎(默认);keqing:*=遣外府客卿(Claude Code/Codex)办差,全程受朝廷节制(批红/核验/度支/影卷)"
+        "executor": "native=自研引擎(默认);keqing:*=外府客卿(Claude Code/Codex，contained + experimental)：只保证独立工作目录、clean-env、外围 timeout 与事后审计；不保证事前工具拦截、硬成本上限或运行前恢复点"
       },
       "option": {
         "autoPlanning": "内阁决策（自动规划分配）",
@@ -599,7 +599,7 @@
       "edict": "敕令级"
     },
     "source": {
-      "approval": "审批授予",
+      "approval": "裁决授予",
       "profile": "策略模板",
       "manual": "手动添加"
     },
@@ -616,13 +616,13 @@
     },
     "sourceFilter": {
       "all": "全部来源",
-      "approval": "审批授予",
+      "approval": "裁决授予",
       "profile": "策略模板",
       "manual": "手动添加"
     },
     "popconfirm": {
       "title": "确定撤销此规则？",
-      "description": "撤销后相关工具调用将重新需要审批"
+      "description": "撤销后相关工具调用将重新需要裁决"
     }
   },
   "priority": {
@@ -817,7 +817,7 @@
       "title": "Policy Timeline",
       "filterAll": "全部事件",
       "filterPolicy": "策略决策 (policy.*)",
-      "filterApproval": "工具审批 (tool.approval_required)",
+      "filterApproval": "工具裁决 (tool.approval_required)",
       "filterDecree": "决策令 (decree.*)",
       "filterHook": "Hook 事件 (hook.*)",
       "emptyAll": "暂无策略事件",
@@ -829,7 +829,7 @@
       "allowedHosts": "允许调用的 API host",
       "allowedHostsDesc": "api_request 工具仅允许访问这些 host",
       "hostPlaceholder": "从已有凭证选择或输入 host",
-      "allowWrite": "允许写方法 (POST/PUT/DELETE/PATCH) — 需要审批",
+      "allowWrite": "允许写方法 (POST/PUT/DELETE/PATCH) — 需要裁决",
       "writeHosts": "允许写入的 host（必须是上面列表的子集）",
       "writeHostPlaceholder": "从上面的 host 中选择"
     },
@@ -862,8 +862,8 @@
       "pathsPlaceholder": "每行一条，例如：\nsrc/**\ntests/**",
       "bashLabel": "允许 Bash 前缀",
       "bashPlaceholder": "每行一条，例如：\ngit status\nls\npytest",
-      "autoApproveLabel": "自动放行最高 Tier",
-      "autoApproveTooltip": "Tier ≤ 该值的工具将自动放行，不需要审批",
+      "autoApproveLabel": "自动裁决最高 Tier",
+      "autoApproveTooltip": "规则将对 Tier ≤ 该值的工具自动作出允许裁决，不再请求人工裁决",
       "expiresLabel": "规则有效期 (秒)",
       "expiresTooltip": "留空表示永久有效（直到敕令结束）",
       "expiresPlaceholder": "留空 = 永久",
@@ -906,7 +906,7 @@
       }
     },
     "edictActivity": {
-      "pendingTool": "工具待批 ({n})",
+      "pendingTool": "工具待裁决 ({n})",
       "createdAt": "创建于 {time}",
       "initializing": "正在初始化…",
       "executing": "执行中…",
@@ -959,7 +959,7 @@
     "policyToast": {
       "downgradedTitle": "永久授权已降级为本次",
       "downgradedDescDefault": "{tool} 不支持 always 授权，已降级为 once。",
-      "approvalRequired": "需要审批",
+      "approvalRequired": "需要裁决",
       "policyDeny": "Policy 拒绝",
       "fallbackTool": "该工具"
     },
@@ -1092,7 +1092,8 @@
       "goto": "前往藏兵阁",
       "desc1": "外部 API 凭证（GitHub / Notion / ...）由",
       "desc2": " 藏兵阁 · 外部凭证 ",
-      "desc3": "加密托管（Fernet 对称加密，主密钥来自 env）。LLM 全程不可见 credential value，只按 host 匹配自动注入 Authorization header。"
+      "desc3": "加密托管（Fernet 对称加密，主密钥来自 env）。LLM 全程不可见 credential value，只按 host 匹配自动注入 Authorization header。",
+      "viewAll": "查看全部"
     },
     "recent": {
       "viewAll": "查看全部",
@@ -1148,7 +1149,7 @@
       "allowedUsers": "允许用户（Allowlist）",
       "allowedUsersExtra": "逗号分隔的 open_id；留空 = 任何人都放行（与 hermes 一致）。生产环境建议填写以避免误开放。",
       "homeChannel": "Home 频道（可选）",
-      "homeChannelExtra": "cron 触发结果与无源敕令审批的兜底 chat_id",
+      "homeChannelExtra": "cron 触发结果与无源敕令裁决的兜底 chat_id",
       "botOpenId": "机器人 Open ID（群 @ 检测）",
       "encryptKey": "加密密钥（Webhook 模式）",
       "verificationToken": "校验 Token（Webhook 模式）",
@@ -1196,7 +1197,7 @@
         "tip1": "在 @BotFather 创建机器人获取 Bot Token",
         "tip2": "默认长轮询（polling）无需公网；webhook 需公网 HTTPS + Secret",
         "tip3": "allowlist 为空 = 放行任意用户，生产环境务必配置",
-        "tip4": "Home 频道用于 cron 结果 / 无源审批兜底（私聊或群 chat_id，群为负数）"
+        "tip4": "Home 频道用于 cron 结果 / 无源裁决兜底（私聊或群 chat_id，群为负数）"
       },
       "field": {
         "botToken": "Bot Token",
@@ -1207,7 +1208,7 @@
         "allowedUsers": "允许用户（user_id，逗号分隔）",
         "allowedUsersExtra": "Telegram 数字 user_id；空 = 放行任意",
         "homeChannel": "Home 频道（可选）",
-        "homeChannelExtra": "cron / 无源审批兜底 chat_id",
+        "homeChannelExtra": "cron / 无源裁决兜底 chat_id",
         "webhookPath": "Webhook 路径",
         "webhookSecret": "Webhook Secret",
         "pollTimeout": "长轮询超时（秒）",

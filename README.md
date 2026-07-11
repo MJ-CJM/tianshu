@@ -4,9 +4,9 @@
 
 # 天枢 · Tianshu
 
-**一座异步办差、全程可治理、与你共同成长的 AI 执行平台**
+**天枢是一个可治理、可验证、持续成长的自进化 Agent OS**
 
-*An async, governable AI execution platform — organized like an imperial court, growing with every task.*
+*A governable, verifiable Agent OS designed to learn and evolve continuously.*
 
 [![CI](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml/badge.svg)](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
@@ -23,7 +23,7 @@
 
 ## 这是什么
 
-天枢是一个**异步、可治理、会成长**的 AI 执行平台。你通过 Web、API、CLI、飞书或 Telegram 下达一道「诏令(Edict)」，系统把目标转化为一条**可调度、可审批、可审计、可复盘**的执行链路，最终沉淀为执行记录、事件时间线、成本账本、长期记忆与监督报告。
+天枢是一个可治理、可验证、持续成长的自进化 Agent OS。你通过 Web、API、CLI、飞书或 Telegram 下达一道「诏令(Edict)」，系统把目标转化为一条可调度、可裁决、可审计、可复盘的执行链路，最终沉淀为执行记录、事件时间线、成本账本、长期记忆与监督报告。
 
 它的组织方式借用了中国明代的「六部」官制作为隐喻：系统由若干各司其职的「官员(Persona)」构成——**内阁**规划、**兵部**执行、**都察院**审计、**通政司**通知、**文渊阁**掌记忆、**户部**管成本——在与你的协作中持续演化。隐喻只是外壳，落到代码就是清晰解耦的模块。
 
@@ -32,21 +32,23 @@
    → 审计 Auditor → 通知 Notifier → 记忆与成长 Memory/Profile/Skill
 ```
 
-> 与「即问即答」的对话式 Agent 不同，天枢面向**异步、长周期、需治理**的任务：下旨后由后台事件链推进，每一步都留痕、可干预、可复盘。
+> **v0.4.2 当前边界：**面向可信本地、单机单节点使用。Native 执行路径具备事前工具策略与裁决；Claude Code/Codex 客卿仅为 `contained + experimental`。本地 HTTP、WebSocket 与 MCP 入口尚无统一身份认证，**不得直接暴露到不可信网络**。逐项保证与非保证见[能力事实矩阵](docs/launch/capability-matrix.md)。
+>
+> 与「即问即答」的对话式 Agent 不同，天枢面向**异步、长周期、需治理**的任务：下旨后由后台事件链推进，受支持的里程碑会形成可查询记录。
 
 ## ✨ 核心特性
 
 - **🏛️ 六部官制** — 多官员各司其职：规划 / 执行 / 审计 / 通知 / 记忆 / 成本，由「朝廷」共享上下文协同。
-- **🔄 主干事件解耦** — 主链路里程碑（`edict.submitted` → … → `audit.completed`）以事件解耦，带 `edict_id` 落库成时间线；子系统内部仍是直调，任务流转全程可追踪、可复盘。
-- **🧠 记忆宫殿 + 成长飞轮** — 多层记忆（Markdown 真相源 + SQLite/FTS5 索引 + Drawer 快照）、技能渐进学习与修撰、人格画像合成，越用越懂你。
-- **🛡️ 治理优先** — 工具分级(tier) + 策略管线 + 人工批红 + 会话规则；网络能力受 SSRF、host 白名单、凭证托管约束。能力强，但始终受控。
-- **🥷 锦衣卫·运行时深防御** — 出站脱敏(外发前抹 secret)+ bash 分段风险分级(堵 `git log; rm -rf /` 类绕过)+ 子进程 clean-env + 分级急停(全停/掐网/冻结工具,一键刹车)。见 [SECURITY.md](SECURITY.md)。
-- **🌌 平行位面演化** — 把行为配置（乃至代码）捕获成可分支、可切换、可对比的快照；候选位面小流量探索，按**适应度**自动择优晋升——一套「宫殿版 git」式的自进化。
-- **📏 回归评测与失败归因** — `tianshu evals run` 一条命令沙箱回放历史任务出评测报告，自进化「变好了」有据可查；17 类失败分类学落库自动归因，失败分布进审计面板。
-- **⚙️ 长任务自检** — 验收标准(AcceptanceCriteria) + critic 监督 + L0–L3 升级，长任务自己迭代到达标，必要时升级人工。
-- **🔌 多入口同源** — Web / HTTP API / CLI / 飞书 / Telegram 共享同一后端契约。
-- **🤝 双向互操作** — 天枢既能被 Claude Code 下旨(MCP server),也能**反向派 Claude Code/Codex 出工**(客卿执行器)——两个方向都在治理框架内。派出去的活有影子快照兜底,文件改动一键回滚。
-- **💸 成本治理** — Token 计量、预算熔断、按模型/任务/官员多维归因。
+- **🔄 本地主干事件链** — 主链路里程碑（`edict.submitted` → … → `audit.completed`）以事件解耦，带 `edict_id` 写入 SQLite 时间线；当前 EventBus 不是持久消息队列。
+- **🧠 记忆与成长（实验）** — 多层记忆、技能候选修撰和人格画像可以积累经验；真实效果提升与自动晋升仍需后续门禁证明。
+- **🛡️ Native 治理（有限稳定）** — 内建 Agent 的工具分级、策略管线、人工裁决和会话规则在工具执行前生效；该保证不穿透 opaque 外部 CLI 的内部工具调用。
+- **🥷 本地运行时防护（有限稳定）** — 支持出站脱敏、bash 分段风险分级、子进程 clean-env 与分级急停；这些机制不等同于容器或 OS 安全沙箱。见 [SECURITY.md](SECURITY.md)。
+- **🌌 平行位面（实验）** — 支持行为/代码快照、分支、diff 与人工切换；当前任务仍路由 champion，不提供真实在线 challenger 分流或可信自动晋升。
+- **📏 配对评估（实验）** — `tianshu evals run` 以隔离端口和数据库配置的本地子进程比较历史样本并生成报告；子进程仍共享宿主 OS 权限与网络。
+- **⚙️ 长任务自检（实验）** — AcceptanceCriteria + critic + L0–L3 升级支持部分 checkpoint；不保证任意故障点的完整重启恢复。
+- **🔌 多入口** — Web / HTTP API / CLI / 飞书 / Telegram 复用后端模型；Telegram 支持按钮裁决，飞书当前使用命令回复。
+- **🤝 双向互操作（边界不同）** — MCP host 可向天枢下旨；Keqing 可启动 Claude Code/Codex CLI，但后者当前只是 `contained + experimental` 外围适配。
+- **💸 成本记录（有限稳定）** — 支持 Token 计量、按模型/任务/官员归因与 best-effort 预算门禁；因用量在执行后上报，阈值可能出现超调。
 
 ## 🏛️ 架构一览
 
@@ -58,7 +60,7 @@
 | 领域契约 | `models/` | Edict / Memorial / Decree / Plan / AcceptanceCriteria |
 | 流程编排 | `scheduler/` `planner/` `executor/` `dag/` | 事件主链路、LLM 规划、单任务/DAG/长任务执行 |
 | Agent 核心 | `executor/agent.py` `llm.py` `providers/` | ReAct 循环、工具调用、上下文压缩、Provider fallback |
-| 治理与安全 | `tools/` `executor/policy_hook.py` `auditor/` | 工具注册、策略引擎、人工审批、审计 |
+| 治理与安全 | `tools/` `executor/policy_hook.py` `auditor/` | 工具注册、策略引擎、人工裁决、审计 |
 | 成长系统 | `persona/` `memory/` `skills/` | 六部人格、记忆宫殿、技能学习与画像 |
 | 可观测与存储 | `storage/`（`_base` + 15 领域 Mixin + facade）`bus/` `cost/` `notifier/` | SQLite 真相源、事件总线、成本账本、通知 |
 | 自进化 | `universe/` | 平行位面、代码变体、适应度演化 |
@@ -99,12 +101,14 @@ TIANSHU_STATIC_DIR=src/tianshu/web/static \
 
 ```bash
 docker build -t tianshu .
-docker run -d --name tianshu -p 8000:8000 \
+docker run -d --name tianshu -p 127.0.0.1:8000:8000 \
   -v tianshu-data:/data -v "$(pwd)/workspace:/workspace" \
   --env-file .env tianshu
 ```
 
-两阶段构建，最终镜像只含 Python 运行时 + 前端静态文件。完整说明见 [`docs/usage/getting-started.md`](docs/usage/getting-started.md)。
+> ⚠️ v0.4.2 无统一鉴权，仅限可信本地；不要映射到公网/不可信网段。
+
+两阶段构建会移除运行时中的 Node.js 和 node_modules；运行镜像仍包含 Python 应用源码、后端依赖及执行器所需的系统工具。完整说明见 [`docs/usage/getting-started.md`](docs/usage/getting-started.md)。
 
 ### 常用环境变量
 
@@ -112,7 +116,7 @@ docker run -d --name tianshu -p 8000:8000 \
 |---|---|---|
 | `TIANSHU_LLM_API_KEY` | （必填） | LLM API 密钥 |
 | `TIANSHU_LLM_MODEL` | `gpt-4o-mini` | 默认模型 |
-| `TIANSHU_DB_PATH` | `.tianshu/tianshu.db` | SQLite 路径 |
+| `TIANSHU_DB_PATH` | `~/.tianshu/tianshu.db` | SQLite 路径 |
 | `TIANSHU_PORT` | `8000` | 监听端口 |
 | `TIANSHU_WORKSPACE_DIR` | `.` | Agent 工作目录 |
 
@@ -136,17 +140,17 @@ curl -X POST http://localhost:8000/api/edicts \
 
 下旨后可在 Web、`tianshu event list` 或 WebSocket `/api/ws` 观察任务流转（规划→执行→审计→通知）。完整流程与全部入口见 [`docs/usage/user-guide.md`](docs/usage/user-guide.md)。
 
-### 回归评测与失败归因（迭代 2「证明」）
+### 回归评测与失败归因
 
-自进化说「变好了」，评测负责拿出证据——一条命令沙箱回放历史任务、量化打分：
+当前评测用于生成候选证据：它以独立端口和数据库配置启动本地子进程，回放历史样本并量化打分：
 
 ```bash
 tianshu evals sample baseline --size 8   # 分层混采历史任务，固化为可重复回归集
-tianshu evals run --set baseline         # 沙箱跑批 → 报告（fitness 分项 / 逐条结果 / Δ vs 上次）
+tianshu evals run --set baseline         # 本地子进程跑批 → 报告（fitness 分项 / 逐条结果 / Δ vs 上次）
 tianshu evals failures --days 30         # 失败归因分布（17 类失败分类学自动归因）
 ```
 
-评测跑批只在 CLI（花钱的重活不开 HTTP 触发面）；报告在 Web「评测中心」与 `GET /api/evals/runs` 可查。评测凭证可用 `TIANSHU_EVAL_LLM_API_KEY` 与主配额隔离。
+评测跑批只在 CLI（花钱的重活不开 HTTP 触发面）；报告在 Web「评测中心」与 `GET /api/evals/runs` 可查。评测凭证可用 `TIANSHU_EVAL_LLM_API_KEY` 与主配额隔离。这里的“隔离”是运行配置隔离，不是安全沙箱，也不会自动触发候选晋升。
 
 ### 急停与密钥轮换（迭代 3「深防御」）
 
@@ -164,19 +168,19 @@ tianshu secrets rotate-master-key --new-key <新密钥>      # 轮换后更新 e
 
 出厂默认每日预算护栏 ¥20（`TIANSHU_DAILY_BUDGET_GUARDRAIL_CNY`）、遥测默认关（`TIANSHU_TELEMETRY=on` 才启）、OTel 埋点默认关（设 `TIANSHU_OTEL_ENDPOINT` 才导出）。
 
-### 客卿：反向派 Claude Code / Codex 出工（迭代 3.5）
+### 客卿：反向派 Claude Code / Codex 出工（实验）
 
-天枢保留全部治理面（规划/批红/审计/预算/成本归因），执行面可插拔为外部 CLI：
+执行面可选外部 CLI。天枢可以管理任务外壳，但当前不能观察或拦截客卿内部的每一次工具调用：
 
 ```bash
 tianshu keqing agents                       # 列可用客卿 backend
 # 下旨时指定 runtime.executor = keqing:claude-code（web 边建敕表单也有下拉）
-# 客卿改的文件有影子快照兜底，一键回滚：
+# 查询客卿运行后产生的影子快照；存在快照时可回滚对应文件状态：
 tianshu shadow list <edict_id>              # 查该 edict 的影子快照
 tianshu shadow revert <edict_id> <sha>      # 回滚工作区到某快照
 ```
 
-客卿在**隔离工作区**运行、用**自己的**凭证（clean-env 不透传天枢 secrets）、成本按 stream-json 归因并受预算熔断，产出照走 memorial → 审计 → 批红管线。影子快照用**独立 GIT_DIR**，不碰你项目的 `.git`。
+当前 Keqing 的保证限于：**独立工作目录、clean-env、外围 timeout、事后结果归一与已捕获工具事件的外围转发**。它不保证 CLI 内部事件完整性、事前工具拦截、硬成本上限或运行前恢复点；stream-json 成本归因是 best-effort，不能作为硬熔断。影子快照使用独立 `GIT_DIR`，但快照发生在运行后，不能替代执行前的安全恢复点。完整 flags 见[能力事实矩阵](docs/launch/capability-matrix.md)。
 
 ## 🧩 二次开发
 
@@ -194,6 +198,7 @@ tianshu shadow revert <edict_id> <sha>      # 回滚工作区到某快照
 | [参考 reference/](docs/reference/) | 借鉴的开源项目、术语表 |
 | [战略 strategy/](docs/strategy/) | 竞争力复盘、发展战略与迭代排期、[决策台账](docs/strategy/DECISIONS.md) |
 | [宣发 launch/](docs/launch/) | 宣发工具包:英文 README、架构博文、隐喻对照、GIF/视频分镜、成本基线 |
+| [能力事实矩阵](docs/launch/capability-matrix.md) | v0.4.2 的成熟度、默认值、可验证保证与明确非保证 |
 | [决策记录 adr/](docs/adr/) · [术语 CONTEXT.md](CONTEXT.md) | 不可逆决策的 why · 战略层 canonical 术语(中英对照) |
 | [路线图 plan/](docs/plan/) · [特性 superpowers/](docs/superpowers/INDEX.md) | 分阶段计划与特性落地记录 |
 
@@ -203,16 +208,18 @@ tianshu shadow revert <edict_id> <sha>      # 回滚工作区到某快照
 - **前端**：React 18 · TypeScript · Ant Design 5 · Vite · @xyflow（DAG 可视化）
 - **集成**：MCP（Model Context Protocol）· 飞书（lark-oapi）· Telegram
 
-## 🗺️ 路线图
+## 🗺️ 开源阶段门
 
-| Phase | 目标 | 状态 |
+| Gate | 目标 | 当前公开承诺 |
 |---|---|---|
-| Phase 0 | 最小闭环：单 Agent + ReAct + 工具 + Skills + SQLite + Web/CLI | ✅ |
-| Phase 1 | 治理与异步调度：EventBus + Scheduler + Planner + Auditor + 人工复核 + 官员人格 | ✅ |
-| Phase 2 | 平台化：记忆宫殿 + 成本治理 + 多 Provider + 多通道 + 插件 + 平行位面 | ✅ |
-| Phase 3 | 多 Agent 与分布式：DAG 并发 + 代码变体位面 + 分布式扩展 | 🚧 进行中 |
+| G0 | 事实、术语、桌面原型真实性与迁移基线 | 只按本页与能力矩阵描述 v0.4.2 |
+| G1 | Public-safe Foundation | 通过后才允许 Developer Preview |
+| G2 | Durable Governance & Evidence | 通过后才承诺裁决/任务耐重启和 Evidence Bundle |
+| G3 | Desktop Web Productization | 通过后才录制真实产品演示 |
+| G4 | Governed Evolution | 通过后才宣称自进化闭环成立 |
+| G5 | Open-source Launch | 通过后才正式开源宣发 |
 
-详见 [`docs/plan/`](docs/plan/)。
+详见[开源 Agent OS 总路线图](docs/superpowers/plans/2026-07-10-open-source-agent-os-master-roadmap.md)。阶段目标不是当前版本承诺。
 
 ## 🙏 借鉴与致谢
 
