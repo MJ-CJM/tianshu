@@ -1,17 +1,42 @@
 """Storage 连接生命周期基类 —— 建库/建表/迁移/关闭（_StorageBase，供领域 Mixin 共享）。"""
 
+import fcntl
+import os
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
-from tianshu.storage.migrations import run_migrations
-from tianshu.storage.schema import (
-    SCHEMA_SQL_CHANNELS,
-    SCHEMA_SQL_CORE,
-    SCHEMA_SQL_FEISHU,
-    SCHEMA_SQL_TELEGRAM,
-)
+from tianshu.storage.migration_ledger import MigrationError, pending_migrations
+from tianshu.storage.migrations import MIGRATIONS, run_migrations
+from tianshu.storage.sqlite_backup import create_online_backup
+
+
+def _new_migration_backup_path(path: Path) -> Path:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
+    return path.with_name(f"{path.name}.pre-migration-{timestamp}-{uuid4().hex}.bak")
+
+
+@contextmanager
+def _migration_startup_lock(path: Path) -> Iterator[None]:
+    """Serialize one database's pending-check, backup, and migration across processes."""
+
+    lock_path = path.with_name(f".{path.name}.migration.lock")
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    locked = False
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        locked = True
+        yield
+    finally:
+        if locked:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 class _StorageBase:
@@ -35,87 +60,40 @@ class _StorageBase:
     def init_db(self) -> None:
         path = Path(self._db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA foreign_keys=ON")
-        self._create_tables()
-        self._migrate()
-        self._init_fts()
+        is_memory = self._db_path == ":memory:"
+        startup_lock = nullcontext() if is_memory else _migration_startup_lock(path)
+        with startup_lock:
+            existing_disk_database = not is_memory and path.is_file()
+            conn = sqlite3.connect(self._db_path, check_same_thread=False)
+            self._conn = conn
+            backup_path: Path | None = None
+            try:
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA foreign_keys=ON")
+                pending = pending_migrations(conn, MIGRATIONS)
+                if existing_disk_database and pending:
+                    backup_path = _new_migration_backup_path(path)
+                    create_online_backup(conn, backup_path)
+                try:
+                    run_migrations(conn)
+                except MigrationError as exc:
+                    if backup_path is not None:
+                        exc.backup_path = backup_path  # type: ignore[attr-defined]
+                        exc.add_note(f"pre-migration backup: {backup_path}")
+                    raise
+                conn.execute("PRAGMA journal_mode=WAL")
+                self._seed_departments()
+                self._init_fts()
+            except BaseException:
+                conn.close()
+                self._conn = None  # type: ignore[assignment]  # see __init__ lifecycle note
+                raise
 
     def _init_fts(self) -> None:
         """Initialize FTS5 full-text search for memory entries."""
         from tianshu.memory.fts import create_fts_table
 
         self._fts_available = create_fts_table(self._conn)
-
-    def _create_tables(self) -> None:
-        with self._conn:
-            self._conn.executescript(SCHEMA_SQL_CORE)
-            self._conn.executescript(SCHEMA_SQL_FEISHU)
-            self._conn.executescript(SCHEMA_SQL_TELEGRAM)
-            self._conn.executescript(SCHEMA_SQL_CHANNELS)
-
-    def _migrate(self) -> None:
-        run_migrations(self._conn)
-
-        # 2026-06-04: 多 bot 实例 —— 会话/审批表加 instance_id 维度（幂等）
-        self._migrate_session_tables_add_instance()
-
-        # Seed departments from existing personas (one-time)
-        self._seed_departments()
-
-    def _migrate_session_tables_add_instance(self) -> None:
-        """为存量 DB 的飞书/telegram 会话表补 instance_id 维度（幂等）。
-
-        - anchor 表：PK 改为 (instance_id, chat_id)，存量行回填 '<channel>-default'。
-        - pending/seen 表：ALTER ADD COLUMN instance_id（带 default）。
-        - thinking 表不动（memorial_id 全局唯一）。
-        """
-        cols = {
-            r[1]
-            for r in self._conn.execute("PRAGMA table_info(telegram_session_anchor)").fetchall()
-        }
-        if "instance_id" in cols:
-            return  # 已迁移
-
-        # anchor 表：SQLite 不支持改 PK，需重建 + 拷贝。
-        for channel in ("feishu", "telegram"):
-            default_iid = f"{channel}-default"
-            table = f"{channel}_session_anchor"
-            self._conn.executescript(
-                f"""
-                CREATE TABLE {table}_new (
-                    instance_id      TEXT NOT NULL,
-                    chat_id          TEXT NOT NULL,
-                    current_edict_id TEXT,
-                    updated_at       TIMESTAMP NOT NULL,
-                    PRIMARY KEY (instance_id, chat_id)
-                );
-                INSERT INTO {table}_new (instance_id, chat_id, current_edict_id, updated_at)
-                    SELECT '{default_iid}', chat_id, current_edict_id, updated_at FROM {table};
-                DROP TABLE {table};
-                ALTER TABLE {table}_new RENAME TO {table};
-                """
-            )
-
-        # pending / seen 表：ALTER ADD COLUMN（带 default，存量行自动回填）。
-        for sql in (
-            "ALTER TABLE feishu_pending_cards ADD COLUMN "
-            "instance_id TEXT NOT NULL DEFAULT 'feishu-default'",
-            "ALTER TABLE telegram_pending_buttons ADD COLUMN "
-            "instance_id TEXT NOT NULL DEFAULT 'telegram-default'",
-            "ALTER TABLE feishu_seen_messages ADD COLUMN "
-            "instance_id TEXT NOT NULL DEFAULT 'feishu-default'",
-            "ALTER TABLE telegram_seen_messages ADD COLUMN "
-            "instance_id TEXT NOT NULL DEFAULT 'telegram-default'",
-        ):
-            try:
-                self._conn.execute(sql)
-            except sqlite3.OperationalError as e:
-                if "duplicate column name" not in str(e):
-                    raise
-        self._conn.commit()
 
     def close(self) -> None:
         if self._conn:

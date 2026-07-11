@@ -104,6 +104,18 @@ def test_migration_upgrades_old_session_tables(tmp_path):
     assert row[0] == "telegram-default"
     assert row[1] == "ed_tg"
 
+    # 会话兼容升级与完整 schema 在同一 baseline 中落账，不再在 ledger 外运行。
+    assert [
+        tuple(item)
+        for item in conn.execute(
+            "SELECT version, name FROM schema_migrations ORDER BY version"
+        ).fetchall()
+    ] == [(1, "0001_adopt_v042_baseline")]
+    assert (
+        conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='edicts'").fetchone()
+        is not None
+    )
+
     row = conn.execute(
         "SELECT instance_id, current_edict_id FROM feishu_session_anchor WHERE chat_id = 'oc_x'"
     ).fetchone()

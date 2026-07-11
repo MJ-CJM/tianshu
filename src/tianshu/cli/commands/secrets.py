@@ -7,11 +7,20 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
+
 import typer
 from rich.console import Console
 
 app = typer.Typer()
 console = Console()
+
+
+def _new_rotation_backup_path(db_path: Path) -> Path:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
+    return db_path.with_name(f"{db_path.name}.rotation-{timestamp}-{uuid4().hex}.bak")
 
 
 @app.command("gen-key")
@@ -25,7 +34,7 @@ def gen_key():
 @app.command("rotate-master-key")
 def rotate_master_key(
     new_key: str = typer.Option(..., "--new-key", help="新主密钥(Fernet.generate_key() 输出)"),
-    old_key: str = typer.Option(
+    old_key: str | None = typer.Option(
         None, "--old-key", help="旧主密钥(默认读 TIANSHU_SECRET_MASTER_KEY)"
     ),
     yes: bool = typer.Option(False, "--yes", help="跳过确认(脚本化)"),
@@ -36,9 +45,6 @@ def rotate_master_key(
     无法解密任何凭证。
     """
     import os
-    import shutil
-    from datetime import UTC, datetime
-    from pathlib import Path
 
     from cryptography.fernet import Fernet, InvalidToken
 
@@ -60,43 +66,47 @@ def rotate_master_key(
     db_path = Path(settings.db_path).expanduser()
     storage = Storage(str(db_path))
     storage.init_db()
+    try:
+        creds = storage.list_credentials()
+        if not creds:
+            console.print("[yellow]库中无凭证,无需轮换[/yellow]")
+            return
 
-    creds = storage.list_credentials()
-    if not creds:
-        console.print("[yellow]库中无凭证,无需轮换[/yellow]")
-        return
+        # ① 干跑:全部密文必须能用旧密钥解开(有一条解不开就中止,避免半途)
+        decrypted: dict[str, str] = {}
+        for row in creds:
+            try:
+                decrypted[row["id"]] = old_fernet.decrypt(row["encrypted_value"]).decode("utf-8")
+            except InvalidToken:
+                console.print(
+                    f"[red]✗ 凭证 {row['id']} 无法用旧密钥解密——轮换中止(未改动任何数据)[/red]"
+                )
+                raise typer.Exit(1) from None
+        console.print(f"[green]✓[/green] 干跑通过:{len(decrypted)} 条凭证均可用旧密钥解密")
 
-    # ① 干跑:全部密文必须能用旧密钥解开(有一条解不开就中止,避免半途)
-    decrypted: dict[str, str] = {}
-    for row in creds:
-        try:
-            decrypted[row["id"]] = old_fernet.decrypt(row["encrypted_value"]).decode("utf-8")
-        except InvalidToken:
-            console.print(
-                f"[red]✗ 凭证 {row['id']} 无法用旧密钥解密——轮换中止(未改动任何数据)[/red]"
+        if not yes:
+            confirm = typer.confirm(f"将用新密钥重加密 {len(decrypted)} 条凭证并回写,继续?")
+            if not confirm:
+                raise typer.Exit(0)
+
+        # ② 通过当前连接在线备份，确保 WAL 中已提交数据也进入备份。
+        from tianshu.storage.sqlite_backup import create_online_backup
+
+        backup = _new_rotation_backup_path(db_path)
+        create_online_backup(storage._conn, backup)
+        console.print(f"[dim]已备份数据库 → {backup}[/dim]")
+
+        # ③ 新密钥重加密回写
+        now_iso = datetime.now(UTC).isoformat()
+        for cred_id, plaintext in decrypted.items():
+            storage.update_credential(
+                cred_id,
+                encrypted_value=new_fernet.encrypt(plaintext.encode("utf-8")),
+                now_iso=now_iso,
             )
-            raise typer.Exit(1) from None
-    console.print(f"[green]✓[/green] 干跑通过:{len(decrypted)} 条凭证均可用旧密钥解密")
-
-    if not yes:
-        confirm = typer.confirm(f"将用新密钥重加密 {len(decrypted)} 条凭证并回写,继续?")
-        if not confirm:
-            raise typer.Exit(0)
-
-    # ② 备份 DB(轮换前的兜底)
-    backup = db_path.with_suffix(f".db.bak-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}")
-    shutil.copy(db_path, backup)
-    console.print(f"[dim]已备份数据库 → {backup}[/dim]")
-
-    # ③ 新密钥重加密回写
-    now_iso = datetime.now(UTC).isoformat()
-    for cred_id, plaintext in decrypted.items():
-        storage.update_credential(
-            cred_id,
-            encrypted_value=new_fernet.encrypt(plaintext.encode("utf-8")),
-            now_iso=now_iso,
+        console.print(
+            f"[green]✓[/green] 轮换完成:{len(decrypted)} 条凭证已用新密钥重加密。\n"
+            f"[bold yellow]下一步:把 TIANSHU_SECRET_MASTER_KEY 更新为新密钥并重启天枢。[/bold yellow]"
         )
-    console.print(
-        f"[green]✓[/green] 轮换完成:{len(decrypted)} 条凭证已用新密钥重加密。\n"
-        f"[bold yellow]下一步:把 TIANSHU_SECRET_MASTER_KEY 更新为新密钥并重启天枢。[/bold yellow]"
-    )
+    finally:
+        storage.close()

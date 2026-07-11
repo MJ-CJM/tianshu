@@ -1,5 +1,6 @@
 """Integration test — full event chain: submit → schedule → plan → execute → audit → notify."""
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -37,20 +38,20 @@ class TestFullEventChain:
     async def test_full_chain(self, storage, event_bus, config_manager, hooks):
         """Test: edict.submitted → scheduled → plan.completed → execution → audit → notify."""
 
-        # Track events
-        events_seen = []
-
-        async def track(e):
-            events_seen.append(e.event_type)
-
-        for etype in (
+        tracked_events = (
             "edict.submitted",
             "edict.scheduled",
             "plan.completed",
             "execution.started",
             "execution.completed",
             "audit.completed",
-        ):
+        )
+        events_seen: list[str] = []
+
+        async def track(e):
+            events_seen.append(e.event_type)
+
+        for etype in tracked_events:
             event_bus.on(etype, track, priority=999)
 
         # Create components
@@ -83,7 +84,7 @@ class TestFullEventChain:
         event_bus.on("audit.completed", notifier.handle_audit_completed)
 
         # Create edict
-        edict = Edict(goal="test full chain")
+        edict = Edict(goal="test full chain", assigned_persona_id="bingbu")
         storage.save_edict(edict)
         memorial = Memorial(edict_id=edict.id, instruction=edict.goal)
         storage.save_memorial(memorial)
@@ -92,16 +93,18 @@ class TestFullEventChain:
         await event_bus.emit(
             make_event("edict.submitted", edict_id=edict.id, payload={"goal": edict.goal})
         )
-
-        # Wait for async tasks
-        import asyncio
-
-        await asyncio.sleep(0.5)
+        await asyncio.gather(*tuple(executor.running_tasks))
 
         # Verify the chain executed
-        assert "edict.submitted" in events_seen
-        assert "edict.scheduled" in events_seen
-        assert "plan.completed" in events_seen
+        assert len(events_seen) == len(tracked_events)
+        assert set(events_seen) == set(tracked_events)
+
+        persisted_events = [
+            event["event_type"]
+            for event in storage.get_events(edict.id)
+            if event["event_type"] in tracked_events
+        ]
+        assert persisted_events == list(tracked_events)
 
         # Verify memorial was created/updated
         memorials = storage.list_memorials_by_edict(edict.id)
