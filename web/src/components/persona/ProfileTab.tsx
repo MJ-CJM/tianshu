@@ -21,6 +21,7 @@ import remarkGfm from "remark-gfm";
 import { usePersonaProfile } from "../../hooks/usePersonaProfile";
 import { getProfileHistory, updateProfileManual } from "../../api/profile";
 import { useT } from "../../i18n";
+import { authFetch } from "../../api/authFetch";
 
 interface Props {
   personaId: string;
@@ -46,7 +47,7 @@ export default function ProfileTab({ personaId }: Props) {
     setSyncing(true);
     setSyncStatus("started");
     try {
-      const resp = await fetch(`/api/personas/${personaId}/synthesize`, {
+      const resp = await authFetch(`/api/personas/${personaId}/synthesize`, {
         method: "POST",
       });
       if (!resp.ok || !resp.body) {

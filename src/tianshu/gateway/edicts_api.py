@@ -12,6 +12,7 @@ from tianshu.bus.event_bus import EventBus
 from tianshu.edict_ops import submit_new_edict
 from tianshu.executor.executor import Executor
 from tianshu.gateway._helpers import _build_history
+from tianshu.gateway.auth import get_auth_context
 from tianshu.models import (
     ApiResponse,
     Edict,
@@ -52,11 +53,12 @@ def _validate_network_runtime(runtime: object) -> None:
 async def create_edict(body: EdictCreateRequest, request: Request):
     storage: Storage = request.app.state.storage
     event_bus: EventBus = request.app.state.event_bus
+    submitter = get_auth_context(request).principal.id
 
     # Idempotency check: (submitter, idempotency_key) dedup
     if body.idempotency_key:
         existing = storage.find_edict_by_idempotency_key(
-            body.submitter,
+            submitter,
             body.idempotency_key,
         )
         if existing:
@@ -67,11 +69,14 @@ async def create_edict(body: EdictCreateRequest, request: Request):
             )
 
     title = title_from_goal(body.goal, body.title)
-    edict_kwargs: dict = {"title": title, "goal": body.goal, "context": body.context}
+    edict_kwargs: dict = {
+        "title": title,
+        "goal": body.goal,
+        "context": body.context,
+        "submitter": submitter,
+    }
     if body.idempotency_key:
         edict_kwargs["idempotency_key"] = body.idempotency_key
-    if body.submitter:
-        edict_kwargs["submitter"] = body.submitter
     if body.priority:
         edict_kwargs["priority"] = body.priority
     if body.review_policy:
@@ -135,7 +140,7 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     )
 
     # Fire-and-forget: 不阻塞 API 响应，事件链在后台异步执行
-    submit_new_edict(storage, event_bus, edict, producer="gateway")
+    submit_new_edict(storage, event_bus, edict, producer=f"gateway:{submitter}")
 
     return ApiResponse(
         success=True,

@@ -8,6 +8,7 @@ from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.executor.lanes import LaneManager
 from tianshu.executor.worker_pool import WorkerPool
+from tianshu.gateway.auth import get_auth_context
 from tianshu.models import ApiResponse, Decree, DecreeCreateRequest, TaskStatus, ToolDecisionRequest
 from tianshu.scheduler.scheduler import Scheduler
 from tianshu.storage import Storage
@@ -68,13 +69,14 @@ async def cancel_scheduler_job(job_id: str, request: Request):
 @execution_router.post("/decrees", response_model=ApiResponse, status_code=201)
 async def create_decree(body: DecreeCreateRequest, request: Request):
     approval_manager: ApprovalManager = request.app.state.approval_manager
+    actor = get_auth_context(request).principal.id
 
     decree = Decree(
         memorial_id=body.memorial_id,
         action=body.action,
         comment=body.comment,
         amended_goal=body.amended_goal,
-        actor=body.actor,
+        actor=actor,
     )
 
     try:
@@ -109,6 +111,7 @@ async def list_pending_tool_calls(request: Request):
 async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
     """Approve or reject a pending tool-call without mutating memorial status."""
     approval_manager: ApprovalManager = request.app.state.approval_manager
+    actor = get_auth_context(request).principal.id
     try:
         decree = await approval_manager.submit_tool_decision(
             memorial_id=body.memorial_id,
@@ -116,7 +119,7 @@ async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
             comment=body.comment,
             grant_scope=body.grant_scope,
             grant_reason=body.grant_reason,
-            actor=body.actor,
+            actor=actor,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

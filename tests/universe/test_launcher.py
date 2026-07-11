@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from tianshu.universe.deployer import DeployPointer, DeployRecord
-from tianshu.universe.launcher import resolve_boot_plan
+from tianshu.universe.launcher import SecurityBoundaryError, resolve_boot_plan
 
 
 def test_resolve_boot_plan_main_repo(tmp_path: Path) -> None:
@@ -60,3 +62,55 @@ def test_resolve_boot_plan_no_worktree_in_record(tmp_path: Path) -> None:
 
     assert cwd is None
     assert "PYTHONPATH" not in env
+
+
+def test_secure_remote_refuses_variant_without_security_manifest(tmp_path: Path) -> None:
+    pointer = DeployPointer(tmp_path / "deploy.json")
+    worktree = tmp_path / "worktrees" / "unsafe"
+    worktree.mkdir(parents=True)
+    pointer.write(DeployRecord(ref="universe/unsafe", worktree=str(worktree)), None)
+
+    with pytest.raises(SecurityBoundaryError, match="security manifest"):
+        resolve_boot_plan(pointer, {"TIANSHU_SECURITY_MODE": "secure-remote"})
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        "{}",
+        '{"security_boundary_version": 0}',
+        '{"security_boundary_version": "1"}',
+        "not-json",
+    ],
+)
+def test_secure_remote_refuses_invalid_security_manifest(
+    tmp_path: Path,
+    manifest: str,
+) -> None:
+    pointer = DeployPointer(tmp_path / "deploy.json")
+    worktree = tmp_path / "worktrees" / "unsafe"
+    worktree.mkdir(parents=True)
+    (worktree / ".tianshu-security.json").write_text(manifest, encoding="utf-8")
+    pointer.write(DeployRecord(ref="universe/unsafe", worktree=str(worktree)), None)
+
+    with pytest.raises(SecurityBoundaryError, match="security manifest"):
+        resolve_boot_plan(pointer, {"TIANSHU_SECURITY_MODE": "secure-remote"})
+
+
+def test_secure_remote_accepts_current_security_manifest(tmp_path: Path) -> None:
+    pointer = DeployPointer(tmp_path / "deploy.json")
+    worktree = tmp_path / "worktrees" / "safe"
+    worktree.mkdir(parents=True)
+    (worktree / ".tianshu-security.json").write_text(
+        '{"security_boundary_version": 1}',
+        encoding="utf-8",
+    )
+    pointer.write(DeployRecord(ref="universe/safe", worktree=str(worktree)), None)
+
+    cwd, env = resolve_boot_plan(
+        pointer,
+        {"TIANSHU_SECURITY_MODE": "secure-remote"},
+    )
+
+    assert cwd == str(worktree)
+    assert env["PYTHONPATH"].split(os.pathsep)[0] == str(worktree / "src")

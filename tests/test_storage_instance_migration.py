@@ -110,7 +110,10 @@ def test_migration_upgrades_old_session_tables(tmp_path):
         for item in conn.execute(
             "SELECT version, name FROM schema_migrations ORDER BY version"
         ).fetchall()
-    ] == [(1, "0001_adopt_v042_baseline")]
+    ] == [
+        (1, "0001_adopt_v042_baseline"),
+        (2, "0002_auth_tokens"),
+    ]
     assert (
         conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='edicts'").fetchone()
         is not None

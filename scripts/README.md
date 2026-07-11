@@ -68,7 +68,7 @@ bash scripts/docker.sh stop
 |------|-----|
 | 镜像名 | `tianshu` |
 | 容器名 | `tianshu` |
-| 端口映射 | `$TIANSHU_PORT:8000`（默认 8000） |
+| 端口映射 | `127.0.0.1:$TIANSHU_PORT:8000`（默认仅宿主回环） |
 | 数据卷 | `tianshu-data:/data` |
 | 工作区挂载 | 项目根目录 → `/workspace` |
 
@@ -85,7 +85,9 @@ cp .env.example .env
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `TIANSHU_HOST` | `0.0.0.0` | 监听地址 |
+| `TIANSHU_HOST` | `127.0.0.1` | 本地脚本默认监听地址；Docker 容器内由 helper 安全覆盖 |
 | `TIANSHU_PORT` | `8000` | 服务端口 |
+| `TIANSHU_DOCKER_BIND_HOST` | `127.0.0.1` | Docker 宿主发布地址；公开前必须启用 secure-remote |
+| `TIANSHU_SECURITY_MODE` | `trusted-local` | 本地或远程安全运行模式 |
 | `TIANSHU_LLM_API_KEY` | - | LLM API 密钥 |
 | `TIANSHU_DB_PATH` | `.tianshu/tianshu.db` | 数据库路径 |

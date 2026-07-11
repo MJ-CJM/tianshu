@@ -346,7 +346,10 @@ def test_concurrent_storage_startup_creates_one_true_pre_migration_backup(
     with closing(sqlite3.connect(database_path)) as current:
         assert current.execute(
             "SELECT version, name FROM schema_migrations ORDER BY version"
-        ).fetchall() == [(1, "0001_adopt_v042_baseline")]
+        ).fetchall() == [
+            (1, "0001_adopt_v042_baseline"),
+            (2, "0002_auth_tokens"),
+        ]
 
 
 def test_backup_failure_stops_migration_without_changing_database(

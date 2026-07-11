@@ -9,15 +9,18 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import FastAPI
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
 from tianshu.gateway.bot_manager import ChannelBotManager
 from tianshu.gateway.feishu.outbound import FeishuOutbound
 from tianshu.gateway.feishu.settings import FeishuSettings
+from tianshu.gateway.instance import ChannelInstance
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope
 
@@ -195,3 +198,46 @@ async def test_outbound_stop_unsubscribes_from_event_bus(storage):
     out.stop()
     await bus.emit(ev)
     assert len(calls) == 1  # 退订后不再跑
+
+
+@pytest.mark.asyncio
+async def test_webhook_public_path_exists_only_while_instance_runs(storage, monkeypatch):
+    app = FastAPI()
+    app.state.public_webhook_paths = set()
+    manager = ChannelBotManager(
+        storage=storage,
+        event_bus=EventBus(storage=storage),
+        approval_manager=MagicMock(),
+        executor=MagicMock(),
+        notifier=MagicMock(),
+        persona_loader=MagicMock(),
+        provider_manager=MagicMock(),
+        cost_manager=MagicMock(),
+        env_settings=SimpleNamespace(security_mode="trusted-local"),
+        app=app,
+    )
+    settings = SimpleNamespace(
+        enabled=True,
+        connection_mode="webhook",
+        webhook_path="/channels/custom/inbound",
+        validate_or_raise=lambda: None,
+    )
+    instance = ChannelInstance(
+        instance_id="custom",
+        channel_type="feishu",
+        label="custom",
+        enabled=True,
+        settings=settings,
+    )
+    bot = SimpleNamespace(
+        start=AsyncMock(),
+        stop=AsyncMock(),
+        attach_webhook_router=MagicMock(),
+    )
+    monkeypatch.setattr(manager, "_construct", lambda _instance: bot)
+
+    assert await manager.start_instance(instance) is True
+    assert app.state.public_webhook_paths == {"/channels/custom/inbound"}
+
+    await manager.stop_instance("custom")
+    assert app.state.public_webhook_paths == set()

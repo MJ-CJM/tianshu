@@ -8,6 +8,7 @@ evals（迭代 2）。
 """
 
 from tianshu.storage._base import _StorageBase
+from tianshu.storage.auth_repo import AuthMixin
 from tianshu.storage.channel_repo import ChannelMixin
 from tianshu.storage.config_repo import ConfigMixin
 from tianshu.storage.cost_repo import CostMixin
@@ -33,6 +34,7 @@ from tianshu.storage.universe_repo import UniverseMixin
 
 class Storage(
     _StorageBase,
+    AuthMixin,
     EdictMixin,
     MemorialMixin,
     EventMixin,

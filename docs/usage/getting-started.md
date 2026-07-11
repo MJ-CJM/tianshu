@@ -125,8 +125,15 @@ docker rm -f tianshu && \
 | `TIANSHU_LLM_MODEL` | `gpt-4o-mini` | LLM 模型 |
 | `TIANSHU_LLM_API_KEY` | （必填） | API 密钥 |
 | `TIANSHU_DB_PATH` | `~/.tianshu/tianshu.db` | SQLite 数据库路径 |
-| `TIANSHU_HOST` | `0.0.0.0` | 服务监听地址；不代表可安全公开，Docker 宿主端口仍须绑定 `127.0.0.1` |
+| `TIANSHU_HOST` | `127.0.0.1` | 默认仅监听回环；Docker helper 会在容器内单独覆盖 |
 | `TIANSHU_PORT` | `8000` | 监听端口 |
+| `TIANSHU_SECURITY_MODE` | `trusted-local` | 远程部署须显式设为 `secure-remote` 并补齐下列安全配置 |
+| `TIANSHU_PUBLIC_BASE_URL` | 空 | secure-remote 的 HTTPS 公共地址 |
+| `TIANSHU_ALLOWED_HOSTS` | 空 | secure-remote 精确 Host 列表，逗号分隔 |
+| `TIANSHU_ALLOWED_ORIGINS` | 空 | secure-remote 精确 HTTPS Origin 列表 |
+| `TIANSHU_TRUSTED_PROXY_CIDRS` | 空 | 可声明 HTTPS 的可信反代网段 |
+| `TIANSHU_AUTH_BOOTSTRAP_TOKEN_HASH` | 空 | `sha256:<64 hex>`；服务端不保存明文 token |
+| `TIANSHU_API_TOKEN` | 空 | CLI/MCP Bearer token，仅放客户端环境变量 |
 | `TIANSHU_WORKSPACE_DIR` | `.` | Agent 工作目录 |
 | `TIANSHU_STATIC_DIR` | `/app/static` | 前端静态文件目录 |
 | `TIANSHU_AGENT_MAX_ITERATIONS` | `20` | Agent 最大迭代次数 |

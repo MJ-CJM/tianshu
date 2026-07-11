@@ -13,6 +13,7 @@ from tianshu.storage import Storage
 from tianshu.storage.migration_ledger import MigrationExecutionError
 
 _BASELINE_NAME = "0001_adopt_v042_baseline"
+_AUTH_MIGRATION_NAME = "0002_auth_tokens"
 _V042_OWNED_TABLE_MANIFEST = (
     48,
     "b163e6d87e60fdb09349e82bf07489e8e64f633bde790178d424d77d6e2731f0",
@@ -469,21 +470,34 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
     }
 
     assert tables >= _REQUIRED_TABLES
-    assert _name_manifest(owned_tables) == _V042_OWNED_TABLE_MANIFEST
-    assert _name_manifest(indexes) == _V042_NAMED_INDEX_MANIFEST
+    assert _name_manifest(owned_tables - {"auth_tokens"}) == _V042_OWNED_TABLE_MANIFEST
+    assert _name_manifest(
+        indexes
+        - {
+            "idx_auth_tokens_principal",
+            "idx_auth_tokens_family",
+            "idx_auth_tokens_active",
+        }
+    ) == _V042_NAMED_INDEX_MANIFEST
+    assert "auth_tokens" in owned_tables
     for table, required_columns in _REQUIRED_COLUMNS.items():
         actual_columns = {
             str(row["name"]) for row in storage._conn.execute(f'PRAGMA table_info("{table}")')
         }
         assert actual_columns >= required_columns
     assert indexes >= _REQUIRED_INDEXES
-    assert [(row["version"], row["name"]) for row in first_ledger] == [(1, _BASELINE_NAME)]
-    assert len(first_ledger[0]["checksum"]) == 64
+    assert [(row["version"], row["name"]) for row in first_ledger] == [
+        (1, _BASELINE_NAME),
+        (2, _AUTH_MIGRATION_NAME),
+    ]
+    assert all(len(row["checksum"]) == 64 for row in first_ledger)
     storage.close()
 
     reopened = Storage(str(path))
     reopened.init_db()
-    assert [tuple(row) for row in _ledger_rows(reopened._conn)] == [tuple(first_ledger[0])]
+    assert [tuple(row) for row in _ledger_rows(reopened._conn)] == [
+        tuple(row) for row in first_ledger
+    ]
     reopened.close()
 
 
@@ -496,7 +510,8 @@ def test_canonical_preledger_v042_upgrade_only_adds_ledger(tmp_path: Path) -> No
 
     assert _snapshot(storage._conn) == before
     assert [(row["version"], row["name"]) for row in _ledger_rows(storage._conn)] == [
-        (1, _BASELINE_NAME)
+        (1, _BASELINE_NAME),
+        (2, _AUTH_MIGRATION_NAME),
     ]
     ledger = [tuple(row) for row in _ledger_rows(storage._conn)]
     storage.close()
@@ -533,7 +548,8 @@ def test_canonical_preledger_accepts_semantically_equivalent_column_order(
     storage = Storage(str(path))
     storage.init_db()
     assert [(row["version"], row["name"]) for row in _ledger_rows(storage._conn)] == [
-        (1, _BASELINE_NAME)
+        (1, _BASELINE_NAME),
+        (2, _AUTH_MIGRATION_NAME),
     ]
     storage.close()
 
@@ -577,7 +593,8 @@ def test_historical_preledger_core_shape_upgrades_to_canonical_without_valid_row
         is None
     )
     assert [(row["version"], row["name"]) for row in _ledger_rows(storage._conn)] == [
-        (1, _BASELINE_NAME)
+        (1, _BASELINE_NAME),
+        (2, _AUTH_MIGRATION_NAME),
     ]
     assert {
         table: _payload_rows(storage._conn, table, columns)
@@ -709,7 +726,8 @@ def test_combined_historical_core_session_and_supervision_adapters_reach_canonic
         == "memorial-z"
     )
     assert [(row["version"], row["name"]) for row in _ledger_rows(storage._conn)] == [
-        (1, _BASELINE_NAME)
+        (1, _BASELINE_NAME),
+        (2, _AUTH_MIGRATION_NAME),
     ]
     storage.close()
 

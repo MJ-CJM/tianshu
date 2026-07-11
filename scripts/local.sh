@@ -231,7 +231,7 @@ cmd_start() {
     ensure_runtime_dir
     load_env
 
-    local host="${TIANSHU_HOST:-0.0.0.0}"
+    local host="${TIANSHU_HOST:-127.0.0.1}"
 
     # Check if already running
     if is_running "$UVICORN_PID_FILE"; then

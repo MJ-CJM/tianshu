@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sqlite3
 from collections.abc import Iterable
@@ -12,6 +13,34 @@ from tianshu.storage.migration_ledger import (
     apply_migrations,
 )
 from tianshu.storage.schema import SCHEMA_V1_CHECKSUM, SCHEMA_V1_STATEMENTS
+
+_AUTH_TOKEN_STATEMENTS = (
+    """
+    CREATE TABLE auth_tokens (
+        id TEXT PRIMARY KEY,
+        prefix TEXT NOT NULL UNIQUE,
+        token_hash TEXT NOT NULL UNIQUE CHECK (length(token_hash) = 64),
+        principal_id TEXT NOT NULL,
+        principal_kind TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        label TEXT NOT NULL DEFAULT '',
+        scopes_json TEXT NOT NULL DEFAULT '[]',
+        token_type TEXT NOT NULL CHECK (token_type IN ('pat', 'access', 'refresh')),
+        family_id TEXT,
+        created_at TEXT NOT NULL,
+        expires_at TEXT,
+        revoked_at TEXT,
+        replaced_by TEXT REFERENCES auth_tokens(id),
+        last_used_at TEXT
+    )
+    """,
+    "CREATE INDEX idx_auth_tokens_principal ON auth_tokens(principal_id)",
+    "CREATE INDEX idx_auth_tokens_family ON auth_tokens(family_id)",
+    "CREATE INDEX idx_auth_tokens_active ON auth_tokens(token_type, revoked_at, expires_at)",
+)
+_AUTH_TOKEN_CHECKSUM = hashlib.sha256(
+    ("0002_auth_tokens\n" + "\n".join(" ".join(sql.split()) for sql in _AUTH_TOKEN_STATEMENTS)).encode()
+).hexdigest()
 
 type _Connection = sqlite3.Connection | MigrationConnection
 type _ColumnSignature = tuple[str, str, int, str | None, int]
@@ -1175,12 +1204,37 @@ def _baseline_upgrade(conn: MigrationConnection) -> None:
         )
 
 
+def _auth_tokens_upgrade(conn: MigrationConnection) -> None:
+    if "auth_tokens" in _table_names(conn):
+        reference = sqlite3.connect(":memory:")
+        try:
+            for statement in _AUTH_TOKEN_STATEMENTS:
+                reference.execute(statement)
+            expected_table = _table_signature(reference, "auth_tokens")
+            expected_indexes = _named_indexes(reference, {"auth_tokens"})
+        finally:
+            reference.close()
+        if _table_signature(conn, "auth_tokens") != expected_table:
+            raise SchemaCompatibilityError("existing auth_tokens table is incompatible")
+        if _named_indexes(conn, {"auth_tokens"}) != expected_indexes:
+            raise SchemaCompatibilityError("existing auth_tokens indexes are incompatible")
+        return
+    for statement in _AUTH_TOKEN_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
         name="0001_adopt_v042_baseline",
         checksum=SCHEMA_V1_CHECKSUM,
         upgrade=_baseline_upgrade,
+    ),
+    Migration(
+        version=2,
+        name="0002_auth_tokens",
+        checksum=_AUTH_TOKEN_CHECKSUM,
+        upgrade=_auth_tokens_upgrade,
     ),
 )
 

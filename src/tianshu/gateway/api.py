@@ -30,6 +30,8 @@ async def websocket_endpoint(websocket: WebSocket, request: Request = None):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
         notifier.unregister_ws(websocket)
 
 

@@ -41,6 +41,32 @@ def _memorial_brief(m: Any) -> dict:
 
 def build_mcp_server(app: FastAPI) -> FastMCP:
     """构造天枢 MCP server;tools 经闭包在请求时读取 app.state(届时已完成装配)。"""
+    settings = app.state.settings
+    if settings.security_mode == "secure-remote":
+        transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=list(settings.allowed_hosts_list),
+            allowed_origins=list(settings.allowed_origins_list),
+        )
+    else:
+        transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[
+                "localhost",
+                "localhost:*",
+                "127.0.0.1",
+                "127.0.0.1:*",
+                "[::1]",
+                "[::1]:*",
+                *settings.allowed_hosts_list,
+            ],
+            allowed_origins=[
+                "http://localhost:*",
+                "http://127.0.0.1:*",
+                "http://[::1]:*",
+                *settings.allowed_origins_list,
+            ],
+        )
     mcp = FastMCP(
         "tianshu",
         instructions=(
@@ -51,11 +77,18 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
         stateless_http=True,
         json_response=True,
         streamable_http_path="/",
-        # DNS rebinding 防护针对"浏览器页面攻击本机服务"场景;MCP 客户端是 CLI 非浏览器,
-        # 且自托管场景常经局域网 IP/反代域名访问,默认 Host 白名单(仅 localhost)会误伤。
-        # 公网暴露时的 Host 校验属反代层职责(治理边界诚实声明,见模块 docstring)。
-        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        transport_security=transport_security,
     )
+
+    def _require_scope(scope: str):
+        from tianshu.gateway.auth import get_current_auth_context
+
+        context = get_current_auth_context()
+        if context is None:
+            raise PermissionError("MCP authentication context unavailable")
+        if scope not in context.principal.scopes:
+            raise PermissionError(f"MCP scope required: {scope}")
+        return context
 
     @mcp.tool()
     def submit_edict(goal: str, context: str = "") -> dict:
@@ -63,13 +96,19 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
         from tianshu.edict_ops import submit_new_edict
         from tianshu.models.edict import Edict, title_from_goal
 
+        auth_context = _require_scope("mcp:submit")
         edict = Edict(
             title=title_from_goal(goal, None),
             goal=goal,
             context=context or None,
-            submitter="mcp",
+            submitter=auth_context.principal.id,
         )
-        memorial = submit_new_edict(app.state.storage, app.state.event_bus, edict, producer="mcp")
+        memorial = submit_new_edict(
+            app.state.storage,
+            app.state.event_bus,
+            edict,
+            producer=f"mcp:{auth_context.principal.id}",
+        )
         return {"edict_id": edict.id, "memorial_id": memorial.id, "status": "submitted"}
 
     @mcp.tool()

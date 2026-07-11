@@ -66,6 +66,11 @@ def _isolate_db(tmp_path, monkeypatch):
     monkeypatch.setenv("TIANSHU_DB_PATH", str(db))
     # 也禁用真实 logs 目录写入
     monkeypatch.setenv("TIANSHU_LOGS_DIR", str(tmp_path / "logs"))
+    # 安全边界测试隔离：第三方 import 可能把项目 .env 注入 os.environ；
+    # 测试宿主使用 ASGI 的 test/testserver Host，显式列入测试白名单。
+    monkeypatch.setenv("TIANSHU_HOST", "127.0.0.1")
+    monkeypatch.setenv("TIANSHU_SECURITY_MODE", "trusted-local")
+    monkeypatch.setenv("TIANSHU_ALLOWED_HOSTS", "test,testserver")
     yield
 
 

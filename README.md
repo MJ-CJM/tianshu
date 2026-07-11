@@ -106,7 +106,9 @@ docker run -d --name tianshu -p 127.0.0.1:8000:8000 \
   --env-file .env tianshu
 ```
 
-> ⚠️ v0.4.2 无统一鉴权，仅限可信本地；不要映射到公网/不可信网段。
+默认 `trusted-local` 仅信任回环入口。需要远程访问时必须显式启用
+`secure-remote`，配置 HTTPS 公共地址、精确 Host/Origin、可信反代 CIDR 和
+bootstrap token hash；匿名 REST、WebSocket 与 MCP 会在统一入口被拒绝。
 
 两阶段构建会移除运行时中的 Node.js 和 node_modules；运行镜像仍包含 Python 应用源码、后端依赖及执行器所需的系统工具。完整说明见 [`docs/usage/getting-started.md`](docs/usage/getting-started.md)。
 
@@ -117,7 +119,10 @@ docker run -d --name tianshu -p 127.0.0.1:8000:8000 \
 | `TIANSHU_LLM_API_KEY` | （必填） | LLM API 密钥 |
 | `TIANSHU_LLM_MODEL` | `gpt-4o-mini` | 默认模型 |
 | `TIANSHU_DB_PATH` | `~/.tianshu/tianshu.db` | SQLite 路径 |
+| `TIANSHU_HOST` | `127.0.0.1` | 默认仅监听回环地址 |
 | `TIANSHU_PORT` | `8000` | 监听端口 |
+| `TIANSHU_SECURITY_MODE` | `trusted-local` | `trusted-local` 或 fail-closed 的 `secure-remote` |
+| `TIANSHU_API_TOKEN` | （空） | CLI/MCP 的 Bearer token；不要写入仓库 |
 | `TIANSHU_WORKSPACE_DIR` | `.` | Agent 工作目录 |
 
 ## 📖 基本使用

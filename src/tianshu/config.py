@@ -1,6 +1,18 @@
 """Configuration management via Pydantic Settings."""
 
+import ipaddress
+import re
+from typing import Literal, Self
+from urllib.parse import urlsplit
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_SHA256_HASH = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def _split_csv(value: str) -> tuple[str, ...]:
+    return tuple(part.strip() for part in value.split(",") if part.strip())
 
 
 class TianshuSettings(BaseSettings):
@@ -22,8 +34,19 @@ class TianshuSettings(BaseSettings):
     agent_max_iterations: int = 20
     agent_timeout_seconds: int = 300
     db_path: str = "~/.tianshu/tianshu.db"
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
+    security_mode: Literal["trusted-local", "secure-remote"] = "trusted-local"
+    public_base_url: str = ""
+    allowed_hosts: str = ""
+    allowed_origins: str = ""
+    trusted_proxy_cidrs: str = ""
+    auth_bootstrap_token_hash: str = ""
+    auth_access_token_ttl_seconds: int = 900
+    auth_refresh_token_ttl_seconds: int = 2592000
+    # Only for containers whose host port is independently bound to loopback.
+    # Direct/public use of this override would turn trusted-local into a remote trust boundary.
+    trusted_local_container_boundary: bool = False
     workspace_dir: str = "."
     skills_char_budget: int = 30000
     static_dir: str = "/app/static"
@@ -103,3 +126,65 @@ class TianshuSettings(BaseSettings):
     # LSP 诊断(迭代 5):默认关。开启后 edit_file 编辑 .py 落盘即跑 basedpyright,
     # 类型/语义诊断回灌 agent(需 `pip install 'tianshu[lsp]'`,未装则静默跳过)。
     lsp_enabled: bool = False
+
+    @property
+    def allowed_hosts_list(self) -> tuple[str, ...]:
+        return _split_csv(self.allowed_hosts)
+
+    @property
+    def allowed_origins_list(self) -> tuple[str, ...]:
+        return _split_csv(self.allowed_origins)
+
+    @property
+    def trusted_proxy_cidrs_list(self) -> tuple[str, ...]:
+        return _split_csv(self.trusted_proxy_cidrs)
+
+    @model_validator(mode="after")
+    def validate_security_mode(self) -> Self:
+        if self.security_mode == "trusted-local":
+            if self.trusted_local_container_boundary and self.host not in {"0.0.0.0", "::"}:
+                raise ValueError("trusted-local container boundary requires a wildcard container bind")
+            return self
+
+        if self.trusted_local_container_boundary:
+            raise ValueError("secure-remote cannot use the trusted-local container boundary")
+
+        required = {
+            "public_base_url": self.public_base_url,
+            "allowed_hosts": self.allowed_hosts,
+            "allowed_origins": self.allowed_origins,
+            "trusted_proxy_cidrs": self.trusted_proxy_cidrs,
+            "auth_bootstrap_token_hash": self.auth_bootstrap_token_hash,
+        }
+        missing = sorted(name for name, value in required.items() if not value.strip())
+        if missing:
+            raise ValueError(f"secure-remote requires: {', '.join(missing)}")
+
+        public_url = urlsplit(self.public_base_url)
+        if public_url.scheme != "https" or not public_url.hostname:
+            raise ValueError("secure-remote public_base_url must be an https URL")
+        if public_url.username or public_url.password or public_url.query or public_url.fragment:
+            raise ValueError("secure-remote public_base_url cannot contain credentials/query/fragment")
+
+        hosts = self.allowed_hosts_list
+        if any("*" in host or "://" in host for host in hosts):
+            raise ValueError("secure-remote allowed_hosts must contain exact host names")
+
+        origins = self.allowed_origins_list
+        for origin in origins:
+            parsed = urlsplit(origin)
+            if origin == "*" or parsed.scheme != "https" or not parsed.hostname:
+                raise ValueError("secure-remote allowed_origins must contain exact https origins")
+            if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+                raise ValueError("secure-remote allowed_origins cannot contain paths/query/fragment")
+
+        for cidr in self.trusted_proxy_cidrs_list:
+            network = ipaddress.ip_network(cidr, strict=False)
+            if network.prefixlen == 0:
+                raise ValueError("secure-remote trusted proxy CIDRs cannot cover the whole internet")
+
+        if _SHA256_HASH.fullmatch(self.auth_bootstrap_token_hash) is None:
+            raise ValueError("auth_bootstrap_token_hash must be sha256:<64 lowercase hex chars>")
+        if self.auth_access_token_ttl_seconds <= 0 or self.auth_refresh_token_ttl_seconds <= 0:
+            raise ValueError("authentication token TTLs must be positive")
+        return self

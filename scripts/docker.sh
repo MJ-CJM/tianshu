@@ -40,6 +40,11 @@ cmd_build() {
 cmd_start() {
     load_env
     local port="${TIANSHU_PORT:-8000}"
+    local bind_host="${TIANSHU_DOCKER_BIND_HOST:-127.0.0.1}"
+    local container_boundary="true"
+    if [[ "${TIANSHU_SECURITY_MODE:-trusted-local}" == "secure-remote" ]]; then
+        container_boundary="false"
+    fi
 
     # Check if container already exists
     if docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
@@ -51,11 +56,13 @@ cmd_start() {
         docker rm "$CONTAINER_NAME" > /dev/null
     fi
 
-    echo "==> Starting container: $CONTAINER_NAME (port $port:8000)..."
+    echo "==> Starting container: $CONTAINER_NAME (port $bind_host:$port:8000)..."
     docker run -d \
         --name "$CONTAINER_NAME" \
         --env-file "$PROJECT_ROOT/.env" \
-        -p "${port}:8000" \
+        -e TIANSHU_HOST=0.0.0.0 \
+        -e TIANSHU_TRUSTED_LOCAL_CONTAINER_BOUNDARY="$container_boundary" \
+        -p "${bind_host}:${port}:8000" \
         -v tianshu-data:/data \
         -v "$PROJECT_ROOT":/workspace \
         "$IMAGE_NAME"

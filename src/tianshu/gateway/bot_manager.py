@@ -64,6 +64,7 @@ class ChannelBotManager:
         self._env_settings = env_settings
         self._app = app
         self._bots: dict[str, object] = {}
+        self._webhook_paths: dict[str, str] = {}
 
     # --- 实例发现 ---
 
@@ -250,9 +251,11 @@ class ChannelBotManager:
             inst.settings.validate_or_raise()
             bot = self._construct(inst)
             await bot.start()
-            self._bots[inst.instance_id] = bot
             if inst.settings.connection_mode == "webhook" and self._app is not None:
                 bot.attach_webhook_router(self._app)
+                self._webhook_paths[inst.instance_id] = inst.settings.webhook_path
+                self._app.state.public_webhook_paths.add(inst.settings.webhook_path)
+            self._bots[inst.instance_id] = bot
             logger.info(
                 "[gateway] instance %s (%s) started (mode=%s)",
                 inst.instance_id,
@@ -276,6 +279,13 @@ class ChannelBotManager:
         bot = self._bots.pop(instance_id, None)
         if bot is None:
             return
+        webhook_path = self._webhook_paths.pop(instance_id, None)
+        if (
+            webhook_path
+            and self._app is not None
+            and webhook_path not in self._webhook_paths.values()
+        ):
+            self._app.state.public_webhook_paths.discard(webhook_path)
         try:
             await bot.stop()
         except Exception:

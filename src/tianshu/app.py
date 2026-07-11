@@ -13,6 +13,8 @@ from tianshu import bootstrap
 from tianshu.config import TianshuSettings
 from tianshu.gateway import gateway_router
 from tianshu.gateway.audit_api import audit_router
+from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
+from tianshu.gateway.auth_api import auth_router
 from tianshu.gateway.config_api import config_router
 from tianshu.gateway.cost_api import cost_router
 from tianshu.gateway.credentials_api import credentials_router
@@ -37,10 +39,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = TianshuSettings()
+    settings: TianshuSettings = app.state.settings
     setup_logging(log_dir=settings.log_dir, console_level=settings.log_level)
 
     bootstrap.wire_storage(app, settings)
+    app.state.auth_service = AuthService(app.state.storage, settings)
     tools = await bootstrap.wire_tools(app, settings)
     skills, metrics_store = bootstrap.wire_skills(app, settings)
     bootstrap.wire_persona(app, settings, tools)
@@ -137,15 +140,30 @@ async def lifespan(app: FastAPI):
     logger.info("Tianshu shutdown complete")
 
 
-def create_app() -> FastAPI:
+def create_app(settings: TianshuSettings | None = None) -> FastAPI:
+    settings = settings or TianshuSettings()
     app = FastAPI(title="Tianshu", version="0.4.2", lifespan=lifespan)
+    app.state.settings = settings
+    app.state.public_webhook_paths = set()
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=(
+            list(settings.allowed_origins_list)
+            if settings.security_mode == "secure-remote"
+            else []
+        ),
+        allow_origin_regex=(
+            None
+            if settings.security_mode == "secure-remote"
+            else r"^https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$"
+        ),
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(SecurityBoundaryMiddleware, settings=settings)
     app.include_router(gateway_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api")
     app.include_router(audit_router, prefix="/api")
     app.include_router(config_router, prefix="/api")
     app.include_router(cost_router, prefix="/api")
@@ -171,6 +189,10 @@ def create_app() -> FastAPI:
     async def health():
         return {"status": "ok"}
 
+    @app.get("/health/live")
+    async def health_live():
+        return {"status": "ok"}
+
     # MCP server(可选能力:mcp extra 未安装则跳过)——外部 MCP 宿主经 POST /mcp 驱动天枢
     try:
         from tianshu.gateway.mcp_server import build_mcp_server
@@ -183,7 +205,6 @@ def create_app() -> FastAPI:
         logger.info("mcp extra not installed; MCP server disabled")
 
     # Conditionally mount frontend static files (container-integrated mode)
-    settings = TianshuSettings()
     if mount_web(app, settings.static_dir):
         logger.info("Web UI mounted from %s", settings.static_dir)
     else:

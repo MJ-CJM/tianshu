@@ -12,9 +12,22 @@ def _base_url() -> str:
     return os.environ.get("TIANSHU_API_URL", "http://localhost:8000")
 
 
+def auth_headers() -> dict[str, str]:
+    """Build CLI transport headers without persisting or logging the token."""
+    token = os.environ.get("TIANSHU_API_TOKEN", "").strip()
+    headers = {"X-Tianshu-Client": "cli"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def _request(method: str, path: str, **kwargs) -> dict:
     try:
-        with httpx.Client(base_url=_base_url(), timeout=360.0) as client:
+        with httpx.Client(
+            base_url=_base_url(),
+            timeout=360.0,
+            headers=auth_headers(),
+        ) as client:
             resp = client.request(method, path, **kwargs)
             resp.raise_for_status()
             return resp.json()
@@ -44,4 +57,4 @@ def api_delete(path: str) -> dict:
 
 def get_client() -> httpx.Client:
     """Get a reusable HTTP client for CLI commands."""
-    return httpx.Client(base_url=_base_url(), timeout=360.0)
+    return httpx.Client(base_url=_base_url(), timeout=360.0, headers=auth_headers())

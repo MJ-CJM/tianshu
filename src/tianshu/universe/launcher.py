@@ -6,6 +6,7 @@ current 为空（主仓）时：直接用主仓启动。这是让 current_ref �
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -13,6 +14,25 @@ from pathlib import Path
 from tianshu.universe.deployer import DeployPointer
 
 DEFAULT_POINTER = Path("~/.tianshu/universes/deploy_ptr.json").expanduser()
+SECURITY_BOUNDARY_VERSION = 1
+SECURITY_MANIFEST = ".tianshu-security.json"
+
+
+class SecurityBoundaryError(RuntimeError):
+    """A selected secure-remote variant cannot prove boundary compatibility."""
+
+
+def _verify_security_manifest(worktree: Path) -> None:
+    manifest = worktree / SECURITY_MANIFEST
+    try:
+        if manifest.is_symlink() or not manifest.is_file():
+            raise SecurityBoundaryError("variant security manifest is missing")
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SecurityBoundaryError("variant security manifest is invalid") from exc
+    version = payload.get("security_boundary_version") if isinstance(payload, dict) else None
+    if type(version) is not int or version < SECURITY_BOUNDARY_VERSION:
+        raise SecurityBoundaryError("variant security manifest is incompatible")
 
 
 def resolve_boot_plan(
@@ -24,6 +44,8 @@ def resolve_boot_plan(
     if current is None or not current.worktree:
         return None, env
     wt = Path(current.worktree)
+    if env.get("TIANSHU_SECURITY_MODE", "trusted-local") == "secure-remote":
+        _verify_security_manifest(wt)
     src = str(wt / "src")
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = f"{src}{os.pathsep}{existing}" if existing else src
@@ -33,7 +55,7 @@ def resolve_boot_plan(
 def main() -> None:
     pointer = DeployPointer(DEFAULT_POINTER)
     cwd, env = resolve_boot_plan(pointer)
-    host = env.get("TIANSHU_HOST", "0.0.0.0")
+    host = env.get("TIANSHU_HOST", "127.0.0.1")
     port = env.get("TIANSHU_PORT", "8000")
     if cwd:
         os.chdir(cwd)
