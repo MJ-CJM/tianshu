@@ -10,7 +10,7 @@ import os
 import secrets
 import signal
 import time
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -84,10 +84,18 @@ class CommandGrant(_StrictModel):
         "acceptance-contract",
         "system-adapter",
     ]
-    scope: Literal["shell_exec", "tool-argv", "acceptance", "lark-cli", "keqing"] = "tool-argv"
+    scope: Literal[
+        "shell_exec",
+        "tool-argv",
+        "acceptance",
+        "lark-cli",
+        "keqing",
+        "mcp_stdio",
+    ] = "tool-argv"
     argv_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     shell_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     authority_ref: str = Field(min_length=1)
+    server_identity: str | None = None
     effective_contract_hash: str = Field(min_length=1)
     correlation_id: str = Field(min_length=1)
     issued_at: datetime
@@ -100,6 +108,8 @@ class CommandGrant(_StrictModel):
             raise ValueError("exactly one command digest is required")
         if self.expires_at < self.issued_at:
             raise ValueError("grant expiry cannot precede issuance")
+        if (self.scope == "mcp_stdio") != (self.server_identity is not None):
+            raise ValueError("server identity is required only for MCP stdio grants")
         return self
 
 
@@ -295,10 +305,18 @@ def _mint_command_grant(
         "acceptance-contract",
         "system-adapter",
     ],
-    scope: Literal["shell_exec", "tool-argv", "acceptance", "lark-cli", "keqing"],
+    scope: Literal[
+        "shell_exec",
+        "tool-argv",
+        "acceptance",
+        "lark-cli",
+        "keqing",
+        "mcp_stdio",
+    ],
     authority_ref: str,
     argv: Sequence[str] | None = None,
     script: str | None = None,
+    server_identity: str | None = None,
     expires_at: datetime | None = None,
 ) -> CommandGrant:
     context = _require_execution_context()
@@ -309,6 +327,7 @@ def _mint_command_grant(
         argv_digest=_command_digest(argv) if argv is not None else None,
         shell_digest=hashlib.sha256(script.encode()).hexdigest() if script is not None else None,
         authority_ref=authority_ref,
+        server_identity=server_identity,
         effective_contract_hash=context.effective_contract.content_hash,
         correlation_id=context.correlation_id,
         issued_at=issued_at,
@@ -452,7 +471,8 @@ class ExecutionRequest(_StrictModel):
     execution_id: str = Field(min_length=1)
     correlation_id: str = Field(min_length=1)
     actor: Principal
-    purpose: Literal["tool", "acceptance", "lark-cli", "keqing"]
+    purpose: Literal["tool", "acceptance", "lark-cli", "keqing", "mcp_stdio"]
+    mcp_server_name: str | None = None
     effective_contract: EffectiveGovernanceContractV1
     argv_command: ArgvCommand | None = None
     shell_command: ShellCommand | None = None
@@ -464,6 +484,8 @@ class ExecutionRequest(_StrictModel):
     timeout_seconds: float = Field(gt=0)
     stdout_limit_bytes: int = Field(gt=0)
     stderr_limit_bytes: int = Field(gt=0)
+    stdin_mode: Literal["null", "pipe"] = "null"
+    stdin_write_limit_bytes: int = Field(default=64 * 1024, gt=0)
     sandbox: SandboxRequirement
     command_grant: CommandGrant | None
 
@@ -479,6 +501,8 @@ class ExecutionRequest(_StrictModel):
     def validate_command_choice(self) -> Self:
         if (self.argv_command is None) == (self.shell_command is None):
             raise ValueError("exactly one of argv_command and shell_command is required")
+        if (self.purpose == "mcp_stdio") != (self.mcp_server_name is not None):
+            raise ValueError("MCP server name is required only for MCP stdio execution")
         return self
 
     @property
@@ -556,6 +580,11 @@ class ExecutionReceipt(_StrictModel):
     correlation_id: str
     actor_id: str
     purpose: str
+    mcp_server_name: str | None = None
+    command_admission: Literal[
+        "standard",
+        "transitional_mcp_config_g1_6_pending",
+    ] = "standard"
     effective_contract_hash: str
     workspace_lease_id: str
     cwd: str
@@ -645,12 +674,13 @@ class AsyncioProcessBackend:
         env: dict[str, str],
         network: NetworkPolicy,
         sandbox: SandboxRequirement,
+        stdin_mode: Literal["null", "pipe"],
     ) -> SpawnedProcess:
         process = await asyncio.create_subprocess_exec(
             *argv,
             cwd=str(cwd),
             env=env,
-            stdin=asyncio.subprocess.DEVNULL,
+            stdin=(asyncio.subprocess.PIPE if stdin_mode == "pipe" else asyncio.subprocess.DEVNULL),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=os.name != "nt",
@@ -668,10 +698,11 @@ async def _drain_stream(
     limit: int,
     queue: asyncio.Queue[bytes | None] | None = None,
     secret_values: tuple[str, ...] = (),
+    stream_all: bool = False,
 ) -> tuple[bytes, int, bool]:
     if stream is None:
         if queue is not None:
-            queue.put_nowait(None)
+            await queue.put(None)
         return b"", 0, False
     kept = bytearray()
     total = 0
@@ -682,15 +713,17 @@ async def _drain_stream(
         if remaining > 0:
             bounded_chunk = chunk[:remaining]
             kept.extend(bounded_chunk)
-            if queue is not None:
-                redacted = stream_redactor.feed(bounded_chunk)
+        if queue is not None:
+            stream_chunk = chunk if stream_all else chunk[: max(0, remaining)]
+            if stream_chunk:
+                redacted = stream_redactor.feed(stream_chunk)
                 if redacted:
-                    queue.put_nowait(redacted)
+                    await queue.put(redacted)
     if queue is not None:
         final = stream_redactor.finish()
         if final:
-            queue.put_nowait(final)
-        queue.put_nowait(None)
+            await queue.put(final)
+        await queue.put(None)
     return bytes(kept), total, total > limit
 
 
@@ -698,17 +731,16 @@ class _SecretStreamRedactor:
     def __init__(self, values: tuple[str, ...]) -> None:
         self._secrets = tuple(value.encode() for value in values if value)
         self._tail = bytearray()
-        self._overlap = max((len(secret) - 1 for secret in self._secrets), default=0)
 
     def feed(self, chunk: bytes) -> bytes:
         self._tail.extend(chunk)
         self._tail = bytearray(self._replace(bytes(self._tail)))
-        emit_length = max(0, len(self._tail) - self._overlap)
+        emit_length = len(self._tail) - self._pending_prefix_length(bytes(self._tail))
         if emit_length == 0:
             return b""
         data = bytes(self._tail[:emit_length])
         del self._tail[:emit_length]
-        return self._replace(data)
+        return data
 
     def finish(self) -> bytes:
         data = bytes(self._tail)
@@ -717,8 +749,18 @@ class _SecretStreamRedactor:
 
     def _replace(self, data: bytes) -> bytes:
         for secret in self._secrets:
-            data = data.replace(secret, b"[REDACTED SECRET]")
+            data = data.replace(secret, b"[REDACTED]")
         return data
+
+    def _pending_prefix_length(self, data: bytes) -> int:
+        pending = 0
+        for secret in self._secrets:
+            max_length = min(len(data), len(secret) - 1)
+            for length in range(max_length, pending, -1):
+                if data.endswith(secret[:length]):
+                    pending = length
+                    break
+        return pending
 
 
 async def _terminate_process_tree(
@@ -791,13 +833,16 @@ class ExecutionHandle:
         self._started_at = started_at
         self._started_monotonic = started_monotonic
         self._termination_grace_seconds = termination_grace_seconds
-        self._stdout_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        self._stdout_queue: asyncio.Queue[bytes | None] = asyncio.Queue(
+            maxsize=8 if request.stdin_mode == "pipe" else 0
+        )
         self._stdout_task = asyncio.create_task(
             _drain_stream(
                 process.stdout,
                 request.stdout_limit_bytes,
                 self._stdout_queue,
                 secret_values,
+                request.stdin_mode == "pipe",
             )
         )
         self._stderr_task = asyncio.create_task(
@@ -809,6 +854,27 @@ class ExecutionHandle:
     @property
     def pid(self) -> int:
         return self._process.pid
+
+    async def write_stdin(self, data: bytes) -> None:
+        if self.request.stdin_mode != "pipe" or self._process.stdin is None:
+            raise RuntimeError("execution stdin is not configured as a pipe")
+        if len(data) > self.request.stdin_write_limit_bytes:
+            raise ValueError(
+                f"stdin write exceeds {self.request.stdin_write_limit_bytes} byte limit"
+            )
+        self._process.stdin.write(data)
+        remaining = self.request.timeout_seconds - (time.monotonic() - self._started_monotonic)
+        if remaining <= 0:
+            raise TimeoutError("execution stdin deadline exceeded")
+        await asyncio.wait_for(self._process.stdin.drain(), timeout=remaining)
+
+    async def close_stdin(self) -> None:
+        stdin = self._process.stdin
+        if stdin is None or stdin.is_closing():
+            return
+        stdin.close()
+        with suppress(BrokenPipeError, ConnectionResetError):
+            await stdin.wait_closed()
 
     async def wait(self) -> ExecutionResult:
         async with self._wait_lock:
@@ -857,13 +923,13 @@ class ExecutionHandle:
 
     async def terminate(self) -> ExecutionResult:
         async with self._wait_lock:
-            if self._result is not None:
-                return self._result
             await _terminate_process_tree(
                 self._process,
                 process_group_id=self._process_group_id,
                 grace_seconds=self._termination_grace_seconds,
             )
+            if self._result is not None:
+                return self._result
             stdout_data, stderr_data = await asyncio.gather(
                 self._stdout_task,
                 self._stderr_task,
@@ -877,16 +943,20 @@ class ExecutionHandle:
             return self._result
 
     async def iter_stdout(self) -> AsyncIterator[str]:
+        async for chunk in self.iter_stdout_bytes():
+            yield self._redact(chunk.decode(errors="replace"))
+
+    async def iter_stdout_bytes(self) -> AsyncIterator[bytes]:
         while True:
             chunk = await self._stdout_queue.get()
             if chunk is None:
                 return
-            yield self._redact(chunk.decode(errors="replace"))
+            yield chunk
 
     def _redact(self, value: str) -> str:
         for secret in self._secret_values:
             if secret:
-                value = value.replace(secret, "[REDACTED SECRET]")
+                value = value.replace(secret, "[REDACTED]")
         return redact_text(value)
 
     def _build_result(
@@ -920,6 +990,12 @@ class ExecutionHandle:
             correlation_id=self.request.correlation_id,
             actor_id=self.request.actor.id,
             purpose=self.request.purpose,
+            mcp_server_name=self.request.mcp_server_name,
+            command_admission=(
+                "transitional_mcp_config_g1_6_pending"
+                if self.request.purpose == "mcp_stdio"
+                else "standard"
+            ),
             effective_contract_hash=self.request.effective_contract_hash,
             workspace_lease_id=self.request.workspace_lease_id,
             cwd=self.request.cwd,
@@ -966,12 +1042,42 @@ class ExecutionGateway:
         advisory_guards: Sequence[ExecutionGuard] = (),
         guard_timeout_seconds: float = 1.0,
         termination_grace_seconds: float = 0.5,
+        mcp_stdio_commands: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         self._backend = backend or AsyncioProcessBackend()
         self._mandatory_guards = tuple(mandatory_guards)
         self._advisory_guards = tuple(advisory_guards)
         self._guard_timeout_seconds = guard_timeout_seconds
         self._termination_grace_seconds = termination_grace_seconds
+        self.configure_mcp_stdio_commands(mcp_stdio_commands or {})
+
+    def configure_mcp_stdio_commands(
+        self,
+        commands: Mapping[str, Sequence[str]],
+    ) -> None:
+        self._mcp_stdio_commands = {
+            name: ArgvCommand(argv=tuple(argv)).argv for name, argv in commands.items()
+        }
+
+    def issue_mcp_stdio_command_grant(
+        self,
+        server_name: str,
+        argv: Sequence[str],
+    ) -> CommandGrant:
+        exact_argv = ArgvCommand(argv=tuple(argv)).argv
+        if self._mcp_stdio_commands.get(server_name) != exact_argv:
+            self._deny(
+                "command_grant",
+                "mcp_command_not_configured",
+                "MCP server command is not in the current admitted configuration",
+            )
+        return _mint_command_grant(
+            source="system-adapter",
+            scope="mcp_stdio",
+            authority_ref=f"mcp-config:{server_name}",
+            argv=exact_argv,
+            server_identity=server_name,
+        )
 
     async def run(self, request: ExecutionRequest) -> ExecutionResult:
         return await (await self.start(request)).wait()
@@ -989,6 +1095,7 @@ class ExecutionGateway:
                 env=env,
                 network=request.network,
                 sandbox=request.sandbox,
+                stdin_mode=request.stdin_mode,
             )
         except (OSError, ValueError) as exc:
             detail = self._redact_exception(str(exc), secret_values)
@@ -1074,6 +1181,7 @@ class ExecutionGateway:
             "acceptance": {"acceptance"},
             "lark-cli": {"lark-cli"},
             "keqing": {"keqing"},
+            "mcp_stdio": {"mcp_stdio"},
         }[request.purpose]
         if grant.scope not in allowed_scopes:
             self._deny(
@@ -1162,6 +1270,14 @@ class ExecutionGateway:
                     grant.authority_ref == f"keqing:{backend}"
                     and request.effective_contract.executor.adapter_id.startswith("keqing:")
                     and is_canonical_adapter_argv(backend, request.command_argv)
+                )
+            elif grant.scope == "mcp_stdio":
+                server_name = request.mcp_server_name
+                valid_system_scope = (
+                    server_name is not None
+                    and grant.server_identity == server_name
+                    and grant.authority_ref == f"mcp-config:{server_name}"
+                    and self._mcp_stdio_commands.get(server_name) == request.command_argv
                 )
             else:
                 valid_system_scope = False
@@ -1317,7 +1433,7 @@ class ExecutionGateway:
     def _redact_exception(detail: str, secrets: tuple[str, ...]) -> str:
         for secret in secrets:
             if secret:
-                detail = detail.replace(secret, "[REDACTED SECRET]")
+                detail = detail.replace(secret, "[REDACTED]")
         return redact_text(detail)
 
     @staticmethod

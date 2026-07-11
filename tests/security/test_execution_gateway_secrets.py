@@ -26,6 +26,7 @@ from tianshu.executor.execution_gateway import (
     SandboxRequirement,
     _issue_tool_argv_grant,
     _issue_tool_policy_decision,
+    _SecretStreamRedactor,
     bind_execution_context,
     bind_tool_policy_decision,
 )
@@ -107,6 +108,22 @@ def _secret_policy() -> EnvironmentPolicy:
         allow_names=("VISIBLE_VALUE",),
         secret_refs=(EnvironmentSecretRef(env_name=_SECRET_ENV_NAME, ref=_SECRET_REF),),
     )
+
+
+def test_stream_redactor_does_not_hold_complete_non_secret_protocol_frames() -> None:
+    frame = b'{"jsonrpc":"2.0","id":1,"result":{}}\n'
+    redactor = _SecretStreamRedactor((_SENTINEL,))
+
+    assert redactor.feed(frame) == frame
+
+
+def test_exact_secret_value_cannot_reappear_inside_redaction_marker() -> None:
+    secret = b"SECRET"
+    redactor = _SecretStreamRedactor((secret.decode(),))
+
+    redacted = redactor.feed(b"value=" + secret)
+
+    assert secret not in redacted
 
 
 @pytest.mark.asyncio

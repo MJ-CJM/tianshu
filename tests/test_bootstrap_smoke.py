@@ -102,6 +102,7 @@ class TestBootstrapSmoke:
         assert booted_app.state.executor._execution_gateway is process_gateway
         assert booted_app.state.executor._keqing._execution_gateway is process_gateway
         assert booted_app.state.orchestrator_ctx.execution_gateway is process_gateway
+        assert booted_app.state.mcp_manager._execution_gateway is process_gateway
 
     async def test_lifespan_closes_drawer_store(self):
         # 不复用 booted_app fixture：需要在 lifespan 退出*之后*断言 close 是否

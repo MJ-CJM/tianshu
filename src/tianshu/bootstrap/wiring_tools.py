@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
@@ -63,7 +64,14 @@ async def wire_tools(app: FastAPI, settings: TianshuSettings) -> ToolRegistry:
     # 惰性导入：mcp 属可选能力，保持 import 时不加载（对应原 lifespan 的函数内导入）。
     from tianshu.tools.mcp import MCPManager
 
-    mcp_manager = MCPManager(tools, storage=storage, allowlist=settings.mcp_server_allowlist)
+    mcp_manager = MCPManager(
+        tools,
+        execution_gateway,
+        workspace_root=Path(settings.workspace_dir),
+        security_mode=settings.security_mode,
+        storage=storage,
+        allowlist=settings.mcp_server_allowlist,
+    )
     app.state.mcp_manager = mcp_manager
     try:
         mcp_manager.load_config()

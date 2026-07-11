@@ -57,6 +57,8 @@ def _request(
     *,
     timeout: float = 3,
     output_limit: int = 4096,
+    stdin_mode: str = "null",
+    stdin_write_limit: int = 64 * 1024,
 ) -> ExecutionRequest:
     actor = Principal(
         id="process-principal",
@@ -90,6 +92,8 @@ def _request(
         timeout_seconds=timeout,
         stdout_limit_bytes=output_limit,
         stderr_limit_bytes=output_limit,
+        stdin_mode=stdin_mode,
+        stdin_write_limit_bytes=stdin_write_limit,
         sandbox=SandboxRequirement(
             trust_level="trusted-local",
             mode="host",
@@ -97,6 +101,36 @@ def _request(
         ),
         command_grant=grant,
     )
+
+
+@pytest.mark.asyncio
+async def test_pipe_stdin_supports_bounded_write_drain_and_close(
+    tmp_path,
+    effective_contract,
+):
+    argv = (
+        sys.executable,
+        "-c",
+        "import sys;data=sys.stdin.buffer.read();sys.stdout.buffer.write(b'echo:'+data)",
+    )
+    handle = await ExecutionGateway().start(
+        _request(
+            tmp_path,
+            effective_contract,
+            argv,
+            stdin_mode="pipe",
+            stdin_write_limit=8,
+        )
+    )
+
+    with pytest.raises(ValueError, match="stdin write exceeds"):
+        await handle.write_stdin(b"too-large")
+    await handle.write_stdin(b"ping")
+    await handle.close_stdin()
+
+    result = await handle.wait()
+    assert result.receipt.status == "succeeded"
+    assert result.stdout == "echo:ping"
 
 
 @pytest.mark.asyncio

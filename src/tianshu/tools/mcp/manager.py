@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
+from tianshu.executor.execution_gateway import ExecutionGateway, ExecutionReceipt
 from tianshu.tools.mcp.client import MCPServerSession
 from tianshu.tools.mcp.config import (
     MCPConfig,
@@ -30,11 +31,18 @@ class MCPManager:
     def __init__(
         self,
         tool_registry: ToolRegistry,
+        execution_gateway: ExecutionGateway,
+        *,
+        workspace_root: str | Path = ".",
+        security_mode: Literal["trusted-local", "secure-remote"] = "trusted-local",
         config_path: str | Path = "~/.tianshu/mcp_servers.yaml",
         storage: object | None = None,
         allowlist: str | None = None,
     ) -> None:
         self._tools = tool_registry
+        self._execution_gateway = execution_gateway
+        self._workspace_root = Path(workspace_root).resolve()
+        self._security_mode = security_mode
         self._config_path = Path(config_path).expanduser()
         self._storage = storage
         # MCP 治理·准入清单(D15):非空 → 只启动清单内 server。空/None → 不强制。
@@ -45,6 +53,7 @@ class MCPManager:
         )
         self._config: MCPConfig = MCPConfig()
         self._sessions: dict[str, MCPServerSession] = {}
+        self._terminal_receipts: dict[str, ExecutionReceipt] = {}
 
     def _admitted(self, name: str) -> bool:
         """准入判定:无清单则全允(启动时另有明示告警);有清单则须在册。"""
@@ -104,6 +113,16 @@ class MCPManager:
     def sessions(self) -> dict[str, MCPServerSession]:
         return dict(self._sessions)
 
+    @property
+    def terminal_receipts(self) -> dict[str, ExecutionReceipt]:
+        receipts = dict(self._terminal_receipts)
+        receipts.update(
+            (name, session.terminal_receipt)
+            for name, session in self._sessions.items()
+            if session.terminal_receipt is not None
+        )
+        return receipts
+
     # -- 生命周期 -----------------------------------------------------------
 
     async def start(self) -> None:
@@ -124,6 +143,13 @@ class MCPManager:
             for name, cfg in self._config.mcp_servers.items()
             if cfg.enabled and self._admitted(name)
         ]
+        self._execution_gateway.configure_mcp_stdio_commands(
+            {
+                name: (cfg.command, *cfg.args)
+                for name, cfg in enabled
+                if cfg.transport == "stdio" and cfg.command is not None
+            }
+        )
         for name, cfg in self._config.mcp_servers.items():
             if not cfg.enabled:
                 logger.info("[mcp] skip disabled server: %s", name)
@@ -131,12 +157,19 @@ class MCPManager:
                 logger.warning("[mcp] server %s 未在准入清单内,拒绝加载(D15)", name)
 
         async def _start_one(name: str, cfg) -> tuple[str, MCPServerSession | None]:
-            session = MCPServerSession(config=cfg)
+            session = MCPServerSession(
+                config=cfg,
+                execution_gateway=self._execution_gateway,
+                workspace_root=self._workspace_root,
+                security_mode=self._security_mode,
+            )
             try:
                 connected = await session.start()
             except Exception:
                 logger.exception("[mcp] server %s failed to start, continuing without it", name)
                 await session.shutdown()
+                if session.terminal_receipt is not None:
+                    self._terminal_receipts[name] = session.terminal_receipt
                 return name, None
             if not connected:
                 logger.warning(
@@ -145,6 +178,8 @@ class MCPManager:
                     session.last_error,
                 )
                 await session.shutdown()
+                if session.terminal_receipt is not None:
+                    self._terminal_receipts[name] = session.terminal_receipt
                 return name, None
             return name, session
 
@@ -163,11 +198,13 @@ class MCPManager:
             logger.info("[mcp] registered %d tool(s) from server %s", count, name)
 
     async def shutdown(self) -> None:
-        for session in self._sessions.values():
+        for name, session in self._sessions.items():
             try:
                 await session.shutdown()
             except Exception:
                 logger.exception("[mcp] error shutting down session %s", session.config.name)
+            if session.terminal_receipt is not None:
+                self._terminal_receipts[name] = session.terminal_receipt
         self._sessions.clear()
 
     # -- 工具注册 -----------------------------------------------------------

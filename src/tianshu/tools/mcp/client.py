@@ -17,6 +17,7 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from tianshu.tools.mcp.config import MCPServerConfig
@@ -25,6 +26,8 @@ from tianshu.tools.mcp.transport import open_session
 
 if TYPE_CHECKING:
     from mcp import ClientSession
+
+    from tianshu.executor.execution_gateway import ExecutionGateway, ExecutionReceipt
 
 logger = logging.getLogger(__name__)
 
@@ -48,14 +51,19 @@ class DiscoveredTool:
 @dataclass
 class MCPServerSession:
     config: MCPServerConfig
+    execution_gateway: ExecutionGateway
+    workspace_root: Path
+    security_mode: Literal["trusted-local", "secure-remote"]
     status: SessionStatus = "pending"
     tools: list[DiscoveredTool] = field(default_factory=list)
     last_error: str | None = None
+    terminal_receipt: ExecutionReceipt | None = None
 
     _session: ClientSession | None = None
     _ready_event: asyncio.Event = field(default_factory=asyncio.Event)
     _shutdown_event: asyncio.Event = field(default_factory=asyncio.Event)
     _reconnect_event: asyncio.Event = field(default_factory=asyncio.Event)
+    _transport_closed_event: asyncio.Event = field(default_factory=asyncio.Event)
     _task: asyncio.Task[None] | None = None
 
     async def start(self) -> bool:
@@ -75,7 +83,15 @@ class MCPServerSession:
         try:
             while not self._shutdown_event.is_set():
                 try:
-                    async with open_session(self.config) as session:
+                    self._transport_closed_event.clear()
+                    async with open_session(
+                        self.config,
+                        execution_gateway=self.execution_gateway,
+                        workspace_root=self.workspace_root,
+                        security_mode=self.security_mode,
+                        receipt_callback=self._record_receipt,
+                        closed_event=self._transport_closed_event,
+                    ) as session:
                         self._session = session
                         await self._discover_tools(session)
                         self.status = "connected"
@@ -131,13 +147,14 @@ class MCPServerSession:
         """
         shutdown_waiter = asyncio.create_task(self._shutdown_event.wait())
         reconnect_waiter = asyncio.create_task(self._reconnect_event.wait())
+        transport_waiter = asyncio.create_task(self._transport_closed_event.wait())
         try:
             await asyncio.wait(
-                {shutdown_waiter, reconnect_waiter},
+                {shutdown_waiter, reconnect_waiter, transport_waiter},
                 return_when=asyncio.FIRST_COMPLETED,
             )
         finally:
-            for w in (shutdown_waiter, reconnect_waiter):
+            for w in (shutdown_waiter, reconnect_waiter, transport_waiter):
                 if not w.done():
                     w.cancel()
 
@@ -161,6 +178,9 @@ class MCPServerSession:
                     input_schema=schema,
                 )
             )
+
+    def _record_receipt(self, receipt: ExecutionReceipt) -> None:
+        self.terminal_receipt = receipt
 
     def request_reconnect(self) -> None:
         """触发一次重连（非阻塞）。"""
