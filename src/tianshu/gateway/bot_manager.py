@@ -18,6 +18,9 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
+from starlette.routing import Match
+from starlette.types import Scope
+
 from tianshu.gateway.instance import ChannelInstance, default_instance_id
 
 if TYPE_CHECKING:
@@ -266,14 +269,29 @@ class ChannelBotManager:
         if path in registered_paths:
             raise RuntimeError(f"webhook path is already registered: {path}")
         if self._app is not None:
+            post_scope: Scope = {
+                "type": "http",
+                "asgi": {"version": "3.0", "spec_version": "2.3"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": path,
+                "raw_path": path.encode(),
+                "root_path": "",
+                "query_string": b"",
+                "headers": [],
+                "client": ("127.0.0.1", 0),
+                "server": ("localhost", 80),
+                "app": self._app,
+            }
             ignored_routes = {
                 id(route) for route in self._webhook_routes.get(replacing_instance_id or "", [])
             }
             for route in self._app.router.routes:
                 if id(route) in ignored_routes:
                     continue
-                path_regex = getattr(route, "path_regex", None)
-                if path_regex is not None and path_regex.fullmatch(path):
+                match, _child_scope = route.matches(post_scope)
+                if match is Match.FULL:
                     raise RuntimeError(f"webhook path conflicts with an existing route: {path}")
         if (
             self._env_settings.security_mode == "secure-remote"

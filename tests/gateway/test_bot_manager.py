@@ -365,6 +365,56 @@ async def test_webhook_rejects_existing_route_and_duplicate_instance_path(storag
 
 
 @pytest.mark.asyncio
+async def test_webhook_ignores_get_only_spa_fallback_and_post_reaches_provider(
+    storage,
+    tmp_path,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from tianshu.web import mount_web
+
+    manager, app, bot = _webhook_manager(storage)
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<html>spa</html>", encoding="utf-8")
+    assert mount_web(app, str(static_dir)) is True
+
+    instance = _webhook_instance(
+        instance_id="feishu-spa-compatible",
+        channel_type="feishu",
+        path="/channels/feishu/inbound",
+    )
+
+    def attach(target_app: FastAPI) -> None:
+        @target_app.post(instance.settings.webhook_path)
+        async def provider_handler():
+            return {"handler": "provider"}
+
+    bot.attach_webhook_router.side_effect = attach
+
+    assert await manager.start_instance(instance) is True
+    with TestClient(app) as client:
+        response = client.post(instance.settings.webhook_path, json={"event": "test"})
+
+    assert response.status_code == 200
+    assert response.json() == {"handler": "provider"}
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_conflicting_mount(storage) -> None:
+    manager, app, bot = _webhook_manager(storage)
+    app.mount("/channels/feishu", FastAPI())
+    instance = _webhook_instance(
+        instance_id="feishu-mount-conflict",
+        channel_type="feishu",
+        path="/channels/feishu/inbound",
+    )
+
+    assert await manager.start_instance(instance) is False
+    bot.start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_secure_remote_feishu_webhook_requires_verifier(storage) -> None:
     manager, app, bot = _webhook_manager(storage, security_mode="secure-remote")
     instance = _webhook_instance(
