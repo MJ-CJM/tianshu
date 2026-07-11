@@ -22,6 +22,7 @@ _POST_BASELINE_TABLES = {
     "effective_governance_contracts",
     "workspace_leases",
     "workspace_lease_states",
+    "workspace_staging_identities",
     "restore_points",
     "canonical_change_sets",
     "apply_decisions",

@@ -51,6 +51,15 @@ def _repository(path: Path) -> Path:
     return path
 
 
+def _loose_objects(repo: Path) -> set[str]:
+    objects = repo / ".git" / "objects"
+    return {
+        path.relative_to(objects).as_posix()
+        for path in objects.rglob("*")
+        if path.is_file() and len(path.parent.name) == 2
+    }
+
+
 async def _lease(storage, tmp_path: Path):
     repo = _repository(tmp_path / "source")
     service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
@@ -128,6 +137,51 @@ async def test_empty_and_recomputed_change_sets_have_one_stable_hash(
 
 
 @pytest.mark.asyncio
+async def test_change_capture_keeps_secret_blobs_out_of_source_object_database(
+    storage, tmp_path: Path
+) -> None:
+    repo, service, lease = await _lease(storage, tmp_path)
+    secret = b"unique secret that must stay inside the staging lease\n"
+    (Path(lease.staging_root) / "secret.txt").write_bytes(secret)
+    assert _GIT is not None
+    oid = (
+        subprocess.run(
+            [_GIT, "hash-object", "--stdin"],
+            cwd=repo,
+            input=secret,
+            check=True,
+            capture_output=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    before = _loose_objects(repo)
+    assert (
+        subprocess.run([_GIT, "cat-file", "-e", oid], cwd=repo, capture_output=True).returncode != 0
+    )
+
+    change_set = await service.capture_change_set(lease.id, run_id="run-1")
+
+    assert change_set.changes[0].new_oid == oid
+    assert _loose_objects(repo) == before
+    assert (
+        subprocess.run([_GIT, "cat-file", "-e", oid], cwd=repo, capture_output=True).returncode != 0
+    )
+    await service.shutdown()
+    assert _loose_objects(repo) == before
+    assert (
+        subprocess.run([_GIT, "cat-file", "-e", oid], cwd=repo, capture_output=True).returncode != 0
+    )
+    fsck = subprocess.run(
+        [_GIT, "fsck", "--no-reflogs", "--unreachable"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    assert oid.encode() not in fsck.stdout
+
+
+@pytest.mark.asyncio
 async def test_change_capture_rejects_symlink_parent_escape(storage, tmp_path: Path) -> None:
     _repo, service, lease = await _lease(storage, tmp_path)
     staging = Path(lease.staging_root)
@@ -161,6 +215,37 @@ async def test_change_capture_rejects_replaced_staging_repository(storage, tmp_p
 
 
 @pytest.mark.asyncio
+async def test_change_capture_rejects_same_repository_worktree_admin_swap(
+    storage, tmp_path: Path
+) -> None:
+    repo, service, first = await _lease(storage, tmp_path)
+    second = await service.create_lease(
+        WorkspaceLeaseRequest(
+            run_id="run-2",
+            lineage_root_run_id="run-1",
+            parent_run_id="run-1",
+            attempt=1,
+            source_root=repo,
+            base_revision="HEAD",
+            apply_mode="governed",
+        )
+    )
+    first_git = Path(first.staging_root) / ".git"
+    second_git = Path(second.staging_root) / ".git"
+    first_authority = first_git.read_bytes()
+    second_authority = second_git.read_bytes()
+    first_git.write_bytes(second_authority)
+    second_git.write_bytes(first_authority)
+
+    with pytest.raises(WorkspaceConflict, match="staging.*identity"):
+        await service.capture_change_set(first.id, run_id="run-1")
+
+    first_git.write_bytes(first_authority)
+    second_git.write_bytes(second_authority)
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_capture_serializes_with_close_and_concurrent_recompute(
     storage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -179,9 +264,22 @@ async def test_capture_serializes_with_close_and_concurrent_recompute(
         assert capture_release.wait(timeout=5)
         return real_capture(location, base_revision)
 
-    def observed_remove(location, destination, *, force=False):
+    def observed_remove(
+        location,
+        destination,
+        *,
+        force=False,
+        expected_git_dir=None,
+        expected_git_dir_identity=None,
+    ):
         remove_entered.set()
-        return real_remove(location, destination, force=force)
+        return real_remove(
+            location,
+            destination,
+            force=force,
+            expected_git_dir=expected_git_dir,
+            expected_git_dir_identity=expected_git_dir_identity,
+        )
 
     monkeypatch.setattr(backend, "capture_staged_changes", blocked_capture)
     monkeypatch.setattr(backend, "remove_worktree", observed_remove)

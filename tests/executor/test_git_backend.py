@@ -396,6 +396,28 @@ def test_git_backend_diff_uses_isolated_object_database(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
+def test_inspect_repository_does_not_write_dirty_index_tree_to_source_objects(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _raw_git(repo, "init", "-q")
+    _raw_git(repo, "config", "user.name", "Fixture")
+    _raw_git(repo, "config", "user.email", "fixture@example.invalid")
+    (repo / "tracked.txt").write_text("base\n")
+    _raw_git(repo, "add", "tracked.txt")
+    _raw_git(repo, "commit", "-qm", "base")
+    (repo / "staged-secret.txt").write_text("staged but not committed\n")
+    _raw_git(repo, "add", "staged-secret.txt")
+    before = _loose_objects(repo)
+
+    snapshot = GitBackend().inspect_repository(GitLocation(repo))
+
+    assert snapshot.clean is False
+    assert _loose_objects(repo) == before
+
+
+@pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
 def test_git_backend_preflights_aggregate_stage_limit_before_writing_objects(
     tmp_path: Path,
 ) -> None:

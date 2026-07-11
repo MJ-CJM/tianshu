@@ -94,22 +94,47 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
         apply_mode TEXT NOT NULL CHECK (apply_mode IN ('governed', 'none')),
         source_root TEXT,
         source_repository_id TEXT,
+        source_git_dir TEXT,
+        source_git_dir_identity TEXT CHECK (
+            source_git_dir_identity IS NULL OR length(source_git_dir_identity) = 64
+        ),
         base_revision TEXT,
         staging_root TEXT NOT NULL UNIQUE,
         created_at TEXT NOT NULL,
         UNIQUE (id, run_id),
+        UNIQUE (lineage_root_run_id, attempt),
+        FOREIGN KEY (parent_run_id) REFERENCES workspace_leases(run_id),
+        CHECK (
+            (attempt = 0 AND parent_run_id IS NULL AND lineage_root_run_id = run_id)
+            OR (attempt > 0 AND parent_run_id IS NOT NULL)
+        ),
         CHECK (
             (source_kind = 'git' AND apply_mode = 'governed'
              AND source_root IS NOT NULL AND source_repository_id IS NOT NULL
+             AND source_git_dir IS NOT NULL AND source_git_dir_identity IS NOT NULL
              AND base_revision IS NOT NULL)
             OR
             (source_kind = 'scratch' AND apply_mode = 'none'
              AND source_root IS NULL AND source_repository_id IS NULL
+             AND source_git_dir IS NULL AND source_git_dir_identity IS NULL
              AND base_revision IS NULL)
         )
     )
     """,
     "CREATE INDEX idx_workspace_leases_lineage ON workspace_leases(lineage_root_run_id, attempt)",
+    """
+    CREATE TRIGGER validate_workspace_lease_lineage
+    BEFORE INSERT ON workspace_leases
+    WHEN NEW.attempt > 0
+    BEGIN
+        SELECT CASE WHEN NOT EXISTS (
+            SELECT 1 FROM workspace_leases AS parent
+            WHERE parent.run_id = NEW.parent_run_id
+              AND parent.lineage_root_run_id = NEW.lineage_root_run_id
+              AND parent.attempt = NEW.attempt - 1
+        ) THEN RAISE(ABORT, 'workspace lease lineage mismatch') END;
+    END
+    """,
     """
     CREATE TABLE workspace_lease_states (
         lease_id TEXT NOT NULL REFERENCES workspace_leases(id),
@@ -121,6 +146,32 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
         created_at TEXT NOT NULL,
         PRIMARY KEY (lease_id, version)
     )
+    """,
+    """
+    CREATE TABLE workspace_staging_identities (
+        lease_id TEXT PRIMARY KEY REFERENCES workspace_leases(id),
+        schema_version TEXT NOT NULL CHECK (schema_version = '1'),
+        staging_root TEXT NOT NULL UNIQUE,
+        git_dir TEXT NOT NULL UNIQUE,
+        git_dir_identity TEXT NOT NULL UNIQUE CHECK (length(git_dir_identity) = 64),
+        source_repository_id TEXT NOT NULL,
+        base_revision TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TRIGGER validate_workspace_staging_identity
+    BEFORE INSERT ON workspace_staging_identities
+    BEGIN
+        SELECT CASE WHEN NOT EXISTS (
+            SELECT 1 FROM workspace_leases AS lease
+            WHERE lease.id = NEW.lease_id
+              AND lease.source_kind = 'git'
+              AND lease.staging_root = NEW.staging_root
+              AND lease.source_repository_id = NEW.source_repository_id
+              AND lease.base_revision = NEW.base_revision
+        ) THEN RAISE(ABORT, 'workspace staging identity binding mismatch') END;
+    END
     """,
     """
     CREATE TRIGGER validate_workspace_lease_state_insert
@@ -138,6 +189,13 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
                 WHERE lease_id = NEW.lease_id AND version = NEW.version - 1
             )
                 THEN RAISE(ABORT, 'workspace lease state version is not contiguous')
+            WHEN NEW.state IN ('active', 'closing') AND EXISTS (
+                SELECT 1 FROM workspace_leases
+                WHERE id = NEW.lease_id AND source_kind = 'git'
+            ) AND NOT EXISTS (
+                SELECT 1 FROM workspace_staging_identities WHERE lease_id = NEW.lease_id
+            )
+                THEN RAISE(ABORT, 'active or closing workspace lease requires staging identity')
             WHEN NEW.version > 1 AND NOT (
                 ((SELECT state FROM workspace_lease_states
                   WHERE lease_id = NEW.lease_id AND version = NEW.version - 1) = 'starting'
@@ -153,7 +211,7 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
                 OR
                 ((SELECT state FROM workspace_lease_states
                   WHERE lease_id = NEW.lease_id AND version = NEW.version - 1) = 'cleanup_failed'
-                 AND NEW.state = 'closing')
+                 AND NEW.state IN ('closing', 'closed'))
             )
                 THEN RAISE(ABORT, 'invalid workspace lease state transition')
         END;
@@ -166,8 +224,11 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
         lease_id TEXT NOT NULL UNIQUE REFERENCES workspace_leases(id),
         source_repository_id TEXT NOT NULL,
         source_root TEXT NOT NULL,
+        source_git_dir TEXT NOT NULL,
+        source_git_dir_identity TEXT NOT NULL CHECK (length(source_git_dir_identity) = 64),
         base_revision TEXT NOT NULL,
         source_head_revision TEXT NOT NULL,
+        source_head_ref TEXT,
         source_index_tree TEXT NOT NULL,
         source_status_hash TEXT NOT NULL CHECK (length(source_status_hash) = 64),
         canonical_json TEXT NOT NULL,
@@ -178,6 +239,22 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
     )
     """,
     "CREATE INDEX idx_restore_points_repository ON restore_points(source_repository_id, base_revision)",
+    """
+    CREATE TRIGGER validate_restore_point_binding
+    BEFORE INSERT ON restore_points
+    BEGIN
+        SELECT CASE WHEN NOT EXISTS (
+            SELECT 1 FROM workspace_leases AS lease
+            WHERE lease.id = NEW.lease_id
+              AND lease.source_kind = 'git'
+              AND lease.source_repository_id = NEW.source_repository_id
+              AND lease.source_root = NEW.source_root
+              AND lease.source_git_dir = NEW.source_git_dir
+              AND lease.source_git_dir_identity = NEW.source_git_dir_identity
+              AND lease.base_revision = NEW.base_revision
+        ) THEN RAISE(ABORT, 'restore point binding mismatch') END;
+    END
+    """,
     """
     CREATE TABLE canonical_change_sets (
         id TEXT PRIMARY KEY,
@@ -199,6 +276,23 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
     """,
     "CREATE INDEX idx_change_sets_restore ON canonical_change_sets(restore_point_id, sequence)",
     """
+    CREATE TRIGGER validate_canonical_change_set_binding
+    BEFORE INSERT ON canonical_change_sets
+    BEGIN
+        SELECT CASE WHEN NOT EXISTS (
+            SELECT 1
+            FROM workspace_leases AS lease
+            JOIN restore_points AS restore ON restore.lease_id = lease.id
+            WHERE lease.id = NEW.lease_id
+              AND restore.id = NEW.restore_point_id
+              AND lease.source_repository_id = NEW.source_repository_id
+              AND restore.source_repository_id = NEW.source_repository_id
+              AND lease.base_revision = NEW.base_revision
+              AND restore.base_revision = NEW.base_revision
+        ) THEN RAISE(ABORT, 'canonical change set binding mismatch') END;
+    END
+    """,
+    """
     CREATE TABLE apply_decisions (
         id TEXT PRIMARY KEY,
         schema_version TEXT NOT NULL CHECK (schema_version = '1'),
@@ -209,6 +303,7 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
         source_repository_id TEXT NOT NULL,
         source_root TEXT NOT NULL,
         base_revision TEXT NOT NULL,
+        source_head_ref TEXT,
         principal_digest TEXT NOT NULL CHECK (length(principal_digest) = 64),
         apply_scope TEXT NOT NULL CHECK (apply_scope = 'workspace'),
         reason TEXT NOT NULL CHECK (length(reason) > 0),
@@ -239,9 +334,14 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
               AND c.content_hash = NEW.change_set_hash
               AND r.id = NEW.restore_point_id
               AND r.source_repository_id = NEW.source_repository_id
+              AND r.source_root = NEW.source_root
+              AND r.base_revision = NEW.base_revision
+              AND r.source_head_ref IS NEW.source_head_ref
               AND l.source_repository_id = NEW.source_repository_id
               AND l.source_root = NEW.source_root
               AND l.base_revision = NEW.base_revision
+              AND c.source_repository_id = NEW.source_repository_id
+              AND c.base_revision = NEW.base_revision
         ) THEN RAISE(ABORT, 'apply decision binding mismatch') END;
     END
     """,
@@ -331,6 +431,7 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
         for table in (
             "workspace_leases",
             "workspace_lease_states",
+            "workspace_staging_identities",
             "restore_points",
             "canonical_change_sets",
             "apply_decisions",
@@ -347,6 +448,7 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
         for table in (
             "workspace_leases",
             "workspace_lease_states",
+            "workspace_staging_identities",
             "restore_points",
             "canonical_change_sets",
             "apply_decisions",
@@ -1651,6 +1753,7 @@ def _validate_workspace_foundation_schema(conn: MigrationConnection) -> bool:
     expected_tables = {
         "workspace_leases",
         "workspace_lease_states",
+        "workspace_staging_identities",
         "restore_points",
         "canonical_change_sets",
         "apply_decisions",

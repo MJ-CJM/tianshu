@@ -40,6 +40,10 @@ def _validate_digest(value: str) -> str:
     return value
 
 
+def _validate_optional_digest(value: str | None) -> str | None:
+    return _validate_digest(value) if value is not None else None
+
+
 def _validate_path(value: str | None) -> str | None:
     if value is None:
         return None
@@ -84,24 +88,68 @@ class WorkspaceLease(WorkspaceRecord):
     apply_mode: Literal["governed", "none"]
     source_root: str | None = None
     source_repository_id: str | None = None
+    source_git_dir: str | None = None
+    source_git_dir_identity: str | None = None
     base_revision: str | None = None
     staging_root: str = Field(min_length=1)
+    staging_git_dir: str | None = None
+    staging_git_dir_identity: str | None = None
     state: WorkspaceLeaseState
     state_version: int = Field(ge=1)
     created_at: datetime
 
     _normalize_created_at = field_validator("created_at")(_utc)
     _validate_base = field_validator("base_revision")(_validate_oid)
+    _validate_git_dir_digests = field_validator(
+        "source_git_dir_identity", "staging_git_dir_identity"
+    )(_validate_optional_digest)
 
     @model_validator(mode="after")
     def validate_source(self) -> Self:
-        git_fields = (self.source_root, self.source_repository_id, self.base_revision)
+        source_fields = (
+            self.source_root,
+            self.source_repository_id,
+            self.source_git_dir,
+            self.source_git_dir_identity,
+            self.base_revision,
+        )
+        staging_fields = (self.staging_git_dir, self.staging_git_dir_identity)
         if self.source_kind == "git":
-            if self.apply_mode != "governed" or any(value is None for value in git_fields):
+            if self.apply_mode != "governed" or any(value is None for value in source_fields):
                 raise ValueError("Git leases require governed mode, source identity, and base")
-        elif self.apply_mode != "none" or any(value is not None for value in git_fields):
+            if any(value is None for value in staging_fields) and not all(
+                value is None for value in staging_fields
+            ):
+                raise ValueError("staging Git authority must be complete")
+            if self.state in {
+                WorkspaceLeaseState.ACTIVE,
+                WorkspaceLeaseState.CLOSING,
+            } and any(value is None for value in staging_fields):
+                raise ValueError("active or closing Git leases require staging authority")
+        elif self.apply_mode != "none" or any(
+            value is not None for value in (*source_fields, *staging_fields)
+        ):
             raise ValueError("scratch leases require apply_mode=none and no Git source")
+        if self.attempt == 0:
+            if self.parent_run_id is not None or self.lineage_root_run_id != self.run_id:
+                raise ValueError("root workspace runs require no parent and self lineage")
+        elif self.parent_run_id is None or self.parent_run_id == self.run_id:
+            raise ValueError("retry workspace runs require a distinct parent")
         return self
+
+
+class WorkspaceStagingIdentity(WorkspaceRecord):
+    lease_id: str = Field(min_length=1, max_length=128)
+    staging_root: str = Field(min_length=1)
+    git_dir: str = Field(min_length=1)
+    git_dir_identity: str
+    source_repository_id: str = Field(min_length=1)
+    base_revision: str
+    created_at: datetime
+
+    _validate_git_dir_identity = field_validator("git_dir_identity")(_validate_digest)
+    _validate_base = field_validator("base_revision")(_validate_oid)
+    _normalize_created_at = field_validator("created_at")(_utc)
 
 
 class RestorePoint(WorkspaceRecord):
@@ -109,8 +157,11 @@ class RestorePoint(WorkspaceRecord):
     lease_id: str = Field(min_length=1, max_length=128)
     source_repository_id: str = Field(min_length=1)
     source_root: str = Field(min_length=1)
+    source_git_dir: str = Field(min_length=1)
+    source_git_dir_identity: str
     base_revision: str
     source_head_revision: str
+    source_head_ref: str | None = None
     source_index_tree: str
     source_status_hash: str
     created_at: datetime
@@ -119,6 +170,7 @@ class RestorePoint(WorkspaceRecord):
         _validate_oid
     )
     _validate_status_hash = field_validator("source_status_hash")(_validate_digest)
+    _validate_git_dir_identity = field_validator("source_git_dir_identity")(_validate_digest)
     _normalize_created_at = field_validator("created_at")(_utc)
 
     def canonical_json(self) -> str:
@@ -158,14 +210,10 @@ class CanonicalChange(WorkspaceRecord):
 
     @model_validator(mode="after")
     def validate_shape(self) -> Self:
-        has_old = all(
-            value is not None
-            for value in (self.old_path, self.old_oid, self.old_mode, self.old_size)
-        )
-        has_new = all(
-            value is not None
-            for value in (self.new_path, self.new_oid, self.new_mode, self.new_size)
-        )
+        old_values = (self.old_path, self.old_oid, self.old_mode, self.old_size)
+        new_values = (self.new_path, self.new_oid, self.new_mode, self.new_size)
+        has_old = all(value is not None for value in old_values)
+        has_new = all(value is not None for value in new_values)
         expected = {
             "add": (False, True),
             "untracked": (False, True),
@@ -177,12 +225,20 @@ class CanonicalChange(WorkspaceRecord):
         }[self.kind]
         if (has_old, has_new) != expected:
             raise ValueError(f"{self.kind} change has incomplete old/new identity")
+        if not expected[0] and any(value is not None for value in old_values):
+            raise ValueError(f"{self.kind} change must not carry old identity")
+        if not expected[1] and any(value is not None for value in new_values):
+            raise ValueError(f"{self.kind} change must not carry new identity")
         if self.kind in {"modify", "mode"} and self.old_path != self.new_path:
             raise ValueError(f"{self.kind} must keep the same path")
         if self.kind in {"rename", "copy"} and self.old_path == self.new_path:
             raise ValueError(f"{self.kind} must change the path")
         if self.kind == "mode" and (self.old_oid != self.new_oid or self.old_mode == self.new_mode):
             raise ValueError("mode changes keep content and change mode")
+        if self.kind == "modify" and self.old_oid == self.new_oid:
+            raise ValueError("modify changes must change content")
+        if self.kind in {"rename", "copy"} and self.old_oid != self.new_oid:
+            raise ValueError(f"{self.kind} changes require exact content identity")
         return self
 
     def sort_key(self) -> tuple[bytes, bytes, str]:
@@ -237,6 +293,7 @@ class ApplyDecision(WorkspaceRecord):
     source_repository_id: str = Field(min_length=1)
     source_root: str = Field(min_length=1)
     base_revision: str
+    source_head_ref: str | None = None
     principal_digest: str
     apply_scope: Literal["workspace"] = "workspace"
     reason: str = Field(min_length=1)
@@ -290,4 +347,5 @@ __all__ = [
     "RestorePoint",
     "WorkspaceLease",
     "WorkspaceLeaseState",
+    "WorkspaceStagingIdentity",
 ]

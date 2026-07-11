@@ -15,8 +15,8 @@ import stat
 import subprocess
 import tempfile
 import threading
-from collections.abc import Mapping
-from contextlib import suppress
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Literal
@@ -77,6 +77,8 @@ class GitRepositorySnapshot:
     """Stable source identity without exposing a raw Git command surface."""
 
     work_tree: Path
+    git_dir: Path
+    git_dir_identity: str
     common_git_dir: Path
     repository_id: str
     head_revision: str
@@ -183,6 +185,19 @@ def _validate_message(message: str) -> str:
     return message
 
 
+def _directory_identity(path: Path) -> str:
+    resolved = Path(path).resolve()
+    metadata = resolved.stat()
+    payload = b"\x00".join(
+        (
+            os.fsencode(resolved),
+            str(metadata.st_dev).encode("ascii"),
+            str(metadata.st_ino).encode("ascii"),
+        )
+    )
+    return hashlib.sha256(payload).hexdigest()
+
+
 class GitBackend:
     """Named, bounded Git operations with no public raw-command method."""
 
@@ -256,6 +271,7 @@ class GitBackend:
         )
         self._require_complete_output("inspect_repository.common_dir", common)
         common_git_dir = self._validated_git_path(location, common.stdout, require_directory=True)
+        git_dir = self._resolve_git_dir(location)
         head_revision = self.resolve_commit(location, "HEAD")
         try:
             ref_result = self._invoke(
@@ -267,19 +283,28 @@ class GitBackend:
             if exc.returncode != 1:
                 raise
             head_ref = None
-        tree = self._invoke("inspect_repository.index", location, ("write-tree",))
-        self._require_complete_output("inspect_repository.index", tree)
-        index_tree = _validate_sha(tree.stdout.strip())
-        status = self._invoke(
-            "inspect_repository.status",
-            location,
-            ("status", "--porcelain=v1", "-z", "--untracked-files=all"),
-            max_output_bytes=min(self._materialization_limit_bytes, 20_000_000),
-        )
-        self._require_complete_output("inspect_repository.status", status)
-        repository_id = hashlib.sha256(os.fsencode(common_git_dir)).hexdigest()
+        with self._isolated_git_state(location) as isolated_env:
+            tree = self._invoke(
+                "inspect_repository.index",
+                location,
+                ("write-tree",),
+                env_overrides=isolated_env,
+            )
+            self._require_complete_output("inspect_repository.index", tree)
+            index_tree = _validate_sha(tree.stdout.strip())
+            status = self._invoke(
+                "inspect_repository.status",
+                location,
+                ("status", "--porcelain=v1", "-z", "--untracked-files=all"),
+                env_overrides=isolated_env,
+                max_output_bytes=min(self._materialization_limit_bytes, 20_000_000),
+            )
+            self._require_complete_output("inspect_repository.status", status)
+        repository_id = _directory_identity(common_git_dir)
         return GitRepositorySnapshot(
             work_tree=work_tree,
+            git_dir=git_dir,
+            git_dir_identity=_directory_identity(git_dir),
             common_git_dir=common_git_dir,
             repository_id=repository_id,
             head_revision=head_revision,
@@ -381,11 +406,37 @@ class GitBackend:
         destination: Path,
         *,
         force: bool = False,
+        expected_git_dir: Path | None = None,
+        expected_git_dir_identity: str | None = None,
     ) -> None:
+        target = Path(destination).expanduser().absolute()
+        if "\x00" in str(target):
+            raise ValueError("worktree destination contains NUL")
+        if (expected_git_dir is None) != (expected_git_dir_identity is None):
+            raise ValueError("worktree Git authority must be provided together")
+        if target.is_symlink():
+            raise GitBackendError("remove_worktree", "worktree destination is a symlink")
+        if target.exists() and not target.is_dir():
+            raise GitBackendError("remove_worktree", "worktree destination is not a directory")
+        if expected_git_dir is not None and expected_git_dir_identity is not None:
+            authority = Path(expected_git_dir).expanduser().resolve()
+            if target.exists():
+                snapshot = self.inspect_repository(GitLocation(target))
+                if (
+                    snapshot.work_tree != target
+                    or snapshot.git_dir != authority
+                    or snapshot.git_dir_identity != expected_git_dir_identity
+                ):
+                    raise GitBackendError("remove_worktree", "worktree authority changed")
+            elif authority.exists():
+                self._validate_worktree_admin(
+                    target,
+                    authority,
+                    expected_git_dir_identity,
+                )
         args = ["worktree", "remove"]
         if force:
             args.append("--force")
-        target = Path(destination).expanduser().resolve(strict=False)
         args.append(str(target))
         try:
             self._invoke("remove_worktree", location, tuple(args))
@@ -397,6 +448,26 @@ class GitBackend:
                 location,
                 ("worktree", "prune", "--expire", "now"),
             )
+
+    @staticmethod
+    def _validate_worktree_admin(
+        work_tree: Path,
+        git_dir: Path,
+        expected_identity: str,
+    ) -> None:
+        if git_dir.is_symlink() or not git_dir.is_dir():
+            raise GitBackendError("remove_worktree", "worktree Git authority is unavailable")
+        if _directory_identity(git_dir) != expected_identity:
+            raise GitBackendError("remove_worktree", "worktree Git authority changed")
+        pointer = git_dir / "gitdir"
+        if pointer.is_symlink() or not pointer.is_file():
+            raise GitBackendError("remove_worktree", "worktree Git pointer is unavailable")
+        try:
+            registered = Path(pointer.read_text(encoding="utf-8").strip()).absolute()
+        except (OSError, UnicodeError) as exc:
+            raise GitBackendError("remove_worktree", str(exc)) from exc
+        if registered != work_tree / ".git":
+            raise GitBackendError("remove_worktree", "worktree registration changed")
 
     def delete_branch(
         self,
@@ -487,36 +558,43 @@ class GitBackend:
 
         base_revision = _validate_sha(base_revision)
         untracked = set(self._untracked_paths(location))
-        self.stage_all(location)
-        raw = self._invoke(
-            "capture_changes.raw",
-            location,
-            (
-                "diff",
-                "--cached",
-                "--raw",
-                "-z",
-                "--no-abbrev",
-                "--find-renames=100%",
-                "--find-copies=100%",
-                "--find-copies-harder",
+        with self._isolated_git_state(location) as isolated_env:
+            self._stage_all_raw(location, env_overrides=isolated_env)
+            raw = self._invoke(
+                "capture_changes.raw",
+                location,
+                (
+                    "diff",
+                    "--cached",
+                    "--raw",
+                    "-z",
+                    "--no-abbrev",
+                    "--find-renames=100%",
+                    "--find-copies=100%",
+                    "--find-copies-harder",
+                    base_revision,
+                    "--",
+                ),
+                env_overrides=isolated_env,
+                max_output_bytes=min(self._materialization_limit_bytes, 40_000_000),
+            )
+            self._require_complete_output("capture_changes.raw", raw)
+            parsed = self._parse_raw_changes(raw.stdout_bytes, untracked)
+            binary_paths = self._binary_paths(
+                location,
                 base_revision,
-                "--",
-            ),
-            max_output_bytes=min(self._materialization_limit_bytes, 40_000_000),
-        )
-        self._require_complete_output("capture_changes.raw", raw)
-        parsed = self._parse_raw_changes(raw.stdout_bytes, untracked)
-        binary_paths = self._binary_paths(location, base_revision)
-        object_sizes = self._object_sizes(
-            location,
-            {
-                oid
-                for change in parsed
-                for oid in (change.old_oid, change.new_oid)
-                if oid is not None
-            },
-        )
+                env_overrides=isolated_env,
+            )
+            object_sizes = self._object_sizes(
+                location,
+                {
+                    oid
+                    for change in parsed
+                    for oid in (change.old_oid, change.new_oid)
+                    if oid is not None
+                },
+                env_overrides=isolated_env,
+            )
         return tuple(
             GitStagedChange(
                 kind=change.kind,
@@ -608,7 +686,13 @@ class GitBackend:
             )
         return tuple(parsed)
 
-    def _binary_paths(self, location: GitLocation, base_revision: str) -> set[str]:
+    def _binary_paths(
+        self,
+        location: GitLocation,
+        base_revision: str,
+        *,
+        env_overrides: Mapping[str, str] | None = None,
+    ) -> set[str]:
         result = self._invoke(
             "capture_changes.binary",
             location,
@@ -621,6 +705,7 @@ class GitBackend:
                 base_revision,
                 "--",
             ),
+            env_overrides=env_overrides,
             max_output_bytes=min(self._materialization_limit_bytes, 20_000_000),
         )
         self._require_complete_output("capture_changes.binary", result)
@@ -639,7 +724,13 @@ class GitBackend:
                 binary.add(path)
         return binary
 
-    def _object_sizes(self, location: GitLocation, object_ids: set[str]) -> dict[str, int]:
+    def _object_sizes(
+        self,
+        location: GitLocation,
+        object_ids: set[str],
+        *,
+        env_overrides: Mapping[str, str] | None = None,
+    ) -> dict[str, int]:
         if not object_ids:
             return {}
         ordered = sorted(object_ids)
@@ -649,6 +740,7 @@ class GitBackend:
             location,
             ("cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"),
             stdin_bytes=stdin_bytes,
+            env_overrides=env_overrides,
             stdin_limit_bytes=self._stage_metadata_limit_bytes,
             max_output_bytes=max(self._output_limit_bytes, len(ordered) * 128 + 1),
         )
@@ -809,6 +901,39 @@ class GitBackend:
         )
         self._require_complete_output("resolve_git_dir", result)
         return self._validated_git_path(location, result.stdout, require_directory=True)
+
+    def _resolve_git_index(self, location: GitLocation) -> Path:
+        result = self._invoke(
+            "resolve_git_index",
+            location,
+            ("rev-parse", "--git-path", "index"),
+        )
+        self._require_complete_output("resolve_git_index", result)
+        raw_path = Path(result.stdout.strip())
+        index_path = (
+            raw_path.absolute()
+            if raw_path.is_absolute()
+            else (location.work_tree / raw_path).absolute()
+        )
+        if index_path.is_symlink() or not index_path.is_file():
+            raise GitBackendError("resolve_git_index", "Git index is not a regular file")
+        return index_path
+
+    @contextmanager
+    def _isolated_git_state(self, location: GitLocation) -> Iterator[dict[str, str]]:
+        source_index = self._resolve_git_index(location)
+        source_objects = self._resolve_git_path(location, "objects")
+        with tempfile.TemporaryDirectory(prefix="tianshu-git-state-") as temp_dir:
+            temp_root = Path(temp_dir)
+            index_path = temp_root / "index"
+            object_directory = temp_root / "objects"
+            object_directory.mkdir()
+            shutil.copyfile(source_index, index_path)
+            yield {
+                "GIT_INDEX_FILE": str(index_path),
+                "GIT_OBJECT_DIRECTORY": str(object_directory),
+                "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(source_objects),
+            }
 
     def _resolve_git_path(self, location: GitLocation, name: str) -> Path:
         if name != "objects":

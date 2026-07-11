@@ -14,6 +14,7 @@ from tianshu.models.workspace import (
     RestorePoint,
     WorkspaceLease,
     WorkspaceLeaseState,
+    WorkspaceStagingIdentity,
 )
 from tianshu.storage.mappers import (
     row_to_apply_decision,
@@ -29,9 +30,14 @@ class WorkspaceStateConflict(RuntimeError):
 
 
 _LEASE_SELECT = """
-SELECT l.*, s.state, s.version AS state_version
+SELECT l.*,
+       a.git_dir AS staging_git_dir,
+       a.git_dir_identity AS staging_git_dir_identity,
+       s.state,
+       s.version AS state_version
 FROM workspace_leases AS l
 JOIN workspace_lease_states AS s ON s.lease_id = l.id
+LEFT JOIN workspace_staging_identities AS a ON a.lease_id = l.id
 WHERE {predicate}
   AND s.version = (
       SELECT MAX(latest.version)
@@ -44,7 +50,7 @@ _DECISION_SELECT = """
 SELECT d.*, s.state, s.version AS state_version
 FROM apply_decisions AS d
 JOIN apply_decision_states AS s ON s.decision_id = d.id
-WHERE d.id = ?
+WHERE {predicate}
   AND s.version = (
       SELECT MAX(latest.version)
       FROM apply_decision_states AS latest
@@ -64,16 +70,38 @@ class WorkspaceMixin:
     ) -> None:
         if lease.state is not WorkspaceLeaseState.STARTING or lease.state_version != 1:
             raise ValueError("new workspace leases must start at version 1")
-        if restore_point is not None and restore_point.lease_id != lease.id:
-            raise ValueError("restore point must belong to the new lease")
+        if lease.source_kind == "git":
+            if restore_point is None:
+                raise ValueError("Git workspace leases require a restore point")
+            restore_binding = (
+                restore_point.lease_id,
+                restore_point.source_repository_id,
+                restore_point.source_root,
+                restore_point.source_git_dir,
+                restore_point.source_git_dir_identity,
+                restore_point.base_revision,
+            )
+            lease_binding = (
+                lease.id,
+                lease.source_repository_id,
+                lease.source_root,
+                lease.source_git_dir,
+                lease.source_git_dir_identity,
+                lease.base_revision,
+            )
+            if restore_binding != lease_binding:
+                raise ValueError("restore point must exactly bind the new Git lease")
+        elif restore_point is not None:
+            raise ValueError("scratch workspace leases must not have a restore point")
         with self._lock, self._conn:
             self._conn.execute(
                 """
                 INSERT INTO workspace_leases (
                     id, schema_version, run_id, lineage_root_run_id, parent_run_id,
                     attempt, source_kind, apply_mode, source_root,
-                    source_repository_id, base_revision, staging_root, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_repository_id, source_git_dir, source_git_dir_identity,
+                    base_revision, staging_root, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     lease.id,
@@ -86,6 +114,8 @@ class WorkspaceMixin:
                     lease.apply_mode,
                     lease.source_root,
                     lease.source_repository_id,
+                    lease.source_git_dir,
+                    lease.source_git_dir_identity,
                     lease.base_revision,
                     lease.staging_root,
                     lease.created_at.isoformat(),
@@ -107,9 +137,10 @@ class WorkspaceMixin:
             """
             INSERT INTO restore_points (
                 id, schema_version, lease_id, source_repository_id, source_root,
-                base_revision, source_head_revision, source_index_tree,
+                source_git_dir, source_git_dir_identity, base_revision,
+                source_head_revision, source_head_ref, source_index_tree,
                 source_status_hash, canonical_json, content_hash, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 point.id,
@@ -117,8 +148,11 @@ class WorkspaceMixin:
                 point.lease_id,
                 point.source_repository_id,
                 point.source_root,
+                point.source_git_dir,
+                point.source_git_dir_identity,
                 point.base_revision,
                 point.source_head_revision,
+                point.source_head_ref,
                 point.source_index_tree,
                 point.source_status_hash,
                 point.canonical_json(),
@@ -126,6 +160,30 @@ class WorkspaceMixin:
                 point.created_at.isoformat(),
             ),
         )
+
+    def save_workspace_staging_identity(
+        self, identity: WorkspaceStagingIdentity
+    ) -> WorkspaceStagingIdentity:
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO workspace_staging_identities (
+                    lease_id, schema_version, staging_root, git_dir,
+                    git_dir_identity, source_repository_id, base_revision, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    identity.lease_id,
+                    identity.schema_version,
+                    identity.staging_root,
+                    identity.git_dir,
+                    identity.git_dir_identity,
+                    identity.source_repository_id,
+                    identity.base_revision,
+                    identity.created_at.isoformat(),
+                ),
+            )
+        return identity
 
     def get_workspace_lease(self, lease_id: str) -> WorkspaceLease | None:
         with self._lock:
@@ -193,9 +251,13 @@ class WorkspaceMixin:
                 )
             except sqlite3.IntegrityError as exc:
                 raise WorkspaceStateConflict("invalid workspace lease transition") from exc
-        updated = self.get_workspace_lease(lease_id)
-        if updated is None:  # pragma: no cover - protected by the FK and transaction
-            raise WorkspaceStateConflict("workspace lease disappeared")
+            updated_row = self._conn.execute(
+                _LEASE_SELECT.format(predicate="l.id = ? AND s.version = ?"),
+                (lease_id, expected_version + 1),
+            ).fetchone()
+            if updated_row is None:  # pragma: no cover - protected by the transaction
+                raise WorkspaceStateConflict("workspace lease disappeared")
+            updated = row_to_workspace_lease(updated_row)
         return updated
 
     def get_restore_point(self, point_id: str) -> RestorePoint | None:
@@ -278,9 +340,9 @@ class WorkspaceMixin:
                 INSERT INTO apply_decisions (
                     id, schema_version, lease_id, restore_point_id, change_set_id,
                     change_set_hash, source_repository_id, source_root, base_revision,
-                    principal_digest, apply_scope, reason, decision_hash, token_hash,
-                    expires_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_head_ref, principal_digest, apply_scope, reason,
+                    decision_hash, token_hash, expires_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     decision.id,
@@ -292,6 +354,7 @@ class WorkspaceMixin:
                     decision.source_repository_id,
                     decision.source_root,
                     decision.base_revision,
+                    decision.source_head_ref,
                     decision.principal_digest,
                     decision.apply_scope,
                     decision.reason,
@@ -312,7 +375,9 @@ class WorkspaceMixin:
 
     def get_apply_decision(self, decision_id: str) -> ApplyDecision | None:
         with self._lock:
-            row = self._conn.execute(_DECISION_SELECT, (decision_id,)).fetchone()
+            row = self._conn.execute(
+                _DECISION_SELECT.format(predicate="d.id = ?"), (decision_id,)
+            ).fetchone()
         return row_to_apply_decision(row) if row is not None else None
 
     def transition_apply_decision(
@@ -357,9 +422,13 @@ class WorkspaceMixin:
                 )
             except sqlite3.IntegrityError as exc:
                 raise WorkspaceStateConflict("invalid apply decision transition") from exc
-        updated = self.get_apply_decision(decision_id)
-        if updated is None:  # pragma: no cover - protected by the transaction
-            raise WorkspaceStateConflict("apply decision disappeared")
+            updated_row = self._conn.execute(
+                _DECISION_SELECT.format(predicate="d.id = ? AND s.version = ?"),
+                (decision_id, expected_version + 1),
+            ).fetchone()
+            if updated_row is None:  # pragma: no cover - protected by the transaction
+                raise WorkspaceStateConflict("apply decision disappeared")
+            updated = row_to_apply_decision(updated_row)
         return updated
 
     def save_apply_receipt(self, receipt: ApplyReceipt) -> None:
