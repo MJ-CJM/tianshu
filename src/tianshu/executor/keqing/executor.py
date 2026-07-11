@@ -201,6 +201,7 @@ class KeqingExecutor:
             wait_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await wait_task
+            execution = await handle.wait()
         except asyncio.CancelledError:
             wait_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

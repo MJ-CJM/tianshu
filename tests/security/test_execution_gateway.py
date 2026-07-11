@@ -345,6 +345,25 @@ class _EnforcingBackend:
         )
 
 
+class _ClaimingSandboxBackend:
+    backend_id = "claiming-sandbox"
+    supports_sandbox = True
+    supports_network_enforcement = False
+
+    def __init__(self) -> None:
+        self.process = None
+
+    async def spawn(self, **kwargs):
+        spawned = await _gateway_module().AsyncioProcessBackend().spawn(**kwargs)
+        self.process = spawned.process
+        return _gateway_module().SpawnedProcess(
+            process=spawned.process,
+            backend_id=self.backend_id,
+            network_enforced=False,
+            sandbox_enforced=False,
+        )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("guard", [_ExplodingGuard(), _SlowGuard()])
 async def test_mandatory_guard_exception_or_timeout_fails_closed(
@@ -393,6 +412,44 @@ async def test_secure_remote_required_sandbox_never_falls_back_to_host(request_d
     with pytest.raises(gateway.ExecutionDenied, match="sandbox"):
         await gateway.ExecutionGateway(backend=backend).run(request)
     assert backend.spawn_calls == []
+
+
+@pytest.mark.asyncio
+async def test_required_sandbox_rejects_unproven_per_process_enforcement(
+    request_data,
+    monkeypatch,
+):
+    gateway = _gateway_module()
+    argv = (sys.executable, "-c", "import time; time.sleep(60)")
+    request_data["argv_command"] = gateway.ArgvCommand(argv=argv)
+    request_data["command_grant"] = _issue_argv_grant(gateway, request_data)
+    request_data["sandbox"] = gateway.SandboxRequirement(
+        trust_level="secure-remote",
+        mode="required",
+        allow_host=False,
+        backend="claiming-sandbox",
+    )
+    backend = _ClaimingSandboxBackend()
+    real_killpg = gateway.os.killpg
+
+    def _killpg_with_probe_race(process_group_id, sig):
+        if sig == 0:
+            raise PermissionError("process group changed during liveness probe")
+        return real_killpg(process_group_id, sig)
+
+    monkeypatch.setattr(gateway.os, "killpg", _killpg_with_probe_race)
+
+    try:
+        with pytest.raises(gateway.ExecutionDenied, match="backend_enforcement_unproven"):
+            await gateway.ExecutionGateway(backend=backend).start(
+                gateway.ExecutionRequest(**request_data)
+            )
+        assert backend.process is not None
+        assert backend.process.returncode is not None
+    finally:
+        if backend.process is not None and backend.process.returncode is None:
+            backend.process.kill()
+            await backend.process.wait()
 
 
 @pytest.mark.asyncio

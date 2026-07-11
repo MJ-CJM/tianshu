@@ -122,3 +122,57 @@ async def test_acceptance_bash_uses_frozen_contract_and_injected_gateway(
     assert request.command_grant.scope == "acceptance"
     assert request.timeout_seconds == 7
     assert request.workspace_root == tmp_path.resolve()
+
+
+@pytest.mark.asyncio
+async def test_acceptance_allows_same_name_and_kind_with_distinct_frozen_commands(tmp_path):
+    first = AcceptanceCheckV1(
+        kind="bash",
+        name="duplicate-name",
+        command="echo first",
+        timeout_seconds=7,
+    )
+    second = AcceptanceCheckV1(
+        kind="bash",
+        name="duplicate-name",
+        command="echo second",
+        timeout_seconds=7,
+    )
+    effective = resolve_governance_contract(
+        RequestedGovernanceContractV1(
+            objective=ObjectiveV1(goal="verify both frozen checks"),
+            acceptance=AcceptancePolicyV1(checks=(first, second)),
+        ),
+        native_manifest(),
+        probe_host_capabilities(),
+    )
+    context = gateway.ExecutionContext(
+        correlation_id="memorial-duplicate-acceptance",
+        actor=Principal(
+            id="principal-duplicate-acceptance",
+            kind=PrincipalKind.HUMAN,
+            display_name="Duplicate Acceptance Principal",
+        ),
+        effective_contract=effective,
+        workspace_lease_id="legacy-workspace",
+    )
+    recording_gateway = _RecordingGateway()
+
+    with gateway.bind_execution_context(context):
+        result = await run_checks(
+            [
+                CheckSpec(
+                    kind="bash",
+                    name="duplicate-name",
+                    command="echo second",
+                    timeout_seconds=7,
+                )
+            ],
+            actor_output="",
+            llm=None,
+            execution_gateway=recording_gateway,
+            workspace_root=tmp_path,
+        )
+
+    assert result.all_passed is True
+    assert recording_gateway.requests[0].command_grant.authority_ref == second.content_hash

@@ -127,6 +127,43 @@ class TestKeqingExecutor:
         assert "sk-abcdefghij" not in res.result
         assert "[REDACTED API KEY]" in res.result
 
+    async def test_budget_exhaustion_keeps_terminal_receipt_and_redacts_output(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        budget_cli = tmp_path / "claude"
+        budget_cli.write_text(
+            f"#!{sys.executable}\n"
+            "import json, time\n"
+            "print(json.dumps({'type':'result','subtype':'success',"
+            "'result':'my key is sk-abcdefghij0123456789xyz',"
+            "'usage':{'input_tokens':5,'output_tokens':3},"
+            "'total_cost_usd':0.02}), flush=True)\n"
+            "time.sleep(60)\n"
+        )
+        budget_cli.chmod(0o700)
+        argv = [
+            str(budget_cli),
+            "-p",
+            "budget test",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+        ]
+        monkeypatch.setattr(ClaudeCodeAdapter, "build_argv", lambda *_args, **_kwargs: argv)
+
+        result = await _execute(
+            KeqingExecutor(root=tmp_path / "kq"),
+            _edict(budget=0.01),
+            on_event=lambda _event: None,
+        )
+
+        assert result.exit_reason == ExitReason.BUDGET_EXHAUSTED
+        assert result.events[-1]["type"] == "execution.receipt"
+        assert result.events[-1]["receipt"]["status"] in {"failed", "cancelled"}
+        assert "sk-abcdefghij0123456789xyz" not in result.model_dump_json()
+
     async def test_outer_timeout_returns_explicit_failed_result(self, tmp_path, monkeypatch):
         sleeping_executable = tmp_path / "claude"
         sleeping_executable.write_text(f"#!{sys.executable}\nimport time; time.sleep(5)\n")

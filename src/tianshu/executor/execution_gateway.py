@@ -21,7 +21,7 @@ from typing import Any, Literal, NoReturn, Protocol, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ulid import ULID
 
-from tianshu.models.governance_contract import EffectiveGovernanceContractV1
+from tianshu.models.governance_contract import AcceptanceCheckV1, EffectiveGovernanceContractV1
 from tianshu.models.principal import Principal
 from tianshu.security.bash_analysis import analyze_command
 from tianshu.security.clean_env import SAFE_ENV_VARS, build_clean_env
@@ -389,25 +389,15 @@ def _issue_tool_argv_grant(
 
 
 def issue_acceptance_command_grant(
-    *,
-    name: str,
-    kind: Literal["bash", "lint"],
-    command: str,
-    timeout_seconds: int,
+    check: AcceptanceCheckV1,
 ) -> CommandGrant:
     context = _require_execution_context()
-    frozen = next(
-        (
-            check
-            for check in context.effective_contract.acceptance.checks
-            if check.name == name
-            and check.kind == kind
-            and check.command == command
-            and check.timeout_seconds == timeout_seconds
-        ),
-        None,
-    )
-    if frozen is None:
+    frozen_hashes = {frozen.content_hash for frozen in context.effective_contract.acceptance.checks}
+    if (
+        check.kind not in {"bash", "lint"}
+        or check.command is None
+        or check.content_hash not in frozen_hashes
+    ):
         raise ExecutionDenied(
             "command_grant",
             "acceptance_not_frozen",
@@ -416,8 +406,8 @@ def issue_acceptance_command_grant(
     return _mint_command_grant(
         source="acceptance-contract",
         scope="acceptance",
-        authority_ref=frozen.content_hash,
-        script=command,
+        authority_ref=check.content_hash,
+        script=check.command,
     )
 
 
@@ -746,7 +736,7 @@ async def _terminate_process_tree(
         while time.monotonic() < deadline:
             try:
                 os.killpg(process_group_id, 0)
-            except ProcessLookupError:
+            except (PermissionError, ProcessLookupError):
                 break
             await asyncio.sleep(0.01)
         else:
@@ -1003,6 +993,18 @@ class ExecutionGateway:
         except (OSError, ValueError) as exc:
             detail = self._redact_exception(str(exc), secret_values)
             raise ExecutionStartError(detail) from None
+        sandbox_enforced = bool(getattr(spawned, "sandbox_enforced", False))
+        if request.sandbox.mode == "required" and not sandbox_enforced:
+            await _terminate_process_tree(
+                spawned.process,
+                process_group_id=spawned.process.pid,
+                grace_seconds=self._termination_grace_seconds,
+            )
+            self._deny(
+                "sandbox",
+                "backend_enforcement_unproven",
+                "backend did not prove required per-process sandbox enforcement",
+            )
         if request.network.mode != "unrestricted" and not spawned.network_enforced:
             await _terminate_process_tree(
                 spawned.process,
@@ -1021,7 +1023,7 @@ class ExecutionGateway:
             secret_refs=secret_refs,
             secret_values=secret_values,
             advisory_gaps=(*built_in_gaps, *custom_gaps),
-            sandbox_enforced=spawned.sandbox_enforced,
+            sandbox_enforced=sandbox_enforced,
             network_enforced=spawned.network_enforced,
             backend_id=spawned.backend_id,
             started_at=started_at,
@@ -1127,23 +1129,19 @@ class ExecutionGateway:
                     "policy-derived grant has invalid authority metadata",
                 )
         elif grant.source == "acceptance-contract":
-            matching_check = next(
-                (
-                    check
-                    for check in request.effective_contract.acceptance.checks
-                    if check.kind in {"bash", "lint"}
-                    and check.command
-                    == (request.shell_command.script if request.shell_command else None)
-                    and check.content_hash == grant.authority_ref
-                    and request.timeout_seconds
-                    == min(
-                        check.timeout_seconds,
-                        request.effective_contract.budget.wall_clock_seconds,
-                    )
-                ),
-                None,
+            matching_check = any(
+                check.kind in {"bash", "lint"}
+                and check.command
+                == (request.shell_command.script if request.shell_command else None)
+                and check.content_hash == grant.authority_ref
+                and request.timeout_seconds
+                == min(
+                    check.timeout_seconds,
+                    request.effective_contract.budget.wall_clock_seconds,
+                )
+                for check in request.effective_contract.acceptance.checks
             )
-            if grant.scope != "acceptance" or matching_check is None:
+            if grant.scope != "acceptance" or not matching_check:
                 self._deny(
                     "command_grant",
                     "acceptance_source_mismatch",

@@ -16,13 +16,13 @@ from tianshu.executor.execution_gateway import (
     ExecutionStartError,
     SandboxRequirement,
     ShellCommand,
-    get_execution_context,
     issue_acceptance_command_grant,
     request_for_current_execution,
 )
 from tianshu.executor.orchestrator.state import CheckOutcome, ChecksResult
 from tianshu.llm import LLMClient
 from tianshu.models.acceptance import CheckSpec
+from tianshu.models.governance_contract import AcceptanceCheckV1
 from tianshu.security.clean_env import build_clean_env
 
 logger = logging.getLogger(__name__)
@@ -40,23 +40,7 @@ async def _run_bash(
 ) -> CheckOutcome:
     if not spec.command:
         raise ChecksConfigError(f"check {spec.name}: kind=bash 需要 command 字段")
-    context = get_execution_context()
-    if context is None:
-        raise ChecksConfigError(f"check {spec.name}: missing governed execution context")
-    frozen = next(
-        (
-            check
-            for check in context.effective_contract.acceptance.checks
-            if check.name == spec.name and check.kind == spec.kind
-        ),
-        None,
-    )
-    if (
-        frozen is None
-        or frozen.command != spec.command
-        or frozen.timeout_seconds != spec.timeout_seconds
-    ):
-        raise ChecksConfigError(f"check {spec.name}: command is not frozen in effective contract")
+    frozen_identity = AcceptanceCheckV1.model_validate(spec.model_dump())
     start = time.monotonic()
     try:
         request = request_for_current_execution(
@@ -73,12 +57,7 @@ async def _run_bash(
                 mode="host",
                 allow_host=True,
             ),
-            command_grant=issue_acceptance_command_grant(
-                name=spec.name,
-                kind=spec.kind,
-                command=spec.command,
-                timeout_seconds=spec.timeout_seconds,
-            ),
+            command_grant=issue_acceptance_command_grant(frozen_identity),
         )
         execution = await execution_gateway.run(request)
     except (ExecutionDenied, ExecutionStartError) as exc:
