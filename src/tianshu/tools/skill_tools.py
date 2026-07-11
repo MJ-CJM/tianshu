@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Protocol
 
 from tianshu.executor.workspace_context import get_bound_workspace
-from tianshu.skills.loader import SkillsLoader
+from tianshu.skills.loader import SkillsLoader, validate_skill_name
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _MAX_CONTENT_SIZE = 256 * 1024  # 256KB
 
 # Module-level shared set for tracking which skills are active in current execution
@@ -272,11 +270,10 @@ async def _skill_manage(
             f"Invalid action: {action}. Must be create/edit/patch/delete/activate/write_file/remove_file"
         )
 
-    if not _NAME_RE.match(name):
-        return error_result(
-            f"Invalid skill name '{name}'. Must match: lowercase alphanumeric, "
-            "hyphens, dots, underscores; 1-64 chars; start with letter/digit."
-        )
+    try:
+        validate_skill_name(name)
+    except ValueError as exc:
+        return error_result(str(exc))
 
     if action in ("create", "delete", "activate"):
         return await handler(skills, name, metrics_store=metrics_store, **kwargs)

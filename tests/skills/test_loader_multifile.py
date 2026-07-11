@@ -150,6 +150,80 @@ def test_workspace_overlay_named_apis_reject_invalid_identifiers_without_changes
     assert "invalid skill name" in str(error).lower()
 
 
+@pytest.mark.parametrize(
+    "name_case",
+    (
+        "empty",
+        "dot",
+        "dotdot",
+        "parent",
+        "absolute",
+        "slash",
+        "backslash",
+        "unicode",
+        "uppercase",
+        "too-long",
+    ),
+)
+@pytest.mark.parametrize("operation", ("load_index", "load_always", "load_all"))
+def test_filter_names_reject_invalid_identifiers_before_read_without_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    name_case: str,
+) -> None:
+    builtin = tmp_path / "builtin"
+    user = tmp_path / "user"
+    staging = tmp_path / "staging"
+    builtin.mkdir()
+    user.mkdir()
+    staging.mkdir()
+    _write_skill_tree(builtin / "fixture")
+    loader = SkillsLoader(builtin_dir=builtin, user_dir=user)
+    name = _invalid_skill_name(name_case, staging)
+    reads: list[str] = []
+
+    if operation in {"load_index", "load_always"}:
+        monkeypatch.setattr(
+            loader,
+            "list_all_metadata",
+            lambda: reads.append("metadata") or [],
+        )
+    else:
+        monkeypatch.setattr(
+            loader,
+            "_scan_dir",
+            lambda *_args: reads.append("directory"),
+        )
+
+    before = _tree_snapshot(tmp_path)
+    for filter_names in ([name, "valid"], ["valid", name]):
+        with pytest.raises(ValueError, match="invalid skill name"):
+            getattr(loader, operation)(filter_names=filter_names)
+
+    assert reads == []
+    assert _tree_snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "0skill",
+        "skill.with.dot",
+        "skill_with_underscore",
+        "a" * 64,
+    ),
+)
+def test_named_apis_accept_canonical_identifier_boundaries(
+    loader: SkillsLoader,
+    name: str,
+) -> None:
+    created = loader.create_skill(name, _SKILL_MD.format(name=name))
+
+    assert created["name"] == name
+    assert loader.get_skill(name) is not None
+
+
 class TestWriteSkillFile:
     def test_write_scripts_file_ok(self, loader: SkillsLoader) -> None:
         _create(loader, "my-skill")

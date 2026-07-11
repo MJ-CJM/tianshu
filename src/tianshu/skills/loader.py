@@ -19,16 +19,23 @@ _MAX_CANDIDATES_PER_DIR = 300
 _L1_MAX_ENTRIES = 8
 _SKILL_RESOURCE_DIRS = ("scripts", "references", "assets", "templates")
 _MAX_RESOURCE_BYTES = 1024 * 1024  # 1 MiB per resource file
-_SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+_SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 
 
-def _validate_skill_name(name: str) -> str:
+def validate_skill_name(name: str) -> str:
+    """Return a canonical ASCII skill identifier or raise ``ValueError``."""
     if not isinstance(name, str) or _SKILL_NAME_RE.fullmatch(name) is None:
         raise ValueError(
             f"invalid skill name {name!r}. Must match: lowercase alphanumeric, "
             "hyphens, dots, underscores; 1-64 chars; start with letter/digit."
         )
     return name
+
+
+def _validated_filter_names(filter_names: list[str] | None) -> set[str] | None:
+    if not filter_names:
+        return None
+    return {validate_skill_name(name) for name in filter_names}
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -117,10 +124,10 @@ class SkillsLoader:
         metrics_store: object | None = None,
     ) -> str:
         """Return skill index (name + description only) for system prompt injection."""
+        filter_set = _validated_filter_names(filter_names)
         metadata = self.list_all_metadata()
 
-        if filter_names:
-            filter_set = set(filter_names)
+        if filter_set is not None:
             metadata = [m for m in metadata if m["name"] in filter_set]
 
         # Filter dormant agent-created skills (unless explicitly requested)
@@ -167,12 +174,13 @@ class SkillsLoader:
 
     def load_always(self, filter_names: list[str] | None = None) -> str:
         """Return full content of skills marked always=true."""
+        filter_set = _validated_filter_names(filter_names)
         # Use list_all_metadata (single parse) to find always-on skill names
         metadata = self.list_all_metadata()
         always_names = {m["name"] for m in metadata if m.get("always", False)}
 
-        if filter_names:
-            always_names &= set(filter_names)
+        if filter_set is not None:
+            always_names &= filter_set
 
         if not always_names:
             return ""
@@ -194,7 +202,7 @@ class SkillsLoader:
 
     def patch_skill(self, name: str, old: str, new: str) -> dict:
         """Find-and-replace within a skill's content using fuzzy matching."""
-        _validate_skill_name(name)
+        validate_skill_name(name)
         from tianshu.skills.fuzzy_match import fuzzy_replace
 
         skill = self.get_skill(name)
@@ -217,12 +225,13 @@ class SkillsLoader:
 
     def register_skill(self, name: str, content: str) -> None:
         """Register an externally-provided skill (from PluginApi)."""
-        _validate_skill_name(name)
+        validate_skill_name(name)
         if not hasattr(self, "_injected_skills"):
             self._injected_skills: dict[str, str] = {}
         self._injected_skills[name] = content
 
     def load_all(self, filter_names: list[str] | None = None) -> str:
+        filter_set = _validated_filter_names(filter_names)
         skills: dict[str, str] = {}  # name -> content
 
         # builtin (lowest priority)
@@ -243,8 +252,7 @@ class SkillsLoader:
             skills.update(self._injected_skills)
 
         # Filter by allowed names if specified
-        if filter_names:
-            filter_set = set(filter_names)
+        if filter_set is not None:
             skills = {k: v for k, v in skills.items() if k in filter_set}
 
         # Concatenate within char budget
@@ -438,7 +446,7 @@ class SkillsLoader:
 
     def get_skill(self, name: str) -> dict | None:
         """Return full content + metadata for a single skill."""
-        _validate_skill_name(name)
+        validate_skill_name(name)
         # Check injected first
         if hasattr(self, "_injected_skills") and name in self._injected_skills:
             return {
@@ -520,7 +528,7 @@ class SkillsLoader:
 
     def save_skill(self, name: str, content: str) -> dict:
         """Write back skill content to its SKILL.md file. SkillsWatcher auto-reloads."""
-        _validate_skill_name(name)
+        validate_skill_name(name)
         if self._workspace_writes_only:
             skill_file = self._materialize_writable_skill(name)
             try:
@@ -559,7 +567,7 @@ class SkillsLoader:
 
     def create_skill(self, name: str, content: str) -> dict:
         """Create a new skill in writable skills directory (workspace or user)."""
-        _validate_skill_name(name)
+        validate_skill_name(name)
         target = self._writable_skills_dir()
         target.mkdir(parents=True, exist_ok=True)
         skill_dir = self._validate_overlay_write_path(target / name)
@@ -603,7 +611,7 @@ class SkillsLoader:
 
     def write_skill_file(self, name: str, rel_path: str, content: str) -> dict:
         """Write a resource file inside a skill dir. Invalidates caches."""
-        _validate_skill_name(name)
+        validate_skill_name(name)
         if len(content.encode("utf-8")) > _MAX_RESOURCE_BYTES:
             raise ValueError(f"resource exceeds {_MAX_RESOURCE_BYTES} bytes")
         target = self._resolve_skill_resource(name, rel_path)
@@ -615,7 +623,7 @@ class SkillsLoader:
 
     def remove_skill_file(self, name: str, rel_path: str) -> bool:
         """Remove a resource file inside a skill dir. Invalidates caches."""
-        _validate_skill_name(name)
+        validate_skill_name(name)
         target = self._resolve_skill_resource(name, rel_path)
         if target.is_file():
             target.unlink()
@@ -626,7 +634,7 @@ class SkillsLoader:
 
     def delete_skill(self, name: str) -> bool:
         """Delete a user/workspace skill. Builtin skills cannot be deleted."""
-        _validate_skill_name(name)
+        validate_skill_name(name)
         for base in self._writable_dirs():
             skill_dir = self._validate_overlay_write_path(base / name)
             if skill_dir.is_dir():
@@ -674,7 +682,7 @@ class SkillsLoader:
         dir holds no top-level SKILL.md, so archived skills are invisible to the
         scanner. Returns True if archived.
         """
-        _validate_skill_name(name)
+        validate_skill_name(name)
         for base in self._writable_dirs():
             skill_dir = self._validate_overlay_write_path(base / name)
             if skill_dir.is_dir():
@@ -698,7 +706,7 @@ class SkillsLoader:
 
     def restore_skill(self, name: str) -> bool:
         """Move a skill back out of ``.archive/`` into its writable dir."""
-        _validate_skill_name(name)
+        validate_skill_name(name)
         for base in self._writable_dirs():
             archive_root = self._validate_overlay_write_path(base / ".archive")
             src = self._validate_overlay_write_path(archive_root / name)

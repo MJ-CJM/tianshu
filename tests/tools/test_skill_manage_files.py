@@ -442,6 +442,26 @@ class TestSkillManageHandlers:
         )
         assert result.is_error
 
+    @pytest.mark.asyncio
+    async def test_skill_manage_trailing_newline_is_rejected_before_handler(
+        self,
+        loader: SkillsLoader,
+    ) -> None:
+        from tianshu.tools.skill_tools import _skill_manage
+
+        metrics_store = MagicMock()
+        result = await _skill_manage(
+            loader,
+            action="activate",
+            name="valid\n",
+            metrics_store=metrics_store,
+        )
+
+        assert result.is_error
+        assert "invalid skill name" in result.content.lower()
+        metrics_store.ensure_exists.assert_not_called()
+        metrics_store.increment_usage.assert_not_called()
+
     def test_get_active_skills_and_clear(self) -> None:
         from tianshu.tools.skill_tools import _active_skills, clear_active_skills, get_active_skills
 
