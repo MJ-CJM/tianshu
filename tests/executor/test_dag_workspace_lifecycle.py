@@ -302,14 +302,48 @@ async def test_scheduler_cancellation_drains_workers_and_never_starts_downstream
         await pool.shutdown()
 
 
-async def test_invalid_dag_converges_through_one_failed_execution_terminal(
+@pytest.mark.parametrize(
+    ("tasks", "expected_error", "expected_node_ids"),
+    (
+        (
+            [
+                PlanTask(task_id="one", description="one", depends_on=["two"]),
+                PlanTask(task_id="two", description="two", depends_on=["one"]),
+            ],
+            "DAG validation failed: Cycle detected in DAG",
+            {"one", "two"},
+        ),
+        (
+            [
+                PlanTask(task_id="same", description="first"),
+                PlanTask(task_id="same", description="second"),
+            ],
+            "DAG validation failed: Duplicate DAG node ids: same",
+            {"same"},
+        ),
+        (
+            [
+                PlanTask(task_id="one", description="one", depends_on=["missing"]),
+                PlanTask(task_id="two", description="two"),
+            ],
+            "DAG validation failed: Unknown DAG dependencies: missing",
+            {"one", "two"},
+        ),
+    ),
+    ids=("cycle", "duplicate-node-id", "unknown-dependency"),
+)
+async def test_invalid_dag_fails_before_workspace_or_execution_with_one_terminal(
     storage,
     config_manager,
     tmp_path,
+    tasks: list[PlanTask],
+    expected_error: str,
+    expected_node_ids: set[str],
 ) -> None:
     source = tmp_path / "source"
     source.mkdir()
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    staging_root = tmp_path / "leases"
+    service = WorkspaceService(storage, GitBackend(), staging_root)
     bus = EventBus(storage=storage)
     agent = AsyncMock()
     pool = WorkerPool(max_concurrency=1)
@@ -325,7 +359,7 @@ async def test_invalid_dag_converges_through_one_failed_execution_terminal(
     executor.set_agent(agent)
     executor.set_dag_scheduler(scheduler)
 
-    base = Edict(goal="reject cyclic DAG", submitter="dag-test")
+    base = Edict(goal="reject invalid DAG", submitter="dag-test")
     requested = LegacyEdictGovernanceMapper.from_edict(
         base,
         default_workspace_id="workspace-main",
@@ -342,12 +376,7 @@ async def test_invalid_dag_converges_through_one_failed_execution_terminal(
     storage.save_edict(edict)
     root = Memorial(edict_id=edict.id, instruction=edict.goal)
     storage.save_memorial(root)
-    plan = Plan(
-        tasks=[
-            PlanTask(task_id="one", description="one", depends_on=["two"]),
-            PlanTask(task_id="two", description="two", depends_on=["one"]),
-        ]
-    )
+    plan = Plan(tasks=tasks)
     terminal_events = []
 
     async def on_terminal(event) -> None:
@@ -363,9 +392,13 @@ async def test_invalid_dag_converges_through_one_failed_execution_terminal(
         loaded_dag = storage.get_dag_by_edict(edict.id)
         assert loaded_root.status is TaskStatus.FAILED
         assert loaded_root.completed_at is not None
-        assert loaded_root.error == "DAG validation failed: Cycle detected in DAG"
+        assert loaded_root.started_at is None
+        assert loaded_root.effective_governance_contract is None
+        assert loaded_root.error == expected_error
         assert loaded_dag is not None and loaded_dag.status == "failed"
-        assert loaded_dag.completed_at is not None
+        assert loaded_dag.completed_at == loaded_root.completed_at
+        assert {node.node_id for node in loaded_dag.nodes} == expected_node_ids
+        assert len(loaded_dag.nodes) == len(expected_node_ids)
         assert len(terminal_events) == 1
         assert terminal_events[0].event_type == "execution.failed"
         assert terminal_events[0].memorial_id == root.id
@@ -373,9 +406,8 @@ async def test_invalid_dag_converges_through_one_failed_execution_terminal(
         assert terminal_events[0].payload["error"] == loaded_root.error
         agent.execute.assert_not_awaited()
         assert pool.active_count == 0
-        lease = storage.get_workspace_lease_by_run(root.id)
-        assert lease is not None and lease.state is WorkspaceLeaseState.CLOSED
-        assert not (tmp_path / "leases" / lease.id).exists()
+        assert storage.get_workspace_lease_by_run(root.id) is None
+        assert list(staging_root.iterdir()) == []
     finally:
         await pool.shutdown()
         await service.shutdown()

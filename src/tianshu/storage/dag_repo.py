@@ -63,6 +63,20 @@ class DagMixin:
                     ),
                 )
 
+    def save_failed_dag_execution(self, execution: DAGExecution) -> None:
+        """Persist a failed DAG with one safe canonical row per node id."""
+        if execution.status != "failed" or execution.completed_at is None:
+            raise ValueError("failed DAG persistence requires a completed failed execution")
+
+        canonical_nodes: dict[str, DAGNode] = {}
+        for node in execution.nodes:
+            canonical_nodes.setdefault(node.node_id, node.model_copy(deep=True))
+        safe_execution = execution.model_copy(
+            deep=True,
+            update={"nodes": list(canonical_nodes.values())},
+        )
+        self.save_dag_execution(safe_execution)
+
     def get_dag_execution(self, dag_id: str) -> DAGExecution | None:
         with self._lock:
             row = self._conn.execute(

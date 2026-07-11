@@ -12,6 +12,7 @@ from pathlib import Path
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
+from tianshu.dag import validate_dag_structure
 from tianshu.executor.adapters import (
     DelegatingExecutorAdapter,
     ExecutionMode,
@@ -234,6 +235,13 @@ class Executor:
                 status=TaskStatus.SUBMITTED,
             )
             self._storage.save_memorial(root_memorial)
+        execution.root_memorial_id = root_memorial.id
+        try:
+            validate_dag_structure(execution.nodes)
+        except ValueError as exc:
+            await self._reject_invalid_dag(edict, execution, root_memorial, exc)
+            return
+
         try:
             prepared_executor, bound_workspace = await self._prepare_runtime_or_cancel(
                 edict,
@@ -251,7 +259,6 @@ class Executor:
             await self._reject_workspace_runtime(edict, root_memorial, exc)
             return
 
-        execution.root_memorial_id = root_memorial.id
         await self._run_prepared_dag(
             edict,
             execution,
@@ -259,6 +266,42 @@ class Executor:
             prepared_executor,
             bound_workspace,
             save_execution=True,
+        )
+
+    async def _reject_invalid_dag(
+        self,
+        edict: Edict,
+        execution: DAGExecution,
+        root_memorial: Memorial,
+        exc: ValueError,
+    ) -> None:
+        """Persist and publish one failed terminal before any runtime is prepared."""
+        error = f"DAG validation failed: {exc}"
+        completed_at = datetime.now(UTC)
+        root_memorial.status = TaskStatus.FAILED
+        root_memorial.error = error
+        root_memorial.completed_at = completed_at
+        execution.status = "failed"
+        execution.completed_at = completed_at
+        self._storage.update_memorial(root_memorial)
+        self._storage.save_failed_dag_execution(execution)
+        await self._bus.emit(
+            make_event(
+                "execution.failed",
+                edict_id=edict.id,
+                memorial_id=root_memorial.id,
+                producer="executor",
+                payload={
+                    "dag_id": execution.id,
+                    "status": root_memorial.status.value,
+                    "error": error,
+                    "failure_reason": resolve_failure_reason(
+                        root_memorial.status.value,
+                        error,
+                        root_memorial.failure_reason,
+                    ),
+                },
+            )
         )
 
     async def _run_prepared_dag(

@@ -7,7 +7,7 @@ import logging
 from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
-from tianshu.dag.graph import DAG
+from tianshu.dag.graph import DAG, validate_dag_structure
 from tianshu.executor.adapters import PreparedExecutor
 from tianshu.executor.agent import Agent
 from tianshu.executor.worker import Worker
@@ -56,6 +56,20 @@ class DAGScheduler:
         prepared_executor: PreparedExecutor | None = None,
     ) -> None:
         """Run a full DAG execution to completion."""
+        # Keep a defensive validation boundary for direct scheduler callers.
+        try:
+            validate_dag_structure(execution.nodes)
+        except ValueError as e:
+            execution.status = "failed"
+            execution.completed_at = datetime.now(UTC)
+            self._storage.update_dag_execution_status(
+                execution.id,
+                "failed",
+                completed_at=execution.completed_at,
+            )
+            logger.error("DAG validation failed: %s", e)
+            raise ValueError(f"DAG validation failed: {e}") from e
+
         dag = DAG.from_execution(execution)
         node_results: dict[str, str] = {}
         node_usage: dict[str, UsageSummary] = {}
@@ -71,20 +85,6 @@ class DAGScheduler:
             if memorial.result:
                 node_results[node.node_id] = memorial.result
             node_usage[node.node_id] = memorial.usage
-
-        # Validate DAG
-        try:
-            dag.topological_sort()
-        except ValueError as e:
-            execution.status = "failed"
-            execution.completed_at = datetime.now(UTC)
-            self._storage.update_dag_execution_status(
-                execution.id,
-                "failed",
-                completed_at=execution.completed_at,
-            )
-            logger.error("DAG validation failed: %s", e)
-            raise ValueError(f"DAG validation failed: {e}") from e
 
         execution.status = "running"
         self._storage.update_dag_execution_status(execution.id, "running")
