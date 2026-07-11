@@ -148,9 +148,7 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=(
-            list(settings.allowed_origins_list)
-            if settings.security_mode == "secure-remote"
-            else []
+            list(settings.allowed_origins_list) if settings.security_mode == "secure-remote" else []
         ),
         allow_origin_regex=(
             None

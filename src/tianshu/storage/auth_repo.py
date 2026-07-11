@@ -150,9 +150,7 @@ class AuthMixin:
         revoked_at: str,
     ) -> None:
         replacement_refresh_ids = [
-            str(record["id"])
-            for record in new_records
-            if record.get("token_type") == "refresh"
+            str(record["id"]) for record in new_records if record.get("token_type") == "refresh"
         ]
         if len(replacement_refresh_ids) != 1:
             raise ValueError("session rotation requires exactly one refresh token")

@@ -38,9 +38,7 @@ def test_auth_token_migration_is_versioned_and_contains_no_plaintext_column(
     db = tmp_path / "auth.db"
     storage = Storage(str(db))
     storage.init_db()
-    columns = {
-        row[1] for row in storage._conn.execute("PRAGMA table_info(auth_tokens)").fetchall()
-    }
+    columns = {row[1] for row in storage._conn.execute("PRAGMA table_info(auth_tokens)").fetchall()}
     ledger = storage._conn.execute(
         "SELECT version, name FROM schema_migrations ORDER BY version"
     ).fetchall()
@@ -49,6 +47,7 @@ def test_auth_token_migration_is_versioned_and_contains_no_plaintext_column(
     assert [(row[0], row[1]) for row in ledger] == [
         (1, "0001_adopt_v042_baseline"),
         (2, "0002_auth_tokens"),
+        (3, "0003_governance_contracts"),
     ]
     assert "token_hash" in columns
     assert "token" not in columns
