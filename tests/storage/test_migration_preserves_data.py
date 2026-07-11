@@ -15,10 +15,18 @@ from tianshu.storage.migration_ledger import MigrationExecutionError
 _BASELINE_NAME = "0001_adopt_v042_baseline"
 _AUTH_MIGRATION_NAME = "0002_auth_tokens"
 _GOVERNANCE_MIGRATION_NAME = "0003_governance_contracts"
+_WORKSPACE_MIGRATION_NAME = "0004_workspace_foundation"
 _POST_BASELINE_TABLES = {
     "auth_tokens",
     "requested_governance_contracts",
     "effective_governance_contracts",
+    "workspace_leases",
+    "workspace_lease_states",
+    "restore_points",
+    "canonical_change_sets",
+    "apply_decisions",
+    "apply_decision_states",
+    "apply_receipts",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -27,6 +35,11 @@ _POST_BASELINE_INDEXES = {
     "idx_requested_governance_hash",
     "idx_effective_governance_edict",
     "idx_effective_governance_hash",
+    "idx_workspace_leases_lineage",
+    "idx_restore_points_repository",
+    "idx_change_sets_restore",
+    "idx_apply_decisions_lease",
+    "idx_apply_receipts_lease",
 }
 _V042_OWNED_TABLE_MANIFEST = (
     48,
@@ -497,6 +510,7 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
         (1, _BASELINE_NAME),
         (2, _AUTH_MIGRATION_NAME),
         (3, _GOVERNANCE_MIGRATION_NAME),
+        (4, _WORKSPACE_MIGRATION_NAME),
     ]
     assert all(len(row["checksum"]) == 64 for row in first_ledger)
     storage.close()
@@ -521,6 +535,7 @@ def test_canonical_preledger_v042_upgrade_only_adds_ledger(tmp_path: Path) -> No
         (1, _BASELINE_NAME),
         (2, _AUTH_MIGRATION_NAME),
         (3, _GOVERNANCE_MIGRATION_NAME),
+        (4, _WORKSPACE_MIGRATION_NAME),
     ]
     ledger = [tuple(row) for row in _ledger_rows(storage._conn)]
     storage.close()
@@ -560,6 +575,7 @@ def test_canonical_preledger_accepts_semantically_equivalent_column_order(
         (1, _BASELINE_NAME),
         (2, _AUTH_MIGRATION_NAME),
         (3, _GOVERNANCE_MIGRATION_NAME),
+        (4, _WORKSPACE_MIGRATION_NAME),
     ]
     storage.close()
 
@@ -606,6 +622,7 @@ def test_historical_preledger_core_shape_upgrades_to_canonical_without_valid_row
         (1, _BASELINE_NAME),
         (2, _AUTH_MIGRATION_NAME),
         (3, _GOVERNANCE_MIGRATION_NAME),
+        (4, _WORKSPACE_MIGRATION_NAME),
     ]
     assert {
         table: _payload_rows(storage._conn, table, columns)
@@ -740,6 +757,7 @@ def test_combined_historical_core_session_and_supervision_adapters_reach_canonic
         (1, _BASELINE_NAME),
         (2, _AUTH_MIGRATION_NAME),
         (3, _GOVERNANCE_MIGRATION_NAME),
+        (4, _WORKSPACE_MIGRATION_NAME),
     ]
     storage.close()
 

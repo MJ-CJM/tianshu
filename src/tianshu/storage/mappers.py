@@ -26,8 +26,41 @@ from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     RequestedGovernanceContractV1,
 )
+from tianshu.models.workspace import (
+    ApplyDecision,
+    ApplyReceipt,
+    CanonicalChangeSet,
+    RestorePoint,
+    WorkspaceLease,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def row_to_workspace_lease(row: sqlite3.Row) -> WorkspaceLease:
+    return WorkspaceLease.model_validate(dict(row))
+
+
+def row_to_restore_point(row: sqlite3.Row) -> RestorePoint:
+    payload = json.loads(row["canonical_json"])
+    payload.update({"id": row["id"], "created_at": row["created_at"]})
+    return RestorePoint.model_validate(payload)
+
+
+def row_to_canonical_change_set(row: sqlite3.Row) -> CanonicalChangeSet:
+    payload = json.loads(row["canonical_json"])
+    payload.update({"id": row["id"], "sequence": row["sequence"], "created_at": row["created_at"]})
+    return CanonicalChangeSet.model_validate(payload)
+
+
+def row_to_apply_decision(row: sqlite3.Row) -> ApplyDecision:
+    return ApplyDecision.model_validate(dict(row))
+
+
+def row_to_apply_receipt(row: sqlite3.Row) -> ApplyReceipt:
+    payload = dict(row)
+    payload["evidence"] = json.loads(payload.pop("evidence_json"))
+    return ApplyReceipt.model_validate(payload)
 
 
 def _load_json_field(raw: str, loader, field: str, entity_id: str, default):

@@ -7,6 +7,7 @@ hatch, so validation and process hardening cannot be bypassed accidentally.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -18,7 +19,7 @@ from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Literal
 
 from tianshu.security.clean_env import build_clean_env
 from tianshu.security.redact import redact_text
@@ -69,6 +70,37 @@ class GitLogEntry:
     sha: str
     subject: str
     committed_at: str
+
+
+@dataclass(frozen=True)
+class GitRepositorySnapshot:
+    """Stable source identity without exposing a raw Git command surface."""
+
+    work_tree: Path
+    common_git_dir: Path
+    repository_id: str
+    head_revision: str
+    head_ref: str | None
+    index_tree: str
+    status_hash: str
+    clean: bool
+
+
+type GitChangeKind = Literal["add", "modify", "delete", "rename", "copy", "mode", "untracked"]
+
+
+@dataclass(frozen=True)
+class GitStagedChange:
+    kind: GitChangeKind
+    old_path: str | None
+    new_path: str | None
+    old_oid: str | None
+    new_oid: str | None
+    old_mode: str | None
+    new_mode: str | None
+    old_size: int | None
+    new_size: int | None
+    binary: bool
 
 
 class GitBackendError(RuntimeError):
@@ -202,6 +234,95 @@ class GitBackend:
         self._require_complete_output("resolve_revision", result)
         return result.stdout.strip()
 
+    def resolve_commit(self, location: GitLocation, revision: str) -> str:
+        revision = _validate_ref(revision)
+        result = self._invoke(
+            "resolve_commit",
+            location,
+            ("rev-parse", "--verify", f"{revision}^{{commit}}"),
+        )
+        self._require_complete_output("resolve_commit", result)
+        value = result.stdout.strip()
+        return _validate_sha(value)
+
+    def inspect_repository(self, location: GitLocation) -> GitRepositorySnapshot:
+        top = self._invoke("inspect_repository.root", location, ("rev-parse", "--show-toplevel"))
+        self._require_complete_output("inspect_repository.root", top)
+        work_tree = self._validated_git_path(location, top.stdout, require_directory=True)
+        common = self._invoke(
+            "inspect_repository.common_dir",
+            location,
+            ("rev-parse", "--path-format=absolute", "--git-common-dir"),
+        )
+        self._require_complete_output("inspect_repository.common_dir", common)
+        common_git_dir = self._validated_git_path(location, common.stdout, require_directory=True)
+        head_revision = self.resolve_commit(location, "HEAD")
+        try:
+            ref_result = self._invoke(
+                "inspect_repository.head_ref", location, ("symbolic-ref", "-q", "HEAD")
+            )
+            self._require_complete_output("inspect_repository.head_ref", ref_result)
+            head_ref = ref_result.stdout.strip() or None
+        except GitBackendError as exc:
+            if exc.returncode != 1:
+                raise
+            head_ref = None
+        tree = self._invoke("inspect_repository.index", location, ("write-tree",))
+        self._require_complete_output("inspect_repository.index", tree)
+        index_tree = _validate_sha(tree.stdout.strip())
+        status = self._invoke(
+            "inspect_repository.status",
+            location,
+            ("status", "--porcelain=v1", "-z", "--untracked-files=all"),
+            max_output_bytes=min(self._materialization_limit_bytes, 20_000_000),
+        )
+        self._require_complete_output("inspect_repository.status", status)
+        repository_id = hashlib.sha256(os.fsencode(common_git_dir)).hexdigest()
+        return GitRepositorySnapshot(
+            work_tree=work_tree,
+            common_git_dir=common_git_dir,
+            repository_id=repository_id,
+            head_revision=head_revision,
+            head_ref=head_ref,
+            index_tree=index_tree,
+            status_hash=hashlib.sha256(status.stdout_bytes).hexdigest(),
+            clean=not status.stdout_bytes,
+        )
+
+    def create_detached_worktree(
+        self,
+        location: GitLocation,
+        destination: Path,
+        *,
+        start_ref: str,
+    ) -> None:
+        start_ref = _validate_sha(start_ref)
+        raw_target = Path(destination).expanduser()
+        if raw_target.is_symlink():
+            raise ValueError("detached worktree destination must not be a symlink")
+        target = raw_target.resolve(strict=False)
+        if target.exists() or target.is_symlink():
+            raise ValueError("detached worktree destination must not exist")
+        if not target.parent.is_dir() or target.parent.is_symlink():
+            raise ValueError("detached worktree parent must be an existing real directory")
+        self._invoke(
+            "create_detached_worktree",
+            location,
+            ("worktree", "add", "--detach", "--no-checkout", str(target), start_ref),
+        )
+        try:
+            target_location = GitLocation(target)
+            self._invoke(
+                "create_detached_worktree.read_tree",
+                target_location,
+                ("read-tree", "HEAD"),
+            )
+            self._materialize_index(target_location)
+        except Exception:
+            with suppress(GitBackendError):
+                self.remove_worktree(location, target, force=True)
+            raise
+
     def create_branch_worktree(
         self,
         location: GitLocation,
@@ -264,8 +385,18 @@ class GitBackend:
         args = ["worktree", "remove"]
         if force:
             args.append("--force")
-        args.append(str(Path(destination).expanduser().resolve()))
-        self._invoke("remove_worktree", location, tuple(args))
+        target = Path(destination).expanduser().resolve(strict=False)
+        args.append(str(target))
+        try:
+            self._invoke("remove_worktree", location, tuple(args))
+        except GitBackendError:
+            if target.exists() or target.is_symlink():
+                raise
+            self._invoke(
+                "remove_worktree.prune",
+                location,
+                ("worktree", "prune", "--expire", "now"),
+            )
 
     def delete_branch(
         self,
@@ -343,6 +474,207 @@ class GitBackend:
                 git_dir=self._resolve_git_dir(location),
             )
             self._stage_all_raw(location, index_location=index_location)
+
+    def capture_staged_changes(
+        self, location: GitLocation, base_revision: str
+    ) -> tuple[GitStagedChange, ...]:
+        """Stage the lease and return an exact-OID canonical change inventory.
+
+        Rename/copy detection deliberately uses a 100% similarity threshold.  A
+        moved-and-edited file is represented as delete/add instead of a fuzzy
+        rename, keeping the classification stable across Git versions.
+        """
+
+        base_revision = _validate_sha(base_revision)
+        untracked = set(self._untracked_paths(location))
+        self.stage_all(location)
+        raw = self._invoke(
+            "capture_changes.raw",
+            location,
+            (
+                "diff",
+                "--cached",
+                "--raw",
+                "-z",
+                "--no-abbrev",
+                "--find-renames=100%",
+                "--find-copies=100%",
+                "--find-copies-harder",
+                base_revision,
+                "--",
+            ),
+            max_output_bytes=min(self._materialization_limit_bytes, 40_000_000),
+        )
+        self._require_complete_output("capture_changes.raw", raw)
+        parsed = self._parse_raw_changes(raw.stdout_bytes, untracked)
+        binary_paths = self._binary_paths(location, base_revision)
+        object_sizes = self._object_sizes(
+            location,
+            {
+                oid
+                for change in parsed
+                for oid in (change.old_oid, change.new_oid)
+                if oid is not None
+            },
+        )
+        return tuple(
+            GitStagedChange(
+                kind=change.kind,
+                old_path=change.old_path,
+                new_path=change.new_path,
+                old_oid=change.old_oid,
+                new_oid=change.new_oid,
+                old_mode=change.old_mode,
+                new_mode=change.new_mode,
+                old_size=object_sizes.get(change.old_oid) if change.old_oid else None,
+                new_size=object_sizes.get(change.new_oid) if change.new_oid else None,
+                binary=bool({change.old_path, change.new_path}.difference({None}) & binary_paths),
+            )
+            for change in parsed
+        )
+
+    @staticmethod
+    def _parse_raw_changes(payload: bytes, untracked: set[str]) -> tuple[GitStagedChange, ...]:
+        tokens = payload.split(b"\x00")
+        if tokens and not tokens[-1]:
+            tokens.pop()
+        parsed: list[GitStagedChange] = []
+        index = 0
+        while index < len(tokens):
+            header = tokens[index]
+            index += 1
+            if not header.startswith(b":"):
+                raise GitBackendError("capture_changes.raw", "Git returned malformed raw diff")
+            try:
+                old_mode_raw, new_mode_raw, old_oid_raw, new_oid_raw, status_raw = header[1:].split(
+                    b" "
+                )
+                old_mode = old_mode_raw.decode("ascii")
+                new_mode = new_mode_raw.decode("ascii")
+                old_oid = old_oid_raw.decode("ascii").lower()
+                new_oid = new_oid_raw.decode("ascii").lower()
+                status = status_raw.decode("ascii")
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise GitBackendError(
+                    "capture_changes.raw", "Git returned malformed raw metadata"
+                ) from exc
+            path_count = 2 if status.startswith(("R", "C")) else 1
+            if index + path_count > len(tokens):
+                raise GitBackendError("capture_changes.raw", "Git omitted a raw diff path")
+            paths = tuple(
+                _validate_pathspec(os.fsdecode(item)) for item in tokens[index : index + path_count]
+            )
+            index += path_count
+            old_path = paths[0]
+            new_path = paths[1] if path_count == 2 else paths[0]
+            old_value = None if set(old_oid) == {"0"} else _validate_sha(old_oid)
+            new_value = None if set(new_oid) == {"0"} else _validate_sha(new_oid)
+            old_mode_value = None if old_mode == "000000" else old_mode
+            new_mode_value = None if new_mode == "000000" else new_mode
+            status_code = status[:1]
+            if status_code == "A":
+                kind: GitChangeKind = "untracked" if new_path in untracked else "add"
+                old_path = None
+            elif status_code == "D":
+                kind = "delete"
+                new_path = None
+            elif status_code == "R":
+                kind = "rename"
+            elif status_code == "C":
+                kind = "copy"
+            elif status_code in {"M", "T"}:
+                kind = (
+                    "mode"
+                    if old_value == new_value and old_mode_value != new_mode_value
+                    else "modify"
+                )
+            else:
+                raise GitBackendError(
+                    "capture_changes.raw", f"unsupported Git change status {status!r}"
+                )
+            parsed.append(
+                GitStagedChange(
+                    kind=kind,
+                    old_path=old_path,
+                    new_path=new_path,
+                    old_oid=old_value,
+                    new_oid=new_value,
+                    old_mode=old_mode_value,
+                    new_mode=new_mode_value,
+                    old_size=None,
+                    new_size=None,
+                    binary=False,
+                )
+            )
+        return tuple(parsed)
+
+    def _binary_paths(self, location: GitLocation, base_revision: str) -> set[str]:
+        result = self._invoke(
+            "capture_changes.binary",
+            location,
+            (
+                "diff",
+                "--cached",
+                "--numstat",
+                "-z",
+                "--no-renames",
+                base_revision,
+                "--",
+            ),
+            max_output_bytes=min(self._materialization_limit_bytes, 20_000_000),
+        )
+        self._require_complete_output("capture_changes.binary", result)
+        binary: set[str] = set()
+        for record in result.stdout_bytes.split(b"\x00"):
+            if not record:
+                continue
+            try:
+                added, deleted, raw_path = record.split(b"\t", 2)
+                path = _validate_pathspec(os.fsdecode(raw_path))
+            except ValueError as exc:
+                raise GitBackendError(
+                    "capture_changes.binary", "Git returned malformed numstat data"
+                ) from exc
+            if added == deleted == b"-":
+                binary.add(path)
+        return binary
+
+    def _object_sizes(self, location: GitLocation, object_ids: set[str]) -> dict[str, int]:
+        if not object_ids:
+            return {}
+        ordered = sorted(object_ids)
+        stdin_bytes = b"".join(oid.encode("ascii") + b"\n" for oid in ordered)
+        result = self._invoke(
+            "capture_changes.object_sizes",
+            location,
+            ("cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"),
+            stdin_bytes=stdin_bytes,
+            stdin_limit_bytes=self._stage_metadata_limit_bytes,
+            max_output_bytes=max(self._output_limit_bytes, len(ordered) * 128 + 1),
+        )
+        self._require_complete_output("capture_changes.object_sizes", result)
+        lines = result.stdout.splitlines()
+        if len(lines) != len(ordered):
+            raise GitBackendError("capture_changes.object_sizes", "Git omitted object metadata")
+        sizes: dict[str, int] = {}
+        for expected, line in zip(ordered, lines, strict=True):
+            try:
+                actual, object_type, raw_size = line.split()
+                size = int(raw_size)
+            except (TypeError, ValueError) as exc:
+                raise GitBackendError(
+                    "capture_changes.object_sizes", "Git returned malformed object metadata"
+                ) from exc
+            if (
+                actual != expected
+                or object_type != "blob"
+                or not 0 <= size <= self._blob_limit_bytes
+            ):
+                raise GitBackendError(
+                    "capture_changes.object_sizes", "Git returned invalid blob metadata"
+                )
+            sizes[actual] = size
+        return sizes
 
     def commit(
         self,

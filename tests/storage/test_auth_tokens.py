@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from tianshu.storage import Storage
+from tianshu.storage.migrations import MIGRATIONS
 
 
 def _record(
@@ -44,10 +45,13 @@ def test_auth_token_migration_is_versioned_and_contains_no_plaintext_column(
     ).fetchall()
     storage.close()
 
-    assert [(row[0], row[1]) for row in ledger] == [
+    assert [(row[0], row[1]) for row in ledger[:3]] == [
         (1, "0001_adopt_v042_baseline"),
         (2, "0002_auth_tokens"),
         (3, "0003_governance_contracts"),
+    ]
+    assert [(row[0], row[1]) for row in ledger] == [
+        (migration.version, migration.name) for migration in MIGRATIONS
     ]
     assert "token_hash" in columns
     assert "token" not in columns

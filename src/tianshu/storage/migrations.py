@@ -81,6 +81,287 @@ _GOVERNANCE_CONTRACT_CHECKSUM = hashlib.sha256(
     ).encode()
 ).hexdigest()
 
+_WORKSPACE_FOUNDATION_STATEMENTS = (
+    """
+    CREATE TABLE workspace_leases (
+        id TEXT PRIMARY KEY,
+        schema_version TEXT NOT NULL CHECK (schema_version = '1'),
+        run_id TEXT NOT NULL UNIQUE CHECK (length(run_id) BETWEEN 1 AND 256),
+        lineage_root_run_id TEXT NOT NULL CHECK (length(lineage_root_run_id) BETWEEN 1 AND 256),
+        parent_run_id TEXT,
+        attempt INTEGER NOT NULL CHECK (attempt >= 0),
+        source_kind TEXT NOT NULL CHECK (source_kind IN ('git', 'scratch')),
+        apply_mode TEXT NOT NULL CHECK (apply_mode IN ('governed', 'none')),
+        source_root TEXT,
+        source_repository_id TEXT,
+        base_revision TEXT,
+        staging_root TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        UNIQUE (id, run_id),
+        CHECK (
+            (source_kind = 'git' AND apply_mode = 'governed'
+             AND source_root IS NOT NULL AND source_repository_id IS NOT NULL
+             AND base_revision IS NOT NULL)
+            OR
+            (source_kind = 'scratch' AND apply_mode = 'none'
+             AND source_root IS NULL AND source_repository_id IS NULL
+             AND base_revision IS NULL)
+        )
+    )
+    """,
+    "CREATE INDEX idx_workspace_leases_lineage ON workspace_leases(lineage_root_run_id, attempt)",
+    """
+    CREATE TABLE workspace_lease_states (
+        lease_id TEXT NOT NULL REFERENCES workspace_leases(id),
+        version INTEGER NOT NULL CHECK (version >= 1),
+        state TEXT NOT NULL CHECK (
+            state IN ('starting', 'active', 'closing', 'cleanup_failed', 'closed')
+        ),
+        detail TEXT,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (lease_id, version)
+    )
+    """,
+    """
+    CREATE TRIGGER validate_workspace_lease_state_insert
+    BEFORE INSERT ON workspace_lease_states
+    BEGIN
+        SELECT CASE
+            WHEN NEW.version = 1 AND NEW.state <> 'starting'
+                THEN RAISE(ABORT, 'first workspace lease state must be starting')
+            WHEN NEW.version = 1 AND EXISTS (
+                SELECT 1 FROM workspace_lease_states WHERE lease_id = NEW.lease_id
+            )
+                THEN RAISE(ABORT, 'workspace lease state already initialized')
+            WHEN NEW.version > 1 AND NOT EXISTS (
+                SELECT 1 FROM workspace_lease_states
+                WHERE lease_id = NEW.lease_id AND version = NEW.version - 1
+            )
+                THEN RAISE(ABORT, 'workspace lease state version is not contiguous')
+            WHEN NEW.version > 1 AND NOT (
+                ((SELECT state FROM workspace_lease_states
+                  WHERE lease_id = NEW.lease_id AND version = NEW.version - 1) = 'starting'
+                 AND NEW.state IN ('active', 'closing', 'cleanup_failed', 'closed'))
+                OR
+                ((SELECT state FROM workspace_lease_states
+                  WHERE lease_id = NEW.lease_id AND version = NEW.version - 1) = 'active'
+                 AND NEW.state = 'closing')
+                OR
+                ((SELECT state FROM workspace_lease_states
+                  WHERE lease_id = NEW.lease_id AND version = NEW.version - 1) = 'closing'
+                 AND NEW.state IN ('closed', 'cleanup_failed'))
+                OR
+                ((SELECT state FROM workspace_lease_states
+                  WHERE lease_id = NEW.lease_id AND version = NEW.version - 1) = 'cleanup_failed'
+                 AND NEW.state = 'closing')
+            )
+                THEN RAISE(ABORT, 'invalid workspace lease state transition')
+        END;
+    END
+    """,
+    """
+    CREATE TABLE restore_points (
+        id TEXT PRIMARY KEY,
+        schema_version TEXT NOT NULL CHECK (schema_version = '1'),
+        lease_id TEXT NOT NULL UNIQUE REFERENCES workspace_leases(id),
+        source_repository_id TEXT NOT NULL,
+        source_root TEXT NOT NULL,
+        base_revision TEXT NOT NULL,
+        source_head_revision TEXT NOT NULL,
+        source_index_tree TEXT NOT NULL,
+        source_status_hash TEXT NOT NULL CHECK (length(source_status_hash) = 64),
+        canonical_json TEXT NOT NULL,
+        content_hash TEXT NOT NULL CHECK (length(content_hash) = 64),
+        created_at TEXT NOT NULL,
+        UNIQUE (id, lease_id),
+        UNIQUE (lease_id, content_hash)
+    )
+    """,
+    "CREATE INDEX idx_restore_points_repository ON restore_points(source_repository_id, base_revision)",
+    """
+    CREATE TABLE canonical_change_sets (
+        id TEXT PRIMARY KEY,
+        schema_version TEXT NOT NULL CHECK (schema_version = '1'),
+        lease_id TEXT NOT NULL REFERENCES workspace_leases(id),
+        restore_point_id TEXT NOT NULL,
+        source_repository_id TEXT NOT NULL,
+        base_revision TEXT NOT NULL,
+        sequence INTEGER NOT NULL CHECK (sequence >= 1),
+        canonical_json TEXT NOT NULL,
+        content_hash TEXT NOT NULL CHECK (length(content_hash) = 64),
+        created_at TEXT NOT NULL,
+        UNIQUE (id, lease_id),
+        UNIQUE (lease_id, sequence),
+        UNIQUE (lease_id, content_hash),
+        FOREIGN KEY (restore_point_id, lease_id)
+            REFERENCES restore_points(id, lease_id)
+    )
+    """,
+    "CREATE INDEX idx_change_sets_restore ON canonical_change_sets(restore_point_id, sequence)",
+    """
+    CREATE TABLE apply_decisions (
+        id TEXT PRIMARY KEY,
+        schema_version TEXT NOT NULL CHECK (schema_version = '1'),
+        lease_id TEXT NOT NULL,
+        restore_point_id TEXT NOT NULL,
+        change_set_id TEXT NOT NULL,
+        change_set_hash TEXT NOT NULL CHECK (length(change_set_hash) = 64),
+        source_repository_id TEXT NOT NULL,
+        source_root TEXT NOT NULL,
+        base_revision TEXT NOT NULL,
+        principal_digest TEXT NOT NULL CHECK (length(principal_digest) = 64),
+        apply_scope TEXT NOT NULL CHECK (apply_scope = 'workspace'),
+        reason TEXT NOT NULL CHECK (length(reason) > 0),
+        decision_hash TEXT NOT NULL UNIQUE CHECK (length(decision_hash) = 64),
+        token_hash TEXT NOT NULL UNIQUE CHECK (length(token_hash) = 64),
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (id, lease_id),
+        FOREIGN KEY (restore_point_id, lease_id)
+            REFERENCES restore_points(id, lease_id),
+        FOREIGN KEY (change_set_id, lease_id)
+            REFERENCES canonical_change_sets(id, lease_id)
+    )
+    """,
+    "CREATE INDEX idx_apply_decisions_lease ON apply_decisions(lease_id, expires_at)",
+    """
+    CREATE TRIGGER validate_apply_decision_binding
+    BEFORE INSERT ON apply_decisions
+    BEGIN
+        SELECT CASE WHEN NOT EXISTS (
+            SELECT 1
+            FROM canonical_change_sets AS c
+            JOIN restore_points AS r
+              ON r.id = c.restore_point_id AND r.lease_id = c.lease_id
+            JOIN workspace_leases AS l ON l.id = c.lease_id
+            WHERE c.id = NEW.change_set_id
+              AND c.lease_id = NEW.lease_id
+              AND c.content_hash = NEW.change_set_hash
+              AND r.id = NEW.restore_point_id
+              AND r.source_repository_id = NEW.source_repository_id
+              AND l.source_repository_id = NEW.source_repository_id
+              AND l.source_root = NEW.source_root
+              AND l.base_revision = NEW.base_revision
+        ) THEN RAISE(ABORT, 'apply decision binding mismatch') END;
+    END
+    """,
+    """
+    CREATE TABLE apply_decision_states (
+        decision_id TEXT NOT NULL REFERENCES apply_decisions(id),
+        version INTEGER NOT NULL CHECK (version >= 1),
+        state TEXT NOT NULL CHECK (state IN ('pending', 'consumed', 'expired', 'revoked')),
+        receipt_id TEXT,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (decision_id, version)
+    )
+    """,
+    """
+    CREATE TRIGGER validate_apply_decision_state_insert
+    BEFORE INSERT ON apply_decision_states
+    BEGIN
+        SELECT CASE
+            WHEN NEW.version = 1 AND NEW.state <> 'pending'
+                THEN RAISE(ABORT, 'first apply decision state must be pending')
+            WHEN NEW.version = 1 AND EXISTS (
+                SELECT 1 FROM apply_decision_states WHERE decision_id = NEW.decision_id
+            )
+                THEN RAISE(ABORT, 'apply decision state already initialized')
+            WHEN NEW.version > 1 AND NOT EXISTS (
+                SELECT 1 FROM apply_decision_states
+                WHERE decision_id = NEW.decision_id AND version = NEW.version - 1
+                  AND state = 'pending'
+            )
+                THEN RAISE(ABORT, 'apply decision is already terminal')
+            WHEN NEW.version > 1 AND NEW.state NOT IN ('consumed', 'expired', 'revoked')
+                THEN RAISE(ABORT, 'invalid apply decision terminal state')
+        END;
+    END
+    """,
+    """
+    CREATE TABLE apply_receipts (
+        id TEXT PRIMARY KEY,
+        schema_version TEXT NOT NULL CHECK (schema_version = '1'),
+        decision_id TEXT NOT NULL UNIQUE,
+        decision_hash TEXT NOT NULL CHECK (length(decision_hash) = 64),
+        lease_id TEXT NOT NULL,
+        change_set_id TEXT NOT NULL,
+        change_set_hash TEXT NOT NULL CHECK (length(change_set_hash) = 64),
+        outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'failed', 'denied')),
+        detail TEXT NOT NULL,
+        pre_source_head TEXT NOT NULL,
+        pre_source_status_hash TEXT NOT NULL CHECK (length(pre_source_status_hash) = 64),
+        post_source_head TEXT NOT NULL,
+        post_source_status_hash TEXT NOT NULL CHECK (length(post_source_status_hash) = 64),
+        rollback_status TEXT NOT NULL CHECK (
+            rollback_status IN ('not_required', 'not_attempted', 'succeeded', 'failed')
+        ),
+        failure_code TEXT,
+        evidence_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (decision_id, lease_id)
+            REFERENCES apply_decisions(id, lease_id),
+        FOREIGN KEY (change_set_id, lease_id)
+            REFERENCES canonical_change_sets(id, lease_id)
+    )
+    """,
+    "CREATE INDEX idx_apply_receipts_lease ON apply_receipts(lease_id, created_at)",
+    """
+    CREATE TRIGGER validate_apply_receipt_binding
+    BEFORE INSERT ON apply_receipts
+    BEGIN
+        SELECT CASE WHEN NOT EXISTS (
+            SELECT 1
+            FROM apply_decisions AS d
+            JOIN canonical_change_sets AS c
+              ON c.id = d.change_set_id AND c.lease_id = d.lease_id
+            WHERE d.id = NEW.decision_id
+              AND d.lease_id = NEW.lease_id
+              AND d.decision_hash = NEW.decision_hash
+              AND c.id = NEW.change_set_id
+              AND c.content_hash = NEW.change_set_hash
+        ) THEN RAISE(ABORT, 'apply receipt binding mismatch') END;
+    END
+    """,
+    *tuple(
+        f"""
+        CREATE TRIGGER immutable_{table}_update
+        BEFORE UPDATE ON {table}
+        BEGIN SELECT RAISE(ABORT, '{table} records are immutable'); END
+        """
+        for table in (
+            "workspace_leases",
+            "workspace_lease_states",
+            "restore_points",
+            "canonical_change_sets",
+            "apply_decisions",
+            "apply_decision_states",
+            "apply_receipts",
+        )
+    ),
+    *tuple(
+        f"""
+        CREATE TRIGGER immutable_{table}_delete
+        BEFORE DELETE ON {table}
+        BEGIN SELECT RAISE(ABORT, '{table} records are immutable'); END
+        """
+        for table in (
+            "workspace_leases",
+            "workspace_lease_states",
+            "restore_points",
+            "canonical_change_sets",
+            "apply_decisions",
+            "apply_decision_states",
+            "apply_receipts",
+        )
+    ),
+)
+_WORKSPACE_FOUNDATION_CHECKSUM = hashlib.sha256(
+    (
+        "0004_workspace_foundation\n"
+        + "\n".join(" ".join(sql.split()) for sql in _WORKSPACE_FOUNDATION_STATEMENTS)
+    ).encode()
+).hexdigest()
+
 type _Connection = sqlite3.Connection | MigrationConnection
 type _ColumnSignature = tuple[str, str, int, str | None, int]
 type _ForeignKeySignature = tuple[int, str, str, str, str, str, str]
@@ -1353,6 +1634,62 @@ def _governance_contracts_upgrade(conn: MigrationConnection) -> None:
     _backfill_requested_governance_contracts(conn)
 
 
+def _workspace_trigger_signatures(
+    conn: _Connection, tables: set[str]
+) -> dict[str, _TriggerSignature]:
+    rows = conn.execute(
+        "SELECT name, tbl_name, sql FROM sqlite_master WHERE type='trigger'"
+    ).fetchall()
+    return {
+        str(row[0]): (str(row[1]), _sql_tokens(str(row[2])))
+        for row in rows
+        if str(row[1]) in tables and row[2] is not None
+    }
+
+
+def _validate_workspace_foundation_schema(conn: MigrationConnection) -> bool:
+    expected_tables = {
+        "workspace_leases",
+        "workspace_lease_states",
+        "restore_points",
+        "canonical_change_sets",
+        "apply_decisions",
+        "apply_decision_states",
+        "apply_receipts",
+    }
+    present = _table_names(conn) & expected_tables
+    if not present:
+        return False
+    if present != expected_tables:
+        raise SchemaCompatibilityError("partial workspace foundation schema is incompatible")
+
+    reference = sqlite3.connect(":memory:")
+    reference.execute("PRAGMA foreign_keys=ON")
+    try:
+        for statement in _WORKSPACE_FOUNDATION_STATEMENTS:
+            reference.execute(statement)
+        for table in expected_tables:
+            if _table_signature(conn, table) != _table_signature(reference, table):
+                raise SchemaCompatibilityError(f"existing {table} table is incompatible")
+        if _named_indexes(conn, expected_tables) != _named_indexes(reference, expected_tables):
+            raise SchemaCompatibilityError("existing workspace foundation indexes are incompatible")
+        if _workspace_trigger_signatures(conn, expected_tables) != _workspace_trigger_signatures(
+            reference, expected_tables
+        ):
+            raise SchemaCompatibilityError(
+                "existing workspace foundation triggers are incompatible"
+            )
+    finally:
+        reference.close()
+    return True
+
+
+def _workspace_foundation_upgrade(conn: MigrationConnection) -> None:
+    if not _validate_workspace_foundation_schema(conn):
+        for statement in _WORKSPACE_FOUNDATION_STATEMENTS:
+            conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -1371,6 +1708,12 @@ MIGRATIONS = (
         name="0003_governance_contracts",
         checksum=_GOVERNANCE_CONTRACT_CHECKSUM,
         upgrade=_governance_contracts_upgrade,
+    ),
+    Migration(
+        version=4,
+        name="0004_workspace_foundation",
+        checksum=_WORKSPACE_FOUNDATION_CHECKSUM,
+        upgrade=_workspace_foundation_upgrade,
     ),
 )
 

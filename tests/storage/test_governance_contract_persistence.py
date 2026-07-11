@@ -23,7 +23,7 @@ from tianshu.models.governance_contract import (
     RequestedGovernanceContractV1,
 )
 from tianshu.storage.migration_ledger import apply_migrations
-from tianshu.storage.migrations import MIGRATIONS, run_migrations
+from tianshu.storage.migrations import MIGRATIONS
 
 _V1_CHECKSUM = "9672603c12dd858ea714b291d6ed94f1a27cb373bfcff97665b6316b4aa552a6"
 _V2_CHECKSUM = "a2bbf753e0c3244fccc86be2d4588af2c926399f6dfa0dba0af5d0c060179c5a"
@@ -48,8 +48,8 @@ def _probe(probe_id: str, network_state: str = "best_effort") -> HostCapabilityP
     )
 
 
-def test_migration_v3_is_append_only_and_keeps_v1_v2_checksums() -> None:
-    assert [(migration.version, migration.name) for migration in MIGRATIONS] == [
+def test_migration_v3_is_frozen_and_keeps_v1_v2_checksums() -> None:
+    assert [(migration.version, migration.name) for migration in MIGRATIONS[:3]] == [
         (1, "0001_adopt_v042_baseline"),
         (2, "0002_auth_tokens"),
         (3, "0003_governance_contracts"),
@@ -220,7 +220,7 @@ def test_v3_backfills_legacy_rows_created_at_v2() -> None:
     )
     conn.commit()
 
-    assert run_migrations(conn) == (3,)
+    assert apply_migrations(conn, MIGRATIONS[:3]) == (3,)
 
     row = conn.execute(
         """
@@ -256,7 +256,7 @@ def test_v3_backfills_legacy_zero_runtime_limits() -> None:
     )
     conn.commit()
 
-    assert run_migrations(conn) == (3,)
+    assert apply_migrations(conn, MIGRATIONS[:3]) == (3,)
 
     row = conn.execute(
         """

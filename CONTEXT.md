@@ -12,6 +12,18 @@ _Avoid_: 任务/task(泛称)、job
 一次执行的完整记录(过程、结果、用量、审计),一道诏令可产生多次奏折。
 _Avoid_: 执行结果、run log
 
+**工作区租约 (Workspace Lease)**:
+一次运行独占的、带版本与谱系身份的暂存工作区授权；重试和追问必须获得新租约，不能沿用上一运行的暂存状态。
+_Avoid_: 临时目录、workspace session
+
+**恢复点 (Restore Point)**:
+运行开始前冻结的源工作区身份与基线证明，是判断源漂移和治理应用是否合法的权威依据。
+_Avoid_: 影子快照、backup
+
+**规范变更集 (Canonical Change Set)**:
+由工作区租约中的实际 Git 状态服务端重算并稳定排序、哈希的变更事实，不接受客户端提供的 diff 作为权威输入。
+_Avoid_: patch、client diff
+
 **裁决 (Decision)**:
 人对奏折或待决动作作出的最终治理决定(approve/reject/amend/retry/cancel),是治理面的人工干预原语。
 _Avoid_: 批红、审批(泛称)、confirm
