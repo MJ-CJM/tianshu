@@ -147,6 +147,19 @@ def _lower_state(left: CapabilityState, right: CapabilityState) -> CapabilitySta
     return left if _STATE_RANK[left] <= _STATE_RANK[right] else right
 
 
+def _semantic_mandatory_capabilities(
+    requested: RequestedGovernanceContractV1,
+) -> set[CapabilityId]:
+    required: set[CapabilityId] = set()
+    if requested.workspace.staging_mode == "isolated" or requested.workspace.require_clean_source:
+        required.add("workspace_control")
+    if requested.workspace.apply_mode == "governed":
+        required.add("governed_apply_merge")
+    if requested.recovery.require_restore_point:
+        required.add("pre_run_restore_point")
+    return required
+
+
 def resolve_governance_contract(
     requested: RequestedGovernanceContractV1,
     manifest: ExecutorCapabilityManifestV1,
@@ -162,7 +175,7 @@ def resolve_governance_contract(
     mismatches: list[CapabilityMismatchV1] = []
     advisory_gaps: list[CapabilityId] = []
     degradations: list[CapabilityDegradationV1] = []
-    mandatory = set(requested.capabilities.mandatory)
+    mandatory = set(requested.capabilities.mandatory) | _semantic_mandatory_capabilities(requested)
     advisory = set(requested.capabilities.advisory)
 
     for capability in CAPABILITY_IDS:
@@ -225,6 +238,7 @@ def resolve_governance_contract(
         executor_manifest_version=manifest.manifest_version,
         executor_manifest_hash=manifest.content_hash,
         runtime_probe_id=probe.probe_id,
+        runtime_probe_hash=probe.content_hash,
         effective_controls=tuple(controls),
         unsupported_advisory=tuple(advisory_gaps),
         degradations=tuple(degradations),

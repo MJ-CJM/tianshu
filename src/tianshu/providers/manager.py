@@ -191,6 +191,7 @@ class ProviderManager:
         self,
         requirements: TaskRequirements | None = None,
         config_name_override: str | None = None,
+        model_override: str | None = None,
     ) -> LLMClient:
         """Select the best provider and return an LLMClient.
 
@@ -205,7 +206,7 @@ class ProviderManager:
                     self.get_effective_pricing(cfg.name) if self.get_provider(cfg.name) else None
                 )
                 return create_llm_client(
-                    model=cfg.model,
+                    model=model_override or cfg.model,
                     api_key=cfg.api_key,
                     api_base=cfg.api_base,
                     max_retries=cfg.max_retries,
@@ -214,7 +215,7 @@ class ProviderManager:
                     max_tokens=cfg.max_tokens,
                     provider_name=cfg.name,
                     pricing_override=pricing,
-                    **self._router_kwargs(cfg.name),
+                    **({} if model_override else self._router_kwargs(cfg.name)),
                 )
             logger.warning(
                 "Persona LLM config '%s' not found or disabled, falling back",
@@ -225,7 +226,7 @@ class ProviderManager:
         active_providers = [p for p in providers if p.status == "active"]
 
         if not active_providers or requirements is None:
-            return self._fallback_client()
+            return self._fallback_client(model_override=model_override)
 
         # Filter by capabilities
         if requirements.capabilities:
@@ -238,19 +239,19 @@ class ProviderManager:
         active_providers = [p for p in active_providers if self._within_quota(p)]
 
         if not active_providers:
-            return self._fallback_client()
+            return self._fallback_client(model_override=model_override)
 
         # Apply routing strategy
         selected = self._select(active_providers, requirements.strategy)
         if not selected:
-            return self._fallback_client()
+            return self._fallback_client(model_override=model_override)
 
         # Use the selected provider's own config for api_key if available
         cfg = self._config_manager.get_config(selected.name)
         fallback = self._config_manager.state
         state = cfg or fallback
         return create_llm_client(
-            model=selected.model,
+            model=model_override or selected.model,
             api_key=state.api_key,
             api_base=selected.api_base or state.api_base,
             max_retries=state.max_retries,
@@ -259,16 +260,16 @@ class ProviderManager:
             max_tokens=state.max_tokens,
             provider_name=selected.name,
             pricing_override=self.get_effective_pricing(selected.name),
-            **self._router_kwargs(selected.name),
+            **({} if model_override else self._router_kwargs(selected.name)),
         )
 
-    def _fallback_client(self) -> LLMClient:
+    def _fallback_client(self, *, model_override: str | None = None) -> LLMClient:
         """Create LLMClient from ConfigManager's active config."""
         state = self._config_manager.state
         # active config 通常也对应一个同名 provider；若有则注入 effective pricing
         pricing = self.get_effective_pricing(state.name) if self.get_provider(state.name) else None
         return LLMClient(
-            model=state.model,
+            model=model_override or state.model,
             api_key=state.api_key,
             api_base=state.api_base,
             max_retries=state.max_retries,
@@ -277,7 +278,7 @@ class ProviderManager:
             max_tokens=state.max_tokens,
             provider_name=state.name,
             pricing_override=pricing,
-            **self._router_kwargs(state.name),
+            **({} if model_override else self._router_kwargs(state.name)),
         )
 
     def record_usage(self, name: str, tokens: int = 0) -> None:

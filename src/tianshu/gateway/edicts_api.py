@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from typing import Literal
 
@@ -88,6 +89,7 @@ def _runtime_from_request(body: EdictCreateRequest, request: Request) -> EdictRu
         rt_data.update(
             {
                 "executor": contract.executor.adapter_id,
+                "executor_model": contract.executor.model,
                 "timeout_seconds": contract.budget.wall_clock_seconds,
                 "max_iterations": contract.budget.max_iterations,
                 "max_concurrency": contract.budget.max_concurrency,
@@ -236,28 +238,67 @@ def _governance_preview(
     }
 
 
+def _idempotency_request_hash(
+    body: EdictCreateRequest,
+    contract: RequestedGovernanceContractV1,
+    execution_mode: Literal["single", "outer_loop"],
+) -> str:
+    payload = {
+        "contract_hash": contract.content_hash,
+        "execution_mode": execution_mode,
+        "title": title_from_goal(body.goal, body.title),
+        "priority": body.priority or "normal",
+        "assigned_persona_id": body.assigned_persona_id,
+        "planner_persona_id": body.planner_persona_id,
+        "plan_review": body.plan_review,
+        "execution_profile": body.execution_profile,
+    }
+    canonical = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 @edicts_router.post("", response_model=ApiResponse, status_code=202)
 async def create_edict(body: EdictCreateRequest, request: Request):
     storage: Storage = request.app.state.storage
     event_bus: EventBus = request.app.state.event_bus
     submitter = get_auth_context(request).principal.id
 
-    # Idempotency check: (submitter, idempotency_key) dedup
+    runtime = _runtime_from_request(body, request)
+    requested_contract = _requested_contract_from_body(body, request, runtime)
+    execution_mode = _execution_mode_from_body(body, requested_contract)
+    request_hash = _idempotency_request_hash(body, requested_contract, execution_mode)
+
+    # Idempotency check: the same actor/key only deduplicates the same request.
     if body.idempotency_key:
         existing = storage.find_edict_by_idempotency_key(
             submitter,
             body.idempotency_key,
         )
         if existing:
+            existing_hash = existing.metadata.get("idempotency_request_hash")
+            if existing_hash is None:
+                existing_contract = existing.governance_contract
+                same_legacy_request = (
+                    existing.goal == body.goal
+                    and existing_contract is not None
+                    and existing_contract.content_hash == requested_contract.content_hash
+                )
+                if not same_legacy_request:
+                    raise HTTPException(
+                        409,
+                        {"code": "idempotency_conflict", "idempotency_key": body.idempotency_key},
+                    )
+            elif existing_hash != request_hash:
+                raise HTTPException(
+                    409,
+                    {"code": "idempotency_conflict", "idempotency_key": body.idempotency_key},
+                )
             return ApiResponse(
                 success=True,
                 data=existing.model_dump(mode="json"),
                 metadata={"deduplicated": True},
             )
 
-    runtime = _runtime_from_request(body, request)
-    requested_contract = _requested_contract_from_body(body, request, runtime)
-    execution_mode = _execution_mode_from_body(body, requested_contract)
     preview = _governance_preview(requested_contract, execution_mode=execution_mode)
     if not preview["compatible"]:
         mode_mismatches = preview["execution_mode_mismatches"]
@@ -287,6 +328,7 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     }
     if body.idempotency_key:
         edict_kwargs["idempotency_key"] = body.idempotency_key
+        edict_kwargs["metadata"] = {"idempotency_request_hash": request_hash}
     if body.priority:
         edict_kwargs["priority"] = body.priority
     # 六科给事中·封驳(迭代 7):提交预检——超长封还 / 成本超阈升 plan_review 票拟(D9)

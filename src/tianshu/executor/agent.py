@@ -122,6 +122,7 @@ class Agent:
         persona: object | None = None,
         stream_callback: StreamCallback | None = None,
         cancellation_token: object | None = None,
+        model_override: str | None = None,
     ) -> AgentResult:
         # Read runtime config at execution start
         config_state = self._config_manager.state
@@ -135,7 +136,10 @@ class Agent:
         persona_config_name = getattr(persona, "llm_config_name", None) if persona else None
 
         if self._provider_manager and hasattr(self._provider_manager, "get_client"):
-            llm = self._provider_manager.get_client(config_name_override=persona_config_name)
+            client_kwargs = {"config_name_override": persona_config_name}
+            if model_override is not None:
+                client_kwargs["model_override"] = model_override
+            llm = self._provider_manager.get_client(**client_kwargs)
         else:
             # Direct LLMClient path: apply persona config if available
             if persona_config_name:
@@ -143,7 +147,7 @@ class Agent:
                 if named and named.enabled:
                     config_state = named
             llm = LLMClient(
-                model=config_state.model,
+                model=model_override or config_state.model,
                 api_key=config_state.api_key,
                 api_base=config_state.api_base,
                 max_retries=config_state.max_retries,
@@ -244,6 +248,7 @@ class Agent:
                 stream_callback,
                 cancellation_token,
                 _emit,
+                allow_fallback=model_override is None,
             )
             state, usage = call_outcome.state, call_outcome.usage
             if call_outcome.result is not None:
@@ -394,6 +399,8 @@ class Agent:
         stream_callback: StreamCallback | None,
         cancellation_token: object | None,
         emit: Callable[[dict], None],
+        *,
+        allow_fallback: bool,
     ) -> _LlmCallOutcome:
         """LLM 调用轮次：input hook + 取消检查 + 调用（含 context-overflow / fallback 恢复）
         + usage 累加 + output hook。
@@ -484,7 +491,7 @@ class Agent:
                 )
 
             # Attempt fallback model if configured
-            fallback_name = agent_cfg.fallback_llm_config_name
+            fallback_name = agent_cfg.fallback_llm_config_name if allow_fallback else None
             if fallback_name and "fallback" not in recovery_attempts:
                 fallback_cfg = self._config_manager.get_config(fallback_name)
                 if fallback_cfg and fallback_cfg.enabled:

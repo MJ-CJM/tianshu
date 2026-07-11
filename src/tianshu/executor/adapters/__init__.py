@@ -12,7 +12,7 @@ from tianshu.executor.adapters.protocol import (
     ExecutorAdapter,
     PreparedExecution,
 )
-from tianshu.executor.capabilities import resolve_governance_contract
+from tianshu.executor.capabilities import HostCapabilityProbeV1, resolve_governance_contract
 from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     RequestedGovernanceContractV1,
@@ -92,9 +92,12 @@ class ExecutorAdapterRegistry:
         adapter = self.get(requested.executor.adapter_id)
         if execution_mode not in adapter.supported_execution_modes:
             raise UnsupportedExecutorMode(adapter.adapter_id, execution_mode)
-        effective = resolve_governance_contract(requested, adapter.manifest, adapter.probe())
-        return self.bind_effective(
+        probe = adapter.probe()
+        effective = resolve_governance_contract(requested, adapter.manifest, probe)
+        return self._bind_verified_effective(
+            adapter,
             effective,
+            probe=probe,
             run_id=run_id,
             instruction=instruction,
             execution_mode=execution_mode,
@@ -111,6 +114,38 @@ class ExecutorAdapterRegistry:
         adapter = self.get(effective.executor.adapter_id)
         if execution_mode not in adapter.supported_execution_modes:
             raise UnsupportedExecutorMode(adapter.adapter_id, execution_mode)
+        return self._bind_verified_effective(
+            adapter,
+            effective,
+            probe=adapter.probe(),
+            run_id=run_id,
+            instruction=instruction,
+            execution_mode=execution_mode,
+        )
+
+    def _bind_verified_effective(
+        self,
+        adapter: ExecutorAdapter,
+        effective: EffectiveGovernanceContractV1,
+        *,
+        probe: HostCapabilityProbeV1,
+        run_id: str,
+        instruction: str,
+        execution_mode: ExecutionMode,
+    ) -> PreparedExecutor:
+        manifest = adapter.manifest
+        if (
+            effective.executor_manifest_id != manifest.manifest_id
+            or effective.executor_manifest_version != manifest.manifest_version
+            or effective.executor_manifest_hash != manifest.content_hash
+        ):
+            raise ValueError("persisted effective contract has executor manifest drift")
+        if (
+            effective.runtime_probe_id != probe.probe_id
+            or effective.runtime_probe_hash is None
+            or effective.runtime_probe_hash != probe.content_hash
+        ):
+            raise ValueError("persisted effective contract has host capability probe drift")
         prepared = adapter.prepare(
             effective,
             run_id=run_id,

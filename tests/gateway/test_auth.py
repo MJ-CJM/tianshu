@@ -855,11 +855,29 @@ def test_authenticated_edict_submitter_and_idempotency_ignore_forged_body(
                 "idempotency_key": "same-key",
             },
         )
+        different_goal = client.post(
+            "/api/edicts",
+            headers=headers,
+            json={"goal": "different request", "idempotency_key": "same-key"},
+        )
+        changed_contract = first.json()["data"]["governance_contract"]
+        changed_contract["budget"]["token_limit"] = 123
+        different_contract = client.post(
+            "/api/edicts",
+            headers=headers,
+            json={
+                "goal": "canonical actor",
+                "idempotency_key": "same-key",
+                "governance_contract": changed_contract,
+            },
+        )
 
     assert first.status_code == 202
     assert first.json()["data"]["submitter"] == "user:owner"
     assert second.json()["metadata"]["deduplicated"] is True
     assert second.json()["data"]["id"] == first.json()["data"]["id"]
+    assert different_goal.status_code == 409
+    assert different_contract.status_code == 409
 
 
 @pytest.mark.parametrize("action", ["approve", "reject"])

@@ -14,7 +14,9 @@ from tianshu.models.api import EdictCreateRequest
 from tianshu.models.edict import EdictRuntime
 from tianshu.models.governance_contract import (
     CapabilityRequirementsV1,
+    ExecutorSelectionV1,
     LegacyEdictGovernanceMapper,
+    WorkspacePolicyV1,
 )
 
 
@@ -117,6 +119,27 @@ def test_preview_rejects_contained_cli_for_outer_loop_before_dispatch(config_man
     ]
 
 
+def test_preview_derives_workspace_capability_from_contract_semantics(config_manager) -> None:
+    contract = LegacyEdictGovernanceMapper.from_edict(
+        Edict(goal="isolated", runtime=EdictRuntime(executor="native")),
+        default_workspace_id="workspace-main",
+    ).model_copy(update={"workspace": WorkspacePolicyV1(staging_mode="isolated")})
+
+    with TestClient(_app(config_manager)) as client:
+        response = client.post(
+            "/edicts/governance/preview",
+            json={
+                "goal": "isolated",
+                "governance_contract": contract.model_dump(mode="json"),
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["compatible"] is False
+    assert {item["capability"] for item in data["mandatory_mismatches"]} == {"workspace_control"}
+
+
 def test_conflicting_new_and_legacy_payload_returns_422(config_manager) -> None:
     contract = LegacyEdictGovernanceMapper.from_edict(
         Edict(goal="conflict", runtime=EdictRuntime(executor="native")),
@@ -155,6 +178,7 @@ def test_security_relevant_legacy_conflicts_return_422(config_manager) -> None:
             }
         },
         {"runtime": {"fetch_engine_override": "jina"}},
+        {"runtime": {"executor_model": "different-model"}},
     )
     with TestClient(_app(config_manager)) as client:
         for legacy_fields in payloads:
@@ -230,6 +254,27 @@ def test_contract_permissions_materialize_non_default_policy_profile(config_mana
     assert runtime.policy_profile.auto_approve_max_tier == 2
     assert runtime.policy_profile.expires_after_seconds == 30
     assert runtime.fetch_engine_override == "jina"
+
+
+def test_contract_executor_model_materializes_into_runtime(config_manager) -> None:
+    contract = LegacyEdictGovernanceMapper.from_edict(
+        Edict(goal="model pin", runtime=EdictRuntime(executor="keqing:codex")),
+        default_workspace_id="workspace-main",
+    ).model_copy(
+        update={
+            "executor": ExecutorSelectionV1(
+                adapter_id="keqing:codex",
+                model="gpt-5.1-codex",
+            )
+        }
+    )
+    app = _app(config_manager)
+    runtime = _runtime_from_request(
+        EdictCreateRequest(goal="model pin", governance_contract=contract),
+        SimpleNamespace(app=app),
+    )
+
+    assert runtime.executor_model == "gpt-5.1-codex"
 
 
 def test_executor_only_follow_up_preserves_unspecified_grants(config_manager, storage) -> None:

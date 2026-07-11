@@ -60,6 +60,7 @@ class KeqingExecutor:
         edict,
         memorial=None,
         on_event=None,
+        model_override=None,
         **_ignored,
     ) -> AgentResult:
         backend = parse_keqing_backend(getattr(edict.runtime, "executor", None))
@@ -73,7 +74,8 @@ class KeqingExecutor:
 
         work = self.work_dir(edict.id)
         work.mkdir(parents=True, exist_ok=True)
-        argv = adapter.build_argv(edict.goal, model=None)
+        model = model_override or getattr(edict.runtime, "executor_model", None)
+        argv = adapter.build_argv(edict.goal, model=model)
         env = _keqing_env(adapter.auth_env_vars)
         timeout = edict.runtime.timeout_seconds
         budget_cny = getattr(edict.runtime, "cost_budget_cny", None)

@@ -138,9 +138,13 @@ class DelegatingExecutorAdapter:
                 (mapped_permissions, prepared.effective.permissions),
                 (mapped.network, prepared.effective.network),
                 (mapped.budget, prepared.effective.budget),
+                (mapped.workspace, prepared.effective.workspace),
+                (mapped.recovery, prepared.effective.recovery),
             )
         ):
             raise ValueError("runtime policy does not match prepared effective contract")
+        if prepared.effective.executor.model is not None:
+            kwargs["model_override"] = prepared.effective.executor.model
         return await self.delegate.execute(execution_edict, **kwargs)
 
     async def cancel(self, run_id: str) -> bool:

@@ -113,6 +113,10 @@ def test_effective_contract_is_stored_per_memorial_not_globally(storage) -> None
     loaded_second = storage.get_memorial(second.id)
     assert loaded_first.effective_governance_contract.runtime_probe_id == "probe-one"
     assert loaded_second.effective_governance_contract.runtime_probe_id == "probe-two"
+    assert (
+        loaded_first.effective_governance_contract.runtime_probe_hash
+        == _probe("probe-one", "best_effort").content_hash
+    )
     assert loaded_first.effective_governance_contract.content_hash != (
         loaded_second.effective_governance_contract.content_hash
     )

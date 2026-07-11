@@ -103,6 +103,27 @@ class TestKeqingExecutor:
         assert res.status == TaskStatus.FAILED
         assert "unknown keqing backend" in res.error
 
+    async def test_executor_model_is_forwarded_to_cli_adapter(
+        self,
+        tmp_path,
+        fake_cli,
+        monkeypatch,
+    ):
+        seen = {}
+
+        def build_argv(_self, _prompt, model=None):
+            seen["model"] = model
+            return fake_cli
+
+        monkeypatch.setattr(ClaudeCodeAdapter, "build_argv", build_argv)
+        edict = _edict()
+        edict.runtime.executor_model = "claude-opus-4"
+
+        result = await KeqingExecutor(root=tmp_path / "kq").execute(edict)
+
+        assert result.status == TaskStatus.COMPLETED
+        assert seen["model"] == "claude-opus-4"
+
     async def test_missing_cli_fails_gracefully(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
             ClaudeCodeAdapter,

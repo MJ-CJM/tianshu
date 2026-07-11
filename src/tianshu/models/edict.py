@@ -73,6 +73,7 @@ class EdictRuntime(BaseModel):
     # 迭代 3.5「客卿」：执行 backend 选择。"native"=自研引擎(默认);
     # "keqing:<agent>"=派外部 CLI 客卿出工(如 keqing:claude-code / keqing:codex)。
     executor: str = "native"
+    executor_model: str | None = None
 
 
 class Edict(BaseModel):
@@ -110,6 +111,13 @@ class Edict(BaseModel):
             and self.runtime.executor != self.governance_contract.executor.adapter_id
         ):
             raise ValueError("runtime.executor conflicts with frozen governance_contract.executor")
+        if (
+            self.governance_contract is not None
+            and self.runtime.executor_model != self.governance_contract.executor.model
+        ):
+            raise ValueError(
+                "runtime.executor_model conflicts with frozen governance_contract.executor.model"
+            )
         return self
 
 

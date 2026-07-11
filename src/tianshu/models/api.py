@@ -28,6 +28,7 @@ class EdictRuntimeRequest(BaseModel):
     approval_required_tools: list[str] = Field(default_factory=list)
     policy_profile: PolicyProfilePayload | None = None
     executor: str | None = Field(default=None, min_length=1)
+    executor_model: str | None = Field(default=None, min_length=1)
     fetch_engine_override: str | None = Field(
         default=None,
         description="Pin web_fetch to specific engine: local | jina | firecrawl",
@@ -102,6 +103,7 @@ class EdictCreateRequest(BaseModel):
             executor_options = {item.name: item.value for item in contract.executor.config}
             comparisons = {
                 "executor": (runtime.executor, contract.executor.adapter_id),
+                "executor_model": (runtime.executor_model, contract.executor.model),
                 "timeout_seconds": (runtime.timeout_seconds, contract.budget.wall_clock_seconds),
                 "max_iterations": (runtime.max_iterations, contract.budget.max_iterations),
                 "max_concurrency": (runtime.max_concurrency, contract.budget.max_concurrency),

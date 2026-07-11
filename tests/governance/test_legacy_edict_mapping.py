@@ -95,6 +95,24 @@ def test_runtime_request_keeps_executor_and_policy_profile_instead_of_dropping_t
     assert runtime.model_dump(exclude_none=True)["executor"] == "keqing:codex"
 
 
+def test_executor_model_roundtrips_through_legacy_runtime_and_api_request() -> None:
+    edict = Edict(
+        goal="model pin",
+        runtime=EdictRuntime(executor="keqing:codex", executor_model="gpt-5.1-codex"),
+    )
+    contract = LegacyEdictGovernanceMapper.from_edict(
+        edict,
+        default_workspace_id="workspace-main",
+    )
+    request = EdictRuntimeRequest(
+        executor="keqing:codex",
+        executor_model="gpt-5.1-codex",
+    )
+
+    assert contract.executor.model == "gpt-5.1-codex"
+    assert request.executor_model == "gpt-5.1-codex"
+
+
 def test_new_and_legacy_executor_conflict_is_rejected() -> None:
     contract = LegacyEdictGovernanceMapper.from_edict(
         Edict(goal="ship", runtime=EdictRuntime(executor="native")),
@@ -141,5 +159,22 @@ def test_edict_cannot_persist_runtime_that_conflicts_with_frozen_contract() -> N
         Edict(
             goal="ship",
             runtime=EdictRuntime(executor="keqing:codex"),
+            governance_contract=contract,
+        )
+
+
+def test_edict_cannot_persist_executor_model_that_conflicts_with_contract() -> None:
+    contract = LegacyEdictGovernanceMapper.from_edict(
+        Edict(
+            goal="ship",
+            runtime=EdictRuntime(executor="native", executor_model="governed-model"),
+        ),
+        default_workspace_id="workspace-main",
+    )
+
+    with pytest.raises(ValidationError, match="runtime.executor_model"):
+        Edict(
+            goal="ship",
+            runtime=EdictRuntime(executor="native", executor_model="other-model"),
             governance_contract=contract,
         )

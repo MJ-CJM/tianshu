@@ -51,6 +51,53 @@ class TestAgent:
         assert result.result == "Hello!"
         assert result.usage.total_tokens == 10
 
+    async def test_execute_uses_governed_model_override(self, agent):
+        edict = Edict(goal="use governed model")
+        response = MagicMock(
+            content="done",
+            tool_calls=None,
+            usage=UsageSummary(total_tokens=1),
+        )
+
+        with patch("tianshu.executor.agent.LLMClient") as mock_client:
+            llm = AsyncMock()
+            llm.chat.return_value = response
+            mock_client.return_value = llm
+            result = await agent.execute(edict, model_override="governed-model")
+
+        assert result.status == TaskStatus.COMPLETED
+        assert mock_client.call_args.kwargs["model"] == "governed-model"
+
+    async def test_provider_manager_receives_governed_model_override(
+        self,
+        config_manager,
+        tools,
+        skills,
+    ):
+        response = MagicMock(
+            content="done",
+            tool_calls=None,
+            usage=UsageSummary(total_tokens=1),
+        )
+        llm = AsyncMock()
+        llm.chat.return_value = response
+        provider_manager = MagicMock()
+        provider_manager.get_client.return_value = llm
+        agent = Agent(
+            config_manager=config_manager,
+            tools=tools,
+            skills=skills,
+            provider_manager=provider_manager,
+        )
+
+        result = await agent.execute(Edict(goal="pin model"), model_override="governed-model")
+
+        assert result.status == TaskStatus.COMPLETED
+        provider_manager.get_client.assert_called_once_with(
+            config_name_override=None,
+            model_override="governed-model",
+        )
+
     async def test_execute_disabled_llm(self, config_manager, tools, skills):
         config_manager.update(enabled=False)
         agent = Agent(config_manager=config_manager, tools=tools, skills=skills)

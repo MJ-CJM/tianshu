@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
 
-from tianshu.executor.adapters import ExecutorAdapterRegistry
+from tianshu.executor.adapters import DelegatingExecutorAdapter, ExecutorAdapterRegistry
 from tianshu.executor.adapters.protocol import PreparedExecution
 from tianshu.executor.capabilities import (
     CapabilityDeclarationV1,
@@ -29,6 +30,8 @@ from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     ExecutorSelectionV1,
     LegacyEdictGovernanceMapper,
+    RecoveryPolicyV1,
+    WorkspacePolicyV1,
 )
 
 
@@ -277,3 +280,115 @@ async def test_prepared_executor_passes_run_bound_effective_contract_to_adapter(
     )
 
     assert adapter.execute_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("contract_update", "required_capability"),
+    [
+        ({"workspace": WorkspacePolicyV1(staging_mode="isolated")}, "workspace_control"),
+        ({"workspace": WorkspacePolicyV1(require_clean_source=True)}, "workspace_control"),
+        ({"workspace": WorkspacePolicyV1(apply_mode="governed")}, "governed_apply_merge"),
+        (
+            {"recovery": RecoveryPolicyV1(require_restore_point=True)},
+            "pre_run_restore_point",
+        ),
+    ],
+)
+def test_contract_semantics_implicitly_require_enforced_capabilities(
+    contract_update,
+    required_capability,
+) -> None:
+    requested = _requested().model_copy(update=contract_update)
+
+    with pytest.raises(MandatoryCapabilityMismatch) as exc_info:
+        resolve_governance_contract(requested, native_manifest(), _probe())
+
+    assert required_capability in {item.capability for item in exc_info.value.mismatches}
+
+
+def _persisted_effective():
+    original = _Adapter(native_manifest(), _probe())
+    return (
+        ExecutorAdapterRegistry((original,))
+        .prepare(
+            _requested(),
+            run_id="run-1",
+            instruction="test",
+            execution_mode="single",
+        )
+        .effective
+    )
+
+
+def test_bind_effective_rejects_manifest_drift() -> None:
+    effective = _persisted_effective()
+    drifted_manifest = native_manifest().model_copy(update={"manifest_version": "2"})
+    with pytest.raises(ValueError, match="manifest drift"):
+        ExecutorAdapterRegistry((_Adapter(drifted_manifest, _probe()),)).bind_effective(
+            effective,
+            run_id="run-1",
+            instruction="test",
+            execution_mode="single",
+        )
+
+
+def test_bind_effective_rejects_probe_semantic_drift() -> None:
+    effective = _persisted_effective()
+    drifted_probe = HostCapabilityProbeV1(
+        **{
+            **_probe().model_dump(),
+            "overrides": (
+                CapabilityDeclarationV1(
+                    capability="workspace_control",
+                    state="unsupported",
+                    evidence=("same id, changed semantics",),
+                ),
+            ),
+        }
+    )
+    with pytest.raises(ValueError, match="probe drift"):
+        ExecutorAdapterRegistry((_Adapter(native_manifest(), drifted_probe),)).bind_effective(
+            effective,
+            run_id="run-1",
+            instruction="test",
+            execution_mode="single",
+        )
+
+
+async def test_prepared_runtime_rejects_unmaterialized_workspace_and_recovery() -> None:
+    enforced = {"workspace_control", "pre_run_restore_point"}
+    base_manifest = native_manifest()
+    manifest = base_manifest.model_copy(
+        update={
+            "capabilities": tuple(
+                entry.model_copy(update={"state": CapabilityState.ENFORCED})
+                if entry.capability in enforced
+                else entry
+                for entry in base_manifest.capabilities
+            )
+        }
+    )
+    delegate = SimpleNamespace(execute=AsyncMock())
+    adapter = DelegatingExecutorAdapter(
+        adapter_id="native",
+        manifest=manifest,
+        delegate=delegate,
+        probe_factory=_probe,
+    )
+    requested = _requested().model_copy(
+        update={
+            "workspace": WorkspacePolicyV1(staging_mode="isolated"),
+            "recovery": RecoveryPolicyV1(require_restore_point=True),
+        }
+    )
+    prepared = ExecutorAdapterRegistry((adapter,)).prepare(
+        requested,
+        run_id="run-1",
+        instruction="test",
+        execution_mode="single",
+    )
+
+    with pytest.raises(ValueError, match="runtime policy"):
+        await prepared.execute(Edict(goal="test"), memorial=SimpleNamespace(id="run-1"))
+
+    delegate.execute.assert_not_awaited()
