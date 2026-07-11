@@ -19,15 +19,20 @@ from tianshu.executor.adapters import (
 from tianshu.executor.agent import AgentResult
 from tianshu.executor.capabilities import HostCapabilityProbeV1, native_manifest
 from tianshu.executor.dag_scheduler import DAGScheduler
+from tianshu.executor.executor import Executor
+from tianshu.executor.git_backend import GitBackend
 from tianshu.executor.worker import Worker
 from tianshu.executor.worker_pool import WorkerPool
 from tianshu.executor.workspace_context import BoundWorkspace, bind_workspace
+from tianshu.executor.workspace_service import WorkspaceService
+from tianshu.kernel.hooks import HookRegistry
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.dag import DAGExecution, DAGNode, DAGNodeStatus
 from tianshu.models.governance_contract import (
     LegacyEdictGovernanceMapper,
     WorkspacePolicyV1,
 )
+from tianshu.models.plan import Plan, PlanTask
 from tianshu.models.workspace import WorkspaceLease, WorkspaceLeaseState
 from tianshu.storage import Storage
 
@@ -295,6 +300,85 @@ async def test_scheduler_cancellation_drains_workers_and_never_starts_downstream
         )
     finally:
         await pool.shutdown()
+
+
+async def test_invalid_dag_converges_through_one_failed_execution_terminal(
+    storage,
+    config_manager,
+    tmp_path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    bus = EventBus(storage=storage)
+    agent = AsyncMock()
+    pool = WorkerPool(max_concurrency=1)
+    scheduler = DAGScheduler(pool, agent, storage, bus)
+    executor = Executor(
+        event_bus=bus,
+        storage=storage,
+        config_manager=config_manager,
+        hook_registry=HookRegistry(),
+        workspace_service=service,
+        workspace_sources={"workspace-main": source},
+    )
+    executor.set_agent(agent)
+    executor.set_dag_scheduler(scheduler)
+
+    base = Edict(goal="reject cyclic DAG", submitter="dag-test")
+    requested = LegacyEdictGovernanceMapper.from_edict(
+        base,
+        default_workspace_id="workspace-main",
+    ).model_copy(
+        update={
+            "workspace": WorkspacePolicyV1(
+                source_id=None,
+                staging_mode="ephemeral",
+                apply_mode="none",
+            )
+        }
+    )
+    edict = base.model_copy(update={"governance_contract": requested})
+    storage.save_edict(edict)
+    root = Memorial(edict_id=edict.id, instruction=edict.goal)
+    storage.save_memorial(root)
+    plan = Plan(
+        tasks=[
+            PlanTask(task_id="one", description="one", depends_on=["two"]),
+            PlanTask(task_id="two", description="two", depends_on=["one"]),
+        ]
+    )
+    terminal_events = []
+
+    async def on_terminal(event) -> None:
+        terminal_events.append(event)
+
+    for event_type in ("execution.completed", "execution.failed", "execution.cancelled"):
+        bus.on(event_type, on_terminal)
+
+    try:
+        await executor._execute_dag(edict, plan, memorial=root)  # noqa: SLF001
+
+        loaded_root = storage.get_memorial(root.id)
+        loaded_dag = storage.get_dag_by_edict(edict.id)
+        assert loaded_root.status is TaskStatus.FAILED
+        assert loaded_root.completed_at is not None
+        assert loaded_root.error == "DAG validation failed: Cycle detected in DAG"
+        assert loaded_dag is not None and loaded_dag.status == "failed"
+        assert loaded_dag.completed_at is not None
+        assert len(terminal_events) == 1
+        assert terminal_events[0].event_type == "execution.failed"
+        assert terminal_events[0].memorial_id == root.id
+        assert terminal_events[0].payload["status"] == "failed"
+        assert terminal_events[0].payload["error"] == loaded_root.error
+        agent.execute.assert_not_awaited()
+        assert pool.active_count == 0
+        lease = storage.get_workspace_lease_by_run(root.id)
+        assert lease is not None and lease.state is WorkspaceLeaseState.CLOSED
+        assert not (tmp_path / "leases" / lease.id).exists()
+    finally:
+        await pool.shutdown()
+        await service.shutdown()
 
 
 def _ephemeral_prepared(edict: Edict, root_id: str, delegate) -> PreparedExecutor:

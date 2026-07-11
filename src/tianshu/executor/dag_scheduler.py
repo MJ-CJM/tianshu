@@ -78,9 +78,13 @@ class DAGScheduler:
         except ValueError as e:
             execution.status = "failed"
             execution.completed_at = datetime.now(UTC)
-            self._storage.update_dag_execution_status(execution.id, "failed")
+            self._storage.update_dag_execution_status(
+                execution.id,
+                "failed",
+                completed_at=execution.completed_at,
+            )
             logger.error("DAG validation failed: %s", e)
-            return
+            raise ValueError(f"DAG validation failed: {e}") from e
 
         execution.status = "running"
         self._storage.update_dag_execution_status(execution.id, "running")
