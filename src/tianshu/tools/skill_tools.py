@@ -171,7 +171,7 @@ async def _handle_edit(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolRe
     try:
         result = skills.save_skill(name, content)
         return ok_result(json.dumps({"status": "updated", "skill": result}, ensure_ascii=False))
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         return error_result(str(e))
 
 

@@ -53,6 +53,7 @@ class SkillsLoader:
         self._char_budget = char_budget
         self._fallback_dirs: list[tuple[Path, str]] = []
         self._workspace_writes_only = False
+        self._workspace_overlay_root: Path | None = None
 
         # L1: In-memory LRU cache for get_skill()
         self._l1_cache: OrderedDict[str, dict] = OrderedDict()
@@ -71,14 +72,19 @@ class SkillsLoader:
 
     def for_workspace_overlay(self, workspace_root: Path) -> SkillsLoader:
         """Return a per-call view whose mutations are confined to staging /skills."""
+        lexical_root = Path(workspace_root).expanduser().absolute()
+        if lexical_root.is_symlink() or not lexical_root.is_dir():
+            raise ValueError("workspace overlay root must be a real directory")
+        resolved_root = lexical_root.resolve()
         overlay = SkillsLoader(
             builtin_dir=self._builtin_dir,
-            workspace_dir=Path(workspace_root),
+            workspace_dir=resolved_root,
             user_dir=None,
             char_budget=self._char_budget,
         )
         overlay._fallback_dirs = self._search_dirs()
         overlay._workspace_writes_only = True
+        overlay._workspace_overlay_root = resolved_root
         if hasattr(self, "_injected_skills"):
             overlay._injected_skills = dict(self._injected_skills)
         return overlay
@@ -486,8 +492,8 @@ class SkillsLoader:
         return deduplicated
 
     def _materialize_writable_skill(self, name: str) -> Path:
-        target_dir = self._writable_skills_dir() / name
-        target_file = target_dir / "SKILL.md"
+        target_dir = self._validate_overlay_write_path(self._writable_skills_dir() / name)
+        target_file = self._validate_overlay_write_path(target_dir / "SKILL.md")
         if target_file.is_file():
             return target_file
         for base, _source in self._search_dirs():
@@ -531,7 +537,7 @@ class SkillsLoader:
     def _writable_skills_dir(self) -> Path:
         """Return the best writable skills directory (workspace > user)."""
         if self._workspace_dir:
-            return self._workspace_dir / "skills"
+            return self._validate_overlay_write_path(self._workspace_dir / "skills")
         if self._user_dir:
             return self._user_dir
         raise ValueError("No writable skills directory configured")
@@ -540,11 +546,11 @@ class SkillsLoader:
         """Create a new skill in writable skills directory (workspace or user)."""
         target = self._writable_skills_dir()
         target.mkdir(parents=True, exist_ok=True)
-        skill_dir = target / name
+        skill_dir = self._validate_overlay_write_path(target / name)
         if skill_dir.exists():
             raise ValueError(f"Skill '{name}' already exists")
         skill_dir.mkdir()
-        skill_file = skill_dir / "SKILL.md"
+        skill_file = self._validate_overlay_write_path(skill_dir / "SKILL.md")
         _atomic_write(skill_file, content)
         self._l2_metadata = None  # Invalidate metadata cache
         return self.get_skill(name)  # type: ignore[return-value]
@@ -571,9 +577,9 @@ class SkillsLoader:
             self._materialize_writable_skill(name)
             search_dirs = [(self._writable_skills_dir(), "workspace")]
         for base, _src in search_dirs:
-            skill_dir = base / name
+            skill_dir = self._validate_overlay_write_path(base / name)
             if (skill_dir / "SKILL.md").is_file():
-                target = (skill_dir / rel_path).resolve()
+                target = self._validate_overlay_write_path(skill_dir / rel_path).resolve()
                 if not str(target).startswith(str(skill_dir.resolve()) + "/"):
                     raise ValueError(f"resolved path escapes skill dir: {rel_path!r}")
                 return target
@@ -620,6 +626,26 @@ class SkillsLoader:
         if self._user_dir and not self._workspace_writes_only:
             dirs.append(self._user_dir)
         return dirs
+
+    def _validate_overlay_write_path(self, path: Path) -> Path:
+        root = self._workspace_overlay_root
+        if root is None:
+            return path
+        if root.is_symlink() or not root.is_dir() or root.resolve() != root:
+            raise ValueError("workspace overlay root identity changed")
+        candidate = Path(path).absolute()
+        try:
+            relative = candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("workspace overlay write path escapes staging root") from exc
+        current = root
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                raise ValueError("workspace overlay write path must not contain symlinks")
+        if not candidate.resolve().is_relative_to(root):
+            raise ValueError("workspace overlay write path escapes staging root")
+        return candidate
 
     def archive_skill(self, name: str) -> bool:
         """Move a user/workspace skill into a sibling ``.archive/`` dir (recoverable).

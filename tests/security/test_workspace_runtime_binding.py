@@ -290,6 +290,26 @@ def test_legacy_request_remains_compatible_without_fake_lease(
     assert cwd == tmp_path.resolve()
 
 
+def test_legacy_context_cannot_mint_workspace_bound_grant(tmp_path: Path) -> None:
+    effective = _effective(governed=False)
+    context = _execution_context(effective, lease_id="fabricated-lease")
+    environment = _environment()
+
+    with gateway.bind_execution_context(context):
+        grant = gateway.issue_shell_command_grant(
+            "echo ok",
+            cwd=".",
+            workspace_root=tmp_path,
+            environment=environment,
+        )
+
+    assert grant.workspace_lease_id is None
+    assert grant.workspace_root_digest is None
+    assert grant.resolved_cwd_digest is None
+    assert grant.cwd is None
+    assert grant.environment_digest is None
+
+
 @pytest.mark.asyncio
 async def test_gateway_rechecks_bound_workspace_on_tampered_request(tmp_path: Path) -> None:
     effective = _effective(governed=True)

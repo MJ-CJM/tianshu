@@ -13,6 +13,7 @@ from tianshu.executor.capabilities import (
     probe_host_capabilities,
     resolve_governance_contract,
 )
+from tianshu.executor.execution_gateway import ExecutionContext, bind_execution_context
 from tianshu.executor.workspace_context import (
     BoundWorkspace,
     WorkspaceBindingError,
@@ -20,12 +21,14 @@ from tianshu.executor.workspace_context import (
     get_bound_workspace,
     require_bound_workspace,
     resolve_workspace_root,
+    validate_current_workspace_binding,
 )
 from tianshu.models.governance_contract import (
     ObjectiveV1,
     RequestedGovernanceContractV1,
     WorkspacePolicyV1,
 )
+from tianshu.models.principal import Principal, PrincipalKind
 from tianshu.models.workspace import WorkspaceLease, WorkspaceLeaseState
 
 _SHA = "a" * 40
@@ -196,3 +199,24 @@ def test_bound_workspace_rejects_staging_path_replaced_after_bind(tmp_path: Path
 
     with bind_workspace(bound), pytest.raises(WorkspaceBindingError, match="identity"):
         require_bound_workspace()
+
+
+def test_legacy_execution_context_does_not_fabricate_bound_workspace() -> None:
+    effective = resolve_governance_contract(
+        RequestedGovernanceContractV1(objective=ObjectiveV1(goal="legacy workspace")),
+        native_manifest(),
+        probe_host_capabilities(),
+    )
+    context = ExecutionContext(
+        correlation_id="legacy-run",
+        actor=Principal(
+            id="legacy-actor",
+            kind=PrincipalKind.SERVICE,
+            display_name="Legacy Actor",
+        ),
+        effective_contract=effective,
+        workspace_lease_id="fabricated-lease",
+    )
+
+    with bind_execution_context(context):
+        assert validate_current_workspace_binding() is None

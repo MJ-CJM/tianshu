@@ -439,3 +439,69 @@ async def test_skill_mutations_use_staging_overlay_without_touching_source(
     assert (staging / "skills/new-skill/SKILL.md").is_file()
     assert (staging / "skills/new-skill/scripts/run.py").is_file()
     assert not (source / "skills/new-skill").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "symlink_kind",
+    ("skills-root", "skill-dir", "skill-file"),
+)
+async def test_skill_overlay_rejects_symlinked_write_paths(
+    tmp_path: Path,
+    symlink_kind: str,
+) -> None:
+    source = tmp_path / "source"
+    staging = tmp_path / "staging"
+    builtin = tmp_path / "builtin"
+    outside = tmp_path / "outside"
+    for path in (source, staging, builtin, outside):
+        path.mkdir()
+
+    if symlink_kind == "skills-root":
+        (staging / "skills").symlink_to(outside, target_is_directory=True)
+        arguments = {
+            "action": "create",
+            "name": "escaped",
+            "content": "---\nname: escaped\ndescription: escaped\n---\nbody\n",
+        }
+        outside_target = outside / "escaped" / "SKILL.md"
+        original_content = None
+    else:
+        skills_root = staging / "skills"
+        skills_root.mkdir()
+        outside_skill = outside / "existing"
+        outside_skill.mkdir()
+        outside_target = outside_skill / "SKILL.md"
+        outside_target.write_text(
+            "---\nname: existing\ndescription: outside\n---\noutside body\n",
+            encoding="utf-8",
+        )
+        original_content = outside_target.read_text(encoding="utf-8")
+        if symlink_kind == "skill-dir":
+            (skills_root / "existing").symlink_to(outside_skill, target_is_directory=True)
+        else:
+            staged_skill = skills_root / "existing"
+            staged_skill.mkdir()
+            (staged_skill / "SKILL.md").symlink_to(outside_target)
+        arguments = {
+            "action": "edit",
+            "name": "existing",
+            "content": "attempted escape",
+        }
+
+    bound = _bound(staging, source)
+    registry = ToolRegistry()
+    register_skill_tools(
+        registry,
+        SkillsLoader(builtin_dir=builtin, workspace_dir=source),
+        guard_agent_created=False,
+    )
+
+    with bind_execution_context(_execution_context(bound)), bind_workspace(bound):
+        result = await registry.execute("skill_manage", arguments)
+
+    assert result.is_error
+    if original_content is None:
+        assert not outside_target.exists()
+    else:
+        assert outside_target.read_text(encoding="utf-8") == original_content

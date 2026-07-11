@@ -413,7 +413,24 @@ def _mint_command_grant(
 ) -> CommandGrant:
     context = _require_execution_context()
     issued_at = datetime.now(UTC)
-    bound_root = workspace_root if context.workspace_lease_id is not None else None
+    system_workspace_scope = scope in {"mcp_stdio", "universe_gate", "universe_sandbox"}
+    if system_workspace_scope:
+        bound_root = workspace_root if context.workspace_lease_id is not None else None
+    else:
+        from tianshu.executor.workspace_context import (
+            WorkspaceBindingError,
+            validate_current_workspace_binding,
+        )
+
+        try:
+            bound_workspace = validate_current_workspace_binding()
+        except WorkspaceBindingError as exc:
+            raise ExecutionDenied(
+                "identity_contract",
+                "workspace_binding_mismatch",
+                str(exc),
+            ) from None
+        bound_root = workspace_root if bound_workspace is not None else None
     unsigned = CommandGrant(
         source=source,
         scope=scope,
