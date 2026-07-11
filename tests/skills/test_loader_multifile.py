@@ -25,6 +25,131 @@ def _create(loader: SkillsLoader, name: str) -> None:
     loader.create_skill(name, _SKILL_MD.format(name=name))
 
 
+def _tree_snapshot(root: Path) -> tuple[tuple[str, str, str], ...]:
+    entries: list[tuple[str, str, str]] = []
+    for entry in sorted(root.rglob("*")):
+        relative = entry.relative_to(root).as_posix()
+        if entry.is_symlink():
+            entries.append((relative, "symlink", str(entry.readlink())))
+        elif entry.is_dir():
+            entries.append((relative, "dir", ""))
+        else:
+            entries.append((relative, "file", entry.read_bytes().hex()))
+    return tuple(entries)
+
+
+def _write_skill_tree(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "SKILL.md").write_text(
+        _SKILL_MD.format(name="fixture") + "\nbefore\n",
+        encoding="utf-8",
+    )
+    resource = path / "scripts" / "run.py"
+    resource.parent.mkdir(parents=True, exist_ok=True)
+    resource.write_text("before\n", encoding="utf-8")
+
+
+def _invalid_skill_name(case: str, staging: Path) -> str:
+    return {
+        "empty": "",
+        "dot": ".",
+        "dotdot": "..",
+        "parent": "../victim",
+        "absolute": str((staging / "victim").resolve()),
+        "slash": "nested/name",
+        "backslash": "nested\\name",
+        "unicode": "技能",
+        "uppercase": "Uppercase",
+        "too-long": "a" * 65,
+    }[case]
+
+
+def _invoke_named_api(loader: SkillsLoader, operation: str, name: str) -> object:
+    if operation == "create":
+        return loader.create_skill(name, _SKILL_MD.format(name="created"))
+    if operation == "edit":
+        return loader.save_skill(name, "edited")
+    if operation == "patch":
+        return loader.patch_skill(name, "before", "after")
+    if operation == "write":
+        return loader.write_skill_file(name, "scripts/new.py", "changed\n")
+    if operation == "remove":
+        return loader.remove_skill_file(name, "scripts/run.py")
+    if operation == "read":
+        return loader.get_skill(name)
+    if operation == "register":
+        loader.register_skill(name, "injected")
+        return None
+    if operation == "delete":
+        return loader.delete_skill(name)
+    if operation == "archive":
+        return loader.archive_skill(name)
+    if operation == "restore":
+        return loader.restore_skill(name)
+    raise AssertionError(f"unknown operation: {operation}")
+
+
+@pytest.mark.parametrize(
+    "name_case",
+    (
+        "empty",
+        "dot",
+        "dotdot",
+        "parent",
+        "absolute",
+        "slash",
+        "backslash",
+        "unicode",
+        "uppercase",
+        "too-long",
+    ),
+)
+@pytest.mark.parametrize(
+    "operation",
+    (
+        "create",
+        "edit",
+        "patch",
+        "write",
+        "remove",
+        "read",
+        "register",
+        "delete",
+        "archive",
+        "restore",
+    ),
+)
+def test_workspace_overlay_named_apis_reject_invalid_identifiers_without_changes(
+    tmp_path: Path,
+    operation: str,
+    name_case: str,
+) -> None:
+    builtin = tmp_path / "builtin"
+    staging = tmp_path / "staging"
+    skills = staging / "skills"
+    builtin.mkdir()
+    skills.mkdir(parents=True)
+    name = _invalid_skill_name(name_case, staging)
+
+    candidates = (skills / name, skills / ".archive" / name)
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved.is_relative_to(staging.resolve()):
+            _write_skill_tree(candidate)
+
+    loader = SkillsLoader(builtin_dir=builtin).for_workspace_overlay(staging)
+    before = _tree_snapshot(tmp_path)
+    error: Exception | None = None
+    try:
+        _invoke_named_api(loader, operation, name)
+    except Exception as exc:  # noqa: BLE001 - assert the public boundary below
+        error = exc
+
+    assert _tree_snapshot(tmp_path) == before
+    assert isinstance(error, ValueError)
+    assert "invalid skill name" in str(error).lower()
+
+
 class TestWriteSkillFile:
     def test_write_scripts_file_ok(self, loader: SkillsLoader) -> None:
         _create(loader, "my-skill")
