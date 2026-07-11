@@ -306,7 +306,7 @@ def native_manifest() -> ExecutorCapabilityManifestV1:
         capabilities=_declarations(states, evidence_prefix="native-current"),
         limitations=(
             "shared workspace until G1 workspace isolation",
-            "external process bypasses remain until ExecutionGateway",
+            "fixed Git lifecycle operations are bounded but do not emit ExecutionGateway receipts",
             "no durable resume or side-effect receipts",
         ),
     )

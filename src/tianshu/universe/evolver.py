@@ -20,6 +20,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from tianshu.executor.git_backend import GitBackend, GitBackendError, GitLocation
 from tianshu.universe.model import UniverseOrigin, UniverseStatus
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class UniverseEvolver:
         feature_flags: Any = None,
         consultation: Any = None,
         profile_provider: Any = None,
+        git_backend: GitBackend | None = None,
     ) -> None:
         self._llm = llm_client
         self._mgr = manager
@@ -109,6 +111,7 @@ class UniverseEvolver:
         self._flags = feature_flags
         self._consultation = consultation
         self._profile_provider = profile_provider
+        self._git_backend = git_backend or GitBackend(timeout_seconds=10)
 
     def attach_event_bus(self, bus: Any) -> None:
         self._bus = bus
@@ -393,18 +396,12 @@ class UniverseEvolver:
         head = "nohead"
         try:
             if self._code_store is not None:
-                import subprocess
-
-                proc = subprocess.run(
-                    ["git", "rev-parse", "--short", "HEAD"],
-                    cwd=str(self._code_store.repo_root),
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
+                head = self._git_backend.resolve_revision(
+                    GitLocation(self._code_store.repo_root),
+                    "HEAD",
+                    short=True,
                 )
-                if proc.returncode == 0:
-                    head = proc.stdout.strip()
-        except Exception:  # noqa: BLE001
+        except GitBackendError:
             pass
         return f"{champ}:{head}"
 

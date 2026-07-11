@@ -246,9 +246,9 @@ def register_builtins(
     from tianshu.tools.grep import register_grep
     from tianshu.tools.list_dir import register_list_dir
 
-    register_edit_file(registry, workspace)
+    register_edit_file(registry, workspace, execution_gateway=process_gateway)
     register_list_dir(registry, workspace)
-    register_grep(registry, workspace)
+    register_grep(registry, workspace, execution_gateway=process_gateway)
     register_find_files(registry, workspace)
 
     # === hongluisi: 对外网络工具 ===

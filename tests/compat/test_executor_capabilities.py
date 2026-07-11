@@ -84,6 +84,13 @@ def test_native_and_contained_manifests_declare_every_capability_once() -> None:
     assert codex_manifest().state("budget_enforcement") is CapabilityState.OBSERVED
 
 
+def test_native_manifest_reports_named_git_receipt_limit_not_process_bypasses() -> None:
+    limitations = native_manifest().limitations
+
+    assert all("process bypass" not in limitation for limitation in limitations)
+    assert any("Git" in limitation and "receipt" in limitation for limitation in limitations)
+
+
 def test_manifest_rejects_missing_capabilities_and_false_managed_claim() -> None:
     with pytest.raises(ValidationError, match="exactly once"):
         ExecutorCapabilityManifestV1(

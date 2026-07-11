@@ -194,7 +194,9 @@ def test_effective_v1_from_2e76851_keeps_its_canonical_json_and_hash(storage) ->
             ),
         )
     )
-    with pytest.raises(ValueError, match="probe drift"):
+    # This frozen N-1 contract now fails at the earlier manifest-hash guard;
+    # probe semantic drift remains covered by the adapter compatibility suite.
+    with pytest.raises(ValueError, match="manifest drift"):
         registry.bind_effective(
             legacy_effective,
             run_id=memorial.id,

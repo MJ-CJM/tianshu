@@ -10,8 +10,9 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-import subprocess
 from pathlib import Path
+
+from tianshu.executor.git_backend import GitBackend, GitBackendError, GitLocation
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +21,19 @@ _META = "_meta"
 
 
 class CodeVariantStore:
-    def __init__(self, repo_root: Path, worktrees_root: Path) -> None:
+    def __init__(
+        self,
+        repo_root: Path,
+        worktrees_root: Path,
+        *,
+        git_backend: GitBackend | None = None,
+    ) -> None:
         self._repo = Path(repo_root).expanduser().resolve()
         self._root = Path(worktrees_root).expanduser()
         self._root.mkdir(parents=True, exist_ok=True)
         (self._root / _META).mkdir(parents=True, exist_ok=True)
+        self._git_backend = git_backend or GitBackend()
+        self._git_location = GitLocation(self._repo)
 
     # --- paths ---
 
@@ -44,19 +53,6 @@ class CodeVariantStore:
     def _meta_path(self, universe_id: str) -> Path:
         return self._root / _META / f"{universe_id}.json"
 
-    # --- git helper ---
-
-    def _git(self, *args: str, cwd: Path | None = None) -> str:
-        proc = subprocess.run(
-            ["git", *args],
-            cwd=str(cwd or self._repo),
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
-        return proc.stdout
-
     # --- lifecycle ---
 
     def branch_code_variant(self, universe_id: str, *, start_ref: str = "HEAD") -> str:
@@ -65,8 +61,13 @@ class CodeVariantStore:
         if wt.exists():
             raise FileExistsError(f"worktree already exists: {wt}")
         branch = self.branch_name(universe_id)
-        start_sha = self._git("rev-parse", "--verify", start_ref).strip()
-        self._git("worktree", "add", "-b", branch, str(wt), start_sha)
+        start_sha = self._git_backend.resolve_revision(self._git_location, start_ref)
+        self._git_backend.create_branch_worktree(
+            self._git_location,
+            wt,
+            branch=branch,
+            start_ref=start_sha,
+        )
         self._meta_path(universe_id).write_text(
             json.dumps({"branch": branch, "start_ref": start_sha}, ensure_ascii=False),
             encoding="utf-8",
@@ -80,13 +81,13 @@ class CodeVariantStore:
         wt = self.worktree_dir(universe_id)
         if not wt.is_dir():
             raise FileNotFoundError(f"worktree missing: {wt}")
-        return self._git("diff", meta["start_ref"], cwd=wt)
+        return self._git_backend.diff(GitLocation(wt), meta["start_ref"])
 
     def gc_worktree(self, universe_id: str) -> None:
         """删除 worktree 工作文件（保留分支/commit/meta，可 restore）。"""
         wt = self.worktree_dir(universe_id)
         if wt.is_dir():
-            self._git("worktree", "remove", "--force", str(wt))
+            self._git_backend.remove_worktree(self._git_location, wt, force=True)
 
     def restore_worktree(self, universe_id: str) -> None:
         """从保留的分支重建 worktree（已存在则 no-op）。"""
@@ -94,16 +95,16 @@ class CodeVariantStore:
         if wt.is_dir():
             return
         branch = self._read_meta(universe_id)["branch"]
-        self._git("worktree", "add", str(wt), branch)
+        self._git_backend.restore_branch_worktree(self._git_location, wt, branch=branch)
 
     def remove(self, universe_id: str) -> None:
         """彻底删除：worktree 工作文件 + 分支 + sidecar meta（不可恢复，区别于 gc_worktree 保留分支）。"""
         wt = self.worktree_dir(universe_id)
         if wt.is_dir():
-            self._git("worktree", "remove", "--force", str(wt))
+            self._git_backend.remove_worktree(self._git_location, wt, force=True)
         branch = self.branch_name(universe_id)
-        with contextlib.suppress(RuntimeError):
-            self._git("branch", "-D", branch)
+        with contextlib.suppress(GitBackendError):
+            self._git_backend.delete_branch(self._git_location, branch, force=True)
         self._meta_path(universe_id).unlink(missing_ok=True)
 
     def _read_meta(self, universe_id: str) -> dict:

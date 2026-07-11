@@ -8,7 +8,9 @@ import hmac
 import json
 import os
 import secrets
+import shutil
 import signal
+import sys
 import time
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
@@ -88,6 +90,8 @@ class CommandGrant(_StrictModel):
         "shell_exec",
         "tool-argv",
         "acceptance",
+        "grep",
+        "lsp",
         "lark-cli",
         "keqing",
         "mcp_stdio",
@@ -121,18 +125,20 @@ class CommandGrant(_StrictModel):
         if (self.scope == "mcp_stdio") != (self.server_identity is not None):
             raise ValueError("server identity is required only for MCP stdio grants")
         universe_scope = self.scope in {"universe_gate", "universe_sandbox"}
-        universe_bindings = (
-            self.universe_stage,
+        workspace_scope = universe_scope or self.scope in {"grep", "lsp"}
+        workspace_bindings = (
             self.cwd,
             self.environment_digest,
             self.workspace_lease_id,
             self.workspace_root_digest,
             self.resolved_cwd_digest,
         )
-        if (universe_scope and not all(value is not None for value in universe_bindings)) or (
-            not universe_scope and any(value is not None for value in universe_bindings)
+        if (workspace_scope and not all(value is not None for value in workspace_bindings)) or (
+            not workspace_scope and any(value is not None for value in workspace_bindings)
         ):
-            raise ValueError("Universe grants require stage, cwd, and environment binding")
+            raise ValueError("workspace-bound grants require cwd, environment, and lease binding")
+        if universe_scope != (self.universe_stage is not None):
+            raise ValueError("Universe stage binding is valid only for Universe grants")
         return self
 
 
@@ -376,6 +382,8 @@ def _mint_command_grant(
         "shell_exec",
         "tool-argv",
         "acceptance",
+        "grep",
+        "lsp",
         "lark-cli",
         "keqing",
         "mcp_stdio",
@@ -532,6 +540,231 @@ def issue_lark_cli_command_grant(argv: Sequence[str]) -> CommandGrant:
     )
 
 
+def _is_workspace_path(path_value: str, workspace_root: Path, *, suffix: str | None = None) -> bool:
+    try:
+        path = Path(path_value)
+        root = workspace_root.resolve()
+        resolved = path.resolve()
+    except (OSError, RuntimeError):
+        return False
+    return (
+        path.is_absolute()
+        and resolved.is_relative_to(root)
+        and resolved.exists()
+        and (suffix is None or resolved.suffix == suffix)
+    )
+
+
+_SYSTEM_ADAPTER_EXECUTABLES: dict[Literal["grep", "lsp"], tuple[str, frozenset[str]]] = {
+    "grep": ("rg", frozenset({"rg", "rg.exe"})),
+    "lsp": ("basedpyright", frozenset({"basedpyright", "basedpyright.exe"})),
+}
+
+
+def _trusted_adapter_locations(workspace_root: Path) -> tuple[tuple[Path, Path], ...]:
+    workspace = workspace_root.resolve()
+    raw_locations: list[tuple[Path, Path]] = []
+    for raw_directory in os.defpath.split(os.pathsep):
+        if raw_directory:
+            directory = Path(raw_directory)
+            raw_locations.append((directory, directory))
+    raw_locations.extend(
+        (
+            (Path("/usr/local/bin"), Path("/usr/local")),
+            (Path("/opt/homebrew/bin"), Path("/opt/homebrew")),
+        )
+    )
+    for raw_prefix in (Path(sys.base_prefix), Path(sys.prefix)):
+        raw_locations.extend(
+            (
+                (raw_prefix / "bin", raw_prefix),
+                (raw_prefix / "Scripts", raw_prefix),
+            )
+        )
+
+    locations: list[tuple[Path, Path]] = []
+    seen: set[Path] = set()
+    for raw_directory, raw_trust_root in raw_locations:
+        try:
+            directory = raw_directory.resolve(strict=True)
+            trust_root = raw_trust_root.resolve(strict=True)
+        except OSError:
+            continue
+        if (
+            directory in seen
+            or not directory.is_dir()
+            or directory.is_relative_to(workspace)
+            or trust_root.is_relative_to(workspace)
+        ):
+            continue
+        seen.add(directory)
+        locations.append((directory, trust_root))
+    return tuple(locations)
+
+
+def _resolve_trusted_adapter_executable(
+    adapter: Literal["grep", "lsp"],
+    workspace_root: Path,
+) -> Path | None:
+    executable_name, allowed_names = _SYSTEM_ADAPTER_EXECUTABLES[adapter]
+    locations = _trusted_adapter_locations(workspace_root)
+    search_path = os.pathsep.join(str(directory) for directory, _root in locations)
+    candidate_value = shutil.which(executable_name, path=search_path)
+    if candidate_value is None:
+        return None
+    try:
+        candidate = Path(candidate_value)
+        candidate_parent = candidate.parent.resolve(strict=True)
+        resolved = candidate.resolve(strict=True)
+        workspace = workspace_root.resolve()
+    except OSError:
+        return None
+    trust_root = next(
+        (root for directory, root in locations if directory == candidate_parent),
+        None,
+    )
+    if (
+        trust_root is None
+        or resolved.name.casefold() not in allowed_names
+        or not resolved.is_file()
+        or not os.access(resolved, os.X_OK)
+        or resolved.is_relative_to(workspace)
+        or not resolved.is_relative_to(trust_root)
+    ):
+        return None
+    return resolved
+
+
+def resolve_system_adapter_executable(
+    adapter: Literal["grep", "lsp"],
+    *,
+    workspace_root: Path,
+) -> str | None:
+    """Resolve an adapter from controlled install roots, never the mutable PATH."""
+    executable = _resolve_trusted_adapter_executable(adapter, workspace_root)
+    return str(executable) if executable is not None else None
+
+
+def _is_named_executable(
+    path_value: str,
+    adapter: Literal["grep", "lsp"],
+    workspace_root: Path,
+) -> bool:
+    try:
+        path = Path(path_value)
+        resolved = path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False
+    trusted = _resolve_trusted_adapter_executable(adapter, workspace_root)
+    _name, allowed_names = _SYSTEM_ADAPTER_EXECUTABLES[adapter]
+    return (
+        path.is_absolute()
+        and resolved.name.casefold() in allowed_names
+        and resolved.is_file()
+        and os.access(resolved, os.X_OK)
+        and trusted is not None
+        and resolved == trusted
+    )
+
+
+def _is_canonical_grep_command(argv: Sequence[str], workspace_root: Path) -> bool:
+    values = tuple(argv)
+    if (
+        len(values) < 9
+        or any(not isinstance(value, str) or not value or "\x00" in value for value in values)
+        or not _is_named_executable(values[0], "grep", workspace_root)
+        or values[1:5] != ("--json", "--line-number", "--color=never", "--hidden")
+        or not values[5].startswith("--max-count=")
+    ):
+        return False
+    try:
+        limit = int(values[5].partition("=")[2])
+    except ValueError:
+        return False
+    if not 1 <= limit <= 1000:
+        return False
+
+    index = 6
+    if index < len(values) and values[index] == "-i":
+        index += 1
+    if index < len(values) and values[index] == "-F":
+        index += 1
+    if index < len(values) and values[index] == "-C":
+        if index + 1 >= len(values):
+            return False
+        try:
+            context = int(values[index + 1])
+        except ValueError:
+            return False
+        if not 1 <= context <= 20:
+            return False
+        index += 2
+    if index < len(values) and values[index] == "--glob":
+        if index + 1 >= len(values):
+            return False
+        index += 2
+    if len(values) != index + 3 or values[index] != "--":
+        return False
+    return _is_workspace_path(values[index + 2], workspace_root)
+
+
+def issue_grep_command_grant(
+    argv: Sequence[str],
+    *,
+    workspace_root: Path,
+    environment: EnvironmentPolicy,
+) -> CommandGrant:
+    if not _is_canonical_grep_command(argv, workspace_root):
+        raise ExecutionDenied(
+            "command_grant",
+            "grep_command_not_canonical",
+            "the grep authority only grants the canonical workspace ripgrep adapter",
+        )
+    return _mint_command_grant(
+        source="system-adapter",
+        scope="grep",
+        authority_ref="grep:rg-json",
+        argv=argv,
+        cwd=".",
+        environment=environment,
+        workspace_root=workspace_root,
+    )
+
+
+def _is_canonical_lsp_command(argv: Sequence[str], workspace_root: Path) -> bool:
+    values = tuple(argv)
+    return (
+        len(values) == 3
+        and all(isinstance(value, str) and value and "\x00" not in value for value in values)
+        and _is_named_executable(values[0], "lsp", workspace_root)
+        and values[1] == "--outputjson"
+        and _is_workspace_path(values[2], workspace_root, suffix=".py")
+    )
+
+
+def issue_lsp_command_grant(
+    argv: Sequence[str],
+    *,
+    workspace_root: Path,
+    environment: EnvironmentPolicy,
+) -> CommandGrant:
+    if not _is_canonical_lsp_command(argv, workspace_root):
+        raise ExecutionDenied(
+            "command_grant",
+            "lsp_command_not_canonical",
+            "the LSP authority only grants basedpyright JSON diagnostics inside the workspace",
+        )
+    return _mint_command_grant(
+        source="system-adapter",
+        scope="lsp",
+        authority_ref="lsp:basedpyright-json",
+        argv=argv,
+        cwd=".",
+        environment=environment,
+        workspace_root=workspace_root,
+    )
+
+
 def issue_keqing_command_grant(argv: Sequence[str], *, backend: str) -> CommandGrant:
     from tianshu.executor.keqing.adapter import is_canonical_adapter_argv
 
@@ -655,6 +888,8 @@ class ExecutionRequest(_StrictModel):
     purpose: Literal[
         "tool",
         "acceptance",
+        "grep",
+        "lsp",
         "lark-cli",
         "keqing",
         "mcp_stdio",
@@ -716,7 +951,7 @@ class ExecutionRequest(_StrictModel):
 
 def request_for_current_execution(
     *,
-    purpose: Literal["tool", "acceptance", "lark-cli", "keqing"],
+    purpose: Literal["tool", "acceptance", "grep", "lsp", "lark-cli", "keqing"],
     workspace_root: Path,
     cwd: str,
     argv_command: ArgvCommand | None = None,
@@ -1701,6 +1936,8 @@ class ExecutionGateway:
         allowed_scopes = {
             "tool": {"shell_exec", "tool-argv"},
             "acceptance": {"acceptance"},
+            "grep": {"grep"},
+            "lsp": {"lsp"},
             "lark-cli": {"lark-cli"},
             "keqing": {"keqing"},
             "mcp_stdio": {"mcp_stdio"},
@@ -1781,11 +2018,30 @@ class ExecutionGateway:
                 )
         elif grant.source == "system-adapter":
             executable = Path(request.command_argv[0]).name
+            workspace_binding_matches = (
+                grant.cwd == request.cwd
+                and grant.environment_digest == _environment_digest(request.environment)
+                and grant.workspace_lease_id == request.workspace_lease_id
+                and grant.workspace_root_digest == _resolved_path_digest(root)
+                and grant.resolved_cwd_digest == _resolved_path_digest(cwd)
+            )
             if grant.scope == "lark-cli":
                 valid_system_scope = grant.authority_ref == "lark-cli" and executable in {
                     "lark-cli",
                     "lark-cli.exe",
                 }
+            elif grant.scope == "grep":
+                valid_system_scope = (
+                    grant.authority_ref == "grep:rg-json"
+                    and workspace_binding_matches
+                    and _is_canonical_grep_command(request.command_argv, root)
+                )
+            elif grant.scope == "lsp":
+                valid_system_scope = (
+                    grant.authority_ref == "lsp:basedpyright-json"
+                    and workspace_binding_matches
+                    and _is_canonical_lsp_command(request.command_argv, root)
+                )
             elif grant.scope == "keqing":
                 from tianshu.executor.keqing.adapter import is_canonical_adapter_argv
 
@@ -1808,11 +2064,7 @@ class ExecutionGateway:
                     request.universe_stage in _UNIVERSE_STAGES
                     and grant.authority_ref == f"universe:{request.universe_stage}"
                     and grant.universe_stage == request.universe_stage
-                    and grant.cwd == request.cwd
-                    and grant.environment_digest == _environment_digest(request.environment)
-                    and grant.workspace_lease_id == request.workspace_lease_id
-                    and grant.workspace_root_digest == _resolved_path_digest(root)
-                    and grant.resolved_cwd_digest == _resolved_path_digest(cwd)
+                    and workspace_binding_matches
                 )
             else:
                 valid_system_scope = False
@@ -2054,9 +2306,12 @@ __all__ = [
     "bind_tool_policy_decision",
     "get_execution_context",
     "issue_acceptance_command_grant",
+    "issue_grep_command_grant",
     "issue_keqing_command_grant",
     "issue_lark_cli_command_grant",
+    "issue_lsp_command_grant",
     "issue_shell_command_grant",
     "issue_universe_command_grant",
     "request_for_current_execution",
+    "resolve_system_adapter_executable",
 ]

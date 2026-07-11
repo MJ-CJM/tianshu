@@ -5,22 +5,55 @@ Node runtime、PyrightJsonResults schema 稳定)——edit 落盘后对改动文
 generalDiagnostics 回灌 agent,让 agent 立即看到类型/语义错误。同时作为代码变体
 位面的快速 fitness 信号(变体改完立刻拿类型级信号)。
 
-默认关(TIANSHU_LSP_ENABLED)。basedpyright 未装/非 py 文件/超时一律优雅降级返回空,
-不阻断 edit(诊断是增值反馈,不是编辑前置)。
+默认关(TIANSHU_LSP_ENABLED)。诊断是增值反馈而非编辑前置，但启用后的不可用、
+拒绝和超时会返回带 execution correlation 的结构化 advisory，不再静默消失。
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
-import shutil
-import subprocess
+from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal
+
+from ulid import ULID
+
+from tianshu.executor import execution_gateway as process_boundary
+from tianshu.security.clean_env import build_clean_env
+
+if TYPE_CHECKING:
+    from tianshu.executor.execution_gateway import ExecutionGateway
 
 logger = logging.getLogger(__name__)
 
 _SEVERITIES = ("error", "warning")
+
+
+@dataclass(frozen=True)
+class DiagnosticOutcome:
+    status: Literal[
+        "ok",
+        "disabled",
+        "not_applicable",
+        "unavailable",
+        "denied",
+        "timed_out",
+        "failed",
+    ]
+    diagnostics: tuple[dict, ...] = ()
+    advisory: str | None = None
+    correlation_id: str | None = None
+
+    def advisory_details(self) -> dict[str, str] | None:
+        if self.advisory is None:
+            return None
+        details = {"status": self.status, "message": self.advisory}
+        if self.correlation_id is not None:
+            details["correlation_id"] = self.correlation_id
+        return details
 
 
 def is_enabled() -> bool:
@@ -52,7 +85,7 @@ def parse_diagnostics(output: str) -> list[dict]:
     return diags
 
 
-def format_diagnostics(diags: list[dict]) -> str:
+def format_diagnostics(diags: list[dict] | tuple[dict, ...]) -> str:
     """诊断列表 → agent 可读文本(拼进 edit_file 工具结果)。"""
     if not diags:
         return ""
@@ -63,26 +96,145 @@ def format_diagnostics(diags: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def run_diagnostics(file_path: Path) -> list[dict]:
-    """对一个 .py 文件跑 basedpyright;未启用/未装/非 py/超时一律返回空(降级)。"""
+def _correlation_id() -> str:
+    context = process_boundary.get_execution_context()
+    return context.correlation_id if context is not None else str(ULID())
+
+
+def _advisory(
+    status: Literal["unavailable", "denied", "timed_out", "failed"],
+    message: str,
+    correlation_id: str,
+) -> DiagnosticOutcome:
+    return DiagnosticOutcome(
+        status=status,
+        advisory=message,
+        correlation_id=correlation_id,
+    )
+
+
+async def run_diagnostics_async(
+    file_path: Path,
+    *,
+    execution_gateway: ExecutionGateway | None = None,
+    workspace_root: Path | None = None,
+) -> DiagnosticOutcome:
+    """Run basedpyright through the governed async execution boundary."""
+    correlation_id = _correlation_id()
     if not is_enabled():
-        return []
-    path = Path(file_path)
+        return DiagnosticOutcome(status="disabled", correlation_id=correlation_id)
+    path = Path(file_path).resolve()
     if path.suffix != ".py":
-        return []
-    exe = shutil.which("basedpyright")
-    if not exe:
-        logger.debug("[lsp] TIANSHU_LSP_ENABLED 已开但 basedpyright 未装,跳过")
-        return []
-    try:
-        proc = subprocess.run(
-            [exe, "--outputjson", str(path)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
+        return DiagnosticOutcome(status="not_applicable", correlation_id=correlation_id)
+    root = Path(workspace_root or path.parent).resolve()
+    if not path.is_relative_to(root):
+        return _advisory(
+            "denied",
+            "LSP target is outside the governed workspace",
+            correlation_id,
         )
-        return parse_diagnostics(proc.stdout)
-    except (subprocess.SubprocessError, OSError) as e:
-        logger.debug("[lsp] basedpyright run failed: %s", e)
-        return []
+    exe = process_boundary.resolve_system_adapter_executable(
+        "lsp",
+        workspace_root=root,
+    )
+    if not exe:
+        return _advisory(
+            "unavailable",
+            "basedpyright is not installed; diagnostics were not run",
+            correlation_id,
+        )
+    command = (exe, "--outputjson", str(path))
+    process_gateway = execution_gateway or process_boundary.ExecutionGateway()
+    try:
+        environment = process_boundary.EnvironmentPolicy(allow_names=tuple(build_clean_env("")))
+        request = process_boundary.request_for_current_execution(
+            purpose="lsp",
+            workspace_root=root,
+            cwd=".",
+            argv_command=process_boundary.ArgvCommand(argv=command),
+            environment=environment,
+            timeout_seconds=30,
+            stdout_limit_bytes=1_000_000,
+            stderr_limit_bytes=32_000,
+            sandbox=process_boundary.SandboxRequirement(
+                trust_level="trusted-local",
+                mode="host",
+                allow_host=True,
+            ),
+            command_grant=process_boundary.issue_lsp_command_grant(
+                command,
+                workspace_root=root,
+                environment=environment,
+            ),
+        )
+        execution = await process_gateway.run(request)
+    except process_boundary.ExecutionDenied as exc:
+        receipt = exc.receipt
+        return _advisory(
+            "denied",
+            f"basedpyright execution was denied: {exc}",
+            receipt.correlation_id if receipt is not None else correlation_id,
+        )
+    except process_boundary.ExecutionStartError as exc:
+        return _advisory(
+            "unavailable",
+            f"basedpyright could not start: {exc}",
+            exc.receipt.correlation_id,
+        )
+
+    correlation_id = execution.receipt.correlation_id
+    if execution.receipt.status == "timed_out":
+        return _advisory(
+            "timed_out",
+            "basedpyright exceeded the 30 second diagnostic timeout",
+            correlation_id,
+        )
+    if execution.receipt.stdout_truncated or execution.receipt.stdout_incomplete:
+        return _advisory(
+            "failed",
+            "basedpyright returned incomplete diagnostic output",
+            correlation_id,
+        )
+    try:
+        json.loads(execution.stdout)
+    except (json.JSONDecodeError, TypeError):
+        detail = execution.stderr.strip() or execution.error or "invalid JSON output"
+        return _advisory(
+            "failed",
+            f"basedpyright diagnostics failed: {detail}",
+            correlation_id,
+        )
+    if execution.returncode not in {0, 1}:
+        detail = execution.stderr.strip() or execution.error or "unknown error"
+        return _advisory(
+            "failed",
+            f"basedpyright diagnostics failed: {detail}",
+            correlation_id,
+        )
+    return DiagnosticOutcome(
+        status="ok",
+        diagnostics=tuple(parse_diagnostics(execution.stdout)),
+        correlation_id=correlation_id,
+    )
+
+
+def run_diagnostics(
+    file_path: Path,
+    *,
+    execution_gateway: ExecutionGateway | None = None,
+    workspace_root: Path | None = None,
+) -> DiagnosticOutcome:
+    """Synchronous compatibility wrapper, forbidden inside an active event loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(
+            run_diagnostics_async(
+                file_path,
+                execution_gateway=execution_gateway,
+                workspace_root=workspace_root,
+            )
+        )
+    raise RuntimeError(
+        "run_diagnostics cannot run inside an active event loop; await run_diagnostics_async"
+    )
