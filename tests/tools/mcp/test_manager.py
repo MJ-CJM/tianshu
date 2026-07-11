@@ -141,6 +141,50 @@ async def test_shutdown_retains_terminal_gateway_receipt(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_same_manager_can_restart_and_register_tools_after_shutdown(
+    manager: MCPManager,
+    registry: ToolRegistry,
+) -> None:
+    manager._config = MCPConfig(mcp_servers={"fx": _fixture_server_config(name="fx")})
+    await manager.start()
+    await manager.shutdown()
+    for name in list(registry._tools):
+        if name.startswith("mcp_fx_"):
+            del registry._tools[name]
+
+    try:
+        await manager.start()
+        assert "fx" in manager.sessions
+        assert registry.get_definition("mcp_fx_echo") is not None
+        result = await registry.execute("mcp_fx_echo", {"text": "reloaded"})
+        assert result.is_error is False
+        assert "echo:reloaded" in result.content
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_api_restart_helper_restores_tools_on_same_manager(
+    manager: MCPManager,
+    registry: ToolRegistry,
+) -> None:
+    from tianshu.gateway.mcp_api import _restart_mcp_sessions
+
+    manager._config = MCPConfig(mcp_servers={"fx": _fixture_server_config(name="fx")})
+    await manager.start()
+
+    await _restart_mcp_sessions(manager, registry)
+
+    try:
+        assert "fx" in manager.sessions
+        assert registry.get_definition("mcp_fx_echo") is not None
+    finally:
+        await manager.shutdown()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_stdio_env_uses_refs_and_redacts_values_everywhere(
     manager: MCPManager,
     registry: ToolRegistry,
@@ -366,7 +410,17 @@ async def test_shutdown_cancels_starting_initialize_and_reaps_process_tree(
     child_pid = int(pid_file.read_text())
 
     try:
-        await asyncio.wait_for(manager.shutdown(), timeout=2)
+        shutdown_task = asyncio.create_task(manager.shutdown())
+        for _ in range(100):
+            if manager._stopping:
+                break
+            await asyncio.sleep(0)
+        else:
+            pytest.fail("manager did not enter stopping state")
+        competing_start = asyncio.create_task(manager.start())
+        await asyncio.sleep(0)
+        assert competing_start.done()
+        await asyncio.wait_for(shutdown_task, timeout=2)
         await asyncio.wait_for(asyncio.shield(start_task), timeout=2)
         await _assert_pid_gone(child_pid)
         assert manager._starting_sessions == {}

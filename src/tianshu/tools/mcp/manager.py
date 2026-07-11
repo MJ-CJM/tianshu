@@ -226,29 +226,32 @@ class MCPManager:
 
     async def shutdown(self) -> None:
         self._stopping = True
-        starting_sessions = tuple(self._starting_sessions.values())
-        if starting_sessions:
-            await asyncio.gather(
-                *(session.shutdown() for session in starting_sessions),
-                return_exceptions=True,
-            )
-        starting_tasks = tuple(self._start_tasks.values())
-        if starting_tasks:
-            await asyncio.gather(*starting_tasks, return_exceptions=True)
-        for name, session in tuple(self._starting_sessions.items()):
-            if session.terminal_receipt is not None:
-                self._terminal_receipts[name] = session.terminal_receipt
-        self._starting_sessions.clear()
-        self._start_tasks.clear()
+        try:
+            starting_sessions = tuple(self._starting_sessions.values())
+            if starting_sessions:
+                await asyncio.gather(
+                    *(session.shutdown() for session in starting_sessions),
+                    return_exceptions=True,
+                )
+            starting_tasks = tuple(self._start_tasks.values())
+            if starting_tasks:
+                await asyncio.gather(*starting_tasks, return_exceptions=True)
+            for name, session in tuple(self._starting_sessions.items()):
+                if session.terminal_receipt is not None:
+                    self._terminal_receipts[name] = session.terminal_receipt
+            self._starting_sessions.clear()
+            self._start_tasks.clear()
 
-        for name, session in self._sessions.items():
-            try:
-                await session.shutdown()
-            except Exception:
-                logger.exception("[mcp] error shutting down session %s", session.config.name)
-            if session.terminal_receipt is not None:
-                self._terminal_receipts[name] = session.terminal_receipt
-        self._sessions.clear()
+            for name, session in self._sessions.items():
+                try:
+                    await session.shutdown()
+                except Exception:
+                    logger.exception("[mcp] error shutting down session %s", session.config.name)
+                if session.terminal_receipt is not None:
+                    self._terminal_receipts[name] = session.terminal_receipt
+            self._sessions.clear()
+        finally:
+            self._stopping = False
 
     # -- 工具注册 -----------------------------------------------------------
 
