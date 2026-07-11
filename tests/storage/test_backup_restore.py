@@ -17,6 +17,7 @@ from tianshu.cli.commands import secrets as secrets_command
 from tianshu.cli.commands.secrets import app as secrets_app
 from tianshu.storage import Storage, sqlite_backup
 from tianshu.storage.migration_ledger import MigrationExecutionError
+from tianshu.storage.migrations import MIGRATIONS
 from tianshu.storage.sqlite_backup import (
     SQLiteBackupError,
     create_online_backup,
@@ -346,10 +347,7 @@ def test_concurrent_storage_startup_creates_one_true_pre_migration_backup(
     with closing(sqlite3.connect(database_path)) as current:
         assert current.execute(
             "SELECT version, name FROM schema_migrations ORDER BY version"
-        ).fetchall() == [
-            (1, "0001_adopt_v042_baseline"),
-            (2, "0002_auth_tokens"),
-        ]
+        ).fetchall() == [(migration.version, migration.name) for migration in MIGRATIONS]
 
 
 def test_backup_failure_stops_migration_without_changing_database(

@@ -300,7 +300,7 @@ def test_strategy_index_is_an_archived_snapshot_not_a_current_product_claim() ->
         assert stale_claim not in strategy_index
 
 
-def test_docker_example_binds_loopback_and_warns_against_public_exposure() -> None:
+def test_docker_example_defaults_to_loopback_and_requires_secure_remote_for_remote_access() -> None:
     readme_zh = _read("README.md")
     docker_section = readme_zh.split("### Docker 部署", maxsplit=1)[1].split("\n### ", maxsplit=1)[
         0
@@ -308,9 +308,11 @@ def test_docker_example_binds_loopback_and_warns_against_public_exposure() -> No
 
     assert "-p 127.0.0.1:8000:8000" in docker_section
     assert "-p 8000:8000" not in docker_section
-    assert "v0.4.2 无统一鉴权" in docker_section
-    assert "仅限可信本地" in docker_section
-    assert "不要映射到公网/不可信网段" in docker_section
+    assert "默认 `trusted-local` 仅信任回环入口" in docker_section
+    assert "`secure-remote`" in docker_section
+    assert "匿名 REST、WebSocket 与 MCP 会在统一入口被拒绝" in docker_section
+    assert "需要远程访问时必须显式启用" in docker_section
+    assert "配置 HTTPS 公共地址、精确 Host/Origin、可信反代 CIDR" in docker_section
 
 
 def test_keqing_tooltips_state_the_contained_experimental_boundary() -> None:

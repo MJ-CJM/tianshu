@@ -120,8 +120,7 @@ class Auditor:
             and edict.status == EdictStatus.OPEN
             and edict.schedule.type not in ("cron", "interval")
         ):
-            edict.status = EdictStatus.COMPLETED
-            self._storage.update_edict(edict)
+            self._storage.update_edict_status(edict.id, EdictStatus.COMPLETED.value)
 
         await self._bus.emit(
             make_event(

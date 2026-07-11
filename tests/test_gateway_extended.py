@@ -7,6 +7,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from tianshu.app import create_app, lifespan
+from tianshu.models import Edict
 
 
 @pytest.fixture
@@ -19,17 +20,18 @@ async def client():
 
 
 class TestEdictCRUD:
-    async def test_create_and_update(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post("/api/edicts", json={"goal": "update me"})
-        edict_id = resp.json()["data"]["id"]
+    async def test_update_open_edict_title_preserves_frozen_objective(self, client):
+        storage = client._transport.app.state.storage
+        edict = Edict(goal="update me")
+        storage.save_edict(edict)
 
         resp = await client.patch(
-            f"/api/edicts/{edict_id}",
-            json={"title": "New Title", "goal": "updated goal"},
+            f"/api/edicts/{edict.id}",
+            json={"title": "New Title"},
         )
         assert resp.status_code == 200
-        assert resp.json()["data"]["goal"] == "updated goal"
+        assert resp.json()["data"]["title"] == "New Title"
+        assert resp.json()["data"]["goal"] == "update me"
 
     async def test_update_nonexistent(self, client):
         resp = await client.patch(

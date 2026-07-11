@@ -13,6 +13,7 @@ from __future__ import annotations
 import sqlite3
 
 from tianshu.storage import Storage
+from tianshu.storage.migrations import MIGRATIONS
 
 
 def _build_old_db(path: str) -> None:
@@ -110,10 +111,7 @@ def test_migration_upgrades_old_session_tables(tmp_path):
         for item in conn.execute(
             "SELECT version, name FROM schema_migrations ORDER BY version"
         ).fetchall()
-    ] == [
-        (1, "0001_adopt_v042_baseline"),
-        (2, "0002_auth_tokens"),
-    ]
+    ] == [(migration.version, migration.name) for migration in MIGRATIONS]
     assert (
         conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='edicts'").fetchone()
         is not None

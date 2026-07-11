@@ -6,7 +6,7 @@ import pytest
 
 from tianshu.auditor.auditor import Auditor
 from tianshu.bus.event_bus import EventBus
-from tianshu.models import Edict, Memorial, TaskStatus
+from tianshu.models import Edict, EdictStatus, Memorial, TaskStatus
 from tianshu.models.events import make_event
 
 
@@ -43,9 +43,15 @@ class TestAuditorHandler:
         )
         await auditor.handle_execution_completed(event)
 
-        audit_handler.assert_called_once()
+        audit_handler.assert_awaited_once()
+        audit_event = audit_handler.await_args.args[0]
+        assert audit_event.event_type == "audit.completed"
+        assert audit_event.edict_id == edict.id
+        assert audit_event.memorial_id == memorial.id
+        assert audit_event.payload == {"verdict": "pass", "reasons": []}
         loaded = storage.get_memorial(memorial.id)
         assert loaded.review_status == "not_required"
+        assert storage.get_edict(edict.id).status == EdictStatus.COMPLETED
 
     async def test_handle_execution_completed_always_review(self, auditor, storage, event_bus):
         edict = Edict(goal="test", review_policy="always")
@@ -81,6 +87,9 @@ class TestAuditorHandler:
         await auditor.handle_execution_completed(event)  # Should not raise
 
     async def test_on_failure_policy(self, auditor, storage, event_bus):
+        audit_handler = AsyncMock()
+        event_bus.on("audit.completed", audit_handler)
+        auditor.audit = AsyncMock()
         edict = Edict(goal="test", review_policy="on_failure")
         storage.save_edict(edict)
         memorial = Memorial(
@@ -99,3 +108,7 @@ class TestAuditorHandler:
 
         loaded = storage.get_memorial(memorial.id)
         assert loaded.review_status == "not_required"
+        auditor.audit.assert_not_awaited()
+        audit_handler.assert_awaited_once()
+        assert audit_handler.await_args.args[0].payload["verdict"] == "pass"
+        assert storage.get_edict(edict.id).status == EdictStatus.COMPLETED
