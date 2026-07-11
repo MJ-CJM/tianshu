@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from fastapi import FastAPI
 
 from tianshu.config import TianshuSettings
+from tianshu.executor.execution_gateway import ExecutionGateway
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.registry import ToolRegistry
 
@@ -46,12 +47,15 @@ async def wire_tools(app: FastAPI, settings: TianshuSettings) -> ToolRegistry:
     event_bus = app.state.event_bus
 
     # --- Tools ---
+    execution_gateway = ExecutionGateway()
+    app.state.execution_gateway = execution_gateway
     tools = ToolRegistry()
     register_builtins(
         tools,
         settings.workspace_dir,
         storage=storage,
         event_bus=event_bus,
+        execution_gateway=execution_gateway,
     )
 
     # --- MCP（藏兵阁外挂）：fire-and-forget 启动，不阻塞 lifespan ---

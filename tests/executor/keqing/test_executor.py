@@ -6,15 +6,32 @@
 
 from __future__ import annotations
 
+import math
 import sys
 from types import SimpleNamespace
 
 import pytest
 
+from tianshu.executor.capabilities import (
+    get_executor_manifest,
+    probe_host_capabilities,
+    resolve_governance_contract,
+)
+from tianshu.executor.execution_gateway import (
+    ExecutionContext,
+    bind_execution_context,
+)
 from tianshu.executor.keqing import KeqingExecutor, parse_keqing_backend
 from tianshu.executor.keqing.adapter import ClaudeCodeAdapter
 from tianshu.kernel.exit_reason import ExitReason
 from tianshu.models import TaskStatus
+from tianshu.models.governance_contract import (
+    BudgetPolicyV1,
+    ExecutorSelectionV1,
+    ObjectiveV1,
+    RequestedGovernanceContractV1,
+)
+from tianshu.models.principal import Principal, PrincipalKind
 
 _FAKE_CLI = r"""
 import json, os, sys
@@ -42,6 +59,31 @@ def _edict(executor="keqing:claude-code", timeout=30, budget=None):
     )
 
 
+async def _execute(keqing: KeqingExecutor, edict, **kwargs):
+    requested = RequestedGovernanceContractV1(
+        objective=ObjectiveV1(goal=edict.goal),
+        executor=ExecutorSelectionV1(adapter_id=edict.runtime.executor),
+        budget=BudgetPolicyV1(wall_clock_seconds=max(1, math.ceil(edict.runtime.timeout_seconds))),
+    )
+    effective = resolve_governance_contract(
+        requested,
+        get_executor_manifest(edict.runtime.executor),
+        probe_host_capabilities(),
+    )
+    context = ExecutionContext(
+        correlation_id="keqing-test",
+        actor=Principal(
+            id="keqing-test-principal",
+            kind=PrincipalKind.SERVICE,
+            display_name="Keqing Test",
+        ),
+        effective_contract=effective,
+        workspace_lease_id="keqing-test-workspace",
+    )
+    with bind_execution_context(context):
+        return await keqing.execute(edict, **kwargs)
+
+
 class TestParseBackend:
     def test_parse(self):
         assert parse_keqing_backend("keqing:claude-code") == "claude-code"
@@ -56,7 +98,7 @@ class TestKeqingExecutor:
         monkeypatch.setattr(ClaudeCodeAdapter, "build_argv", lambda self, p, model=None: fake_cli)
         ke = KeqingExecutor(root=tmp_path / "kq")
         events: list[dict] = []
-        res = await ke.execute(_edict(), on_event=events.append)
+        res = await _execute(ke, _edict(), on_event=events.append)
         assert res.status == TaskStatus.COMPLETED
         assert res.usage.total_tokens == 250
         assert abs(res.usage.cost_cny - 0.02 * 7.2) < 1e-6
@@ -70,14 +112,14 @@ class TestKeqingExecutor:
         monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", "master-secret")
         monkeypatch.setattr(ClaudeCodeAdapter, "build_argv", lambda self, p, model=None: fake_cli)
         ke = KeqingExecutor(root=tmp_path / "kq")
-        res = await ke.execute(_edict())
+        res = await _execute(ke, _edict())
         # fake CLI 回显 leaked=[] 证明 TIANSHU_* 没进子进程
         assert "leaked=[]" in res.result
 
     async def test_outbound_redaction(self, tmp_path, fake_cli, monkeypatch):
         monkeypatch.setattr(ClaudeCodeAdapter, "build_argv", lambda self, p, model=None: fake_cli)
         ke = KeqingExecutor(root=tmp_path / "kq")
-        res = await ke.execute(_edict())
+        res = await _execute(ke, _edict())
         # 客卿回显的 key 被出站脱敏
         assert "sk-abcdefghij" not in res.result
         assert "[REDACTED API KEY]" in res.result
@@ -91,7 +133,7 @@ class TestKeqingExecutor:
         )
         ke = KeqingExecutor(root=tmp_path / "kq")
 
-        res = await ke.execute(_edict(timeout=0.01))
+        res = await _execute(ke, _edict(timeout=0.01))
 
         assert res.status == TaskStatus.FAILED
         assert res.exit_reason == ExitReason.TIMEOUT
@@ -119,7 +161,7 @@ class TestKeqingExecutor:
         edict = _edict()
         edict.runtime.executor_model = "claude-opus-4"
 
-        result = await KeqingExecutor(root=tmp_path / "kq").execute(edict)
+        result = await _execute(KeqingExecutor(root=tmp_path / "kq"), edict)
 
         assert result.status == TaskStatus.COMPLETED
         assert seen["model"] == "claude-opus-4"
@@ -131,6 +173,6 @@ class TestKeqingExecutor:
             lambda self, p, model=None: ["definitely-not-a-real-cli-xyz"],
         )
         ke = KeqingExecutor(root=tmp_path / "kq")
-        res = await ke.execute(_edict())
+        res = await _execute(ke, _edict())
         assert res.status == TaskStatus.FAILED
         assert "not found" in res.error

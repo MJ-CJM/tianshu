@@ -1,0 +1,226 @@
+"""Environment allowlisting and end-to-end secret redaction."""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+from tianshu.executor.capabilities import (
+    native_manifest,
+    probe_host_capabilities,
+    resolve_governance_contract,
+)
+from tianshu.executor.execution_gateway import (
+    ArgvCommand,
+    CommandGrant,
+    EnvironmentPolicy,
+    EnvironmentSecretRef,
+    ExecutionDenied,
+    ExecutionGateway,
+    ExecutionRequest,
+    ExecutionStartError,
+    NetworkPolicy,
+    SandboxRequirement,
+)
+from tianshu.models.governance_contract import (
+    NetworkPolicyV1,
+    ObjectiveV1,
+    PermissionPolicyV1,
+    RequestedGovernanceContractV1,
+)
+from tianshu.models.principal import Principal, PrincipalKind
+
+_SECRET_REF = "GATEWAY_TEST_SECRET_REF"
+_SECRET_ENV_NAME = "APP_BOUND_SECRET"
+_SENTINEL = "violet-otter-7319-boundary-sentinel"
+
+
+@pytest.fixture(scope="module")
+def effective_contract():
+    requested = RequestedGovernanceContractV1(
+        objective=ObjectiveV1(goal="exercise secret boundary"),
+        permissions=PermissionPolicyV1(secret_refs=(_SECRET_REF,)),
+        network=NetworkPolicyV1(mode="unrestricted_requested"),
+    )
+    return resolve_governance_contract(
+        requested,
+        native_manifest(),
+        probe_host_capabilities(),
+    )
+
+
+def _request(
+    tmp_path: Path,
+    effective_contract,
+    argv: tuple[str, ...],
+    environment: EnvironmentPolicy,
+) -> ExecutionRequest:
+    return ExecutionRequest(
+        execution_id="secret-test",
+        correlation_id="secret-correlation",
+        actor=Principal(
+            id="secret-principal",
+            kind=PrincipalKind.SERVICE,
+            display_name="Secret Test",
+        ),
+        purpose="tool",
+        effective_contract=effective_contract,
+        argv_command=ArgvCommand(argv=argv),
+        workspace_lease_id="secret-workspace",
+        workspace_root=tmp_path,
+        cwd=".",
+        environment=environment,
+        network=NetworkPolicy(mode="unrestricted"),
+        timeout_seconds=2,
+        stdout_limit_bytes=8192,
+        stderr_limit_bytes=8192,
+        sandbox=SandboxRequirement(
+            trust_level="trusted-local",
+            mode="host",
+            allow_host=True,
+        ),
+        command_grant=CommandGrant.for_argv(argv, source="tool-policy"),
+    )
+
+
+def _secret_policy() -> EnvironmentPolicy:
+    return EnvironmentPolicy(
+        allow_names=("VISIBLE_VALUE",),
+        secret_refs=(EnvironmentSecretRef(env_name=_SECRET_ENV_NAME, ref=_SECRET_REF),),
+    )
+
+
+@pytest.mark.asyncio
+async def test_allowlisted_env_only_and_secret_absent_from_result_receipt_and_logs(
+    tmp_path,
+    effective_contract,
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setenv("VISIBLE_VALUE", "visible")
+    monkeypatch.setenv("UNLISTED_VALUE", "must-not-reach-child")
+    monkeypatch.setenv(_SECRET_REF, _SENTINEL)
+    script = (
+        "import json,os,sys;"
+        "assert os.environ.get('VISIBLE_VALUE')=='visible';"
+        "assert 'UNLISTED_VALUE' not in os.environ;"
+        f"assert os.environ.get({_SECRET_ENV_NAME!r})=={_SENTINEL!r};"
+        f"print({_SENTINEL!r});"
+        f"print({_SENTINEL!r},file=sys.stderr);"
+        "print(json.dumps(sorted(k for k in os.environ if k.startswith('TIANSHU_'))))"
+    )
+    argv = (sys.executable, "-c", script)
+
+    result = await ExecutionGateway().run(
+        _request(tmp_path, effective_contract, argv, _secret_policy())
+    )
+
+    serialized = result.model_dump_json()
+    assert result.receipt.status == "succeeded"
+    assert _SENTINEL not in result.stdout
+    assert _SENTINEL not in result.stderr
+    assert _SENTINEL not in serialized
+    assert _SENTINEL not in repr(result)
+    assert _SECRET_REF in result.receipt.secret_refs
+    assert _SECRET_ENV_NAME in result.receipt.env_keys
+    assert all(_SENTINEL not in record.getMessage() for record in caplog.records)
+    assert "must-not-reach-child" not in serialized
+
+
+class _NoSpawnBackend:
+    supports_sandbox = False
+    supports_network_enforcement = False
+
+    def __init__(self) -> None:
+        self.spawned = False
+
+    async def spawn(self, **_kwargs):
+        self.spawned = True
+        raise AssertionError("spawn must not be reached")
+
+
+@pytest.mark.asyncio
+async def test_secret_like_env_name_cannot_bypass_secret_refs(
+    tmp_path,
+    effective_contract,
+    monkeypatch,
+):
+    monkeypatch.setenv("TIANSHU_GATEWAY_SECRET", _SENTINEL)
+    argv = (sys.executable, "-c", "print('unreachable')")
+    request = _request(
+        tmp_path,
+        effective_contract,
+        argv,
+        EnvironmentPolicy(allow_names=("TIANSHU_GATEWAY_SECRET",)),
+    )
+    backend = _NoSpawnBackend()
+
+    with pytest.raises(ExecutionDenied, match="environment"):
+        await ExecutionGateway(backend=backend).run(request)
+    assert backend.spawned is False
+
+
+@pytest.mark.asyncio
+async def test_streaming_redaction_handles_secret_split_across_pipe_reads(
+    tmp_path,
+    effective_contract,
+    monkeypatch,
+):
+    monkeypatch.setenv(_SECRET_REF, _SENTINEL)
+    midpoint = len(_SENTINEL) // 2
+    script = (
+        "import os,time;"
+        f"value=os.environ[{_SECRET_ENV_NAME!r}];"
+        f"os.write(1,value[:{midpoint}].encode());"
+        "time.sleep(0.2);"
+        f"os.write(1,value[{midpoint}:].encode())"
+    )
+    argv = (sys.executable, "-c", script)
+    handle = await ExecutionGateway().start(
+        _request(tmp_path, effective_contract, argv, _secret_policy())
+    )
+
+    streamed = "".join([chunk async for chunk in handle.iter_stdout()])
+    result = await handle.wait()
+
+    assert _SENTINEL not in streamed
+    assert _SENTINEL not in result.stdout
+    assert _SENTINEL not in result.model_dump_json()
+
+
+class _SecretLeakingGuard:
+    name = "secret_leaking_guard"
+
+    async def evaluate(self, _request):
+        raise RuntimeError(f"guard accidentally included {_SENTINEL}")
+
+
+@pytest.mark.asyncio
+async def test_secret_is_redacted_from_guard_and_spawn_exceptions(
+    tmp_path,
+    effective_contract,
+    monkeypatch,
+):
+    monkeypatch.setenv(_SECRET_REF, _SENTINEL)
+    argv = (sys.executable, "-c", "print('unreachable')")
+    request = _request(tmp_path, effective_contract, argv, _secret_policy())
+
+    with pytest.raises(ExecutionDenied) as guard_error:
+        await ExecutionGateway(mandatory_guards=(_SecretLeakingGuard(),)).run(request)
+    assert _SENTINEL not in str(guard_error.value)
+
+    class _FailingBackend:
+        supports_sandbox = False
+        supports_network_enforcement = False
+
+        async def spawn(self, **kwargs):
+            assert kwargs["env"][_SECRET_ENV_NAME] == _SENTINEL
+            raise OSError(f"spawn failed while handling {_SENTINEL}")
+
+    with pytest.raises(ExecutionStartError) as spawn_error:
+        await ExecutionGateway(backend=_FailingBackend()).run(request)
+    assert _SENTINEL not in str(spawn_error.value)
+    assert _SENTINEL not in json.dumps(spawn_error.value.args)

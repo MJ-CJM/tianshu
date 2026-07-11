@@ -19,10 +19,22 @@ import logging
 from pathlib import Path
 
 from tianshu.executor.agent import AgentResult
+from tianshu.executor.execution_gateway import (
+    ArgvCommand,
+    CommandGrant,
+    EnvironmentPolicy,
+    EnvironmentSecretRef,
+    ExecutionDenied,
+    ExecutionGateway,
+    ExecutionResult,
+    ExecutionStartError,
+    SandboxRequirement,
+    get_execution_context,
+    request_for_current_execution,
+)
 from tianshu.executor.keqing.adapter import KeqingRunResult, get_adapter
 from tianshu.kernel.exit_reason import ExitReason
 from tianshu.models import TaskStatus, UsageSummary
-from tianshu.security.clean_env import SAFE_ENV_VARS
 from tianshu.security.redact import redact_text
 
 logger = logging.getLogger(__name__)
@@ -38,19 +50,17 @@ def parse_keqing_backend(executor: str | None) -> str | None:
     return None
 
 
-def _keqing_env(auth_env_vars: tuple[str, ...]) -> dict[str, str]:
-    """clean-env:安全白名单 + 客卿自身鉴权变量;不含 TIANSHU_* secrets。"""
-    import os
-
-    allowed = set(SAFE_ENV_VARS) | set(auth_env_vars)
-    return {k: os.environ[k] for k in allowed if k in os.environ}
-
-
 class KeqingExecutor:
     """把一个 edict 派给外部 CLI 客卿执行。签名对齐 Agent.execute 的关键参数。"""
 
-    def __init__(self, *, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        root: Path | None = None,
+        execution_gateway: ExecutionGateway | None = None,
+    ) -> None:
         self._root = root or _KEQING_ROOT
+        self._execution_gateway = execution_gateway or ExecutionGateway()
 
     def work_dir(self, edict_id: str) -> Path:
         return self._root / edict_id
@@ -76,7 +86,6 @@ class KeqingExecutor:
         work.mkdir(parents=True, exist_ok=True)
         model = model_override or getattr(edict.runtime, "executor_model", None)
         argv = adapter.build_argv(edict.goal, model=model)
-        env = _keqing_env(adapter.auth_env_vars)
         timeout = edict.runtime.timeout_seconds
         budget_cny = getattr(edict.runtime, "cost_budget_cny", None)
 
@@ -87,15 +96,46 @@ class KeqingExecutor:
             work,
             timeout,
         )
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *argv,
-                cwd=str(work),
-                env=env,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+        context = get_execution_context()
+        if context is None:
+            return AgentResult(
+                status=TaskStatus.FAILED,
+                error="keqing execution denied: missing governed execution context",
+                exit_reason=ExitReason.LLM_ERROR,
             )
-        except FileNotFoundError:
+        granted_secret_refs = set(context.effective_contract.permissions.secret_refs)
+        environment = EnvironmentPolicy(
+            secret_refs=tuple(
+                EnvironmentSecretRef(env_name=name, ref=name)
+                for name in adapter.auth_env_vars
+                if name in granted_secret_refs
+            )
+        )
+        try:
+            request = request_for_current_execution(
+                purpose="keqing",
+                workspace_root=work,
+                cwd=".",
+                argv_command=ArgvCommand(argv=tuple(argv)),
+                environment=environment,
+                timeout_seconds=timeout,
+                stdout_limit_bytes=4 * 1024 * 1024,
+                stderr_limit_bytes=256 * 1024,
+                sandbox=SandboxRequirement(
+                    trust_level="trusted-local",
+                    mode="host",
+                    allow_host=True,
+                ),
+                command_grant=CommandGrant.for_argv(argv, source="executor-adapter"),
+            )
+            handle = await self._execution_gateway.start(request)
+        except ExecutionDenied as exc:
+            return AgentResult(
+                status=TaskStatus.FAILED,
+                error=f"keqing execution denied: {exc}",
+                exit_reason=ExitReason.LLM_ERROR,
+            )
+        except ExecutionStartError:
             return AgentResult(
                 status=TaskStatus.FAILED,
                 error=(
@@ -105,28 +145,35 @@ class KeqingExecutor:
                 exit_reason=ExitReason.LLM_ERROR,
             )
 
-        lines, exit_reason, err = await self._pump(proc, timeout, budget_cny, adapter, on_event)
+        lines, exit_reason, err, execution = await self._pump(
+            handle,
+            timeout,
+            budget_cny,
+            adapter,
+            on_event,
+        )
         run = adapter.parse_stream(lines)
-        return self._to_agent_result(run, exit_reason, err)
+        return self._to_agent_result(run, exit_reason, err, execution)
 
-    async def _pump(self, proc, timeout, budget_cny, adapter, on_event):
+    async def _pump(self, handle, timeout, budget_cny, adapter, on_event):
         """读 stdout 行流:转发工具事件 + 逐行估成本触顶即杀;超时/取消收敛终态。"""
         lines: list[str] = []
         exit_reason = ExitReason.COMPLETED
         err: str | None = None
         seen_tools = 0
+        execution: ExecutionResult | None = None
+        wait_task = asyncio.create_task(handle.wait())
         try:
-
-            async def _read() -> None:
-                nonlocal seen_tools
-                assert proc.stdout is not None
-                while True:
-                    raw = await proc.stdout.readline()
-                    if not raw:
-                        break
-                    line = raw.decode(errors="replace")
+            pending = ""
+            async for chunk in handle.iter_stdout():
+                pending += chunk
+                complete = pending.splitlines(keepends=True)
+                if complete and not complete[-1].endswith(("\n", "\r")):
+                    pending = complete.pop()
+                else:
+                    pending = ""
+                for line in complete:
                     lines.append(line)
-                    # 逐行增量解析,转发新增工具事件到账本(客卿全程可审计)
                     if on_event is not None:
                         partial = adapter.parse_stream(lines)
                         for evt in partial.tool_events[seen_tools:]:
@@ -139,24 +186,34 @@ class KeqingExecutor:
                             and partial.cost_usd * _USD_TO_CNY >= budget_cny
                         ):
                             raise _BudgetHit()
-
-            await asyncio.wait_for(_read(), timeout=timeout)
-            await proc.wait()
+            if pending:
+                lines.append(pending)
+            execution = await wait_task
+            if execution.receipt.status == "timed_out":
+                exit_reason = ExitReason.TIMEOUT
+                err = f"keqing timed out after {timeout}s"
+            elif execution.receipt.status != "succeeded":
+                exit_reason = ExitReason.LLM_ERROR
+                err = execution.error or execution.stderr or "keqing CLI execution failed"
         except _BudgetHit:
             exit_reason = ExitReason.BUDGET_EXHAUSTED
             err = f"keqing budget exceeded (>{budget_cny} CNY)"
-            _kill(proc)
-        except TimeoutError:
-            exit_reason = ExitReason.TIMEOUT
-            err = f"keqing timed out after {timeout}s"
-            _kill(proc)
+            wait_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await wait_task
         except asyncio.CancelledError:
-            _kill(proc)
+            wait_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(wait_task)
             raise
-        return lines, exit_reason, err
+        return lines, exit_reason, err, execution
 
     def _to_agent_result(
-        self, run: KeqingRunResult, exit_reason: ExitReason, err: str | None
+        self,
+        run: KeqingRunResult,
+        exit_reason: ExitReason,
+        err: str | None,
+        execution: ExecutionResult | None,
     ) -> AgentResult:
         cost_cny = round(run.cost_usd * _USD_TO_CNY, 6) if run.cost_usd is not None else 0.0
         usage = UsageSummary(
@@ -175,14 +232,18 @@ class KeqingExecutor:
             usage=usage,
             error=err or run.error,
             exit_reason=exit_reason,
+            events=(
+                [
+                    {
+                        "type": "execution.receipt",
+                        "receipt": execution.receipt.model_dump(mode="json"),
+                    }
+                ]
+                if execution is not None
+                else []
+            ),
         )
 
 
 class _BudgetHit(Exception):
     pass
-
-
-def _kill(proc) -> None:
-    if proc.returncode is None:
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()

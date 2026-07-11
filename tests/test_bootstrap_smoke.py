@@ -19,6 +19,7 @@ NON_NULLABLE_STATE_KEYS = [
     "storage",
     "event_bus",
     "hook_registry",
+    "execution_gateway",
     "mcp_manager",
     "_mcp_start_task",
     "persona_loader",
@@ -95,6 +96,12 @@ class TestBootstrapSmoke:
     @pytest.mark.parametrize("key", NULLABLE_STATE_KEYS)
     async def test_nullable_state_key_present(self, booted_app, key):
         assert hasattr(booted_app.state, key), f"app.state.{key} 应存在（值可为 None）"
+
+    async def test_one_execution_gateway_is_injected_into_high_risk_callers(self, booted_app):
+        process_gateway = booted_app.state.execution_gateway
+        assert booted_app.state.executor._execution_gateway is process_gateway
+        assert booted_app.state.executor._keqing._execution_gateway is process_gateway
+        assert booted_app.state.orchestrator_ctx.execution_gateway is process_gateway
 
     async def test_lifespan_closes_drawer_store(self):
         # 不复用 booted_app fixture：需要在 lifespan 退出*之后*断言 close 是否

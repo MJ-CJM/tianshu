@@ -22,6 +22,7 @@ from tianshu.executor.capabilities import (
     codex_manifest,
     native_manifest,
 )
+from tianshu.executor.execution_gateway import ExecutionGateway
 from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models.common import TaskStatus
 from tianshu.models.edict import Edict
@@ -50,12 +51,14 @@ class Executor:
         config_manager: ConfigManager,
         hook_registry: HookRegistry,
         session_rule_store: object | None = None,
+        execution_gateway: ExecutionGateway | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
         self._config_manager = config_manager
         self._hooks = hook_registry
         self._session_rule_store = session_rule_store
+        self._execution_gateway = execution_gateway or ExecutionGateway()
         self._agent = None  # set via set_agent()
         self._dag_scheduler = None  # set via set_dag_scheduler()
         self._lane_manager = None  # set via set_lane_manager()
@@ -66,7 +69,7 @@ class Executor:
         # 迭代 3.5「客卿」:外部 CLI 执行器(runtime.executor=keqing:<agent> 时路由)
         from tianshu.executor.keqing import KeqingExecutor
 
-        self._keqing = KeqingExecutor()
+        self._keqing = KeqingExecutor(execution_gateway=self._execution_gateway)
         self._adapter_registry = ExecutorAdapterRegistry(
             (
                 DelegatingExecutorAdapter(
@@ -463,6 +466,7 @@ class Executor:
         try:
             orchestrator_ctx = copy(self._orchestrator_ctx)
             orchestrator_ctx.agent = prepared_executor
+            orchestrator_ctx.execution_context = prepared_executor.execution_context(edict)
             governed_edict = edict.model_copy(
                 update={"goal": prepared_executor.prepared.instruction}
             )

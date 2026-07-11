@@ -13,10 +13,12 @@ from tianshu.executor.adapters.protocol import (
     PreparedExecution,
 )
 from tianshu.executor.capabilities import HostCapabilityProbeV1, resolve_governance_contract
+from tianshu.executor.execution_gateway import ExecutionContext, bind_execution_context
 from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     RequestedGovernanceContractV1,
 )
+from tianshu.models.principal import Principal, PrincipalKind
 
 
 @dataclass(frozen=True)
@@ -37,8 +39,27 @@ class PreparedExecutor:
             ),
         )
 
+    def execution_context(self, edict: Any) -> ExecutionContext | None:
+        submitter = getattr(edict, "submitter", None)
+        if not submitter:
+            return None
+        return ExecutionContext(
+            correlation_id=self.prepared.run_id,
+            actor=Principal(
+                id=submitter,
+                kind=PrincipalKind.SERVICE,
+                display_name=submitter,
+            ),
+            effective_contract=self.effective,
+            workspace_lease_id=f"legacy:{self.prepared.run_id}",
+        )
+
     async def execute(self, edict: Any, **kwargs: Any) -> Any:
-        return await self.adapter.execute(self.prepared, edict, **kwargs)
+        context = self.execution_context(edict)
+        if context is None:
+            return await self.adapter.execute(self.prepared, edict, **kwargs)
+        with bind_execution_context(context):
+            return await self.adapter.execute(self.prepared, edict, **kwargs)
 
     async def cancel(self) -> bool:
         return await self.adapter.cancel(self.prepared.run_id)

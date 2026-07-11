@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.checkpoint import OuterLoopCheckpoint
+from tianshu.executor.execution_gateway import (
+    ExecutionContext,
+    ExecutionGateway,
+    bind_execution_context,
+)
 from tianshu.executor.orchestrator.audit import (
     format_gaps_for_continuation,
     run_completion_audit,
@@ -110,6 +117,9 @@ class OrchestratorContext:
         approvals: object | None = None,
         persona_loader: object | None = None,  # PersonaLoader (rsv 循环 import)
         provider_manager: object | None = None,  # ProviderManager
+        execution_gateway: ExecutionGateway | None = None,
+        workspace_root: Path | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> None:
         self.agent = agent
         self.storage = storage
@@ -122,6 +132,9 @@ class OrchestratorContext:
         self.approvals = approvals
         self.persona_loader = persona_loader
         self.provider_manager = provider_manager
+        self.execution_gateway = execution_gateway
+        self.workspace_root = workspace_root
+        self.execution_context = execution_context
 
 
 class OrchestratorResult:
@@ -549,11 +562,26 @@ async def _run_checks_phase(
     （此时 checks_result 恒为 None）。
     """
     try:
-        checks_result = await run_checks(
-            acceptance.checks,
-            actor_output,
-            ctx.actor_llm,
+        requires_process = any(check.kind in {"bash", "lint"} for check in acceptance.checks)
+        if requires_process and (
+            ctx.execution_gateway is None
+            or ctx.workspace_root is None
+            or ctx.execution_context is None
+        ):
+            raise ChecksConfigError("governed acceptance execution is not configured")
+        binding = (
+            bind_execution_context(ctx.execution_context)
+            if ctx.execution_context is not None
+            else nullcontext()
         )
+        with binding:
+            checks_result = await run_checks(
+                acceptance.checks,
+                actor_output,
+                ctx.actor_llm,
+                execution_gateway=ctx.execution_gateway,
+                workspace_root=ctx.workspace_root,
+            )
     except ChecksConfigError as e:
         last_output = state.history[-1].actor_output if state.history else actor_output
         return None, await _finalize_with_supervision(

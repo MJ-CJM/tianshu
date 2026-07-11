@@ -69,6 +69,7 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         config_manager=config_manager,
         hook_registry=hook_registry,
         session_rule_store=session_rule_store,
+        execution_gateway=app.state.execution_gateway,
     )
     executor.set_agent(agent)
     executor.set_persona_loader(persona_loader)

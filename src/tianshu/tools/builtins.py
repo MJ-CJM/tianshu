@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tianshu.executor.execution_gateway import (
+    CommandGrant,
+    EnvironmentPolicy,
+    ExecutionDenied,
+    ExecutionGateway,
+    ExecutionStartError,
+    SandboxRequirement,
+    ShellCommand,
+    request_for_current_execution,
+)
 from tianshu.kernel.ambient import get_current_edict
 from tianshu.security.clean_env import build_clean_env
 from tianshu.storage import Storage
@@ -26,8 +35,10 @@ def register_builtins(
     storage: Storage | None = None,
     event_bus: EventBus | None = None,
     persona_loader: PersonaLoader | None = None,
+    execution_gateway: ExecutionGateway | None = None,
 ) -> None:
     workspace = Path(workspace_dir).resolve()
+    process_gateway = execution_gateway or ExecutionGateway()
 
     async def shell_exec(command: str, cwd: str | None = None) -> ToolResult:
         work_dir = workspace
@@ -35,35 +46,48 @@ def register_builtins(
             work_dir = safe_path(workspace, cwd)
             if not work_dir.is_dir():
                 return error_result(f"Error: directory '{cwd}' does not exist")
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            cwd=str(work_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            # 锦衣卫·clean-env(迭代 3):白名单构造,不透传 TIANSHU_* 等 secrets;
-            # 业务额外变量经 TIANSHU_SHELL_ENV_PASSTHROUGH 显式声明
-            env=build_clean_env(),
-        )
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-        except asyncio.CancelledError:
-            proc.kill()
-            await asyncio.shield(proc.communicate())
-            raise
-        except TimeoutError:
-            proc.kill()
-            await asyncio.shield(proc.communicate())
+            request = request_for_current_execution(
+                purpose="tool",
+                workspace_root=workspace,
+                cwd=cwd or ".",
+                shell_command=ShellCommand(script=command),
+                environment=EnvironmentPolicy(allow_names=tuple(build_clean_env())),
+                timeout_seconds=60,
+                stdout_limit_bytes=2000,
+                stderr_limit_bytes=2000,
+                sandbox=SandboxRequirement(
+                    trust_level="trusted-local",
+                    mode="host",
+                    allow_host=True,
+                ),
+                command_grant=CommandGrant.for_shell(command, source="tool-policy"),
+            )
+            execution = await process_gateway.run(request)
+        except ExecutionDenied as exc:
+            return error_result(f"shell_exec: execution denied: {exc}")
+        except ExecutionStartError as exc:
+            return error_result(f"shell_exec: unable to start command: {exc}")
+
+        if execution.receipt.status == "timed_out":
             return error_result("shell_exec: command timed out after 60s")
-        output = stdout.decode(errors="replace")
-        if stderr:
-            output += "\nSTDERR:\n" + stderr.decode(errors="replace")
-        truncated = len(output) > 2000
+        output = execution.stdout
+        if execution.stderr:
+            output += "\nSTDERR:\n" + execution.stderr
+        truncated = (
+            len(output) > 2000
+            or execution.receipt.stdout_truncated
+            or execution.receipt.stderr_truncated
+        )
         output = output[:2000]
-        is_err = proc.returncode != 0
+        exit_code = execution.receipt.exit_code
+        if exit_code is None and execution.receipt.terminating_signal is not None:
+            exit_code = -execution.receipt.terminating_signal
+        is_err = exit_code != 0
         return ToolResult(
             content=output,
             details={
-                "exit_code": proc.returncode,
+                "exit_code": exit_code,
                 "truncated": truncated,
             },
             is_error=is_err,
@@ -236,7 +260,11 @@ def register_builtins(
     # 飞书 lark-cli 透传工具（写操作经 LarkCliSafetyRule 升级审批）
     from tianshu.tools.lark_cli import register_lark_cli
 
-    register_lark_cli(registry)
+    register_lark_cli(
+        registry,
+        execution_gateway=process_gateway,
+        workspace_root=workspace,
+    )
 
     # === 敕令管理工具集：让助手 LLM 在对话中颁敕、查阅、追踪 ===
     # 默认注册到 registry，但通政司 enable_edict_submission toggle 控制启用；

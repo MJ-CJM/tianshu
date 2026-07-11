@@ -104,6 +104,8 @@ def wire_consultation(app: FastAPI, settings: TianshuSettings) -> None:
         approvals=approval_manager,  # ApprovalManager outer-loop 接口（wait_for_outer_loop_decision）
         persona_loader=persona_loader,
         provider_manager=provider_manager,
+        execution_gateway=app.state.execution_gateway,
+        workspace_root=Path(settings.workspace_dir).resolve(),
     )
     executor.set_orchestrator_context(orch_ctx)
     app.state.orchestrator_ctx = orch_ctx
