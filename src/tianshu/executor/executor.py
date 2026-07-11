@@ -4,15 +4,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from copy import copy
 from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
+from tianshu.executor.adapters import (
+    DelegatingExecutorAdapter,
+    ExecutionMode,
+    ExecutorAdapterRegistry,
+    PreparedExecutor,
+    UnsupportedExecutorMode,
+)
+from tianshu.executor.capabilities import (
+    MandatoryCapabilityMismatch,
+    claude_code_manifest,
+    codex_manifest,
+    native_manifest,
+)
 from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models.common import TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.failure import resolve_failure_reason
+from tianshu.models.governance_contract import LegacyEdictGovernanceMapper
 from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan
 from tianshu.persona.model import DEFAULT_EXECUTOR_ID
@@ -52,9 +67,30 @@ class Executor:
         from tianshu.executor.keqing import KeqingExecutor
 
         self._keqing = KeqingExecutor()
+        self._adapter_registry = ExecutorAdapterRegistry(
+            (
+                DelegatingExecutorAdapter(
+                    adapter_id="keqing:claude-code",
+                    manifest=claude_code_manifest(),
+                    delegate=self._keqing,
+                ),
+                DelegatingExecutorAdapter(
+                    adapter_id="keqing:codex",
+                    manifest=codex_manifest(),
+                    delegate=self._keqing,
+                ),
+            )
+        )
 
     def set_agent(self, agent: object) -> None:
         self._agent = agent
+        self._adapter_registry.replace(
+            DelegatingExecutorAdapter(
+                adapter_id="native",
+                manifest=native_manifest(),
+                delegate=agent,
+            )
+        )
 
     def set_dag_scheduler(self, scheduler: object) -> None:
         self._dag_scheduler = scheduler
@@ -164,22 +200,33 @@ class Executor:
         max_concurrency = edict.runtime.max_concurrency
         execution = plan.to_dag(edict.id, max_concurrency=max_concurrency)
 
-        # Reuse the original memorial as root (update from PLANNING → RUNNING)
+        # Reuse the original memorial as root. Capability resolution must happen
+        # before the scheduler can create a workspace or invoke any executor.
         if memorial:
             root_memorial = memorial
-            root_memorial.status = TaskStatus.RUNNING
-            root_memorial.started_at = datetime.now(UTC)
-            self._stamp_universe(root_memorial)
-            self._storage.update_memorial(root_memorial)
         else:
             root_memorial = Memorial(
                 edict_id=edict.id,
                 instruction=edict.goal,
-                status=TaskStatus.RUNNING,
-                started_at=datetime.now(UTC),
+                status=TaskStatus.SUBMITTED,
             )
-            self._stamp_universe(root_memorial)
             self._storage.save_memorial(root_memorial)
+        try:
+            prepared_executor = self._prepare_governed_executor(
+                edict,
+                root_memorial,
+                execution_mode="dag",
+            )
+        except MandatoryCapabilityMismatch as exc:
+            await self._reject_capability_mismatch(edict, root_memorial, exc)
+            return
+        except UnsupportedExecutorMode as exc:
+            await self._reject_executor_mode(edict, root_memorial, exc)
+            return
+        root_memorial.status = TaskStatus.RUNNING
+        root_memorial.started_at = datetime.now(UTC)
+        self._stamp_universe(root_memorial)
+        self._storage.update_memorial(root_memorial)
         execution.root_memorial_id = root_memorial.id
 
         # Persist DAG
@@ -198,7 +245,11 @@ class Executor:
             self._dag_scheduler._global_lane = global_lane
 
         try:
-            await self._dag_scheduler.run(edict, execution)
+            await self._dag_scheduler.run(
+                edict,
+                execution,
+                prepared_executor=prepared_executor,
+            )
         finally:
             if self._lane_manager:
                 self._lane_manager.remove_session(edict.id)
@@ -207,6 +258,101 @@ class Executor:
         """执行开始时固化 memorial 所属位面（一旦设定，本次运行内不变）。"""
         if self._universe_manager is not None and memorial.universe_id is None:
             memorial.universe_id = self._universe_manager.route_for_memorial(memorial.id)
+
+    def _prepare_governed_executor(
+        self,
+        edict: Edict,
+        memorial: Memorial,
+        *,
+        execution_mode: ExecutionMode,
+    ) -> PreparedExecutor:
+        requested = edict.governance_contract or LegacyEdictGovernanceMapper.from_edict(
+            edict,
+            default_workspace_id="legacy-default",
+        )
+        if edict.governance_contract is not None:
+            requested = LegacyEdictGovernanceMapper.apply_run_overrides(
+                requested,
+                edict,
+                runtime_overridden=memorial.runtime_override is not None,
+                acceptance_overridden=memorial.acceptance_override is not None,
+            )
+
+        existing = self._storage.get_effective_governance_contract(memorial.id)
+        if existing is not None:
+            if existing.requested_contract_hash != requested.content_hash:
+                raise RuntimeError(
+                    f"effective governance contract drift for memorial {memorial.id}"
+                )
+            prepared = self._adapter_registry.bind_effective(
+                existing,
+                run_id=memorial.id,
+                instruction=memorial.instruction or requested.objective.goal,
+                execution_mode=execution_mode,
+            )
+            memorial.effective_governance_contract = existing
+            return prepared
+
+        prepared = self._adapter_registry.prepare(
+            requested,
+            run_id=memorial.id,
+            instruction=memorial.instruction or requested.objective.goal,
+            execution_mode=execution_mode,
+        )
+        self._storage.save_effective_governance_contract(
+            memorial.id,
+            edict.id,
+            prepared.effective,
+        )
+        memorial.effective_governance_contract = prepared.effective
+        return prepared
+
+    async def _reject_executor_mode(
+        self,
+        edict: Edict,
+        memorial: Memorial,
+        exc: UnsupportedExecutorMode,
+    ) -> None:
+        memorial.status = TaskStatus.FAILED
+        memorial.error = str(exc)
+        memorial.completed_at = datetime.now(UTC)
+        self._storage.update_memorial(memorial)
+        await self._bus.emit(
+            make_event(
+                "execution.rejected",
+                edict_id=edict.id,
+                memorial_id=memorial.id,
+                producer="executor",
+                payload={
+                    "code": "executor_mode_unsupported",
+                    "adapter_id": exc.adapter_id,
+                    "execution_mode": exc.execution_mode,
+                },
+            )
+        )
+
+    async def _reject_capability_mismatch(
+        self,
+        edict: Edict,
+        memorial: Memorial,
+        exc: MandatoryCapabilityMismatch,
+    ) -> None:
+        memorial.status = TaskStatus.FAILED
+        memorial.error = str(exc)
+        memorial.completed_at = datetime.now(UTC)
+        self._storage.update_memorial(memorial)
+        await self._bus.emit(
+            make_event(
+                "execution.rejected",
+                edict_id=edict.id,
+                memorial_id=memorial.id,
+                producer="executor",
+                payload={
+                    "code": "governance_capability_mismatch",
+                    "mismatches": [item.model_dump(mode="json") for item in exc.mismatches],
+                },
+            )
+        )
 
     def _snapshot_keqing(self, edict: Edict, memorial: Memorial) -> None:
         """客卿执行后对其隔离工作区打影子快照并落台账（放手四保险③）。
@@ -294,19 +440,33 @@ class Executor:
             memorial = Memorial(
                 edict_id=edict.id,
                 instruction=edict.goal,
-                status=TaskStatus.RUNNING,
-                started_at=datetime.now(UTC),
+                status=TaskStatus.SUBMITTED,
             )
-            self._stamp_universe(memorial)
             self._storage.save_memorial(memorial)
-        else:
-            memorial.status = TaskStatus.RUNNING
-            memorial.started_at = datetime.now(UTC)
-            self._stamp_universe(memorial)
-            self._storage.update_memorial(memorial)
+        try:
+            prepared_executor = self._prepare_governed_executor(
+                edict,
+                memorial,
+                execution_mode="outer_loop",
+            )
+        except MandatoryCapabilityMismatch as exc:
+            await self._reject_capability_mismatch(edict, memorial, exc)
+            return
+        except UnsupportedExecutorMode as exc:
+            await self._reject_executor_mode(edict, memorial, exc)
+            return
+        memorial.status = TaskStatus.RUNNING
+        memorial.started_at = datetime.now(UTC)
+        self._stamp_universe(memorial)
+        self._storage.update_memorial(memorial)
 
         try:
-            result = await orch_run(edict, memorial, self._orchestrator_ctx)
+            orchestrator_ctx = copy(self._orchestrator_ctx)
+            orchestrator_ctx.agent = prepared_executor
+            governed_edict = edict.model_copy(
+                update={"goal": prepared_executor.prepared.instruction}
+            )
+            result = await orch_run(governed_edict, memorial, orchestrator_ctx)
             memorial.status = result.status
             memorial.result = result.final_output
             # outer-loop 的 final_output 已是验收通过的最终产物
@@ -375,6 +535,19 @@ class Executor:
                 edict.execution_profile,
             )
             await self._execute_outer_loop(edict, memorial)
+            return
+
+        try:
+            prepared_executor = self._prepare_governed_executor(
+                edict,
+                memorial,
+                execution_mode="single",
+            )
+        except MandatoryCapabilityMismatch as exc:
+            await self._reject_capability_mismatch(edict, memorial, exc)
+            return
+        except UnsupportedExecutorMode as exc:
+            await self._reject_executor_mode(edict, memorial, exc)
             return
 
         # Set persona_id: plan assignment > edict assignment > default
@@ -479,11 +652,9 @@ class Executor:
         def on_event(event: dict) -> None:
             self._storage.append_event(edict.id, memorial.id, event["type"], event)
 
-        # 迭代 3.5:客卿 backend 路由——runtime.executor=keqing:<agent> 时派外部 CLI
-        from tianshu.executor.keqing import parse_keqing_backend
-
-        keqing_backend = parse_keqing_backend(getattr(edict.runtime, "executor", None))
-        executor_impl = self._keqing if keqing_backend else self._agent
+        adapter_id = prepared_executor.adapter.adapter_id
+        keqing_backend = adapter_id.startswith("keqing:")
+        executor_impl = prepared_executor
 
         result = None  # Capture AgentResult for AGENT_END hook context
         try:
@@ -608,9 +779,17 @@ class Executor:
                     instruction=memorial.instruction or edict.goal,
                     attempt=memorial.attempt + 1,
                     parent_memorial_id=memorial.id,
+                    runtime_override=memorial.runtime_override,
+                    acceptance_override=memorial.acceptance_override,
                 )
                 self._storage.save_memorial(retry_memorial)
-                retry_task = asyncio.create_task(self.execute_edict(edict, memorial=retry_memorial))
+                retry_task = asyncio.create_task(
+                    self.execute_edict(
+                        edict,
+                        memorial=retry_memorial,
+                        user_content=retry_memorial.instruction,
+                    )
+                )
                 self._running_tasks.add(retry_task)
                 retry_task.add_done_callback(self._running_tasks.discard)
 
@@ -658,6 +837,23 @@ class Executor:
                 f"DAG execution must be failed/cancelled to retry, got {execution.status}"
             )
 
+        edict = self._storage.get_edict(execution.edict_id)
+        if not edict or not self._dag_scheduler:
+            raise ValueError("Cannot retry: missing edict or DAG scheduler")
+        if not execution.root_memorial_id:
+            raise ValueError("Cannot retry: DAG has no governed root memorial")
+        root_memorial = self._storage.get_memorial(execution.root_memorial_id)
+        if root_memorial is None:
+            raise ValueError("Cannot retry: governed root memorial is missing")
+        try:
+            prepared_executor = self._prepare_governed_executor(
+                edict,
+                root_memorial,
+                execution_mode="dag",
+            )
+        except (MandatoryCapabilityMismatch, UnsupportedExecutorMode) as exc:
+            raise ValueError(f"Cannot retry: {exc}") from exc
+
         retrier = PartialRetrier(self._storage)
         reset_ids = retrier.prepare_retry(execution, from_node_ids)
 
@@ -666,12 +862,17 @@ class Executor:
 
         # Reload execution with fresh state
         execution = self._storage.get_dag_execution(dag_id)
-        edict = self._storage.get_edict(execution.edict_id)
-        if not edict or not self._dag_scheduler:
-            raise ValueError("Cannot retry: missing edict or DAG scheduler")
+        if execution is None:
+            raise ValueError("Cannot retry: DAG disappeared after reset")
 
         # Re-run the DAG scheduler
-        task = asyncio.create_task(self._dag_scheduler.run(edict, execution))
+        task = asyncio.create_task(
+            self._dag_scheduler.run(
+                edict,
+                execution,
+                prepared_executor=prepared_executor,
+            )
+        )
         self._running_tasks.add(task)
         task.add_done_callback(self._running_tasks.discard)
 

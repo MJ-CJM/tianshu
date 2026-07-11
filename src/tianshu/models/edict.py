@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from ulid import ULID
 
 from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import EdictStatus
+from tianshu.models.governance_contract import RequestedGovernanceContractV1
 
 
 class EdictSchedule(BaseModel):
@@ -100,6 +101,16 @@ class Edict(BaseModel):
     acceptance: AcceptanceCriteria | None = None
     execution_profile: Literal["foreground", "checkpointed", "background"] = "foreground"
     metadata: dict[str, Any] = Field(default_factory=dict)
+    governance_contract: RequestedGovernanceContractV1 | None = None
+
+    @model_validator(mode="after")
+    def validate_executor_contract_consistency(self) -> Self:
+        if (
+            self.governance_contract is not None
+            and self.runtime.executor != self.governance_contract.executor.adapter_id
+        ):
+            raise ValueError("runtime.executor conflicts with frozen governance_contract.executor")
+        return self
 
 
 def title_from_goal(goal: str, title: str | None = None) -> str:

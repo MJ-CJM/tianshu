@@ -528,7 +528,17 @@
       },
       "warning": {
         "criticSelfReviewTitle": "Executor and Critic overlap",
-        "criticSelfReviewDesc": "Same persona executing and self-reviewing significantly reduces critic objectivity. Recommend audit / knowledge-base personas not involved in execution."
+        "criticSelfReviewDesc": "Same persona executing and self-reviewing significantly reduces critic objectivity. Recommend audit / knowledge-base personas not involved in execution.",
+        "governanceBlocked": "Governance preview failed. The executor cannot enforce: {capabilities}",
+        "governanceAdvisory": "These advisory capabilities are best-effort or observed only: {capabilities}",
+        "governanceUnavailable": "Governance preview is temporarily unavailable. Please try again.",
+        "governanceEffectiveTitle": "Effective contract summary",
+        "governanceEffectiveExecutor": "Executor: {executor}",
+        "governanceEffectiveLevel": "Governance level: {level}",
+        "governanceEffectiveControls": "Capability states: enforced {enforced} · best-effort {bestEffort} · observed {observed} · unsupported {unsupported}",
+        "governanceEffectiveHash": "Requested contract: {hash}",
+        "governanceContinue": "Accept risk and dispatch",
+        "governanceRevise": "Revise request"
       },
       "expertMode": "Expert mode",
       "expertHint": "Tweak field by field (usually not needed once you pick a task type)",

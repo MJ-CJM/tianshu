@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
+from tianshu.executor.adapters import PreparedExecutor
 from tianshu.executor.agent import Agent, AgentResult
 from tianshu.models.common import TaskStatus
 from tianshu.models.dag import DAGNode
@@ -38,6 +39,7 @@ class Worker:
         upstream_results: dict[str, str],
         persona: AgentPersona | None = None,
         checkpoint_manager: object | None = None,
+        prepared_executor: PreparedExecutor | None = None,
     ) -> AgentResult:
         """Execute a single DAG node.
 
@@ -59,6 +61,19 @@ class Worker:
             memorial.persona_id = persona.id
         self._storage.save_memorial(memorial)
         node.memorial_id = memorial.id
+
+        node_executor = (
+            prepared_executor.bind_run(memorial.id, instruction=node.description)
+            if prepared_executor
+            else None
+        )
+        if node_executor is not None:
+            self._storage.save_effective_governance_contract(
+                memorial.id,
+                edict.id,
+                node_executor.effective,
+            )
+            memorial.effective_governance_contract = node_executor.effective
 
         memorial.status = TaskStatus.RUNNING
         memorial.started_at = datetime.now(UTC)
@@ -83,8 +98,10 @@ class Worker:
             self._storage.append_event(edict.id, memorial.id, event["type"], event)
 
         try:
-            result = await self._agent.execute(
+            executor = node_executor or self._agent
+            result = await executor.execute(
                 edict,
+                memorial=memorial,
                 on_event=on_event,
                 history=history,
                 user_content=user_content,

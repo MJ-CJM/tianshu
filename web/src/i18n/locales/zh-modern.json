@@ -528,7 +528,17 @@
       },
       "warning": {
         "criticSelfReviewTitle": "执行者与审核者重合",
-        "criticSelfReviewDesc": "同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议审核者选用审计 / 知识库等不参与执行的 persona。"
+        "criticSelfReviewDesc": "同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议审核者选用审计 / 知识库等不参与执行的 persona。",
+        "governanceBlocked": "治理契约预检未通过，执行器无法强制能力：{capabilities}",
+        "governanceAdvisory": "以下建议能力只能尽力执行或事后观察：{capabilities}",
+        "governanceUnavailable": "暂时无法完成治理契约预检，请稍后重试。",
+        "governanceEffectiveTitle": "生效契约摘要",
+        "governanceEffectiveExecutor": "执行器：{executor}",
+        "governanceEffectiveLevel": "治理级别：{level}",
+        "governanceEffectiveControls": "能力状态：强制 {enforced} · 尽力 {bestEffort} · 观测 {observed} · 不支持 {unsupported}",
+        "governanceEffectiveHash": "请求契约：{hash}",
+        "governanceContinue": "知悉风险，继续下发",
+        "governanceRevise": "返回修改"
       },
       "expertMode": "专家模式",
       "expertHint": "逐字段微调(选了任务类型通常无需展开)",

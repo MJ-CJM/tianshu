@@ -6,12 +6,80 @@ import threading
 from datetime import UTC, datetime, timedelta
 
 from tianshu.models import Decree, Memorial, UsageSummary, resolve_failure_reason
+from tianshu.models.governance_contract import EffectiveGovernanceContractV1
 from tianshu.storage.mappers import _memorial_to_params, _row_to_memorial
 
 
 class MemorialMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
+
+    def _save_effective_governance_contract_unlocked(
+        self,
+        memorial_id: str,
+        edict_id: str,
+        contract: EffectiveGovernanceContractV1,
+    ) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO effective_governance_contracts
+                (memorial_id, edict_id, schema_version, requested_contract_hash,
+                 contract_json, contract_hash, executor_manifest_id,
+                 executor_manifest_version, executor_manifest_hash, runtime_probe_id,
+                 created_at)
+            VALUES (?, ?, '1', ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                memorial_id,
+                edict_id,
+                contract.requested_contract_hash,
+                contract.canonical_json(),
+                contract.content_hash,
+                contract.executor_manifest_id,
+                contract.executor_manifest_version,
+                contract.executor_manifest_hash,
+                contract.runtime_probe_id,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+
+    def save_effective_governance_contract(
+        self,
+        memorial_id: str,
+        edict_id: str,
+        contract: EffectiveGovernanceContractV1,
+    ) -> None:
+        with self._lock, self._conn:
+            self._save_effective_governance_contract_unlocked(
+                memorial_id,
+                edict_id,
+                contract,
+            )
+
+    def get_effective_governance_contract(
+        self,
+        memorial_id: str,
+    ) -> EffectiveGovernanceContractV1 | None:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT contract_json, contract_hash
+                FROM effective_governance_contracts WHERE memorial_id = ?
+                """,
+                (memorial_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        contract = EffectiveGovernanceContractV1.model_validate_json(row["contract_json"])
+        if contract.content_hash != row["contract_hash"]:
+            raise ValueError(f"effective governance contract hash mismatch for {memorial_id}")
+        return contract
+
+    def _row_with_effective_contract(self, row: sqlite3.Row) -> Memorial:
+        return _row_to_memorial(
+            row,
+            effective_governance_contract=self.get_effective_governance_contract(row["id"]),
+        )
 
     def save_memorial(self, memorial: Memorial) -> None:
         with self._lock, self._conn:
@@ -27,6 +95,12 @@ class MemorialMixin:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 _memorial_to_params(memorial),
             )
+            if memorial.effective_governance_contract is not None:
+                self._save_effective_governance_contract_unlocked(
+                    memorial.id,
+                    memorial.edict_id,
+                    memorial.effective_governance_contract,
+                )
 
     def update_memorial(self, memorial: Memorial) -> None:
         with self._lock, self._conn:
@@ -87,7 +161,7 @@ class MemorialMixin:
             row = self._conn.execute(
                 "SELECT * FROM memorials WHERE id = ?", (memorial_id,)
             ).fetchone()
-        return _row_to_memorial(row) if row else None
+        return self._row_with_effective_contract(row) if row else None
 
     def get_memorial_by_edict(self, edict_id: str) -> Memorial | None:
         with self._lock:
@@ -95,7 +169,7 @@ class MemorialMixin:
                 "SELECT * FROM memorials WHERE edict_id = ? ORDER BY created_at DESC LIMIT 1",
                 (edict_id,),
             ).fetchone()
-        return _row_to_memorial(row) if row else None
+        return self._row_with_effective_contract(row) if row else None
 
     def list_memorials_by_edict(self, edict_id: str) -> list[Memorial]:
         with self._lock:
@@ -103,7 +177,7 @@ class MemorialMixin:
                 "SELECT * FROM memorials WHERE edict_id = ? ORDER BY created_at ASC",
                 (edict_id,),
             ).fetchall()
-        return [_row_to_memorial(r) for r in rows]
+        return [self._row_with_effective_contract(r) for r in rows]
 
     def list_memorials(
         self, status: str | None = None, limit: int = 50, offset: int = 0
@@ -123,7 +197,7 @@ class MemorialMixin:
                     (limit, offset),
                 ).fetchall()
                 total = self._conn.execute("SELECT COUNT(*) FROM memorials").fetchone()[0]
-        return [_row_to_memorial(r) for r in rows], total
+        return [self._row_with_effective_contract(r) for r in rows], total
 
     def list_stale_memorials(
         self,
@@ -147,7 +221,7 @@ class MemorialMixin:
                 f"LIMIT ?",
                 (*statuses, cutoff, limit),
             ).fetchall()
-        return [_row_to_memorial(r) for r in rows]
+        return [self._row_with_effective_contract(r) for r in rows]
 
     # --- Decree ---
 

@@ -15,7 +15,7 @@ import {
   Typography,
 } from "antd";
 import { SendOutlined, ToolOutlined } from "@ant-design/icons";
-import { parseEdict } from "../../api/edicts";
+import { parseEdict, previewEdictGovernance } from "../../api/edicts";
 import { usePersonas } from "../../hooks/usePersonas";
 import { useT } from "../../i18n";
 import type {
@@ -24,6 +24,7 @@ import type {
   EdictCreateRequest,
   EdictRuntime,
   ExecutionProfile,
+  GovernanceContractPreview,
 } from "../../api/types";
 import type { PolicyProfileValue } from "../policy/PolicyProfilePanel";
 import PolicyProfilePanel from "../policy/PolicyProfilePanel";
@@ -34,6 +35,11 @@ import { EDICT_PRESETS, getPreset } from "./edictPresets";
 interface EdictFormProps {
   onSubmit: (values: EdictCreateRequest) => void;
   loading: boolean;
+}
+
+interface PendingGovernanceDispatch {
+  request: EdictCreateRequest;
+  preview: GovernanceContractPreview;
 }
 
 export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
@@ -48,6 +54,11 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
   const [nlLoading, setNlLoading] = useState(false);
   const [nlNotes, setNlNotes] = useState<string | null>(null);
   const [nlError, setNlError] = useState<string | null>(null);
+  const [governanceError, setGovernanceError] = useState<string | null>(null);
+  const [governanceAdvisory, setGovernanceAdvisory] = useState<string | null>(null);
+  const [pendingGovernanceDispatch, setPendingGovernanceDispatch] =
+    useState<PendingGovernanceDispatch | null>(null);
+  const [governancePreviewLoading, setGovernancePreviewLoading] = useState(false);
   const [netState, setNetState] = useState<{
     api_request_hosts: string[];
     api_request_write_hosts: string[];
@@ -95,7 +106,7 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     }
   };
 
-  const handleFinish = (values: Record<string, unknown>) => {
+  const handleFinish = async (values: Record<string, unknown>) => {
     const req: EdictCreateRequest = {
       goal: values.goal as string,
       title: (values.title as string) || undefined,
@@ -241,8 +252,62 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
       }
     }
 
-    onSubmit(req);
+    setGovernanceError(null);
+    setGovernanceAdvisory(null);
+    setPendingGovernanceDispatch(null);
+    setGovernancePreviewLoading(true);
+    try {
+      const preview = await previewEdictGovernance(req);
+      if (!preview.compatible) {
+        const incompatible =
+          preview.mandatory_mismatches.map((item) => item.capability).join(", ") ||
+          preview.execution_mode_mismatches
+            .map((item) => `${item.adapter_id}:${item.requested_mode}`)
+            .join(", ");
+        setGovernanceError(
+          t("form.edict.warning.governanceBlocked", {
+            capabilities: incompatible,
+          }),
+        );
+        return;
+      }
+      if (preview.advisory_gaps.length > 0) {
+        setGovernanceAdvisory(
+          t("form.edict.warning.governanceAdvisory", {
+            capabilities: preview.advisory_gaps.join(", "),
+          }),
+        );
+        setPendingGovernanceDispatch({
+          request: { ...req, governance_contract: preview.requested_contract },
+          preview,
+        });
+        return;
+      }
+      onSubmit({ ...req, governance_contract: preview.requested_contract });
+    } catch {
+      setGovernanceError(t("form.edict.warning.governanceUnavailable"));
+    } finally {
+      setGovernancePreviewLoading(false);
+    }
   };
+
+  const confirmGovernanceDispatch = () => {
+    if (!pendingGovernanceDispatch) return;
+    onSubmit(pendingGovernanceDispatch.request);
+    setPendingGovernanceDispatch(null);
+    setGovernanceAdvisory(null);
+  };
+
+  const reviseGovernanceDispatch = () => {
+    setPendingGovernanceDispatch(null);
+    setGovernanceAdvisory(null);
+  };
+
+  const effectiveContract = pendingGovernanceDispatch?.preview.effective_contract;
+  const effectiveControlCounts = effectiveContract?.effective_controls.reduce(
+    (counts, control) => ({ ...counts, [control.state]: counts[control.state] + 1 }),
+    { enforced: 0, best_effort: 0, observed: 0, unsupported: 0 },
+  );
 
   const executionGroup = (
     <>
@@ -504,8 +569,66 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
         />
       )}
 
+      {governanceError && <Alert type="error" showIcon message={governanceError} />}
+      {governanceAdvisory && pendingGovernanceDispatch && (
+        <Alert
+          type="warning"
+          showIcon
+          message={governanceAdvisory}
+          description={
+            <Space direction="vertical" size={2}>
+              <Typography.Text strong>
+                {t("form.edict.warning.governanceEffectiveTitle")}
+              </Typography.Text>
+              <Typography.Text>
+                {t("form.edict.warning.governanceEffectiveExecutor", {
+                  executor:
+                    effectiveContract?.executor_manifest_id ??
+                    effectiveContract?.executor.adapter_id ??
+                    "-",
+                })}
+              </Typography.Text>
+              <Typography.Text>
+                {t("form.edict.warning.governanceEffectiveLevel", {
+                  level: pendingGovernanceDispatch.preview.executor_level,
+                })}
+              </Typography.Text>
+              <Typography.Text>
+                {t("form.edict.warning.governanceEffectiveControls", {
+                  enforced: effectiveControlCounts?.enforced ?? 0,
+                  bestEffort: effectiveControlCounts?.best_effort ?? 0,
+                  observed: effectiveControlCounts?.observed ?? 0,
+                  unsupported: effectiveControlCounts?.unsupported ?? 0,
+                })}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                {t("form.edict.warning.governanceEffectiveHash", {
+                  hash: pendingGovernanceDispatch.preview.requested_contract_hash.slice(0, 12),
+                })}
+              </Typography.Text>
+            </Space>
+          }
+          action={
+            <Space direction="vertical">
+              <Button type="primary" onClick={confirmGovernanceDispatch}>
+                {t("form.edict.warning.governanceContinue")}
+              </Button>
+              <Button onClick={reviseGovernanceDispatch}>
+                {t("form.edict.warning.governanceRevise")}
+              </Button>
+            </Space>
+          }
+        />
+      )}
+
       <Form.Item>
-        <Button type="primary" htmlType="submit" loading={loading} icon={<SendOutlined />} size="large">
+        <Button
+          type="primary"
+          htmlType="submit"
+          loading={loading || governancePreviewLoading}
+          icon={<SendOutlined />}
+          size="large"
+        >
           {t("nav.edictCreate")}
         </Button>
       </Form.Item>

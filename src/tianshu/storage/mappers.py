@@ -22,6 +22,10 @@ from tianshu.models import (
     resolve_failure_reason,
 )
 from tianshu.models.acceptance import AcceptanceCriteria
+from tianshu.models.governance_contract import (
+    EffectiveGovernanceContractV1,
+    RequestedGovernanceContractV1,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +154,10 @@ def _row_to_universe(row: sqlite3.Row) -> dict:
     }
 
 
-def _row_to_edict(row: sqlite3.Row) -> Edict:
+def _row_to_edict(
+    row: sqlite3.Row,
+    governance_contract: RequestedGovernanceContractV1 | None = None,
+) -> Edict:
     # Handle optional Phase 1 columns gracefully
     keys = row.keys()
 
@@ -237,10 +244,14 @@ def _row_to_edict(row: sqlite3.Row) -> Edict:
         dispatch=dispatch,
         runtime=runtime,
         metadata=metadata,
+        governance_contract=governance_contract,
     )
 
 
-def _row_to_memorial(row: sqlite3.Row) -> Memorial:
+def _row_to_memorial(
+    row: sqlite3.Row,
+    effective_governance_contract: EffectiveGovernanceContractV1 | None = None,
+) -> Memorial:
     keys = row.keys()
     usage_data = json.loads(row["usage_json"]) if row["usage_json"] else {}
 
@@ -284,6 +295,7 @@ def _row_to_memorial(row: sqlite3.Row) -> Memorial:
         universe_id=row["universe_id"] if "universe_id" in keys else None,
         feedback_score=row["feedback_score"] if "feedback_score" in keys else 0,
         failure_reason=row["failure_reason"] if "failure_reason" in keys else None,
+        effective_governance_contract=effective_governance_contract,
     )
 
 

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.dag.graph import DAG
+from tianshu.executor.adapters import PreparedExecutor
 from tianshu.executor.agent import Agent
 from tianshu.executor.worker import Worker
 from tianshu.executor.worker_pool import WorkerPool, WorkItem
@@ -49,7 +50,13 @@ class DAGScheduler:
         self._node_results: dict[str, str] = {}
         self._node_usage: dict[str, UsageSummary] = {}
 
-    async def run(self, edict: Edict, execution: DAGExecution) -> None:
+    async def run(
+        self,
+        edict: Edict,
+        execution: DAGExecution,
+        *,
+        prepared_executor: PreparedExecutor | None = None,
+    ) -> None:
         """Run a full DAG execution to completion."""
         dag = DAG.from_execution(execution)
 
@@ -125,10 +132,24 @@ class DAGScheduler:
             if dag.is_complete():
                 completion_event.set()
             else:
-                await self._schedule_ready(edict, execution, dag, pending_tasks, on_node_complete)
+                await self._schedule_ready(
+                    edict,
+                    execution,
+                    dag,
+                    pending_tasks,
+                    on_node_complete,
+                    prepared_executor,
+                )
 
         # Initial scheduling
-        await self._schedule_ready(edict, execution, dag, pending_tasks, on_node_complete)
+        await self._schedule_ready(
+            edict,
+            execution,
+            dag,
+            pending_tasks,
+            on_node_complete,
+            prepared_executor,
+        )
 
         if not pending_tasks and dag.is_complete():
             completion_event.set()
@@ -217,6 +238,7 @@ class DAGScheduler:
         dag: DAG,
         pending_tasks: set[asyncio.Task],
         on_complete,
+        prepared_executor: PreparedExecutor | None = None,
     ) -> None:
         ready_nodes = dag.get_ready_nodes()
         for node in ready_nodes:
@@ -280,6 +302,7 @@ class DAGScheduler:
                         _node,
                         _upstream,
                         persona=_persona,
+                        prepared_executor=prepared_executor,
                     )
                     if result.result:
                         self._node_results[_node.node_id] = result.result

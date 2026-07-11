@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Literal
 
@@ -10,6 +11,12 @@ from pydantic import BaseModel, Field
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.edict_ops import submit_new_edict
+from tianshu.executor.capabilities import (
+    MandatoryCapabilityMismatch,
+    get_executor_manifest,
+    probe_host_capabilities,
+    resolve_governance_contract,
+)
 from tianshu.executor.executor import Executor
 from tianshu.gateway._helpers import _build_history
 from tianshu.gateway.auth import get_auth_context
@@ -26,7 +33,13 @@ from tianshu.models import (
     make_event,
 )
 from tianshu.models.api import ParseEdictRequest
-from tianshu.models.edict import title_from_goal
+from tianshu.models.edict import EdictRuntime, PolicyProfilePayload, title_from_goal
+from tianshu.models.governance_contract import (
+    AcceptancePolicyV1,
+    LegacyEdictGovernanceMapper,
+    RequestedGovernanceContractV1,
+    acceptance_policy_to_legacy,
+)
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -49,6 +62,180 @@ def _validate_network_runtime(runtime: object) -> None:
         )
 
 
+def _workspace_source_id(request: Request) -> str:
+    settings = getattr(request.app.state, "settings", None)
+    workspace = str(getattr(settings, "workspace_dir", "legacy-default"))
+    digest = hashlib.sha256(workspace.encode()).hexdigest()[:16]
+    return f"workspace-{digest}"
+
+
+def _runtime_from_request(body: EdictCreateRequest, request: Request) -> EdictRuntime:
+    agent_cfg = request.app.state.config_manager.agent_config
+    rt_data: dict = {
+        "timeout_seconds": agent_cfg.agent_timeout_seconds,
+        "max_iterations": agent_cfg.agent_max_iterations,
+        "max_concurrency": agent_cfg.agent_max_concurrency,
+        "retry_limit": agent_cfg.agent_retry_limit,
+    }
+    if agent_cfg.agent_token_budget:
+        rt_data["token_budget"] = agent_cfg.agent_token_budget
+    if agent_cfg.agent_cost_budget_cny:
+        rt_data["cost_budget_cny"] = agent_cfg.agent_cost_budget_cny
+
+    contract = body.governance_contract
+    if contract is not None:
+        executor_options = {item.name: item.value for item in contract.executor.config}
+        rt_data.update(
+            {
+                "executor": contract.executor.adapter_id,
+                "timeout_seconds": contract.budget.wall_clock_seconds,
+                "max_iterations": contract.budget.max_iterations,
+                "max_concurrency": contract.budget.max_concurrency,
+                "retry_limit": contract.budget.retry_limit,
+                "token_budget": contract.budget.token_limit,
+                "cost_budget_cny": (
+                    float(contract.budget.cost_limit_cny)
+                    if contract.budget.cost_limit_cny is not None
+                    else None
+                ),
+                "approval_required_tools": list(contract.permissions.approval_required_tools),
+                "api_request_hosts": contract.network.allowed_hosts,
+                "api_request_write_hosts": contract.network.write_hosts,
+                "fetch_engine_override": executor_options.get("fetch_engine_override"),
+                "search_provider_override": executor_options.get("search_provider_override"),
+            }
+        )
+        permissions = contract.permissions
+        if (
+            permissions.policy_profile_name
+            or permissions.allowed_paths
+            or permissions.allowed_bash_prefixes
+            or permissions.tier_overrides
+            or permissions.auto_approve_max_tier != 1
+            or permissions.expires_after_seconds is not None
+        ):
+            rt_data["policy_profile"] = PolicyProfilePayload(
+                allowed_paths=list(permissions.allowed_paths),
+                allowed_bash_prefixes=list(permissions.allowed_bash_prefixes),
+                tier_overrides=dict(permissions.tier_overrides),
+                auto_approve_max_tier=permissions.auto_approve_max_tier,
+                expires_after_seconds=permissions.expires_after_seconds,
+                template_name=permissions.policy_profile_name,
+            )
+    if body.runtime:
+        rt_data.update(
+            {
+                key: value
+                for key, value in body.runtime.model_dump(exclude_unset=True).items()
+                if value is not None
+            }
+        )
+    runtime = EdictRuntime(**rt_data)
+    _validate_network_runtime(runtime)
+    return runtime
+
+
+def _requested_contract_from_body(
+    body: EdictCreateRequest,
+    request: Request,
+    runtime: EdictRuntime,
+) -> RequestedGovernanceContractV1:
+    if body.governance_contract is not None:
+        return body.governance_contract
+    legacy = Edict(
+        goal=body.goal,
+        context=body.context,
+        constraints=body.constraints or [],
+        output_format=body.output_format,
+        review_policy=body.review_policy or "never",
+        runtime=runtime,
+        acceptance=body.acceptance,
+    )
+    return LegacyEdictGovernanceMapper.from_edict(
+        legacy,
+        default_workspace_id=_workspace_source_id(request),
+    )
+
+
+def _execution_mode_from_body(
+    body: EdictCreateRequest,
+    contract: RequestedGovernanceContractV1,
+) -> Literal["single", "outer_loop"]:
+    if body.acceptance is not None or contract.acceptance != AcceptancePolicyV1():
+        return "outer_loop"
+    return "single"
+
+
+def _governance_preview(
+    contract: RequestedGovernanceContractV1,
+    *,
+    execution_mode: Literal["single", "outer_loop"],
+) -> dict:
+    try:
+        manifest = get_executor_manifest(contract.executor.adapter_id)
+    except KeyError as exc:
+        raise HTTPException(
+            422,
+            {
+                "code": "unknown_executor_adapter",
+                "adapter_id": contract.executor.adapter_id,
+            },
+        ) from exc
+    probe = probe_host_capabilities()
+    if execution_mode not in manifest.execution_modes:
+        return {
+            "compatible": False,
+            "requested_contract": contract.model_dump(mode="json"),
+            "requested_contract_hash": contract.content_hash,
+            "effective_contract": None,
+            "mandatory_mismatches": [],
+            "execution_mode": execution_mode,
+            "execution_mode_mismatches": [
+                {
+                    "adapter_id": manifest.adapter_id,
+                    "requested_mode": execution_mode,
+                    "supported_modes": list(manifest.execution_modes),
+                }
+            ],
+            "advisory_gaps": [],
+            "executor_level": manifest.level.value,
+            "experimental": manifest.experimental,
+            "manifest_hash": manifest.content_hash,
+            "runtime_probe_id": probe.probe_id,
+        }
+    try:
+        effective = resolve_governance_contract(contract, manifest, probe)
+    except MandatoryCapabilityMismatch as exc:
+        return {
+            "compatible": False,
+            "requested_contract": contract.model_dump(mode="json"),
+            "requested_contract_hash": contract.content_hash,
+            "effective_contract": None,
+            "mandatory_mismatches": [item.model_dump(mode="json") for item in exc.mismatches],
+            "execution_mode": execution_mode,
+            "execution_mode_mismatches": [],
+            "advisory_gaps": [],
+            "executor_level": manifest.level.value,
+            "experimental": manifest.experimental,
+            "manifest_hash": manifest.content_hash,
+            "runtime_probe_id": probe.probe_id,
+        }
+    return {
+        "compatible": True,
+        "requested_contract": contract.model_dump(mode="json"),
+        "requested_contract_hash": contract.content_hash,
+        "effective_contract": effective.model_dump(mode="json"),
+        "mandatory_mismatches": [],
+        "execution_mode": execution_mode,
+        "execution_mode_mismatches": [],
+        "advisory_gaps": list(effective.unsupported_advisory),
+        "executor_level": manifest.level.value,
+        "experimental": manifest.experimental,
+        "manifest_hash": manifest.content_hash,
+        "runtime_probe_id": probe.probe_id,
+    }
+
+
 @edicts_router.post("", response_model=ApiResponse, status_code=202)
 async def create_edict(body: EdictCreateRequest, request: Request):
     storage: Storage = request.app.state.storage
@@ -68,47 +255,45 @@ async def create_edict(body: EdictCreateRequest, request: Request):
                 metadata={"deduplicated": True},
             )
 
+    runtime = _runtime_from_request(body, request)
+    requested_contract = _requested_contract_from_body(body, request, runtime)
+    execution_mode = _execution_mode_from_body(body, requested_contract)
+    preview = _governance_preview(requested_contract, execution_mode=execution_mode)
+    if not preview["compatible"]:
+        mode_mismatches = preview["execution_mode_mismatches"]
+        raise HTTPException(
+            422,
+            {
+                "code": (
+                    "governance_execution_mode_mismatch"
+                    if mode_mismatches
+                    else "governance_capability_mismatch"
+                ),
+                "mismatches": mode_mismatches or preview["mandatory_mismatches"],
+            },
+        )
+
     title = title_from_goal(body.goal, body.title)
     edict_kwargs: dict = {
         "title": title,
         "goal": body.goal,
-        "context": body.context,
+        "context": requested_contract.objective.context,
         "submitter": submitter,
+        "constraints": list(requested_contract.objective.constraints),
+        "output_format": requested_contract.objective.output_format,
+        "review_policy": requested_contract.permissions.review_policy,
+        "runtime": runtime,
+        "governance_contract": requested_contract,
     }
     if body.idempotency_key:
         edict_kwargs["idempotency_key"] = body.idempotency_key
     if body.priority:
         edict_kwargs["priority"] = body.priority
-    if body.review_policy:
-        edict_kwargs["review_policy"] = body.review_policy
-    if body.constraints:
-        edict_kwargs["constraints"] = body.constraints
-    if body.output_format:
-        edict_kwargs["output_format"] = body.output_format
-    if body.runtime is not None:
-        _validate_network_runtime(body.runtime)
-    # Q7:平台级默认打底,body.runtime 覆盖差异——全局设一次,创建不用逐字段重填。
-    from tianshu.models.edict import EdictRuntime
-
-    agent_cfg = request.app.state.config_manager.agent_config
-    rt_data: dict = {
-        "timeout_seconds": agent_cfg.agent_timeout_seconds,
-        "max_iterations": agent_cfg.agent_max_iterations,
-        "max_concurrency": agent_cfg.agent_max_concurrency,
-        "retry_limit": agent_cfg.agent_retry_limit,
-    }
-    if agent_cfg.agent_token_budget:
-        rt_data["token_budget"] = agent_cfg.agent_token_budget
-    if agent_cfg.agent_cost_budget_cny:
-        rt_data["cost_budget_cny"] = agent_cfg.agent_cost_budget_cny
-    if body.runtime:
-        rt_data.update({k: v for k, v in body.runtime.model_dump().items() if v is not None})
-    edict_kwargs["runtime"] = EdictRuntime(**rt_data)
     # 六科给事中·封驳(迭代 7):提交预检——超长封还 / 成本超阈升 plan_review 票拟(D9)
     from tianshu.executor.liuke import Liuke
 
     precheck = Liuke(storage, request.app.state.config_manager).precheck(
-        body.goal, rt_data.get("cost_budget_cny")
+        body.goal, runtime.cost_budget_cny
     )
     if precheck.verdict == "reject":
         raise HTTPException(422, f"六科封还:{precheck.reason}")
@@ -128,6 +313,8 @@ async def create_edict(body: EdictCreateRequest, request: Request):
         edict_kwargs["plan_review"] = True
     if body.acceptance is not None:
         edict_kwargs["acceptance"] = body.acceptance
+    elif requested_contract.acceptance != AcceptancePolicyV1():
+        edict_kwargs["acceptance"] = acceptance_policy_to_legacy(requested_contract.acceptance)
     if body.execution_profile != "foreground":
         edict_kwargs["execution_profile"] = body.execution_profile
     edict = Edict(**edict_kwargs)
@@ -177,6 +364,17 @@ async def parse_edict_nl(body: ParseEdictRequest, request: Request):
     return ApiResponse(success=True, data={"draft": draft, "notes": notes})
 
 
+@edicts_router.post("/governance/preview", response_model=ApiResponse)
+def preview_governance_contract(body: EdictCreateRequest, request: Request):
+    runtime = _runtime_from_request(body, request)
+    contract = _requested_contract_from_body(body, request, runtime)
+    execution_mode = _execution_mode_from_body(body, contract)
+    return ApiResponse(
+        success=True,
+        data=_governance_preview(contract, execution_mode=execution_mode),
+    )
+
+
 @edicts_router.get("")
 def list_edicts(
     request: Request,
@@ -216,6 +414,19 @@ def update_edict(edict_id: str, body: EdictUpdateRequest, request: Request):
         raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
     if edict.status != EdictStatus.OPEN:
         raise HTTPException(status_code=400, detail="只有进行中的敕令可以编辑")
+    contract = edict.governance_contract
+    if contract is not None:
+        objective_changed = (body.goal is not None and body.goal != contract.objective.goal) or (
+            body.context is not None and body.context != contract.objective.context
+        )
+        if objective_changed:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "governance_contract_frozen",
+                    "message": "goal/context are frozen by the requested governance contract",
+                },
+            )
     storage.update_edict(edict_id, title=body.title, goal=body.goal, context=body.context)
     storage.append_event(
         edict_id,
@@ -491,7 +702,11 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
     runtime_override_dict: dict | None = None
     if body.runtime_override is not None:
         _validate_network_runtime(body.runtime_override)
-        rt_data = {k: v for k, v in body.runtime_override.model_dump().items() if v is not None}
+        rt_data = {
+            k: v
+            for k, v in body.runtime_override.model_dump(exclude_unset=True).items()
+            if v is not None
+        }
         runtime_override_dict = rt_data or None
 
     memorial = Memorial(

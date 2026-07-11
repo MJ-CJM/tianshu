@@ -1,5 +1,5 @@
 import apiClient from "./client";
-import type { AcceptanceCriteria, ApiResponse, Edict, EdictCreateRequest, EdictRuntime, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent, OuterLoopIteration, SupervisionReport } from "./types";
+import type { AcceptanceCriteria, ApiResponse, Edict, EdictCreateRequest, EdictRuntime, EdictStatus, EdictUpdateRequest, GovernanceContractPreview, Memorial, EdictEvent, OuterLoopIteration, SupervisionReport } from "./types";
 
 export async function getOuterLoopIterations(edictId: string): Promise<ApiResponse<OuterLoopIteration[]>> {
   const { data } = await apiClient.get<ApiResponse<OuterLoopIteration[]>>(
@@ -31,6 +31,16 @@ export async function createEdict(body: EdictCreateRequest): Promise<ApiResponse
     body,
   );
   return data;
+}
+
+export async function previewEdictGovernance(
+  body: EdictCreateRequest,
+): Promise<GovernanceContractPreview> {
+  const { data } = await apiClient.post<ApiResponse<GovernanceContractPreview>>(
+    "/edicts/governance/preview",
+    body,
+  );
+  return data.data!;
 }
 
 export async function listEdicts(params: {

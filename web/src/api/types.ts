@@ -103,6 +103,7 @@ export interface Edict {
   plan_review?: boolean;
   acceptance?: AcceptanceCriteria | null;
   execution_profile?: ExecutionProfile;
+  governance_contract?: Record<string, unknown> | null;
 }
 
 export interface AuditResult {
@@ -205,6 +206,58 @@ export interface EdictCreateRequest {
   plan_review?: boolean;
   acceptance?: AcceptanceCriteria | null;
   execution_profile?: ExecutionProfile;
+  governance_contract?: Record<string, unknown>;
+}
+
+export interface GovernanceCapabilityMismatch {
+  capability: string;
+  required_state: "enforced";
+  available_state: "enforced" | "best_effort" | "observed" | "unsupported";
+  manifest_id: string;
+  reason: string;
+}
+
+export type GovernanceCapabilityState = "enforced" | "best_effort" | "observed" | "unsupported";
+
+export interface GovernanceEffectiveControl {
+  capability: string;
+  requested_mode: "mandatory" | "advisory" | "unrequested";
+  state: GovernanceCapabilityState;
+  evidence: string[];
+}
+
+export interface GovernanceEffectiveContract {
+  [key: string]: unknown;
+  requested_contract_hash: string;
+  executor: {
+    [key: string]: unknown;
+    adapter_id: string;
+    model?: string | null;
+  };
+  executor_manifest_id: string;
+  executor_manifest_version: string;
+  runtime_probe_id: string;
+  effective_controls: GovernanceEffectiveControl[];
+  unsupported_advisory: string[];
+}
+
+export interface GovernanceContractPreview {
+  compatible: boolean;
+  requested_contract: Record<string, unknown>;
+  requested_contract_hash: string;
+  effective_contract: GovernanceEffectiveContract | null;
+  mandatory_mismatches: GovernanceCapabilityMismatch[];
+  execution_mode: "single" | "outer_loop";
+  execution_mode_mismatches: Array<{
+    adapter_id: string;
+    requested_mode: "single" | "outer_loop";
+    supported_modes: Array<"single" | "dag" | "outer_loop">;
+  }>;
+  advisory_gaps: string[];
+  executor_level: "managed" | "contained" | "observe-only";
+  experimental: boolean;
+  manifest_hash: string;
+  runtime_probe_id: string;
 }
 
 export interface OuterLoopIteration {

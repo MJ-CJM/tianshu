@@ -39,7 +39,46 @@ _AUTH_TOKEN_STATEMENTS = (
     "CREATE INDEX idx_auth_tokens_active ON auth_tokens(token_type, revoked_at, expires_at)",
 )
 _AUTH_TOKEN_CHECKSUM = hashlib.sha256(
-    ("0002_auth_tokens\n" + "\n".join(" ".join(sql.split()) for sql in _AUTH_TOKEN_STATEMENTS)).encode()
+    (
+        "0002_auth_tokens\n" + "\n".join(" ".join(sql.split()) for sql in _AUTH_TOKEN_STATEMENTS)
+    ).encode()
+).hexdigest()
+
+_GOVERNANCE_CONTRACT_STATEMENTS = (
+    """
+    CREATE TABLE requested_governance_contracts (
+        edict_id TEXT PRIMARY KEY REFERENCES edicts(id) ON DELETE CASCADE,
+        schema_version TEXT NOT NULL CHECK (schema_version = '1'),
+        contract_json TEXT NOT NULL,
+        contract_hash TEXT NOT NULL CHECK (length(contract_hash) = 64),
+        source TEXT NOT NULL CHECK (source IN ('explicit', 'legacy_derived')),
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX idx_requested_governance_hash ON requested_governance_contracts(contract_hash)",
+    """
+    CREATE TABLE effective_governance_contracts (
+        memorial_id TEXT PRIMARY KEY REFERENCES memorials(id) ON DELETE CASCADE,
+        edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE CASCADE,
+        schema_version TEXT NOT NULL CHECK (schema_version = '1'),
+        requested_contract_hash TEXT NOT NULL CHECK (length(requested_contract_hash) = 64),
+        contract_json TEXT NOT NULL,
+        contract_hash TEXT NOT NULL CHECK (length(contract_hash) = 64),
+        executor_manifest_id TEXT NOT NULL,
+        executor_manifest_version TEXT NOT NULL,
+        executor_manifest_hash TEXT NOT NULL CHECK (length(executor_manifest_hash) = 64),
+        runtime_probe_id TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX idx_effective_governance_edict ON effective_governance_contracts(edict_id)",
+    "CREATE INDEX idx_effective_governance_hash ON effective_governance_contracts(contract_hash)",
+)
+_GOVERNANCE_CONTRACT_CHECKSUM = hashlib.sha256(
+    (
+        "0003_governance_contracts\n"
+        + "\n".join(" ".join(sql.split()) for sql in _GOVERNANCE_CONTRACT_STATEMENTS)
+    ).encode()
 ).hexdigest()
 
 type _Connection = sqlite3.Connection | MigrationConnection
@@ -1223,6 +1262,97 @@ def _auth_tokens_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+def _validate_governance_contract_schema(conn: MigrationConnection) -> bool:
+    table_names = _table_names(conn)
+    expected_tables = {
+        "requested_governance_contracts",
+        "effective_governance_contracts",
+    }
+    present = table_names & expected_tables
+    if not present:
+        return False
+    if present != expected_tables:
+        raise SchemaCompatibilityError("partial governance contract schema is incompatible")
+
+    reference = sqlite3.connect(":memory:")
+    try:
+        for statement in _GOVERNANCE_CONTRACT_STATEMENTS:
+            reference.execute(statement)
+        for table in expected_tables:
+            if _table_signature(conn, table) != _table_signature(reference, table):
+                raise SchemaCompatibilityError(f"existing {table} table is incompatible")
+        if _named_indexes(conn, expected_tables) != _named_indexes(reference, expected_tables):
+            raise SchemaCompatibilityError("existing governance contract indexes are incompatible")
+    finally:
+        reference.close()
+    return True
+
+
+def _backfill_requested_governance_contracts(conn: MigrationConnection) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from tianshu.models.acceptance import AcceptanceCriteria
+    from tianshu.models.edict import EdictRuntime
+    from tianshu.models.governance_contract import LegacyEdictGovernanceMapper
+
+    rows = conn.execute(
+        """
+        SELECT id, goal, context, constraints_json, output_format, review_policy,
+               runtime_json, acceptance_json, created_at
+        FROM edicts
+        WHERE id NOT IN (SELECT edict_id FROM requested_governance_contracts)
+        ORDER BY id
+        """
+    ).fetchall()
+    for row in rows:
+        runtime = EdictRuntime.model_validate_json(row[6] or "{}")
+        runtime_updates: dict[str, object] = {}
+        if runtime.timeout_seconds <= 0:
+            runtime_updates["timeout_seconds"] = 1
+        if runtime.max_iterations <= 0:
+            runtime_updates["max_iterations"] = 1
+        if runtime.max_concurrency <= 0:
+            runtime_updates["max_concurrency"] = 1
+        if runtime.retry_limit < 0:
+            runtime_updates["retry_limit"] = 0
+        if runtime.token_budget is not None and runtime.token_budget <= 0:
+            runtime_updates["token_budget"] = None
+        if runtime.cost_budget_cny is not None and runtime.cost_budget_cny <= 0:
+            runtime_updates["cost_budget_cny"] = None
+        if runtime_updates:
+            runtime = runtime.model_copy(update=runtime_updates)
+        acceptance = AcceptanceCriteria.model_validate_json(row[7]) if row[7] else None
+        legacy = SimpleNamespace(
+            goal=str(row[1]),
+            context=row[2],
+            constraints=json.loads(row[3] or "[]"),
+            output_format=row[4],
+            review_policy=row[5] or "never",
+            runtime=runtime,
+            acceptance=acceptance,
+        )
+        contract = LegacyEdictGovernanceMapper.from_edict(
+            legacy,
+            default_workspace_id="legacy-default",
+        )
+        conn.execute(
+            """
+            INSERT INTO requested_governance_contracts
+                (edict_id, schema_version, contract_json, contract_hash, source, created_at)
+            VALUES (?, '1', ?, ?, 'legacy_derived', ?)
+            """,
+            (row[0], contract.canonical_json(), contract.content_hash, row[8]),
+        )
+
+
+def _governance_contracts_upgrade(conn: MigrationConnection) -> None:
+    if not _validate_governance_contract_schema(conn):
+        for statement in _GOVERNANCE_CONTRACT_STATEMENTS:
+            conn.execute(statement)
+    _backfill_requested_governance_contracts(conn)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -1235,6 +1365,12 @@ MIGRATIONS = (
         name="0002_auth_tokens",
         checksum=_AUTH_TOKEN_CHECKSUM,
         upgrade=_auth_tokens_upgrade,
+    ),
+    Migration(
+        version=3,
+        name="0003_governance_contracts",
+        checksum=_GOVERNANCE_CONTRACT_CHECKSUM,
+        upgrade=_governance_contracts_upgrade,
     ),
 )
 

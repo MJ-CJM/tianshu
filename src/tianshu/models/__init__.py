@@ -28,6 +28,10 @@ from tianshu.models.decree import Decree
 from tianshu.models.edict import Edict, EdictDispatch, EdictRuntime, EdictSchedule
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.failure import FailureReason, classify_failure, resolve_failure_reason
+from tianshu.models.governance_contract import (
+    EffectiveGovernanceContractV1,
+    RequestedGovernanceContractV1,
+)
 from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan, PlanTask
 
@@ -51,6 +55,9 @@ __all__ = [
     "FailureReason",
     "classify_failure",
     "resolve_failure_reason",
+    # governance contract
+    "RequestedGovernanceContractV1",
+    "EffectiveGovernanceContractV1",
     # decree
     "Decree",
     # events
