@@ -123,10 +123,19 @@ class DelegatingExecutorAdapter:
             if edict.goal == prepared.instruction
             else edict.model_copy(update={"goal": prepared.instruction})
         )
-        mapped = LegacyEdictGovernanceMapper.from_edict(
-            execution_edict,
-            default_workspace_id=prepared.effective.workspace.source_id,
-        )
+        mapped = execution_edict.governance_contract
+        if mapped is None:
+            mapped = LegacyEdictGovernanceMapper.from_edict(
+                execution_edict,
+                default_workspace_id=prepared.effective.workspace.source_id,
+            )
+        elif memorial is not None:
+            mapped = LegacyEdictGovernanceMapper.apply_run_overrides(
+                mapped,
+                execution_edict,
+                runtime_overridden=getattr(memorial, "runtime_override", None) is not None,
+                acceptance_overridden=(getattr(memorial, "acceptance_override", None) is not None),
+            )
         mapped_permissions = mapped.permissions.model_copy(
             update={"secret_refs": prepared.effective.permissions.secret_refs}
         )

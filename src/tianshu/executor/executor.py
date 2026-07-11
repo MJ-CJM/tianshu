@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
+from contextlib import nullcontext
 from copy import copy
 from datetime import UTC, datetime
+from pathlib import Path
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
@@ -23,8 +26,18 @@ from tianshu.executor.capabilities import (
     native_manifest,
 )
 from tianshu.executor.execution_gateway import ExecutionGateway
+from tianshu.executor.workspace_context import BoundWorkspace, bind_workspace
+from tianshu.executor.workspace_runtime import (
+    WorkspaceContractError,
+    WorkspaceRuntime,
+    WorkspaceTerminalEvidence,
+    complete_workspace_lifecycle,
+    shield_workspace_lifecycle,
+)
+from tianshu.executor.workspace_service import WorkspaceError, WorkspaceService
 from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models.common import TaskStatus
+from tianshu.models.dag import DAGExecution, DAGNodeStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.failure import resolve_failure_reason
@@ -52,6 +65,8 @@ class Executor:
         hook_registry: HookRegistry,
         session_rule_store: object | None = None,
         execution_gateway: ExecutionGateway | None = None,
+        workspace_service: WorkspaceService | None = None,
+        workspace_sources: Mapping[str, Path] | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
@@ -59,6 +74,11 @@ class Executor:
         self._hooks = hook_registry
         self._session_rule_store = session_rule_store
         self._execution_gateway = execution_gateway or ExecutionGateway()
+        self._workspace_runtime = WorkspaceRuntime(
+            storage=storage,
+            service=workspace_service,
+            workspace_sources=workspace_sources,
+        )
         self._agent = None  # set via set_agent()
         self._dag_scheduler = None  # set via set_dag_scheduler()
         self._lane_manager = None  # set via set_lane_manager()
@@ -215,10 +235,11 @@ class Executor:
             )
             self._storage.save_memorial(root_memorial)
         try:
-            prepared_executor = self._prepare_governed_executor(
+            prepared_executor, bound_workspace = await self._prepare_runtime_or_cancel(
                 edict,
                 root_memorial,
                 execution_mode="dag",
+                dag_id=execution.id,
             )
         except MandatoryCapabilityMismatch as exc:
             await self._reject_capability_mismatch(edict, root_memorial, exc)
@@ -226,36 +247,120 @@ class Executor:
         except UnsupportedExecutorMode as exc:
             await self._reject_executor_mode(edict, root_memorial, exc)
             return
-        root_memorial.status = TaskStatus.RUNNING
-        root_memorial.started_at = datetime.now(UTC)
-        self._stamp_universe(root_memorial)
-        self._storage.update_memorial(root_memorial)
+        except (WorkspaceContractError, WorkspaceError) as exc:
+            await self._reject_workspace_runtime(edict, root_memorial, exc)
+            return
+
         execution.root_memorial_id = root_memorial.id
+        await self._run_prepared_dag(
+            edict,
+            execution,
+            root_memorial,
+            prepared_executor,
+            bound_workspace,
+            save_execution=True,
+        )
 
-        # Persist DAG
-        self._storage.save_dag_execution(execution)
+    async def _run_prepared_dag(
+        self,
+        edict: Edict,
+        execution: DAGExecution,
+        root_memorial: Memorial,
+        prepared_executor: PreparedExecutor,
+        bound_workspace: BoundWorkspace | None,
+        *,
+        save_execution: bool,
+    ) -> None:
+        """Run one governed DAG attempt under its root workspace lease."""
+        cancelled_error: asyncio.CancelledError | None = None
+        terminal_evidence = WorkspaceTerminalEvidence()
+        binding = bind_workspace(bound_workspace) if bound_workspace is not None else nullcontext()
+        with binding:
+            try:
+                root_memorial.status = TaskStatus.RUNNING
+                root_memorial.started_at = datetime.now(UTC)
+                self._stamp_universe(root_memorial)
+                self._storage.update_memorial(root_memorial)
+                if save_execution:
+                    self._storage.save_dag_execution(execution)
 
-        # Setup lanes
-        session_lane = None
-        global_lane = None
-        if self._lane_manager:
-            session_lane = self._lane_manager.get_session_lane(
-                edict.id,
-                max_concurrency,
+                if self._lane_manager:
+                    self._dag_scheduler._session_lane = self._lane_manager.get_session_lane(
+                        edict.id,
+                        execution.max_concurrency,
+                    )
+                    self._dag_scheduler._global_lane = self._lane_manager.global_lane
+
+                await self._dag_scheduler.run(
+                    edict,
+                    execution,
+                    prepared_executor=prepared_executor,
+                )
+            except asyncio.CancelledError as exc:
+                cancelled_error = exc
+                root_memorial.status = TaskStatus.CANCELLED
+                root_memorial.error = "DAG execution cancelled"
+                root_memorial.completed_at = datetime.now(UTC)
+                self._storage.update_memorial(root_memorial)
+                execution.status = "cancelled"
+                execution.completed_at = root_memorial.completed_at
+                self._storage.update_dag_execution_status(
+                    execution.id,
+                    execution.status,
+                    completed_at=execution.completed_at,
+                )
+            except Exception as exc:
+                logger.exception("DAG execution failed for edict %s", edict.id)
+                root_memorial.status = TaskStatus.FAILED
+                root_memorial.error = str(exc)
+                root_memorial.completed_at = datetime.now(UTC)
+                self._storage.update_memorial(root_memorial)
+                execution.status = "failed"
+                execution.completed_at = root_memorial.completed_at
+                self._storage.update_dag_execution_status(
+                    execution.id,
+                    execution.status,
+                    completed_at=execution.completed_at,
+                )
+            finally:
+                if self._lane_manager:
+                    self._lane_manager.remove_session(edict.id)
+                terminal_memorial = self._storage.get_memorial(root_memorial.id) or root_memorial
+                terminal_evidence, terminal_cancellation = await complete_workspace_lifecycle(
+                    self._workspace_runtime.finalize(
+                        bound_workspace,
+                        terminal_memorial.status,
+                    )
+                )
+                if terminal_cancellation is not None and cancelled_error is None:
+                    cancelled_error = terminal_cancellation
+
+        terminal_memorial = self._storage.get_memorial(root_memorial.id) or root_memorial
+        event_type = {
+            TaskStatus.COMPLETED: "execution.completed",
+            TaskStatus.CANCELLED: "execution.cancelled",
+        }.get(terminal_memorial.status, "execution.failed")
+        await self._bus.emit(
+            make_event(
+                event_type,
+                edict_id=edict.id,
+                memorial_id=root_memorial.id,
+                producer="executor",
+                payload={
+                    "dag_id": execution.id,
+                    "status": terminal_memorial.status.value,
+                    "error": terminal_memorial.error,
+                    "failure_reason": resolve_failure_reason(
+                        terminal_memorial.status.value,
+                        terminal_memorial.error,
+                        terminal_memorial.failure_reason,
+                    ),
+                    **terminal_evidence.event_payload(),
+                },
             )
-            global_lane = self._lane_manager.global_lane
-            self._dag_scheduler._session_lane = session_lane
-            self._dag_scheduler._global_lane = global_lane
-
-        try:
-            await self._dag_scheduler.run(
-                edict,
-                execution,
-                prepared_executor=prepared_executor,
-            )
-        finally:
-            if self._lane_manager:
-                self._lane_manager.remove_session(edict.id)
+        )
+        if cancelled_error is not None:
+            raise cancelled_error
 
     def _stamp_universe(self, memorial: Memorial) -> None:
         """执行开始时固化 memorial 所属位面（一旦设定，本次运行内不变）。"""
@@ -263,6 +368,21 @@ class Executor:
             memorial.universe_id = self._universe_manager.route_for_memorial(memorial.id)
 
     def _prepare_governed_executor(
+        self,
+        edict: Edict,
+        memorial: Memorial,
+        *,
+        execution_mode: ExecutionMode,
+    ) -> PreparedExecutor:
+        prepared = self._resolve_governed_executor(
+            edict,
+            memorial,
+            execution_mode=execution_mode,
+        )
+        self._persist_effective_contract(edict, memorial, prepared)
+        return prepared
+
+    def _resolve_governed_executor(
         self,
         edict: Edict,
         memorial: Memorial,
@@ -296,19 +416,128 @@ class Executor:
             memorial.effective_governance_contract = existing
             return prepared
 
-        prepared = self._adapter_registry.prepare(
+        return self._adapter_registry.prepare(
             requested,
             run_id=memorial.id,
             instruction=memorial.instruction or requested.objective.goal,
             execution_mode=execution_mode,
         )
-        self._storage.save_effective_governance_contract(
-            memorial.id,
-            edict.id,
-            prepared.effective,
-        )
+
+    def _persist_effective_contract(
+        self,
+        edict: Edict,
+        memorial: Memorial,
+        prepared: PreparedExecutor,
+    ) -> None:
+        existing = self._storage.get_effective_governance_contract(memorial.id)
+        if existing is None:
+            self._storage.save_effective_governance_contract(
+                memorial.id,
+                edict.id,
+                prepared.effective,
+            )
+        elif existing.content_hash != prepared.effective.content_hash:
+            raise RuntimeError(f"effective governance contract drift for memorial {memorial.id}")
         memorial.effective_governance_contract = prepared.effective
-        return prepared
+
+    async def _prepare_runtime_executor(
+        self,
+        edict: Edict,
+        memorial: Memorial,
+        *,
+        execution_mode: ExecutionMode,
+    ) -> tuple[PreparedExecutor, BoundWorkspace | None]:
+        prepared = self._resolve_governed_executor(
+            edict,
+            memorial,
+            execution_mode=execution_mode,
+        )
+        workspace = await self._workspace_runtime.prepare(prepared.effective, memorial)
+        try:
+            if workspace.effective.content_hash != prepared.effective.content_hash:
+                prepared = self._adapter_registry.bind_effective(
+                    workspace.effective,
+                    run_id=memorial.id,
+                    instruction=prepared.prepared.instruction,
+                    execution_mode=execution_mode,
+                )
+            self._persist_effective_contract(edict, memorial, prepared)
+            return prepared, workspace.bound
+        except BaseException as exc:
+            await self._workspace_runtime.finalize(workspace.bound, TaskStatus.FAILED)
+            if not isinstance(exc, Exception):
+                raise
+            raise WorkspaceContractError(f"workspace startup failed: {exc}") from exc
+
+    async def _prepare_runtime_or_cancel(
+        self,
+        edict: Edict,
+        memorial: Memorial,
+        *,
+        execution_mode: ExecutionMode,
+        dag_id: str | None = None,
+    ) -> tuple[PreparedExecutor, BoundWorkspace | None]:
+        try:
+            return await self._prepare_runtime_executor(
+                edict,
+                memorial,
+                execution_mode=execution_mode,
+            )
+        except asyncio.CancelledError:
+            await shield_workspace_lifecycle(
+                self._cancel_before_running(edict, memorial, dag_id=dag_id)
+            )
+            raise
+
+    async def _cancel_before_running(
+        self,
+        edict: Edict,
+        memorial: Memorial,
+        *,
+        dag_id: str | None,
+    ) -> None:
+        memorial.status = TaskStatus.CANCELLED
+        memorial.error = "Task was cancelled before execution started"
+        memorial.completed_at = datetime.now(UTC)
+        self._storage.update_memorial(memorial)
+        lease = self._storage.get_workspace_lease_by_run(memorial.id)
+        change_set = (
+            self._storage.get_latest_canonical_change_set_for_lease(lease.id)
+            if lease is not None
+            else None
+        )
+        evidence = WorkspaceTerminalEvidence(
+            lease_id=lease.id if lease is not None else None,
+            change_set=change_set,
+            lease_state=lease.state if lease is not None else None,
+        )
+        payload: dict[str, object] = {
+            "status": memorial.status.value,
+            "error": memorial.error,
+            "failure_reason": resolve_failure_reason(
+                memorial.status.value,
+                memorial.error,
+                memorial.failure_reason,
+            ),
+            **evidence.event_payload(),
+        }
+        if dag_id is not None:
+            payload["dag_id"] = dag_id
+        try:
+            await self._bus.emit(
+                make_event(
+                    "execution.cancelled",
+                    edict_id=edict.id,
+                    memorial_id=memorial.id,
+                    producer="executor",
+                    payload=payload,
+                )
+            )
+        except Exception:
+            logger.exception(
+                "Failed to emit pre-running cancellation for memorial %s",
+                memorial.id,
+            )
 
     async def _reject_executor_mode(
         self,
@@ -447,7 +676,7 @@ class Executor:
             )
             self._storage.save_memorial(memorial)
         try:
-            prepared_executor = self._prepare_governed_executor(
+            prepared_executor, bound_workspace = await self._prepare_runtime_or_cancel(
                 edict,
                 memorial,
                 execution_mode="outer_loop",
@@ -458,49 +687,79 @@ class Executor:
         except UnsupportedExecutorMode as exc:
             await self._reject_executor_mode(edict, memorial, exc)
             return
-        memorial.status = TaskStatus.RUNNING
-        memorial.started_at = datetime.now(UTC)
-        self._stamp_universe(memorial)
-        self._storage.update_memorial(memorial)
+        except (WorkspaceContractError, WorkspaceError) as exc:
+            await self._reject_workspace_runtime(edict, memorial, exc)
+            return
 
-        try:
-            orchestrator_ctx = copy(self._orchestrator_ctx)
-            orchestrator_ctx.agent = prepared_executor
-            orchestrator_ctx.execution_context = prepared_executor.execution_context(edict)
-            governed_edict = edict.model_copy(
-                update={"goal": prepared_executor.prepared.instruction}
-            )
-            result = await orch_run(governed_edict, memorial, orchestrator_ctx)
-            memorial.status = result.status
-            memorial.result = result.final_output
-            # outer-loop 的 final_output 已是验收通过的最终产物
-            memorial.final_output = result.final_output
-            memorial.error = result.error
-        except Exception as e:
-            logger.exception("orchestrator failed for edict %s", edict.id)
-            memorial.status = TaskStatus.FAILED
-            memorial.error = f"orchestrator error: {e}"
-        finally:
-            memorial.completed_at = datetime.now(UTC)
-            self._storage.update_memorial(memorial)
-            await self._bus.emit(
-                make_event(
-                    "execution.completed"
-                    if memorial.status == TaskStatus.COMPLETED
-                    else "execution.failed",
-                    edict_id=edict.id,
-                    memorial_id=memorial.id,
-                    producer="executor",
-                    payload={
-                        "status": memorial.status.value,
-                        "error": memorial.error,
-                        # 失败诊断轨迹入账本(迭代 2):事件即带归因,面板/太医免回查
-                        "failure_reason": resolve_failure_reason(
-                            memorial.status.value, memorial.error, memorial.failure_reason
-                        ),
-                    },
+        cancelled_error: asyncio.CancelledError | None = None
+        terminal_evidence = WorkspaceTerminalEvidence()
+        binding = bind_workspace(bound_workspace) if bound_workspace is not None else nullcontext()
+        with binding:
+            try:
+                memorial.status = TaskStatus.RUNNING
+                memorial.started_at = datetime.now(UTC)
+                self._stamp_universe(memorial)
+                self._storage.update_memorial(memorial)
+                orchestrator_ctx = copy(self._orchestrator_ctx)
+                orchestrator_ctx.agent = prepared_executor
+                orchestrator_ctx.execution_context = prepared_executor.execution_context(edict)
+                if bound_workspace is not None:
+                    orchestrator_ctx.workspace_root = bound_workspace.root
+                governed_edict = edict.model_copy(
+                    update={"goal": prepared_executor.prepared.instruction}
                 )
+                result = await orch_run(governed_edict, memorial, orchestrator_ctx)
+                memorial.status = result.status
+                memorial.result = result.final_output
+                memorial.final_output = result.final_output
+                memorial.error = result.error
+            except asyncio.CancelledError as exc:
+                cancelled_error = exc
+                memorial.status = TaskStatus.CANCELLED
+                memorial.error = "Task was cancelled"
+            except Exception as exc:
+                logger.exception("orchestrator failed for edict %s", edict.id)
+                memorial.status = TaskStatus.FAILED
+                memorial.error = f"orchestrator error: {exc}"
+            finally:
+                memorial.completed_at = datetime.now(UTC)
+                try:
+                    self._storage.update_memorial(memorial)
+                except Exception:
+                    logger.exception("Failed to update memorial %s", memorial.id)
+                terminal_evidence, terminal_cancellation = await complete_workspace_lifecycle(
+                    self._workspace_runtime.finalize(
+                        bound_workspace,
+                        memorial.status,
+                    )
+                )
+                if terminal_cancellation is not None and cancelled_error is None:
+                    cancelled_error = terminal_cancellation
+
+        event_type = {
+            TaskStatus.COMPLETED: "execution.completed",
+            TaskStatus.CANCELLED: "execution.cancelled",
+        }.get(memorial.status, "execution.failed")
+        await self._bus.emit(
+            make_event(
+                event_type,
+                edict_id=edict.id,
+                memorial_id=memorial.id,
+                producer="executor",
+                payload={
+                    "status": memorial.status.value,
+                    "error": memorial.error,
+                    "failure_reason": resolve_failure_reason(
+                        memorial.status.value,
+                        memorial.error,
+                        memorial.failure_reason,
+                    ),
+                    **terminal_evidence.event_payload(),
+                },
             )
+        )
+        if cancelled_error is not None:
+            raise cancelled_error
 
     async def execute_edict(
         self,
@@ -542,7 +801,7 @@ class Executor:
             return
 
         try:
-            prepared_executor = self._prepare_governed_executor(
+            prepared_executor, bound_workspace = await self._prepare_runtime_or_cancel(
                 edict,
                 memorial,
                 execution_mode="single",
@@ -552,6 +811,9 @@ class Executor:
             return
         except UnsupportedExecutorMode as exc:
             await self._reject_executor_mode(edict, memorial, exc)
+            return
+        except (WorkspaceContractError, WorkspaceError) as exc:
+            await self._reject_workspace_runtime(edict, memorial, exc)
             return
 
         # Set persona_id: plan assignment > edict assignment > default
@@ -567,235 +829,265 @@ class Executor:
             edict.runtime.timeout_seconds,
             edict.runtime.max_iterations,
         )
-        memorial.status = TaskStatus.RUNNING
-        memorial.started_at = datetime.now(UTC)
-        self._stamp_universe(memorial)
-        self._storage.update_memorial(memorial)
-
-        await self._bus.emit(
-            make_event(
-                "execution.started",
-                edict_id=edict.id,
-                memorial_id=memorial.id,
-                producer="executor",
-                payload={"memorial_id": memorial.id},
-            )
-        )
-
-        # Spec Section 5: 展开 PolicyProfile 为 edict-scope session rules
-        if edict.runtime.policy_profile is not None and self._session_rule_store is not None:
-            try:
-                from tianshu.tools.policy_profile import (
-                    PolicyProfile,
-                    expand_profile_to_rules,
-                )
-
-                payload = edict.runtime.policy_profile
-                profile = PolicyProfile(
-                    allowed_paths=tuple(payload.allowed_paths),
-                    allowed_bash_prefixes=tuple(payload.allowed_bash_prefixes),
-                    tier_overrides=dict(payload.tier_overrides),
-                    auto_approve_max_tier=int(payload.auto_approve_max_tier),
-                    expires_after_seconds=payload.expires_after_seconds,
-                    template_name=payload.template_name,
-                )
-                created = await expand_profile_to_rules(
-                    profile,
-                    edict,
-                    self._session_rule_store,
-                )
-                self._storage.append_event(
-                    edict.id,
-                    memorial.id,
-                    "policy.profile_applied",
-                    {
-                        "template_name": profile.template_name,
-                        "rules_created": created,
-                        "allowed_paths": list(profile.allowed_paths),
-                        "allowed_bash_prefixes": list(profile.allowed_bash_prefixes),
-                    },
-                )
-            except Exception:
-                logger.exception(
-                    "[EXEC] Edict %s: failed to expand policy profile",
-                    edict.id,
-                )
-
-        # Session start hook
-        await self._hooks.run(
-            HookType.SESSION_START,
-            edict=edict,
-            memorial=memorial,
-        )
-
-        # Before agent start hook
-        hook_result = await self._hooks.run(
-            HookType.BEFORE_AGENT_START,
-            edict=edict,
-            memorial=memorial,
-            plan=plan,
-        )
-        if hook_result.block:
-            memorial.status = TaskStatus.FAILED
-            memorial.error = f"Blocked by hook: {hook_result.reason}"
-            memorial.completed_at = datetime.now(UTC)
-            self._storage.update_memorial(memorial)
-            return
-
-        # Merge memory history from hook into execution history
-        if hook_result.modified_args:
-            memory_history = hook_result.modified_args.get("memory_history")
-            if memory_history:
-                history = (history or []) + memory_history
-
-        # Resolve persona object for Agent (enables llm_config_name passthrough)
-        persona = None
-        if self._persona_loader and memorial.persona_id:
-            persona = self._persona_loader.get(memorial.persona_id)
-
-        def on_event(event: dict) -> None:
-            self._storage.append_event(edict.id, memorial.id, event["type"], event)
-
-        adapter_id = prepared_executor.adapter.adapter_id
-        keqing_backend = adapter_id.startswith("keqing:")
-        executor_impl = prepared_executor
-
-        result = None  # Capture AgentResult for AGENT_END hook context
+        result = None
+        event_type = "execution.failed"
+        cancelled_error: asyncio.CancelledError | None = None
+        retry_memorial: Memorial | None = None
         try:
-            timeout = edict.runtime.timeout_seconds
-            result = await asyncio.wait_for(
-                executor_impl.execute(
-                    edict,
-                    memorial=memorial,
-                    on_event=on_event,
-                    history=history,
-                    user_content=user_content,
-                    persona=persona,
-                ),
-                timeout=timeout,
+            memorial.status = TaskStatus.RUNNING
+            memorial.started_at = datetime.now(UTC)
+            self._stamp_universe(memorial)
+            self._storage.update_memorial(memorial)
+            await self._bus.emit(
+                make_event(
+                    "execution.started",
+                    edict_id=edict.id,
+                    memorial_id=memorial.id,
+                    producer="executor",
+                    payload={"memorial_id": memorial.id},
+                )
             )
-            # 客卿执行完打一次影子快照(放手四保险③:文件改动可一键回滚)
-            if keqing_backend:
-                self._snapshot_keqing(edict, memorial)
-            memorial.status = result.status
-            memorial.summary = result.summary
-            memorial.result = result.result
-            # 单 task / 短任务路径：result 即最终交付物（无中间过程混淆）
-            memorial.final_output = result.result
-            memorial.usage = result.usage
-            memorial.error = result.error
-            memorial.reasoning_content = result.reasoning_content
-            event_type = {
-                TaskStatus.COMPLETED: "execution.completed",
-                TaskStatus.FAILED: "execution.failed",
-                TaskStatus.CANCELLED: "execution.cancelled",
-            }.get(result.status, "execution.failed")
+            binding = (
+                bind_workspace(bound_workspace) if bound_workspace is not None else nullcontext()
+            )
+            with binding:
+                if (
+                    edict.runtime.policy_profile is not None
+                    and self._session_rule_store is not None
+                ):
+                    await self._expand_policy_profile(edict, memorial)
 
-        except asyncio.CancelledError:
+                await self._hooks.run(
+                    HookType.SESSION_START,
+                    edict=edict,
+                    memorial=memorial,
+                )
+                hook_result = await self._hooks.run(
+                    HookType.BEFORE_AGENT_START,
+                    edict=edict,
+                    memorial=memorial,
+                    plan=plan,
+                )
+                if hook_result.block:
+                    memorial.status = TaskStatus.FAILED
+                    memorial.error = f"Blocked by hook: {hook_result.reason}"
+                else:
+                    if hook_result.modified_args:
+                        memory_history = hook_result.modified_args.get("memory_history")
+                        if memory_history:
+                            history = (history or []) + memory_history
+
+                    persona = None
+                    if self._persona_loader and memorial.persona_id:
+                        persona = self._persona_loader.get(memorial.persona_id)
+
+                    def on_event(event: dict) -> None:
+                        self._storage.append_event(
+                            edict.id,
+                            memorial.id,
+                            event["type"],
+                            event,
+                        )
+
+                    result = await asyncio.wait_for(
+                        prepared_executor.execute(
+                            edict,
+                            memorial=memorial,
+                            on_event=on_event,
+                            history=history,
+                            user_content=user_content,
+                            persona=persona,
+                        ),
+                        timeout=edict.runtime.timeout_seconds,
+                    )
+                    if (
+                        prepared_executor.adapter.adapter_id.startswith("keqing:")
+                        and bound_workspace is None
+                    ):
+                        self._snapshot_keqing(edict, memorial)
+                    memorial.status = result.status
+                    memorial.summary = result.summary
+                    memorial.result = result.result
+                    memorial.final_output = result.result
+                    memorial.usage = result.usage
+                    memorial.error = result.error
+                    memorial.reasoning_content = result.reasoning_content
+                event_type = {
+                    TaskStatus.COMPLETED: "execution.completed",
+                    TaskStatus.FAILED: "execution.failed",
+                    TaskStatus.CANCELLED: "execution.cancelled",
+                }.get(memorial.status, "execution.failed")
+        except asyncio.CancelledError as exc:
+            cancelled_error = exc
             memorial.status = TaskStatus.CANCELLED
             memorial.error = "Task was cancelled"
             event_type = "execution.cancelled"
-            raise
         except TimeoutError:
             memorial.status = TaskStatus.FAILED
             memorial.error = f"Execution timed out after {edict.runtime.timeout_seconds}s"
             event_type = "execution.failed"
-        except Exception as e:
+        except Exception as exc:
             logger.exception("Unexpected error executing edict %s", edict.id)
             memorial.status = TaskStatus.FAILED
-            memorial.error = str(e)
+            memorial.error = str(exc)
             event_type = "execution.failed"
         finally:
             memorial.completed_at = datetime.now(UTC)
-            logger.debug(
-                "[EXEC] Edict %s: finished status=%s, error=%s",
-                edict.id,
-                memorial.status.value,
-                memorial.error,
-            )
-
-            # Save memorial BEFORE emitting event so auditor reads fresh data
             try:
                 self._storage.update_memorial(memorial)
             except Exception:
                 logger.exception("Failed to update memorial %s", memorial.id)
 
-            # Emit event — auditor may modify memorial status (e.g. needs_review)
-            try:
-                await self._bus.emit(
-                    make_event(
-                        event_type,
-                        edict_id=edict.id,
-                        memorial_id=memorial.id,
-                        producer="executor",
-                        payload={
-                            "status": memorial.status.value,
-                            "error": memorial.error,
-                            "failure_reason": resolve_failure_reason(
-                                memorial.status.value, memorial.error, memorial.failure_reason
-                            ),
-                        },
-                    )
-                )
-            except Exception:
-                logger.exception("Failed to emit %s for memorial %s", event_type, memorial.id)
-
-            # Agent end hook — pass AgentResult context for skill review
-            agent_end_ctx: dict = {"edict": edict, "memorial": memorial}
-            if result is not None:
-                agent_end_ctx["exit_reason"] = result.exit_reason
-                agent_end_ctx["iteration_count"] = result.iteration_count
-                agent_end_ctx["events"] = result.events
-            await self._hooks.run(HookType.AGENT_END, **agent_end_ctx)
-
-            # Session end hook
-            await self._hooks.run(
-                HookType.SESSION_END,
-                edict=edict,
-                memorial=memorial,
-                usage=memorial.usage,
+        async def finish_terminal_lifecycle() -> WorkspaceTerminalEvidence:
+            terminal_binding = (
+                bind_workspace(bound_workspace) if bound_workspace is not None else nullcontext()
             )
-
-            # Spec Section 4: 清理本 edict 的 edict-scope session rules
-            if self._session_rule_store is not None:
+            with terminal_binding:
+                evidence = WorkspaceTerminalEvidence()
                 try:
-                    await self._session_rule_store.clear_edict(edict.id)
-                except Exception:
-                    logger.exception(
-                        "[EXEC] Edict %s: failed to clear edict session rules",
-                        edict.id,
+                    agent_end_ctx: dict = {"edict": edict, "memorial": memorial}
+                    if result is not None:
+                        agent_end_ctx["exit_reason"] = result.exit_reason
+                        agent_end_ctx["iteration_count"] = result.iteration_count
+                        agent_end_ctx["events"] = result.events
+                    await self._hooks.run(HookType.AGENT_END, **agent_end_ctx)
+                    await self._hooks.run(
+                        HookType.SESSION_END,
+                        edict=edict,
+                        memorial=memorial,
+                        usage=memorial.usage,
                     )
 
-            # Auto-retry: if failed and retry_limit not exhausted
-            if (
-                memorial.status == TaskStatus.FAILED
-                and edict.runtime.retry_limit > 0
-                and memorial.attempt < edict.runtime.retry_limit
-            ):
-                logger.info(
-                    "Auto-retry edict %s: attempt %d/%d",
-                    edict.id,
-                    memorial.attempt + 1,
-                    edict.runtime.retry_limit,
-                )
-                retry_memorial = Memorial(
-                    edict_id=edict.id,
-                    instruction=memorial.instruction or edict.goal,
-                    attempt=memorial.attempt + 1,
-                    parent_memorial_id=memorial.id,
-                    runtime_override=memorial.runtime_override,
-                    acceptance_override=memorial.acceptance_override,
-                )
-                self._storage.save_memorial(retry_memorial)
-                retry_task = asyncio.create_task(
-                    self.execute_edict(
-                        edict,
-                        memorial=retry_memorial,
-                        user_content=retry_memorial.instruction,
+                    if self._session_rule_store is not None:
+                        try:
+                            await self._session_rule_store.clear_edict(edict.id)
+                        except Exception:
+                            logger.exception(
+                                "[EXEC] Edict %s: failed to clear edict session rules",
+                                edict.id,
+                            )
+                finally:
+                    evidence = await self._workspace_runtime.finalize(
+                        bound_workspace,
+                        memorial.status,
                     )
+                return evidence
+
+        terminal_evidence, terminal_cancellation = await complete_workspace_lifecycle(
+            finish_terminal_lifecycle()
+        )
+        if terminal_cancellation is not None and cancelled_error is None:
+            cancelled_error = terminal_cancellation
+        terminal_payload: dict[str, object] = {
+            "status": memorial.status.value,
+            "error": memorial.error,
+            "failure_reason": resolve_failure_reason(
+                memorial.status.value,
+                memorial.error,
+                memorial.failure_reason,
+            ),
+            **terminal_evidence.event_payload(),
+        }
+
+        if (
+            memorial.status == TaskStatus.FAILED
+            and edict.runtime.retry_limit > 0
+            and memorial.attempt < edict.runtime.retry_limit
+        ):
+            retry_memorial = Memorial(
+                edict_id=edict.id,
+                instruction=memorial.instruction or edict.goal,
+                attempt=memorial.attempt + 1,
+                parent_memorial_id=memorial.id,
+                runtime_override=memorial.runtime_override,
+                acceptance_override=memorial.acceptance_override,
+            )
+            self._storage.save_memorial(retry_memorial)
+
+        try:
+            await self._bus.emit(
+                make_event(
+                    event_type,
+                    edict_id=edict.id,
+                    memorial_id=memorial.id,
+                    producer="executor",
+                    payload=terminal_payload,
                 )
-                self._running_tasks.add(retry_task)
-                retry_task.add_done_callback(self._running_tasks.discard)
+            )
+        except Exception:
+            logger.exception("Failed to emit %s for memorial %s", event_type, memorial.id)
+
+        if retry_memorial is not None:
+            logger.info(
+                "Auto-retry edict %s: attempt %d/%d",
+                edict.id,
+                retry_memorial.attempt,
+                edict.runtime.retry_limit,
+            )
+            retry_task = asyncio.create_task(
+                self.execute_edict(
+                    edict,
+                    memorial=retry_memorial,
+                    user_content=retry_memorial.instruction,
+                )
+            )
+            self._running_tasks.add(retry_task)
+            retry_task.add_done_callback(self._running_tasks.discard)
+        if cancelled_error is not None:
+            raise cancelled_error
+
+    async def _expand_policy_profile(self, edict: Edict, memorial: Memorial) -> None:
+        try:
+            from tianshu.tools.policy_profile import PolicyProfile, expand_profile_to_rules
+
+            payload = edict.runtime.policy_profile
+            assert payload is not None and self._session_rule_store is not None
+            profile = PolicyProfile(
+                allowed_paths=tuple(payload.allowed_paths),
+                allowed_bash_prefixes=tuple(payload.allowed_bash_prefixes),
+                tier_overrides=dict(payload.tier_overrides),
+                auto_approve_max_tier=int(payload.auto_approve_max_tier),
+                expires_after_seconds=payload.expires_after_seconds,
+                template_name=payload.template_name,
+            )
+            created = await expand_profile_to_rules(
+                profile,
+                edict,
+                self._session_rule_store,
+            )
+            self._storage.append_event(
+                edict.id,
+                memorial.id,
+                "policy.profile_applied",
+                {
+                    "template_name": profile.template_name,
+                    "rules_created": created,
+                    "allowed_paths": list(profile.allowed_paths),
+                    "allowed_bash_prefixes": list(profile.allowed_bash_prefixes),
+                },
+            )
+        except Exception:
+            logger.exception("[EXEC] Edict %s: failed to expand policy profile", edict.id)
+
+    async def _reject_workspace_runtime(
+        self,
+        edict: Edict,
+        memorial: Memorial,
+        exc: Exception,
+    ) -> None:
+        memorial.status = TaskStatus.FAILED
+        memorial.error = str(exc)
+        memorial.completed_at = datetime.now(UTC)
+        self._storage.update_memorial(memorial)
+        await self._bus.emit(
+            make_event(
+                "execution.rejected",
+                edict_id=edict.id,
+                memorial_id=memorial.id,
+                producer="executor",
+                payload={"code": "workspace_contract_rejected", "error": str(exc)},
+            )
+        )
 
     async def cancel_dag(self, dag_id: str) -> list[str]:
         """Cancel a running DAG execution."""
@@ -831,8 +1123,6 @@ class Executor:
         from_node_ids: list[str] | None = None,
     ) -> list[str]:
         """Retry failed nodes in a DAG execution."""
-        from tianshu.executor.retry import PartialRetrier
-
         execution = self._storage.get_dag_execution(dag_id)
         if not execution:
             raise ValueError(f"DAG execution '{dag_id}' not found")
@@ -846,35 +1136,108 @@ class Executor:
             raise ValueError("Cannot retry: missing edict or DAG scheduler")
         if not execution.root_memorial_id:
             raise ValueError("Cannot retry: DAG has no governed root memorial")
-        root_memorial = self._storage.get_memorial(execution.root_memorial_id)
-        if root_memorial is None:
+        previous_root = self._storage.get_memorial(execution.root_memorial_id)
+        if previous_root is None:
             raise ValueError("Cannot retry: governed root memorial is missing")
+
+        target_ids = (
+            [node.node_id for node in execution.nodes if node.status is DAGNodeStatus.FAILED]
+            if from_node_ids is None
+            else from_node_ids
+        )
+        if not target_ids:
+            return []
+        known_node_ids = {node.node_id for node in execution.nodes}
+        missing_node_ids = sorted(set(target_ids) - known_node_ids)
+        if missing_node_ids:
+            raise ValueError("Cannot retry: unknown DAG nodes " + ", ".join(missing_node_ids))
+
+        retry_root = Memorial(
+            edict_id=edict.id,
+            instruction=previous_root.instruction or edict.goal,
+            status=TaskStatus.SUBMITTED,
+            attempt=previous_root.attempt + 1,
+            parent_memorial_id=previous_root.id,
+            runtime_override=previous_root.runtime_override,
+            acceptance_override=previous_root.acceptance_override,
+        )
+        self._storage.save_memorial(retry_root)
+        governed_edict = self._apply_memorial_override(edict, retry_root)
         try:
-            prepared_executor = self._prepare_governed_executor(
-                edict,
-                root_memorial,
+            prepared_executor, bound_workspace = await self._prepare_runtime_or_cancel(
+                governed_edict,
+                retry_root,
                 execution_mode="dag",
+                dag_id=execution.id,
             )
-        except (MandatoryCapabilityMismatch, UnsupportedExecutorMode) as exc:
+        except MandatoryCapabilityMismatch as exc:
+            await self._reject_capability_mismatch(governed_edict, retry_root, exc)
+            raise ValueError(f"Cannot retry: {exc}") from exc
+        except UnsupportedExecutorMode as exc:
+            await self._reject_executor_mode(governed_edict, retry_root, exc)
+            raise ValueError(f"Cannot retry: {exc}") from exc
+        except (WorkspaceContractError, WorkspaceError) as exc:
+            await self._reject_workspace_runtime(governed_edict, retry_root, exc)
             raise ValueError(f"Cannot retry: {exc}") from exc
 
-        retrier = PartialRetrier(self._storage)
-        reset_ids = retrier.prepare_retry(execution, from_node_ids)
+        try:
+            reset_ids = self._storage.claim_dag_retry(
+                execution.id,
+                expected_root_memorial_id=previous_root.id,
+                root_memorial_id=retry_root.id,
+                from_node_ids=from_node_ids,
+            )
+        except Exception as exc:
+            await self._workspace_runtime.finalize(
+                bound_workspace,
+                TaskStatus.FAILED,
+            )
+            retry_root.status = TaskStatus.FAILED
+            retry_root.error = f"DAG retry claim failed: {exc}"
+            retry_root.completed_at = datetime.now(UTC)
+            self._storage.update_memorial(retry_root)
+            raise ValueError(f"Cannot retry: {exc}") from exc
 
+        if reset_ids is None:
+            await self._workspace_runtime.finalize(
+                bound_workspace,
+                TaskStatus.FAILED,
+            )
+            retry_root.status = TaskStatus.FAILED
+            retry_root.error = "DAG retry lost the atomic claim"
+            retry_root.completed_at = datetime.now(UTC)
+            self._storage.update_memorial(retry_root)
+            raise ValueError("Cannot retry: DAG root or status changed concurrently")
         if not reset_ids:
+            await self._workspace_runtime.finalize(
+                bound_workspace,
+                TaskStatus.FAILED,
+            )
+            retry_root.status = TaskStatus.FAILED
+            retry_root.error = "DAG retry has no retryable nodes"
+            retry_root.completed_at = datetime.now(UTC)
+            self._storage.update_memorial(retry_root)
             return []
 
-        # Reload execution with fresh state
-        execution = self._storage.get_dag_execution(dag_id)
-        if execution is None:
-            raise ValueError("Cannot retry: DAG disappeared after reset")
+        execution.root_memorial_id = retry_root.id
+        execution.status = "pending"
+        execution.completed_at = None
+        reset_id_set = set(reset_ids)
+        for node in execution.nodes:
+            if node.node_id in reset_id_set:
+                node.status = DAGNodeStatus.PENDING
+                node.error = None
+                node.started_at = None
+                node.completed_at = None
 
-        # Re-run the DAG scheduler
         task = asyncio.create_task(
-            self._dag_scheduler.run(
-                edict,
+            self._run_prepared_dag(
+                governed_edict,
                 execution,
-                prepared_executor=prepared_executor,
+                retry_root,
+                prepared_executor,
+                bound_workspace,
+                save_execution=False,
             )
         )
         self._running_tasks.add(task)
