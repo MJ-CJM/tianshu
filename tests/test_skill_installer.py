@@ -78,6 +78,21 @@ def test_install_carries_bundled_resource(
     assert (target / "demo-skill" / "scripts" / "helper.py").is_file()
 
 
+def test_install_rejects_trailing_newline_name_without_landing_files(
+    installer: SkillInstaller,
+    target: Path,
+    tmp_path: Path,
+) -> None:
+    content = _VALID_SKILL.replace("name: demo-skill", 'name: "valid\\n"')
+
+    result = installer.install(_skill_dir(tmp_path, content=content))
+
+    assert result.installed is False
+    assert result.reason == "结构校验未通过"
+    assert any(finding.check == "name_format" for finding in result.findings)
+    assert not target.exists() or not any(target.iterdir())
+
+
 # ---------- 路径穿越拒绝 ----------
 
 

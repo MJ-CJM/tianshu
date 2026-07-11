@@ -462,6 +462,41 @@ class TestSkillManageHandlers:
         metrics_store.ensure_exists.assert_not_called()
         metrics_store.increment_usage.assert_not_called()
 
+    @pytest.mark.parametrize("name", ("../escape", "valid\n"))
+    @pytest.mark.parametrize(
+        ("tool_name", "arguments"),
+        (
+            ("skill_view", {}),
+            ("skill_manage", {"action": "delete"}),
+        ),
+    )
+    async def test_registered_named_tools_validate_before_workspace_loader(
+        self,
+        loader: SkillsLoader,
+        monkeypatch: pytest.MonkeyPatch,
+        name: str,
+        tool_name: str,
+        arguments: dict,
+    ) -> None:
+        workspace_accesses: list[str] = []
+
+        def fail_if_workspace_is_resolved(_skills: SkillsLoader) -> SkillsLoader:
+            workspace_accesses.append("workspace")
+            raise AssertionError("workspace loader accessed before name validation")
+
+        monkeypatch.setattr(
+            "tianshu.tools.skill_tools._workspace_loader",
+            fail_if_workspace_is_resolved,
+        )
+        registry = ToolRegistry()
+        register_skill_tools(registry, loader)
+
+        result = await registry.execute(tool_name, {"name": name, **arguments})
+
+        assert result.is_error
+        assert "invalid skill name" in result.content.lower()
+        assert workspace_accesses == []
+
     def test_get_active_skills_and_clear(self) -> None:
         from tianshu.tools.skill_tools import _active_skills, clear_active_skills, get_active_skills
 

@@ -280,6 +280,58 @@ async def _skill_manage(
     return await handler(skills, name, **kwargs)
 
 
+async def _registered_skill_view(
+    skills: SkillsLoader,
+    *,
+    name: str,
+    metrics_store: MetricsStore | None,
+    active_skills_ref: set[str],
+) -> ToolResult:
+    try:
+        validate_skill_name(name)
+    except ValueError as exc:
+        return error_result(str(exc))
+    return await _skill_view(
+        _workspace_loader(skills),
+        name,
+        metrics_store=metrics_store,
+        active_skills_ref=active_skills_ref,
+    )
+
+
+async def _registered_skill_manage(
+    skills: SkillsLoader,
+    *,
+    action: str,
+    name: str,
+    metrics_store: MetricsStore | None,
+    guard_agent_created: bool,
+    event_bus: Any | None,
+    **kwargs: Any,
+) -> ToolResult:
+    if action not in _ACTION_HANDLERS:
+        return await _skill_manage(
+            skills,
+            action,
+            name,
+            metrics_store=metrics_store,
+            **kwargs,
+        )
+    try:
+        validate_skill_name(name)
+    except ValueError as exc:
+        return error_result(str(exc))
+    return await _skill_manage(
+        _workspace_loader(skills),
+        action,
+        name,
+        metrics_store=metrics_store,
+        _guard_enabled=guard_agent_created,
+        event_bus=event_bus,
+        **kwargs,
+    )
+
+
 def register_skill_tools(
     registry: ToolRegistry,
     skills: SkillsLoader,
@@ -323,8 +375,8 @@ def register_skill_tools(
 
     registry.register(
         "skill_view",
-        lambda **kwargs: _skill_view(
-            _workspace_loader(skills),
+        lambda **kwargs: _registered_skill_view(
+            skills,
             metrics_store=metrics_store,
             active_skills_ref=_active_skills,
             **kwargs,
@@ -351,10 +403,10 @@ def register_skill_tools(
 
     registry.register(
         "skill_manage",
-        lambda **kwargs: _skill_manage(
-            _workspace_loader(skills),
+        lambda **kwargs: _registered_skill_manage(
+            skills,
             metrics_store=metrics_store,
-            _guard_enabled=guard_agent_created,
+            guard_agent_created=guard_agent_created,
             event_bus=event_bus,
             **kwargs,
         ),

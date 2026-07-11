@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -222,6 +223,57 @@ def test_named_apis_accept_canonical_identifier_boundaries(
 
     assert created["name"] == name
     assert loader.get_skill(name) is not None
+
+
+def _write_discovered_skill(path: Path, marker: str, *, always: bool) -> None:
+    path.mkdir(parents=True)
+    (path / "SKILL.md").write_text(
+        "---\n"
+        "name: fixture\n"
+        "description: discovered fixture\n"
+        "metadata:\n"
+        "  openclaw:\n"
+        f"    always: {str(always).lower()}\n"
+        "---\n\n"
+        f"{marker}\n",
+        encoding="utf-8",
+    )
+
+
+def test_discovery_skips_noncanonical_directory_names_for_all_load_paths(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    builtin = tmp_path / "builtin"
+    user = tmp_path / "user"
+    workspace = tmp_path / "workspace"
+    (workspace / "skills").mkdir(parents=True)
+    _write_discovered_skill(builtin / "valid-skill", "VALID_MARKER", always=True)
+    _write_discovered_skill(builtin / "bad\nbuiltin", "INVALID_BUILTIN", always=True)
+    _write_discovered_skill(user / "Uppercase", "INVALID_USER", always=True)
+    _write_discovered_skill(workspace / "skills" / "技能", "INVALID_WORKSPACE", always=True)
+    loader = SkillsLoader(
+        builtin_dir=builtin,
+        user_dir=user,
+        workspace_dir=workspace,
+    )
+    caplog.set_level(logging.WARNING, logger="tianshu.skills.loader")
+
+    metadata = loader.list_all_metadata()
+    index = loader.load_index()
+    loaded = loader.load_all()
+    always = loader.load_always()
+
+    assert {item["name"] for item in metadata} == {"valid-skill"}
+    assert "valid-skill" in index
+    assert "VALID_MARKER" in loaded
+    assert "VALID_MARKER" in always
+    for marker in ("INVALID_BUILTIN", "INVALID_USER", "INVALID_WORKSPACE"):
+        assert marker not in index
+        assert marker not in loaded
+        assert marker not in always
+    assert "bad\nbuiltin" not in caplog.text
+    assert "bad\\nbuiltin" in caplog.text
 
 
 class TestWriteSkillFile:

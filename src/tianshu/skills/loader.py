@@ -38,6 +38,15 @@ def _validated_filter_names(filter_names: list[str] | None) -> set[str] | None:
     return {validate_skill_name(name) for name in filter_names}
 
 
+def _is_canonical_discovered_skill_name(name: str) -> bool:
+    try:
+        validate_skill_name(name)
+    except ValueError:
+        logger.warning("Skipping skill entry with invalid identifier: %r", name)
+        return False
+    return True
+
+
 def _atomic_write(path: Path, content: str) -> None:
     """Write content atomically: tempfile in same dir + os.replace()."""
     dir_ = path.parent
@@ -273,11 +282,15 @@ class SkillsLoader:
             return
         candidates = sorted(base.iterdir())[:_MAX_CANDIDATES_PER_DIR]
         for entry in candidates:
+            if not _is_canonical_discovered_skill_name(entry.name):
+                continue
             skill_file = entry / "SKILL.md" if entry.is_dir() else None
             if skill_file and skill_file.is_file():
                 self._load_skill(entry.name, skill_file, skills)
 
     def _load_skill(self, name: str, path: Path, skills: dict[str, str]) -> None:
+        if not _is_canonical_discovered_skill_name(name):
+            return
         if path.stat().st_size > _MAX_FILE_SIZE:
             logger.warning("Skill '%s' exceeds max file size, skipping", name)
             return
@@ -419,6 +432,8 @@ class SkillsLoader:
             return
         candidates = sorted(base.iterdir())[:_MAX_CANDIDATES_PER_DIR]
         for entry in candidates:
+            if not _is_canonical_discovered_skill_name(entry.name):
+                continue
             skill_file = entry / "SKILL.md" if entry.is_dir() else None
             if skill_file and skill_file.is_file():
                 try:
