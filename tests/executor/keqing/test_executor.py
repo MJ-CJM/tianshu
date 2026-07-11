@@ -13,6 +13,7 @@ import pytest
 
 from tianshu.executor.keqing import KeqingExecutor, parse_keqing_backend
 from tianshu.executor.keqing.adapter import ClaudeCodeAdapter
+from tianshu.kernel.exit_reason import ExitReason
 from tianshu.models import TaskStatus
 
 _FAKE_CLI = r"""
@@ -80,6 +81,21 @@ class TestKeqingExecutor:
         # 客卿回显的 key 被出站脱敏
         assert "sk-abcdefghij" not in res.result
         assert "[REDACTED API KEY]" in res.result
+
+    async def test_outer_timeout_returns_explicit_failed_result(self, tmp_path, monkeypatch):
+        sleeping_cli = [sys.executable, "-c", "import time; time.sleep(5)"]
+        monkeypatch.setattr(
+            ClaudeCodeAdapter,
+            "build_argv",
+            lambda self, p, model=None: sleeping_cli,
+        )
+        ke = KeqingExecutor(root=tmp_path / "kq")
+
+        res = await ke.execute(_edict(timeout=0.01))
+
+        assert res.status == TaskStatus.FAILED
+        assert res.exit_reason == ExitReason.TIMEOUT
+        assert res.error == "keqing timed out after 0.01s"
 
     async def test_unknown_backend_fails(self, tmp_path):
         ke = KeqingExecutor(root=tmp_path / "kq")

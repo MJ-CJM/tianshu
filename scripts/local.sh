@@ -102,6 +102,43 @@ stop_by_pid() {
     return 0
 }
 
+# Stop only a process launched by this start invocation. The captured PID and
+# direct-parent check avoid killing a process from a concurrent/reused PID file.
+stop_started_process() {
+    local pid="$1" pid_file="$2" label="$3"
+    if [[ -z "$pid" ]]; then
+        return 1
+    fi
+
+    if kill -0 "$pid" 2>/dev/null; then
+        local parent_pid
+        parent_pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')
+        if [[ "$parent_pid" != "$$" ]]; then
+            echo "    WARNING: not stopping $label PID $pid; it is no longer owned by this start."
+            return 1
+        fi
+
+        echo "==> Stopping $label (PID: $pid)..."
+        kill "$pid" 2>/dev/null || true
+
+        local waited=0
+        while kill -0 "$pid" 2>/dev/null && (( waited < 100 )); do
+            sleep 0.1
+            (( waited++ ))
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "    WARNING: $label did not exit within 10s, force killing..."
+            pkill -P "$pid" 2>/dev/null || true
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    fi
+
+    if [[ -f "$pid_file" ]] && [[ "$(cat "$pid_file")" == "$pid" ]]; then
+        rm -f "$pid_file"
+    fi
+    return 0
+}
+
 # List PIDs LISTENING on a port(必须筛 LISTEN:裸 lsof -ti 会把
 # "作为客户端连着该端口"的进程也列出来,如 vite 的 proxy 连接,误杀无辜)
 listening_pids() {
@@ -142,9 +179,17 @@ wait_port_free() {
 
 # Poll backend /health until healthy (start 后的健康确认,失败非零退出)
 wait_healthy() {
+    local uvicorn_pid="$1"
     local url="http://localhost:${UVICORN_PORT}/health"
     local waited=0
     while (( waited < 60 )); do
+        local parent_pid
+        parent_pid=$(ps -o ppid= -p "$uvicorn_pid" 2>/dev/null | tr -d '[:space:]')
+        if ! kill -0 "$uvicorn_pid" 2>/dev/null || [[ "$parent_pid" != "$$" ]]; then
+            echo "==> ERROR: uvicorn exited before becoming healthy. Last 50 log lines:"
+            tail -n 50 "$UVICORN_LOG" 2>/dev/null || true
+            return 1
+        fi
         if curl -sf "$url" -o /dev/null 2>/dev/null; then
             echo "==> Backend healthy: $url"
             return 0
@@ -177,6 +222,8 @@ cmd_build() {
 
 cmd_start() {
     local dev_mode=false
+    local uvicorn_pid=""
+    local vite_pid=""
     if [[ "${1:-}" == "--dev" ]]; then
         dev_mode=true
     fi
@@ -216,8 +263,9 @@ cmd_start() {
             --host "$host" --port "$UVICORN_PORT" \
             --reload --reload-dir src \
             >> "$UVICORN_LOG" 2>&1 &
-        echo $! > "$UVICORN_PID_FILE"
-        echo "    Uvicorn PID: $(cat "$UVICORN_PID_FILE"), log: $UVICORN_LOG"
+        uvicorn_pid=$!
+        echo "$uvicorn_pid" > "$UVICORN_PID_FILE"
+        echo "    Uvicorn PID: $uvicorn_pid, log: $UVICORN_LOG"
 
         if [[ -d "$PROJECT_ROOT/web" ]]; then
             # Ensure port is free before starting
@@ -229,8 +277,9 @@ cmd_start() {
             # Use exec so the PID file tracks the actual node process, not an intermediate shell
             nohup bash -c 'cd "$1" && exec ./node_modules/.bin/vite' _ "$PROJECT_ROOT/web" \
                 >> "$VITE_LOG" 2>&1 &
-            echo $! > "$VITE_PID_FILE"
-            echo "    Vite PID: $(cat "$VITE_PID_FILE"), log: $VITE_LOG"
+            vite_pid=$!
+            echo "$vite_pid" > "$VITE_PID_FILE"
+            echo "    Vite PID: $vite_pid, log: $VITE_LOG"
         fi
     else
         echo "==> Starting uvicorn (production mode)..."
@@ -242,11 +291,18 @@ cmd_start() {
         nohup "$UVICORN_BIN" tianshu.app:create_app --factory \
             --host "$host" --port "$UVICORN_PORT" \
             >> "$UVICORN_LOG" 2>&1 &
-        echo $! > "$UVICORN_PID_FILE"
-        echo "    Uvicorn PID: $(cat "$UVICORN_PID_FILE"), log: $UVICORN_LOG"
+        uvicorn_pid=$!
+        echo "$uvicorn_pid" > "$UVICORN_PID_FILE"
+        echo "    Uvicorn PID: $uvicorn_pid, log: $UVICORN_LOG"
     fi
 
-    wait_healthy
+    if ! wait_healthy "$uvicorn_pid"; then
+        if $dev_mode && [[ -n "$vite_pid" ]]; then
+            stop_started_process "$vite_pid" "$VITE_PID_FILE" "vite" || true
+        fi
+        stop_started_process "$uvicorn_pid" "$UVICORN_PID_FILE" "uvicorn" || true
+        return 1
+    fi
     echo "==> Services started."
     if $dev_mode; then
         echo "    Frontend (dev): http://localhost:${VITE_PORT}"

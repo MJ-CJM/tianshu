@@ -25,6 +25,29 @@ from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
 
+
+class _ThreadLocalEventLoopProxy:
+    """把 lark SDK 的模块级 loop 访问转发到当前连接线程。
+
+    lark-oapi 1.5.5 把所有 WebSocket client 共用的 ``loop`` 保存在模块
+    全局变量里。天枢允许同时运行多个飞书实例，因此不能为每个线程直接覆盖
+    这个全局变量；否则一个实例会把另一个实例正在运行的 loop 换掉。
+    """
+
+    @staticmethod
+    def _current() -> asyncio.AbstractEventLoop:
+        return asyncio.get_event_loop()
+
+    def run_until_complete(self, future):
+        return self._current().run_until_complete(future)
+
+    def create_task(self, coroutine):
+        return self._current().create_task(coroutine)
+
+    def __getattr__(self, name: str):
+        return getattr(self._current(), name)
+
+
 # ---------------------------------------------------------------------
 # Monkey patch: lark-oapi 1.5.5 ws.Client 不分派 CARD 消息类型 bug
 # ---------------------------------------------------------------------
@@ -37,6 +60,7 @@ import base64 as _base64  # noqa: E402
 import http as _http  # noqa: E402
 import time as _time  # noqa: E402
 
+import lark_oapi.ws.client as _lark_ws_client  # noqa: E402
 from lark_oapi.core.const import UTF_8 as _LARK_UTF_8  # noqa: E402
 from lark_oapi.core.json import JSON as _LarkJSON  # noqa: E402
 from lark_oapi.ws.client import _get_by_key as _lark_get_by_key  # noqa: E402
@@ -61,8 +85,13 @@ from lark_oapi.ws.const import (  # noqa: E402
 from lark_oapi.ws.enum import MessageType as _LarkMessageType  # noqa: E402
 from lark_oapi.ws.model import Response as _LarkResponse  # noqa: E402
 
+# SDK 的 Client.start/_connect/_receive_message_loop 都读取模块级 ``loop``。
+# 使用线程本地代理后，每个飞书实例仍由自己的 daemon thread 和 event loop 驱动，
+# 同时避免多实例并发启动时互相覆盖全局变量。
+_lark_ws_client.loop = _ThreadLocalEventLoopProxy()
 
-async def _patched_handle_data_frame(self, frame):  # type: ignore[no-untyped-def]
+
+async def _patched_handle_data_frame(self, frame):
     """替换 lark.ws.Client._handle_data_frame：让 CARD 也走 dispatcher。"""
     hs = frame.headers
     msg_id = _lark_get_by_key(hs, _LARK_HEADER_MESSAGE_ID)
@@ -126,6 +155,10 @@ class FeishuConnection(Protocol):
 
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
+
+
+class _BlockingWebSocketClient(Protocol):
+    def start(self) -> None: ...
 
 
 class WebhookConnection:
@@ -227,7 +260,7 @@ class WebSocketConnection:
         self._storage = storage
         self.inbound_queue = inbound_queue
         self._loop = loop
-        self._client: object | None = None
+        self._client: _BlockingWebSocketClient | None = None
         self._thread: threading.Thread | None = None
         self._last_event_at = time.monotonic()
         self._watchdog_task: asyncio.Task | None = None
@@ -272,26 +305,18 @@ class WebSocketConnection:
     def _run_client_in_thread(self) -> None:
         """在独立线程中以独立 event loop 跑 lark.ws.Client.start()。
 
-        修复 Python 3.14 + uvloop 下的兼容性：
-        lark_oapi.ws.client 模块用全局 `loop` 变量（import 时创建），它会抓住
-        主线程的 uvloop。daemon thread 里调 client.start() 时，内部 `loop.run_until_complete`
-        会发现该 loop 正在主线程 running → RuntimeError: this event loop is already running.
-
-        修法：thread 内新建独立 loop + monkey-patch lark.ws.client 模块的 `loop`
-        全局变量为本线程 loop。
+        SDK 的模块级 ``loop`` 已在 import 时替换为线程本地代理；这里仅负责给
+        当前 daemon thread 安装并最终关闭它自己的 event loop。
         """
         import asyncio as _asyncio
 
         new_loop = _asyncio.new_event_loop()
         _asyncio.set_event_loop(new_loop)
         try:
-            import lark_oapi.ws.client as _lark_ws_client
-
-            _lark_ws_client.loop = new_loop  # 关键：替换模块全局 loop
-        except Exception:
-            logger.exception("[feishu/ws] failed to patch lark client loop")
-        try:
-            self._client.start()
+            client = self._client
+            if client is None:
+                raise RuntimeError("Feishu WebSocket client is not initialized")
+            client.start()
         except Exception:
             logger.exception("[feishu/ws] client.start() crashed in thread")
         finally:

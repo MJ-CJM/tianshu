@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import threading
 from unittest.mock import MagicMock as _MM
 
 import pytest
@@ -302,3 +303,61 @@ async def test_websocket_stop_cancels_watchdog(storage):
     await conn.stop()
     await asyncio.sleep(0.05)
     assert conn._watchdog_task.cancelled() or conn._watchdog_task.done()
+
+
+def test_websocket_client_threads_keep_independent_event_loops(storage):
+    """两个飞书实例并发启动时，不得争用 SDK 的模块级 event loop。"""
+    import lark_oapi.ws.client as lark_ws_client
+
+    original_loop = lark_ws_client.loop
+    ready = threading.Barrier(2)
+    selected = threading.Barrier(2)
+    completed: list[int] = []
+    errors: list[BaseException] = []
+
+    class _LoopUsingClient:
+        def start(self) -> None:
+            # 两条连接线程都完成各自的 loop 初始化后，再同时读取 SDK loop。
+            ready.wait(timeout=2)
+            loop = lark_ws_client.loop
+            selected.wait(timeout=2)
+
+            async def _hold_loop() -> None:
+                await asyncio.sleep(0.05)
+                completed.append(threading.get_ident())
+
+            coroutine = _hold_loop()
+            try:
+                loop.run_until_complete(coroutine)
+            except BaseException as exc:
+                coroutine.close()
+                errors.append(exc)
+                raise
+
+    connections = [
+        WebSocketConnection(
+            settings=_settings(),
+            storage=storage,
+            inbound_queue=asyncio.Queue(),
+            loop=original_loop,
+        )
+        for _ in range(2)
+    ]
+    for connection in connections:
+        connection._client = _LoopUsingClient()
+
+    threads = [
+        threading.Thread(target=connection._run_client_in_thread) for connection in connections
+    ]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=3)
+    finally:
+        # 当前缺陷会把 SDK 全局变量留在某个已关闭的线程 loop，避免污染后续测试。
+        lark_ws_client.loop = original_loop
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert errors == []
+    assert len(completed) == 2
