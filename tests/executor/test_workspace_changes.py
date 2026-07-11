@@ -137,6 +137,25 @@ async def test_empty_and_recomputed_change_sets_have_one_stable_hash(
 
 
 @pytest.mark.asyncio
+async def test_change_capture_preserves_a_b_a_chronology(storage, tmp_path: Path) -> None:
+    _repo, service, lease = await _lease(storage, tmp_path)
+    staging = Path(lease.staging_root)
+
+    first = await service.capture_change_set(lease.id, run_id="run-1")
+    (staging / "modify.txt").write_text("changed\n")
+    second = await service.capture_change_set(lease.id, run_id="run-1")
+    (staging / "modify.txt").write_text("before\n")
+    third = await service.capture_change_set(lease.id, run_id="run-1")
+
+    assert [first.sequence, second.sequence, third.sequence] == [1, 2, 3]
+    assert third.id != first.id
+    assert third.content_hash == first.content_hash
+    assert third.changes == first.changes == ()
+    assert storage.get_latest_canonical_change_set_for_lease(lease.id) == third
+    await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_change_capture_keeps_secret_blobs_out_of_source_object_database(
     storage, tmp_path: Path
 ) -> None:

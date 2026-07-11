@@ -27,7 +27,7 @@ from tianshu.storage.workspace_repo import WorkspaceStateConflict
 _V1_CHECKSUM = "9672603c12dd858ea714b291d6ed94f1a27cb373bfcff97665b6316b4aa552a6"
 _V2_CHECKSUM = "a2bbf753e0c3244fccc86be2d4588af2c926399f6dfa0dba0af5d0c060179c5a"
 _V3_CHECKSUM = "07cb59c354035674fbcabcf1a037b4b273ae43b4e1e4dd8427cf90361bff2ff8"
-_V4_CHECKSUM = "5bf5cb5c8db4b0f8de706acd4b0ea377b4cc33666664115e700ed79decade273"
+_V4_CHECKSUM = "1c0a028e0ea16475b9de5eb0c843f81aa275ddf62c0aca3c067bf8408dd9bee5"
 _NOW = datetime(2026, 7, 12, tzinfo=UTC)
 _SHA = "a" * 40
 
@@ -241,6 +241,56 @@ def test_canonical_change_rejects_ghost_noop_and_non_exact_move_shapes(
         CanonicalChange.model_validate(change.model_dump())
 
 
+@pytest.mark.parametrize("kind", ["mode", "rename", "copy"])
+def test_same_object_change_rejects_conflicting_sizes(kind: str) -> None:
+    change = CanonicalChange(
+        kind=kind,
+        old_path="same.txt" if kind == "mode" else "old.txt",
+        new_path="same.txt" if kind == "mode" else "new.txt",
+        old_oid="1" * 40,
+        new_oid="1" * 40,
+        old_mode="100644",
+        new_mode="100755" if kind == "mode" else "100644",
+        old_size=1,
+        new_size=1,
+        binary=False,
+    ).model_copy(update={"new_size": 2})
+
+    with pytest.raises(ValidationError, match="size"):
+        CanonicalChange.model_validate(change.model_dump())
+
+
+def test_canonical_change_set_rejects_duplicate_target_paths() -> None:
+    first = CanonicalChange(
+        kind="add",
+        new_path="same.txt",
+        new_oid="1" * 40,
+        new_mode="100644",
+        new_size=1,
+        binary=False,
+    )
+    second = CanonicalChange(
+        kind="untracked",
+        new_path="same.txt",
+        new_oid="2" * 40,
+        new_mode="100644",
+        new_size=2,
+        binary=False,
+    )
+
+    with pytest.raises(ValidationError, match="target"):
+        CanonicalChangeSet(
+            id="changes-duplicate-target",
+            lease_id="lease-1",
+            restore_point_id="restore-1",
+            source_repository_id="repo-1",
+            base_revision=_SHA,
+            sequence=1,
+            changes=(first, second),
+            created_at=_NOW,
+        )
+
+
 @pytest.mark.parametrize(
     "updates",
     [
@@ -361,6 +411,50 @@ def test_workspace_repository_persists_changes_and_apply_foundation(storage) -> 
         )
     with pytest.raises(sqlite3.IntegrityError):
         storage.create_workspace_foundation(_lease(run_id="run-1"), restore)
+
+
+def test_workspace_repository_preserves_change_set_chronology(storage) -> None:
+    lease = _lease()
+    restore = _restore_point()
+    storage.create_workspace_foundation(lease, restore)
+    first = CanonicalChangeSet(
+        id="changes-1",
+        lease_id=lease.id,
+        restore_point_id=restore.id,
+        source_repository_id="repo-1",
+        base_revision=_SHA,
+        sequence=1,
+        changes=(),
+        created_at=_NOW,
+    )
+    second = first.model_copy(
+        update={
+            "id": "changes-2",
+            "sequence": 2,
+            "changes": (
+                CanonicalChange(
+                    kind="modify",
+                    old_path="file.txt",
+                    new_path="file.txt",
+                    old_oid="1" * 40,
+                    new_oid="2" * 40,
+                    old_mode="100644",
+                    new_mode="100644",
+                    old_size=1,
+                    new_size=2,
+                    binary=False,
+                ),
+            ),
+        }
+    )
+    third = first.model_copy(update={"id": "changes-3", "sequence": 3})
+    repeated = third.model_copy(update={"id": "changes-4", "sequence": 4})
+
+    assert storage.save_canonical_change_set(first) == first
+    assert storage.save_canonical_change_set(second) == second
+    assert storage.save_canonical_change_set(third) == third
+    assert storage.save_canonical_change_set(repeated) == third
+    assert storage.get_latest_canonical_change_set_for_lease(lease.id) == third
 
 
 def test_workspace_records_and_apply_bindings_are_database_immutable(storage) -> None:

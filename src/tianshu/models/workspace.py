@@ -239,6 +239,12 @@ class CanonicalChange(WorkspaceRecord):
             raise ValueError("modify changes must change content")
         if self.kind in {"rename", "copy"} and self.old_oid != self.new_oid:
             raise ValueError(f"{self.kind} changes require exact content identity")
+        if (
+            self.old_oid is not None
+            and self.old_oid == self.new_oid
+            and self.old_size != self.new_size
+        ):
+            raise ValueError("the same Git object id must have the same size")
         return self
 
     def sort_key(self) -> tuple[bytes, bytes, str]:
@@ -269,6 +275,9 @@ class CanonicalChangeSet(WorkspaceRecord):
         keys = [item.sort_key() for item in ordered]
         if len(keys) != len(set(keys)):
             raise ValueError("canonical changes contain duplicate path identities")
+        target_paths = [item.new_path for item in ordered if item.new_path is not None]
+        if len(target_paths) != len(set(target_paths)):
+            raise ValueError("canonical changes contain duplicate target paths")
         return ordered
 
     def canonical_json(self) -> str:

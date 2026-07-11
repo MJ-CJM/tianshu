@@ -269,7 +269,6 @@ _WORKSPACE_FOUNDATION_STATEMENTS = (
         created_at TEXT NOT NULL,
         UNIQUE (id, lease_id),
         UNIQUE (lease_id, sequence),
-        UNIQUE (lease_id, content_hash),
         FOREIGN KEY (restore_point_id, lease_id)
             REFERENCES restore_points(id, lease_id)
     )

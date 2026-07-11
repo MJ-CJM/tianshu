@@ -284,12 +284,18 @@ class WorkspaceMixin:
 
     def save_canonical_change_set(self, change_set: CanonicalChangeSet) -> CanonicalChangeSet:
         with self._lock, self._conn:
-            existing = self._conn.execute(
-                "SELECT * FROM canonical_change_sets WHERE lease_id = ? AND content_hash = ?",
-                (change_set.lease_id, change_set.content_hash),
+            latest = self._conn.execute(
+                """
+                SELECT * FROM canonical_change_sets
+                WHERE lease_id = ? ORDER BY sequence DESC LIMIT 1
+                """,
+                (change_set.lease_id,),
             ).fetchone()
-            if existing is not None:
-                return row_to_canonical_change_set(existing)
+            if latest is not None and str(latest["content_hash"]) == change_set.content_hash:
+                return row_to_canonical_change_set(latest)
+            expected_sequence = 1 if latest is None else int(latest["sequence"]) + 1
+            if change_set.sequence != expected_sequence:
+                raise WorkspaceStateConflict("canonical change set sequence changed")
             self._conn.execute(
                 """
                 INSERT INTO canonical_change_sets (
