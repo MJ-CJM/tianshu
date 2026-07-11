@@ -7,13 +7,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import FastAPI
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
 from tianshu.executor.git_backend import GitBackend
+from tianshu.executor.workspace_policy import validate_workspace_roots
 from tianshu.executor.workspace_service import WorkspaceService
 from tianshu.kernel.hooks import HookRegistry
 from tianshu.storage import Storage
@@ -21,6 +20,12 @@ from tianshu.storage import Storage
 
 def wire_storage(app: FastAPI, settings: TianshuSettings) -> None:
     """创建 Storage / EventBus / HookRegistry 并挂载到 app.state。"""
+    workspace_roots = validate_workspace_roots(
+        settings.workspace_dir,
+        settings.workspace_staging_root,
+    )
+    app.state.workspace_roots = workspace_roots
+
     # --- Storage ---
     storage = Storage(settings.db_path)
     storage.init_db()
@@ -29,7 +34,7 @@ def wire_storage(app: FastAPI, settings: TianshuSettings) -> None:
     app.state.workspace_service = WorkspaceService(
         storage,
         GitBackend(),
-        Path(settings.workspace_staging_root),
+        workspace_roots.staging,
     )
 
     # --- EventBus ---

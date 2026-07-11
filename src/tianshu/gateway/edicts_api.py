@@ -19,6 +19,7 @@ from tianshu.executor.capabilities import (
     resolve_governance_contract,
 )
 from tianshu.executor.executor import Executor
+from tianshu.executor.workspace_policy import workspace_policy_mismatches
 from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.gateway._helpers import _build_history
 from tianshu.gateway.auth import get_auth_context
@@ -183,6 +184,26 @@ def _governance_preview(
             },
         ) from exc
     probe = probe_host_capabilities()
+    workspace_mismatches = workspace_policy_mismatches(
+        contract.workspace,
+        contract.recovery,
+    )
+    if workspace_mismatches:
+        return {
+            "compatible": False,
+            "requested_contract": contract.model_dump(mode="json"),
+            "requested_contract_hash": contract.content_hash,
+            "effective_contract": None,
+            "mandatory_mismatches": [],
+            "workspace_policy_mismatches": [item.as_dict() for item in workspace_mismatches],
+            "execution_mode": execution_mode,
+            "execution_mode_mismatches": [],
+            "advisory_gaps": [],
+            "executor_level": manifest.level.value,
+            "experimental": manifest.experimental,
+            "manifest_hash": manifest.content_hash,
+            "runtime_probe_id": probe.probe_id,
+        }
     if execution_mode not in manifest.execution_modes:
         return {
             "compatible": False,
@@ -190,6 +211,7 @@ def _governance_preview(
             "requested_contract_hash": contract.content_hash,
             "effective_contract": None,
             "mandatory_mismatches": [],
+            "workspace_policy_mismatches": [],
             "execution_mode": execution_mode,
             "execution_mode_mismatches": [
                 {
@@ -213,6 +235,7 @@ def _governance_preview(
             "requested_contract_hash": contract.content_hash,
             "effective_contract": None,
             "mandatory_mismatches": [item.model_dump(mode="json") for item in exc.mismatches],
+            "workspace_policy_mismatches": [],
             "execution_mode": execution_mode,
             "execution_mode_mismatches": [],
             "advisory_gaps": [],
@@ -227,6 +250,7 @@ def _governance_preview(
         "requested_contract_hash": contract.content_hash,
         "effective_contract": effective.model_dump(mode="json"),
         "mandatory_mismatches": [],
+        "workspace_policy_mismatches": [],
         "execution_mode": execution_mode,
         "execution_mode_mismatches": [],
         "advisory_gaps": list(effective.unsupported_advisory),
@@ -267,6 +291,28 @@ async def create_edict(body: EdictCreateRequest, request: Request):
     execution_mode = _execution_mode_from_body(body, requested_contract)
     request_hash = _idempotency_request_hash(body, requested_contract, execution_mode)
 
+    preview = _governance_preview(requested_contract, execution_mode=execution_mode)
+    if not preview["compatible"]:
+        mode_mismatches = preview["execution_mode_mismatches"]
+        workspace_mismatches = preview["workspace_policy_mismatches"]
+        raise HTTPException(
+            422,
+            {
+                "code": (
+                    "governance_workspace_policy_mismatch"
+                    if workspace_mismatches
+                    else (
+                        "governance_execution_mode_mismatch"
+                        if mode_mismatches
+                        else "governance_capability_mismatch"
+                    )
+                ),
+                "mismatches": (
+                    workspace_mismatches or mode_mismatches or preview["mandatory_mismatches"]
+                ),
+            },
+        )
+
     # Idempotency check: the same actor/key only deduplicates the same request.
     if body.idempotency_key:
         existing = storage.find_edict_by_idempotency_key(
@@ -297,21 +343,6 @@ async def create_edict(body: EdictCreateRequest, request: Request):
                 data=existing.model_dump(mode="json"),
                 metadata={"deduplicated": True},
             )
-
-    preview = _governance_preview(requested_contract, execution_mode=execution_mode)
-    if not preview["compatible"]:
-        mode_mismatches = preview["execution_mode_mismatches"]
-        raise HTTPException(
-            422,
-            {
-                "code": (
-                    "governance_execution_mode_mismatch"
-                    if mode_mismatches
-                    else "governance_capability_mismatch"
-                ),
-                "mismatches": mode_mismatches or preview["mandatory_mismatches"],
-            },
-        )
 
     title = title_from_goal(body.goal, body.title)
     edict_kwargs: dict = {

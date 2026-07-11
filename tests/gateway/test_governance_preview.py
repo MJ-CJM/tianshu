@@ -5,9 +5,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from tianshu.app import create_app
+from tianshu.config import TianshuSettings
 from tianshu.gateway.edicts_api import _runtime_from_request, edicts_router
 from tianshu.models import Edict, Memorial, TaskStatus
 from tianshu.models.api import EdictCreateRequest
@@ -165,6 +168,158 @@ def test_preview_derives_workspace_capability_from_contract_semantics(config_man
     assert controls["pre_run_restore_point"]["state"] == "enforced"
     assert controls["governed_apply_merge"]["requested_mode"] == "advisory"
     assert controls["governed_apply_merge"]["state"] == "unsupported"
+
+
+@pytest.mark.parametrize(
+    ("workspace", "recovery", "expected_code"),
+    [
+        (
+            WorkspacePolicyV1(
+                source_id="workspace-main",
+                staging_mode="legacy_shared",
+            ),
+            RecoveryPolicyV1(require_restore_point=True),
+            "legacy_shared_policy_invalid",
+        ),
+        (
+            WorkspacePolicyV1(
+                source_id="workspace-main",
+                staging_mode="ephemeral",
+            ),
+            RecoveryPolicyV1(),
+            "ephemeral_policy_invalid",
+        ),
+        (
+            WorkspacePolicyV1(
+                source_id="workspace-main",
+                base_revision="HEAD",
+                staging_mode="isolated",
+                apply_mode="governed",
+                require_clean_source=True,
+            ),
+            RecoveryPolicyV1(require_restore_point=False),
+            "isolated_policy_invalid",
+        ),
+    ],
+)
+def test_preview_marks_invalid_workspace_matrix_incompatible(
+    config_manager,
+    workspace: WorkspacePolicyV1,
+    recovery: RecoveryPolicyV1,
+    expected_code: str,
+) -> None:
+    contract = LegacyEdictGovernanceMapper.from_edict(
+        Edict(goal="invalid workspace"),
+        default_workspace_id="workspace-main",
+    ).model_copy(update={"workspace": workspace, "recovery": recovery})
+
+    with TestClient(_app(config_manager)) as client:
+        response = client.post(
+            "/edicts/governance/preview",
+            json={
+                "goal": "invalid workspace",
+                "governance_contract": contract.model_dump(mode="json"),
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["compatible"] is False
+    assert data["effective_contract"] is None
+    assert [item["code"] for item in data["workspace_policy_mismatches"]] == [expected_code]
+
+
+def test_create_rejects_invalid_workspace_before_persist_or_dispatch(tmp_path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    settings = TianshuSettings(
+        _env_file=None,
+        db_path=str(tmp_path / "tianshu.sqlite3"),
+        workspace_dir=str(source),
+        workspace_staging_root=str(tmp_path / "staging"),
+        memory_dir=str(tmp_path / "memory"),
+        runtime_personas_dir=str(tmp_path / "personas"),
+        log_dir=str(tmp_path / "logs"),
+    )
+    contract = LegacyEdictGovernanceMapper.from_edict(
+        Edict(goal="reject invalid workspace"),
+        default_workspace_id="workspace-main",
+    ).model_copy(update={"recovery": RecoveryPolicyV1(require_restore_point=True)})
+    app = create_app(settings)
+
+    with TestClient(app) as client:
+        app.state.storage.save_edict(
+            Edict(
+                goal="reject invalid workspace",
+                submitter="local:owner",
+                idempotency_key="invalid-workspace",
+                governance_contract=contract,
+            )
+        )
+        response = client.post(
+            "/api/edicts",
+            json={
+                "goal": "reject invalid workspace",
+                "idempotency_key": "invalid-workspace",
+                "governance_contract": contract.model_dump(mode="json"),
+            },
+        )
+        _edicts, total = app.state.storage.list_edicts()
+        running = tuple(app.state.executor.running_tasks)
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "governance_workspace_policy_mismatch"
+    assert total == 1
+    assert running == ()
+
+
+def test_preview_does_not_claim_restore_enforcement_without_git(
+    config_manager,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "tianshu.executor.capabilities.shutil.which",
+        lambda _name, path=None: None,
+    )
+    contract = LegacyEdictGovernanceMapper.from_edict(
+        Edict(goal="git unavailable"),
+        default_workspace_id="workspace-main",
+    ).model_copy(
+        update={
+            "workspace": WorkspacePolicyV1(
+                source_id="workspace-main",
+                base_revision="HEAD",
+                staging_mode="isolated",
+                apply_mode="governed",
+                require_clean_source=True,
+            ),
+            "recovery": RecoveryPolicyV1(require_restore_point=True),
+        }
+    )
+
+    with TestClient(_app(config_manager)) as client:
+        response = client.post(
+            "/edicts/governance/preview",
+            json={
+                "goal": "git unavailable",
+                "governance_contract": contract.model_dump(mode="json"),
+            },
+        )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["compatible"] is False
+    assert data["effective_contract"] is None
+    assert data["mandatory_mismatches"] == [
+        {
+            "schema_version": "1",
+            "capability": "pre_run_restore_point",
+            "required_state": "enforced",
+            "available_state": "unsupported",
+            "manifest_id": "tianshu.native.v1",
+            "reason": "mandatory capabilities accept only enforced controls",
+        }
+    ]
 
 
 def test_conflicting_new_and_legacy_payload_returns_422(config_manager) -> None:

@@ -9,6 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tianshu.executor.workspace_context import BoundWorkspace
+from tianshu.executor.workspace_policy import (
+    WORKSPACE_MAIN_SOURCE_ID,
+    WorkspacePolicyValidationError,
+    validate_workspace_policy,
+)
 from tianshu.executor.workspace_service import WorkspaceLeaseRequest, WorkspaceService
 from tianshu.models.common import TaskStatus
 from tianshu.models.governance_contract import EffectiveGovernanceContractV1
@@ -16,7 +21,6 @@ from tianshu.models.memorial import Memorial
 from tianshu.models.workspace import CanonicalChangeSet, WorkspaceLeaseState
 from tianshu.storage import Storage
 
-WORKSPACE_MAIN_SOURCE_ID = "workspace-main"
 _MAX_PARENT_DEPTH = 64
 
 
@@ -99,17 +103,17 @@ class WorkspaceRuntime:
     ) -> WorkspacePreparation:
         workspace = effective.workspace
         recovery = effective.recovery
+        try:
+            validate_workspace_policy(
+                workspace,
+                recovery,
+                resolved_source_id=effective.resolved_source_id,
+                resolved_base_revision=effective.resolved_base_revision,
+            )
+        except WorkspacePolicyValidationError as exc:
+            raise WorkspaceContractError(str(exc)) from exc
 
         if workspace.staging_mode == "legacy_shared":
-            if (
-                workspace.apply_mode != "none"
-                or workspace.base_revision is not None
-                or workspace.require_clean_source
-                or recovery.require_restore_point
-                or effective.resolved_base_revision is not None
-                or effective.resolved_source_id not in {None, workspace.source_id}
-            ):
-                raise WorkspaceContractError("legacy_shared workspaces cannot request isolation")
             return WorkspacePreparation(effective=effective, bound=None)
 
         if self._service is None:
@@ -117,18 +121,6 @@ class WorkspaceRuntime:
 
         lineage_root_run_id, parent_run_id, attempt = self._lineage(memorial)
         if workspace.staging_mode == "ephemeral":
-            if (
-                workspace.source_id is not None
-                or workspace.base_revision is not None
-                or workspace.apply_mode != "none"
-                or workspace.require_clean_source
-                or recovery.require_restore_point
-                or effective.resolved_source_id is not None
-                or effective.resolved_base_revision is not None
-            ):
-                raise WorkspaceContractError(
-                    "ephemeral workspaces require no source, base, restore point, or apply"
-                )
             request = WorkspaceLeaseRequest(
                 run_id=memorial.id,
                 lineage_root_run_id=lineage_root_run_id,
@@ -139,23 +131,6 @@ class WorkspaceRuntime:
                 apply_mode="none",
             )
         elif workspace.staging_mode == "isolated":
-            if (
-                workspace.source_id != WORKSPACE_MAIN_SOURCE_ID
-                or effective.resolved_source_id != WORKSPACE_MAIN_SOURCE_ID
-            ):
-                raise WorkspaceContractError(
-                    "isolated workspaces require the validated workspace-main source"
-                )
-            if (
-                workspace.apply_mode != "governed"
-                or not workspace.base_revision
-                or not workspace.base_revision.strip()
-                or not workspace.require_clean_source
-            ):
-                raise WorkspaceContractError(
-                    "isolated Git workspaces require governed apply, an explicit non-empty base, "
-                    "and a clean source"
-                )
             request = WorkspaceLeaseRequest(
                 run_id=memorial.id,
                 lineage_root_run_id=lineage_root_run_id,

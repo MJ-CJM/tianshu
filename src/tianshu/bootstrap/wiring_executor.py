@@ -21,8 +21,6 @@ app.state，直接 service-locator 取用，不需要额外传参。
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import FastAPI
 
 from tianshu.config import TianshuSettings
@@ -72,9 +70,7 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         session_rule_store=session_rule_store,
         execution_gateway=app.state.execution_gateway,
         workspace_service=app.state.workspace_service,
-        workspace_sources={
-            WORKSPACE_MAIN_SOURCE_ID: Path(settings.workspace_dir).expanduser().resolve()
-        },
+        workspace_sources={WORKSPACE_MAIN_SOURCE_ID: app.state.workspace_roots.source},
     )
     executor.set_agent(agent)
     executor.set_persona_loader(persona_loader)
@@ -131,7 +127,7 @@ def wire_policy(app: FastAPI, settings: TianshuSettings) -> None:
 
     policy_hook = PolicyHook(
         engine=policy_engine,
-        workspace_root=Path(settings.workspace_dir).resolve(),
+        workspace_root=app.state.workspace_roots.source,
         storage=storage,
         tool_registry=tools,
         session_rule_store=session_rule_store,

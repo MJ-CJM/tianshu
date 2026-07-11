@@ -198,6 +198,14 @@ def _directory_identity(path: Path) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def trusted_git_executable() -> str | None:
+    """Return the absolute Git executable accepted by the runtime backend."""
+    executable = shutil.which("git", path=os.defpath)
+    if executable is None or not Path(executable).is_absolute():
+        return None
+    return str(Path(executable).resolve())
+
+
 class GitBackend:
     """Named, bounded Git operations with no public raw-command method."""
 
@@ -226,12 +234,7 @@ class GitBackend:
         self._materialization_limit_bytes = materialization_limit_bytes
         self._stage_path_limit = stage_path_limit
         self._stage_metadata_limit_bytes = stage_path_limit * (_MAX_PATH_BYTES + 80)
-        executable = shutil.which("git", path=os.defpath)
-        self._git_executable = (
-            str(Path(executable).resolve())
-            if executable is not None and Path(executable).is_absolute()
-            else None
-        )
+        self._git_executable = trusted_git_executable()
 
     def resolve_revision(
         self,
@@ -1650,4 +1653,5 @@ __all__ = [
     "GitIdentity",
     "GitLocation",
     "GitLogEntry",
+    "trusted_git_executable",
 ]

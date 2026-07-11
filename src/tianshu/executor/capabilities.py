@@ -11,6 +11,7 @@ from typing import Any, Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
+from tianshu.executor.git_backend import trusted_git_executable
 from tianshu.models.governance_contract import (
     CAPABILITY_IDS,
     CanonicalContractModel,
@@ -255,8 +256,16 @@ def resolve_governance_contract(
         effective_controls=tuple(controls),
         unsupported_advisory=tuple(advisory_gaps),
         degradations=tuple(degradations),
-        resolved_source_id=requested.workspace.source_id,
-        resolved_base_revision=requested.workspace.base_revision,
+        resolved_source_id=(
+            requested.workspace.source_id
+            if requested.workspace.staging_mode == "isolated"
+            else None
+        ),
+        resolved_base_revision=(
+            requested.workspace.base_revision
+            if requested.workspace.staging_mode == "isolated"
+            else None
+        ),
     )
 
 
@@ -374,7 +383,7 @@ def get_executor_manifest(adapter_id: str) -> ExecutorCapabilityManifestV1:
 
 
 def probe_host_capabilities() -> HostCapabilityProbeV1:
-    git_available = shutil.which("git") is not None
+    git_available = trusted_git_executable() is not None
     sandbox = next(
         (binary for binary in ("docker", "podman") if shutil.which(binary) is not None),
         None,
@@ -384,6 +393,24 @@ def probe_host_capabilities() -> HostCapabilityProbeV1:
             capability="workspace_control",
             state=(CapabilityState.BEST_EFFORT if git_available else CapabilityState.UNSUPPORTED),
             evidence=("git executable available" if git_available else "git unavailable",),
+        ),
+        CapabilityDeclarationV1(
+            capability="pre_run_restore_point",
+            state=(CapabilityState.ENFORCED if git_available else CapabilityState.UNSUPPORTED),
+            evidence=(
+                "git executable available for restore points"
+                if git_available
+                else "git unavailable for restore points",
+            ),
+        ),
+        CapabilityDeclarationV1(
+            capability="governed_apply_merge",
+            state=(CapabilityState.ENFORCED if git_available else CapabilityState.UNSUPPORTED),
+            evidence=(
+                "git executable available for governed apply prerequisites"
+                if git_available
+                else "git unavailable for governed apply",
+            ),
         ),
         CapabilityDeclarationV1(
             capability="network_control",

@@ -64,8 +64,12 @@ def _effective(
         update={
             "workspace": workspace,
             "recovery": recovery,
-            "resolved_source_id": workspace.source_id,
-            "resolved_base_revision": workspace.base_revision,
+            "resolved_source_id": (
+                workspace.source_id if workspace.staging_mode == "isolated" else None
+            ),
+            "resolved_base_revision": (
+                workspace.base_revision if workspace.staging_mode == "isolated" else None
+            ),
         }
     )
 
@@ -176,6 +180,13 @@ async def test_follow_up_derives_contiguous_workspace_lineage(storage, tmp_path:
             apply_mode="none",
             require_clean_source=False,
         ),
+        WorkspacePolicyV1(
+            source_id="workspace-main",
+            base_revision="HEAD",
+            staging_mode="isolated",
+            apply_mode="governed",
+            require_clean_source=True,
+        ),
     ],
 )
 async def test_invalid_workspace_matrix_fails_before_lease_creation(
@@ -242,6 +253,32 @@ async def test_legacy_shared_rejects_stale_resolved_workspace_identity(
     runtime = WorkspaceRuntime(storage=storage, service=None, workspace_sources=None)
     memorial = _saved_memorial(storage, "legacy")
     effective = _effective().model_copy(update=updates)
+
+    with pytest.raises(WorkspaceContractError, match="legacy_shared"):
+        await runtime.prepare(effective, memorial)
+
+
+async def test_legacy_shared_resumes_historical_equal_resolved_source(storage) -> None:
+    runtime = WorkspaceRuntime(storage=storage, service=None, workspace_sources=None)
+    memorial = _saved_memorial(storage, "legacy historical resume")
+    historical = _effective().model_copy(update={"resolved_source_id": "workspace-main"})
+    storage.save_effective_governance_contract(memorial.id, memorial.edict_id, historical)
+    resumed = storage.get_memorial(memorial.id)
+    assert resumed is not None
+    assert resumed.effective_governance_contract is not None
+
+    prepared = await runtime.prepare(resumed.effective_governance_contract, resumed)
+
+    assert prepared.bound is None
+    assert prepared.effective.resolved_source_id == prepared.effective.workspace.source_id
+
+
+async def test_legacy_shared_rejects_restore_point_residue(storage) -> None:
+    runtime = WorkspaceRuntime(storage=storage, service=None, workspace_sources=None)
+    memorial = _saved_memorial(storage, "legacy restore residue")
+    effective = _effective(recovery=RecoveryPolicyV1(require_restore_point=True)).model_copy(
+        update={"resolved_source_id": None, "resolved_base_revision": None}
+    )
 
     with pytest.raises(WorkspaceContractError, match="legacy_shared"):
         await runtime.prepare(effective, memorial)

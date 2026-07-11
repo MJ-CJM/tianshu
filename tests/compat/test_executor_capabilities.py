@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -21,6 +22,7 @@ from tianshu.executor.capabilities import (
     claude_code_manifest,
     codex_manifest,
     native_manifest,
+    probe_host_capabilities,
     resolve_governance_contract,
 )
 from tianshu.executor.workspace_context import WorkspaceBindingError
@@ -165,6 +167,51 @@ def test_host_probe_intersection_can_only_reduce_manifest_truth() -> None:
     assert effective.unsupported_advisory == ("network_control",)
     assert effective.degradations[0].capability == "network_control"
     assert effective.runtime_probe_id == probe.semantic_id
+
+
+def test_git_unavailable_probe_downgrades_restore_and_apply_truth(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "tianshu.executor.capabilities.shutil.which",
+        lambda _name, path=None: None,
+    )
+
+    probe = probe_host_capabilities()
+
+    assert probe.git_available is False
+    assert probe.override("pre_run_restore_point").state is CapabilityState.UNSUPPORTED
+    assert probe.override("governed_apply_merge").state is CapabilityState.UNSUPPORTED
+    effective = resolve_governance_contract(_requested(), native_manifest(), probe)
+    assert effective.state("pre_run_restore_point") == "unsupported"
+    assert effective.state("governed_apply_merge") == "unsupported"
+
+    mandatory = _requested(mandatory=("governed_apply_merge",)).model_copy(
+        update={"recovery": RecoveryPolicyV1(require_restore_point=True)}
+    )
+    with pytest.raises(MandatoryCapabilityMismatch) as exc_info:
+        resolve_governance_contract(mandatory, native_manifest(), probe)
+    assert {item.capability for item in exc_info.value.mismatches} == {
+        "governed_apply_merge",
+        "pre_run_restore_point",
+    }
+
+
+def test_host_probe_ignores_git_found_only_on_untrusted_current_path(monkeypatch) -> None:
+    lookups: list[tuple[str, str | None]] = []
+
+    def fake_which(name: str, *, path: str | None = None) -> str | None:
+        lookups.append((name, path))
+        if name == "git" and path is None:
+            return "/tmp/untrusted-current-path/git"
+        return None
+
+    monkeypatch.setattr("tianshu.executor.capabilities.shutil.which", fake_which)
+
+    probe = probe_host_capabilities()
+
+    assert ("git", os.defpath) in lookups
+    assert probe.git_available is False
+    assert probe.override("pre_run_restore_point").state is CapabilityState.UNSUPPORTED
+    assert probe.override("governed_apply_merge").state is CapabilityState.UNSUPPORTED
 
 
 def test_host_probe_semantic_id_ignores_label_but_changes_with_semantics() -> None:
