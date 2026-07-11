@@ -151,7 +151,7 @@ class _RecordingGateway:
 class _ForbiddenBackend:
     backend_id = "forbidden"
     supports_sandbox = False
-    supports_network_enforcement = False
+    supports_network_enforcement = True
 
     async def spawn(self, **_kwargs: object) -> None:
         raise AssertionError("replayed adapter grant reached process spawn")
@@ -388,9 +388,10 @@ async def test_grep_grant_cannot_replay_across_workspace_or_environment(
             command_grant=grant,
         )
 
-    assert grant.workspace_lease_id == context.workspace_lease_id
-    assert grant.workspace_root_digest is not None
-    assert grant.environment_digest is not None
+    assert grant.workspace_lease_id is None
+    assert grant.workspace_root_digest is None
+    assert grant.resolved_cwd_digest is None
+    assert grant.environment_digest is None
     other_root = tmp_path / "other"
     other_root.mkdir()
     process_gateway = gateway.ExecutionGateway(backend=_ForbiddenBackend())
@@ -399,7 +400,7 @@ async def test_grep_grant_cannot_replay_across_workspace_or_environment(
     changed_environment = gateway.EnvironmentPolicy(
         values=(gateway.EnvironmentValue(name="SAFE_FLAG", value="changed"),)
     )
-    with pytest.raises(gateway.ExecutionDenied, match="system_source_mismatch"):
+    with pytest.raises(gateway.ExecutionDenied, match="literal_values_not_allowed"):
         await process_gateway.run(request.model_copy(update={"environment": changed_environment}))
 
 

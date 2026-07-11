@@ -112,6 +112,29 @@ def _definition(name: str, *, tier: ToolTier = ToolTier.T0_READONLY) -> ToolDefi
     )
 
 
+def _write_skill(path: Path) -> Path:
+    path.mkdir(parents=True)
+    skill_file = path / "SKILL.md"
+    skill_file.write_text(
+        f"---\nname: {path.name}\ndescription: fixture\n---\nbody\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _tree_snapshot(root: Path) -> tuple[tuple[str, str, str], ...]:
+    entries: list[tuple[str, str, str]] = []
+    for entry in sorted(root.rglob("*")):
+        relative = entry.relative_to(root).as_posix()
+        if entry.is_symlink():
+            entries.append((relative, "symlink", str(entry.readlink())))
+        elif entry.is_dir():
+            entries.append((relative, "dir", ""))
+        else:
+            entries.append((relative, "file", entry.read_bytes().hex()))
+    return tuple(entries)
+
+
 @pytest.mark.asyncio
 async def test_same_lease_serializes_tool_calls_including_t0(tmp_path: Path) -> None:
     bound = _bound(tmp_path / "staging", tmp_path / "source")
@@ -505,3 +528,131 @@ async def test_skill_overlay_rejects_symlinked_write_paths(
         assert not outside_target.exists()
     else:
         assert outside_target.read_text(encoding="utf-8") == original_content
+
+
+@pytest.mark.asyncio
+async def test_skill_overlay_delete_rejects_symlinked_writable_root(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    staging = tmp_path / "staging"
+    builtin = tmp_path / "builtin"
+    outside = tmp_path / "outside"
+    for path in (source, staging, builtin, outside):
+        path.mkdir()
+    outside_skill = _write_skill(outside / "existing")
+    before = _tree_snapshot(outside)
+    (staging / "skills").symlink_to(outside, target_is_directory=True)
+    bound = _bound(staging, source)
+    registry = ToolRegistry()
+    register_skill_tools(
+        registry,
+        SkillsLoader(builtin_dir=builtin, workspace_dir=source),
+        guard_agent_created=False,
+    )
+
+    with bind_execution_context(_execution_context(bound)), bind_workspace(bound):
+        result = await registry.execute(
+            "skill_manage",
+            {"action": "delete", "name": "existing"},
+        )
+
+    assert result.is_error
+    assert outside_skill.is_dir()
+    assert _tree_snapshot(outside) == before
+
+
+@pytest.mark.parametrize("mutation", ("delete", "archive", "restore"))
+def test_workspace_overlay_mutations_reject_symlinked_writable_root(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    staging = tmp_path / "staging"
+    builtin = tmp_path / "builtin"
+    outside = tmp_path / "outside"
+    for path in (staging, builtin, outside):
+        path.mkdir()
+    if mutation == "restore":
+        _write_skill(outside / ".archive" / "existing")
+    else:
+        _write_skill(outside / "existing")
+    before = _tree_snapshot(outside)
+    (staging / "skills").symlink_to(outside, target_is_directory=True)
+    overlay = SkillsLoader(builtin_dir=builtin).for_workspace_overlay(staging)
+
+    operation = {
+        "delete": overlay.delete_skill,
+        "archive": overlay.archive_skill,
+        "restore": overlay.restore_skill,
+    }[mutation]
+    with pytest.raises(ValueError, match="symlink"):
+        operation("existing")
+
+    assert _tree_snapshot(outside) == before
+
+
+@pytest.mark.parametrize(
+    "mutation_path",
+    (
+        "delete-source",
+        "archive-source",
+        "archive-root",
+        "archive-target",
+        "restore-source",
+        "restore-root",
+        "restore-target",
+    ),
+)
+def test_workspace_overlay_mutations_reject_symlinked_source_or_target(
+    tmp_path: Path,
+    mutation_path: str,
+) -> None:
+    staging = tmp_path / "staging"
+    skills = staging / "skills"
+    builtin = tmp_path / "builtin"
+    outside = tmp_path / "outside"
+    for path in (skills, builtin, outside):
+        path.mkdir(parents=True)
+    name = "existing"
+
+    if mutation_path in {"delete-source", "archive-source"}:
+        outside_skill = _write_skill(outside / "source")
+        (skills / name).symlink_to(outside_skill, target_is_directory=True)
+    elif mutation_path == "archive-root":
+        _write_skill(skills / name)
+        outside_archive = outside / "archive"
+        outside_archive.mkdir()
+        (skills / ".archive").symlink_to(outside_archive, target_is_directory=True)
+    elif mutation_path == "archive-target":
+        _write_skill(skills / name)
+        archive = skills / ".archive"
+        archive.mkdir()
+        outside_target = _write_skill(outside / "target")
+        (archive / name).symlink_to(outside_target, target_is_directory=True)
+    elif mutation_path == "restore-source":
+        archive = skills / ".archive"
+        archive.mkdir()
+        outside_skill = _write_skill(outside / "source")
+        (archive / name).symlink_to(outside_skill, target_is_directory=True)
+    elif mutation_path == "restore-root":
+        outside_archive = outside / "archive"
+        _write_skill(outside_archive / name)
+        (skills / ".archive").symlink_to(outside_archive, target_is_directory=True)
+    else:
+        _write_skill(skills / ".archive" / name)
+        outside_target = _write_skill(outside / "target")
+        (skills / name).symlink_to(outside_target, target_is_directory=True)
+
+    before_outside = _tree_snapshot(outside)
+    before_staging = _tree_snapshot(staging)
+    overlay = SkillsLoader(builtin_dir=builtin).for_workspace_overlay(staging)
+    mutation = mutation_path.split("-", 1)[0]
+    operation = {
+        "delete": overlay.delete_skill,
+        "archive": overlay.archive_skill,
+        "restore": overlay.restore_skill,
+    }[mutation]
+
+    with pytest.raises(ValueError, match="symlink"):
+        operation(name)
+
+    assert _tree_snapshot(outside) == before_outside
+    assert _tree_snapshot(staging) == before_staging

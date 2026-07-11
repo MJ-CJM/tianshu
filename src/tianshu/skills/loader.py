@@ -609,10 +609,11 @@ class SkillsLoader:
     def delete_skill(self, name: str) -> bool:
         """Delete a user/workspace skill. Builtin skills cannot be deleted."""
         for base in self._writable_dirs():
-            skill_dir = base / name
+            skill_dir = self._validate_overlay_write_path(base / name)
             if skill_dir.is_dir():
                 import shutil as _shutil
 
+                self._validate_overlay_write_path(skill_dir)
                 _shutil.rmtree(skill_dir)
                 self._l1_cache.pop(name, None)
                 self._l2_metadata = None
@@ -622,7 +623,7 @@ class SkillsLoader:
     def _writable_dirs(self) -> list[Path]:
         dirs: list[Path] = []
         if self._workspace_dir:
-            dirs.append(self._workspace_dir / "skills")
+            dirs.append(self._validate_overlay_write_path(self._workspace_dir / "skills"))
         if self._user_dir and not self._workspace_writes_only:
             dirs.append(self._user_dir)
         return dirs
@@ -655,16 +656,19 @@ class SkillsLoader:
         scanner. Returns True if archived.
         """
         for base in self._writable_dirs():
-            skill_dir = base / name
+            skill_dir = self._validate_overlay_write_path(base / name)
             if skill_dir.is_dir():
-                archive_root = base / ".archive"
+                archive_root = self._validate_overlay_write_path(base / ".archive")
                 archive_root.mkdir(parents=True, exist_ok=True)
-                target = archive_root / name
+                archive_root = self._validate_overlay_write_path(archive_root)
+                target = self._validate_overlay_write_path(archive_root / name)
                 if target.exists():
                     from datetime import UTC, datetime
 
                     stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
-                    target = archive_root / f"{name}__{stamp}"
+                    target = self._validate_overlay_write_path(archive_root / f"{name}__{stamp}")
+                self._validate_overlay_write_path(skill_dir)
+                self._validate_overlay_write_path(target)
                 shutil.move(str(skill_dir), str(target))
                 self._l1_cache.pop(name, None)
                 self._l2_metadata = None
@@ -675,11 +679,14 @@ class SkillsLoader:
     def restore_skill(self, name: str) -> bool:
         """Move a skill back out of ``.archive/`` into its writable dir."""
         for base in self._writable_dirs():
-            src = base / ".archive" / name
+            archive_root = self._validate_overlay_write_path(base / ".archive")
+            src = self._validate_overlay_write_path(archive_root / name)
             if src.is_dir():
-                target = base / name
+                target = self._validate_overlay_write_path(base / name)
                 if target.exists():
                     return False
+                self._validate_overlay_write_path(src)
+                self._validate_overlay_write_path(target)
                 shutil.move(str(src), str(target))
                 self._l2_metadata = None
                 logger.info("Restored skill '%s' from archive", name)
