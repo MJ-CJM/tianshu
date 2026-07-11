@@ -57,9 +57,13 @@
 
 ## 5. 沙箱评估与门禁
 
-### 5.1 SandboxRunner（隔离子进程）
+### 5.1 SandboxRunner（受治理子进程）
 
-从变体 worktree 拉起隔离子进程：临时端口 + 隔离 DB 副本 + 资源闸（内存 rlimit）+ `TIANSHU_EVAL_MODE=1`，等 `/health` 健康，跑完即销毁。关键：editable 安装下用 `PYTHONPATH=<worktree>/src` 前置遮蔽，确保跑的是变体代码而非主仓。并行评估 = 同时拉起多个。
+从变体 worktree 拉起受管子进程：临时端口 + 独立 DB + wall timeout +
+`TIANSHU_EVAL_MODE=1`，等 `/health` 健康，退出时收敛进程组并清理 DB 及
+WAL/SHM。关键：editable 安装下用 `PYTHONPATH=<worktree>/src` 前置遮蔽，确保
+跑的是变体代码而非主仓。当前 `trusted-local` 只是显式宿主回退，不声明内存、
+CPU、文件系统或网络强隔离；`secure-remote` 缺少受验证后端时 fail-closed。
 
 ### 5.2 Gate（三关门禁，fail-fast）
 
@@ -143,7 +147,13 @@ manager 在 branch/switch/diff/archive/restore/delete 各动作里据 `code_ref`
 
 ## 10. 安全主防线
 
-自我修改代码是高风险面，控制分层：测试门禁是最强安全网；隔离 DB + `EVAL_MODE` 副作用围栏 + 资源闸把评估期变体关在沙箱里；`TIANSHU_EVAL_LLM_*`（详见 [./eval.md](./eval.md) §8）给沙箱评估配一把独立低额度 LLM 凭证，不设则沙箱沿用宿主凭证。**🔴 残余风险**：live 评估要 LLM key → untrusted 变体进程能拿到 key → 理论可外泄，可通过 `TIANSHU_EVAL_LLM_*` 压缩泄漏面（专用低额度凭证，泄了也只损失额度上限），但机制上无法彻底消除。结论：**晋升前人工审完整 diff 是主控制**，代码层 auto-promote 默认关且不推荐开。每次变异/评估/晋升/回滚发 EventBus 事件进审计面板。
+自我修改代码是高风险面，控制分层：测试门禁是最强安全网；独立 DB、
+`EVAL_MODE` 副作用围栏、wall timeout、进程组收敛与终态收据降低评估期风险，
+但不会把 `trusted-local` 变成强沙箱。`TIANSHU_EVAL_LLM_*`（详见
+[./eval.md](./eval.md) §8）可给评估配独立低额度 LLM 凭证，不设则沿用宿主凭证。
+**🔴 残余风险**：untrusted 变体拿到 key 后理论上可外泄；专用低额度凭证只缩小
+损失面，不能消除机制风险。结论：**晋升前人工审完整 diff 是主控制**，代码层
+auto-promote 默认关且不推荐开。每次变异/评估/晋升/回滚发 EventBus 事件进审计面板。
 
 ## 11. 设计 rationale：每个选择背后的「为什么」
 
@@ -165,14 +175,17 @@ Phase 1 的 mutator 只能改「行为配置层」（personas / skills / config 
 
 颠倒顺序就是浪费：先跑分钟级 pytest 去撞一个秒级 compile 就能发现的语法错，等于让最贵的关卡做最廉价关卡的活。fail-fast 让 99% 的坏变体在前两关的秒级开销内出局。三关全过才进 fitness（§5.2），**「能跑」是「跑得好」的前置**。
 
-### 11.3 worktree 隔离 + 沙箱 rlimit/networking 为何缺一不可
+### 11.3 worktree 隔离 + 受治理执行边界为何缺一不可
 
 两层隔离针对两类不同风险，是正交的：
 
 - **worktree（空间隔离 / `code_store.py`）**：每个变体 = 一条 `universe/<id>` 分支 + 一份独立工作树，git 是唯一真相源。变体的改动物理上锁在自己的 worktree 里，碰不到主仓工作副本；评估完只删工作文件、**保留分支可 restore**（gc）。难点：本仓是 editable 安装，裸 `import tianshu` 会解析回主仓 src——所以 Gate / Sandbox 全程注入 `PYTHONPATH=<worktree>/src` 前置遮蔽 + `cwd=<worktree>`，确保检的、跑的都是变体代码而非主仓。
 - **沙箱（运行时边界 / `sandbox.py`）**：worktree 只隔离「代码在哪」，拦不住「代码运行时干什么」。`SandboxRunner` 统一经 `ExecutionGateway` 拉起变体，固定临时随机端口、隔离 DB 与 `TIANSHU_EVAL_MODE=1`，并在退出时收敛整个进程组、删除隔离 DB。当前 `trusted-local` 宿主执行仅为显式允许的 best-effort，收据如实记录未强隔离；`secure-remote` 没有可证明的强后端时 fail-closed，不再虚标 `RLIMIT_AS` 或容器能力。
 
-少了 worktree，变体代码会污染主仓；少了沙箱，损坏代码即便编译通过，运行时仍可能死循环 / 吃光内存 / 写脏生产 DB。两层合起来才让「拿可能损坏的代码去打 fitness」这件事变得可控。
+少了 worktree，变体代码会污染主仓；少了受治理执行边界，损坏代码即便编译
+通过，也无法获得统一的 wall timeout、进程树收敛和终态收据。两层合起来降低
+评估风险，但 `trusted-local` 仍不能阻止变体访问宿主资源；只有未来接入并证明
+强制隔离能力的后端，才可宣称内存、CPU、文件系统或网络隔离。
 
 ### 11.4 DeployPointer 自动回滚与健康检查
 

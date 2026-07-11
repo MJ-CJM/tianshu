@@ -1,6 +1,6 @@
 # Eval Harness 与 Fitness 门禁
 
-> 自改平台的命门：一份自动生成的代码变体在碰真实任务前，必须先在隔离沙箱里**回放历史目标**、按统一适应度**打分**、与现冠军**回归比对**，再过门禁才配被人工晋升。本篇讲「为什么这样评 + 机制怎么转」。
+> 自改平台的命门：一份自动生成的代码变体在碰真实任务前，必须先在受治理的评估环境中**回放历史目标**、按统一适应度**打分**、与现冠军**回归比对**，再过门禁才配被人工晋升。本篇讲「为什么这样评 + 机制怎么转」。
 >
 > **相关实现**：[../../impl/universe/README.md](../../impl/universe/README.md)
 > **相关设计**：[./code-variant.md](./code-variant.md)、[./evolution.md](./evolution.md)
@@ -13,7 +13,7 @@
 |---|---|
 | 变体行为可量化 | 回放历史代表性目标 → 聚合五维信号 → 一个标量 score |
 | 与冠军可比 | 变体和冠军共用同一 `compute_fitness` 语义、同一评估集，分数同尺度 |
-| 评估期绝不伤生产 | 跑在隔离子进程 + 隔离 DB 副本 + `EVAL_MODE` 副作用围栏 + 资源闸里 |
+| 降低评估期生产影响 | 受管子进程 + 独立 DB + `EVAL_MODE` 副作用围栏 + wall timeout + 进程组收敛；`trusted-local` 不具备强隔离 |
 
 `EvalHarness`（`eval_harness.py`）是回放打分主体，`compute_fitness`（`fitness.py`）是归一聚合纯函数，`Gate`（`gate.py`）是打分前的硬门禁，`Deployer`（`deployer.py`）管晋升落地。编排者是 `UniverseEvolver.propose_code_variant`（`evolver.py`）。
 
@@ -36,7 +36,7 @@
 ```
 iso_db = worktree.parent / "_eval.db"        # 放 worktree 同级，保持 worktree 文件系统干净
 若 seed_db: 拷贝为 iso_db                      # 可携带 persona / LLM 配置作初始数据
-with sandbox.session(worktree, db_path=iso_db) as h:   # 隔离子进程拉起变体
+with sandbox.session(worktree, db_path=iso_db) as h:   # 受治理子进程拉起变体
     for goal in eval_set:
         _run_goal(h.base_url, goal, goal_timeout_s)     # 串行回放
     stats = aggregate_db_stats(h.db_path)               # 聚合沙箱 DB 全部 memorial

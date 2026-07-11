@@ -84,7 +84,7 @@
 
 **它解决什么**：AI 系统能安全地**改自己的代码**的平台不多见。Python agent 难以进程内热替换代码；行为层位面只能优化人格/策略，碰不到实现代码。
 
-**机制**：`CodeVariantStore`（git worktree + branch `universe/{id}` 隔离，相对起点 diff/gc/restore）。`CodeMutator`（allowlist 强制 + traversal-safe + 失败安全，只改演化域内代码）。三关 `Gate`（编译 → import → pytest，按成本递增 fail-fast，坏变体在前两关秒级出局）。`SandboxRunner`（隔离子进程 + 临时随机端口 + DB 副本 + 内存 rlimit，绝不碰生产 DB）。`EvalHarness`（历史目标回放 + unified fitness vs 冠军）。`Deployer` + `DeployPointer`（`{current, previous}` 指针 + `os.execv` 自重启 + `/health` 健康检查失败自动回滚到 previous）。`launcher.py` 读指针决定 cwd 与 PYTHONPATH。
+**机制**：`CodeVariantStore`（git worktree + branch `universe/{id}` 隔离，相对起点 diff/gc/restore）。`CodeMutator`（allowlist 强制 + traversal-safe + 失败安全，只改演化域内代码）。三关 `Gate`（编译 → import → pytest，按成本递增 fail-fast，坏变体在前两关秒级出局）。`SandboxRunner`（受管子进程 + 临时随机端口 + 独立 DB + wall timeout + 进程组收敛）。当前 `trusted-local` 不宣称内存、CPU、文件系统或网络强隔离，`secure-remote` 缺少受验证后端时 fail-closed。`EvalHarness`（历史目标回放 + unified fitness vs 冠军）。`Deployer` + `DeployPointer`（`{current, previous}` 指针 + `os.execv` 自重启 + `/health` 健康检查失败自动回滚到 previous）。`launcher.py` 读指针决定 cwd 与 PYTHONPATH。
 
 **相对参考项目新在哪**：把代码变体纳入平行位面体系，使系统**既能优化人格/策略，也能优化实现代码**——这是对 agent 自进化的维度扩展。自重部署用「指针 + previous 槽 + 内部健康检查」实现同进程 PID 不变的自恢复，无需外部 supervisor；参考项目（web 服务 + 容器编排背景）无此逻辑。
 

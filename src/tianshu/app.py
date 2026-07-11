@@ -130,7 +130,10 @@ async def lifespan(app: FastAPI):
     await app.state.scheduler.stop()
     await app.state.worker_pool.shutdown()
     await app.state.executor.shutdown()
-    await app.state.code_sandbox.shutdown()
+    try:
+        await app.state.code_sandbox.shutdown()
+    except Exception:
+        logger.exception("[universe] sandbox shutdown error")
     try:
         await app.state.mcp_manager.shutdown()
     except Exception:

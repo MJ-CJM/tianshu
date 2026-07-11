@@ -65,7 +65,7 @@ Phase 2 切成 4 个增量，每个走自己的 spec→plan→build。本设计�
 
 ### 3.2 增量 2b — 沙箱运行器 + 评估底座（安全关键核心）
 
-- `SandboxRunner`：从变体 worktree 拉起隔离子进程（临时端口 + 隔离 DB 副本 + 临时目录 + 资源闸 + `TIANSHU_EVAL_MODE=1`），健康检查，销毁。
+- `SandboxRunner`：经 `ExecutionGateway` 从变体 worktree 拉起受管子进程（临时端口 + 独立 DB + wall timeout + `TIANSHU_EVAL_MODE=1`），健康检查，退出时收敛进程组并清理 DB/WAL/SHM；`trusted-local` 不声明强隔离。
 - `Gate`：三关门禁——① 静态（compileall + import 冒烟 + ruff）② 测试（worktree 内全量 pytest 全绿，champion 基线即 0 失败）③ 通过后才进 fitness。
 - `EvalHarness`：回放历史 memorial 评估集 → 复用 `compute_fitness` 算分；支持 cassette 回归（确定、零成本）与 live 评估（真调 LLM、出 fitness）。
 - 新增 `variant_eval_runs` 表记录每次评估。
@@ -121,8 +121,8 @@ Phase 2 切成 4 个增量，每个走自己的 spec→plan→build。本设计�
 ### 5.3 执行模型：按需评估沙箱
 
 - **champion**：正常运行的主进程（uvicorn:8000，trusted，真实 DB），始终在线服务。
-- **评估中的变体**：从其 worktree 拉起一个**子进程**——临时端口 + 隔离 DB 副本 + 临时目录 + 资源上限（wall timeout / 内存 rlimit / CPU）+ `TIANSHU_EVAL_MODE=1`，跑完即销毁。**并行评估 = 同时拉起多个**。
-- 每个变体**确实"可独立运行"**（完整 worktree，可手动 `uvicorn` 起任意一个）；沙箱只是把这件事自动化并加隔离与资源闸。
+- **评估中的变体**：从其 worktree 拉起一个受管子进程——临时端口 + 独立 DB + wall timeout + `TIANSHU_EVAL_MODE=1`，退出时收敛进程组并清理 DB/WAL/SHM。**并行评估 = 同时拉起多个**。
+- 每个变体拥有完整 worktree，可独立启动；当前 `trusted-local` 只提供受治理的宿主执行，不提供内存、CPU、文件系统或网络强隔离。`secure-remote` 没有受验证后端时 fail-closed。
 
 ### 5.4 评估与门禁
 
@@ -181,7 +181,7 @@ cassette 适合做第 ② 关的补充回归；变体若改了 prompt/逻辑，c
 - `code_variant_enabled: bool = False` — 代码变体总开关（opt-in）。
 - `code_variant_evolvable_paths: tuple[str, ...] = ("src/tianshu/persona/selector.py", "src/tianshu/planner/", "src/tianshu/tools/")` — 演化域 allowlist（默认仅 selector/planner/tool 等低风险路径）。
 - `code_variant_auto_promote: bool = False` — 代码层自动晋升（默认关，明确不推荐开）。
-- `code_variant_sandbox_timeout_s: int = 900`（覆盖门禁+评估全程）。内存隔离仅在未来可证明的强沙箱后端中声明；宿主回退不虚标资源闸。
+- `code_variant_sandbox_timeout_s: int = 900`（覆盖门禁+评估全程）。内存隔离仅在未来可证明的强沙箱后端中声明；宿主回退不虚标强隔离能力。
 - `code_variant_eval_set_size: int = 20` — 回放评估集规模（与 Phase 1 `universe_min_samples` 同量级）。
 - 晋升 margin / 样本量复用 Phase 1 的 `universe_promote_margin` / `universe_min_samples`。
 
@@ -209,9 +209,9 @@ cassette 适合做第 ② 关的补充回归；变体若改了 prompt/逻辑，c
 | 组件 | 职责 | 依赖 |
 |------|------|------|
 | `CodeVariantStore`（可并入 `UniverseStore`） | worktree 增删/分支/diff/GC | git |
-| `SandboxRunner` | 拉起隔离子进程（临时端口+隔离DB+资源闸+EVAL_MODE）、健康检查、销毁 | subprocess、DB 快照 |
+| `SandboxRunner` | 经治理边界拉起受管子进程（临时端口+独立DB+wall timeout+EVAL_MODE）、健康检查、进程组收敛与 DB/WAL/SHM 清理 | ExecutionGateway、DB 快照 |
 | `EvalHarness` | 回放评估集 → 算 fitness | SandboxRunner、memorial 仓库、`compute_fitness` |
-| `Gate` | 静态 + 测试门禁 | subprocess（compileall/pytest） |
+| `Gate` | 静态 + 测试门禁 | ExecutionGateway（compileall/pytest） |
 | `CodeMutator` | agent-in-worktree 写补丁 + 演化域 allowlist 强制 | executor/agent、llm |
 | `Deployer` | `current_ref` 指针 + re-exec + 健康检查 + 自动回滚 | os.execv |
 
@@ -221,7 +221,7 @@ cassette 适合做第 ② 关的补充回归；变体若改了 prompt/逻辑，c
 
 ## 7. 错误处理与边界
 
-- **资源闸**：沙箱子进程 wall timeout / 内存 rlimit / CPU 上限，杀死失控变体。
+- **执行生命周期闸**：wall timeout、进程组收敛和终态收据；内存、CPU、文件系统与网络强隔离必须由未来受验证的后端证明，当前宿主模式不宣称具备。
 - **隔离 DB**（不变量 3）：评估跑在 DB 副本/临时库，损坏的变体污染不了生产。
 - **副作用围栏**：`TIANSHU_EVAL_MODE=1` 下 notifier/webhook/外发渠道指向 null sink。
 - **门禁前置**：①② 在变体跑评估前拦掉绝大多数损坏。
@@ -237,8 +237,8 @@ cassette 适合做第 ② 关的补充回归；变体若改了 prompt/逻辑，c
 自我修改代码是高风险面，安全设计分层且诚实：
 
 - **测试门禁**是第一道也是最强的安全网（仓库现成 ~1169 测试）。
-- **隔离 DB + 副作用围栏 + 资源闸**把评估期变体关在沙箱里。
-- **🔴 密钥残余风险（摊开说）**：live 评估要 LLM key → untrusted 变体进程能拿到 key → 理论上可外泄。控制：(a) 可行则用受限/临时 key；(b) 评估出网 allowlist 只放 LLM 端点；(c) **晋升前人工审完整 diff**——抓后门/外泄的主防线；(d) 评估全程审计留痕。**结论：带 key 访问的自动生成代码本质有风险，人工审核 diff 是主控制；代码层 auto-promote 默认关且不推荐开。**
+- **独立 DB + 副作用围栏 + wall timeout + 进程组收敛**降低评估期风险；当前 `trusted-local` 仍可访问宿主资源，不是强沙箱。
+- **🔴 密钥残余风险（摊开说）**：live 评估要 LLM key → untrusted 变体进程能拿到 key → 理论上可外泄。当前控制是受限/临时低额度 key、晋升前人工审完整 diff、评估审计留痕；出网 allowlist 只有未来受验证后端实际执行时才可宣称。**结论：带 key 访问的自动生成代码本质有风险，人工审核 diff 是主控制；代码层 auto-promote 默认关且不推荐开。**
 - **审计**：每次 变异/评估/晋升/回滚 发 EventBus 事件，进审计面板。
 - 沿用项目安全基线：无硬编码密钥、输入校验、参数化查询（见 `.claude/rules/common/security.md`）。
 

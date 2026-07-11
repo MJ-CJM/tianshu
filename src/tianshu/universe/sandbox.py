@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import re
 import socket
 import sys
@@ -33,6 +34,8 @@ from tianshu.executor.execution_gateway import (
     issue_universe_command_grant,
 )
 from tianshu.universe.execution import UniverseExecutionContextFactory
+
+logger = logging.getLogger(__name__)
 
 _SECRET_REFERENCE = re.compile(r"^\$\{([^{}]+)\}$")
 _FIXED_ENV_NAMES = frozenset(
@@ -101,6 +104,9 @@ class SandboxRunner:
         self._runtime_timeout = runtime_timeout_s
         self.last_receipt: ExecutionReceipt | None = None
         self._active: dict[int, SandboxHandle] = {}
+        self._starting: set[asyncio.Task[object]] = set()
+        self._pending_cleanup: set[Path] = set()
+        self._closing = False
 
     @staticmethod
     def _free_port() -> int:
@@ -151,14 +157,34 @@ class SandboxRunner:
         db_path: Path,
         extra_env: Mapping[str, str] | None = None,
     ) -> SandboxHandle:
+        if self._closing:
+            raise SandboxError("sandbox runner is closing")
+        task = asyncio.current_task()
+        if task is None:  # pragma: no cover - asyncio always supplies one in a coroutine
+            raise RuntimeError("sandbox start requires an asyncio task")
+        self._starting.add(task)
+        try:
+            return await self._start(worktree, db_path=db_path, extra_env=extra_env)
+        except BaseException:
+            try:
+                self._remove_database_files(Path(db_path))
+            except OSError:
+                self._pending_cleanup.add(Path(db_path))
+                logger.exception("sandbox database cleanup deferred for %s", db_path)
+            raise
+        finally:
+            self._starting.discard(task)
+
+    async def _start(
+        self,
+        worktree: Path,
+        *,
+        db_path: Path,
+        extra_env: Mapping[str, str] | None = None,
+    ) -> SandboxHandle:
         wt = Path(worktree).resolve()
         port = self._free_port()
-        try:
-            environment = self._build_environment(wt, db_path, port, extra_env=extra_env)
-        except Exception:
-            with contextlib.suppress(FileNotFoundError):
-                Path(db_path).unlink()
-            raise
+        environment = self._build_environment(wt, db_path, port, extra_env=extra_env)
         context = self.context_factory.create(
             operation="sandbox",
             timeout_seconds=self._runtime_timeout,
@@ -179,6 +205,7 @@ class SandboxRunner:
             grant = issue_universe_command_grant(
                 stage="sandbox:serve",
                 argv=argv,
+                workspace_root=wt,
                 cwd=".",
                 environment=environment,
             )
@@ -217,17 +244,9 @@ class SandboxRunner:
             execution = await self.execution_gateway.start(request)
         except ExecutionStartError as exc:
             self.last_receipt = exc.receipt
-            with contextlib.suppress(FileNotFoundError):
-                Path(db_path).unlink()
             raise SandboxError("sandbox process failed to start", receipt=exc.receipt) from None
         except ExecutionDenied as exc:
             self.last_receipt = exc.receipt
-            with contextlib.suppress(FileNotFoundError):
-                Path(db_path).unlink()
-            raise
-        except Exception:
-            with contextlib.suppress(FileNotFoundError):
-                Path(db_path).unlink()
             raise
 
         monitor = asyncio.create_task(execution.wait(), name=f"universe-sandbox-{port}")
@@ -277,6 +296,7 @@ class SandboxRunner:
                 if handle.monitor.done() and not handle.monitor.cancelled():
                     try:
                         handle._result = handle.monitor.result()
+                        await handle.execution.terminate()
                     except Exception:
                         handle._result = await handle.execution.terminate()
                 else:
@@ -284,15 +304,51 @@ class SandboxRunner:
                     await asyncio.gather(handle.monitor, return_exceptions=True)
                     handle._result = await handle.execution.terminate()
             self.last_receipt = handle._result.receipt
+            self._remove_database_files(handle.db_path)
             self._active.pop(handle.pid, None)
-            with contextlib.suppress(FileNotFoundError):
-                handle.db_path.unlink()
             return handle._result
 
     async def shutdown(self) -> None:
+        self._closing = True
+        current = asyncio.current_task()
+        starting = tuple(task for task in self._starting if task is not current)
+        for task in starting:
+            task.cancel()
+        if starting:
+            await asyncio.gather(*starting, return_exceptions=True)
+
         handles = tuple(self._active.values())
         if handles:
-            await asyncio.gather(*(self.stop(handle) for handle in handles))
+            results = await asyncio.gather(
+                *(self.stop(handle) for handle in handles),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, BaseException):
+                    logger.error(
+                        "sandbox cleanup remains pending: %s",
+                        result,
+                        exc_info=(type(result), result, result.__traceback__),
+                    )
+
+        for db_path in tuple(self._pending_cleanup):
+            try:
+                self._remove_database_files(db_path)
+            except OSError:
+                logger.exception("sandbox database cleanup still pending for %s", db_path)
+            else:
+                self._pending_cleanup.discard(db_path)
+
+    @staticmethod
+    def _remove_database_files(db_path: Path) -> None:
+        failures: list[OSError] = []
+        for candidate in (db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
+            try:
+                candidate.unlink(missing_ok=True)
+            except OSError as exc:
+                failures.append(exc)
+        if failures:
+            raise failures[0]
 
     @asynccontextmanager
     async def session(

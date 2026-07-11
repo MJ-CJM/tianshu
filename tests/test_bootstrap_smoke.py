@@ -13,6 +13,8 @@ from __future__ import annotations
 import pytest
 
 from tianshu.app import create_app, lifespan
+from tianshu.bootstrap.wiring_tools import _runtime_secret_resolver
+from tianshu.config import TianshuSettings
 
 # 全部在 lifespan() 中被赋值、且默认测试环境下保证非 None 的 app.state 键。
 NON_NULLABLE_STATE_KEYS = [
@@ -80,6 +82,15 @@ NULLABLE_STATE_KEYS = [
 ALL_STATE_KEYS = [*NON_NULLABLE_STATE_KEYS, *NULLABLE_STATE_KEYS]
 
 
+def test_runtime_secret_resolver_never_falls_unknown_settings_refs_back_to_environment(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("settings:private_runtime_value", "must-not-resolve")
+    resolver = _runtime_secret_resolver(TianshuSettings())
+
+    assert resolver("settings:private_runtime_value") is None
+
+
 @pytest.fixture
 async def booted_app():
     app = create_app()
@@ -132,3 +143,47 @@ class TestBootstrapSmoke:
 
             drawer_store.close = _tracking_close
         assert calls, "lifespan 退出应调用 drawer_store.close()"
+
+    async def test_sandbox_cleanup_failure_does_not_skip_remaining_teardown(self):
+        app = create_app()
+        calls: list[str] = []
+        storage = None
+        async with lifespan(app):
+            storage = app.state.storage
+
+            async def _failing_sandbox_shutdown() -> None:
+                calls.append("sandbox")
+                raise PermissionError("sandbox cleanup failed")
+
+            original_mcp_shutdown = app.state.mcp_manager.shutdown
+
+            async def _tracking_mcp_shutdown() -> None:
+                calls.append("mcp")
+                await original_mcp_shutdown()
+
+            original_bot_stop = app.state.bot_manager.stop_all
+
+            async def _tracking_bot_stop() -> None:
+                calls.append("bots")
+                await original_bot_stop()
+
+            original_drawer_close = app.state.drawer_store.close
+
+            def _tracking_drawer_close() -> None:
+                calls.append("drawer")
+                original_drawer_close()
+
+            original_storage_close = app.state.storage.close
+
+            def _tracking_storage_close() -> None:
+                calls.append("storage")
+                original_storage_close()
+
+            app.state.code_sandbox.shutdown = _failing_sandbox_shutdown
+            app.state.mcp_manager.shutdown = _tracking_mcp_shutdown
+            app.state.bot_manager.stop_all = _tracking_bot_stop
+            app.state.drawer_store.close = _tracking_drawer_close
+            app.state.storage.close = _tracking_storage_close
+
+        assert storage is not None
+        assert calls == ["sandbox", "mcp", "bots", "drawer", "storage"]

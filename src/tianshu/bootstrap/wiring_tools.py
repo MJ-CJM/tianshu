@@ -40,6 +40,8 @@ def _runtime_secret_resolver(settings: TianshuSettings):
     def resolve(ref: str) -> str | None:
         if ref in setting_refs:
             return setting_refs[ref] or None
+        if ref.startswith("settings:"):
+            return None
         return os.environ.get(ref)
 
     return resolve

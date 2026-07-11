@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -274,7 +275,7 @@ async def test_secret_is_redacted_from_guard_and_spawn_exceptions(
 
         async def spawn(self, **kwargs):
             assert kwargs["env"][_SECRET_ENV_NAME] == _SENTINEL
-            raise OSError(f"spawn failed while handling {_SENTINEL}")
+            raise RuntimeError(f"spawn failed while handling {_SENTINEL}")
 
     with pytest.raises(ExecutionStartError) as spawn_error:
         await ExecutionGateway(backend=_FailingBackend()).run(request)
@@ -285,3 +286,65 @@ async def test_secret_is_redacted_from_guard_and_spawn_exceptions(
     assert spawn_error.value.receipt.stdout_bytes == 0
     assert spawn_error.value.receipt.stderr_bytes == 0
     assert _SENTINEL not in spawn_error.value.receipt.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_backend_spawn_cancellation_is_not_converted_to_start_failure(
+    tmp_path,
+    effective_contract,
+):
+    argv = (sys.executable, "-c", "print('unreachable')")
+    request = _request(tmp_path, effective_contract, argv, EnvironmentPolicy())
+    entered = asyncio.Event()
+
+    class _CancelledBackend:
+        backend_id = "cancelled-backend"
+        supports_sandbox = False
+        supports_network_enforcement = False
+
+        async def spawn(self, **_kwargs):
+            entered.set()
+            await asyncio.Event().wait()
+
+    task = asyncio.create_task(ExecutionGateway(backend=_CancelledBackend()).start(request))
+    await entered.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_settings_secret_namespace_is_reserved_for_universe_execution(
+    tmp_path,
+):
+    secret_ref = "settings:eval_llm_api_key"
+    requested = RequestedGovernanceContractV1(
+        objective=ObjectiveV1(goal="reject settings namespace from tools"),
+        permissions=PermissionPolicyV1(secret_refs=(secret_ref,)),
+        network=NetworkPolicyV1(mode="unrestricted_requested"),
+    )
+    effective = resolve_governance_contract(
+        requested,
+        native_manifest(),
+        probe_host_capabilities(),
+    )
+    argv = (sys.executable, "-c", "print('unreachable')")
+    environment = EnvironmentPolicy(
+        allow_names=(),
+        secret_refs=(EnvironmentSecretRef(env_name="APP_BOUND_SECRET", ref=secret_ref),),
+    )
+    resolved: list[str] = []
+
+    def resolver(ref: str) -> str | None:
+        resolved.append(ref)
+        return _SENTINEL
+
+    backend = _NoSpawnBackend()
+    with pytest.raises(ExecutionDenied, match="reserved_secret_namespace"):
+        await ExecutionGateway(backend=backend, secret_resolver=resolver).start(
+            _request(tmp_path, effective, argv, environment)
+        )
+
+    assert resolved == []
+    assert backend.spawned is False

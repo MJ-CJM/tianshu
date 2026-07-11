@@ -99,9 +99,13 @@ class CommandGrant(_StrictModel):
     authority_ref: str = Field(min_length=1)
     server_identity: str | None = None
     actor_id: str = Field(min_length=1)
+    principal_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     universe_stage: str | None = None
     cwd: str | None = None
     environment_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    workspace_lease_id: str | None = None
+    workspace_root_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    resolved_cwd_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     effective_contract_hash: str = Field(min_length=1)
     correlation_id: str = Field(min_length=1)
     issued_at: datetime
@@ -121,6 +125,9 @@ class CommandGrant(_StrictModel):
             self.universe_stage,
             self.cwd,
             self.environment_digest,
+            self.workspace_lease_id,
+            self.workspace_root_digest,
+            self.resolved_cwd_digest,
         )
         if (universe_scope and not all(value is not None for value in universe_bindings)) or (
             not universe_scope and any(value is not None for value in universe_bindings)
@@ -223,6 +230,21 @@ def _environment_digest(environment: EnvironmentPolicy) -> str:
     payload = environment.model_dump(mode="json")
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _principal_digest(principal: Principal) -> str:
+    payload = {
+        "id": principal.id,
+        "kind": str(principal.kind),
+        "display_name": principal.display_name,
+        "scopes": sorted(principal.scopes),
+    }
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _resolved_path_digest(path: Path) -> str:
+    return hashlib.sha256(str(path.resolve()).encode()).hexdigest()
 
 
 class NetworkPolicy(_StrictModel):
@@ -367,6 +389,7 @@ def _mint_command_grant(
     universe_stage: str | None = None,
     cwd: str | None = None,
     environment: EnvironmentPolicy | None = None,
+    workspace_root: Path | None = None,
     expires_at: datetime | None = None,
 ) -> CommandGrant:
     context = _require_execution_context()
@@ -379,9 +402,19 @@ def _mint_command_grant(
         authority_ref=authority_ref,
         server_identity=server_identity,
         actor_id=context.actor.id,
+        principal_digest=_principal_digest(context.actor),
         universe_stage=universe_stage,
         cwd=cwd,
         environment_digest=(_environment_digest(environment) if environment is not None else None),
+        workspace_lease_id=(context.workspace_lease_id if workspace_root is not None else None),
+        workspace_root_digest=(
+            _resolved_path_digest(workspace_root) if workspace_root is not None else None
+        ),
+        resolved_cwd_digest=(
+            _resolved_path_digest(workspace_root.resolve() / (cwd or "."))
+            if workspace_root is not None
+            else None
+        ),
         effective_contract_hash=context.effective_contract.content_hash,
         correlation_id=context.correlation_id,
         issued_at=issued_at,
@@ -581,6 +614,7 @@ def issue_universe_command_grant(
     *,
     stage: str,
     argv: Sequence[str],
+    workspace_root: Path,
     cwd: str,
     environment: EnvironmentPolicy,
 ) -> CommandGrant:
@@ -609,6 +643,7 @@ def issue_universe_command_grant(
         universe_stage=stage,
         cwd=cwd,
         environment=environment,
+        workspace_root=workspace_root,
     )
 
 
@@ -1317,11 +1352,30 @@ class ExecutionGateway:
         return await (await self.start(request)).wait()
 
     async def start(self, request: ExecutionRequest) -> ExecutionHandle:
-        cwd, built_in_gaps = self._validate_built_in_guards(request)
-        env, secret_refs, secret_values = self._build_environment(request)
-        custom_gaps = await self._evaluate_custom_guards(request, secret_values)
         started_at = datetime.now(UTC)
         started_monotonic = time.monotonic()
+        try:
+            cwd, built_in_gaps = self._validate_built_in_guards(request)
+            env, secret_refs, secret_values = self._build_environment(request)
+            custom_gaps = await self._evaluate_custom_guards(request, secret_values)
+        except asyncio.CancelledError:
+            raise
+        except ExecutionDenied as exc:
+            if exc.receipt is not None:
+                raise
+            raise ExecutionDenied(
+                exc.guard,
+                exc.code,
+                exc.detail,
+                receipt=self._start_failure_receipt(
+                    request=request,
+                    env_keys=self._declared_environment_keys(request.environment),
+                    secret_refs=tuple(ref.ref for ref in request.environment.secret_refs),
+                    advisory_gaps=(),
+                    started_at=started_at,
+                    started_monotonic=started_monotonic,
+                ),
+            ) from None
         try:
             spawned = await self._backend.spawn(
                 argv=request.command_argv,
@@ -1331,7 +1385,9 @@ class ExecutionGateway:
                 sandbox=request.sandbox,
                 stdin_mode=request.stdin_mode,
             )
-        except (OSError, ValueError) as exc:
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
             detail = self._redact_exception(str(exc), secret_values)
             raise ExecutionStartError(
                 detail,
@@ -1506,6 +1562,7 @@ class ExecutionGateway:
             grant.effective_contract_hash != request.effective_contract.content_hash
             or grant.correlation_id != request.correlation_id
             or grant.actor_id != request.actor.id
+            or grant.principal_digest != _principal_digest(request.actor)
         ):
             self._deny(
                 "command_grant",
@@ -1630,6 +1687,9 @@ class ExecutionGateway:
                     and grant.universe_stage == request.universe_stage
                     and grant.cwd == request.cwd
                     and grant.environment_digest == _environment_digest(request.environment)
+                    and grant.workspace_lease_id == request.workspace_lease_id
+                    and grant.workspace_root_digest == _resolved_path_digest(root)
+                    and grant.resolved_cwd_digest == _resolved_path_digest(cwd)
                 )
             else:
                 valid_system_scope = False
@@ -1697,8 +1757,16 @@ class ExecutionGateway:
                 "network policy cannot be enforced by the selected backend",
             )
 
-        declared_refs = set(request.effective_contract.permissions.secret_refs)
         requested_refs = {secret.ref for secret in request.environment.secret_refs}
+        if request.purpose not in {"universe_gate", "universe_sandbox"} and any(
+            ref.startswith("settings:") for ref in requested_refs
+        ):
+            self._deny(
+                "environment",
+                "reserved_secret_namespace",
+                "settings secret references are reserved for governed Universe execution",
+            )
+        declared_refs = set(request.effective_contract.permissions.secret_refs)
         if not requested_refs.issubset(declared_refs):
             self._deny("environment", "secret_not_granted", "secret reference is not in contract")
         explicit_names = {item.name for item in request.environment.values}
@@ -1813,6 +1881,14 @@ class ExecutionGateway:
             secret_refs.append(secret.ref)
             secret_values.append(value)
         return env, tuple(secret_refs), tuple(secret_values)
+
+    @staticmethod
+    def _declared_environment_keys(environment: EnvironmentPolicy) -> tuple[str, ...]:
+        passthrough = ",".join(environment.allow_names)
+        keys = set(build_clean_env(passthrough))
+        keys.update(item.name for item in environment.values)
+        keys.update(item.env_name for item in environment.secret_refs)
+        return tuple(sorted(keys))
 
     @staticmethod
     def _redact_exception(detail: str, secrets: tuple[str, ...]) -> str:

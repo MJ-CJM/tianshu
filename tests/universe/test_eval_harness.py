@@ -6,7 +6,9 @@ evaluate() orchestration 用 fake sandbox + monkeypatch。
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import inspect
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +18,11 @@ from tianshu.models import Edict, EdictStatus, Memorial, TaskStatus
 from tianshu.storage import Storage
 from tianshu.universe.eval_harness import EvalHarness
 from tianshu.universe.fitness import compute_fitness
+
+
+async def _no_op_run_goal(*_args) -> None:
+    return None
+
 
 # ---------------------------------------------------------------------------
 # 辅助：临时 Storage
@@ -194,6 +201,73 @@ class _FakeSandboxRunner:
         yield _FakeHandle(base_url="http://fake:9999", db_path=self._db_path)
 
 
+@pytest.mark.asyncio
+async def test_goal_polling_is_async_and_observes_cancellation_promptly(
+    tmp_path,
+    monkeypatch,
+):
+    assert inspect.iscoroutinefunction(EvalHarness._run_goal)
+    harness = EvalHarness(storage=None, sandbox_runner=None)
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def blocking_goal(_base_url, _goal, _timeout_s):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(harness, "_run_goal", blocking_goal)
+    task = asyncio.create_task(
+        harness._evaluate_session(
+            _FakeHandle(base_url="http://fake:9999", db_path=tmp_path / "eval.db"),
+            eval_set=["goal"],
+            goal_timeout_s=300,
+            budget_cny=None,
+        )
+    )
+    await asyncio.wait_for(started.wait(), timeout=0.5)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.wait_for(cancelled.wait(), timeout=0.5)
+
+
+@pytest.mark.asyncio
+async def test_goal_polling_ignores_host_proxy_environment_and_redirects(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"data": {}}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return _Response()
+
+    def client_factory(**kwargs):
+        captured.update(kwargs)
+        return _Client()
+
+    monkeypatch.setattr("tianshu.universe.eval_harness.httpx.AsyncClient", client_factory)
+
+    await EvalHarness(None, None)._run_goal("http://127.0.0.1:1", "goal", 1)
+
+    assert captured["trust_env"] is False
+    assert captured["follow_redirects"] is False
+
+
 def test_evaluate_orchestration_with_fakes(tmp_path, tmp_storage, monkeypatch):
     """evaluate() 应：调用 _run_goal、调 aggregate_db_stats、返回 {fitness, stats, n}。
 
@@ -220,7 +294,7 @@ def test_evaluate_orchestration_with_fakes(tmp_path, tmp_storage, monkeypatch):
     # monkeypatch _run_goal 为 no-op（不做真实 HTTP）
     run_goal_calls: list[str] = []
 
-    def fake_run_goal(base_url, goal, timeout_s):
+    async def fake_run_goal(base_url, goal, timeout_s):
         run_goal_calls.append(goal)
 
     monkeypatch.setattr(harness, "_run_goal", fake_run_goal)
@@ -263,8 +337,12 @@ def test_evaluate_truncates_on_budget(tmp_path, monkeypatch):
             yield _H()
 
     harness = EvalHarness(storage=None, sandbox_runner=_FakeSandbox())
+
     # 每回放一条 goal,沙箱 DB 里累积 1.0 元成本
-    monkeypatch.setattr(harness, "_run_goal", lambda base, goal, t: ran.append(goal))
+    async def record_goal(_base, goal, _timeout):
+        ran.append(goal)
+
+    monkeypatch.setattr(harness, "_run_goal", record_goal)
     costs = iter([1.0, 2.0, 3.0, 3.0])  # 第 2 条后 cost=2.0 ≥ budget → 截断
     monkeypatch.setattr(
         harness,
@@ -304,7 +382,11 @@ def test_evaluate_no_budget_runs_all(tmp_path, monkeypatch):
             yield _H()
 
     harness = EvalHarness(storage=None, sandbox_runner=_FakeSandbox())
-    monkeypatch.setattr(harness, "_run_goal", lambda base, goal, t: ran.append(goal))
+
+    async def record_goal(_base, goal, _timeout):
+        ran.append(goal)
+
+    monkeypatch.setattr(harness, "_run_goal", record_goal)
     costs = iter([1.0, 2.0, 3.0, 3.0])
     monkeypatch.setattr(
         harness,
@@ -602,7 +684,7 @@ def test_evaluate_merges_base_env_into_sandbox(tmp_path, monkeypatch):
         sandbox_runner=_FakeSandbox(),
         base_env={"TIANSHU_LLM_API_KEY": "${settings:eval_llm_api_key}"},
     )
-    monkeypatch.setattr(harness, "_run_goal", lambda *a: None)
+    monkeypatch.setattr(harness, "_run_goal", _no_op_run_goal)
     monkeypatch.setattr(
         harness,
         "aggregate_db_stats",
@@ -631,7 +713,7 @@ def test_evaluate_generates_unique_iso_db_per_call(tmp_path, monkeypatch):
     """两次 evaluate() 调用应各自生成唯一的 iso_db 文件名。
 
     修复前 iso_db 固定为 "_eval.db"：并发评估（行为层/代码层各一条 cron，经
-    asyncio.to_thread 真并发）会共享同一文件，先结束者 stop() 的 unlink 会
+    异步评估并发）会共享同一文件，先结束者 stop() 的 unlink 会
     删掉对方仍在使用的库。文件名唯一化后每次 evaluate() 各用各的库。
     """
     from tianshu.universe.eval_harness import EvalHarness
@@ -651,7 +733,7 @@ def test_evaluate_generates_unique_iso_db_per_call(tmp_path, monkeypatch):
             yield _H()
 
     harness = EvalHarness(storage=None, sandbox_runner=_FakeSandbox())
-    monkeypatch.setattr(harness, "_run_goal", lambda *a: None)
+    monkeypatch.setattr(harness, "_run_goal", _no_op_run_goal)
     monkeypatch.setattr(
         harness,
         "aggregate_db_stats",

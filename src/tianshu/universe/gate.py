@@ -86,6 +86,7 @@ class Gate:
                 grant = issue_universe_command_grant(
                     stage=stage_id,
                     argv=argv,
+                    workspace_root=wt,
                     cwd=".",
                     environment=environment,
                 )

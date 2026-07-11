@@ -12,12 +12,11 @@ import json
 import logging
 import shutil
 import sqlite3
-import time
-import urllib.error
-import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from tianshu.universe.fitness import compute_fitness
 
@@ -270,7 +269,7 @@ class EvalHarness:
         truncated = False
         ran = 0
         for goal in eval_set:
-            await asyncio.to_thread(self._run_goal, h.base_url, goal, goal_timeout_s)
+            await self._run_goal(h.base_url, goal, goal_timeout_s)
             ran += 1
             if (
                 budget_cny is not None
@@ -383,7 +382,7 @@ class EvalHarness:
             "baseline_cached": baseline_cached,
         }
 
-    def _run_goal(self, base_url: str, goal: str, timeout_s: int) -> None:
+    async def _run_goal(self, base_url: str, goal: str, timeout_s: int) -> None:
         """POST 一个 edict 并轮询其 memorial 到终态（或超时放弃）。
 
         POST /api/edicts  {"goal": goal}  → data.id
@@ -391,43 +390,44 @@ class EvalHarness:
         终态：completed / approved / failed / rejected
         超时时记录 warning，不抛异常（eval 继续）。
         """
-        # --- 提交 edict ---
-        payload = json.dumps({"goal": goal}).encode()
-        req = urllib.request.Request(
-            f"{base_url}/api/edicts",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
-                body = json.loads(resp.read())
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("eval: failed to submit goal %r: %s", goal[:60], exc)
-            return
-
-        edict_id = (body.get("data") or {}).get("id")
-        if not edict_id:
-            logger.warning("eval: no edict id in response for goal %r", goal[:60])
-            return
-
-        # --- 轮询 memorial 到终态 ---
-        memorial_url = f"{base_url}/api/edicts/{edict_id}/memorial"
-        deadline = time.monotonic() + timeout_s
-        poll_interval = 2.0
-        while time.monotonic() < deadline:
-            time.sleep(poll_interval)
+        async with httpx.AsyncClient(
+            timeout=30,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
             try:
-                with urllib.request.urlopen(memorial_url, timeout=10) as resp:  # noqa: S310
-                    result = json.loads(resp.read())
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("eval: poll error for edict %s: %s", edict_id, exc)
-                continue
-            data = result.get("data") or {}
-            status = data.get("status")
-            if status in _TERMINAL_STATUSES:
-                logger.debug("eval: edict %s reached status %s", edict_id, status)
+                response = await client.post(
+                    f"{base_url}/api/edicts",
+                    json={"goal": goal},
+                )
+                response.raise_for_status()
+                body = response.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning("eval: failed to submit goal %r: %s", goal[:60], exc)
                 return
+
+            edict_id = (body.get("data") or {}).get("id") if isinstance(body, dict) else None
+            if not edict_id:
+                logger.warning("eval: no edict id in response for goal %r", goal[:60])
+                return
+
+            memorial_url = f"{base_url}/api/edicts/{edict_id}/memorial"
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + timeout_s
+            while (remaining := deadline - loop.time()) > 0:
+                await asyncio.sleep(min(2.0, remaining))
+                try:
+                    response = await client.get(memorial_url, timeout=min(10.0, remaining))
+                    response.raise_for_status()
+                    result = response.json()
+                except (httpx.HTTPError, ValueError) as exc:
+                    logger.debug("eval: poll error for edict %s: %s", edict_id, exc)
+                    continue
+                data = (result.get("data") or {}) if isinstance(result, dict) else {}
+                status = data.get("status")
+                if status in _TERMINAL_STATUSES:
+                    logger.debug("eval: edict %s reached status %s", edict_id, status)
+                    return
         logger.warning(
             "eval: timeout waiting for edict %s (goal=%r) after %ss",
             edict_id,

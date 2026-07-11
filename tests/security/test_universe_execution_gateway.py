@@ -64,6 +64,7 @@ def _admitted_request(
         grant = issue_universe_command_grant(
             stage=stage,
             argv=argv,
+            workspace_root=tmp_path,
             cwd=cwd,
             environment=environment,
         )
@@ -297,6 +298,81 @@ async def test_universe_grant_rejects_argv_contract_correlation_and_actor_mismat
         assert backend.spawned is False
 
 
+@pytest.mark.asyncio
+async def test_universe_grant_binds_resolved_workspace_lease_and_complete_principal(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    alternate_workspace = tmp_path / "alternate"
+    alternate_workspace.mkdir()
+    environment = EnvironmentPolicy(
+        allow_names=(),
+        values=(EnvironmentValue(name="PYTHONPATH", value=str(workspace / "src")),),
+    )
+    actor = Principal(
+        id="shared-id",
+        kind=PrincipalKind.SERVICE,
+        display_name="Universe Service",
+        scopes=frozenset({"universe:execute"}),
+    )
+    factory = UniverseExecutionContextFactory(
+        security_mode="trusted-local",
+        actor_provider=lambda: actor,
+    )
+    context = factory.create(operation="gate", timeout_seconds=10)
+    argv = (sys.executable, "-c", "import tianshu")
+    with bind_execution_context(context):
+        grant = issue_universe_command_grant(
+            stage="gate:import",
+            argv=argv,
+            workspace_root=workspace,
+            cwd=".",
+            environment=environment,
+        )
+    request = ExecutionRequest(
+        execution_id="universe-binding-test",
+        correlation_id=context.correlation_id,
+        actor=actor,
+        purpose="universe_gate",
+        universe_stage="gate:import",
+        effective_contract=context.effective_contract,
+        argv_command=ArgvCommand(argv=argv),
+        workspace_lease_id=context.workspace_lease_id,
+        workspace_root=workspace,
+        cwd=".",
+        environment=environment,
+        network=NetworkPolicy(mode="unrestricted"),
+        timeout_seconds=10,
+        stdout_limit_bytes=2048,
+        stderr_limit_bytes=2048,
+        sandbox=SandboxRequirement(
+            trust_level="trusted-local",
+            mode="host",
+            allow_host=True,
+        ),
+        command_grant=grant,
+    )
+    same_id_different_principal = actor.model_copy(
+        update={
+            "kind": PrincipalKind.HUMAN,
+            "display_name": "Different Human",
+            "scopes": frozenset({"admin"}),
+        }
+    )
+    variants = (
+        request.model_copy(update={"workspace_root": alternate_workspace}),
+        request.model_copy(update={"workspace_lease_id": "different-lease"}),
+        request.model_copy(update={"actor": same_id_different_principal}),
+    )
+
+    for variant in variants:
+        backend = _NoSpawnBackend()
+        with pytest.raises(ExecutionDenied, match="command_grant"):
+            await ExecutionGateway(backend=backend).run(variant)
+        assert backend.spawned is False
+
+
 def test_literal_secret_cannot_enter_environment_model_or_request_dump() -> None:
     sentinel = "violet-literal-secret"
 
@@ -323,6 +399,7 @@ def test_universe_stage_grant_rejects_noncanonical_command(tmp_path: Path) -> No
         issue_universe_command_grant(
             stage="gate:import",
             argv=(sys.executable, "-c", "print('not the import gate')"),
+            workspace_root=tmp_path,
             cwd=".",
             environment=environment,
         )
@@ -347,6 +424,7 @@ async def test_universe_rejects_arbitrary_literal_environment_name_before_spawn(
         grant = issue_universe_command_grant(
             stage="gate:import",
             argv=request.command_argv,
+            workspace_root=tmp_path,
             cwd=".",
             environment=environment,
         )
@@ -391,6 +469,7 @@ async def test_universe_clean_environment_and_secret_ref_are_redacted(
         grant = issue_universe_command_grant(
             stage="gate:import",
             argv=argv,
+            workspace_root=tmp_path,
             cwd=".",
             environment=environment,
         )

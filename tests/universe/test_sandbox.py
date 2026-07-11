@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tianshu.executor.execution_gateway import ExecutionGateway
+from tianshu.executor.execution_gateway import ExecutionDenied, ExecutionGateway
 from tianshu.universe.execution import UniverseExecutionContextFactory
 from tianshu.universe.sandbox import SandboxError, SandboxRunner
 
@@ -99,8 +99,12 @@ async def test_sandbox_boots_real_app_and_health_ok(tmp_path: Path):
 async def test_secure_remote_denial_removes_isolated_database(tmp_path: Path):
     db = tmp_path / "isolated.db"
     db.write_text("temporary")
+    runner = _runner(security_mode="secure-remote")
 
-    with pytest.raises(Exception, match="sandbox"):
-        await _runner(security_mode="secure-remote").start(tmp_path, db_path=db)
+    with pytest.raises(ExecutionDenied, match="sandbox") as error:
+        await runner.start(tmp_path, db_path=db)
 
+    assert error.value.receipt is not None
+    assert error.value.receipt.status == "failed"
+    assert runner.last_receipt is error.value.receipt
     assert not db.exists()

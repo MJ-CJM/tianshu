@@ -37,7 +37,10 @@ save_variant_eval_run 落 variant_eval_runs 表
 
 评估集来自历史：取最近若干条 **status=completed** 的 edict goal 去重（`select_eval_set`）。所以**评估只回放冠军已跑通的真实任务** —— 没有历史已完成诏令时评估集为空，fitness 各项归一为 0。
 
-沙箱是隔离子进程：临时端口 + 独立 `_eval.db`（worktree 同级）+ `TIANSHU_EVAL_MODE=1` + 内存 rlimit，跑完即 kill 进程删 DB，**绝不碰生产端口 / DB**。
+评估运行在受管子进程中：使用临时端口、独立 `_eval.db`（worktree 同级）和
+`TIANSHU_EVAL_MODE=1`，受 wall timeout 约束，退出时收敛进程组并删除 DB 及
+WAL/SHM。当前 `trusted-local` 宿主模式不提供可证明的内存、CPU、文件系统或网络
+强隔离；`secure-remote` 在没有受验证后端时直接拒绝启动。
 
 ## 3. 怎么解读 fitness 结果
 

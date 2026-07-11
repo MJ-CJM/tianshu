@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
+import signal
 from pathlib import Path
 
 import pytest
@@ -13,11 +15,25 @@ from tianshu.universe.execution import UniverseExecutionContextFactory
 from tianshu.universe.sandbox import SandboxError, SandboxRunner
 
 
-def _worktree(tmp_path: Path, *, exit_soon: bool = False) -> Path:
+def _worktree(
+    tmp_path: Path,
+    *,
+    exit_soon: bool = False,
+    detached_child_on_exit: bool = False,
+) -> Path:
     worktree = tmp_path / "worktree"
     src = worktree / "src"
     src.mkdir(parents=True)
-    if exit_soon:
+    if detached_child_on_exit:
+        body = (
+            "from pathlib import Path\n"
+            "import os,subprocess,sys\n"
+            "Path('leader.pid').write_text(str(os.getpid()))\n"
+            "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)'],"
+            "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+            "Path('child.pid').write_text(str(child.pid))\n"
+        )
+    elif exit_soon:
         body = (
             "from pathlib import Path\n"
             "import os,time\n"
@@ -209,3 +225,115 @@ async def test_runner_shutdown_reaps_all_active_sandboxes(
     assert second.receipt is not None
     await _assert_group_gone(first.pid)
     await _assert_group_gone(second.pid)
+
+
+@pytest.mark.asyncio
+async def test_completed_leader_stop_reaps_descendants_without_rewriting_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = _worktree(tmp_path, detached_child_on_exit=True)
+    runner = _runner()
+    monkeypatch.setattr(runner, "_probe_health", lambda _url: True)
+
+    handle = await runner.start(worktree, db_path=tmp_path / "sandbox.db")
+    child_pid = await _wait_for_file(worktree / "child.pid")
+    succeeded = await handle.monitor
+    try:
+        stopped = await runner.stop(handle)
+        assert stopped.receipt == succeeded.receipt
+        assert stopped.receipt.status == "succeeded"
+        await _assert_group_gone(handle.pid)
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(child_pid, signal.SIGKILL)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_failure_stays_tracked_and_can_be_retried(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = _worktree(tmp_path)
+    db = tmp_path / "sandbox.db"
+    db.write_text("temporary")
+    runner = _runner()
+    monkeypatch.setattr(runner, "_probe_health", lambda _url: True)
+    handle = await runner.start(worktree, db_path=db)
+    original_unlink = Path.unlink
+    failed_once = False
+
+    def flaky_unlink(path: Path, *args, **kwargs):
+        nonlocal failed_once
+        if path == db and not failed_once:
+            failed_once = True
+            raise PermissionError("database busy")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", flaky_unlink)
+
+    with pytest.raises(PermissionError, match="database busy"):
+        await runner.stop(handle)
+    assert handle.pid in runner._active
+
+    result = await runner.stop(handle)
+    assert result.receipt.status == "cancelled"
+    assert handle.pid not in runner._active
+    assert not db.exists()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_closes_barrier_and_cancels_in_flight_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = _worktree(tmp_path)
+    runner = _runner()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    original_start = runner.execution_gateway.start
+
+    async def blocked_start(request):
+        entered.set()
+        await release.wait()
+        return await original_start(request)
+
+    monkeypatch.setattr(runner.execution_gateway, "start", blocked_start)
+    start_task = asyncio.create_task(runner.start(worktree, db_path=tmp_path / "race.db"))
+    await entered.wait()
+    await runner.shutdown()
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await start_task
+    with pytest.raises(SandboxError, match="closing"):
+        await runner.start(worktree, db_path=tmp_path / "after-close.db")
+    assert runner._active == {}
+
+
+@pytest.mark.asyncio
+async def test_stop_and_start_failure_remove_sqlite_sidecars(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worktree = _worktree(tmp_path)
+    runner = _runner()
+    monkeypatch.setattr(runner, "_probe_health", lambda _url: True)
+    db = tmp_path / "sandbox.db"
+    sidecars = (db, Path(f"{db}-wal"), Path(f"{db}-shm"))
+    for path in sidecars:
+        path.write_text("temporary")
+
+    handle = await runner.start(worktree, db_path=db)
+    await runner.stop(handle)
+    assert all(not path.exists() for path in sidecars)
+
+    failed_db = tmp_path / "failed.db"
+    failed_sidecars = (failed_db, Path(f"{failed_db}-wal"), Path(f"{failed_db}-shm"))
+    for path in failed_sidecars:
+        path.write_text("temporary")
+    failed_runner = _runner(python_exe=str(tmp_path / "missing-python"))
+
+    with pytest.raises(SandboxError):
+        await failed_runner.start(worktree, db_path=failed_db)
+    assert all(not path.exists() for path in failed_sidecars)
