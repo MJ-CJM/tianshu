@@ -33,6 +33,7 @@ from tianshu.executor.execution_gateway import (
     request_for_current_execution,
 )
 from tianshu.executor.keqing.adapter import KeqingRunResult, get_adapter
+from tianshu.executor.workspace_context import resolve_workspace_root
 from tianshu.kernel.exit_reason import ExitReason
 from tianshu.models import TaskStatus, UsageSummary
 from tianshu.security.redact import redact_text
@@ -81,8 +82,9 @@ class KeqingExecutor:
                 error=f"unknown keqing backend: {backend!r}",
                 exit_reason=ExitReason.LLM_ERROR,
             )
+        assert backend is not None
 
-        work = self.work_dir(edict.id)
+        work = resolve_workspace_root(self.work_dir(edict.id))
         work.mkdir(parents=True, exist_ok=True)
         model = model_override or getattr(edict.runtime, "executor_model", None)
         argv = adapter.build_argv(edict.goal, model=model)
@@ -126,7 +128,12 @@ class KeqingExecutor:
                     mode="host",
                     allow_host=True,
                 ),
-                command_grant=issue_keqing_command_grant(argv, backend=backend),
+                command_grant=issue_keqing_command_grant(
+                    argv,
+                    backend=backend,
+                    workspace_root=work,
+                    environment=environment,
+                ),
             )
             handle = await self._execution_gateway.start(request)
         except ExecutionDenied as exc:

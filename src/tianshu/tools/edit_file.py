@@ -6,6 +6,7 @@ import difflib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tianshu.executor.workspace_context import resolve_workspace_root
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
@@ -21,7 +22,8 @@ def register_edit_file(
     execution_gateway: ExecutionGateway | None = None,
 ) -> None:
     async def edit_file(path: str, old_text: str, new_text: str) -> ToolResult:
-        file_path = safe_path(workspace, path)
+        active_workspace = resolve_workspace_root(workspace)
+        file_path = safe_path(active_workspace, path)
         if not file_path.is_file():
             return error_result(f"Error: file '{path}' does not exist")
 
@@ -76,7 +78,7 @@ def register_edit_file(
         diagnostic_outcome = await run_diagnostics_async(
             file_path,
             execution_gateway=execution_gateway,
-            workspace_root=workspace,
+            workspace_root=active_workspace,
         )
         diags = diagnostic_outcome.diagnostics
         details: dict = {"diff": diff, "first_changed_line": first_changed_line}

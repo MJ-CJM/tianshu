@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tianshu.executor import execution_gateway as process_boundary
+from tianshu.executor.workspace_context import resolve_workspace_root
 from tianshu.security.clean_env import build_clean_env
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
@@ -40,13 +41,14 @@ def register_grep(
         context: int = 0,
         limit: int = 100,
     ) -> ToolResult:
-        search_path = safe_path(workspace, path)
+        active_workspace = resolve_workspace_root(workspace)
+        search_path = safe_path(active_workspace, path)
         if not search_path.exists():
             return error_result(f"Error: path '{path}' does not exist")
 
         rg = process_boundary.resolve_system_adapter_executable(
             "grep",
-            workspace_root=workspace,
+            workspace_root=active_workspace,
         )
         context = max(0, min(context, 20))
         limit = max(1, min(limit, 1000))
@@ -61,6 +63,7 @@ def register_grep(
                 literal,
                 context,
                 limit,
+                active_workspace,
             )
         return await asyncio.to_thread(
             _python_search,
@@ -71,6 +74,7 @@ def register_grep(
             literal,
             context,
             limit,
+            active_workspace,
         )
 
     async def _rg_search(
@@ -82,6 +86,7 @@ def register_grep(
         literal: bool,
         context: int,
         limit: int,
+        active_workspace: Path,
     ) -> ToolResult:
         cmd = [
             rg,
@@ -106,7 +111,7 @@ def register_grep(
             environment = process_boundary.EnvironmentPolicy(allow_names=tuple(build_clean_env("")))
             request = process_boundary.request_for_current_execution(
                 purpose="grep",
-                workspace_root=workspace,
+                workspace_root=active_workspace,
                 cwd=".",
                 argv_command=process_boundary.ArgvCommand(argv=command),
                 environment=environment,
@@ -120,7 +125,7 @@ def register_grep(
                 ),
                 command_grant=process_boundary.issue_grep_command_grant(
                     command,
-                    workspace_root=workspace,
+                    workspace_root=active_workspace,
                     environment=environment,
                 ),
             )
@@ -136,6 +141,7 @@ def register_grep(
                     literal,
                     context,
                     limit,
+                    active_workspace,
                 )
                 receipt = exc.receipt
                 advisory: dict[str, object] = {
@@ -180,7 +186,7 @@ def register_grep(
             data = msg["data"]
             file_path = data["path"]["text"]
             try:
-                rel = os.path.relpath(file_path, workspace)
+                rel = os.path.relpath(file_path, active_workspace)
             except ValueError:
                 rel = file_path
             line_num = data["line_number"]
@@ -203,8 +209,9 @@ def register_grep(
         literal: bool,
         context: int,
         limit: int,
+        active_workspace: Path,
     ) -> ToolResult:
-        workspace_root = workspace.resolve()
+        workspace_root = active_workspace.resolve()
         flags = re.IGNORECASE if ignore_case else 0
         if literal:
             compiled = re.compile(re.escape(pattern), flags)

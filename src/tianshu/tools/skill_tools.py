@@ -6,6 +6,7 @@ import json
 import re
 from typing import Any, Protocol
 
+from tianshu.executor.workspace_context import get_bound_workspace
 from tianshu.skills.loader import SkillsLoader
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
@@ -25,6 +26,13 @@ def get_active_skills() -> set[str]:
 def clear_active_skills() -> None:
     """Clear the active skills set (call at end of agent execution)."""
     _active_skills.clear()
+
+
+def _workspace_loader(skills: SkillsLoader) -> SkillsLoader:
+    workspace = get_bound_workspace()
+    if workspace is None:
+        return skills
+    return skills.for_workspace_overlay(workspace.root)
 
 
 class MetricsStore(Protocol):
@@ -286,7 +294,11 @@ def register_skill_tools(
 
     registry.register(
         "skill_list",
-        lambda **kwargs: _skill_list(skills, metrics_store=metrics_store, **kwargs),
+        lambda **kwargs: _skill_list(
+            _workspace_loader(skills),
+            metrics_store=metrics_store,
+            **kwargs,
+        ),
         ToolDefinition(
             name="skill_list",
             description=(
@@ -315,7 +327,7 @@ def register_skill_tools(
     registry.register(
         "skill_view",
         lambda **kwargs: _skill_view(
-            skills,
+            _workspace_loader(skills),
             metrics_store=metrics_store,
             active_skills_ref=_active_skills,
             **kwargs,
@@ -343,7 +355,7 @@ def register_skill_tools(
     registry.register(
         "skill_manage",
         lambda **kwargs: _skill_manage(
-            skills,
+            _workspace_loader(skills),
             metrics_store=metrics_store,
             _guard_enabled=guard_agent_created,
             event_bus=event_bus,

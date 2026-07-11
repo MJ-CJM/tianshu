@@ -15,6 +15,7 @@ from tianshu.executor.execution_gateway import (
     issue_shell_command_grant,
     request_for_current_execution,
 )
+from tianshu.executor.workspace_context import resolve_workspace_root
 from tianshu.kernel.ambient import get_current_edict
 from tianshu.security.clean_env import build_clean_env
 from tianshu.storage import Storage
@@ -41,18 +42,20 @@ def register_builtins(
     process_gateway = execution_gateway or ExecutionGateway()
 
     async def shell_exec(command: str, cwd: str | None = None) -> ToolResult:
-        work_dir = workspace
+        active_workspace = resolve_workspace_root(workspace)
+        work_dir = active_workspace
         if cwd:
-            work_dir = safe_path(workspace, cwd)
+            work_dir = safe_path(active_workspace, cwd)
             if not work_dir.is_dir():
                 return error_result(f"Error: directory '{cwd}' does not exist")
         try:
+            environment = EnvironmentPolicy(allow_names=tuple(build_clean_env()))
             request = request_for_current_execution(
                 purpose="tool",
-                workspace_root=workspace,
+                workspace_root=active_workspace,
                 cwd=cwd or ".",
                 shell_command=ShellCommand(script=command),
-                environment=EnvironmentPolicy(allow_names=tuple(build_clean_env())),
+                environment=environment,
                 timeout_seconds=60,
                 stdout_limit_bytes=2000,
                 stderr_limit_bytes=2000,
@@ -61,7 +64,12 @@ def register_builtins(
                     mode="host",
                     allow_host=True,
                 ),
-                command_grant=issue_shell_command_grant(command, cwd=cwd),
+                command_grant=issue_shell_command_grant(
+                    command,
+                    cwd=cwd or ".",
+                    workspace_root=active_workspace,
+                    environment=environment,
+                ),
             )
             execution = await process_gateway.run(request)
         except ExecutionDenied as exc:
@@ -131,7 +139,7 @@ def register_builtins(
         - 提供 offset/limit 时按行切片：从 offset 行开始读 limit 行
           （offset=1 表示第一行；limit=None 表示读到结尾）
         """
-        file_path = safe_path(workspace, path)
+        file_path = safe_path(resolve_workspace_root(workspace), path)
         if not file_path.is_file():
             return error_result(f"Error: file '{path}' does not exist")
 
@@ -208,7 +216,7 @@ def register_builtins(
     )
 
     async def write_file(path: str, content: str) -> ToolResult:
-        file_path = safe_path(workspace, path)
+        file_path = safe_path(resolve_workspace_root(workspace), path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
         return ok_result(

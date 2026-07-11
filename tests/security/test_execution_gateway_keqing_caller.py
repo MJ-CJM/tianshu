@@ -17,13 +17,16 @@ from tianshu.executor.capabilities import (
 )
 from tianshu.executor.keqing import KeqingExecutor
 from tianshu.executor.keqing.adapter import ClaudeCodeAdapter
+from tianshu.executor.workspace_context import BoundWorkspace, bind_workspace
 from tianshu.models import Edict, EdictRuntime, TaskStatus
 from tianshu.models.governance_contract import (
     ExecutorSelectionV1,
     ObjectiveV1,
     RequestedGovernanceContractV1,
+    WorkspacePolicyV1,
 )
 from tianshu.models.principal import Principal, PrincipalKind
+from tianshu.models.workspace import WorkspaceLease, WorkspaceLeaseState
 
 
 class _StreamingHandle:
@@ -158,6 +161,100 @@ async def test_keqing_streams_through_gateway_and_emits_receipt(tmp_path, monkey
     assert request.command_grant.scope == "keqing"
     assert request.workspace_root == (tmp_path / "keqing" / edict.id).resolve()
     assert request.effective_contract == effective
+
+
+@pytest.mark.asyncio
+async def test_keqing_uses_bound_staging_workspace_and_grant(tmp_path, monkeypatch):
+    argv = (
+        "claude",
+        "-p",
+        "do the task",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+    )
+    monkeypatch.setattr(
+        ClaudeCodeAdapter,
+        "build_argv",
+        lambda self, _prompt, model=None: list(argv),
+    )
+    base = resolve_governance_contract(
+        RequestedGovernanceContractV1(
+            objective=ObjectiveV1(goal="do the task"),
+            executor=ExecutorSelectionV1(adapter_id="keqing:claude-code"),
+        ),
+        claude_code_manifest(),
+        probe_host_capabilities(),
+    )
+    sha = "a" * 40
+    workspace_policy = WorkspacePolicyV1(
+        source_id="source-main",
+        base_revision=sha,
+        staging_mode="isolated",
+        apply_mode="governed",
+        require_clean_source=True,
+    )
+    effective = base.model_copy(
+        update={
+            "workspace": workspace_policy,
+            "resolved_source_id": workspace_policy.source_id,
+            "resolved_base_revision": sha,
+        }
+    )
+    source = tmp_path / "source"
+    staging = tmp_path / "staging"
+    source.mkdir()
+    staging.mkdir()
+    lease = WorkspaceLease(
+        id="lease-keqing",
+        run_id="memorial-keqing-bound",
+        lineage_root_run_id="memorial-keqing-bound",
+        attempt=0,
+        source_kind="git",
+        apply_mode="governed",
+        source_root=str(source),
+        source_repository_id="repo-identity",
+        source_git_dir=str(source / ".git"),
+        source_git_dir_identity="b" * 64,
+        base_revision=sha,
+        staging_root=str(staging),
+        staging_git_dir=str(staging / ".git"),
+        staging_git_dir_identity="c" * 64,
+        state=WorkspaceLeaseState.ACTIVE,
+        state_version=2,
+        created_at=datetime(2026, 7, 12, tzinfo=UTC),
+    )
+    bound = BoundWorkspace(lease=lease, effective_contract=effective)
+    context = gateway.ExecutionContext(
+        correlation_id=lease.run_id,
+        actor=Principal(
+            id="principal-keqing",
+            kind=PrincipalKind.HUMAN,
+            display_name="Keqing Principal",
+        ),
+        effective_contract=effective,
+        workspace_lease_id=lease.id,
+    )
+    recording_gateway = _RecordingGateway()
+    executor = KeqingExecutor(
+        root=source / "keqing",
+        execution_gateway=recording_gateway,
+    )
+    edict = Edict(
+        goal="do the task",
+        submitter="principal-keqing",
+        runtime=EdictRuntime(executor="keqing:claude-code"),
+    )
+
+    with gateway.bind_execution_context(context), bind_workspace(bound):
+        result = await executor.execute(edict)
+
+    assert result.status == TaskStatus.COMPLETED
+    request = recording_gateway.requests[0]
+    assert request.workspace_root == bound.root
+    assert request.command_grant.workspace_lease_id == lease.id
+    assert request.command_grant.workspace_root_digest is not None
+    assert not (source / "keqing" / edict.id).exists()
 
 
 def test_keqing_grant_requires_canonical_adapter_argv():

@@ -149,7 +149,19 @@ async def run_diagnostics_async(
     path = Path(file_path).resolve()
     if path.suffix != ".py":
         return DiagnosticOutcome(status="not_applicable", correlation_id=correlation_id)
-    root = Path(workspace_root or path.parent).resolve()
+    from tianshu.executor.workspace_context import (
+        WorkspaceBindingError,
+        resolve_workspace_root,
+    )
+
+    try:
+        root = resolve_workspace_root(Path(workspace_root or path.parent))
+    except WorkspaceBindingError as exc:
+        return _advisory(
+            "denied",
+            f"LSP workspace binding was rejected: {exc}",
+            correlation_id,
+        )
     if not path.is_relative_to(root):
         return _advisory(
             "denied",

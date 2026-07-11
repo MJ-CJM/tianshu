@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from tianshu.executor.workspace_context import resolve_workspace_root
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
@@ -15,7 +16,7 @@ _MAX_OUTPUT_BYTES = 50_000
 
 def register_find_files(registry: ToolRegistry, workspace: Path) -> None:
     async def find_files(pattern: str, path: str = ".", limit: int = 1000) -> ToolResult:
-        search_path = safe_path(workspace, path)
+        search_path = safe_path(resolve_workspace_root(workspace), path)
         if not search_path.is_dir():
             return error_result(f"Error: '{path}' is not a directory")
 

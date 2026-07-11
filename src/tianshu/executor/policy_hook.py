@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from tianshu.executor.workspace_context import WorkspaceBindingError, resolve_workspace_root
 from tianshu.kernel.hooks import HookResult
 from tianshu.tools.policy import PolicyContext, PolicyDecision, PolicyEngine
 from tianshu.tools.types import ToolTier
@@ -54,6 +55,14 @@ class PolicyHook:
         if not tool_name or not edict:
             return None  # 没上下文就放行，交给别的 handler
 
+        try:
+            workspace_root = resolve_workspace_root(self._workspace_root)
+        except WorkspaceBindingError as exc:
+            return HookResult(
+                block=True,
+                reason=f"workspace binding rejected tool policy evaluation: {exc}",
+            )
+
         # 解析 tool tier（fail-secure → 缺失 = T3）
         defn = self._tool_registry.get_definition(tool_name) if self._tool_registry else None
         tier_val = defn.tier if defn else ToolTier.T4_DANGEROUS.value
@@ -68,7 +77,7 @@ class PolicyHook:
             args=dict(tool_args) if isinstance(tool_args, dict) else {},
             edict=edict,  # type: ignore[arg-type]
             memorial=memorial,  # type: ignore[arg-type]
-            workspace_root=self._workspace_root,
+            workspace_root=workspace_root,
             iteration=int(iteration),
         )
 

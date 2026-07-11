@@ -26,6 +26,7 @@ from tianshu.executor.execution_gateway import (
     issue_lark_cli_command_grant,
     request_for_current_execution,
 )
+from tianshu.executor.workspace_context import WorkspaceBindingError, resolve_workspace_root
 from tianshu.security.clean_env import build_clean_env
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result
@@ -124,12 +125,14 @@ async def lark_cli(
     if execution_gateway is None or workspace_root is None:
         return error_result("lark_cli: governed ExecutionGateway is not configured")
     try:
+        active_workspace = resolve_workspace_root(workspace_root)
+        environment = EnvironmentPolicy(allow_names=tuple(build_clean_env()))
         request = request_for_current_execution(
             purpose="lark-cli",
-            workspace_root=workspace_root,
+            workspace_root=active_workspace,
             cwd=".",
             argv_command=ArgvCommand(argv=tuple(cmd)),
-            environment=EnvironmentPolicy(allow_names=tuple(build_clean_env())),
+            environment=environment,
             timeout_seconds=to,
             stdout_limit_bytes=_MAX_OUTPUT,
             stderr_limit_bytes=_MAX_OUTPUT,
@@ -138,10 +141,14 @@ async def lark_cli(
                 mode="host",
                 allow_host=True,
             ),
-            command_grant=issue_lark_cli_command_grant(cmd),
+            command_grant=issue_lark_cli_command_grant(
+                cmd,
+                workspace_root=active_workspace,
+                environment=environment,
+            ),
         )
         execution = await execution_gateway.run(request)
-    except (ExecutionDenied, ExecutionStartError) as exc:
+    except (ExecutionDenied, ExecutionStartError, WorkspaceBindingError) as exc:
         return error_result(f"lark_cli: 无法执行 {bin_path}：{exc}")
 
     if execution.receipt.status == "timed_out":

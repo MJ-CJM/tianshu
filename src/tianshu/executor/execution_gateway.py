@@ -125,7 +125,13 @@ class CommandGrant(_StrictModel):
         if (self.scope == "mcp_stdio") != (self.server_identity is not None):
             raise ValueError("server identity is required only for MCP stdio grants")
         universe_scope = self.scope in {"universe_gate", "universe_sandbox"}
-        workspace_scope = universe_scope or self.scope in {"grep", "lsp"}
+        workspace_capable_scope = universe_scope or self.scope in {
+            "shell_exec",
+            "grep",
+            "lsp",
+            "lark-cli",
+            "keqing",
+        }
         workspace_bindings = (
             self.cwd,
             self.environment_digest,
@@ -133,8 +139,13 @@ class CommandGrant(_StrictModel):
             self.workspace_root_digest,
             self.resolved_cwd_digest,
         )
-        if (workspace_scope and not all(value is not None for value in workspace_bindings)) or (
-            not workspace_scope and any(value is not None for value in workspace_bindings)
+        has_workspace_binding = any(value is not None for value in workspace_bindings)
+        if (
+            (universe_scope and not all(value is not None for value in workspace_bindings))
+            or (
+                has_workspace_binding and not all(value is not None for value in workspace_bindings)
+            )
+            or (not workspace_capable_scope and has_workspace_binding)
         ):
             raise ValueError("workspace-bound grants require cwd, environment, and lease binding")
         if universe_scope != (self.universe_stage is not None):
@@ -302,7 +313,7 @@ class ExecutionContext(_StrictModel):
     correlation_id: str = Field(min_length=1)
     actor: Principal
     effective_contract: EffectiveGovernanceContractV1
-    workspace_lease_id: str = Field(min_length=1)
+    workspace_lease_id: str | None = Field(default=None, min_length=1)
 
 
 _current_execution_context: ContextVar[ExecutionContext | None] = ContextVar(
@@ -402,6 +413,7 @@ def _mint_command_grant(
 ) -> CommandGrant:
     context = _require_execution_context()
     issued_at = datetime.now(UTC)
+    bound_root = workspace_root if context.workspace_lease_id is not None else None
     unsigned = CommandGrant(
         source=source,
         scope=scope,
@@ -412,15 +424,19 @@ def _mint_command_grant(
         actor_id=context.actor.id,
         principal_digest=_principal_digest(context.actor),
         universe_stage=universe_stage,
-        cwd=cwd,
-        environment_digest=(_environment_digest(environment) if environment is not None else None),
-        workspace_lease_id=(context.workspace_lease_id if workspace_root is not None else None),
+        cwd=cwd if bound_root is not None else None,
+        environment_digest=(
+            _environment_digest(environment)
+            if environment is not None and bound_root is not None
+            else None
+        ),
+        workspace_lease_id=(context.workspace_lease_id if bound_root is not None else None),
         workspace_root_digest=(
-            _resolved_path_digest(workspace_root) if workspace_root is not None else None
+            _resolved_path_digest(bound_root) if bound_root is not None else None
         ),
         resolved_cwd_digest=(
-            _resolved_path_digest(workspace_root.resolve() / (cwd or "."))
-            if workspace_root is not None
+            _resolved_path_digest(bound_root.resolve() / (cwd or "."))
+            if bound_root is not None
             else None
         ),
         effective_contract_hash=context.effective_contract.content_hash,
@@ -458,7 +474,13 @@ def _validated_bound_policy_decision(
     return decision
 
 
-def issue_shell_command_grant(command: str, *, cwd: str | None = None) -> CommandGrant:
+def issue_shell_command_grant(
+    command: str,
+    *,
+    cwd: str | None = None,
+    workspace_root: Path | None = None,
+    environment: EnvironmentPolicy | None = None,
+) -> CommandGrant:
     context = _require_execution_context()
     analysis = analyze_command(command)
     prefixes = context.effective_contract.permissions.allowed_bash_prefixes
@@ -471,6 +493,9 @@ def issue_shell_command_grant(command: str, *, cwd: str | None = None) -> Comman
             scope="shell_exec",
             authority_ref=context.effective_contract.permissions.content_hash,
             script=command,
+            cwd=cwd,
+            environment=environment,
+            workspace_root=workspace_root,
         )
     decision = _validated_bound_policy_decision(
         "shell_exec",
@@ -481,6 +506,9 @@ def issue_shell_command_grant(command: str, *, cwd: str | None = None) -> Comman
         scope="shell_exec",
         authority_ref=decision.signature,
         script=command,
+        cwd=cwd,
+        environment=environment,
+        workspace_root=workspace_root,
         expires_at=decision.expires_at,
     )
 
@@ -525,7 +553,12 @@ def issue_acceptance_command_grant(
     )
 
 
-def issue_lark_cli_command_grant(argv: Sequence[str]) -> CommandGrant:
+def issue_lark_cli_command_grant(
+    argv: Sequence[str],
+    *,
+    workspace_root: Path | None = None,
+    environment: EnvironmentPolicy | None = None,
+) -> CommandGrant:
     if not argv or Path(argv[0]).name not in {"lark-cli", "lark-cli.exe"}:
         raise ExecutionDenied(
             "command_grant",
@@ -537,6 +570,9 @@ def issue_lark_cli_command_grant(argv: Sequence[str]) -> CommandGrant:
         scope="lark-cli",
         authority_ref="lark-cli",
         argv=argv,
+        cwd="." if workspace_root is not None else None,
+        environment=environment,
+        workspace_root=workspace_root,
     )
 
 
@@ -784,7 +820,13 @@ def issue_lsp_command_grant(
     )
 
 
-def issue_keqing_command_grant(argv: Sequence[str], *, backend: str) -> CommandGrant:
+def issue_keqing_command_grant(
+    argv: Sequence[str],
+    *,
+    backend: str,
+    workspace_root: Path | None = None,
+    environment: EnvironmentPolicy | None = None,
+) -> CommandGrant:
     from tianshu.executor.keqing.adapter import is_canonical_adapter_argv
 
     context = _require_execution_context()
@@ -802,6 +844,9 @@ def issue_keqing_command_grant(argv: Sequence[str], *, backend: str) -> CommandG
         scope="keqing",
         authority_ref=f"keqing:{backend}",
         argv=argv,
+        cwd="." if workspace_root is not None else None,
+        environment=environment,
+        workspace_root=workspace_root,
     )
 
 
@@ -920,7 +965,7 @@ class ExecutionRequest(_StrictModel):
     effective_contract: EffectiveGovernanceContractV1
     argv_command: ArgvCommand | None = None
     shell_command: ShellCommand | None = None
-    workspace_lease_id: str = Field(min_length=1)
+    workspace_lease_id: str | None = Field(default=None, min_length=1)
     workspace_root: Path = Field(exclude=True, repr=False)
     cwd: str = "."
     environment: EnvironmentPolicy
@@ -968,6 +1013,44 @@ class ExecutionRequest(_StrictModel):
         return self.shell_command.argv
 
 
+def _validate_current_workspace_binding(
+    *,
+    correlation_id: str,
+    effective_contract: EffectiveGovernanceContractV1,
+    workspace_lease_id: str | None,
+    workspace_root: Path,
+) -> None:
+    from tianshu.executor.workspace_context import (
+        WorkspaceBindingError,
+        get_bound_workspace,
+        require_bound_workspace,
+        requires_workspace_binding,
+    )
+
+    workspace = get_bound_workspace()
+    if workspace is None and not requires_workspace_binding(effective_contract):
+        return
+    if workspace_lease_id is None:
+        raise ExecutionDenied(
+            "identity_contract",
+            "workspace_binding_mismatch",
+            "bound workspace lease id is missing from execution context",
+        )
+    try:
+        require_bound_workspace(
+            run_id=correlation_id,
+            lease_id=workspace_lease_id,
+            effective_contract_hash=effective_contract.content_hash,
+            root=workspace_root,
+        )
+    except WorkspaceBindingError as exc:
+        raise ExecutionDenied(
+            "identity_contract",
+            "workspace_binding_mismatch",
+            str(exc),
+        ) from None
+
+
 def request_for_current_execution(
     *,
     purpose: Literal["tool", "acceptance", "grep", "lsp", "lark-cli", "keqing"],
@@ -989,6 +1072,12 @@ def request_for_current_execution(
             "missing_execution_context",
             "no run-bound actor and effective contract are available",
         )
+    _validate_current_workspace_binding(
+        correlation_id=context.correlation_id,
+        effective_contract=context.effective_contract,
+        workspace_lease_id=context.workspace_lease_id,
+        workspace_root=workspace_root,
+    )
     effective_network = context.effective_contract.network
     network_mode = (
         "unrestricted"
@@ -1038,7 +1127,7 @@ class ExecutionReceipt(_StrictModel):
         "transitional_mcp_config_g1_6_pending",
     ] = "standard"
     effective_contract_hash: str
-    workspace_lease_id: str
+    workspace_lease_id: str | None
     cwd: str
     command_kind: Literal["argv", "shell"]
     executable: str
@@ -1919,6 +2008,28 @@ class ExecutionGateway:
         if request.timeout_seconds > request.effective_contract.budget.wall_clock_seconds:
             self._deny("identity_contract", "timeout_exceeds_contract", "timeout exceeds contract")
 
+        try:
+            _validate_current_workspace_binding(
+                correlation_id=request.correlation_id,
+                effective_contract=request.effective_contract,
+                workspace_lease_id=request.workspace_lease_id,
+                workspace_root=request.workspace_root,
+            )
+        except ExecutionDenied as exc:
+            self._deny(exc.guard, exc.code, exc.detail)
+        current_context = get_execution_context()
+        if current_context is not None and (
+            current_context.correlation_id != request.correlation_id
+            or current_context.effective_contract.content_hash
+            != request.effective_contract.content_hash
+            or current_context.workspace_lease_id != request.workspace_lease_id
+        ):
+            self._deny(
+                "identity_contract",
+                "current_execution_mismatch",
+                "execution request does not match the current run context",
+            )
+
         root = request.workspace_root.resolve()
         cwd = (root / request.cwd).resolve()
         if not cwd.is_relative_to(root) or not cwd.is_dir():
@@ -1951,6 +2062,42 @@ class ExecutionGateway:
                 "command_grant",
                 "grant_expired",
                 "command grant is outside its validity window",
+            )
+        workspace_binding_matches = (
+            grant.cwd == request.cwd
+            and grant.environment_digest == _environment_digest(request.environment)
+            and grant.workspace_lease_id == request.workspace_lease_id
+            and grant.workspace_root_digest == _resolved_path_digest(root)
+            and grant.resolved_cwd_digest == _resolved_path_digest(cwd)
+        )
+        from tianshu.executor.workspace_context import requires_workspace_binding
+
+        contract_requires_workspace = requires_workspace_binding(request.effective_contract)
+        unbound_legacy_grant = (
+            not contract_requires_workspace
+            and grant.workspace_lease_id is None
+            and grant.workspace_root_digest is None
+        )
+        workspace_bound_scopes = {"shell_exec", "grep", "lsp", "lark-cli", "keqing"}
+        if (
+            contract_requires_workspace
+            and grant.scope in workspace_bound_scopes
+            and (grant.workspace_root_digest is None or not workspace_binding_matches)
+        ):
+            self._deny(
+                "command_grant",
+                "workspace_authority_mismatch",
+                "governed command grant is not bound to the active staging workspace",
+            )
+        if (
+            grant.source != "system-adapter"
+            and grant.workspace_root_digest is not None
+            and not workspace_binding_matches
+        ):
+            self._deny(
+                "command_grant",
+                "workspace_authority_mismatch",
+                "command grant workspace authority does not match the request",
             )
         allowed_scopes = {
             "tool": {"shell_exec", "tool-argv"},
@@ -2037,28 +2184,22 @@ class ExecutionGateway:
                 )
         elif grant.source == "system-adapter":
             executable = Path(request.command_argv[0]).name
-            workspace_binding_matches = (
-                grant.cwd == request.cwd
-                and grant.environment_digest == _environment_digest(request.environment)
-                and grant.workspace_lease_id == request.workspace_lease_id
-                and grant.workspace_root_digest == _resolved_path_digest(root)
-                and grant.resolved_cwd_digest == _resolved_path_digest(cwd)
-            )
             if grant.scope == "lark-cli":
-                valid_system_scope = grant.authority_ref == "lark-cli" and executable in {
-                    "lark-cli",
-                    "lark-cli.exe",
-                }
+                valid_system_scope = (
+                    grant.authority_ref == "lark-cli"
+                    and executable in {"lark-cli", "lark-cli.exe"}
+                    and (grant.workspace_root_digest is None or workspace_binding_matches)
+                )
             elif grant.scope == "grep":
                 valid_system_scope = (
                     grant.authority_ref == "grep:rg-json"
-                    and workspace_binding_matches
+                    and (workspace_binding_matches or unbound_legacy_grant)
                     and _is_canonical_grep_command(request.command_argv, root)
                 )
             elif grant.scope == "lsp":
                 valid_system_scope = (
                     grant.authority_ref == "lsp:basedpyright-json"
-                    and workspace_binding_matches
+                    and (workspace_binding_matches or unbound_legacy_grant)
                     and _is_canonical_lsp_command(request.command_argv, root)
                 )
             elif grant.scope == "keqing":
@@ -2069,6 +2210,7 @@ class ExecutionGateway:
                     grant.authority_ref == f"keqing:{backend}"
                     and request.effective_contract.executor.adapter_id.startswith("keqing:")
                     and is_canonical_adapter_argv(backend, request.command_argv)
+                    and (grant.workspace_root_digest is None or workspace_binding_matches)
                 )
             elif grant.scope == "mcp_stdio":
                 server_name = request.mcp_server_name

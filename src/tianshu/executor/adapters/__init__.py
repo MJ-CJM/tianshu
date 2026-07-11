@@ -14,6 +14,11 @@ from tianshu.executor.adapters.protocol import (
 )
 from tianshu.executor.capabilities import HostCapabilityProbeV1, resolve_governance_contract
 from tianshu.executor.execution_gateway import ExecutionContext, bind_execution_context
+from tianshu.executor.workspace_context import (
+    get_bound_workspace,
+    require_bound_workspace,
+    requires_workspace_binding,
+)
 from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     RequestedGovernanceContractV1,
@@ -40,6 +45,12 @@ class PreparedExecutor:
         )
 
     def execution_context(self, edict: Any) -> ExecutionContext | None:
+        bound = get_bound_workspace()
+        if requires_workspace_binding(self.effective) or bound is not None:
+            bound = require_bound_workspace(
+                run_id=self.prepared.run_id,
+                effective_contract_hash=self.effective.content_hash,
+            )
         submitter = getattr(edict, "submitter", None)
         if not submitter:
             return None
@@ -51,7 +62,7 @@ class PreparedExecutor:
                 display_name=submitter,
             ),
             effective_contract=self.effective,
-            workspace_lease_id=f"legacy:{self.prepared.run_id}",
+            workspace_lease_id=bound.lease.id if bound is not None else None,
         )
 
     async def execute(self, edict: Any, **kwargs: Any) -> Any:

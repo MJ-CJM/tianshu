@@ -106,6 +106,22 @@ class ToolRegistry:
 
         defn, func = self._tools[name]
 
+        from tianshu.executor.workspace_context import (
+            WorkspaceBindingError,
+            validate_current_workspace_binding,
+        )
+
+        try:
+            bound_workspace = validate_current_workspace_binding()
+        except WorkspaceBindingError as exc:
+            return error_result(f"Tool '{name}' rejected: {exc}")
+        from tianshu.tools.mcp.naming import is_mcp_tool
+
+        if bound_workspace is not None and is_mcp_tool(name):
+            return error_result(
+                f"Tool '{name}' rejected: MCP tools are not isolated to the bound workspace"
+            )
+
         # Spec Section 2: 未声明 tier 的工具 runtime 视为 T4_DANGEROUS
         if defn.tier is None or defn.tier not in (0, 1, 2, 3, 4):
             logger.error(
@@ -131,6 +147,8 @@ class ToolRegistry:
                 args = json.loads(args)
         except json.JSONDecodeError as e:
             return error_result(f"Invalid JSON arguments: {e}")
+        if not isinstance(args, dict):
+            return error_result("Invalid arguments: expected a JSON object")
 
         try:
             jsonschema.validate(instance=args, schema=defn.parameters)
@@ -160,6 +178,21 @@ class ToolRegistry:
             list(args.keys()) if isinstance(args, dict) else "raw",
         )
 
+        if bound_workspace is not None:
+            async with bound_workspace.tool_lock:
+                bound_workspace.validate_identity()
+                return await self._invoke(name, args, defn, func)
+        return await self._invoke(name, args, defn, func)
+
+    async def _invoke(
+        self,
+        name: str,
+        args: dict,
+        defn: ToolDefinition,
+        func: Callable[..., Awaitable[ToolResult]],
+    ) -> ToolResult:
+        from tianshu.tools.types import ToolTier
+
         # Spec Section 2: T0_READONLY 工具走快路径 — 跳过 _hooks 链
         # 仍然 validate schema + 日志，但不经过 ToolHook 的 before/after 回调。
         if defn.tier == ToolTier.T0_READONLY:
@@ -172,9 +205,9 @@ class ToolRegistry:
 
         # Before hooks
         for hook in self._hooks:
-            modified = await hook.before_tool_call(name, args)
-            if modified is not None:
-                args = modified
+            modified_args = await hook.before_tool_call(name, args)
+            if modified_args is not None:
+                args = modified_args
 
         try:
             result = await func(**args)
@@ -191,8 +224,8 @@ class ToolRegistry:
 
         # After hooks
         for hook in self._hooks:
-            modified = await hook.after_tool_call(name, args, result)
-            if modified is not None:
-                result = modified
+            modified_result = await hook.after_tool_call(name, args, result)
+            if modified_result is not None:
+                result = modified_result
 
         return result
