@@ -133,6 +133,92 @@ async def test_pipe_stdin_supports_bounded_write_drain_and_close(
     assert result.stdout == "echo:ping"
 
 
+async def _backpressured_pipe_handle(tmp_path, effective_contract, *, timeout: float):
+    argv = (
+        sys.executable,
+        "-c",
+        "import os,time;os.write(1,b'x'*(4*1024*1024));time.sleep(60)",
+    )
+    handle = await ExecutionGateway(termination_grace_seconds=0.05).start(
+        _request(
+            tmp_path,
+            effective_contract,
+            argv,
+            timeout=timeout,
+            output_limit=4096,
+            stdin_mode="pipe",
+        )
+    )
+    stream = handle.iter_stdout_bytes()
+    await asyncio.wait_for(anext(stream), timeout=1)
+    await stream.aclose()
+    for _ in range(100):
+        if handle._stdout_queue.full():
+            break
+        await asyncio.sleep(0.01)
+    else:
+        pytest.fail("stdout producer did not reach bounded queue backpressure")
+    return handle
+
+
+@pytest.mark.asyncio
+async def test_terminate_is_bounded_when_pipe_stdout_consumer_stops(
+    tmp_path,
+    effective_contract,
+):
+    handle = await _backpressured_pipe_handle(
+        tmp_path,
+        effective_contract,
+        timeout=10,
+    )
+
+    result = await asyncio.wait_for(handle.terminate(), timeout=1)
+
+    assert result.receipt.status == "cancelled"
+    assert result.receipt.stdout_truncated is True
+    assert result.receipt.stdout_incomplete is True
+    assert result.receipt.stderr_incomplete is False
+
+
+@pytest.mark.asyncio
+async def test_wait_timeout_is_bounded_when_pipe_stdout_consumer_stops(
+    tmp_path,
+    effective_contract,
+):
+    handle = await _backpressured_pipe_handle(
+        tmp_path,
+        effective_contract,
+        timeout=0.2,
+    )
+
+    result = await asyncio.wait_for(handle.wait(), timeout=1)
+
+    assert result.receipt.status == "timed_out"
+    assert result.receipt.stdout_truncated is True
+    assert result.receipt.stdout_incomplete is True
+
+
+@pytest.mark.asyncio
+async def test_wait_cancellation_is_bounded_when_pipe_stdout_consumer_stops(
+    tmp_path,
+    effective_contract,
+):
+    handle = await _backpressured_pipe_handle(
+        tmp_path,
+        effective_contract,
+        timeout=10,
+    )
+    waiter = asyncio.create_task(handle.wait())
+    await asyncio.sleep(0)
+
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(waiter, timeout=1)
+    result = await asyncio.wait_for(handle.terminate(), timeout=1)
+    assert result.receipt.stdout_truncated is True
+    assert result.receipt.stdout_incomplete is True
+
+
 @pytest.mark.asyncio
 async def test_large_stdout_and_stderr_are_drained_concurrently_and_bounded(
     tmp_path,

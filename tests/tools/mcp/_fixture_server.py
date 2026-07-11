@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -26,6 +27,9 @@ if child_pid_file := os.environ.get("MCP_CHILD_PID_FILE"):
         stderr=subprocess.DEVNULL,
     )
     Path(child_pid_file).write_text(str(child.pid), encoding="utf-8")
+
+if init_delay := os.environ.get("MCP_INIT_DELAY"):
+    time.sleep(float(init_delay))
 
 
 @mcp.tool()

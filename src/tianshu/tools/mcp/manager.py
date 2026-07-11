@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -54,6 +55,9 @@ class MCPManager:
         self._config: MCPConfig = MCPConfig()
         self._sessions: dict[str, MCPServerSession] = {}
         self._terminal_receipts: dict[str, ExecutionReceipt] = {}
+        self._starting_sessions: dict[str, MCPServerSession] = {}
+        self._start_tasks: dict[str, asyncio.Task[tuple[str, MCPServerSession | None]]] = {}
+        self._stopping = False
 
     def _admitted(self, name: str) -> bool:
         """准入判定:无清单则全允(启动时另有明示告警);有清单则须在册。"""
@@ -131,8 +135,8 @@ class MCPManager:
         - 单个 server 启动失败不影响其他（degrade 模式）。
         - 并行启动避免慢 server（如 npx 首次拉包）拖延整体响应。
         """
-        import asyncio
-
+        if self._stopping:
+            return
         if self._allowlist is None:
             logger.warning(
                 "[mcp] 未设准入清单(TIANSHU_MCP_SERVER_ALLOWLIST):所有 enabled server "
@@ -156,15 +160,15 @@ class MCPManager:
             elif not self._admitted(name):
                 logger.warning("[mcp] server %s 未在准入清单内,拒绝加载(D15)", name)
 
-        async def _start_one(name: str, cfg) -> tuple[str, MCPServerSession | None]:
-            session = MCPServerSession(
-                config=cfg,
-                execution_gateway=self._execution_gateway,
-                workspace_root=self._workspace_root,
-                security_mode=self._security_mode,
-            )
+        async def _start_one(
+            name: str,
+            session: MCPServerSession,
+        ) -> tuple[str, MCPServerSession | None]:
             try:
                 connected = await session.start()
+            except asyncio.CancelledError:
+                await session.shutdown()
+                raise
             except Exception:
                 logger.exception("[mcp] server %s failed to start, continuing without it", name)
                 await session.shutdown()
@@ -186,18 +190,57 @@ class MCPManager:
         if not enabled:
             return
 
+        for name, cfg in enabled:
+            session = MCPServerSession(
+                config=cfg,
+                execution_gateway=self._execution_gateway,
+                workspace_root=self._workspace_root,
+                security_mode=self._security_mode,
+            )
+            self._starting_sessions[name] = session
+            self._start_tasks[name] = asyncio.create_task(
+                _start_one(name, session),
+                name=f"mcp-start-{name}",
+            )
+
         results = await asyncio.gather(
-            *[_start_one(name, cfg) for name, cfg in enabled],
-            return_exceptions=False,
+            *self._start_tasks.values(),
+            return_exceptions=True,
         )
-        for name, session in results:
-            if session is None:
+        for result in results:
+            if isinstance(result, BaseException):
                 continue
-            self._sessions[name] = session
-            count = self._register_session_tools(session)
+            name, started_session = result
+            self._starting_sessions.pop(name, None)
+            self._start_tasks.pop(name, None)
+            if started_session is None:
+                continue
+            if self._stopping:
+                await started_session.shutdown()
+                if started_session.terminal_receipt is not None:
+                    self._terminal_receipts[name] = started_session.terminal_receipt
+                continue
+            self._sessions[name] = started_session
+            count = self._register_session_tools(started_session)
             logger.info("[mcp] registered %d tool(s) from server %s", count, name)
 
     async def shutdown(self) -> None:
+        self._stopping = True
+        starting_sessions = tuple(self._starting_sessions.values())
+        if starting_sessions:
+            await asyncio.gather(
+                *(session.shutdown() for session in starting_sessions),
+                return_exceptions=True,
+            )
+        starting_tasks = tuple(self._start_tasks.values())
+        if starting_tasks:
+            await asyncio.gather(*starting_tasks, return_exceptions=True)
+        for name, session in tuple(self._starting_sessions.items()):
+            if session.terminal_receipt is not None:
+                self._terminal_receipts[name] = session.terminal_receipt
+        self._starting_sessions.clear()
+        self._start_tasks.clear()
+
         for name, session in self._sessions.items():
             try:
                 await session.shutdown()

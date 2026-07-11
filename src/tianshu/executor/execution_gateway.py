@@ -607,6 +607,8 @@ class ExecutionReceipt(_StrictModel):
     stderr_bytes: int
     stdout_truncated: bool
     stderr_truncated: bool
+    stdout_incomplete: bool = False
+    stderr_incomplete: bool = False
     advisory_gaps: tuple[GuardGap, ...] = ()
 
 
@@ -634,7 +636,9 @@ class ExecutionDenied(RuntimeError):
 
 
 class ExecutionStartError(RuntimeError):
-    pass
+    def __init__(self, detail: str, receipt: ExecutionReceipt) -> None:
+        self.receipt = receipt
+        super().__init__(detail)
 
 
 class ExecutionGuard(Protocol):
@@ -693,38 +697,61 @@ class AsyncioProcessBackend:
         )
 
 
+@dataclass(frozen=True)
+class _StreamRecord:
+    data: bytes
+    total_bytes: int
+    truncated: bool
+    incomplete: bool = False
+
+
 async def _drain_stream(
     stream: asyncio.StreamReader | None,
     limit: int,
     queue: asyncio.Queue[bytes | None] | None = None,
     secret_values: tuple[str, ...] = (),
     stream_all: bool = False,
-) -> tuple[bytes, int, bool]:
+) -> _StreamRecord:
     if stream is None:
         if queue is not None:
             await queue.put(None)
-        return b"", 0, False
+        return _StreamRecord(data=b"", total_bytes=0, truncated=False)
     kept = bytearray()
     total = 0
+    incomplete = False
     stream_redactor = _SecretStreamRedactor(secret_values)
-    while chunk := await stream.read(65536):
-        total += len(chunk)
-        remaining = limit - len(kept)
-        if remaining > 0:
-            bounded_chunk = chunk[:remaining]
-            kept.extend(bounded_chunk)
+    try:
+        while chunk := await stream.read(65536):
+            total += len(chunk)
+            remaining = limit - len(kept)
+            if remaining > 0:
+                bounded_chunk = chunk[:remaining]
+                kept.extend(bounded_chunk)
+            if queue is not None:
+                stream_chunk = chunk if stream_all else chunk[: max(0, remaining)]
+                if stream_chunk:
+                    redacted = stream_redactor.feed(stream_chunk)
+                    if redacted:
+                        await queue.put(redacted)
         if queue is not None:
-            stream_chunk = chunk if stream_all else chunk[: max(0, remaining)]
-            if stream_chunk:
-                redacted = stream_redactor.feed(stream_chunk)
-                if redacted:
-                    await queue.put(redacted)
-    if queue is not None:
-        final = stream_redactor.finish()
-        if final:
-            await queue.put(final)
-        await queue.put(None)
-    return bytes(kept), total, total > limit
+            final = stream_redactor.finish()
+            if final:
+                await queue.put(final)
+            await queue.put(None)
+    except asyncio.CancelledError:
+        incomplete = True
+        if queue is not None:
+            while not queue.empty():
+                with suppress(asyncio.QueueEmpty):
+                    queue.get_nowait()
+            with suppress(asyncio.QueueFull):
+                queue.put_nowait(None)
+    return _StreamRecord(
+        data=bytes(kept),
+        total_bytes=total,
+        truncated=total > limit or incomplete,
+        incomplete=incomplete,
+    )
 
 
 class _SecretStreamRedactor:
@@ -902,7 +929,7 @@ class ExecutionHandle:
                     process_group_id=self._process_group_id,
                     grace_seconds=self._termination_grace_seconds,
                 )
-                _, stdout_data, stderr_data = await asyncio.shield(completion)
+                stdout_data, stderr_data = await self._finish_stream_drains()
             except asyncio.CancelledError:
                 await asyncio.shield(
                     _terminate_process_tree(
@@ -911,7 +938,7 @@ class ExecutionHandle:
                         grace_seconds=self._termination_grace_seconds,
                     )
                 )
-                await asyncio.shield(completion)
+                await asyncio.shield(self._finish_stream_drains())
                 raise
             self._result = self._build_result(
                 stdout_data,
@@ -930,10 +957,7 @@ class ExecutionHandle:
             )
             if self._result is not None:
                 return self._result
-            stdout_data, stderr_data = await asyncio.gather(
-                self._stdout_task,
-                self._stderr_task,
-            )
+            stdout_data, stderr_data = await self._finish_stream_drains()
             self._result = self._build_result(
                 stdout_data,
                 stderr_data,
@@ -941,6 +965,36 @@ class ExecutionHandle:
                 cancelled=True,
             )
             return self._result
+
+    async def _finish_stream_drains(self) -> tuple[_StreamRecord, _StreamRecord]:
+        tasks = (self._stdout_task, self._stderr_task)
+        _, pending = await asyncio.wait(
+            tasks,
+            timeout=max(self._termination_grace_seconds, 0.05),
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        def record(task: asyncio.Task[_StreamRecord]) -> _StreamRecord:
+            if task.cancelled():
+                return _StreamRecord(
+                    data=b"",
+                    total_bytes=0,
+                    truncated=True,
+                    incomplete=True,
+                )
+            result = task.exception()
+            if result is not None:
+                return _StreamRecord(
+                    data=b"",
+                    total_bytes=0,
+                    truncated=True,
+                    incomplete=True,
+                )
+            return task.result()
+
+        return record(self._stdout_task), record(self._stderr_task)
 
     async def iter_stdout(self) -> AsyncIterator[str]:
         async for chunk in self.iter_stdout_bytes():
@@ -961,14 +1015,14 @@ class ExecutionHandle:
 
     def _build_result(
         self,
-        stdout_record: tuple[bytes, int, bool],
-        stderr_record: tuple[bytes, int, bool],
+        stdout_record: _StreamRecord,
+        stderr_record: _StreamRecord,
         *,
         timed_out: bool,
         cancelled: bool,
     ) -> ExecutionResult:
-        stdout_data, stdout_bytes, stdout_truncated = stdout_record
-        stderr_data, stderr_bytes, stderr_truncated = stderr_record
+        stdout_data = stdout_record.data
+        stderr_data = stderr_record.data
         returncode = self._process.returncode
         terminating_signal = -returncode if returncode is not None and returncode < 0 else None
         exit_code = returncode if returncode is not None and returncode >= 0 else None
@@ -1014,10 +1068,12 @@ class ExecutionHandle:
             duration_ms=int((time.monotonic() - self._started_monotonic) * 1000),
             exit_code=exit_code,
             terminating_signal=terminating_signal,
-            stdout_bytes=stdout_bytes,
-            stderr_bytes=stderr_bytes,
-            stdout_truncated=stdout_truncated,
-            stderr_truncated=stderr_truncated,
+            stdout_bytes=stdout_record.total_bytes,
+            stderr_bytes=stderr_record.total_bytes,
+            stdout_truncated=stdout_record.truncated,
+            stderr_truncated=stderr_record.truncated,
+            stdout_incomplete=stdout_record.incomplete,
+            stderr_incomplete=stderr_record.incomplete,
             advisory_gaps=self._advisory_gaps,
         )
         error = None
@@ -1099,7 +1155,17 @@ class ExecutionGateway:
             )
         except (OSError, ValueError) as exc:
             detail = self._redact_exception(str(exc), secret_values)
-            raise ExecutionStartError(detail) from None
+            raise ExecutionStartError(
+                detail,
+                self._start_failure_receipt(
+                    request=request,
+                    env_keys=tuple(sorted(env)),
+                    secret_refs=secret_refs,
+                    advisory_gaps=(*built_in_gaps, *custom_gaps),
+                    started_at=started_at,
+                    started_monotonic=started_monotonic,
+                ),
+            ) from None
         sandbox_enforced = bool(getattr(spawned, "sandbox_enforced", False))
         if request.sandbox.mode == "required" and not sandbox_enforced:
             await _terminate_process_tree(
@@ -1136,6 +1202,53 @@ class ExecutionGateway:
             started_at=started_at,
             started_monotonic=started_monotonic,
             termination_grace_seconds=self._termination_grace_seconds,
+        )
+
+    def _start_failure_receipt(
+        self,
+        *,
+        request: ExecutionRequest,
+        env_keys: tuple[str, ...],
+        secret_refs: tuple[str, ...],
+        advisory_gaps: tuple[GuardGap, ...],
+        started_at: datetime,
+        started_monotonic: float,
+    ) -> ExecutionReceipt:
+        finished_at = datetime.now(UTC)
+        return ExecutionReceipt(
+            execution_id=request.execution_id,
+            correlation_id=request.correlation_id,
+            actor_id=request.actor.id,
+            purpose=request.purpose,
+            mcp_server_name=request.mcp_server_name,
+            command_admission=(
+                "transitional_mcp_config_g1_6_pending"
+                if request.purpose == "mcp_stdio"
+                else "standard"
+            ),
+            effective_contract_hash=request.effective_contract_hash,
+            workspace_lease_id=request.workspace_lease_id,
+            cwd=request.cwd,
+            command_kind="argv" if request.argv_command is not None else "shell",
+            executable=request.command_argv[0],
+            env_keys=env_keys,
+            secret_refs=secret_refs,
+            network_mode=request.network.mode,
+            sandbox_mode=request.sandbox.mode,
+            sandbox_enforced=False,
+            backend_id=str(getattr(self._backend, "backend_id", "unknown")),
+            network_enforced=False,
+            status="failed",
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=int((time.monotonic() - started_monotonic) * 1000),
+            exit_code=None,
+            terminating_signal=None,
+            stdout_bytes=0,
+            stderr_bytes=0,
+            stdout_truncated=False,
+            stderr_truncated=False,
+            advisory_gaps=advisory_gaps,
         )
 
     def _validate_built_in_guards(

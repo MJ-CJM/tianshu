@@ -199,6 +199,11 @@ class MCPServerSession:
         self._shutdown_event.set()
         if self._task is None:
             return
+        if self.status in {"pending", "reconnecting"}:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._task
+            return
         try:
             await asyncio.wait_for(self._task, timeout=10)
         except (TimeoutError, asyncio.CancelledError):

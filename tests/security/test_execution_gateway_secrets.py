@@ -257,3 +257,8 @@ async def test_secret_is_redacted_from_guard_and_spawn_exceptions(
         await ExecutionGateway(backend=_FailingBackend()).run(request)
     assert _SENTINEL not in str(spawn_error.value)
     assert _SENTINEL not in json.dumps(spawn_error.value.args)
+    assert spawn_error.value.receipt.status == "failed"
+    assert spawn_error.value.receipt.exit_code is None
+    assert spawn_error.value.receipt.stdout_bytes == 0
+    assert spawn_error.value.receipt.stderr_bytes == 0
+    assert _SENTINEL not in spawn_error.value.receipt.model_dump_json()

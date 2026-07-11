@@ -28,6 +28,7 @@ from tianshu.executor.execution_gateway import (
     ExecutionGateway,
     ExecutionReceipt,
     ExecutionRequest,
+    ExecutionStartError,
     NetworkPolicy,
     SandboxRequirement,
     bind_execution_context,
@@ -109,7 +110,12 @@ async def _open_stdio(
         workspace_root=workspace_root,
         security_mode=security_mode,
     )
-    handle = await execution_gateway.start(request)
+    try:
+        handle = await execution_gateway.start(request)
+    except ExecutionStartError as exc:
+        if receipt_callback is not None:
+            receipt_callback(exc.receipt)
+        raise
 
     read_sender, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_receiver = anyio.create_memory_object_stream[SessionMessage](0)

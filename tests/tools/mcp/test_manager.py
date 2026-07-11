@@ -332,6 +332,60 @@ async def test_gateway_timeout_closes_transport_and_reconnects(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_shutdown_cancels_starting_initialize_and_reaps_process_tree(
+    manager: MCPManager,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tianshu.tools.mcp import manager as manager_module
+
+    pid_file = tmp_path / "starting-child.pid"
+    monkeypatch.setenv("MCP_CHILD_PID_FILE", str(pid_file))
+    monkeypatch.setenv("MCP_INIT_DELAY", "60")
+    cfg = _fixture_server_config(name="slow").model_copy(
+        update={
+            "env": {
+                "MCP_CHILD_PID_FILE": "${MCP_CHILD_PID_FILE}",
+                "MCP_INIT_DELAY": "${MCP_INIT_DELAY}",
+            }
+        }
+    )
+    manager._config = MCPConfig(mcp_servers={"slow": cfg})
+
+    created_sessions = []
+    real_session = manager_module.MCPServerSession
+
+    def tracking_session(*args, **kwargs):
+        session = real_session(*args, **kwargs)
+        created_sessions.append(session)
+        return session
+
+    monkeypatch.setattr(manager_module, "MCPServerSession", tracking_session)
+    start_task = asyncio.create_task(manager.start())
+    await _wait_for_file(pid_file)
+    child_pid = int(pid_file.read_text())
+
+    try:
+        await asyncio.wait_for(manager.shutdown(), timeout=2)
+        await asyncio.wait_for(asyncio.shield(start_task), timeout=2)
+        await _assert_pid_gone(child_pid)
+        assert manager._starting_sessions == {}
+        assert manager._start_tasks == {}
+        await asyncio.wait_for(manager.shutdown(), timeout=0.5)
+    finally:
+        if not start_task.done():
+            start_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await start_task
+        for session in created_sessions:
+            if session._task is not None and not session._task.done():
+                session._task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await session._task
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_disabled_server_skipped(manager: MCPManager, registry: ToolRegistry) -> None:
     manager._config = MCPConfig(
         mcp_servers={
@@ -443,5 +497,9 @@ async def test_failing_server_does_not_break_others(
         # broken 也没出现在 sessions
         assert "broken" not in manager.sessions
         assert "ok" in manager.sessions
+        failed_receipt = manager.terminal_receipts["broken"]
+        assert failed_receipt.status == "failed"
+        assert failed_receipt.mcp_server_name == "broken"
+        assert failed_receipt.exit_code is None
     finally:
         await manager.shutdown()
