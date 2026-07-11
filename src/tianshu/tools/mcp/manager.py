@@ -58,6 +58,8 @@ class MCPManager:
         self._starting_sessions: dict[str, MCPServerSession] = {}
         self._start_tasks: dict[str, asyncio.Task[tuple[str, MCPServerSession | None]]] = {}
         self._stopping = False
+        self._shutdown_waiters = 0
+        self._shutdown_lock = asyncio.Lock()
 
     def _admitted(self, name: str) -> bool:
         """准入判定:无清单则全允(启动时另有明示告警);有清单则须在册。"""
@@ -225,33 +227,38 @@ class MCPManager:
             logger.info("[mcp] registered %d tool(s) from server %s", count, name)
 
     async def shutdown(self) -> None:
+        self._shutdown_waiters += 1
         self._stopping = True
         try:
-            starting_sessions = tuple(self._starting_sessions.values())
-            if starting_sessions:
-                await asyncio.gather(
-                    *(session.shutdown() for session in starting_sessions),
-                    return_exceptions=True,
-                )
-            starting_tasks = tuple(self._start_tasks.values())
-            if starting_tasks:
-                await asyncio.gather(*starting_tasks, return_exceptions=True)
-            for name, session in tuple(self._starting_sessions.items()):
-                if session.terminal_receipt is not None:
-                    self._terminal_receipts[name] = session.terminal_receipt
-            self._starting_sessions.clear()
-            self._start_tasks.clear()
+            async with self._shutdown_lock:
+                starting_sessions = tuple(self._starting_sessions.values())
+                if starting_sessions:
+                    await asyncio.gather(
+                        *(session.shutdown() for session in starting_sessions),
+                        return_exceptions=True,
+                    )
+                starting_tasks = tuple(self._start_tasks.values())
+                if starting_tasks:
+                    await asyncio.gather(*starting_tasks, return_exceptions=True)
+                for name, session in tuple(self._starting_sessions.items()):
+                    if session.terminal_receipt is not None:
+                        self._terminal_receipts[name] = session.terminal_receipt
+                self._starting_sessions.clear()
+                self._start_tasks.clear()
 
-            for name, session in self._sessions.items():
-                try:
-                    await session.shutdown()
-                except Exception:
-                    logger.exception("[mcp] error shutting down session %s", session.config.name)
-                if session.terminal_receipt is not None:
-                    self._terminal_receipts[name] = session.terminal_receipt
-            self._sessions.clear()
+                for name, session in self._sessions.items():
+                    try:
+                        await session.shutdown()
+                    except Exception:
+                        logger.exception(
+                            "[mcp] error shutting down session %s", session.config.name
+                        )
+                    if session.terminal_receipt is not None:
+                        self._terminal_receipts[name] = session.terminal_receipt
+                self._sessions.clear()
         finally:
-            self._stopping = False
+            self._shutdown_waiters -= 1
+            self._stopping = self._shutdown_waiters > 0
 
     # -- 工具注册 -----------------------------------------------------------
 

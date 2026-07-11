@@ -440,6 +440,54 @@ async def test_shutdown_cancels_starting_initialize_and_reaps_process_tree(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_overlapping_shutdowns_keep_start_guard_until_all_finish(
+    manager: MCPManager,
+) -> None:
+    manager._config = MCPConfig(mcp_servers={"fx": _fixture_server_config(name="fx")})
+    await manager.start()
+    session = manager.sessions["fx"]
+    first_entered = asyncio.Event()
+    second_entered = asyncio.Event()
+    release_first = asyncio.Event()
+    release_second = asyncio.Event()
+    call_count = 0
+    real_shutdown = session.shutdown
+
+    async def controlled_shutdown() -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            first_entered.set()
+            await release_first.wait()
+            await real_shutdown()
+            return
+        second_entered.set()
+        await release_second.wait()
+
+    session.shutdown = controlled_shutdown  # type: ignore[method-assign]
+    first = asyncio.create_task(manager.shutdown())
+    await asyncio.wait_for(first_entered.wait(), timeout=1)
+    second = asyncio.create_task(manager.shutdown())
+
+    try:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(second_entered.wait(), timeout=0.05)
+        if second_entered.is_set():
+            release_second.set()
+            await asyncio.wait_for(asyncio.shield(second), timeout=1)
+        assert manager._stopping is True
+    finally:
+        release_first.set()
+        release_second.set()
+        results = await asyncio.gather(first, second, return_exceptions=True)
+
+    assert results == [None, None]
+    assert manager._stopping is False
+    assert manager.sessions == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_disabled_server_skipped(manager: MCPManager, registry: ToolRegistry) -> None:
     manager._config = MCPConfig(
         mcp_servers={
