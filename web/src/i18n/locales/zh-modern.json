@@ -30,6 +30,18 @@
     "switchToDark": "切换深色",
     "switchToLight": "切换浅色"
   },
+  "auth": {
+    "loading": "正在核验身份…",
+    "subtitle": "可治理、可验证、持续成长的自进化 Agent OS",
+    "tokenLabel": "访问令牌",
+    "tokenPlaceholder": "请输入管理员或个人访问令牌",
+    "login": "登录",
+    "invalid": "凭证无效，请重试",
+    "unavailable": "暂时无法核验系统身份",
+    "retry": "重新核验",
+    "currentUser": "当前身份",
+    "logout": "退出登录"
+  },
   "entity": {
     "edict": "任务",
     "memorial": "执行记录",

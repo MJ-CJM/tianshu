@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Literal
 from unittest.mock import AsyncMock
 
 import pytest
@@ -42,6 +43,14 @@ def test_runtime_defaults_are_trusted_local_and_loopback() -> None:
 
     assert settings.host == "127.0.0.1"
     assert settings.security_mode == "trusted-local"
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.168.1.20"])
+def test_trusted_local_rejects_non_loopback_host_without_container_boundary(
+    host: str,
+) -> None:
+    with pytest.raises(ValidationError, match="loopback"):
+        TianshuSettings(_env_file=None, host=host)
 
 
 def test_principal_module_exists() -> None:
@@ -165,23 +174,32 @@ def test_pat_rotate_and_revoke_take_effect_immediately(storage: Storage) -> None
     assert authenticated.principal.id == "user:owner"
 
     rotated = service.rotate_pat(issued.id)
-    assert service.authenticate_token(
-        issued.raw_token,
-        client_kind=ClientKind.CLI,
-        correlation_id="corr-old",
-    ) is None
-    assert service.authenticate_token(
-        rotated.raw_token,
-        client_kind=ClientKind.CLI,
-        correlation_id="corr-new",
-    ) is not None
+    assert (
+        service.authenticate_token(
+            issued.raw_token,
+            client_kind=ClientKind.CLI,
+            correlation_id="corr-old",
+        )
+        is None
+    )
+    assert (
+        service.authenticate_token(
+            rotated.raw_token,
+            client_kind=ClientKind.CLI,
+            correlation_id="corr-new",
+        )
+        is not None
+    )
 
     assert service.revoke_token(rotated.id) is True
-    assert service.authenticate_token(
-        rotated.raw_token,
-        client_kind=ClientKind.CLI,
-        correlation_id="corr-revoked",
-    ) is None
+    assert (
+        service.authenticate_token(
+            rotated.raw_token,
+            client_kind=ClientKind.CLI,
+            correlation_id="corr-revoked",
+        )
+        is None
+    )
 
 
 def test_bootstrap_hash_authenticates_without_persisting_plaintext(storage: Storage) -> None:
@@ -224,17 +242,23 @@ def test_refresh_rotates_the_session_family_and_rejects_replay(storage: Storage)
     refreshed = service.refresh_session(first.refresh_token)
     assert refreshed is not None
     assert refreshed.family_id == first.family_id
-    assert service.authenticate_token(
-        first.access_token,
-        client_kind=ClientKind.WEB,
-        correlation_id="old-access",
-    ) is None
+    assert (
+        service.authenticate_token(
+            first.access_token,
+            client_kind=ClientKind.WEB,
+            correlation_id="old-access",
+        )
+        is None
+    )
     assert service.refresh_session(first.refresh_token) is None
-    assert service.authenticate_token(
-        refreshed.access_token,
-        client_kind=ClientKind.WEB,
-        correlation_id="new-access",
-    ) is None
+    assert (
+        service.authenticate_token(
+            refreshed.access_token,
+            client_kind=ClientKind.WEB,
+            correlation_id="new-access",
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -536,6 +560,7 @@ def test_explicit_container_boundary_allows_docker_bridge_client(storage: Storag
         _env_file=None,
         host="0.0.0.0",
         trusted_local_container_boundary=True,
+        trusted_local_container_gateway="172.18.0.1",
     )
     app = _boundary_app(storage, settings)
     with TestClient(
@@ -547,6 +572,78 @@ def test_explicit_container_boundary_allows_docker_bridge_client(storage: Storag
 
     assert response.status_code == 200
     assert response.json()["principal"] == "local:owner"
+
+
+def test_container_boundary_never_trusts_arbitrary_public_client(storage: Storage) -> None:
+    settings = TianshuSettings(
+        _env_file=None,
+        host="0.0.0.0",
+        trusted_local_container_boundary=True,
+        trusted_local_container_gateway="172.18.0.1",
+    )
+    app = _boundary_app(storage, settings)
+    with TestClient(
+        app,
+        base_url="http://localhost",
+        client=("203.0.113.9", 41000),
+    ) as client:
+        response = client.get("/api/edicts")
+
+    assert response.status_code == 401
+
+
+def test_container_boundary_rejects_sibling_private_client(storage: Storage) -> None:
+    settings = TianshuSettings(
+        _env_file=None,
+        host="0.0.0.0",
+        trusted_local_container_boundary=True,
+        trusted_local_container_gateway="172.18.0.1",
+    )
+    app = _boundary_app(storage, settings)
+    with TestClient(
+        app,
+        base_url="http://localhost",
+        client=("172.18.0.2", 41000),
+    ) as client:
+        response = client.get("/api/edicts")
+
+    assert response.status_code == 401
+
+
+def test_container_boundary_requires_exact_private_gateway() -> None:
+    with pytest.raises(ValidationError, match="container gateway"):
+        TianshuSettings(
+            _env_file=None,
+            host="0.0.0.0",
+            trusted_local_container_boundary=True,
+        )
+    with pytest.raises(ValidationError, match="container gateway"):
+        TianshuSettings(
+            _env_file=None,
+            host="0.0.0.0",
+            trusted_local_container_boundary=True,
+            trusted_local_container_gateway="0.0.0.0",
+        )
+
+
+def test_secure_remote_protected_route_requires_auth_and_accepts_valid_token(
+    storage: Storage,
+) -> None:
+    app = _boundary_app(storage, _secure_settings())
+    with TestClient(
+        app,
+        base_url="https://tianshu.example.com",
+        client=("127.0.0.1", 41000),
+    ) as client:
+        anonymous = client.get("/api/edicts")
+        authenticated = client.get(
+            "/api/edicts",
+            headers={"Authorization": "Bearer bootstrap-token-for-tests"},
+        )
+
+    assert anonymous.status_code == 401
+    assert authenticated.status_code == 200
+    assert authenticated.json()["principal"] == "user:owner"
 
 
 def test_secure_remote_rejects_container_boundary_override() -> None:
@@ -765,7 +862,11 @@ def test_authenticated_edict_submitter_and_idempotency_ignore_forged_body(
     assert second.json()["data"]["id"] == first.json()["data"]["id"]
 
 
-def test_authenticated_approval_actor_ignores_forged_body(storage: Storage) -> None:
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_authenticated_approval_actor_ignores_forged_body(
+    storage: Storage,
+    action: Literal["approve", "reject"],
+) -> None:
     from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
     from tianshu.gateway.execution_api import execution_router
     from tianshu.models import Decree
@@ -774,7 +875,7 @@ def test_authenticated_approval_actor_ignores_forged_body(storage: Storage) -> N
     manager = SimpleNamespace(
         submit_decree=AsyncMock(),
         submit_tool_decision=AsyncMock(
-            return_value=Decree(memorial_id="m-1", action="approve", actor="user:owner")
+            return_value=Decree(memorial_id="m-1", action=action, actor="user:owner")
         ),
     )
     app = FastAPI()
@@ -793,12 +894,12 @@ def test_authenticated_approval_actor_ignores_forged_body(storage: Storage) -> N
         decree = client.post(
             "/api/decrees",
             headers=headers,
-            json={"memorial_id": "m-1", "action": "approve", "actor": "forged"},
+            json={"memorial_id": "m-1", "action": action, "actor": "forged"},
         )
         tool = client.post(
             "/api/approvals/tool_decision",
             headers=headers,
-            json={"memorial_id": "m-1", "action": "approve", "actor": "forged"},
+            json={"memorial_id": "m-1", "action": action, "actor": "forged"},
         )
 
     submitted_decree = manager.submit_decree.await_args.args[0]

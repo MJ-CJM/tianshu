@@ -151,7 +151,7 @@ class EdictBridge:
             title=title,
             goal=goal,
             source="channel",
-            submitter="emperor",
+            submitter=f"{self._channel}:{sender_open_id}",
             metadata={
                 "channel": self._channel,
                 "instance_id": self._instance_id,
@@ -233,7 +233,7 @@ class EdictBridge:
             title=f"{self._chat_title_prefix} - {chat_id[:12]}",
             goal="持续对话上下文",
             source="channel",
-            submitter="emperor",
+            submitter=f"{self._channel}:{sender_open_id}",
             assigned_persona_id=assistant_persona_id,
             metadata={
                 "channel": self._channel,

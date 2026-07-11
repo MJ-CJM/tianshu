@@ -100,7 +100,7 @@ export default function TelegramChannelForm() {
       style={{ marginTop: 16 }}
       initialValues={{
         connection_mode: "polling",
-        webhook_path: "/telegram/webhook",
+        webhook_path: "/channels/telegram/webhook",
         poll_timeout: 30,
         text_batch_delay: 0.6,
         dedup_cache_size: 2048,
@@ -168,7 +168,7 @@ export default function TelegramChannelForm() {
           </Col>
           <Col span={12}>
             <Form.Item label={t("tongzheng.tg.field.webhookPath")} name="webhook_path">
-              <Input placeholder="/telegram/webhook" />
+              <Input placeholder="/channels/telegram/webhook" />
             </Form.Item>
           </Col>
         </Row>

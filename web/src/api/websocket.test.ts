@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { subscribeAuthExpired } from "./authFetch";
 import { WebSocketManager, type ManagedWebSocket } from "./websocket";
 
 class FakeSocket implements ManagedWebSocket {
@@ -13,7 +14,7 @@ class FakeSocket implements ManagedWebSocket {
 describe("shared WebSocket manager", () => {
   it("shares one cookie-authenticated URL across subscribers", () => {
     const sockets: FakeSocket[] = [];
-    const createSocket = vi.fn((_url: string) => {
+    const createSocket = vi.fn(() => {
       const socket = new FakeSocket();
       sockets.push(socket);
       return socket;
@@ -29,7 +30,6 @@ describe("shared WebSocket manager", () => {
 
     expect(createSocket).toHaveBeenCalledTimes(1);
     expect(createSocket).toHaveBeenCalledWith("wss://tianshu.example.com/api/ws");
-    expect(createSocket.mock.calls[0]![0]).not.toContain("token=");
     first();
     expect(sockets[0]!.close).not.toHaveBeenCalled();
     second();
@@ -64,5 +64,32 @@ describe("shared WebSocket manager", () => {
     sockets[1]!.onclose?.({ code: 4403 } as CloseEvent);
     await Promise.resolve();
     expect(sockets).toHaveLength(2);
+  });
+
+  it("reports session expiry when a 4401 refresh fails", async () => {
+    const expired = vi.fn();
+    const unsubscribe = subscribeAuthExpired(expired);
+    const sockets: FakeSocket[] = [];
+    const manager = new WebSocketManager({
+      getUrl: () => "wss://tianshu.example.com/api/ws",
+      createSocket: () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket;
+      },
+      refreshSession: async () => false,
+    });
+
+    try {
+      manager.subscribeConnection(() => undefined);
+      sockets[0]!.onclose?.({ code: 4401 } as CloseEvent);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(expired).toHaveBeenCalledTimes(1);
+      expect(sockets).toHaveLength(1);
+    } finally {
+      unsubscribe();
+    }
   });
 });

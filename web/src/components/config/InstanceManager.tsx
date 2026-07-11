@@ -66,7 +66,7 @@ const TELEGRAM_CONFIG_FIELDS = [
 const FEISHU_DEFAULTS = {
   domain: "feishu",
   connection_mode: "websocket",
-  webhook_path: "/feishu/webhook",
+  webhook_path: "/channels/feishu/webhook",
   ws_reconnect_interval: 120,
   text_batch_delay: 0.6,
   dedup_cache_size: 2048,
@@ -77,7 +77,7 @@ const FEISHU_DEFAULTS = {
 
 const TELEGRAM_DEFAULTS = {
   connection_mode: "polling",
-  webhook_path: "/telegram/webhook",
+  webhook_path: "/channels/telegram/webhook",
   poll_timeout: 30,
   text_batch_delay: 0.6,
   dedup_cache_size: 2048,
@@ -303,7 +303,7 @@ function FeishuFields({ t, personaOptions }: FieldsProps) {
         />
       </Form.Item>
       <Form.Item label={t("tongzheng.field.webhookPath")} name="webhook_path">
-        <Input placeholder="/feishu/webhook" />
+        <Input placeholder="/channels/feishu/webhook" />
       </Form.Item>
       <Form.Item
         label={t("tongzheng.field.allowedUsers")}
@@ -412,7 +412,7 @@ function TelegramFields({ t, personaOptions }: FieldsProps) {
         <Input placeholder={t("tongzheng.tg.placeholder.homeChannel")} />
       </Form.Item>
       <Form.Item label={t("tongzheng.tg.field.webhookPath")} name="webhook_path">
-        <Input placeholder="/telegram/webhook" />
+        <Input placeholder="/channels/telegram/webhook" />
       </Form.Item>
       <Form.Item
         label={t("tongzheng.tg.field.webhookSecret")}

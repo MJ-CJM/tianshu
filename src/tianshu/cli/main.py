@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from tianshu.cli.commands import (
+    auth,
     config,
     cost,
     dag,
@@ -26,6 +27,7 @@ from tianshu.cli.commands.watch import watch
 
 app = typer.Typer(name="tianshu", help="Tianshu - AI Execution Platform CLI")
 
+app.add_typer(auth.app, name="auth", help="Manage CLI authentication")
 app.add_typer(edict.app, name="edict", help="Manage edicts")
 app.add_typer(memorial.app, name="memorial", help="View memorials")
 app.add_typer(config.app, name="config", help="Manage LLM configuration")

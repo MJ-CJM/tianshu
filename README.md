@@ -110,6 +110,11 @@ docker run -d --name tianshu -p 127.0.0.1:8000:8000 \
 `secure-remote`，配置 HTTPS 公共地址、精确 Host/Origin、可信反代 CIDR 和
 bootstrap token hash；匿名 REST、WebSocket 与 MCP 会在统一入口被拒绝。
 
+远程 CLI 首次使用时执行 `TIANSHU_API_URL=https://<your-domain> tianshu auth login`，
+随后可用 `tianshu auth whoami` 核对身份、用 `tianshu auth logout` 撤销会话。CLI 只把
+轮换会话写入本机 `~/.tianshu/credentials.json`（权限 `0600`）；若设置
+`TIANSHU_API_TOKEN`，环境变量始终优先且不会回退到本机会话。
+
 两阶段构建会移除运行时中的 Node.js 和 node_modules；运行镜像仍包含 Python 应用源码、后端依赖及执行器所需的系统工具。完整说明见 [`docs/usage/getting-started.md`](docs/usage/getting-started.md)。
 
 ### 常用环境变量

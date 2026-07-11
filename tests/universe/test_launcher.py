@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -70,7 +71,7 @@ def test_secure_remote_refuses_variant_without_security_manifest(tmp_path: Path)
     worktree.mkdir(parents=True)
     pointer.write(DeployRecord(ref="universe/unsafe", worktree=str(worktree)), None)
 
-    with pytest.raises(SecurityBoundaryError, match="security manifest"):
+    with pytest.raises(SecurityBoundaryError, match="disabled"):
         resolve_boot_plan(pointer, {"TIANSHU_SECURITY_MODE": "secure-remote"})
 
 
@@ -93,11 +94,13 @@ def test_secure_remote_refuses_invalid_security_manifest(
     (worktree / ".tianshu-security.json").write_text(manifest, encoding="utf-8")
     pointer.write(DeployRecord(ref="universe/unsafe", worktree=str(worktree)), None)
 
-    with pytest.raises(SecurityBoundaryError, match="security manifest"):
+    with pytest.raises(SecurityBoundaryError, match="disabled"):
         resolve_boot_plan(pointer, {"TIANSHU_SECURITY_MODE": "secure-remote"})
 
 
-def test_secure_remote_accepts_current_security_manifest(tmp_path: Path) -> None:
+def test_secure_remote_refuses_variant_even_with_current_security_manifest(
+    tmp_path: Path,
+) -> None:
     pointer = DeployPointer(tmp_path / "deploy.json")
     worktree = tmp_path / "worktrees" / "safe"
     worktree.mkdir(parents=True)
@@ -107,10 +110,32 @@ def test_secure_remote_accepts_current_security_manifest(tmp_path: Path) -> None
     )
     pointer.write(DeployRecord(ref="universe/safe", worktree=str(worktree)), None)
 
-    cwd, env = resolve_boot_plan(
-        pointer,
-        {"TIANSHU_SECURITY_MODE": "secure-remote"},
-    )
+    with pytest.raises(SecurityBoundaryError, match="disabled"):
+        resolve_boot_plan(
+            pointer,
+            {"TIANSHU_SECURITY_MODE": "secure-remote"},
+        )
 
-    assert cwd == str(worktree)
-    assert env["PYTHONPATH"].split(os.pathsep)[0] == str(worktree / "src")
+
+def test_launcher_main_uses_settings_resolved_security_mode(monkeypatch, tmp_path: Path) -> None:
+    import tianshu.universe.launcher as launcher
+
+    pointer_path = tmp_path / "deploy.json"
+    pointer = DeployPointer(pointer_path)
+    worktree = tmp_path / "worktrees" / "selected"
+    worktree.mkdir(parents=True)
+    pointer.write(DeployRecord(ref="universe/selected", worktree=str(worktree)), None)
+    monkeypatch.setattr(launcher, "DEFAULT_POINTER", pointer_path)
+    monkeypatch.setattr(
+        launcher,
+        "TianshuSettings",
+        lambda: SimpleNamespace(
+            security_mode="secure-remote",
+            host="127.0.0.1",
+            port=8000,
+        ),
+    )
+    monkeypatch.delenv("TIANSHU_SECURITY_MODE", raising=False)
+
+    with pytest.raises(SecurityBoundaryError, match="disabled"):
+        launcher.main()

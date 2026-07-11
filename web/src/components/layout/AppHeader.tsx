@@ -1,9 +1,11 @@
-import { Layout, theme } from "antd";
+import { Button, Layout, Tooltip, theme } from "antd";
+import { LogoutOutlined, UserOutlined } from "@ant-design/icons";
 import HealthDot from "../common/HealthDot";
 import ConnectionIndicator from "../common/ConnectionIndicator";
 import LocaleSwitcher from "./LocaleSwitcher";
 import { useT } from "../../i18n";
 import { useLocaleMode } from "../../hooks/useLocale";
+import { useAuth } from "../../auth/AuthContext";
 
 interface AppHeaderProps {
   isWsConnected?: boolean;
@@ -13,6 +15,7 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
   const t = useT();
   const locale = useLocaleMode();
   const { token } = theme.useToken();
+  const { mode, principal, logout } = useAuth();
   const brand = t("comp.appHeader.brand");
   const isLatinBrand = locale === "en";
 
@@ -64,6 +67,33 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <LocaleSwitcher />
+        {principal ? (
+          <span
+            title={`${t("auth.currentUser")}: ${principal.id}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              color: token.colorTextSecondary,
+              fontSize: 12,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <UserOutlined />
+            {principal.display_name}
+          </span>
+        ) : null}
+        {mode === "secure-remote" ? (
+          <Tooltip title={t("auth.logout")}>
+            <Button
+              type="text"
+              size="small"
+              icon={<LogoutOutlined />}
+              aria-label={t("auth.logout")}
+              onClick={() => void logout()}
+            />
+          </Tooltip>
+        ) : null}
         <ConnectionIndicator isConnected={isWsConnected} />
         <HealthDot />
       </div>

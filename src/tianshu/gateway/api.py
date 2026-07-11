@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
+
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -12,10 +15,12 @@ from fastapi import (
 
 from tianshu.consultation.models import ConsultationRequest
 from tianshu.consultation.session import ConsultationSession
+from tianshu.gateway.auth import AuthService, get_auth_context
 from tianshu.models import ApiResponse
 from tianshu.notifier.notifier import Notifier
 
 gateway_router = APIRouter()
+WS_AUTH_REVALIDATE_INTERVAL_SECONDS = 1.0
 
 
 # --- WebSocket endpoint ---
@@ -24,14 +29,40 @@ gateway_router = APIRouter()
 @gateway_router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, request: Request = None):
     notifier: Notifier = websocket.app.state.notifier
+    auth_service: AuthService = websocket.app.state.auth_service
+    auth_context = get_auth_context(websocket)
     await websocket.accept()
     notifier.register_ws(websocket)
+    monitor_task: asyncio.Task[None] | None = None
     try:
+        if not auth_service.is_context_active(auth_context):
+            await websocket.close(
+                code=4401,
+                reason="credential_expired_or_revoked",
+            )
+            return
+
+        async def monitor_credential() -> None:
+            while True:
+                await asyncio.sleep(WS_AUTH_REVALIDATE_INTERVAL_SECONDS)
+                if auth_service.is_context_active(auth_context):
+                    continue
+                await websocket.close(
+                    code=4401,
+                    reason="credential_expired_or_revoked",
+                )
+                return
+
+        monitor_task = asyncio.create_task(monitor_credential())
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
+        if monitor_task is not None:
+            monitor_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await monitor_task
         notifier.unregister_ws(websocket)
 
 

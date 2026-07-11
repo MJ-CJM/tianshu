@@ -174,7 +174,11 @@ class WebhookConnection:
         self._settings = settings
         self._storage = storage
         self.inbound_queue = inbound_queue
-        self._dedup = DedupChecker(storage, max_entries=settings.dedup_cache_size)
+        self._dedup = DedupChecker(
+            storage,
+            max_entries=settings.dedup_cache_size,
+            instance_id=settings.instance_id,
+        )
         self.router = APIRouter()
         self.router.post(settings.webhook_path)(self._handle_request)
         self._rate_state: OrderedDict[str, deque[float]] = OrderedDict()
@@ -201,14 +205,14 @@ class WebhookConnection:
         except Exception:
             return Response("bad json", status_code=400)
 
+        if not verify_token(payload, self._settings.verification_token):
+            return Response("invalid token", status_code=401)
+
         if payload.get("type") == "url_verification":
             return Response(
                 content=json.dumps({"challenge": payload.get("challenge", "")}),
                 media_type="application/json",
             )
-
-        if not verify_token(payload, self._settings.verification_token):
-            return Response("invalid token", status_code=401)
 
         event_id = ((payload.get("header") or {}).get("event_id")) or ""
         if event_id and not self._dedup.check_and_mark(event_id):

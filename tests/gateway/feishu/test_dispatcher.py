@@ -180,6 +180,36 @@ async def test_card_event_non_allowlist_dropped(dispatcher):
 
 
 @pytest.mark.asyncio
+async def test_empty_sender_dropped_when_allowlist_is_empty():
+    queue: asyncio.Queue = asyncio.Queue()
+    messages: list[FeishuMessage] = []
+    cards: list[FeishuCardAction] = []
+
+    async def on_message(message: FeishuMessage) -> None:
+        messages.append(message)
+
+    async def on_card(card: FeishuCardAction) -> None:
+        cards.append(card)
+
+    dispatcher = Dispatcher(
+        settings=_settings(allowed=(), batch_delay=0.0),
+        inbound_queue=queue,
+        message_handler=on_message,
+        card_handler=on_card,
+    )
+    await dispatcher.start()
+    try:
+        await queue.put(_msg_event(event_id="empty-message", sender=""))
+        await queue.put(_card_event(event_id="empty-card", sender=""))
+        await asyncio.sleep(0.15)
+    finally:
+        await dispatcher.stop()
+
+    assert messages == []
+    assert cards == []
+
+
+@pytest.mark.asyncio
 async def test_post_message_extracted(dispatcher):
     d, queue, msgs, _ = dispatcher
     await queue.put(_msg_event(text="rich text", msg_type="post"))

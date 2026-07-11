@@ -14,7 +14,7 @@
    - `im:resource`（图片、文件）
 4. 「事件与回调」选择**接收方式**：
    - **WebSocket（推荐）**：开发机/单租户场景，无需公网，开箱即用。
-   - **Webhook**：需要公网 HTTPS，且你需要在「事件订阅」处填写 `https://<your-domain>/feishu/webhook`，并在飞书后台填写 `Encrypt Key` + `Verification Token` 两个字段。
+   - **Webhook**：需要公网 HTTPS，且你需要在「事件订阅」处填写 `https://<your-domain>/channels/feishu/webhook`，并在飞书后台填写 `Encrypt Key` 或 `Verification Token`（建议两者都配）。
 5. 在「事件订阅」勾选监听事件：
    - `im.message.receive_v1`（接收消息）
 6. 在「机器人」开关里启用机器人，然后点「版本管理」发布。
@@ -40,7 +40,7 @@ export TIANSHU_FEISHU_BOT_NAME=""               # 群 @ 检测兜底
 # Webhook 模式专属
 export TIANSHU_FEISHU_ENCRYPT_KEY=""            # 飞书后台「事件订阅 - Encrypt Key」
 export TIANSHU_FEISHU_VERIFICATION_TOKEN=""     # 飞书后台「事件订阅 - Verification Token」
-export TIANSHU_FEISHU_WEBHOOK_PATH="/feishu/webhook"  # 默认即可
+export TIANSHU_FEISHU_WEBHOOK_PATH="/channels/feishu/webhook"  # 默认即可
 
 # 调优
 export TIANSHU_FEISHU_TEXT_BATCH_DELAY="0.6"    # 文本批处理静默期（秒）

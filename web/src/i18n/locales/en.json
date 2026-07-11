@@ -30,6 +30,18 @@
     "switchToDark": "Switch to Dark",
     "switchToLight": "Switch to Light"
   },
+  "auth": {
+    "loading": "Verifying identity…",
+    "subtitle": "A governable, verifiable and continuously evolving Agent OS",
+    "tokenLabel": "Access token",
+    "tokenPlaceholder": "Enter an administrator or personal access token",
+    "login": "Sign in",
+    "invalid": "Invalid credentials. Please try again.",
+    "unavailable": "Identity verification is temporarily unavailable",
+    "retry": "Try again",
+    "currentUser": "Current identity",
+    "logout": "Sign out"
+  },
   "entity": {
     "edict": "Task",
     "memorial": "Run",

@@ -219,7 +219,9 @@ async def test_webhook_public_path_exists_only_while_instance_runs(storage, monk
     settings = SimpleNamespace(
         enabled=True,
         connection_mode="webhook",
-        webhook_path="/channels/custom/inbound",
+        webhook_path="/channels/feishu/custom",
+        encrypt_key="encrypt-key",
+        verification_token="",
         validate_or_raise=lambda: None,
     )
     instance = ChannelInstance(
@@ -237,7 +239,262 @@ async def test_webhook_public_path_exists_only_while_instance_runs(storage, monk
     monkeypatch.setattr(manager, "_construct", lambda _instance: bot)
 
     assert await manager.start_instance(instance) is True
-    assert app.state.public_webhook_paths == {"/channels/custom/inbound"}
+    assert app.state.public_webhook_paths == {"/channels/feishu/custom"}
 
     await manager.stop_instance("custom")
     assert app.state.public_webhook_paths == set()
+
+
+def _webhook_manager(storage, *, security_mode: str = "trusted-local"):
+    app = FastAPI()
+    app.state.public_webhook_paths = set()
+    manager = ChannelBotManager(
+        storage=storage,
+        event_bus=EventBus(storage=storage),
+        approval_manager=MagicMock(),
+        executor=MagicMock(),
+        notifier=MagicMock(),
+        persona_loader=MagicMock(),
+        provider_manager=MagicMock(),
+        cost_manager=MagicMock(),
+        env_settings=SimpleNamespace(security_mode=security_mode),
+        app=app,
+    )
+    bot = SimpleNamespace(
+        start=AsyncMock(),
+        stop=AsyncMock(),
+        attach_webhook_router=MagicMock(),
+    )
+    manager._construct = lambda _instance: bot  # type: ignore[method-assign]
+    return manager, app, bot
+
+
+def _webhook_instance(
+    *,
+    instance_id: str,
+    channel_type: str,
+    path: str,
+    encrypt_key: str = "encrypt-key",
+    verification_token: str = "",
+) -> ChannelInstance:
+    settings = SimpleNamespace(
+        enabled=True,
+        connection_mode="webhook",
+        webhook_path=path,
+        encrypt_key=encrypt_key,
+        verification_token=verification_token,
+        validate_or_raise=lambda: None,
+    )
+    return ChannelInstance(
+        instance_id=instance_id,
+        channel_type=channel_type,
+        label=instance_id,
+        enabled=True,
+        settings=settings,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("channel_type", "path"),
+    [
+        ("feishu", "/api/edicts"),
+        ("feishu", "/channels/telegram/inbound"),
+        ("telegram", "/channels/feishu/inbound"),
+        ("feishu", "/channels/feishu/../api/edicts"),
+        ("feishu", "/channels/feishu/{instance}"),
+    ],
+)
+async def test_webhook_rejects_paths_outside_provider_namespace(
+    storage,
+    channel_type,
+    path,
+) -> None:
+    manager, app, bot = _webhook_manager(storage)
+    instance = _webhook_instance(
+        instance_id=f"{channel_type}-bad",
+        channel_type=channel_type,
+        path=path,
+    )
+
+    assert await manager.start_instance(instance) is False
+    assert app.state.public_webhook_paths == set()
+    bot.start.assert_not_awaited()
+    bot.attach_webhook_router.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_existing_route_and_duplicate_instance_path(storage) -> None:
+    manager, app, bot = _webhook_manager(storage)
+
+    @app.post("/channels/feishu/existing")
+    async def existing_route():
+        return {"ok": True}
+
+    @app.post("/channels/feishu/dynamic/{tail}")
+    async def dynamic_route(tail: str):
+        return {"tail": tail}
+
+    conflict = _webhook_instance(
+        instance_id="feishu-conflict",
+        channel_type="feishu",
+        path="/channels/feishu/existing",
+    )
+    dynamic_conflict = _webhook_instance(
+        instance_id="feishu-dynamic-conflict",
+        channel_type="feishu",
+        path="/channels/feishu/dynamic/inbound",
+    )
+    first = _webhook_instance(
+        instance_id="feishu-first",
+        channel_type="feishu",
+        path="/channels/feishu/shared",
+    )
+    duplicate = _webhook_instance(
+        instance_id="feishu-duplicate",
+        channel_type="feishu",
+        path="/channels/feishu/shared",
+    )
+
+    assert await manager.start_instance(conflict) is False
+    assert await manager.start_instance(dynamic_conflict) is False
+    assert await manager.start_instance(first) is True
+    assert await manager.start_instance(duplicate) is False
+    assert app.state.public_webhook_paths == {"/channels/feishu/shared"}
+    assert bot.start.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_secure_remote_feishu_webhook_requires_verifier(storage) -> None:
+    manager, app, bot = _webhook_manager(storage, security_mode="secure-remote")
+    instance = _webhook_instance(
+        instance_id="feishu-empty-verifier",
+        channel_type="feishu",
+        path="/channels/feishu/inbound",
+        encrypt_key="",
+        verification_token="",
+    )
+
+    assert await manager.start_instance(instance) is False
+    assert app.state.public_webhook_paths == set()
+    bot.start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_partial_bot_start_failure_always_attempts_cleanup(storage, monkeypatch) -> None:
+    manager, _, bot = _webhook_manager(storage)
+    instance = _webhook_instance(
+        instance_id="feishu-partial",
+        channel_type="feishu",
+        path="/channels/feishu/partial",
+    )
+    bot.start.side_effect = RuntimeError("allocated then failed")
+    monkeypatch.setattr(manager, "_construct", lambda _instance: bot)
+
+    assert await manager.start_instance(instance) is False
+    bot.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_webhook_stop_removes_dynamic_route_and_allows_restart(storage) -> None:
+    manager, app, bot = _webhook_manager(storage)
+    instance = _webhook_instance(
+        instance_id="feishu-restart",
+        channel_type="feishu",
+        path="/channels/feishu/restart",
+    )
+
+    def attach(target_app: FastAPI) -> None:
+        async def inbound():
+            return {"ok": True}
+
+        target_app.post(instance.settings.webhook_path)(inbound)
+
+    bot.attach_webhook_router.side_effect = attach
+
+    assert await manager.start_instance(instance) is True
+    assert any(getattr(route, "path", None) == "/channels/feishu/restart" for route in app.routes)
+    await manager.stop_instance(instance.instance_id)
+    assert not any(
+        getattr(route, "path", None) == "/channels/feishu/restart" for route in app.routes
+    )
+
+    assert await manager.start_instance(instance) is True
+    assert app.state.public_webhook_paths == {"/channels/feishu/restart"}
+
+
+@pytest.mark.asyncio
+async def test_webhook_reload_rebinds_router_to_new_settings(storage, monkeypatch) -> None:
+    manager, app, _ = _webhook_manager(storage)
+    old = _webhook_instance(
+        instance_id="feishu-reload",
+        channel_type="feishu",
+        path="/channels/feishu/old",
+    )
+    new_settings = SimpleNamespace(
+        **{
+            **vars(old.settings),
+            "webhook_path": "/channels/feishu/new",
+        }
+    )
+    new_settings.validate_or_raise = lambda: None
+
+    def make_bot(path: str):
+        bot = SimpleNamespace(
+            start=AsyncMock(),
+            stop=AsyncMock(),
+            reload=AsyncMock(),
+            attach_webhook_router=MagicMock(),
+        )
+
+        def attach(target_app: FastAPI) -> None:
+            async def inbound():
+                return {"ok": True}
+
+            target_app.post(path)(inbound)
+
+        bot.attach_webhook_router.side_effect = attach
+        return bot
+
+    old_bot = make_bot(old.settings.webhook_path)
+    new_bot = make_bot(new_settings.webhook_path)
+    bots = iter((old_bot, new_bot))
+    monkeypatch.setattr(manager, "_construct", lambda _instance: next(bots))
+
+    assert await manager.start_instance(old) is True
+    assert await manager.reload_instance(old.instance_id, new_settings) is True
+
+    old_bot.stop.assert_awaited_once()
+    old_bot.reload.assert_not_awaited()
+    new_bot.start.assert_awaited_once()
+    assert app.state.public_webhook_paths == {"/channels/feishu/new"}
+    paths = {getattr(route, "path", None) for route in app.routes}
+    assert "/channels/feishu/old" not in paths
+    assert "/channels/feishu/new" in paths
+
+
+@pytest.mark.asyncio
+async def test_invalid_webhook_reload_keeps_known_good_route(storage) -> None:
+    manager, app, bot = _webhook_manager(storage)
+    old = _webhook_instance(
+        instance_id="feishu-stable",
+        channel_type="feishu",
+        path="/channels/feishu/stable",
+    )
+
+    def attach(target_app: FastAPI) -> None:
+        async def inbound():
+            return {"ok": True}
+
+        target_app.post(old.settings.webhook_path)(inbound)
+
+    bot.attach_webhook_router.side_effect = attach
+    invalid_settings = SimpleNamespace(**{**vars(old.settings), "webhook_path": "/api/edicts"})
+    invalid_settings.validate_or_raise = lambda: None
+
+    assert await manager.start_instance(old) is True
+    assert await manager.reload_instance(old.instance_id, invalid_settings) is False
+
+    bot.stop.assert_not_awaited()
+    assert manager.get(old.instance_id) is bot
+    assert app.state.public_webhook_paths == {"/channels/feishu/stable"}

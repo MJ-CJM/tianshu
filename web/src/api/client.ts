@@ -1,6 +1,6 @@
 import axios from "axios";
 import { notification } from "antd";
-import { refreshAuthSession } from "./authFetch";
+import { notifyAuthExpired, refreshAuthSession } from "./authFetch";
 
 const apiClient = axios.create({
   baseURL: "/api",
@@ -24,16 +24,19 @@ apiClient.interceptors.response.use(
   async (error) => {
     const original = error.config as (typeof error.config & { _authRetried?: boolean }) | undefined;
     const url = String(original?.url ?? "");
-    if (
+    const isProtectedUnauthorized =
       error.response?.status === 401 &&
-      original &&
-      !original._authRetried &&
       !url.includes("/auth/session") &&
-      !url.includes("/auth/refresh")
+      !url.includes("/auth/refresh");
+    if (
+      isProtectedUnauthorized &&
+      original &&
+      !original._authRetried
     ) {
       original._authRetried = true;
       if (await refreshAuthSession()) return apiClient.request(original);
     }
+    if (isProtectedUnauthorized) notifyAuthExpired();
     // 允许请求通过 config.silentCodes 标记可静默的 HTTP 状态码
     const silentCodes: number[] = error.config?.silentCodes ?? [];
     if (silentCodes.includes(error.response?.status)) {

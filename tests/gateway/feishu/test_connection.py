@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import threading
+import time
 from unittest.mock import MagicMock as _MM
 
 import pytest
@@ -98,7 +99,7 @@ def test_valid_signature_passes(storage):
     app = FastAPI()
     app.include_router(conn.router)
     body = json.dumps({"header": {"event_type": "im.test", "event_id": "ok"}, "event": {}}).encode()
-    timestamp = "1700000000"
+    timestamp = str(int(time.time()))
     nonce = "n"
     sig = hashlib.sha256(f"{timestamp}{nonce}{key}".encode() + body).hexdigest()
     with TestClient(app) as client:
@@ -115,6 +116,39 @@ def test_valid_signature_passes(storage):
         assert r.status_code == 200
 
 
+def test_stale_valid_signature_is_rejected_as_replay(storage):
+    queue: asyncio.Queue = asyncio.Queue()
+    key = "secret_key"
+    conn = WebhookConnection(
+        settings=_settings(encrypt_key=key),
+        storage=storage,
+        inbound_queue=queue,
+    )
+    app = FastAPI()
+    app.include_router(conn.router)
+    body = json.dumps(
+        {"header": {"event_type": "im.test", "event_id": "stale"}, "event": {}}
+    ).encode()
+    timestamp = str(int(time.time()) - 301)
+    nonce = "n"
+    signature = hashlib.sha256(f"{timestamp}{nonce}{key}".encode() + body).hexdigest()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/feishu/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "X-Lark-Request-Timestamp": timestamp,
+                "X-Lark-Request-Nonce": nonce,
+                "X-Lark-Signature": signature,
+            },
+        )
+
+    assert response.status_code == 401
+    assert queue.empty()
+
+
 def test_invalid_token_rejected(storage):
     queue: asyncio.Queue = asyncio.Queue()
     conn = WebhookConnection(
@@ -128,6 +162,28 @@ def test_invalid_token_rejected(storage):
     with TestClient(app) as client:
         r = client.post("/feishu/webhook", json=body)
         assert r.status_code == 401
+
+
+def test_url_verification_rejects_invalid_token(storage):
+    queue: asyncio.Queue = asyncio.Queue()
+    conn = WebhookConnection(
+        settings=_settings(token="expected_token"),
+        storage=storage,
+        inbound_queue=queue,
+    )
+    app = FastAPI()
+    app.include_router(conn.router)
+    with TestClient(app) as client:
+        response = client.post(
+            "/feishu/webhook",
+            json={
+                "type": "url_verification",
+                "challenge": "attacker-controlled",
+                "token": "wrong",
+            },
+        )
+
+    assert response.status_code == 401
 
 
 def test_bad_json_returns_400(conn_app):

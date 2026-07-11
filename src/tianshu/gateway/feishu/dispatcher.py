@@ -101,7 +101,7 @@ class Dispatcher:
         chat_id = msg.get("chat_id", "")
         chat_type = msg.get("chat_type", "p2p")
 
-        if not is_allowed_user(sender_open_id, self._settings.allowed_users):
+        if not sender_open_id or not is_allowed_user(sender_open_id, self._settings.allowed_users):
             logger.info("[feishu/inbound] rejected non-allowlist sender=%s", sender_open_id)
             return
 
@@ -134,7 +134,7 @@ class Dispatcher:
         value = action.get("value") or {}
         operator = event.get("operator") or {}
         sender_open_id = operator.get("open_id", "")
-        if not is_allowed_user(sender_open_id, self._settings.allowed_users):
+        if not sender_open_id or not is_allowed_user(sender_open_id, self._settings.allowed_users):
             return
         chat_id = (event.get("context") or {}).get("open_chat_id", "")
         await self._card_handler(

@@ -1,5 +1,5 @@
 import type { WsMessage } from "./types";
-import { refreshAuthSession } from "./authFetch";
+import { notifyAuthExpired, refreshAuthSession } from "./authFetch";
 
 export interface ManagedWebSocket {
   readyState: number;
@@ -101,12 +101,16 @@ export class WebSocketManager {
       if (event.code === 4401) {
         if (this.authRetryAttempted) {
           this.blocked = true;
+          notifyAuthExpired();
           return;
         }
         this.authRetryAttempted = true;
         void this.options.refreshSession().then((refreshed) => {
           if (refreshed) this.scheduleReconnect(0);
-          else this.blocked = true;
+          else {
+            this.blocked = true;
+            notifyAuthExpired();
+          }
         });
         return;
       }

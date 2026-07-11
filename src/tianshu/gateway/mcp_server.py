@@ -114,6 +114,7 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
     @mcp.tool()
     def get_edict_status(edict_id: str) -> dict:
         """查询诏令状态与各次执行(奏折)概要。"""
+        _require_scope("mcp:read")
         storage = app.state.storage
         edict = storage.get_edict(edict_id)
         if not edict:
@@ -129,6 +130,7 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
     @mcp.tool()
     def get_memorial(memorial_id: str) -> dict:
         """取一份奏折(执行记录)的结果全文与审计结论。"""
+        _require_scope("mcp:read")
         storage = app.state.storage
         m = storage.get_memorial(memorial_id)
         if not m:
@@ -143,6 +145,7 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
     @mcp.tool()
     def list_recent_edicts(limit: int = 10) -> dict:
         """列出最近的诏令(默认 10 条)。"""
+        _require_scope("mcp:read")
         storage = app.state.storage
         edicts, total = storage.list_edicts(limit=min(limit, 50), exclude_assistant_chat=True)
         return {
@@ -161,6 +164,7 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
     @mcp.tool()
     def list_pending_approvals() -> dict:
         """列出等待人工批红的奏折(只读;批红本身请在天枢 Web/飞书端完成)。"""
+        _require_scope("mcp:read")
         storage = app.state.storage
         memorials, total = storage.list_memorials(status="needs_review", limit=20)
         return {"total": total, "pending": [_memorial_brief(m) for m in memorials]}

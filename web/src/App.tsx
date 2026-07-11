@@ -7,6 +7,8 @@ import enUS from "antd/locale/en_US";
 import { ThemeContext, useThemeProvider } from "./hooks/useTheme";
 import { LocaleContext, useLocaleProvider } from "./hooks/useLocale";
 import { getThemeConfig } from "./theme";
+import { AuthProvider } from "./auth/AuthProvider";
+import LoginGate from "./auth/LoginGate";
 import AppLayout from "./components/layout/AppLayout";
 import RoyalStudyPage from "./pages/RoyalStudyPage";
 import EdictCreatePage from "./pages/EdictCreatePage";
@@ -46,42 +48,53 @@ function ThemedApp() {
   return (
     <ThemeContext.Provider value={themeCtx}>
       <LocaleContext.Provider value={localeCtx}>
-      <ConfigProvider theme={getThemeConfig(themeCtx.mode)} locale={antdLocale}>
-        <AntApp>
-          <BrowserRouter>
-            <Routes>
-              <Route element={<AppLayout />}>
-                <Route path="/" element={<RoyalStudyPage />} />
-                <Route path="/edicts/create" element={<EdictCreatePage />} />
-                <Route path="/edicts/:edictId" element={<EdictDetailPage />} />
-                <Route path="/approvals" element={<RoyalStudyPage />} />
-                <Route path="/scheduler" element={<SchedulerPage />} />
-                <Route path="/audit" element={<AuditDashboardPage />} />
-                <Route path="/cost" element={<CostDashboardPage />} />
-                <Route path="/memory" element={<MemoryDashboardPage />} />
-                <Route path="/consultation" element={<ConsultationPage />} />
-                <Route path="/cabinet" element={<CabinetPage />} />
-                <Route path="/hongluisi" element={<HongluisiPage />} />
-                <Route path="/tongzheng" element={<TongzhengPage />} />
-                <Route path="/personas" element={<PersonaDashboardPage />} />
-                <Route path="/personas/:personaId" element={<PersonaDetailPage />} />
-                <Route path="/system" element={<SystemManagementPage />} />
-                <Route path="/session-rules" element={<SessionRulesPage />} />
-                <Route path="/universes" element={<UniversePage />} />
-                <Route path="/evals" element={<EvalsPage />} />
-                <Route
-                  path="/dag/:dagId"
-                  element={
-                    <Suspense fallback={<Spin size="large" style={{ display: 'block', margin: '20vh auto' }} />}>
-                      <DagBattleMapPage />
-                    </Suspense>
-                  }
-                />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-        </AntApp>
-      </ConfigProvider>
+        <ConfigProvider theme={getThemeConfig(themeCtx.mode)} locale={antdLocale}>
+          <AntApp>
+            <AuthProvider>
+              <BrowserRouter>
+                <LoginGate>
+                  <Routes>
+                    <Route element={<AppLayout />}>
+                      <Route path="/" element={<RoyalStudyPage />} />
+                      <Route path="/edicts/create" element={<EdictCreatePage />} />
+                      <Route path="/edicts/:edictId" element={<EdictDetailPage />} />
+                      <Route path="/approvals" element={<RoyalStudyPage />} />
+                      <Route path="/scheduler" element={<SchedulerPage />} />
+                      <Route path="/audit" element={<AuditDashboardPage />} />
+                      <Route path="/cost" element={<CostDashboardPage />} />
+                      <Route path="/memory" element={<MemoryDashboardPage />} />
+                      <Route path="/consultation" element={<ConsultationPage />} />
+                      <Route path="/cabinet" element={<CabinetPage />} />
+                      <Route path="/hongluisi" element={<HongluisiPage />} />
+                      <Route path="/tongzheng" element={<TongzhengPage />} />
+                      <Route path="/personas" element={<PersonaDashboardPage />} />
+                      <Route path="/personas/:personaId" element={<PersonaDetailPage />} />
+                      <Route path="/system" element={<SystemManagementPage />} />
+                      <Route path="/session-rules" element={<SessionRulesPage />} />
+                      <Route path="/universes" element={<UniversePage />} />
+                      <Route path="/evals" element={<EvalsPage />} />
+                      <Route
+                        path="/dag/:dagId"
+                        element={
+                          <Suspense
+                            fallback={
+                              <Spin
+                                size="large"
+                                style={{ display: "block", margin: "20vh auto" }}
+                              />
+                            }
+                          >
+                            <DagBattleMapPage />
+                          </Suspense>
+                        }
+                      />
+                    </Route>
+                  </Routes>
+                </LoginGate>
+              </BrowserRouter>
+            </AuthProvider>
+          </AntApp>
+        </ConfigProvider>
       </LocaleContext.Provider>
     </ThemeContext.Provider>
   );

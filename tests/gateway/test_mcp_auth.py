@@ -158,3 +158,44 @@ def test_mcp_read_scope_cannot_submit_and_submit_scope_preserves_actor(secure_mc
     accepted_payload = json.loads(accepted.json()["result"]["content"][0]["text"])
     edict_id = accepted_payload["edict_id"]
     assert app.state.storage.get_edict(edict_id).submitter == "service:mcp-submit"
+
+
+def test_mcp_submit_only_scope_can_submit_but_cannot_read(secure_mcp) -> None:
+    client, app, _ = secure_mcp
+    issued = app.state.auth_service.issue_pat(
+        Principal(
+            id="service:mcp-submit-only",
+            kind="service",
+            display_name="MCP Submit Only",
+            scopes=frozenset({"mcp:submit"}),
+        ),
+        label="MCP submit only",
+        scopes=frozenset({"mcp:submit"}),
+    )
+    headers = {**_MCP_HEADERS, "Authorization": f"Bearer {issued.raw_token}"}
+
+    submitted = client.post(
+        "/mcp/",
+        json=_rpc(
+            "tools/call",
+            {"name": "submit_edict", "arguments": {"goal": "submit only"}},
+        ),
+        headers=headers,
+    )
+    denied_read = client.post(
+        "/mcp/",
+        json=_rpc(
+            "tools/call",
+            {"name": "list_recent_edicts", "arguments": {}},
+            id_=2,
+        ),
+        headers=headers,
+    )
+
+    assert submitted.status_code == 200
+    assert submitted.json()["result"]["isError"] is False
+    payload = json.loads(submitted.json()["result"]["content"][0]["text"])
+    assert app.state.storage.get_edict(payload["edict_id"]).submitter == ("service:mcp-submit-only")
+    assert denied_read.status_code == 200
+    assert denied_read.json()["result"]["isError"] is True
+    assert "mcp:read" in denied_read.json()["result"]["content"][0]["text"]

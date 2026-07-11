@@ -386,6 +386,7 @@ async def approve_plan(edict_id: str, request: Request):
     """Approve a pending plan and trigger execution."""
     storage: Storage = request.app.state.storage
     event_bus: EventBus = request.app.state.event_bus
+    actor = get_auth_context(request).principal.id
     edict = storage.get_edict(edict_id)
     if not edict:
         raise HTTPException(404, "Edict not found")
@@ -415,7 +416,7 @@ async def approve_plan(edict_id: str, request: Request):
         memorial_id,
         "plan.approved",
         {
-            "actor": "human",
+            "actor": actor,
             "plan": plan_payload.get("plan", {}),
         },
     )
@@ -437,6 +438,7 @@ async def approve_plan(edict_id: str, request: Request):
 def reject_plan(edict_id: str, request: Request):
     """Reject a pending plan."""
     storage: Storage = request.app.state.storage
+    actor = get_auth_context(request).principal.id
     edict = storage.get_edict(edict_id)
     if not edict:
         raise HTTPException(404, "Edict not found")
@@ -463,7 +465,7 @@ def reject_plan(edict_id: str, request: Request):
         memorial_id,
         "plan.rejected",
         {
-            "actor": "human",
+            "actor": actor,
         },
     )
     return ApiResponse(success=True, data={"status": "rejected"})

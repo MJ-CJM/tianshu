@@ -42,8 +42,23 @@ cmd_start() {
     local port="${TIANSHU_PORT:-8000}"
     local bind_host="${TIANSHU_DOCKER_BIND_HOST:-127.0.0.1}"
     local container_boundary="true"
-    if [[ "${TIANSHU_SECURITY_MODE:-trusted-local}" == "secure-remote" ]]; then
+    local container_gateway=""
+    local security_mode="${TIANSHU_SECURITY_MODE:-trusted-local}"
+    if [[ "$security_mode" == "secure-remote" ]]; then
         container_boundary="false"
+    else
+        case "$bind_host" in
+            localhost|127.*|::1|'[::1]') ;;
+            *)
+                echo "ERROR: trusted-local Docker publish host must be loopback; use secure-remote for remote access." >&2
+                return 1
+                ;;
+        esac
+        container_gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
+        if [[ -z "$container_gateway" ]]; then
+            echo "ERROR: unable to prove the exact Docker host gateway for trusted-local mode." >&2
+            return 1
+        fi
     fi
 
     # Check if container already exists
@@ -62,6 +77,7 @@ cmd_start() {
         --env-file "$PROJECT_ROOT/.env" \
         -e TIANSHU_HOST=0.0.0.0 \
         -e TIANSHU_TRUSTED_LOCAL_CONTAINER_BOUNDARY="$container_boundary" \
+        -e TIANSHU_TRUSTED_LOCAL_CONTAINER_GATEWAY="$container_gateway" \
         -p "${bind_host}:${port}:8000" \
         -v tianshu-data:/data \
         -v "$PROJECT_ROOT":/workspace \

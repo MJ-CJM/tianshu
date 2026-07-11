@@ -9,6 +9,10 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _SHA256_HASH = re.compile(r"sha256:[0-9a-f]{64}")
+_CONTAINER_PRIVATE_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+)
 
 
 def _split_csv(value: str) -> tuple[str, ...]:
@@ -47,6 +51,8 @@ class TianshuSettings(BaseSettings):
     # Only for containers whose host port is independently bound to loopback.
     # Direct/public use of this override would turn trusted-local into a remote trust boundary.
     trusted_local_container_boundary: bool = False
+    # Exact Docker host gateway observed by the container; never a CIDR or broad private range.
+    trusted_local_container_gateway: str = ""
     workspace_dir: str = "."
     skills_char_budget: int = 30000
     static_dir: str = "/app/static"
@@ -69,7 +75,7 @@ class TianshuSettings(BaseSettings):
     feishu_verification_token: str = ""  # webhook 模式 token 校验
     feishu_bot_open_id: str = ""  # 群 @ 检测
     feishu_bot_name: str = ""  # 群 @ 检测兜底
-    feishu_webhook_path: str = "/feishu/webhook"
+    feishu_webhook_path: str = "/channels/feishu/webhook"
     feishu_ws_reconnect_interval: int = 120
     feishu_text_batch_delay: float = 0.6
     feishu_dedup_cache_size: int = 2048
@@ -81,7 +87,7 @@ class TianshuSettings(BaseSettings):
     telegram_connection_mode: str = "polling"  # polling | webhook
     telegram_allowed_users: str = ""  # 逗号分隔 user_id（int）
     telegram_home_channel: str = ""  # cron 结果 / 无源审批兜底 chat_id（群为负数）
-    telegram_webhook_path: str = "/telegram/webhook"
+    telegram_webhook_path: str = "/channels/telegram/webhook"
     telegram_webhook_secret: str = ""  # webhook 模式 X-Telegram-Bot-Api-Secret-Token
     telegram_poll_timeout: int = 30  # getUpdates 长轮询超时（秒）
     telegram_text_batch_delay: float = 0.6  # 文本批处理静默期
@@ -142,12 +148,25 @@ class TianshuSettings(BaseSettings):
     @model_validator(mode="after")
     def validate_security_mode(self) -> Self:
         if self.security_mode == "trusted-local":
-            if self.trusted_local_container_boundary and self.host not in {"0.0.0.0", "::"}:
-                raise ValueError("trusted-local container boundary requires a wildcard container bind")
+            if self.trusted_local_container_boundary:
+                if self.host not in {"0.0.0.0", "::"}:
+                    raise ValueError(
+                        "trusted-local container boundary requires a wildcard container bind"
+                    )
+                if not self._valid_container_gateway(self.trusted_local_container_gateway):
+                    raise ValueError("trusted-local container gateway must be one exact private IP")
+            elif self.trusted_local_container_gateway:
+                raise ValueError("trusted-local container gateway requires the container boundary")
+            elif not self._host_is_loopback(self.host):
+                raise ValueError(
+                    "trusted-local host must be loopback unless the container boundary is enabled"
+                )
             return self
 
         if self.trusted_local_container_boundary:
             raise ValueError("secure-remote cannot use the trusted-local container boundary")
+        if self.trusted_local_container_gateway:
+            raise ValueError("secure-remote cannot use a trusted-local container gateway")
 
         required = {
             "public_base_url": self.public_base_url,
@@ -164,7 +183,9 @@ class TianshuSettings(BaseSettings):
         if public_url.scheme != "https" or not public_url.hostname:
             raise ValueError("secure-remote public_base_url must be an https URL")
         if public_url.username or public_url.password or public_url.query or public_url.fragment:
-            raise ValueError("secure-remote public_base_url cannot contain credentials/query/fragment")
+            raise ValueError(
+                "secure-remote public_base_url cannot contain credentials/query/fragment"
+            )
 
         hosts = self.allowed_hosts_list
         if any("*" in host or "://" in host for host in hosts):
@@ -176,15 +197,36 @@ class TianshuSettings(BaseSettings):
             if origin == "*" or parsed.scheme != "https" or not parsed.hostname:
                 raise ValueError("secure-remote allowed_origins must contain exact https origins")
             if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
-                raise ValueError("secure-remote allowed_origins cannot contain paths/query/fragment")
+                raise ValueError(
+                    "secure-remote allowed_origins cannot contain paths/query/fragment"
+                )
 
         for cidr in self.trusted_proxy_cidrs_list:
             network = ipaddress.ip_network(cidr, strict=False)
             if network.prefixlen == 0:
-                raise ValueError("secure-remote trusted proxy CIDRs cannot cover the whole internet")
+                raise ValueError(
+                    "secure-remote trusted proxy CIDRs cannot cover the whole internet"
+                )
 
         if _SHA256_HASH.fullmatch(self.auth_bootstrap_token_hash) is None:
             raise ValueError("auth_bootstrap_token_hash must be sha256:<64 lowercase hex chars>")
         if self.auth_access_token_ttl_seconds <= 0 or self.auth_refresh_token_ttl_seconds <= 0:
             raise ValueError("authentication token TTLs must be positive")
         return self
+
+    @staticmethod
+    def _host_is_loopback(host: str) -> bool:
+        if host.strip().lower() == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _valid_container_gateway(value: str) -> bool:
+        try:
+            gateway = ipaddress.ip_address(value)
+        except ValueError:
+            return False
+        return any(gateway in network for network in _CONTAINER_PRIVATE_NETWORKS)

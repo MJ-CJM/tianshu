@@ -58,3 +58,53 @@ async def test_telegram_ensure_chat_edict_title(storage):
     assert edict.title.startswith("Telegram 助手对话")
     assert edict.metadata["assistant_chat"] is True
     assert edict.metadata["channel"] == "telegram"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("channel", "sender", "user_meta_key"),
+    [
+        ("feishu", "ou_verified", "feishu_user"),
+        ("telegram", "777", "telegram_user"),
+    ],
+)
+async def test_channel_created_edict_uses_verified_sender_as_submitter(
+    storage,
+    channel: str,
+    sender: str,
+    user_meta_key: str,
+) -> None:
+    bridge = _bridge(
+        storage,
+        channel=channel,
+        user_meta_key=user_meta_key,
+    )
+
+    result = await bridge.create_new(chat_id="chat", sender_open_id=sender, goal="任务")
+
+    assert storage.get_edict(result.edict_id).submitter == f"{channel}:{sender}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("channel", "sender", "user_meta_key"),
+    [
+        ("feishu", "ou_verified", "feishu_user"),
+        ("telegram", "777", "telegram_user"),
+    ],
+)
+async def test_channel_chat_edict_uses_verified_sender_as_submitter(
+    storage,
+    channel: str,
+    sender: str,
+    user_meta_key: str,
+) -> None:
+    bridge = _bridge(
+        storage,
+        channel=channel,
+        user_meta_key=user_meta_key,
+    )
+
+    edict_id = await bridge.ensure_chat_edict(chat_id="chat", sender_open_id=sender)
+
+    assert storage.get_edict(edict_id).submitter == f"{channel}:{sender}"

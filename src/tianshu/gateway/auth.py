@@ -407,6 +407,27 @@ class AuthService:
             return False
         return self._storage.revoke_auth_family(row["family_id"], self._now().isoformat()) > 0
 
+    def is_context_active(self, context: AuthContext) -> bool:
+        """Revalidate an established transport without retaining its raw credential."""
+
+        if context.source == AuthenticationSource.TRUSTED_LOCAL:
+            return self._settings.security_mode == "trusted-local"
+        if context.credential_id == "bootstrap":
+            return bool(self._settings.auth_bootstrap_token_hash)
+        if context.credential_id is None:
+            return False
+
+        row = self._storage.get_auth_token(context.credential_id)
+        if row is None or row["revoked_at"] is not None:
+            return False
+        expires_at = _parse_timestamp(row["expires_at"])
+        if expires_at is not None and expires_at <= self._now():
+            return False
+        return (
+            row["principal_id"] == context.principal.id
+            and frozenset(row["scopes"]) == context.principal.scopes
+        )
+
 
 def get_auth_context(scope_or_request: object) -> AuthContext:
     """Return the middleware-produced identity or fail closed.
@@ -431,8 +452,12 @@ class SecurityBoundaryMiddleware:
         self.app = app
         self.settings = settings
         self._trusted_proxies = tuple(
-            ipaddress.ip_network(value, strict=False)
-            for value in settings.trusted_proxy_cidrs_list
+            ipaddress.ip_network(value, strict=False) for value in settings.trusted_proxy_cidrs_list
+        )
+        self._container_gateway = (
+            ipaddress.ip_address(settings.trusted_local_container_gateway)
+            if settings.trusted_local_container_boundary
+            else None
         )
 
     @staticmethod
@@ -470,6 +495,15 @@ class SecurityBoundaryMiddleware:
             # In-process ASGI test clients use a non-IP sentinel. It is only
             # recognized when the test-only Host was explicitly configured.
             return address == "testclient" and "testserver" in self.settings.allowed_hosts_list
+
+    def _is_container_gateway(self, address: str | None) -> bool:
+        if not address or self._container_gateway is None:
+            return False
+        try:
+            client_ip = ipaddress.ip_address(address)
+        except ValueError:
+            return False
+        return client_ip == self._container_gateway
 
     def _trusted_forwarded_https(self, scope: Scope, headers: Headers) -> bool:
         if headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower() != "https":
@@ -531,12 +565,12 @@ class SecurityBoundaryMiddleware:
         )
 
     @staticmethod
-    def _required_scope(path: str) -> str:
+    def _required_scopes(path: str) -> frozenset[str]:
         if path.startswith("/mcp"):
-            return "mcp:read"
+            return frozenset({"mcp:read", "mcp:submit"})
         if path.startswith("/api/auth/tokens"):
-            return "admin"
-        return "api"
+            return frozenset({"admin"})
+        return frozenset({"api"})
 
     @staticmethod
     def _unsafe_unknown(method: str, path: str, webhook_paths: set[str]) -> bool:
@@ -563,8 +597,11 @@ class SecurityBoundaryMiddleware:
         ):
             return None
         address = self._client_address(scope)
-        if not self._is_loopback(address) and not self.settings.trusted_local_container_boundary:
-            return None
+        if not self._is_loopback(address):
+            if not self.settings.trusted_local_container_boundary:
+                return None
+            if not self._is_container_gateway(address):
+                return None
         return AuthContext(
             principal=Principal(
                 id="local:owner",
@@ -729,8 +766,8 @@ class SecurityBoundaryMiddleware:
             else:
                 await self._reject_http(send, 401, "authentication_required", correlation_id)
             return
-        required_scope = self._required_scope(path)
-        if required_scope not in context.principal.scopes:
+        required_scopes = self._required_scopes(path)
+        if required_scopes.isdisjoint(context.principal.scopes):
             if scope["type"] == "websocket":
                 await self._reject_websocket(send, 4403, "insufficient_scope")
             else:

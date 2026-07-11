@@ -13,8 +13,10 @@ from tianshu.cli.main import app
 runner = CliRunner()
 
 
-def test_edict_submit_smoke(respx_mock, monkeypatch):
+def test_edict_submit_smoke(respx_mock, monkeypatch, tmp_path):
     monkeypatch.delenv("TIANSHU_API_URL", raising=False)
+    monkeypatch.delenv("TIANSHU_API_TOKEN", raising=False)
+    monkeypatch.setenv("TIANSHU_CREDENTIAL_FILE", str(tmp_path / "credentials.json"))
     respx_mock.post("http://localhost:8000/api/edicts").respond(
         200,
         json={"data": {"id": "01HXAMPLE", "goal": "写周报", "status": "submitted"}},
@@ -28,8 +30,10 @@ def test_edict_submit_smoke(respx_mock, monkeypatch):
     assert "submitted" in result.stdout
 
 
-def test_edict_list_smoke(respx_mock, monkeypatch):
+def test_edict_list_smoke(respx_mock, monkeypatch, tmp_path):
     monkeypatch.delenv("TIANSHU_API_URL", raising=False)
+    monkeypatch.delenv("TIANSHU_API_TOKEN", raising=False)
+    monkeypatch.setenv("TIANSHU_CREDENTIAL_FILE", str(tmp_path / "credentials.json"))
     respx_mock.get("http://localhost:8000/api/edicts").respond(
         200,
         json={

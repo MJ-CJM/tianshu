@@ -39,7 +39,7 @@ TIANSHU_TELEGRAM_HOME_CHANNEL=123456789           # 群为负数 -1001234567890
 TIANSHU_TELEGRAM_ASSISTANT_PERSONA_ID=tongzheng
 # webhook 模式才需要：
 # TIANSHU_TELEGRAM_WEBHOOK_SECRET=<32字节随机串>
-# TIANSHU_TELEGRAM_WEBHOOK_PATH=/telegram/webhook
+# TIANSHU_TELEGRAM_WEBHOOK_PATH=/channels/telegram/webhook
 ```
 
 > 加载优先级：**DB（通政司保存）> 环境变量 > 不启用**。`bot_token` 为空 → 整个 Telegram 机器人不启用（向后兼容，不影响飞书）。

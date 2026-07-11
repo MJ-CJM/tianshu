@@ -160,6 +160,42 @@ class FeishuMixin:
         )
         self._conn.commit()
 
+    def claim_feishu_message_seen(
+        self,
+        message_id: str,
+        max_entries: int = 2048,
+        instance_id: str = "feishu-default",
+    ) -> bool:
+        """Atomically claim an inbound event id; only the first caller succeeds."""
+        from datetime import UTC, datetime
+
+        now = datetime.now(UTC).isoformat()
+        with self._lock:
+            try:
+                cursor = self._conn.execute(
+                    "INSERT OR IGNORE INTO feishu_seen_messages "
+                    "(message_id, instance_id, seen_at) VALUES (?, ?, ?)",
+                    (message_id, instance_id, now),
+                )
+                claimed = cursor.rowcount == 1
+                if claimed:
+                    self._conn.execute(
+                        "DELETE FROM feishu_seen_messages "
+                        "WHERE instance_id = ? AND message_id IN ("
+                        "  SELECT message_id FROM feishu_seen_messages WHERE instance_id = ? "
+                        "  ORDER BY seen_at ASC "
+                        "  LIMIT MAX(0, "
+                        "    (SELECT COUNT(*) FROM feishu_seen_messages WHERE instance_id = ?) - ?"
+                        "  )"
+                        ")",
+                        (instance_id, instance_id, instance_id, max_entries),
+                    )
+                self._conn.commit()
+            except BaseException:
+                self._conn.rollback()
+                raise
+        return claimed
+
     # --- Feishu pending cards (Step 5 用) ---
 
     def save_feishu_pending_card(

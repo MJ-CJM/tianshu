@@ -141,6 +141,11 @@ docker rm -f tianshu && \
 
 Docker 容器中 `TIANSHU_DB_PATH`、`TIANSHU_WORKSPACE_DIR`、`TIANSHU_STATIC_DIR` 已通过 Dockerfile ENV 预设，无需手动指定。
 
+`secure-remote` 的 CLI 推荐先设置 `TIANSHU_API_URL`，再运行 `tianshu auth login`。
+登录时 PAT 只用于换取一次会话；后续 access token 到期会自动刷新一次，会话文件位于
+`~/.tianshu/credentials.json` 且强制为 `0600`。可用 `tianshu auth whoami` 查看当前主体，
+或用 `tianshu auth logout` 撤销并删除本机会话。`TIANSHU_API_TOKEN` 仍保持最高优先级。
+
 ---
 
 ## CLI 使用
