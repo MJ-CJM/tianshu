@@ -136,7 +136,6 @@ manager 在 branch/switch/diff/archive/restore/delete 各动作里据 `code_ref`
 | `code_variant_auto_propose` | False | 太医诊断器自主提案总开关（默认关，见 §6b） |
 | `code_variant_daily_propose_quota` | 2 | 自主提案每轮配额（诊断假设数上限） |
 | `code_variant_sandbox_timeout_s` | 900 | 沙箱门禁+评估全程超时 |
-| `code_variant_sandbox_mem_mb` | 2048 | 沙箱内存闸 |
 | `code_variant_eval_set_size` | 20 | 回放评估集规模（60% 成功 + 40% 失败混采） |
 | `code_variant_eval_budget_cny` | 20.0 | 单次沙箱评估成本闸（元），触顶截断，详见 [./eval.md](./eval.md) §9 |
 
@@ -171,7 +170,7 @@ Phase 1 的 mutator 只能改「行为配置层」（personas / skills / config 
 两层隔离针对两类不同风险，是正交的：
 
 - **worktree（空间隔离 / `code_store.py`）**：每个变体 = 一条 `universe/<id>` 分支 + 一份独立工作树，git 是唯一真相源。变体的改动物理上锁在自己的 worktree 里，碰不到主仓工作副本；评估完只删工作文件、**保留分支可 restore**（gc）。难点：本仓是 editable 安装，裸 `import tianshu` 会解析回主仓 src——所以 Gate / Sandbox 全程注入 `PYTHONPATH=<worktree>/src` 前置遮蔽 + `cwd=<worktree>`，确保检的、跑的都是变体代码而非主仓。
-- **沙箱（运行时隔离 / `sandbox.py`）**：worktree 只隔离「代码在哪」，拦不住「代码运行时干什么」。`SandboxRunner` 把变体拉进**独立子进程**，套三道运行时围栏——临时随机端口（不撞生产端口）、`TIANSHU_DB_PATH` 指向隔离 DB 副本（`TIANSHU_EVAL_MODE=1` 副作用围栏，绝不碰生产 DB）、`preexec_fn` 用 `RLIMIT_AS` 设内存闸（默认 2048MB，死循环吃内存会被 OOM 而非拖垮宿主）。等 `/health` 健康才认，跑完即 `terminate`/`kill` 并删隔离 DB。
+- **沙箱（运行时边界 / `sandbox.py`）**：worktree 只隔离「代码在哪」，拦不住「代码运行时干什么」。`SandboxRunner` 统一经 `ExecutionGateway` 拉起变体，固定临时随机端口、隔离 DB 与 `TIANSHU_EVAL_MODE=1`，并在退出时收敛整个进程组、删除隔离 DB。当前 `trusted-local` 宿主执行仅为显式允许的 best-effort，收据如实记录未强隔离；`secure-remote` 没有可证明的强后端时 fail-closed，不再虚标 `RLIMIT_AS` 或容器能力。
 
 少了 worktree，变体代码会污染主仓；少了沙箱，损坏代码即便编译通过，运行时仍可能死循环 / 吃光内存 / 写脏生产 DB。两层合起来才让「拿可能损坏的代码去打 fitness」这件事变得可控。
 

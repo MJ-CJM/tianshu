@@ -181,7 +181,7 @@ cassette 适合做第 ② 关的补充回归；变体若改了 prompt/逻辑，c
 - `code_variant_enabled: bool = False` — 代码变体总开关（opt-in）。
 - `code_variant_evolvable_paths: tuple[str, ...] = ("src/tianshu/persona/selector.py", "src/tianshu/planner/", "src/tianshu/tools/")` — 演化域 allowlist（默认仅 selector/planner/tool 等低风险路径）。
 - `code_variant_auto_promote: bool = False` — 代码层自动晋升（默认关，明确不推荐开）。
-- `code_variant_sandbox_timeout_s: int = 900`（覆盖门禁+评估全程）/ `code_variant_sandbox_mem_mb: int = 2048` — 沙箱资源闸。
+- `code_variant_sandbox_timeout_s: int = 900`（覆盖门禁+评估全程）。内存隔离仅在未来可证明的强沙箱后端中声明；宿主回退不虚标资源闸。
 - `code_variant_eval_set_size: int = 20` — 回放评估集规模（与 Phase 1 `universe_min_samples` 同量级）。
 - 晋升 margin / 样本量复用 Phase 1 的 `universe_promote_margin` / `universe_min_samples`。
 

@@ -353,8 +353,7 @@ class UniverseEvolver:
         cached = self._storage.latest_baseline_fitness(fp)
         budget = getattr(cfg, "code_variant_eval_budget_cny", None)
         repo_root = self._code_store.repo_root
-        paired = await asyncio.to_thread(
-            self._eval_harness.evaluate_paired,
+        paired = await self._eval_harness.evaluate_paired_async(
             repo_root,
             eval_set=eval_set,
             baseline_worktree=repo_root,
@@ -458,7 +457,7 @@ class UniverseEvolver:
                 self._mgr.archive(uid)
                 return {"status": "no_mutation", "universe_id": uid, "detail": m["reason"]}
 
-            g = await asyncio.to_thread(self._gate.run, worktree)
+            g = await self._gate.run_async(worktree)
             if not g.passed:
                 self._storage.save_variant_eval_run(
                     {
@@ -478,8 +477,7 @@ class UniverseEvolver:
             fp = self._eval_harness.eval_set_fingerprint(es, champion_key)
             cached = self._storage.latest_baseline_fitness(fp)
             budget = getattr(cfg, "code_variant_eval_budget_cny", None)
-            paired = await asyncio.to_thread(
-                self._eval_harness.evaluate_paired,
+            paired = await self._eval_harness.evaluate_paired_async(
                 worktree,
                 eval_set=es,
                 baseline_worktree=self._code_store.repo_root,

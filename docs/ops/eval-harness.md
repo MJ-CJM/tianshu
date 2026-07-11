@@ -15,7 +15,6 @@
 | `code_variant_evolvable_paths` | selector/planner/tools 等 | 演化域 allowlist，限制变异只能落低风险路径 |
 | `code_variant_eval_set_size` | 20 | 回放评估集规模 |
 | `code_variant_sandbox_timeout_s` | 900 | Gate 全程 + 沙箱单步超时 |
-| `code_variant_sandbox_mem_mb` | 2048 | 沙箱内存闸 |
 | `universe_promote_margin` | 0.05 | 变体须赢冠军此差距才被标 `recommended` |
 | `code_variant_auto_promote` | False | 自动晋升，**保持关闭**（晋升前人工审 diff 是主控制）|
 
@@ -107,7 +106,8 @@ PYTHONPATH=$PWD/src .venv/bin/python -m pytest -q
 
 ### 4.3 沙箱内存被闸
 
-变体吃内存超 `code_variant_sandbox_mem_mb`（默认 2048）会被 `RLIMIT_AS` 杀，表现为沙箱不健康 / 子进程异常退出。确认变体无内存泄漏，必要时调高该值。
+`trusted-local` 的显式宿主回退不宣称内存或强沙箱隔离；执行收据会记录该能力缺口。
+`secure-remote` 在没有可证明隔离的后端时直接拒绝启动，不会静默回退宿主。
 
 ### 4.4 安全提醒
 

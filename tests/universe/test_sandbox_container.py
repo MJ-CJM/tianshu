@@ -1,11 +1,6 @@
-"""Tests for ContainerRunner —— 运行时探测、命令构造、可用/降级/超时/异常路径。
-
-全程打桩 shutil.which / subprocess.run，绝不真的调用 docker，也不联网。
-"""
+"""Container descriptor stays honest until a verified gateway backend exists."""
 
 from __future__ import annotations
-
-import subprocess
 
 import pytest
 
@@ -41,9 +36,10 @@ def test_detect_runtime_none_when_absent(monkeypatch: pytest.MonkeyPatch):
     assert runner.is_available() is False
 
 
-def test_is_available_true_when_docker_present(monkeypatch: pytest.MonkeyPatch):
+def test_runtime_presence_is_not_enforcement_availability(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("shutil.which", _which_factory({"docker"}))
-    assert ContainerRunner().is_available() is True
+    assert ContainerRunner().detect_runtime() == "docker"
+    assert ContainerRunner().is_available() is False
 
 
 # --- build_command -----------------------------------------------------------------
@@ -87,65 +83,22 @@ def test_build_command_defaults_to_docker_shape_without_runtime(
     assert cmd[0] == "docker"  # 无运行时时按首选 docker 形状构造
 
 
-# --- run: 降级 / 可用 / 超时 / 异常 ------------------------------------------------
+# --- run: explicitly unavailable ---------------------------------------------------
 
 
 def test_run_degrades_without_runtime(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("shutil.which", _which_factory(set()))
-
-    def _boom(*args, **kwargs):  # subprocess.run 绝不该被调用
-        raise AssertionError("subprocess.run should not run when degraded")
-
-    monkeypatch.setattr(subprocess, "run", _boom)
     result = ContainerRunner().run(["true"], "/wt")
-    assert result == {"degraded": True, "reason": "no_container_runtime"}
-
-
-def test_run_available_returns_structured_result(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("shutil.which", _which_factory({"docker"}))
-    captured: dict[str, object] = {}
-
-    def _fake_run(argv, **kwargs):
-        captured["argv"] = argv
-        captured["timeout"] = kwargs.get("timeout")
-        return subprocess.CompletedProcess(argv, returncode=0, stdout="ok", stderr="")
-
-    monkeypatch.setattr(subprocess, "run", _fake_run)
-    result = ContainerRunner().run(["python", "-c", "print(1)"], "/wt", timeout=42)
     assert result == {
-        "degraded": False,
-        "returncode": 0,
-        "stdout": "ok",
-        "stderr": "",
+        "available": False,
+        "sandbox_enforced": False,
+        "reason": "unverified_container_backend",
     }
-    assert captured["argv"][0] == "docker"  # 走的是容器命令
-    assert captured["timeout"] == 42  # 超时透传到 subprocess.run
 
 
-def test_run_captures_timeout(monkeypatch: pytest.MonkeyPatch):
+def test_runtime_presence_never_claims_enforcement(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("shutil.which", _which_factory({"docker"}))
-
-    def _timeout(argv, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=argv, timeout=1, output=b"partial", stderr=None)
-
-    monkeypatch.setattr(subprocess, "run", _timeout)
-    result = ContainerRunner().run(["sleep", "99"], "/wt", timeout=1)
-    assert result["degraded"] is False
-    assert result["timed_out"] is True
-    assert result["returncode"] is None
-    assert result["stdout"] == "partial"  # bytes 被 _coerce 成 str
-    assert result["stderr"] == ""  # None → ""
-
-
-def test_run_captures_exec_error(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr("shutil.which", _which_factory({"docker"}))
-
-    def _oserror(argv, **kwargs):
-        raise OSError("exec format error")
-
-    monkeypatch.setattr(subprocess, "run", _oserror)
-    result = ContainerRunner().run(["true"], "/wt")
-    assert result["degraded"] is False
-    assert result["error"] is True
-    assert result["returncode"] is None
-    assert "exec format error" in str(result["stderr"])
+    result = ContainerRunner().run(["python", "-c", "print(1)"], "/wt", timeout=42)
+    assert result["available"] is False
+    assert result["sandbox_enforced"] is False
+    assert ContainerRunner.verified is False

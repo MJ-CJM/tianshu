@@ -93,7 +93,7 @@ class FakeGate:
     def __init__(self, *, passed: bool = True, stage: str = "ok", detail: str = ""):
         self._result = GateResult(passed=passed, stage=stage, detail=detail)
 
-    def run(self, worktree: Path, *, run_tests: bool = True) -> GateResult:
+    async def run_async(self, worktree: Path, *, run_tests: bool = True) -> GateResult:
         return self._result
 
 
@@ -111,7 +111,7 @@ class FakeEvalHarness:
         self.received_champion_key = champion_key
         return "fp-test"
 
-    def evaluate(
+    async def evaluate_async(
         self, worktree: Path, *, eval_set: list[str], seed_db=None, budget_cny=None
     ) -> dict:
         fitness = {"score": self._score, "samples": len(eval_set)}
@@ -123,7 +123,7 @@ class FakeEvalHarness:
             "truncated": False,
         }
 
-    def evaluate_paired(
+    async def evaluate_paired_async(
         self,
         variant_worktree: Path,
         *,
@@ -133,7 +133,9 @@ class FakeEvalHarness:
         cached_baseline: dict | None = None,
         **kw,
     ) -> dict:
-        variant = self.evaluate(variant_worktree, eval_set=eval_set, budget_cny=budget_cny)
+        variant = await self.evaluate_async(
+            variant_worktree, eval_set=eval_set, budget_cny=budget_cny
+        )
         baseline = cached_baseline or {
             "fitness": {"score": self._baseline_score, "samples": len(eval_set)},
             "stats": {"cost": 0.0},
@@ -357,8 +359,10 @@ async def test_variant_truncated_propagates_to_saved_fitness(tmp_path):
     """evaluate_paired 的 variant 侧带 truncated=True 时,落库 fitness 与位面 fitness 都要带上该标记。"""
 
     class _TruncatedEvalHarness(FakeEvalHarness):
-        def evaluate_paired(self, variant_worktree, *, eval_set, baseline_worktree, **kw):
-            paired = super().evaluate_paired(
+        async def evaluate_paired_async(
+            self, variant_worktree, *, eval_set, baseline_worktree, **kw
+        ):
+            paired = await super().evaluate_paired_async(
                 variant_worktree, eval_set=eval_set, baseline_worktree=baseline_worktree, **kw
             )
             paired["variant"] = {**paired["variant"], "truncated": True}
@@ -386,11 +390,11 @@ async def test_baseline_cache_hit_passes_bare_dict_through_unchanged(tmp_path):
             super().__init__()
             self.received_cached_baseline: object = "UNSET"
 
-        def evaluate_paired(
+        async def evaluate_paired_async(
             self, variant_worktree, *, eval_set, baseline_worktree, cached_baseline=None, **kw
         ):
             self.received_cached_baseline = cached_baseline
-            variant = self.evaluate(variant_worktree, eval_set=eval_set)
+            variant = await self.evaluate_async(variant_worktree, eval_set=eval_set)
             return {
                 "variant": variant,
                 "baseline": {
@@ -488,8 +492,10 @@ async def test_baseline_truncated_not_cached(tmp_path):
     """
 
     class _BaselineTruncatedEvalHarness(FakeEvalHarness):
-        def evaluate_paired(self, variant_worktree, *, eval_set, baseline_worktree, **kw):
-            paired = super().evaluate_paired(
+        async def evaluate_paired_async(
+            self, variant_worktree, *, eval_set, baseline_worktree, **kw
+        ):
+            paired = await super().evaluate_paired_async(
                 variant_worktree, eval_set=eval_set, baseline_worktree=baseline_worktree, **kw
             )
             paired["baseline"] = {**paired["baseline"], "truncated": True}

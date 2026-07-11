@@ -61,6 +61,9 @@ NON_NULLABLE_STATE_KEYS = [
     "skill_curator",
     "universe_manager",
     "code_deployer",
+    "universe_execution_context_factory",
+    "code_gate",
+    "code_sandbox",
     "universe_evolver",
     "digest_generator",
     "_digest_task",
@@ -103,6 +106,13 @@ class TestBootstrapSmoke:
         assert booted_app.state.executor._keqing._execution_gateway is process_gateway
         assert booted_app.state.orchestrator_ctx.execution_gateway is process_gateway
         assert booted_app.state.mcp_manager._execution_gateway is process_gateway
+        assert booted_app.state.code_gate.execution_gateway is process_gateway
+        assert booted_app.state.code_sandbox.execution_gateway is process_gateway
+        assert (
+            booted_app.state.code_gate.context_factory
+            is booted_app.state.code_sandbox.context_factory
+            is booted_app.state.universe_execution_context_factory
+        )
 
     async def test_lifespan_closes_drawer_store(self):
         # 不复用 booted_app fixture：需要在 lifespan 退出*之后*断言 close 是否

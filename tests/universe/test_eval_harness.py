@@ -347,7 +347,7 @@ def test_evaluate_paired_delta_and_cache(tmp_path, monkeypatch):
     harness = EvalHarness(storage=None, sandbox_runner=None)
     calls: list[str] = []
 
-    def _fake_evaluate(worktree, *, eval_set, extra_env=None, **kw):
+    async def _fake_evaluate(worktree, *, eval_set, extra_env=None, **kw):
         calls.append(str(worktree))
         score = 0.8 if "variant" in str(worktree) else 0.7
         return {
@@ -357,7 +357,7 @@ def test_evaluate_paired_delta_and_cache(tmp_path, monkeypatch):
             "truncated": False,
         }
 
-    monkeypatch.setattr(harness, "evaluate", _fake_evaluate)
+    monkeypatch.setattr(harness, "evaluate_async", _fake_evaluate)
 
     r = harness.evaluate_paired(
         tmp_path / "variant", eval_set=["g1"], baseline_worktree=tmp_path / "main"
@@ -389,7 +389,7 @@ def test_evaluate_paired_bare_fitness_dict_cache(tmp_path, monkeypatch):
     harness = EvalHarness(storage=None, sandbox_runner=None)
     calls: list[str] = []
 
-    def _fake_evaluate(worktree, *, eval_set, extra_env=None, **kw):
+    async def _fake_evaluate(worktree, *, eval_set, extra_env=None, **kw):
         calls.append(str(worktree))
         return {
             "fitness": {"score": 0.8, "samples": len(eval_set)},
@@ -398,7 +398,7 @@ def test_evaluate_paired_bare_fitness_dict_cache(tmp_path, monkeypatch):
             "truncated": False,
         }
 
-    monkeypatch.setattr(harness, "evaluate", _fake_evaluate)
+    monkeypatch.setattr(harness, "evaluate_async", _fake_evaluate)
 
     r = harness.evaluate_paired(
         tmp_path / "variant",
@@ -598,7 +598,9 @@ def test_evaluate_merges_base_env_into_sandbox(tmp_path, monkeypatch):
             yield _H()
 
     harness = EvalHarness(
-        storage=None, sandbox_runner=_FakeSandbox(), base_env={"TIANSHU_LLM_API_KEY": "sk-eval-low"}
+        storage=None,
+        sandbox_runner=_FakeSandbox(),
+        base_env={"TIANSHU_LLM_API_KEY": "${settings:eval_llm_api_key}"},
     )
     monkeypatch.setattr(harness, "_run_goal", lambda *a: None)
     monkeypatch.setattr(
@@ -616,7 +618,7 @@ def test_evaluate_merges_base_env_into_sandbox(tmp_path, monkeypatch):
     )
 
     harness.evaluate(tmp_path, eval_set=["g"], extra_env={"TIANSHU_RUNTIME_PERSONAS_DIR": "/tmp/p"})
-    assert captured["extra_env"]["TIANSHU_LLM_API_KEY"] == "sk-eval-low"
+    assert captured["extra_env"]["TIANSHU_LLM_API_KEY"] == "${settings:eval_llm_api_key}"
     assert captured["extra_env"]["TIANSHU_RUNTIME_PERSONAS_DIR"] == "/tmp/p"
 
 

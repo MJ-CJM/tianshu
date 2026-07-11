@@ -176,6 +176,7 @@ async def test_forged_mcp_grant_is_rejected_before_spawn(
         argv_digest="0" * 64,
         authority_ref="mcp-config:fixture",
         server_identity="fixture",
+        actor_id="mcp-principal",
         effective_contract_hash=effective_contract.content_hash,
         correlation_id="mcp-correlation",
         issued_at=datetime.now(UTC),

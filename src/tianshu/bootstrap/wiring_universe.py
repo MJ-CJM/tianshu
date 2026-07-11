@@ -27,6 +27,7 @@ from tianshu.universe.deployer import Deployer, DeployPointer
 from tianshu.universe.diagnostician import Diagnostician
 from tianshu.universe.eval_harness import EvalHarness
 from tianshu.universe.evolver import UniverseEvolver
+from tianshu.universe.execution import UniverseExecutionContextFactory
 from tianshu.universe.gate import Gate
 from tianshu.universe.manager import UniverseManager
 from tianshu.universe.sandbox import SandboxRunner
@@ -80,15 +81,34 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
     app.state.code_deployer = code_deployer
 
     _cfg = config_manager.agent_config
-    code_gate = Gate(python_exe=sys.executable, timeout_s=_cfg.code_variant_sandbox_timeout_s)
-    code_sandbox = SandboxRunner(mem_mb=_cfg.code_variant_sandbox_mem_mb)
+    universe_execution_context_factory = UniverseExecutionContextFactory(
+        security_mode=settings.security_mode
+    )
+    code_gate = Gate(
+        app.state.execution_gateway,
+        context_factory=universe_execution_context_factory,
+        python_exe=sys.executable,
+        timeout_s=_cfg.code_variant_sandbox_timeout_s,
+    )
+    code_sandbox = SandboxRunner(
+        app.state.execution_gateway,
+        context_factory=universe_execution_context_factory,
+        runtime_timeout_s=_cfg.code_variant_sandbox_timeout_s,
+    )
+    app.state.universe_execution_context_factory = universe_execution_context_factory
+    app.state.code_gate = code_gate
+    app.state.code_sandbox = code_sandbox
     eval_base_env: dict[str, str] = {}
     if settings.eval_llm_api_key:
-        eval_base_env["TIANSHU_LLM_API_KEY"] = settings.eval_llm_api_key
-        if settings.eval_llm_api_base:
-            eval_base_env["TIANSHU_LLM_API_BASE"] = settings.eval_llm_api_base
-        if settings.eval_llm_model:
-            eval_base_env["TIANSHU_LLM_MODEL"] = settings.eval_llm_model
+        eval_base_env["TIANSHU_LLM_API_KEY"] = "${settings:eval_llm_api_key}"
+    elif settings.llm_api_key:
+        eval_base_env["TIANSHU_LLM_API_KEY"] = "${settings:llm_api_key}"
+    api_base = settings.eval_llm_api_base or settings.llm_api_base
+    model = settings.eval_llm_model or settings.llm_model
+    if api_base:
+        eval_base_env["TIANSHU_LLM_API_BASE"] = api_base
+    if model:
+        eval_base_env["TIANSHU_LLM_MODEL"] = model
     code_eval_harness = EvalHarness(
         storage,
         code_sandbox,

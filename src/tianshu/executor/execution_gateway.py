@@ -10,7 +10,7 @@ import os
 import secrets
 import signal
 import time
-from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -91,11 +91,17 @@ class CommandGrant(_StrictModel):
         "lark-cli",
         "keqing",
         "mcp_stdio",
+        "universe_gate",
+        "universe_sandbox",
     ] = "tool-argv"
     argv_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     shell_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     authority_ref: str = Field(min_length=1)
     server_identity: str | None = None
+    actor_id: str = Field(min_length=1)
+    universe_stage: str | None = None
+    cwd: str | None = None
+    environment_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     effective_contract_hash: str = Field(min_length=1)
     correlation_id: str = Field(min_length=1)
     issued_at: datetime
@@ -110,6 +116,16 @@ class CommandGrant(_StrictModel):
             raise ValueError("grant expiry cannot precede issuance")
         if (self.scope == "mcp_stdio") != (self.server_identity is not None):
             raise ValueError("server identity is required only for MCP stdio grants")
+        universe_scope = self.scope in {"universe_gate", "universe_sandbox"}
+        universe_bindings = (
+            self.universe_stage,
+            self.cwd,
+            self.environment_digest,
+        )
+        if (universe_scope and not all(value is not None for value in universe_bindings)) or (
+            not universe_scope and any(value is not None for value in universe_bindings)
+        ):
+            raise ValueError("Universe grants require stage, cwd, and environment binding")
         return self
 
 
@@ -167,17 +183,46 @@ def _tool_arguments_digest(
 
 class EnvironmentSecretRef(_StrictModel):
     env_name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
-    ref: str = Field(min_length=1)
+    ref: str = Field(pattern=r"^(?:[A-Za-z_][A-Za-z0-9_]*|settings:[a-z_][a-z0-9_]*)$")
+
+
+class EnvironmentValue(_StrictModel):
+    name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    value: str
+
+    @field_validator("name")
+    @classmethod
+    def reject_secret_like_literal(cls, value: str) -> str:
+        parts = set(value.upper().split("_"))
+        if parts.intersection({"SECRET", "TOKEN", "PASSWORD", "KEY", "CREDENTIAL"}):
+            raise ValueError("secret-like environment names require a secret reference")
+        return value
 
 
 class EnvironmentPolicy(_StrictModel):
     allow_names: tuple[str, ...] = SAFE_ENV_VARS
+    values: tuple[EnvironmentValue, ...] = ()
     secret_refs: tuple[EnvironmentSecretRef, ...] = ()
 
     @field_validator("allow_names", mode="before")
     @classmethod
     def normalize_names(cls, values: Any) -> tuple[str, ...]:
         return tuple(dict.fromkeys(values or ()))
+
+    @model_validator(mode="after")
+    def validate_unique_names(self) -> Self:
+        explicit_names = [item.name for item in self.values]
+        secret_names = [item.env_name for item in self.secret_refs]
+        all_names = (*self.allow_names, *explicit_names, *secret_names)
+        if len(all_names) != len(set(all_names)):
+            raise ValueError("environment names must be unique across all sources")
+        return self
+
+
+def _environment_digest(environment: EnvironmentPolicy) -> str:
+    payload = environment.model_dump(mode="json")
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 class NetworkPolicy(_StrictModel):
@@ -312,11 +357,16 @@ def _mint_command_grant(
         "lark-cli",
         "keqing",
         "mcp_stdio",
+        "universe_gate",
+        "universe_sandbox",
     ],
     authority_ref: str,
     argv: Sequence[str] | None = None,
     script: str | None = None,
     server_identity: str | None = None,
+    universe_stage: str | None = None,
+    cwd: str | None = None,
+    environment: EnvironmentPolicy | None = None,
     expires_at: datetime | None = None,
 ) -> CommandGrant:
     context = _require_execution_context()
@@ -328,6 +378,10 @@ def _mint_command_grant(
         shell_digest=hashlib.sha256(script.encode()).hexdigest() if script is not None else None,
         authority_ref=authority_ref,
         server_identity=server_identity,
+        actor_id=context.actor.id,
+        universe_stage=universe_stage,
+        cwd=cwd,
+        environment_digest=(_environment_digest(environment) if environment is not None else None),
         effective_contract_hash=context.effective_contract.content_hash,
         correlation_id=context.correlation_id,
         issued_at=issued_at,
@@ -466,13 +520,114 @@ def issue_keqing_command_grant(argv: Sequence[str], *, backend: str) -> CommandG
     )
 
 
+_UNIVERSE_STAGES = frozenset({"gate:static", "gate:import", "gate:test", "sandbox:serve"})
+_UNIVERSE_LITERAL_ENV_NAMES = frozenset(
+    {
+        "PYTHONPATH",
+        "TIANSHU_DB_PATH",
+        "TIANSHU_PORT",
+        "TIANSHU_HOST",
+        "TIANSHU_EVAL_MODE",
+        "TIANSHU_RUNTIME_PERSONAS_DIR",
+        "TIANSHU_RUNTIME_SKILLS_DIR",
+        "TIANSHU_LLM_API_BASE",
+        "TIANSHU_LLM_MODEL",
+    }
+)
+
+
+def _is_canonical_universe_command(
+    stage: str,
+    argv: Sequence[str],
+    cwd: str,
+    environment: EnvironmentPolicy,
+) -> bool:
+    if cwd != "." or not argv:
+        return False
+    values = {item.name: item.value for item in environment.values}
+    if stage == "gate:static":
+        return (
+            len(argv) == 5
+            and tuple(argv[1:4]) == ("-m", "compileall", "-q")
+            and argv[4] == values.get("PYTHONPATH")
+        )
+    if stage == "gate:import":
+        return tuple(argv[1:]) == ("-c", "import tianshu")
+    if stage == "gate:test":
+        return tuple(argv[1:]) == ("-m", "pytest", "-q")
+    if stage != "sandbox:serve":
+        return False
+    required_values = {
+        "PYTHONPATH",
+        "TIANSHU_DB_PATH",
+        "TIANSHU_PORT",
+        "TIANSHU_HOST",
+        "TIANSHU_EVAL_MODE",
+    }
+    return (
+        required_values.issubset(values)
+        and values["TIANSHU_HOST"] == "127.0.0.1"
+        and values["TIANSHU_EVAL_MODE"] == "1"
+        and tuple(argv[1:7])
+        == ("-m", "uvicorn", "tianshu.app:create_app", "--factory", "--host", "127.0.0.1")
+        and len(argv) == 9
+        and argv[7] == "--port"
+        and argv[8] == values["TIANSHU_PORT"]
+        and argv[8].isdigit()
+    )
+
+
+def issue_universe_command_grant(
+    *,
+    stage: str,
+    argv: Sequence[str],
+    cwd: str,
+    environment: EnvironmentPolicy,
+) -> CommandGrant:
+    """Admit one exact, stage-scoped Universe command for the bound run."""
+
+    if stage not in _UNIVERSE_STAGES:
+        raise ExecutionDenied(
+            "command_grant",
+            "universe_stage_unknown",
+            "Universe command stage is not admitted",
+        )
+    if not _is_canonical_universe_command(stage, argv, cwd, environment):
+        raise ExecutionDenied(
+            "command_grant",
+            "universe_command_not_canonical",
+            "Universe stage command does not match its canonical adapter shape",
+        )
+    scope: Literal["universe_gate", "universe_sandbox"] = (
+        "universe_gate" if stage.startswith("gate:") else "universe_sandbox"
+    )
+    return _mint_command_grant(
+        source="system-adapter",
+        scope=scope,
+        authority_ref=f"universe:{stage}",
+        argv=argv,
+        universe_stage=stage,
+        cwd=cwd,
+        environment=environment,
+    )
+
+
 class ExecutionRequest(_StrictModel):
     schema_version: Literal["1"] = "1"
     execution_id: str = Field(min_length=1)
     correlation_id: str = Field(min_length=1)
     actor: Principal
-    purpose: Literal["tool", "acceptance", "lark-cli", "keqing", "mcp_stdio"]
+    purpose: Literal[
+        "tool",
+        "acceptance",
+        "lark-cli",
+        "keqing",
+        "mcp_stdio",
+        "universe_gate",
+        "universe_sandbox",
+    ]
     mcp_server_name: str | None = None
+    universe_stage: str | None = None
     effective_contract: EffectiveGovernanceContractV1
     argv_command: ArgvCommand | None = None
     shell_command: ShellCommand | None = None
@@ -503,6 +658,13 @@ class ExecutionRequest(_StrictModel):
             raise ValueError("exactly one of argv_command and shell_command is required")
         if (self.purpose == "mcp_stdio") != (self.mcp_server_name is not None):
             raise ValueError("MCP server name is required only for MCP stdio execution")
+        universe_purpose = self.purpose in {"universe_gate", "universe_sandbox"}
+        if universe_purpose != (self.universe_stage is not None):
+            raise ValueError("Universe stage is required only for Universe execution")
+        if self.purpose == "universe_gate" and not str(self.universe_stage).startswith("gate:"):
+            raise ValueError("Universe gate purpose requires a gate stage")
+        if self.purpose == "universe_sandbox" and self.universe_stage != "sandbox:serve":
+            raise ValueError("Universe sandbox purpose requires sandbox:serve stage")
         return self
 
     @property
@@ -581,6 +743,7 @@ class ExecutionReceipt(_StrictModel):
     actor_id: str
     purpose: str
     mcp_server_name: str | None = None
+    universe_stage: str | None = None
     command_admission: Literal[
         "standard",
         "transitional_mcp_config_g1_6_pending",
@@ -628,10 +791,18 @@ class ExecutionResult(_StrictModel):
 
 
 class ExecutionDenied(RuntimeError):
-    def __init__(self, guard: str, code: str, detail: str) -> None:
+    def __init__(
+        self,
+        guard: str,
+        code: str,
+        detail: str,
+        *,
+        receipt: ExecutionReceipt | None = None,
+    ) -> None:
         self.guard = guard
         self.code = code
         self.detail = redact_text(detail)
+        self.receipt = receipt
         super().__init__(f"{guard}: {code}: {self.detail}")
 
 
@@ -882,6 +1053,10 @@ class ExecutionHandle:
     def pid(self) -> int:
         return self._process.pid
 
+    @property
+    def returncode(self) -> int | None:
+        return self._process.returncode
+
     async def write_stdin(self, data: bytes) -> None:
         if self.request.stdin_mode != "pipe" or self._process.stdin is None:
             raise RuntimeError("execution stdin is not configured as a pipe")
@@ -1045,6 +1220,7 @@ class ExecutionHandle:
             actor_id=self.request.actor.id,
             purpose=self.request.purpose,
             mcp_server_name=self.request.mcp_server_name,
+            universe_stage=self.request.universe_stage,
             command_admission=(
                 "transitional_mcp_config_g1_6_pending"
                 if self.request.purpose == "mcp_stdio"
@@ -1099,12 +1275,14 @@ class ExecutionGateway:
         guard_timeout_seconds: float = 1.0,
         termination_grace_seconds: float = 0.5,
         mcp_stdio_commands: Mapping[str, Sequence[str]] | None = None,
+        secret_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
         self._backend = backend or AsyncioProcessBackend()
         self._mandatory_guards = tuple(mandatory_guards)
         self._advisory_guards = tuple(advisory_guards)
         self._guard_timeout_seconds = guard_timeout_seconds
         self._termination_grace_seconds = termination_grace_seconds
+        self._secret_resolver = secret_resolver or os.environ.get
         self.configure_mcp_stdio_commands(mcp_stdio_commands or {})
 
     def configure_mcp_stdio_commands(
@@ -1173,21 +1351,67 @@ class ExecutionGateway:
                 process_group_id=spawned.process.pid,
                 grace_seconds=self._termination_grace_seconds,
             )
-            self._deny(
+            raise ExecutionDenied(
                 "sandbox",
                 "backend_enforcement_unproven",
                 "backend did not prove required per-process sandbox enforcement",
+                receipt=self._start_failure_receipt(
+                    request=request,
+                    env_keys=tuple(sorted(env)),
+                    secret_refs=secret_refs,
+                    advisory_gaps=(*built_in_gaps, *custom_gaps),
+                    started_at=started_at,
+                    started_monotonic=started_monotonic,
+                    backend_id=spawned.backend_id,
+                    sandbox_enforced=False,
+                    network_enforced=spawned.network_enforced,
+                ),
             )
+        runtime_gaps: tuple[GuardGap, ...] = ()
+        if request.sandbox.mode == "preferred" and not sandbox_enforced:
+            if not request.sandbox.allow_host:
+                await _terminate_process_tree(
+                    spawned.process,
+                    process_group_id=spawned.process.pid,
+                    grace_seconds=self._termination_grace_seconds,
+                )
+                self._deny(
+                    "sandbox",
+                    "host_not_explicit",
+                    "sandbox fallback was not explicitly admitted",
+                )
+            if not any(gap.code == "sandbox_unavailable_host_fallback" for gap in built_in_gaps):
+                runtime_gaps = (
+                    GuardGap(
+                        guard="sandbox",
+                        code="sandbox_unavailable_host_fallback",
+                        detail=(
+                            "preferred sandbox backend did not prove isolation; "
+                            "trusted-local host fallback is active"
+                        ),
+                    ),
+                )
         if request.network.mode != "unrestricted" and not spawned.network_enforced:
             await _terminate_process_tree(
                 spawned.process,
                 process_group_id=spawned.process.pid,
                 grace_seconds=self._termination_grace_seconds,
             )
-            self._deny(
+            raise ExecutionDenied(
                 "network",
                 "backend_enforcement_unproven",
                 "backend did not prove restrictive network enforcement",
+                receipt=self._start_failure_receipt(
+                    request=request,
+                    env_keys=tuple(sorted(env)),
+                    secret_refs=secret_refs,
+                    advisory_gaps=(*built_in_gaps, *custom_gaps, *runtime_gaps),
+                    started_at=started_at,
+                    started_monotonic=started_monotonic,
+                    backend_id=spawned.backend_id,
+                    sandbox_enforced=sandbox_enforced,
+                    network_enforced=False,
+                ),
             )
         return ExecutionHandle(
             request=request,
@@ -1195,7 +1419,7 @@ class ExecutionGateway:
             env_keys=tuple(sorted(env)),
             secret_refs=secret_refs,
             secret_values=secret_values,
-            advisory_gaps=(*built_in_gaps, *custom_gaps),
+            advisory_gaps=(*built_in_gaps, *custom_gaps, *runtime_gaps),
             sandbox_enforced=sandbox_enforced,
             network_enforced=spawned.network_enforced,
             backend_id=spawned.backend_id,
@@ -1213,6 +1437,9 @@ class ExecutionGateway:
         advisory_gaps: tuple[GuardGap, ...],
         started_at: datetime,
         started_monotonic: float,
+        backend_id: str | None = None,
+        sandbox_enforced: bool = False,
+        network_enforced: bool = False,
     ) -> ExecutionReceipt:
         finished_at = datetime.now(UTC)
         return ExecutionReceipt(
@@ -1221,6 +1448,7 @@ class ExecutionGateway:
             actor_id=request.actor.id,
             purpose=request.purpose,
             mcp_server_name=request.mcp_server_name,
+            universe_stage=request.universe_stage,
             command_admission=(
                 "transitional_mcp_config_g1_6_pending"
                 if request.purpose == "mcp_stdio"
@@ -1235,9 +1463,9 @@ class ExecutionGateway:
             secret_refs=secret_refs,
             network_mode=request.network.mode,
             sandbox_mode=request.sandbox.mode,
-            sandbox_enforced=False,
-            backend_id=str(getattr(self._backend, "backend_id", "unknown")),
-            network_enforced=False,
+            sandbox_enforced=sandbox_enforced,
+            backend_id=backend_id or str(getattr(self._backend, "backend_id", "unknown")),
+            network_enforced=network_enforced,
             status="failed",
             started_at=started_at,
             finished_at=finished_at,
@@ -1277,6 +1505,7 @@ class ExecutionGateway:
         if (
             grant.effective_contract_hash != request.effective_contract.content_hash
             or grant.correlation_id != request.correlation_id
+            or grant.actor_id != request.actor.id
         ):
             self._deny(
                 "command_grant",
@@ -1295,6 +1524,8 @@ class ExecutionGateway:
             "lark-cli": {"lark-cli"},
             "keqing": {"keqing"},
             "mcp_stdio": {"mcp_stdio"},
+            "universe_gate": {"universe_gate"},
+            "universe_sandbox": {"universe_sandbox"},
         }[request.purpose]
         if grant.scope not in allowed_scopes:
             self._deny(
@@ -1392,6 +1623,14 @@ class ExecutionGateway:
                     and grant.authority_ref == f"mcp-config:{server_name}"
                     and self._mcp_stdio_commands.get(server_name) == request.command_argv
                 )
+            elif grant.scope in {"universe_gate", "universe_sandbox"}:
+                valid_system_scope = (
+                    request.universe_stage in _UNIVERSE_STAGES
+                    and grant.authority_ref == f"universe:{request.universe_stage}"
+                    and grant.universe_stage == request.universe_stage
+                    and grant.cwd == request.cwd
+                    and grant.environment_digest == _environment_digest(request.environment)
+                )
             else:
                 valid_system_scope = False
             if not valid_system_scope:
@@ -1402,16 +1641,35 @@ class ExecutionGateway:
                 )
 
         supports_sandbox = bool(getattr(self._backend, "supports_sandbox", False))
+        if request.sandbox.trust_level == "secure-remote" and (
+            request.sandbox.mode != "required" or request.sandbox.allow_host
+        ):
+            self._deny(
+                "sandbox",
+                "secure_remote_policy_invalid",
+                "secure-remote requires a required sandbox without host fallback",
+            )
         if request.sandbox.trust_level == "secure-remote" and not supports_sandbox:
             self._deny("sandbox", "secure_remote_unavailable", "required sandbox is unavailable")
         if request.sandbox.mode == "required" and not supports_sandbox:
             self._deny("sandbox", "required_unavailable", "required sandbox is unavailable")
-        if request.sandbox.mode == "host" and not request.sandbox.allow_host:
+        host_fallback = request.sandbox.mode == "host" or (
+            request.sandbox.mode == "preferred" and not supports_sandbox
+        )
+        if host_fallback and not request.sandbox.allow_host:
             self._deny(
                 "sandbox", "host_not_explicit", "trusted-local host execution is not explicit"
             )
 
         gaps: list[GuardGap] = []
+        if host_fallback and request.purpose in {"universe_gate", "universe_sandbox"}:
+            gaps.append(
+                GuardGap(
+                    guard="sandbox",
+                    code="sandbox_unavailable_host_fallback",
+                    detail="trusted-local execution is running without enforced sandbox isolation",
+                )
+            )
         effective_network = request.effective_contract.network
         effective_network_mode = (
             "unrestricted"
@@ -1443,6 +1701,19 @@ class ExecutionGateway:
         requested_refs = {secret.ref for secret in request.environment.secret_refs}
         if not requested_refs.issubset(declared_refs):
             self._deny("environment", "secret_not_granted", "secret reference is not in contract")
+        explicit_names = {item.name for item in request.environment.values}
+        if explicit_names and request.purpose not in {"universe_gate", "universe_sandbox"}:
+            self._deny(
+                "environment",
+                "literal_values_not_allowed",
+                "explicit environment values are limited to governed Universe execution",
+            )
+        if not explicit_names.issubset(_UNIVERSE_LITERAL_ENV_NAMES):
+            self._deny(
+                "environment",
+                "literal_name_not_allowed",
+                "Universe literal environment name is not in the fixed configuration allowlist",
+            )
         secret_env_names = {secret.env_name for secret in request.environment.secret_refs}
         for name in request.environment.allow_names:
             parts = set(name.upper().split("_"))
@@ -1531,10 +1802,11 @@ class ExecutionGateway:
     ) -> tuple[dict[str, str], tuple[str, ...], tuple[str, ...]]:
         passthrough = ",".join(request.environment.allow_names)
         env = build_clean_env(passthrough)
+        env.update({item.name: item.value for item in request.environment.values})
         secret_refs: list[str] = []
         secret_values: list[str] = []
         for secret in request.environment.secret_refs:
-            value = os.environ.get(secret.ref)
+            value = self._secret_resolver(secret.ref)
             if value is None:
                 self._deny("environment", "secret_unavailable", "secret reference is unavailable")
             env[secret.env_name] = value
@@ -1560,6 +1832,7 @@ __all__ = [
     "CommandGrant",
     "EnvironmentPolicy",
     "EnvironmentSecretRef",
+    "EnvironmentValue",
     "ExecutionContext",
     "ExecutionDenied",
     "ExecutionGateway",
@@ -1584,5 +1857,6 @@ __all__ = [
     "issue_keqing_command_grant",
     "issue_lark_cli_command_grant",
     "issue_shell_command_grant",
+    "issue_universe_command_grant",
     "request_for_current_execution",
 ]

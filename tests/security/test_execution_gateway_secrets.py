@@ -17,6 +17,7 @@ from tianshu.executor.execution_gateway import (
     ArgvCommand,
     EnvironmentPolicy,
     EnvironmentSecretRef,
+    EnvironmentValue,
     ExecutionContext,
     ExecutionDenied,
     ExecutionGateway,
@@ -192,6 +193,28 @@ async def test_secret_like_env_name_cannot_bypass_secret_refs(
     backend = _NoSpawnBackend()
 
     with pytest.raises(ExecutionDenied, match="environment"):
+        await ExecutionGateway(backend=backend).run(request)
+    assert backend.spawned is False
+
+
+@pytest.mark.asyncio
+async def test_non_universe_purpose_cannot_use_literal_environment_values(
+    tmp_path,
+    effective_contract,
+):
+    argv = (sys.executable, "-c", "print('unreachable')")
+    request = _request(
+        tmp_path,
+        effective_contract,
+        argv,
+        EnvironmentPolicy(
+            allow_names=(),
+            values=(EnvironmentValue(name="PYTHONPATH", value="/tmp/literal"),),
+        ),
+    )
+    backend = _NoSpawnBackend()
+
+    with pytest.raises(ExecutionDenied, match="literal_values_not_allowed"):
         await ExecutionGateway(backend=backend).run(request)
     assert backend.spawned is False
 

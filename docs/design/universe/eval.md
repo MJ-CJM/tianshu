@@ -43,7 +43,7 @@ with sandbox.session(worktree, db_path=iso_db) as h:   # 隔离子进程拉起�
 return {"fitness": score(stats), "stats": stats, "n": len(eval_set)}
 ```
 
-**沙箱**（`SandboxRunner.session`）从变体 worktree 拉起隔离子进程：临时空闲端口 + `TIANSHU_DB_PATH` 指向隔离 DB + `TIANSHU_EVAL_MODE=1` + 内存 `RLIMIT_AS` 闸；`PYTHONPATH=<worktree>/src` 前置遮蔽，确保 editable 安装下跑的是**变体代码**而非主仓。等 `/health` 健康才返回，退出时 kill 进程 + 删 DB。
+**沙箱**（`SandboxRunner.session`）经统一 `ExecutionGateway` 从变体 worktree 拉起受治理子进程：临时空闲端口 + `TIANSHU_DB_PATH` 指向隔离 DB + `TIANSHU_EVAL_MODE=1`；`PYTHONPATH=<worktree>/src` 精确前置，确保 editable 安装下跑的是**变体代码**而非主仓。等 `/health` 健康才返回，退出时收敛整个进程组并删 DB。`trusted-local` 的显式宿主回退会在收据中标明未强隔离；`secure-remote` 无可证明后端时拒绝启动。
 
 **回放单条 goal**（`_run_goal`）走的是真实 HTTP 路径，不偷工：
 
@@ -166,7 +166,6 @@ gate ①②③ 全绿  →  沙箱配对评估(变体 vs 冠军基线，同评�
 | `code_variant_eval_set_size` | 20 | 回放评估集规模（`select_eval_set` 上限，60% 成功 + 40% 失败混采，见 §2）|
 | `code_variant_eval_budget_cny` | 20.0 | 单次沙箱评估的成本闸（元），触顶截断，已回放部分照常打分，详见 §9 |
 | `code_variant_sandbox_timeout_s` | 900 | Gate 全程 + 沙箱单步超时 |
-| `code_variant_sandbox_mem_mb` | 2048 | 沙箱内存闸（`RLIMIT_AS`）|
 | `universe_promote_margin` | 0.05 | 回归带宽：变体须在配对 `delta` 上赢此差距才 `recommended` |
 | `code_variant_auto_promote` | False | 代码层自动晋升（默认关，明确不推荐开）|
 | `TIANSHU_EVAL_LLM_API_KEY` | 空 | 沙箱评估专用 LLM key（env-only，非 `AgentConfig` 热更字段）；空则沙箱沿用宿主 `TIANSHU_LLM_*` 凭证 |

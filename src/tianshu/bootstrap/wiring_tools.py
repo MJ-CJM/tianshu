@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,6 +29,20 @@ if TYPE_CHECKING:
     from tianshu.tools.mcp import MCPManager
 
 logger = logging.getLogger(__name__)
+
+
+def _runtime_secret_resolver(settings: TianshuSettings):
+    setting_refs = {
+        "settings:eval_llm_api_key": settings.eval_llm_api_key,
+        "settings:llm_api_key": settings.llm_api_key,
+    }
+
+    def resolve(ref: str) -> str | None:
+        if ref in setting_refs:
+            return setting_refs[ref] or None
+        return os.environ.get(ref)
+
+    return resolve
 
 
 async def _mcp_bg_start(mcp_manager: MCPManager) -> None:
@@ -48,7 +63,7 @@ async def wire_tools(app: FastAPI, settings: TianshuSettings) -> ToolRegistry:
     event_bus = app.state.event_bus
 
     # --- Tools ---
-    execution_gateway = ExecutionGateway()
+    execution_gateway = ExecutionGateway(secret_resolver=_runtime_secret_resolver(settings))
     app.state.execution_gateway = execution_gateway
     tools = ToolRegistry()
     register_builtins(
