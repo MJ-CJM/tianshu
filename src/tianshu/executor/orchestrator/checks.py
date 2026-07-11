@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 
 from tianshu.executor.execution_gateway import (
-    CommandGrant,
     EnvironmentPolicy,
     ExecutionDenied,
     ExecutionGateway,
@@ -18,6 +17,7 @@ from tianshu.executor.execution_gateway import (
     SandboxRequirement,
     ShellCommand,
     get_execution_context,
+    issue_acceptance_command_grant,
     request_for_current_execution,
 )
 from tianshu.executor.orchestrator.state import CheckOutcome, ChecksResult
@@ -73,9 +73,11 @@ async def _run_bash(
                 mode="host",
                 allow_host=True,
             ),
-            command_grant=CommandGrant.for_shell(
-                spec.command,
-                source="acceptance-contract",
+            command_grant=issue_acceptance_command_grant(
+                name=spec.name,
+                kind=spec.kind,
+                command=spec.command,
+                timeout_seconds=spec.timeout_seconds,
             ),
         )
         execution = await execution_gateway.run(request)

@@ -21,7 +21,6 @@ from pathlib import Path
 from tianshu.executor.agent import AgentResult
 from tianshu.executor.execution_gateway import (
     ArgvCommand,
-    CommandGrant,
     EnvironmentPolicy,
     EnvironmentSecretRef,
     ExecutionDenied,
@@ -30,6 +29,7 @@ from tianshu.executor.execution_gateway import (
     ExecutionStartError,
     SandboxRequirement,
     get_execution_context,
+    issue_keqing_command_grant,
     request_for_current_execution,
 )
 from tianshu.executor.keqing.adapter import KeqingRunResult, get_adapter
@@ -126,7 +126,7 @@ class KeqingExecutor:
                     mode="host",
                     allow_host=True,
                 ),
-                command_grant=CommandGrant.for_argv(argv, source="executor-adapter"),
+                command_grant=issue_keqing_command_grant(argv, backend=backend),
             )
             handle = await self._execution_gateway.start(request)
         except ExecutionDenied as exc:

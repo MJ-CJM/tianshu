@@ -7,7 +7,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -45,6 +45,7 @@ class HookResult(BaseModel):
     block: bool = False
     reason: str | None = None
     modified_args: dict[str, Any] | None = None
+    authorization_source: Literal["policy-engine"] | None = None
 
 
 HookHandler = Callable[..., Coroutine[Any, Any, HookResult | None]]
@@ -107,6 +108,8 @@ class HookRegistry:
                     return result
                 if result and result.modified_args:
                     combined.modified_args = result.modified_args
+                if result and result.authorization_source:
+                    combined.authorization_source = result.authorization_source
             except TimeoutError:
                 logger.warning(
                     "Hook %s timed out (>%.1fs) for %s",

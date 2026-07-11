@@ -119,5 +119,6 @@ async def test_acceptance_bash_uses_frozen_contract_and_injected_gateway(
     assert request.effective_contract == effective
     assert request.shell_command.script == "echo ok"
     assert request.command_grant.source == "acceptance-contract"
+    assert request.command_grant.scope == "acceptance"
     assert request.timeout_seconds == 7
     assert request.workspace_root == tmp_path.resolve()

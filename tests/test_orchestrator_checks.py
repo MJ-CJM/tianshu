@@ -24,6 +24,7 @@ from tianshu.models.acceptance import CheckSpec
 from tianshu.models.governance_contract import (
     AcceptanceCheckV1,
     AcceptancePolicyV1,
+    NetworkPolicyV1,
     ObjectiveV1,
     RequestedGovernanceContractV1,
 )
@@ -45,6 +46,7 @@ async def _run_governed_bash_checks(specs: list[CheckSpec], tmp_path):
                     for spec in specs
                 )
             ),
+            network=NetworkPolicyV1(mode="unrestricted_requested"),
         ),
         native_manifest(),
         probe_host_capabilities(),

@@ -15,15 +15,19 @@ from tianshu.executor.capabilities import (
 )
 from tianshu.executor.execution_gateway import (
     ArgvCommand,
-    CommandGrant,
     EnvironmentPolicy,
     EnvironmentSecretRef,
+    ExecutionContext,
     ExecutionDenied,
     ExecutionGateway,
     ExecutionRequest,
     ExecutionStartError,
     NetworkPolicy,
     SandboxRequirement,
+    _issue_tool_argv_grant,
+    _issue_tool_policy_decision,
+    bind_execution_context,
+    bind_tool_policy_decision,
 )
 from tianshu.models.governance_contract import (
     NetworkPolicyV1,
@@ -58,14 +62,26 @@ def _request(
     argv: tuple[str, ...],
     environment: EnvironmentPolicy,
 ) -> ExecutionRequest:
+    actor = Principal(
+        id="secret-principal",
+        kind=PrincipalKind.SERVICE,
+        display_name="Secret Test",
+    )
+    context = ExecutionContext(
+        correlation_id="secret-correlation",
+        actor=actor,
+        effective_contract=effective_contract,
+        workspace_lease_id="secret-workspace",
+    )
+    arguments = {"argv": list(argv)}
+    with bind_execution_context(context):
+        decision = _issue_tool_policy_decision("gateway-secret-test", arguments)
+        with bind_tool_policy_decision(decision):
+            grant = _issue_tool_argv_grant("gateway-secret-test", arguments, argv)
     return ExecutionRequest(
         execution_id="secret-test",
         correlation_id="secret-correlation",
-        actor=Principal(
-            id="secret-principal",
-            kind=PrincipalKind.SERVICE,
-            display_name="Secret Test",
-        ),
+        actor=actor,
         purpose="tool",
         effective_contract=effective_contract,
         argv_command=ArgvCommand(argv=argv),
@@ -82,7 +98,7 @@ def _request(
             mode="host",
             allow_host=True,
         ),
-        command_grant=CommandGrant.for_argv(argv, source="tool-policy"),
+        command_grant=grant,
     )
 
 

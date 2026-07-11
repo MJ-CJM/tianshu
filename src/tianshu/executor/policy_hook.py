@@ -97,7 +97,7 @@ class PolicyHook:
         self._emit_event(ctx, "policy.decision", decision)
 
         if decision.verdict == "allow":
-            return None
+            return HookResult(authorization_source="policy-engine")
         if decision.verdict == "deny":
             return HookResult(
                 block=True,
@@ -134,7 +134,7 @@ class PolicyHook:
             )
             if auto is not None:
                 self._emit_event(ctx, "decree.auto_approved", decision)
-                return None  # 放行
+                return HookResult(authorization_source="policy-engine")
 
         # 写事件，触发前端 toast
         approval_payload = {
@@ -188,7 +188,7 @@ class PolicyHook:
                 reason=f"[{decision.rule_id}] approval timed out or rejected",
             )
         if decree.action == "approve":
-            return None  # 放行
+            return HookResult(authorization_source="policy-engine")
         if decree.action == "guide":
             # 驳回+指导(迭代 5):驳回本次工具,但把纠正意见注入,agent 据此换方式续跑
             return HookResult(

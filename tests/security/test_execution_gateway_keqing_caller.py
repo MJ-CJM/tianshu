@@ -11,6 +11,7 @@ import pytest
 from tianshu.executor import execution_gateway as gateway
 from tianshu.executor.capabilities import (
     claude_code_manifest,
+    get_executor_manifest,
     probe_host_capabilities,
     resolve_governance_contract,
 )
@@ -91,7 +92,14 @@ class _RecordingGateway:
 
 @pytest.mark.asyncio
 async def test_keqing_streams_through_gateway_and_emits_receipt(tmp_path, monkeypatch):
-    argv = ("claude", "-p", "do the task", "--output-format", "stream-json")
+    argv = (
+        "claude",
+        "-p",
+        "do the task",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+    )
     monkeypatch.setattr(
         ClaudeCodeAdapter,
         "build_argv",
@@ -146,6 +154,62 @@ async def test_keqing_streams_through_gateway_and_emits_receipt(tmp_path, monkey
     request = recording_gateway.requests[0]
     assert request.purpose == "keqing"
     assert request.argv_command.argv == argv
-    assert request.command_grant.source == "executor-adapter"
+    assert request.command_grant.source == "system-adapter"
+    assert request.command_grant.scope == "keqing"
     assert request.workspace_root == (tmp_path / "keqing" / edict.id).resolve()
     assert request.effective_contract == effective
+
+
+def test_keqing_grant_requires_canonical_adapter_argv():
+    actor = Principal(
+        id="principal-keqing-authority",
+        kind=PrincipalKind.SERVICE,
+        display_name="Keqing Authority",
+    )
+    claude_effective = resolve_governance_contract(
+        RequestedGovernanceContractV1(
+            objective=ObjectiveV1(goal="validate claude argv"),
+            executor=ExecutorSelectionV1(adapter_id="keqing:claude-code"),
+        ),
+        get_executor_manifest("keqing:claude-code"),
+        probe_host_capabilities(),
+    )
+    claude_context = gateway.ExecutionContext(
+        correlation_id="memorial-keqing-authority",
+        actor=actor,
+        effective_contract=claude_effective,
+        workspace_lease_id="legacy-keqing-authority",
+    )
+    with gateway.bind_execution_context(claude_context):
+        with pytest.raises(gateway.ExecutionDenied, match="keqing_adapter_mismatch"):
+            gateway.issue_keqing_command_grant(
+                ("/bin/sh", "-c", "echo bypass"),
+                backend="claude-code",
+            )
+        with pytest.raises(gateway.ExecutionDenied, match="keqing_adapter_mismatch"):
+            gateway.issue_keqing_command_grant(
+                ("claude", "--dangerously-skip-permissions", "do the task"),
+                backend="claude-code",
+            )
+        claude_grant = gateway.issue_keqing_command_grant(
+            ("claude", "-p", "do the task", "--output-format", "stream-json", "--verbose"),
+            backend="claude-code",
+        )
+
+    codex_effective = resolve_governance_contract(
+        RequestedGovernanceContractV1(
+            objective=ObjectiveV1(goal="validate codex argv"),
+            executor=ExecutorSelectionV1(adapter_id="keqing:codex"),
+        ),
+        get_executor_manifest("keqing:codex"),
+        probe_host_capabilities(),
+    )
+    codex_context = claude_context.model_copy(update={"effective_contract": codex_effective})
+    with gateway.bind_execution_context(codex_context):
+        codex_grant = gateway.issue_keqing_command_grant(
+            ("codex", "exec", "--json", "do the task"),
+            backend="codex",
+        )
+
+    assert claude_grant.scope == "keqing"
+    assert codex_grant.scope == "keqing"

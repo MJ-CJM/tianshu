@@ -28,6 +28,7 @@ from tianshu.models import TaskStatus
 from tianshu.models.governance_contract import (
     BudgetPolicyV1,
     ExecutorSelectionV1,
+    NetworkPolicyV1,
     ObjectiveV1,
     RequestedGovernanceContractV1,
 )
@@ -46,9 +47,10 @@ print(json.dumps({"type":"result","subtype":"success",
 
 @pytest.fixture
 def fake_cli(tmp_path):
-    script = tmp_path / "fake_cli.py"
-    script.write_text(_FAKE_CLI)
-    return [sys.executable, str(script)]
+    script = tmp_path / "claude"
+    script.write_text(f"#!{sys.executable}\n{_FAKE_CLI.lstrip()}")
+    script.chmod(0o700)
+    return [str(script), "-p", "do the task", "--output-format", "stream-json", "--verbose"]
 
 
 def _edict(executor="keqing:claude-code", timeout=30, budget=None):
@@ -64,6 +66,7 @@ async def _execute(keqing: KeqingExecutor, edict, **kwargs):
         objective=ObjectiveV1(goal=edict.goal),
         executor=ExecutorSelectionV1(adapter_id=edict.runtime.executor),
         budget=BudgetPolicyV1(wall_clock_seconds=max(1, math.ceil(edict.runtime.timeout_seconds))),
+        network=NetworkPolicyV1(mode="unrestricted_requested"),
     )
     effective = resolve_governance_contract(
         requested,
@@ -125,7 +128,17 @@ class TestKeqingExecutor:
         assert "[REDACTED API KEY]" in res.result
 
     async def test_outer_timeout_returns_explicit_failed_result(self, tmp_path, monkeypatch):
-        sleeping_cli = [sys.executable, "-c", "import time; time.sleep(5)"]
+        sleeping_executable = tmp_path / "claude"
+        sleeping_executable.write_text(f"#!{sys.executable}\nimport time; time.sleep(5)\n")
+        sleeping_executable.chmod(0o700)
+        sleeping_cli = [
+            str(sleeping_executable),
+            "-p",
+            "sleep",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+        ]
         monkeypatch.setattr(
             ClaudeCodeAdapter,
             "build_argv",
@@ -167,10 +180,18 @@ class TestKeqingExecutor:
         assert seen["model"] == "claude-opus-4"
 
     async def test_missing_cli_fails_gracefully(self, tmp_path, monkeypatch):
+        missing_cli = [
+            str(tmp_path / "claude"),
+            "-p",
+            "do the task",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+        ]
         monkeypatch.setattr(
             ClaudeCodeAdapter,
             "build_argv",
-            lambda self, p, model=None: ["definitely-not-a-real-cli-xyz"],
+            lambda self, p, model=None: missing_cli,
         )
         ke = KeqingExecutor(root=tmp_path / "kq")
         res = await _execute(ke, _edict())

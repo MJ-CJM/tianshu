@@ -108,5 +108,6 @@ async def test_lark_cli_uses_injected_gateway_without_direct_spawn(tmp_path, mon
         "json",
     )
     assert request.shell_command is None
-    assert request.command_grant.source == "tool-policy"
+    assert request.command_grant.source == "system-adapter"
+    assert request.command_grant.scope == "lark-cli"
     assert request.workspace_root == tmp_path.resolve()

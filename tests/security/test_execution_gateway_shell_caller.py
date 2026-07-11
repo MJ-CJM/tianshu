@@ -15,7 +15,11 @@ from tianshu.executor.capabilities import (
     resolve_governance_contract,
 )
 from tianshu.models.edict import Edict
-from tianshu.models.governance_contract import ObjectiveV1, RequestedGovernanceContractV1
+from tianshu.models.governance_contract import (
+    ObjectiveV1,
+    PermissionPolicyV1,
+    RequestedGovernanceContractV1,
+)
 from tianshu.models.principal import Principal, PrincipalKind
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.registry import ToolRegistry
@@ -69,7 +73,10 @@ async def test_shell_exec_uses_injected_gateway_and_bound_effective_contract(
     subdir = tmp_path / "subdir"
     subdir.mkdir()
     effective = resolve_governance_contract(
-        RequestedGovernanceContractV1(objective=ObjectiveV1(goal="run a shell command")),
+        RequestedGovernanceContractV1(
+            objective=ObjectiveV1(goal="run a shell command"),
+            permissions=PermissionPolicyV1(allowed_bash_prefixes=("echo ",)),
+        ),
         native_manifest(),
         probe_host_capabilities(),
     )
@@ -117,7 +124,8 @@ async def test_shell_exec_uses_injected_gateway_and_bound_effective_contract(
     assert request.shell_command.interpreter == ("bash", "--noprofile", "--norc")
     assert request.cwd == "subdir"
     assert request.workspace_root == tmp_path.resolve()
-    assert request.command_grant.source == "tool-policy"
+    assert request.command_grant.source == "effective-permissions"
+    assert request.command_grant.scope == "shell_exec"
     assert request.command_grant.shell_digest is not None
 
 

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 
 import litellm
@@ -15,6 +16,11 @@ from tianshu.config_manager import ConfigManager
 from tianshu.executor.compaction.auto import auto_compact, should_auto_compact
 from tianshu.executor.compaction.micro import micro_compact
 from tianshu.executor.compaction.reactive import reactive_compact
+from tianshu.executor.execution_gateway import (
+    _issue_tool_policy_decision,
+    bind_tool_policy_decision,
+    get_execution_context,
+)
 from tianshu.executor.loop_state import LoopState
 from tianshu.executor.streaming import StreamCallback
 from tianshu.kernel.ambient import bind_edict, bind_persona
@@ -645,6 +651,7 @@ class Agent:
                 tool_defn = self._tools.get_definition(tc["name"])
                 tool_tier = tool_defn.tier if tool_defn else ToolTier.T4_DANGEROUS.value
                 is_fast_path = tool_tier == ToolTier.T0_READONLY.value
+                policy_decision = None
 
                 if self._hooks and not is_fast_path:
                     hook_result = await self._hooks.run(
@@ -672,6 +679,11 @@ class Agent:
                             }
                         )
                         continue
+                    if (
+                        hook_result.authorization_source == "policy-engine"
+                        and get_execution_context() is not None
+                    ):
+                        policy_decision = _issue_tool_policy_decision(tc["name"], tc["args"])
 
                 logger.debug(
                     "[AGENT] Edict %s: iter %d tool=%s, args=%.200s",
@@ -683,7 +695,12 @@ class Agent:
                 if stream_callback:
                     await stream_callback.on_tool_call_start(tc["name"])
                 try:
-                    with bind_edict(edict), bind_persona(persona):
+                    decision_context = (
+                        bind_tool_policy_decision(policy_decision)
+                        if policy_decision is not None
+                        else nullcontext()
+                    )
+                    with bind_edict(edict), bind_persona(persona), decision_context:
                         tool_result = await self._tools.execute(
                             tc["name"],
                             tc["args"],

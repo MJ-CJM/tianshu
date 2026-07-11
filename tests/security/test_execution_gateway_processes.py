@@ -6,6 +6,7 @@ import asyncio
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -17,12 +18,16 @@ from tianshu.executor.capabilities import (
 )
 from tianshu.executor.execution_gateway import (
     ArgvCommand,
-    CommandGrant,
     EnvironmentPolicy,
+    ExecutionContext,
     ExecutionGateway,
     ExecutionRequest,
     NetworkPolicy,
     SandboxRequirement,
+    _issue_tool_argv_grant,
+    _issue_tool_policy_decision,
+    bind_execution_context,
+    bind_tool_policy_decision,
 )
 from tianshu.models.governance_contract import (
     NetworkPolicyV1,
@@ -53,15 +58,27 @@ def _request(
     timeout: float = 3,
     output_limit: int = 4096,
 ) -> ExecutionRequest:
+    actor = Principal(
+        id="process-principal",
+        kind=PrincipalKind.SERVICE,
+        display_name="Process Test",
+        scopes=frozenset({"api"}),
+    )
+    context = ExecutionContext(
+        correlation_id="process-correlation",
+        actor=actor,
+        effective_contract=effective_contract,
+        workspace_lease_id="process-workspace",
+    )
+    arguments = {"argv": list(argv)}
+    with bind_execution_context(context):
+        decision = _issue_tool_policy_decision("gateway-process-test", arguments)
+        with bind_tool_policy_decision(decision):
+            grant = _issue_tool_argv_grant("gateway-process-test", arguments, argv)
     return ExecutionRequest(
         execution_id="process-test",
         correlation_id="process-correlation",
-        actor=Principal(
-            id="process-principal",
-            kind=PrincipalKind.SERVICE,
-            display_name="Process Test",
-            scopes=frozenset({"api"}),
-        ),
+        actor=actor,
         purpose="tool",
         effective_contract=effective_contract,
         argv_command=ArgvCommand(argv=argv),
@@ -78,7 +95,7 @@ def _request(
             mode="host",
             allow_host=True,
         ),
-        command_grant=CommandGrant.for_argv(argv, source="executor-adapter"),
+        command_grant=grant,
     )
 
 
@@ -193,6 +210,30 @@ async def test_start_streams_stdout_before_process_exit(tmp_path, effective_cont
     result = await handle.wait()
     assert result.receipt.status == "succeeded"
     assert result.stdout == "first\nsecond\n"
+
+
+@pytest.mark.asyncio
+async def test_deadline_kills_descendant_after_process_group_leader_exits(
+    tmp_path,
+    effective_contract,
+):
+    child_pid_file = tmp_path / "leader-exit-child.pid"
+    script = (
+        "import pathlib,subprocess,sys;"
+        "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(1)']);"
+        f"pathlib.Path({str(child_pid_file)!r}).write_text(str(child.pid))"
+    )
+    argv = (sys.executable, "-c", script)
+    started = time.monotonic()
+
+    result = await ExecutionGateway(termination_grace_seconds=0.05).run(
+        _request(tmp_path, effective_contract, argv, timeout=0.2)
+    )
+
+    assert time.monotonic() - started < 0.8
+    assert result.receipt.status == "timed_out"
+    child_pid = int(child_pid_file.read_text())
+    await _assert_pid_gone(child_pid)
 
 
 async def _wait_for_file(path: Path) -> None:

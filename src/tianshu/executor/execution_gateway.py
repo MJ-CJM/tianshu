@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import os
+import secrets
 import signal
 import time
 from collections.abc import AsyncIterator, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, NoReturn, Protocol, Self
 
@@ -75,37 +78,81 @@ def _command_digest(argv: Sequence[str]) -> str:
 
 
 class CommandGrant(_StrictModel):
-    source: Literal["tool-policy", "acceptance-contract", "executor-adapter"]
+    source: Literal[
+        "effective-permissions",
+        "policy-decision",
+        "acceptance-contract",
+        "system-adapter",
+    ]
+    scope: Literal["shell_exec", "tool-argv", "acceptance", "lark-cli", "keqing"] = "tool-argv"
     argv_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     shell_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    shell_prefixes: tuple[str, ...] = ()
+    authority_ref: str = Field(min_length=1)
+    effective_contract_hash: str = Field(min_length=1)
+    correlation_id: str = Field(min_length=1)
+    issued_at: datetime
+    expires_at: datetime
+    signature: str = Field(pattern=r"^[0-9a-f]{64}$")
 
-    @classmethod
-    def for_argv(
-        cls,
-        argv: Sequence[str],
-        *,
-        source: Literal["tool-policy", "acceptance-contract", "executor-adapter"],
-    ) -> Self:
-        return cls(source=source, argv_digest=_command_digest(argv))
+    @model_validator(mode="after")
+    def validate_digest_choice(self) -> Self:
+        if (self.argv_digest is None) == (self.shell_digest is None):
+            raise ValueError("exactly one command digest is required")
+        if self.expires_at < self.issued_at:
+            raise ValueError("grant expiry cannot precede issuance")
+        return self
 
-    @classmethod
-    def for_shell(
-        cls,
-        script: str,
-        *,
-        source: Literal["tool-policy", "acceptance-contract", "executor-adapter"],
-    ) -> Self:
-        return cls(source=source, shell_digest=hashlib.sha256(script.encode()).hexdigest())
 
-    @classmethod
-    def for_shell_prefixes(
-        cls,
-        prefixes: Sequence[str],
-        *,
-        source: Literal["tool-policy", "acceptance-contract", "executor-adapter"],
-    ) -> Self:
-        return cls(source=source, shell_prefixes=tuple(prefixes))
+class ToolPolicyDecision(_StrictModel):
+    source: Literal["before-tool-hook"] = "before-tool-hook"
+    tool_name: str = Field(min_length=1)
+    arguments_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    effective_contract_hash: str = Field(min_length=1)
+    correlation_id: str = Field(min_length=1)
+    issued_at: datetime
+    expires_at: datetime
+    signature: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+_GRANT_SIGNING_KEY = secrets.token_bytes(32)
+
+
+def _signature_payload(model: CommandGrant | ToolPolicyDecision) -> bytes:
+    payload = model.model_dump(mode="json", exclude={"signature"})
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _sign(model: CommandGrant | ToolPolicyDecision) -> str:
+    return hmac.new(_GRANT_SIGNING_KEY, _signature_payload(model), hashlib.sha256).hexdigest()
+
+
+def _valid_signature(model: CommandGrant | ToolPolicyDecision) -> bool:
+    return hmac.compare_digest(model.signature, _sign(model))
+
+
+def _normalize_tool_arguments(arguments: str | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(arguments, str):
+        try:
+            decoded = json.loads(arguments)
+        except json.JSONDecodeError:
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return arguments
+
+
+def _tool_arguments_digest(
+    tool_name: str,
+    arguments: str | dict[str, Any],
+) -> str:
+    arguments = _normalize_tool_arguments(arguments)
+    normalized = {key: value for key, value in arguments.items() if value is not None}
+    payload = json.dumps(
+        {"tool_name": tool_name, "arguments": normalized},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 class EnvironmentSecretRef(_StrictModel):
@@ -192,6 +239,222 @@ def bind_execution_context(context: ExecutionContext) -> Iterator[None]:
 
 def get_execution_context() -> ExecutionContext | None:
     return _current_execution_context.get()
+
+
+_current_tool_policy_decision: ContextVar[ToolPolicyDecision | None] = ContextVar(
+    "current_tool_policy_decision",
+    default=None,
+)
+
+
+@contextmanager
+def bind_tool_policy_decision(decision: ToolPolicyDecision) -> Iterator[None]:
+    token = _current_tool_policy_decision.set(decision)
+    try:
+        yield
+    finally:
+        _current_tool_policy_decision.reset(token)
+
+
+def _require_execution_context() -> ExecutionContext:
+    context = get_execution_context()
+    if context is None:
+        raise ExecutionDenied(
+            "command_grant",
+            "missing_authority_context",
+            "command grants require a run-bound execution context",
+        )
+    return context
+
+
+def _issue_tool_policy_decision(
+    tool_name: str,
+    arguments: str | dict[str, Any],
+) -> ToolPolicyDecision:
+    """Create the short-lived proof emitted after the before-tool hook chain allows."""
+
+    context = _require_execution_context()
+    issued_at = datetime.now(UTC)
+    unsigned = ToolPolicyDecision(
+        tool_name=tool_name,
+        arguments_digest=_tool_arguments_digest(tool_name, arguments),
+        effective_contract_hash=context.effective_contract.content_hash,
+        correlation_id=context.correlation_id,
+        issued_at=issued_at,
+        expires_at=issued_at + timedelta(seconds=30),
+        signature="0" * 64,
+    )
+    return unsigned.model_copy(update={"signature": _sign(unsigned)})
+
+
+def _mint_command_grant(
+    *,
+    source: Literal[
+        "effective-permissions",
+        "policy-decision",
+        "acceptance-contract",
+        "system-adapter",
+    ],
+    scope: Literal["shell_exec", "tool-argv", "acceptance", "lark-cli", "keqing"],
+    authority_ref: str,
+    argv: Sequence[str] | None = None,
+    script: str | None = None,
+    expires_at: datetime | None = None,
+) -> CommandGrant:
+    context = _require_execution_context()
+    issued_at = datetime.now(UTC)
+    unsigned = CommandGrant(
+        source=source,
+        scope=scope,
+        argv_digest=_command_digest(argv) if argv is not None else None,
+        shell_digest=hashlib.sha256(script.encode()).hexdigest() if script is not None else None,
+        authority_ref=authority_ref,
+        effective_contract_hash=context.effective_contract.content_hash,
+        correlation_id=context.correlation_id,
+        issued_at=issued_at,
+        expires_at=expires_at or issued_at + timedelta(seconds=30),
+        signature="0" * 64,
+    )
+    return unsigned.model_copy(update={"signature": _sign(unsigned)})
+
+
+def _validated_bound_policy_decision(
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> ToolPolicyDecision:
+    context = _require_execution_context()
+    decision = _current_tool_policy_decision.get()
+    now = datetime.now(UTC)
+    if (
+        decision is None
+        or not _valid_signature(decision)
+        or decision.source != "before-tool-hook"
+        or decision.tool_name != tool_name
+        or decision.arguments_digest != _tool_arguments_digest(tool_name, arguments)
+        or decision.effective_contract_hash != context.effective_contract.content_hash
+        or decision.correlation_id != context.correlation_id
+        or decision.issued_at > now + timedelta(seconds=1)
+        or decision.expires_at <= now
+    ):
+        raise ExecutionDenied(
+            "command_grant",
+            "policy_decision_missing",
+            "no valid independent policy decision covers this tool call",
+        )
+    return decision
+
+
+def issue_shell_command_grant(command: str, *, cwd: str | None = None) -> CommandGrant:
+    context = _require_execution_context()
+    analysis = analyze_command(command)
+    prefixes = context.effective_contract.permissions.allowed_bash_prefixes
+    prefix_match = bool(prefixes) and all(
+        any(segment.startswith(prefix) for prefix in prefixes) for segment in analysis.segments
+    )
+    if prefix_match:
+        return _mint_command_grant(
+            source="effective-permissions",
+            scope="shell_exec",
+            authority_ref=context.effective_contract.permissions.content_hash,
+            script=command,
+        )
+    decision = _validated_bound_policy_decision(
+        "shell_exec",
+        {"command": command, "cwd": cwd},
+    )
+    return _mint_command_grant(
+        source="policy-decision",
+        scope="shell_exec",
+        authority_ref=decision.signature,
+        script=command,
+        expires_at=decision.expires_at,
+    )
+
+
+def _issue_tool_argv_grant(
+    tool_name: str,
+    arguments: dict[str, Any],
+    argv: Sequence[str],
+) -> CommandGrant:
+    """Issue an argv grant only from a separately bound tool-policy decision."""
+
+    decision = _validated_bound_policy_decision(tool_name, arguments)
+    return _mint_command_grant(
+        source="policy-decision",
+        scope="tool-argv",
+        authority_ref=decision.signature,
+        argv=argv,
+        expires_at=decision.expires_at,
+    )
+
+
+def issue_acceptance_command_grant(
+    *,
+    name: str,
+    kind: Literal["bash", "lint"],
+    command: str,
+    timeout_seconds: int,
+) -> CommandGrant:
+    context = _require_execution_context()
+    frozen = next(
+        (
+            check
+            for check in context.effective_contract.acceptance.checks
+            if check.name == name
+            and check.kind == kind
+            and check.command == command
+            and check.timeout_seconds == timeout_seconds
+        ),
+        None,
+    )
+    if frozen is None:
+        raise ExecutionDenied(
+            "command_grant",
+            "acceptance_not_frozen",
+            "acceptance command is not frozen in the effective contract",
+        )
+    return _mint_command_grant(
+        source="acceptance-contract",
+        scope="acceptance",
+        authority_ref=frozen.content_hash,
+        script=command,
+    )
+
+
+def issue_lark_cli_command_grant(argv: Sequence[str]) -> CommandGrant:
+    if not argv or Path(argv[0]).name not in {"lark-cli", "lark-cli.exe"}:
+        raise ExecutionDenied(
+            "command_grant",
+            "lark_cli_executable_mismatch",
+            "the lark-cli authority only grants the lark-cli executable",
+        )
+    return _mint_command_grant(
+        source="system-adapter",
+        scope="lark-cli",
+        authority_ref="lark-cli",
+        argv=argv,
+    )
+
+
+def issue_keqing_command_grant(argv: Sequence[str], *, backend: str) -> CommandGrant:
+    from tianshu.executor.keqing.adapter import is_canonical_adapter_argv
+
+    context = _require_execution_context()
+    if (
+        context.effective_contract.executor.adapter_id != f"keqing:{backend}"
+        or not is_canonical_adapter_argv(backend, argv)
+    ):
+        raise ExecutionDenied(
+            "command_grant",
+            "keqing_adapter_mismatch",
+            "the argv is not covered by the selected Keqing adapter",
+        )
+    return _mint_command_grant(
+        source="system-adapter",
+        scope="keqing",
+        authority_ref=f"keqing:{backend}",
+        argv=argv,
+    )
 
 
 class ExecutionRequest(_StrictModel):
@@ -313,6 +576,8 @@ class ExecutionReceipt(_StrictModel):
     network_mode: str
     sandbox_mode: str
     sandbox_enforced: bool
+    backend_id: str = "unknown"
+    network_enforced: bool = False
     status: Literal["succeeded", "failed", "timed_out", "cancelled"]
     started_at: datetime
     finished_at: datetime
@@ -360,15 +625,25 @@ class ExecutionGuard(Protocol):
 
 
 class ProcessBackend(Protocol):
+    backend_id: str
     supports_sandbox: bool
     supports_network_enforcement: bool
 
-    async def spawn(self, **kwargs: Any) -> asyncio.subprocess.Process: ...
+    async def spawn(self, **kwargs: Any) -> SpawnedProcess: ...
+
+
+@dataclass(frozen=True)
+class SpawnedProcess:
+    process: asyncio.subprocess.Process
+    backend_id: str
+    network_enforced: bool
+    sandbox_enforced: bool
 
 
 class AsyncioProcessBackend:
     """The only low-level process launcher used by the gateway."""
 
+    backend_id = "asyncio-host"
     supports_sandbox = False
     supports_network_enforcement = False
 
@@ -378,8 +653,10 @@ class AsyncioProcessBackend:
         argv: tuple[str, ...],
         cwd: Path,
         env: dict[str, str],
-    ) -> asyncio.subprocess.Process:
-        return await asyncio.create_subprocess_exec(
+        network: NetworkPolicy,
+        sandbox: SandboxRequirement,
+    ) -> SpawnedProcess:
+        process = await asyncio.create_subprocess_exec(
             *argv,
             cwd=str(cwd),
             env=env,
@@ -387,6 +664,12 @@ class AsyncioProcessBackend:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=os.name != "nt",
+        )
+        return SpawnedProcess(
+            process=process,
+            backend_id=self.backend_id,
+            network_enforced=False,
+            sandbox_enforced=False,
         )
 
 
@@ -451,30 +734,41 @@ class _SecretStreamRedactor:
 async def _terminate_process_tree(
     process: asyncio.subprocess.Process,
     *,
+    process_group_id: int,
     grace_seconds: float,
 ) -> None:
+    if os.name != "nt":
+        try:
+            os.killpg(process_group_id, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        deadline = time.monotonic() + grace_seconds
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(process_group_id, 0)
+            except ProcessLookupError:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            with suppress(ProcessLookupError):
+                os.killpg(process_group_id, signal.SIGKILL)
+        if process.returncode is None:
+            await process.wait()
+        return
+
     if process.returncode is not None:
         return
     try:
-        if os.name != "nt":
-            os.killpg(process.pid, signal.SIGTERM)
-        else:
-            process.terminate()
+        process.terminate()
     except ProcessLookupError:
         return
     try:
         await asyncio.wait_for(process.wait(), timeout=grace_seconds)
         return
     except TimeoutError:
-        pass
-    try:
-        if os.name != "nt":
-            os.killpg(process.pid, signal.SIGKILL)
-        else:
+        with suppress(ProcessLookupError):
             process.kill()
-    except ProcessLookupError:
-        pass
-    await process.wait()
+        await process.wait()
 
 
 class ExecutionHandle:
@@ -488,6 +782,8 @@ class ExecutionHandle:
         secret_values: tuple[str, ...],
         advisory_gaps: tuple[GuardGap, ...],
         sandbox_enforced: bool,
+        network_enforced: bool,
+        backend_id: str,
         started_at: datetime,
         started_monotonic: float,
         termination_grace_seconds: float,
@@ -499,6 +795,9 @@ class ExecutionHandle:
         self._secret_values = secret_values
         self._advisory_gaps = advisory_gaps
         self._sandbox_enforced = sandbox_enforced
+        self._network_enforced = network_enforced
+        self._backend_id = backend_id
+        self._process_group_id = process.pid
         self._started_at = started_at
         self._started_monotonic = started_monotonic
         self._termination_grace_seconds = termination_grace_seconds
@@ -526,31 +825,38 @@ class ExecutionHandle:
             if self._result is not None:
                 return self._result
             timed_out = False
+            completion = asyncio.gather(
+                self._process.wait(),
+                self._stdout_task,
+                self._stderr_task,
+            )
+            remaining = max(
+                0.0,
+                self.request.timeout_seconds - (time.monotonic() - self._started_monotonic),
+            )
             try:
-                await asyncio.wait_for(
-                    self._process.wait(),
-                    timeout=self.request.timeout_seconds,
+                _, stdout_data, stderr_data = await asyncio.wait_for(
+                    asyncio.shield(completion),
+                    timeout=remaining,
                 )
             except TimeoutError:
                 timed_out = True
                 await _terminate_process_tree(
                     self._process,
+                    process_group_id=self._process_group_id,
                     grace_seconds=self._termination_grace_seconds,
                 )
+                _, stdout_data, stderr_data = await asyncio.shield(completion)
             except asyncio.CancelledError:
                 await asyncio.shield(
                     _terminate_process_tree(
                         self._process,
+                        process_group_id=self._process_group_id,
                         grace_seconds=self._termination_grace_seconds,
                     )
                 )
-                await asyncio.shield(asyncio.gather(self._stdout_task, self._stderr_task))
+                await asyncio.shield(completion)
                 raise
-
-            stdout_data, stderr_data = await asyncio.gather(
-                self._stdout_task,
-                self._stderr_task,
-            )
             self._result = self._build_result(
                 stdout_data,
                 stderr_data,
@@ -565,6 +871,7 @@ class ExecutionHandle:
                 return self._result
             await _terminate_process_tree(
                 self._process,
+                process_group_id=self._process_group_id,
                 grace_seconds=self._termination_grace_seconds,
             )
             stdout_data, stderr_data = await asyncio.gather(
@@ -633,6 +940,8 @@ class ExecutionHandle:
             network_mode=self.request.network.mode,
             sandbox_mode=self.request.sandbox.mode,
             sandbox_enforced=self._sandbox_enforced,
+            backend_id=self._backend_id,
+            network_enforced=self._network_enforced,
             status=status,
             started_at=self._started_at,
             finished_at=finished_at,
@@ -684,24 +993,37 @@ class ExecutionGateway:
         started_at = datetime.now(UTC)
         started_monotonic = time.monotonic()
         try:
-            process = await self._backend.spawn(
+            spawned = await self._backend.spawn(
                 argv=request.command_argv,
                 cwd=cwd,
                 env=env,
+                network=request.network,
+                sandbox=request.sandbox,
             )
         except (OSError, ValueError) as exc:
             detail = self._redact_exception(str(exc), secret_values)
             raise ExecutionStartError(detail) from None
+        if request.network.mode != "unrestricted" and not spawned.network_enforced:
+            await _terminate_process_tree(
+                spawned.process,
+                process_group_id=spawned.process.pid,
+                grace_seconds=self._termination_grace_seconds,
+            )
+            self._deny(
+                "network",
+                "backend_enforcement_unproven",
+                "backend did not prove restrictive network enforcement",
+            )
         return ExecutionHandle(
             request=request,
-            process=process,
+            process=spawned.process,
             env_keys=tuple(sorted(env)),
             secret_refs=secret_refs,
             secret_values=secret_values,
             advisory_gaps=(*built_in_gaps, *custom_gaps),
-            sandbox_enforced=bool(
-                request.sandbox.mode != "host" and getattr(self._backend, "supports_sandbox", False)
-            ),
+            sandbox_enforced=spawned.sandbox_enforced,
+            network_enforced=spawned.network_enforced,
+            backend_id=spawned.backend_id,
             started_at=started_at,
             started_monotonic=started_monotonic,
             termination_grace_seconds=self._termination_grace_seconds,
@@ -723,6 +1045,40 @@ class ExecutionGateway:
         if grant is None:
             self._deny("command_grant", "missing_grant", "command has no bound grant")
         assert grant is not None
+        now = datetime.now(UTC)
+        if not _valid_signature(grant):
+            self._deny(
+                "command_grant",
+                "invalid_signature",
+                "command grant was not issued by the gateway authority",
+            )
+        if (
+            grant.effective_contract_hash != request.effective_contract.content_hash
+            or grant.correlation_id != request.correlation_id
+        ):
+            self._deny(
+                "command_grant",
+                "authority_scope_mismatch",
+                "command grant belongs to a different run or effective contract",
+            )
+        if grant.issued_at > now + timedelta(seconds=1) or grant.expires_at <= now:
+            self._deny(
+                "command_grant",
+                "grant_expired",
+                "command grant is outside its validity window",
+            )
+        allowed_scopes = {
+            "tool": {"shell_exec", "tool-argv"},
+            "acceptance": {"acceptance"},
+            "lark-cli": {"lark-cli"},
+            "keqing": {"keqing"},
+        }[request.purpose]
+        if grant.scope not in allowed_scopes:
+            self._deny(
+                "command_grant",
+                "purpose_scope_mismatch",
+                "command grant scope does not match the execution purpose",
+            )
         if request.shell_command is not None:
             analysis = analyze_command(request.shell_command.script)
             if analysis.has_structural_risk:
@@ -732,13 +1088,7 @@ class ExecutionGateway:
                     ", ".join(analysis.structural_notes),
                 )
             script_digest = hashlib.sha256(request.shell_command.script.encode()).hexdigest()
-            exact = grant.shell_digest == script_digest
-            prefixes = grant.shell_prefixes
-            prefix_match = bool(prefixes) and all(
-                any(segment.startswith(prefix) for prefix in prefixes)
-                for segment in analysis.segments
-            )
-            if not (exact or prefix_match):
+            if grant.shell_digest != script_digest:
                 self._deny(
                     "command_grant",
                     "shell_not_granted",
@@ -750,6 +1100,79 @@ class ExecutionGateway:
                 "argv_not_granted",
                 "argv command is not covered by its grant",
             )
+
+        if grant.source == "effective-permissions":
+            prefixes = request.effective_contract.permissions.allowed_bash_prefixes
+            if grant.scope != "shell_exec" or request.shell_command is None or not prefixes:
+                self._deny(
+                    "command_grant",
+                    "permission_source_mismatch",
+                    "effective permissions do not authorize this grant scope",
+                )
+            analysis = analyze_command(request.shell_command.script)
+            if not all(
+                any(segment.startswith(prefix) for prefix in prefixes)
+                for segment in analysis.segments
+            ):
+                self._deny(
+                    "command_grant",
+                    "permission_source_mismatch",
+                    "shell command is outside effective allowed prefixes",
+                )
+        elif grant.source == "policy-decision":
+            if grant.scope not in {"shell_exec", "tool-argv"} or len(grant.authority_ref) != 64:
+                self._deny(
+                    "command_grant",
+                    "policy_source_mismatch",
+                    "policy-derived grant has invalid authority metadata",
+                )
+        elif grant.source == "acceptance-contract":
+            matching_check = next(
+                (
+                    check
+                    for check in request.effective_contract.acceptance.checks
+                    if check.kind in {"bash", "lint"}
+                    and check.command
+                    == (request.shell_command.script if request.shell_command else None)
+                    and check.content_hash == grant.authority_ref
+                    and request.timeout_seconds
+                    == min(
+                        check.timeout_seconds,
+                        request.effective_contract.budget.wall_clock_seconds,
+                    )
+                ),
+                None,
+            )
+            if grant.scope != "acceptance" or matching_check is None:
+                self._deny(
+                    "command_grant",
+                    "acceptance_source_mismatch",
+                    "grant is not backed by a frozen acceptance check",
+                )
+        elif grant.source == "system-adapter":
+            executable = Path(request.command_argv[0]).name
+            if grant.scope == "lark-cli":
+                valid_system_scope = grant.authority_ref == "lark-cli" and executable in {
+                    "lark-cli",
+                    "lark-cli.exe",
+                }
+            elif grant.scope == "keqing":
+                from tianshu.executor.keqing.adapter import is_canonical_adapter_argv
+
+                backend = request.effective_contract.executor.adapter_id.removeprefix("keqing:")
+                valid_system_scope = (
+                    grant.authority_ref == f"keqing:{backend}"
+                    and request.effective_contract.executor.adapter_id.startswith("keqing:")
+                    and is_canonical_adapter_argv(backend, request.command_argv)
+                )
+            else:
+                valid_system_scope = False
+            if not valid_system_scope:
+                self._deny(
+                    "command_grant",
+                    "system_source_mismatch",
+                    "system-adapter grant is outside its purpose-limited scope",
+                )
 
         supports_sandbox = bool(getattr(self._backend, "supports_sandbox", False))
         if request.sandbox.trust_level == "secure-remote" and not supports_sandbox:
@@ -783,18 +1206,10 @@ class ExecutionGateway:
             )
         network_supported = bool(getattr(self._backend, "supports_network_enforcement", False))
         if request.network.mode != "unrestricted" and not network_supported:
-            if request.network.enforcement_required:
-                self._deny(
-                    "network",
-                    "enforcement_unavailable",
-                    "network policy cannot be enforced by the selected backend",
-                )
-            gaps.append(
-                GuardGap(
-                    guard="network",
-                    code="enforcement_unavailable",
-                    detail="network policy is advisory because this backend cannot enforce it",
-                )
+            self._deny(
+                "network",
+                "enforcement_unavailable",
+                "network policy cannot be enforced by the selected backend",
             )
 
         declared_refs = set(request.effective_contract.permissions.secret_refs)
@@ -933,7 +1348,14 @@ __all__ = [
     "ProcessBackend",
     "SandboxRequirement",
     "ShellCommand",
+    "SpawnedProcess",
+    "ToolPolicyDecision",
     "bind_execution_context",
+    "bind_tool_policy_decision",
     "get_execution_context",
+    "issue_acceptance_command_grant",
+    "issue_keqing_command_grant",
+    "issue_lark_cli_command_grant",
+    "issue_shell_command_grant",
     "request_for_current_execution",
 ]

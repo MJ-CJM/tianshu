@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tianshu.executor.execution_gateway import (
-    CommandGrant,
     EnvironmentPolicy,
     ExecutionDenied,
     ExecutionGateway,
     ExecutionStartError,
     SandboxRequirement,
     ShellCommand,
+    issue_shell_command_grant,
     request_for_current_execution,
 )
 from tianshu.kernel.ambient import get_current_edict
@@ -61,7 +61,7 @@ def register_builtins(
                     mode="host",
                     allow_host=True,
                 ),
-                command_grant=CommandGrant.for_shell(command, source="tool-policy"),
+                command_grant=issue_shell_command_grant(command, cwd=cwd),
             )
             execution = await process_gateway.run(request)
         except ExecutionDenied as exc:

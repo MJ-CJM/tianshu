@@ -18,12 +18,12 @@ from pathlib import Path
 
 from tianshu.executor.execution_gateway import (
     ArgvCommand,
-    CommandGrant,
     EnvironmentPolicy,
     ExecutionDenied,
     ExecutionGateway,
     ExecutionStartError,
     SandboxRequirement,
+    issue_lark_cli_command_grant,
     request_for_current_execution,
 )
 from tianshu.security.clean_env import build_clean_env
@@ -138,7 +138,7 @@ async def lark_cli(
                 mode="host",
                 allow_host=True,
             ),
-            command_grant=CommandGrant.for_argv(cmd, source="tool-policy"),
+            command_grant=issue_lark_cli_command_grant(cmd),
         )
         execution = await execution_gateway.run(request)
     except (ExecutionDenied, ExecutionStartError) as exc:
