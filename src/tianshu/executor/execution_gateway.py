@@ -563,6 +563,12 @@ _SYSTEM_ADAPTER_EXECUTABLES: dict[Literal["grep", "lsp"], tuple[str, frozenset[s
 
 def _trusted_adapter_locations(workspace_root: Path) -> tuple[tuple[Path, Path], ...]:
     workspace = workspace_root.resolve()
+    try:
+        active_runtime_directory = Path(sys.executable).parent.resolve(strict=True)
+        active_runtime_prefix = Path(sys.prefix).resolve(strict=True)
+    except OSError:
+        active_runtime_directory = None
+        active_runtime_prefix = None
     raw_locations: list[tuple[Path, Path]] = []
     for raw_directory in os.defpath.split(os.pathsep):
         if raw_directory:
@@ -590,11 +596,16 @@ def _trusted_adapter_locations(workspace_root: Path) -> tuple[tuple[Path, Path],
             trust_root = raw_trust_root.resolve(strict=True)
         except OSError:
             continue
+        active_runtime_location = (
+            directory == active_runtime_directory and trust_root == active_runtime_prefix
+        )
         if (
             directory in seen
             or not directory.is_dir()
-            or directory.is_relative_to(workspace)
-            or trust_root.is_relative_to(workspace)
+            or (
+                (directory.is_relative_to(workspace) or trust_root.is_relative_to(workspace))
+                and not active_runtime_location
+            )
         ):
             continue
         seen.add(directory)
@@ -623,12 +634,20 @@ def _resolve_trusted_adapter_executable(
         (root for directory, root in locations if directory == candidate_parent),
         None,
     )
+    try:
+        active_runtime_candidate = (
+            candidate_parent == Path(sys.executable).parent.resolve(strict=True)
+            and trust_root == Path(sys.prefix).resolve(strict=True)
+            and resolved.is_relative_to(trust_root)
+        )
+    except OSError:
+        active_runtime_candidate = False
     if (
         trust_root is None
         or resolved.name.casefold() not in allowed_names
         or not resolved.is_file()
         or not os.access(resolved, os.X_OK)
-        or resolved.is_relative_to(workspace)
+        or (resolved.is_relative_to(workspace) and not active_runtime_candidate)
         or not resolved.is_relative_to(trust_root)
     ):
         return None

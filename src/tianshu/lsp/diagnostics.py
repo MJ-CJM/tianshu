@@ -17,7 +17,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ulid import ULID
 
@@ -46,18 +46,30 @@ class DiagnosticOutcome:
     diagnostics: tuple[dict, ...] = ()
     advisory: str | None = None
     correlation_id: str | None = None
+    receipt: dict[str, Any] | None = None
 
-    def advisory_details(self) -> dict[str, str] | None:
+    def advisory_details(self) -> dict[str, Any] | None:
         if self.advisory is None:
             return None
         details = {"status": self.status, "message": self.advisory}
         if self.correlation_id is not None:
             details["correlation_id"] = self.correlation_id
+        if self.receipt is not None:
+            details["receipt"] = self.receipt
         return details
 
 
 def is_enabled() -> bool:
     return os.environ.get("TIANSHU_LSP_ENABLED", "").strip().lower() in ("1", "true", "on")
+
+
+def _diagnostic_items(payload: object) -> list[dict] | None:
+    if not isinstance(payload, dict):
+        return None
+    items = payload.get("generalDiagnostics", [])
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        return None
+    return items
 
 
 def parse_diagnostics(output: str) -> list[dict]:
@@ -69,14 +81,23 @@ def parse_diagnostics(output: str) -> list[dict]:
         data = json.loads(output)
     except (json.JSONDecodeError, TypeError):
         return []
+    items = _diagnostic_items(data)
+    if items is None:
+        return []
     diags: list[dict] = []
-    for d in data.get("generalDiagnostics", []):
+    for d in items:
         if d.get("severity") not in _SEVERITIES:
             continue
-        start = (d.get("range") or {}).get("start") or {}
+        raw_range = d.get("range")
+        raw_start = raw_range.get("start") if isinstance(raw_range, dict) else None
+        start = raw_start if isinstance(raw_start, dict) else {}
+        try:
+            line = int(start.get("line", 0)) + 1
+        except (TypeError, ValueError):
+            line = 1
         diags.append(
             {
-                "line": int(start.get("line", 0)) + 1,
+                "line": line,
                 "severity": d.get("severity", "error"),
                 "message": d.get("message", ""),
                 "rule": d.get("rule"),
@@ -105,11 +126,13 @@ def _advisory(
     status: Literal["unavailable", "denied", "timed_out", "failed"],
     message: str,
     correlation_id: str,
+    receipt: process_boundary.ExecutionReceipt | None = None,
 ) -> DiagnosticOutcome:
     return DiagnosticOutcome(
         status=status,
         advisory=message,
         correlation_id=correlation_id,
+        receipt=receipt.model_dump(mode="json") if receipt is not None else None,
     )
 
 
@@ -174,12 +197,14 @@ async def run_diagnostics_async(
             "denied",
             f"basedpyright execution was denied: {exc}",
             receipt.correlation_id if receipt is not None else correlation_id,
+            receipt,
         )
     except process_boundary.ExecutionStartError as exc:
         return _advisory(
             "unavailable",
             f"basedpyright could not start: {exc}",
             exc.receipt.correlation_id,
+            exc.receipt,
         )
 
     correlation_id = execution.receipt.correlation_id
@@ -188,21 +213,31 @@ async def run_diagnostics_async(
             "timed_out",
             "basedpyright exceeded the 30 second diagnostic timeout",
             correlation_id,
+            execution.receipt,
         )
     if execution.receipt.stdout_truncated or execution.receipt.stdout_incomplete:
         return _advisory(
             "failed",
             "basedpyright returned incomplete diagnostic output",
             correlation_id,
+            execution.receipt,
         )
     try:
-        json.loads(execution.stdout)
+        payload = json.loads(execution.stdout)
     except (json.JSONDecodeError, TypeError):
         detail = execution.stderr.strip() or execution.error or "invalid JSON output"
         return _advisory(
             "failed",
             f"basedpyright diagnostics failed: {detail}",
             correlation_id,
+            execution.receipt,
+        )
+    if _diagnostic_items(payload) is None:
+        return _advisory(
+            "failed",
+            "basedpyright returned an invalid diagnostic JSON schema",
+            correlation_id,
+            execution.receipt,
         )
     if execution.returncode not in {0, 1}:
         detail = execution.stderr.strip() or execution.error or "unknown error"
@@ -210,11 +245,13 @@ async def run_diagnostics_async(
             "failed",
             f"basedpyright diagnostics failed: {detail}",
             correlation_id,
+            execution.receipt,
         )
     return DiagnosticOutcome(
         status="ok",
         diagnostics=tuple(parse_diagnostics(execution.stdout)),
         correlation_id=correlation_id,
+        receipt=execution.receipt.model_dump(mode="json"),
     )
 
 

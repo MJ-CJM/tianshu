@@ -17,7 +17,11 @@ from tianshu.executor.capabilities import (
     resolve_governance_contract,
 )
 from tianshu.lsp import diagnostics as lsp_module
-from tianshu.models.governance_contract import ObjectiveV1, RequestedGovernanceContractV1
+from tianshu.models.governance_contract import (
+    NetworkPolicyV1,
+    ObjectiveV1,
+    RequestedGovernanceContractV1,
+)
 from tianshu.models.principal import Principal, PrincipalKind
 from tianshu.tools import grep as grep_module
 from tianshu.tools.edit_file import register_edit_file
@@ -46,9 +50,18 @@ def _trust_adapter_executables(
     )
 
 
-def _context(correlation_id: str = "memorial-system-adapters") -> gateway.ExecutionContext:
+def _context(
+    correlation_id: str = "memorial-system-adapters",
+    *,
+    unrestricted_network: bool = False,
+) -> gateway.ExecutionContext:
     effective = resolve_governance_contract(
-        RequestedGovernanceContractV1(objective=ObjectiveV1(goal="inspect workspace")),
+        RequestedGovernanceContractV1(
+            objective=ObjectiveV1(goal="inspect workspace"),
+            network=NetworkPolicyV1(
+                mode="unrestricted_requested" if unrestricted_network else "deny"
+            ),
+        ),
         native_manifest(),
         probe_host_capabilities(),
     )
@@ -71,6 +84,8 @@ def _result(
     stderr: str = "",
     status: str = "succeeded",
     exit_code: int | None = 0,
+    stdout_truncated: bool = False,
+    stdout_incomplete: bool = False,
 ) -> gateway.ExecutionResult:
     now = datetime.now(UTC)
     return gateway.ExecutionResult(
@@ -99,16 +114,26 @@ def _result(
             terminating_signal=None,
             stdout_bytes=len(stdout.encode()),
             stderr_bytes=len(stderr.encode()),
-            stdout_truncated=False,
+            stdout_truncated=stdout_truncated,
             stderr_truncated=False,
+            stdout_incomplete=stdout_incomplete,
         ),
     )
 
 
 class _RecordingGateway:
-    def __init__(self, *, stdout: str = "", status: str = "succeeded") -> None:
+    def __init__(
+        self,
+        *,
+        stdout: str = "",
+        status: str = "succeeded",
+        stdout_truncated: bool = False,
+        stdout_incomplete: bool = False,
+    ) -> None:
         self.stdout = stdout
         self.status = status
+        self.stdout_truncated = stdout_truncated
+        self.stdout_incomplete = stdout_incomplete
         self.requests: list[gateway.ExecutionRequest] = []
 
     async def run(self, request: gateway.ExecutionRequest) -> gateway.ExecutionResult:
@@ -118,6 +143,8 @@ class _RecordingGateway:
             stdout=self.stdout,
             status=self.status,
             exit_code=None if self.status == "timed_out" else 0,
+            stdout_truncated=self.stdout_truncated,
+            stdout_incomplete=self.stdout_incomplete,
         )
 
 
@@ -170,6 +197,134 @@ async def test_grep_uses_canonical_gateway_grant_and_option_terminator(
     separator = request.command_argv.index("--")
     assert request.command_argv[separator + 1] == "-needle"
     assert request.workspace_root == tmp_path.resolve()
+
+
+async def test_grep_rejects_truncated_gateway_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "sample.txt"
+    target.write_text("needle\n", encoding="utf-8")
+    recording = _RecordingGateway(stdout='{"type":"match"', stdout_truncated=True)
+    registry = ToolRegistry()
+    rg_executable = _make_executable(tmp_path / "rg")
+    _trust_adapter_executables(monkeypatch, grep=rg_executable)
+    grep_module.register_grep(registry, tmp_path, execution_gateway=recording)
+
+    with gateway.bind_execution_context(_context("memorial-grep-truncated")):
+        result = await registry.execute("grep", {"pattern": "needle"})
+
+    assert result.is_error is True
+    assert "incomplete" in result.content
+
+
+async def test_grep_enforces_global_match_limit_across_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    messages = []
+    for index in range(2):
+        target = tmp_path / f"sample-{index}.txt"
+        target.write_text("needle\n", encoding="utf-8")
+        messages.append(
+            json.dumps(
+                {
+                    "type": "match",
+                    "data": {
+                        "path": {"text": str(target)},
+                        "line_number": 1,
+                        "lines": {"text": "needle\n"},
+                    },
+                }
+            )
+        )
+    recording = _RecordingGateway(stdout="\n".join(messages))
+    registry = ToolRegistry()
+    rg_executable = _make_executable(tmp_path / "rg")
+    _trust_adapter_executables(monkeypatch, grep=rg_executable)
+    grep_module.register_grep(registry, tmp_path, execution_gateway=recording)
+
+    with gateway.bind_execution_context(_context("memorial-grep-global-limit")):
+        result = await registry.execute("grep", {"pattern": "needle", "limit": 1})
+
+    assert result.is_error is False
+    assert result.details == {"match_count": 1, "limit_reached": True}
+    assert "sample-0.txt" in result.content
+    assert "sample-1.txt" not in result.content
+
+
+async def test_grep_true_gateway_falls_back_only_for_unenforceable_network_deny(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "sample.txt"
+    target.write_text("needle\n", encoding="utf-8")
+    rg_executable = _make_executable(tmp_path / "rg")
+    _trust_adapter_executables(monkeypatch, grep=rg_executable)
+    registry = ToolRegistry()
+    grep_module.register_grep(
+        registry,
+        tmp_path,
+        execution_gateway=gateway.ExecutionGateway(),
+    )
+
+    async def spawn_forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("network-denied grep reached process spawn")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_forbidden)
+    with gateway.bind_execution_context(_context("memorial-grep-network-deny")):
+        result = await registry.execute("grep", {"pattern": "needle"})
+
+    assert result.is_error is False
+    assert "sample.txt:1: needle" in result.content
+    advisory = result.details["execution_advisory"]
+    assert advisory["code"] == "enforcement_unavailable"
+    assert advisory["correlation_id"] == "memorial-grep-network-deny"
+    assert advisory["receipt"]["status"] == "failed"
+
+
+async def test_grep_true_gateway_runs_when_contract_explicitly_allows_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rg_executable = _make_executable(tmp_path / "rg")
+    _trust_adapter_executables(monkeypatch, grep=rg_executable)
+    registry = ToolRegistry()
+    grep_module.register_grep(
+        registry,
+        tmp_path,
+        execution_gateway=gateway.ExecutionGateway(),
+    )
+
+    with gateway.bind_execution_context(
+        _context("memorial-grep-network-open", unrestricted_network=True)
+    ):
+        result = await registry.execute("grep", {"pattern": "needle"})
+
+    assert result.is_error is False
+    assert result.content == "No matches found."
+    assert "execution_advisory" not in (result.details or {})
+
+
+async def test_grep_python_fallback_does_not_follow_file_symlinks_outside_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("outside-secret-value\n", encoding="utf-8")
+    (workspace / "leak.txt").symlink_to(outside / "secret.txt")
+    rg_executable = _make_executable(workspace / "rg")
+    _trust_adapter_executables(monkeypatch, grep=rg_executable)
+    registry = ToolRegistry()
+    grep_module.register_grep(
+        registry,
+        workspace,
+        execution_gateway=gateway.ExecutionGateway(),
+    )
+
+    with gateway.bind_execution_context(_context("memorial-grep-symlink")):
+        result = await registry.execute("grep", {"pattern": "outside-secret-value"})
+
+    assert result.is_error is False
+    assert result.content == "No matches found."
 
 
 def test_grep_and_lsp_grants_reject_noncanonical_or_escaped_argv(tmp_path: Path) -> None:
@@ -303,6 +458,25 @@ def test_adapter_resolution_ignores_mutable_process_path(
     assert resolved is None or Path(resolved).resolve() != Path(workspace_rg).resolve()
 
 
+def test_adapter_resolution_trusts_the_active_runtime_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    runtime_bin = workspace / ".venv" / "bin"
+    runtime_bin.mkdir(parents=True)
+    runtime_python = _make_executable(runtime_bin / "python")
+    basedpyright = _make_executable(runtime_bin / "basedpyright")
+    monkeypatch.setattr(gateway.sys, "executable", runtime_python)
+    monkeypatch.setattr(gateway.sys, "prefix", str(runtime_bin.parent))
+
+    resolved = gateway.resolve_system_adapter_executable(
+        "lsp",
+        workspace_root=workspace,
+    )
+
+    assert resolved == str(Path(basedpyright).resolve())
+
+
 async def test_adapter_grant_rechecks_trusted_executable_before_spawn(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -399,6 +573,55 @@ async def test_lsp_async_core_uses_gateway_and_returns_correlated_outcome(
     assert request.command_grant is not None
     assert request.command_grant.scope == "lsp"
     assert request.command_argv == (lsp_executable, "--outputjson", str(source))
+
+
+async def test_lsp_true_gateway_reports_network_enforcement_denial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setenv("TIANSHU_LSP_ENABLED", "1")
+    lsp_executable = _make_executable(tmp_path / "basedpyright")
+    _trust_adapter_executables(monkeypatch, lsp=lsp_executable)
+
+    async def spawn_forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("network-denied LSP reached process spawn")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_forbidden)
+    with gateway.bind_execution_context(_context("memorial-lsp-network-deny")):
+        outcome = await lsp_module.run_diagnostics_async(
+            source,
+            execution_gateway=gateway.ExecutionGateway(),
+            workspace_root=tmp_path,
+        )
+
+    assert outcome.status == "denied"
+    assert outcome.correlation_id == "memorial-lsp-network-deny"
+    assert "enforcement_unavailable" in (outcome.advisory or "")
+    assert outcome.receipt is not None
+    assert outcome.receipt["status"] == "failed"
+
+
+async def test_lsp_invalid_json_shape_returns_failed_advisory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "sample.py"
+    source.write_text("x = 1\n", encoding="utf-8")
+    monkeypatch.setenv("TIANSHU_LSP_ENABLED", "1")
+    lsp_executable = _make_executable(tmp_path / "basedpyright")
+    _trust_adapter_executables(monkeypatch, lsp=lsp_executable)
+    recording = _RecordingGateway(stdout='{"generalDiagnostics":[null]}')
+
+    with gateway.bind_execution_context(_context("memorial-lsp-invalid-shape")):
+        outcome = await lsp_module.run_diagnostics_async(
+            source,
+            execution_gateway=recording,
+            workspace_root=tmp_path,
+        )
+
+    assert outcome.status == "failed"
+    assert outcome.correlation_id == "memorial-lsp-invalid-shape"
+    assert "schema" in (outcome.advisory or "")
 
 
 @pytest.mark.parametrize(

@@ -60,6 +60,36 @@ def _loose_objects(repo: Path) -> set[str]:
     }
 
 
+def _write_fake_signed_commit(repo: Path) -> str:
+    assert _TRUSTED_GIT is not None
+    tree = _raw_git(repo, "write-tree")
+    parent = _raw_git(repo, "rev-parse", "HEAD")
+    payload = (
+        f"tree {tree}\n"
+        f"parent {parent}\n"
+        "author Signed Fixture <signed@example.invalid> 1700000000 +0000\n"
+        "committer Signed Fixture <signed@example.invalid> 1700000000 +0000\n"
+        "gpgsig -----BEGIN PGP SIGNATURE-----\n"
+        " fake-signature-data\n"
+        " -----END PGP SIGNATURE-----\n"
+        "\n"
+        "fake signed fixture\n"
+    ).encode()
+    commit = (
+        subprocess.run(
+            [_TRUSTED_GIT, "hash-object", "-t", "commit", "-w", "--stdin"],
+            cwd=repo,
+            input=payload,
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    _raw_git(repo, "update-ref", "HEAD", commit, parent)
+    return commit
+
+
 def test_git_backend_module_exists() -> None:
     assert importlib.util.find_spec("tianshu.executor.git_backend") is not None
 
@@ -311,6 +341,38 @@ def test_git_backend_neutralizes_repo_controlled_secondary_processes(tmp_path: P
 
 
 @pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
+def test_git_backend_disables_repo_controlled_signature_verification(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _raw_git(repo, "init", "-q")
+    (repo / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+    _raw_git(repo, "add", "-A")
+    _raw_git(
+        repo,
+        "-c",
+        "user.name=Initial",
+        "-c",
+        "user.email=initial@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "initial",
+    )
+    signed_commit = _write_fake_signed_commit(repo)
+    sentinel = tmp_path / "signature-helper-invoked"
+    helper = tmp_path / "malicious-gpg"
+    _write_sentinel_helper(helper, sentinel)
+    _raw_git(repo, "config", "log.showSignature", "true")
+    _raw_git(repo, "config", "gpg.program", str(helper))
+    backend = GitBackend()
+    location = GitLocation(repo)
+
+    assert backend.list_log(location)
+    assert backend.commit_timestamp(location, signed_commit)
+    assert not sentinel.exists()
+
+
+@pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
 def test_git_backend_diff_uses_isolated_object_database(tmp_path: Path) -> None:
     backend = GitBackend()
     identity = GitIdentity("Diff Test", "diff@example.invalid")
@@ -397,6 +459,56 @@ def test_git_backend_batches_large_regular_file_stage(
     assert operations.count("hash_blobs") == 1
     assert operations.count("update_index_paths") == 1
     assert len(operations) <= 6
+
+
+@pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
+def test_git_backend_batches_large_worktree_materialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _raw_git(repo, "init", "-q")
+    for index in range(250):
+        (repo / f"file-{index:04d}.txt").write_text(f"content-{index}\n", encoding="utf-8")
+    _raw_git(repo, "add", "-A")
+    _raw_git(
+        repo,
+        "-c",
+        "user.name=Initial",
+        "-c",
+        "user.email=initial@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "initial",
+    )
+    backend = GitBackend()
+    original_invoke = backend._invoke
+    operations: list[str] = []
+
+    def recording_invoke(
+        operation: str,
+        invoke_location: GitLocation,
+        args: tuple[str, ...],
+        **kwargs: object,
+    ) -> Any:
+        operations.append(operation)
+        return original_invoke(operation, invoke_location, args, **kwargs)
+
+    monkeypatch.setattr(backend, "_invoke", recording_invoke)
+    destination = tmp_path / "worktree"
+
+    backend.create_branch_worktree(
+        GitLocation(repo),
+        destination,
+        branch="universe/materialized",
+        start_ref="HEAD",
+    )
+
+    assert (destination / "file-0249.txt").read_text(encoding="utf-8") == "content-249\n"
+    assert operations.count("read_blob_sizes") == 1
+    assert operations.count("read_blobs") == 1
+    assert len(operations) <= 7
 
 
 @pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
@@ -543,6 +655,30 @@ def test_git_backend_fails_closed_on_symlink_parent_escape(tmp_path: Path) -> No
         backend.stage_paths(location, ("nested/tracked.txt",))
 
     assert outside_file.read_text(encoding="utf-8") == "outside\n"
+
+
+@pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
+def test_git_backend_pins_worktree_against_repo_core_worktree_redirect(tmp_path: Path) -> None:
+    backend = GitBackend()
+    identity = GitIdentity("Path Test", "path@example.invalid")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    location = GitLocation(repo)
+    backend.init_repository(location)
+    tracked = repo / "tracked.txt"
+    tracked.write_text("inside\n", encoding="utf-8")
+    backend.stage_all(location)
+    snapshot = backend.commit(location, "base", identity=identity)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    victim = outside / "victim.txt"
+    victim.write_text("must survive\n", encoding="utf-8")
+    _raw_git(repo, "config", "core.worktree", str(outside))
+
+    backend.restore_snapshot(location, snapshot, identity=identity)
+
+    assert victim.read_text(encoding="utf-8") == "must survive\n"
+    assert tracked.read_text(encoding="utf-8") == "inside\n"
 
 
 def test_git_backend_named_repository_and_worktree_lifecycle(tmp_path: Path) -> None:

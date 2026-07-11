@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from tianshu.executor import execution_gateway as process_boundary
 from tianshu.lsp.diagnostics import (
     DiagnosticOutcome,
@@ -48,6 +50,13 @@ class TestParse:
 
     def test_no_diagnostics_key(self):
         assert parse_diagnostics('{"other": 1}') == []
+
+    @pytest.mark.parametrize(
+        "payload",
+        ("[]", '{"generalDiagnostics":"invalid"}', '{"generalDiagnostics":[null]}'),
+    )
+    def test_invalid_json_shapes_return_empty(self, payload):
+        assert parse_diagnostics(payload) == []
 
 
 class TestFormat:

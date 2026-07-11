@@ -126,12 +126,42 @@ def register_grep(
             )
             execution = await process_gateway.run(request)
         except process_boundary.ExecutionDenied as exc:
+            if exc.guard == "network" and exc.code == "enforcement_unavailable":
+                fallback = await asyncio.to_thread(
+                    _python_search,
+                    pattern,
+                    search_path,
+                    glob_pat,
+                    ignore_case,
+                    literal,
+                    context,
+                    limit,
+                )
+                receipt = exc.receipt
+                advisory: dict[str, object] = {
+                    "status": "python_fallback",
+                    "guard": exc.guard,
+                    "code": exc.code,
+                    "message": exc.detail,
+                }
+                if receipt is not None:
+                    advisory["correlation_id"] = receipt.correlation_id
+                    advisory["receipt"] = receipt.model_dump(mode="json")
+                details = dict(fallback.details or {})
+                details["execution_advisory"] = advisory
+                return ToolResult(
+                    content=fallback.content,
+                    details=details,
+                    is_error=fallback.is_error,
+                )
             return error_result(f"grep: execution denied: {exc}")
         except process_boundary.ExecutionStartError as exc:
             return error_result(f"grep: unable to start ripgrep: {exc}")
 
         if execution.receipt.status == "timed_out":
             return error_result("grep: search timed out")
+        if execution.receipt.stdout_truncated or execution.receipt.stdout_incomplete:
+            return error_result("grep: search output was incomplete; narrow the path or pattern")
         if execution.returncode not in {0, 1}:
             detail = execution.stderr.strip() or execution.error or "ripgrep failed"
             return error_result(f"grep: {detail}")
@@ -139,6 +169,8 @@ def register_grep(
         lines_out: list[str] = []
         match_count = 0
         for line in execution.stdout.splitlines():
+            if match_count >= limit:
+                break
             try:
                 msg = json.loads(line)
             except json.JSONDecodeError:
@@ -172,6 +204,7 @@ def register_grep(
         context: int,
         limit: int,
     ) -> ToolResult:
+        workspace_root = workspace.resolve()
         flags = re.IGNORECASE if ignore_case else 0
         if literal:
             compiled = re.compile(re.escape(pattern), flags)
@@ -203,6 +236,11 @@ def register_grep(
         for fp in sorted(files):
             if match_count >= limit:
                 break
+            try:
+                if fp.is_symlink() or not fp.resolve().is_relative_to(workspace_root):
+                    continue
+            except OSError:
+                continue
             try:
                 file_lines = fp.read_text(encoding="utf-8", errors="replace").splitlines()
             except (OSError, UnicodeDecodeError):

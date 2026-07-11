@@ -192,10 +192,14 @@ def _scan_source(source: str, *, path: str) -> list[Finding]:
     return scanner.findings
 
 
-def _scan_tree(source_root: Path) -> list[Finding]:
+def _scan_tree(repository_root: Path) -> list[Finding]:
     findings: list[Finding] = []
-    for path in sorted(source_root.rglob("*.py")):
-        relative = path.relative_to(source_root.parent.parent).as_posix()
+    paths = set(repository_root.glob("*.py"))
+    for source_root in (repository_root / "src" / "tianshu", repository_root / "scripts"):
+        if source_root.is_dir():
+            paths.update(source_root.rglob("*.py"))
+    for path in sorted(paths):
+        relative = path.relative_to(repository_root).as_posix()
         findings.extend(_scan_source(path.read_text(encoding="utf-8"), path=relative))
     return findings
 
@@ -242,7 +246,7 @@ _ALLOWED_LAUNCH_SITES = (
 
 def test_repository_has_only_exact_process_launch_sites() -> None:
     root = Path(__file__).resolve().parents[2]
-    findings = _scan_tree(root / "src" / "tianshu")
+    findings = _scan_tree(root)
 
     assert _gate_errors(findings, _ALLOWED_LAUNCH_SITES) == []
 
@@ -302,18 +306,21 @@ def test_scanner_rejects_star_and_dynamic_import_bypasses(source: str) -> None:
     assert "can hide a process launch" in findings[0].reason
 
 
-def test_tree_scan_includes_new_python_files(tmp_path: Path) -> None:
-    package = tmp_path / "src" / "tianshu"
-    package.mkdir(parents=True)
-    (package / "existing.py").write_text("value = 1\n", encoding="utf-8")
-    (package / "new_caller.py").write_text(
+@pytest.mark.parametrize(
+    "relative_path",
+    ("src/tianshu/new_caller.py", "scripts/new_caller.py", "new_root_caller.py"),
+)
+def test_tree_scan_includes_new_python_files(tmp_path: Path, relative_path: str) -> None:
+    target = tmp_path / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
         "import os\ndef launch():\n os.system('unsafe')\n",
         encoding="utf-8",
     )
 
-    findings = _scan_tree(package)
+    findings = _scan_tree(tmp_path)
 
-    assert [finding.site.path for finding in findings] == ["src/tianshu/new_caller.py"]
+    assert [finding.site.path for finding in findings] == [relative_path]
 
 
 def test_allowlist_is_exact_and_stale_exemptions_fail() -> None:

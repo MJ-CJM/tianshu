@@ -401,9 +401,12 @@ class GitBackend:
     def init_repository(self, location: GitLocation) -> None:
         if not location.work_tree.is_dir():
             raise ValueError(f"git work tree is not a directory: {location.work_tree}")
-        if location.git_dir is not None:
-            location.git_dir.parent.mkdir(parents=True, exist_ok=True)
-        self._invoke("init_repository", location, ("init", "-q"))
+        init_location = location
+        if location.git_dir is None:
+            init_location = GitLocation(location.work_tree, git_dir=location.work_tree / ".git")
+        assert init_location.git_dir is not None
+        init_location.git_dir.parent.mkdir(parents=True, exist_ok=True)
+        self._invoke("init_repository", init_location, ("init", "-q"))
 
     def commit_timestamp(self, location: GitLocation, sha: str) -> str:
         sha = _validate_sha(sha)
@@ -791,34 +794,54 @@ class GitBackend:
 
     def _materialize_index(self, location: GitLocation) -> None:
         entries = self._index_entries(location)
+        if len(entries) > self._stage_path_limit:
+            raise GitBackendError(
+                "materialize_index",
+                f"worktree path count exceeds {self._stage_path_limit} path limit",
+            )
         root = location.work_tree.resolve()
-        total_bytes = 0
+        materialized: list[tuple[_IndexEntry, Path]] = []
+        gitlinks: list[tuple[_IndexEntry, Path]] = []
         for entry in entries.values():
             target = self._safe_worktree_path(location, entry.path)
             if target == root / ".git":
                 raise GitBackendError("materialize_index", "refusing to replace worktree metadata")
             if entry.mode == "160000":
-                if target.is_symlink() or (target.exists() and not target.is_dir()):
-                    self._remove_path(target)
-                target.mkdir(parents=True, exist_ok=True)
+                gitlinks.append((entry, target))
                 continue
             if entry.mode not in {"100644", "100755", "120000"}:
                 raise GitBackendError("materialize_index", f"unsupported Git mode {entry.mode}")
-            size_result = self._invoke(
-                "read_blob_size",
-                location,
-                ("cat-file", "-s", entry.sha),
-                max_output_bytes=128,
-            )
+            materialized.append((entry, target))
+
+        sha_input = b"".join(entry.sha.encode("ascii") + b"\n" for entry, _ in materialized)
+        sizes_result = self._invoke(
+            "read_blob_sizes",
+            location,
+            ("cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"),
+            stdin_bytes=sha_input,
+            stdin_limit_bytes=self._stage_metadata_limit_bytes,
+            max_output_bytes=max(self._output_limit_bytes, len(materialized) * 128 + 1),
+        )
+        self._require_complete_output("read_blob_sizes", sizes_result)
+        size_lines = sizes_result.stdout.splitlines()
+        if len(size_lines) != len(materialized):
+            raise GitBackendError("read_blob_sizes", "git returned a malformed blob size batch")
+        sizes: list[int] = []
+        total_bytes = 0
+        for (entry, _target), line in zip(materialized, size_lines, strict=True):
+            fields = line.split()
             try:
-                blob_size = int(size_result.stdout.strip())
-            except ValueError as exc:
+                object_sha, object_type, raw_size = fields
+                blob_size = int(raw_size)
+            except (ValueError, TypeError) as exc:
                 raise GitBackendError(
-                    "read_blob_size", "git returned an invalid blob size"
+                    "read_blob_sizes", "git returned an invalid blob size"
                 ) from exc
+            if object_sha.lower() != entry.sha.lower() or object_type != "blob":
+                raise GitBackendError("read_blob_sizes", "git returned an unexpected object")
             if blob_size < 0 or blob_size > self._blob_limit_bytes:
                 raise GitBackendError(
-                    "read_blob_size",
+                    "read_blob_sizes",
                     f"blob exceeds {self._blob_limit_bytes} byte limit",
                 )
             if total_bytes + blob_size > self._materialization_limit_bytes:
@@ -826,26 +849,96 @@ class GitBackend:
                     "materialize_index",
                     f"worktree exceeds {self._materialization_limit_bytes} byte limit",
                 )
-            blob = self._invoke(
-                "read_blob",
-                location,
-                ("cat-file", "blob", entry.sha),
-                max_output_bytes=self._blob_limit_bytes,
-            )
-            self._require_complete_output("read_blob", blob)
-            if len(blob.stdout_bytes) != blob_size:
-                raise GitBackendError("read_blob", "blob size changed during materialization")
+            sizes.append(blob_size)
             total_bytes += blob_size
-            self._prepare_parent(root, target)
-            self._remove_path(target)
-            try:
-                if entry.mode == "120000":
-                    os.symlink(os.fsdecode(blob.stdout_bytes), target)
-                else:
-                    target.write_bytes(blob.stdout_bytes)
-                    target.chmod(0o755 if entry.mode == "100755" else 0o644)
-            except (OSError, ValueError) as exc:
-                raise GitBackendError("materialize_index", str(exc)) from exc
+
+        batches: list[list[int]] = []
+        current_batch: list[int] = []
+        current_bytes = 0
+        for index, blob_size in enumerate(sizes):
+            if current_batch and current_bytes + blob_size > self._blob_limit_bytes:
+                batches.append(current_batch)
+                current_batch = []
+                current_bytes = 0
+            current_batch.append(index)
+            current_bytes += blob_size
+        if current_batch:
+            batches.append(current_batch)
+
+        blob_locations: list[tuple[int, int] | None] = [None] * len(materialized)
+        with tempfile.TemporaryFile() as blob_store:
+            for batch in batches:
+                batch_input = b"".join(
+                    materialized[index][0].sha.encode("ascii") + b"\n" for index in batch
+                )
+                batch_bytes = sum(sizes[index] for index in batch)
+                blobs_result = self._invoke(
+                    "read_blobs",
+                    location,
+                    ("cat-file", "--batch"),
+                    stdin_bytes=batch_input,
+                    stdin_limit_bytes=self._stage_metadata_limit_bytes,
+                    max_output_bytes=max(
+                        self._output_limit_bytes,
+                        batch_bytes + len(batch) * 128 + 1,
+                    ),
+                )
+                self._require_complete_output("read_blobs", blobs_result)
+                offset = 0
+                payload = blobs_result.stdout_bytes
+                for index in batch:
+                    entry = materialized[index][0]
+                    blob_size = sizes[index]
+                    header_end = payload.find(b"\n", offset, offset + 129)
+                    if header_end < 0:
+                        raise GitBackendError("read_blobs", "git returned a malformed blob header")
+                    try:
+                        raw_sha, object_type, raw_size = payload[offset:header_end].split()
+                        header_size = int(raw_size)
+                    except (ValueError, TypeError) as exc:
+                        raise GitBackendError(
+                            "read_blobs", "git returned a malformed blob header"
+                        ) from exc
+                    content_start = header_end + 1
+                    content_end = content_start + blob_size
+                    if (
+                        raw_sha.lower() != entry.sha.encode("ascii").lower()
+                        or object_type != b"blob"
+                        or header_size != blob_size
+                        or content_end >= len(payload)
+                        or payload[content_end : content_end + 1] != b"\n"
+                    ):
+                        raise GitBackendError("read_blobs", "git returned malformed blob content")
+                    store_offset = blob_store.tell()
+                    blob_store.write(payload[content_start:content_end])
+                    blob_locations[index] = (store_offset, blob_size)
+                    offset = content_end + 1
+                if offset != len(payload):
+                    raise GitBackendError("read_blobs", "git returned trailing blob content")
+
+            for _entry, target in gitlinks:
+                if target.is_symlink() or (target.exists() and not target.is_dir()):
+                    self._remove_path(target)
+                target.mkdir(parents=True, exist_ok=True)
+            for index, (entry, target) in enumerate(materialized):
+                blob_location = blob_locations[index]
+                if blob_location is None:
+                    raise GitBackendError("read_blobs", "blob content was not materialized")
+                store_offset, blob_size = blob_location
+                blob_store.seek(store_offset)
+                blob = blob_store.read(blob_size)
+                if len(blob) != blob_size:
+                    raise GitBackendError("read_blobs", "blob spool was truncated")
+                self._prepare_parent(root, target)
+                self._remove_path(target)
+                try:
+                    if entry.mode == "120000":
+                        os.symlink(os.fsdecode(blob), target)
+                    else:
+                        target.write_bytes(blob)
+                        target.chmod(0o755 if entry.mode == "100755" else 0o644)
+                except (OSError, ValueError) as exc:
+                    raise GitBackendError("materialize_index", str(exc)) from exc
 
     def _require_complete_output(self, operation: str, result: _InvocationResult) -> None:
         if result.output_truncated:
@@ -932,6 +1025,8 @@ class GitBackend:
             "-c",
             "tag.gpgSign=false",
             "-c",
+            "log.showSignature=false",
+            "-c",
             "gc.auto=0",
             "-c",
             "maintenance.auto=false",
@@ -939,7 +1034,8 @@ class GitBackend:
             "submodule.recurse=false",
         ]
         if location.git_dir is not None:
-            command.extend((f"--git-dir={location.git_dir}", f"--work-tree={location.work_tree}"))
+            command.append(f"--git-dir={location.git_dir}")
+        command.append(f"--work-tree={location.work_tree}")
         command.extend(args)
 
         env = build_clean_env("", base_env=dict(os.environ))
