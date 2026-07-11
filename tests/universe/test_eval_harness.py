@@ -268,6 +268,58 @@ async def test_goal_polling_ignores_host_proxy_environment_and_redirects(monkeyp
     assert captured["follow_redirects"] is False
 
 
+@pytest.mark.asyncio
+async def test_goal_polling_does_not_issue_get_after_deadline_expires_during_sleep(
+    monkeypatch,
+) -> None:
+    clock = 0.0
+    get_calls = 0
+
+    class _Loop:
+        def time(self) -> float:
+            return clock
+
+    async def advance_clock(delay: float) -> None:
+        nonlocal clock
+        clock += delay
+
+    class _Response:
+        def __init__(self, payload: dict) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return self._payload
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return _Response({"data": {"id": "edict-id"}})
+
+        async def get(self, *_args, **_kwargs):
+            nonlocal get_calls
+            get_calls += 1
+            return _Response({"data": {"status": "completed"}})
+
+    monkeypatch.setattr("tianshu.universe.eval_harness.asyncio.get_running_loop", _Loop)
+    monkeypatch.setattr("tianshu.universe.eval_harness.asyncio.sleep", advance_clock)
+    monkeypatch.setattr(
+        "tianshu.universe.eval_harness.httpx.AsyncClient",
+        lambda **_kwargs: _Client(),
+    )
+
+    await EvalHarness(None, None)._run_goal("http://127.0.0.1:1", "goal", 1)
+
+    assert get_calls == 0
+
+
 def test_evaluate_orchestration_with_fakes(tmp_path, tmp_storage, monkeypatch):
     """evaluate() 应：调用 _run_goal、调 aggregate_db_stats、返回 {fitness, stats, n}。
 

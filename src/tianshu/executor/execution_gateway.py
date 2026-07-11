@@ -847,6 +847,14 @@ class ExecutionStartError(RuntimeError):
         super().__init__(detail)
 
 
+class ExecutionStartCancelled(asyncio.CancelledError):
+    """Cancellation after the gateway entered the structured spawn boundary."""
+
+    def __init__(self, receipt: ExecutionReceipt) -> None:
+        self.receipt = receipt
+        super().__init__("execution start cancelled")
+
+
 class ExecutionGuard(Protocol):
     name: str
 
@@ -854,6 +862,13 @@ class ExecutionGuard(Protocol):
 
 
 class ProcessBackend(Protocol):
+    """A process backend with an explicit ownership handoff.
+
+    Backends must call ``on_spawned`` exactly once, immediately after a process
+    exists and before any further await. If cancellation arrives before that
+    handoff, the backend remains responsible for proving that no process exists.
+    """
+
     backend_id: str
     supports_sandbox: bool
     supports_network_enforcement: bool
@@ -867,6 +882,41 @@ class SpawnedProcess:
     backend_id: str
     network_enforced: bool
     sandbox_enforced: bool
+
+
+class _SpawnOwnership:
+    def __init__(self) -> None:
+        self._published: list[SpawnedProcess] = []
+
+    @property
+    def processes(self) -> tuple[SpawnedProcess, ...]:
+        return tuple(self._published)
+
+    @property
+    def primary(self) -> SpawnedProcess | None:
+        return self._published[0] if self._published else None
+
+    def publish(self, spawned: SpawnedProcess) -> None:
+        if not isinstance(spawned, SpawnedProcess):
+            raise TypeError("process backend published an invalid ownership record")
+        self._published.append(spawned)
+        if len(self._published) != 1:
+            raise RuntimeError("process backend published ownership more than once")
+
+    def accept_return(self, spawned: SpawnedProcess) -> None:
+        if not isinstance(spawned, SpawnedProcess):
+            raise TypeError("process backend returned an invalid ownership record")
+        if not self._published:
+            self._published.append(spawned)
+            return
+        published = self._published[0]
+        if published is spawned:
+            return
+        if published.process is spawned.process:
+            self._published[0] = spawned
+            return
+        self._published.append(spawned)
+        raise RuntimeError("process backend returned a different process than it published")
 
 
 class AsyncioProcessBackend:
@@ -885,22 +935,40 @@ class AsyncioProcessBackend:
         network: NetworkPolicy,
         sandbox: SandboxRequirement,
         stdin_mode: Literal["null", "pipe"],
+        on_spawned: Callable[[SpawnedProcess], None],
     ) -> SpawnedProcess:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            cwd=str(cwd),
-            env=env,
-            stdin=(asyncio.subprocess.PIPE if stdin_mode == "pipe" else asyncio.subprocess.DEVNULL),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=os.name != "nt",
+        creation = asyncio.create_task(
+            asyncio.create_subprocess_exec(
+                *argv,
+                cwd=str(cwd),
+                env=env,
+                stdin=(
+                    asyncio.subprocess.PIPE if stdin_mode == "pipe" else asyncio.subprocess.DEVNULL
+                ),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=os.name != "nt",
+            ),
+            name="execution-process-acquisition",
         )
-        return SpawnedProcess(
+        cancellation: asyncio.CancelledError | None = None
+        while True:
+            try:
+                process = await asyncio.shield(creation)
+                break
+            except asyncio.CancelledError as exc:
+                cancellation = exc
+                continue
+        spawned = SpawnedProcess(
             process=process,
             backend_id=self.backend_id,
             network_enforced=False,
             sandbox_enforced=False,
         )
+        on_spawned(spawned)
+        if cancellation is not None:
+            raise cancellation
+        return spawned
 
 
 @dataclass(frozen=True)
@@ -1376,18 +1444,40 @@ class ExecutionGateway:
                     started_monotonic=started_monotonic,
                 ),
             ) from None
-        try:
-            spawned = await self._backend.spawn(
+        ownership = _SpawnOwnership()
+        spawn_task = asyncio.create_task(
+            self._backend.spawn(
                 argv=request.command_argv,
                 cwd=cwd,
                 env=env,
                 network=request.network,
                 sandbox=request.sandbox,
                 stdin_mode=request.stdin_mode,
-            )
+                on_spawned=ownership.publish,
+            ),
+            name=f"execution-spawn-{request.execution_id}",
+        )
+        try:
+            spawned = await asyncio.shield(spawn_task)
+            ownership.accept_return(spawned)
         except asyncio.CancelledError:
-            raise
+            await self._cancel_spawn_acquisition(spawn_task, ownership)
+            acquired = ownership.primary
+            receipt = self._start_failure_receipt(
+                request=request,
+                env_keys=tuple(sorted(env)),
+                secret_refs=secret_refs,
+                advisory_gaps=(*built_in_gaps, *custom_gaps),
+                started_at=started_at,
+                started_monotonic=started_monotonic,
+                backend_id=(acquired.backend_id if acquired is not None else None),
+                sandbox_enforced=(acquired.sandbox_enforced if acquired is not None else False),
+                network_enforced=(acquired.network_enforced if acquired is not None else False),
+                status="cancelled",
+            )
+            raise ExecutionStartCancelled(receipt) from None
         except Exception as exc:
+            await self._terminate_owned_processes(ownership)
             detail = self._redact_exception(str(exc), secret_values)
             raise ExecutionStartError(
                 detail,
@@ -1496,6 +1586,7 @@ class ExecutionGateway:
         backend_id: str | None = None,
         sandbox_enforced: bool = False,
         network_enforced: bool = False,
+        status: Literal["failed", "cancelled"] = "failed",
     ) -> ExecutionReceipt:
         finished_at = datetime.now(UTC)
         return ExecutionReceipt(
@@ -1522,7 +1613,7 @@ class ExecutionGateway:
             sandbox_enforced=sandbox_enforced,
             backend_id=backend_id or str(getattr(self._backend, "backend_id", "unknown")),
             network_enforced=network_enforced,
-            status="failed",
+            status=status,
             started_at=started_at,
             finished_at=finished_at,
             duration_ms=int((time.monotonic() - started_monotonic) * 1000),
@@ -1534,6 +1625,38 @@ class ExecutionGateway:
             stderr_truncated=False,
             advisory_gaps=advisory_gaps,
         )
+
+    async def _cancel_spawn_acquisition(
+        self,
+        spawn_task: asyncio.Task[SpawnedProcess],
+        ownership: _SpawnOwnership,
+    ) -> None:
+        if not spawn_task.done():
+            spawn_task.cancel()
+        while not spawn_task.done():
+            try:
+                await asyncio.shield(spawn_task)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if spawn_task.done() and not spawn_task.cancelled() and spawn_task.exception() is None:
+            with suppress(TypeError, RuntimeError):
+                ownership.accept_return(spawn_task.result())
+        await self._terminate_owned_processes(ownership)
+
+    async def _terminate_owned_processes(self, ownership: _SpawnOwnership) -> None:
+        terminated: set[int] = set()
+        for spawned in ownership.processes:
+            process_group_id = spawned.process.pid
+            if process_group_id in terminated:
+                continue
+            terminated.add(process_group_id)
+            await _terminate_process_tree(
+                spawned.process,
+                process_group_id=process_group_id,
+                grace_seconds=self._termination_grace_seconds,
+            )
 
     def _validate_built_in_guards(
         self,
@@ -1917,6 +2040,7 @@ __all__ = [
     "ExecutionReceipt",
     "ExecutionRequest",
     "ExecutionResult",
+    "ExecutionStartCancelled",
     "ExecutionStartError",
     "GuardDecision",
     "GuardGap",

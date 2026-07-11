@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import signal
 import sys
@@ -22,8 +23,10 @@ from tianshu.executor.execution_gateway import (
     ExecutionContext,
     ExecutionGateway,
     ExecutionRequest,
+    ExecutionStartError,
     NetworkPolicy,
     SandboxRequirement,
+    SpawnedProcess,
     _issue_tool_argv_grant,
     _issue_tool_policy_decision,
     bind_execution_context,
@@ -354,6 +357,61 @@ async def test_deadline_kills_descendant_after_process_group_leader_exits(
     assert result.receipt.status == "timed_out"
     child_pid = int(child_pid_file.read_text())
     await _assert_pid_gone(child_pid)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_spawn_publication_fails_closed_and_reaps_process(
+    tmp_path,
+    effective_contract,
+):
+    class _DuplicatePublishBackend:
+        backend_id = "duplicate-publish"
+        supports_sandbox = False
+        supports_network_enforcement = False
+
+        def __init__(self) -> None:
+            self.process: asyncio.subprocess.Process | None = None
+
+        async def spawn(self, **kwargs):
+            self.process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                "import time;time.sleep(60)",
+                cwd=kwargs["cwd"],
+                env=kwargs["env"],
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
+            spawned = SpawnedProcess(
+                process=self.process,
+                backend_id=self.backend_id,
+                network_enforced=False,
+                sandbox_enforced=False,
+            )
+            kwargs["on_spawned"](spawned)
+            kwargs["on_spawned"](spawned)
+            return spawned
+
+    backend = _DuplicatePublishBackend()
+    argv = (sys.executable, "-c", "pass")
+    try:
+        with pytest.raises(ExecutionStartError) as error:
+            await ExecutionGateway(
+                backend=backend,
+                termination_grace_seconds=0.1,
+            ).start(_request(tmp_path, effective_contract, argv))
+
+        assert error.value.receipt.status == "failed"
+        assert backend.process is not None
+        assert backend.process.returncode is not None
+    finally:
+        if backend.process is not None and backend.process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(backend.process.pid, signal.SIGKILL)
+            with contextlib.suppress(ProcessLookupError, TimeoutError):
+                await asyncio.wait_for(backend.process.wait(), timeout=1)
 
 
 async def _wait_for_file(path: Path) -> None:

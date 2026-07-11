@@ -416,6 +416,9 @@ class EvalHarness:
             deadline = loop.time() + timeout_s
             while (remaining := deadline - loop.time()) > 0:
                 await asyncio.sleep(min(2.0, remaining))
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
                 try:
                     response = await client.get(memorial_url, timeout=min(10.0, remaining))
                     response.raise_for_status()

@@ -165,7 +165,10 @@ class SandboxRunner:
         self._starting.add(task)
         try:
             return await self._start(worktree, db_path=db_path, extra_env=extra_env)
-        except BaseException:
+        except BaseException as exc:
+            receipt = getattr(exc, "receipt", None)
+            if isinstance(receipt, ExecutionReceipt):
+                self.last_receipt = receipt
             try:
                 self._remove_database_files(Path(db_path))
             except OSError:

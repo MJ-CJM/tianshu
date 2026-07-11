@@ -41,6 +41,10 @@ import pytest
             "隔离子进程 + 隔离 DB 副本 + `EVAL_MODE` 副作用围栏 + 资源闸",
         ),
         ("docs/design/universe/eval.md", "# 隔离子进程拉起变体"),
+        ("docs/ops/eval-harness.md", "沙箱内存被闸"),
+        ("docs/impl/universe/README.md", "隔离子进程拉起 + 健康检查 + 销毁"),
+        ("docs/design/universe/code-variant.md", "完全隔离的 DB 副本"),
+        ("docs/design/universe/code-variant.md", "绝不碰生产 DB"),
     ],
 )
 def test_docs_do_not_claim_unenforced_resource_isolation(
@@ -51,3 +55,24 @@ def test_docs_do_not_claim_unenforced_resource_isolation(
     text = (repo_root / relative_path).read_text(encoding="utf-8")
 
     assert misleading_claim not in text
+
+
+def test_current_universe_docs_state_the_enforced_runtime_boundary() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    documents = {
+        relative_path: (repo_root / relative_path).read_text(encoding="utf-8")
+        for relative_path in (
+            "docs/ops/eval-harness.md",
+            "docs/impl/universe/README.md",
+            "docs/design/universe/code-variant.md",
+        )
+    }
+    compacted = {path: "".join(text.split()) for path, text in documents.items()}
+
+    for text in documents.values():
+        assert "trusted-local" in text
+        assert "wall timeout" in text
+        assert "进程组" in text
+    assert "不提供可证明的内存、CPU、文件系统或网络" in compacted["docs/ops/eval-harness.md"]
+    assert "不提供内存、CPU、文件系统或网络强隔离" in compacted["docs/impl/universe/README.md"]
+    assert "仍不能阻止变体访问宿主资源" in compacted["docs/design/universe/code-variant.md"]

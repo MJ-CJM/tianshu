@@ -6,11 +6,12 @@ import asyncio
 import contextlib
 import os
 import signal
+import sys
 from pathlib import Path
 
 import pytest
 
-from tianshu.executor.execution_gateway import ExecutionGateway
+from tianshu.executor.execution_gateway import ExecutionGateway, SpawnedProcess
 from tianshu.universe.execution import UniverseExecutionContextFactory
 from tianshu.universe.sandbox import SandboxError, SandboxRunner
 
@@ -337,3 +338,81 @@ async def test_stop_and_start_failure_remove_sqlite_sidecars(
     with pytest.raises(SandboxError):
         await failed_runner.start(worktree, db_path=failed_db)
     assert all(not path.exists() for path in failed_sidecars)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_reaps_process_published_before_backend_returns(
+    tmp_path: Path,
+) -> None:
+    class _PublishedThenBlockedBackend:
+        backend_id = "published-then-blocked"
+        supports_sandbox = False
+        supports_network_enforcement = False
+
+        def __init__(self) -> None:
+            self.published = asyncio.Event()
+            self.spawn_call_settled = asyncio.Event()
+            self.process: asyncio.subprocess.Process | None = None
+
+        async def spawn(self, **kwargs):
+            self.process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                "import time;time.sleep(60)",
+                cwd=kwargs["cwd"],
+                env=kwargs["env"],
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
+            )
+            spawned = SpawnedProcess(
+                process=self.process,
+                backend_id=self.backend_id,
+                network_enforced=False,
+                sandbox_enforced=False,
+            )
+            on_spawned = kwargs.get("on_spawned")
+            if on_spawned is not None:
+                on_spawned(spawned)
+            self.published.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                self.spawn_call_settled.set()
+            return spawned
+
+    backend = _PublishedThenBlockedBackend()
+    gateway = ExecutionGateway(backend=backend, termination_grace_seconds=0.1)
+    runner = SandboxRunner(
+        gateway,
+        context_factory=UniverseExecutionContextFactory(security_mode="trusted-local"),
+        startup_timeout_s=1,
+        runtime_timeout_s=5,
+    )
+    worktree = _worktree(tmp_path)
+    db = tmp_path / "cancelled-acquisition.db"
+    db.write_text("temporary")
+    start_task = asyncio.create_task(runner.start(worktree, db_path=db))
+    try:
+        await asyncio.wait_for(backend.published.wait(), timeout=5)
+        assert backend.process is not None
+        await asyncio.wait_for(runner.shutdown(), timeout=1)
+
+        with pytest.raises(asyncio.CancelledError) as cancelled:
+            await start_task
+        assert getattr(cancelled.value, "receipt", None) is not None
+        assert cancelled.value.receipt.status == "cancelled"
+        assert runner.last_receipt is cancelled.value.receipt
+        assert backend.spawn_call_settled.is_set()
+        assert not db.exists()
+        await _assert_group_gone(backend.process.pid)
+    finally:
+        if not start_task.done():
+            start_task.cancel()
+            await asyncio.gather(start_task, return_exceptions=True)
+        if backend.process is not None:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(backend.process.pid, signal.SIGKILL)
+            with contextlib.suppress(ProcessLookupError, TimeoutError):
+                await asyncio.wait_for(backend.process.wait(), timeout=1)

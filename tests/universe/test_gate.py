@@ -111,3 +111,21 @@ async def test_gate_cancellation_reaps_test_process_group(tmp_path: Path):
         await asyncio.sleep(0.01)
     else:
         pytest.fail(f"gate process group {process_group_id} survived cancellation")
+
+
+@pytest.mark.asyncio
+async def test_secure_remote_gate_denial_retains_terminal_receipt(tmp_path: Path) -> None:
+    gate = Gate(
+        ExecutionGateway(),
+        context_factory=UniverseExecutionContextFactory(security_mode="secure-remote"),
+        timeout_s=10,
+    )
+
+    result = await gate.run_async(_make_worktree(tmp_path), run_tests=False)
+
+    assert result.passed is False
+    assert result.stage == "static"
+    assert len(result.receipts) == 1
+    assert result.receipts[0].status == "failed"
+    assert gate.last_receipts == result.receipts
+    assert "sandbox" in result.detail

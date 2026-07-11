@@ -14,6 +14,7 @@ from tianshu.executor.execution_gateway import (
     ArgvCommand,
     EnvironmentPolicy,
     EnvironmentValue,
+    ExecutionDenied,
     ExecutionGateway,
     ExecutionReceipt,
     ExecutionRequest,
@@ -126,6 +127,13 @@ class Gate:
             try:
                 execution = await self.execution_gateway.run(request)
             except ExecutionStartError as exc:
+                receipts.append(exc.receipt)
+                result = GateResult(False, stage, _tail(str(exc)), tuple(receipts))
+                self.last_receipts = result.receipts
+                return result
+            except ExecutionDenied as exc:
+                if exc.receipt is None:
+                    raise
                 receipts.append(exc.receipt)
                 result = GateResult(False, stage, _tail(str(exc)), tuple(receipts))
                 self.last_receipts = result.receipts

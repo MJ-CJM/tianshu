@@ -31,7 +31,7 @@
 branch_code_variant   起 worktree + 分支 universe/<id>
 code_mutator.mutate   LLM 在 worktree 内改一个文件并 commit
 Gate.run              ① compileall  ② import tianshu  ③ pytest -q   （fail-fast）
-EvalHarness.evaluate  起隔离沙箱 → 逐条回放历史 goal → 轮询至终态 → 聚合打分
+EvalHarness.evaluate  起受管评估进程 → 逐条回放历史 goal → 轮询至终态 → 聚合打分
 save_variant_eval_run 落 variant_eval_runs 表
 ```
 
@@ -107,7 +107,7 @@ PYTHONPATH=$PWD/src .venv/bin/python -m pytest -q
 
 `success_rate` 掉 = 变体让本来跑通的历史 goal 跑挂了。逐条对比：同一 goal 在冠军沙箱 vs 变体沙箱的 memorial 终态差异。`samples` 比 `code_variant_eval_set_size` 小，通常是历史已完成诏令不够。
 
-### 4.3 沙箱内存被闸
+### 4.3 受管评估进程的资源边界
 
 `trusted-local` 的显式宿主回退不宣称内存或强沙箱隔离；执行收据会记录该能力缺口。
 `secure-remote` 在没有可证明隔离的后端时直接拒绝启动，不会静默回退宿主。
