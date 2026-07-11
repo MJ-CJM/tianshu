@@ -140,11 +140,7 @@ class ExecutorAdapterRegistry:
             or effective.executor_manifest_hash != manifest.content_hash
         ):
             raise ValueError("persisted effective contract has executor manifest drift")
-        if (
-            effective.runtime_probe_id != probe.probe_id
-            or effective.runtime_probe_hash is None
-            or effective.runtime_probe_hash != probe.content_hash
-        ):
+        if effective.runtime_probe_id != probe.semantic_id:
             raise ValueError("persisted effective contract has host capability probe drift")
         prepared = adapter.prepare(
             effective,

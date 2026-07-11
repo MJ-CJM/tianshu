@@ -150,7 +150,28 @@ def test_host_probe_intersection_can_only_reduce_manifest_truth() -> None:
     assert effective.state("network_control") == "unsupported"
     assert effective.unsupported_advisory == ("network_control",)
     assert effective.degradations[0].capability == "network_control"
-    assert effective.runtime_probe_id == "probe-test"
+    assert effective.runtime_probe_id == probe.semantic_id
+
+
+def test_host_probe_semantic_id_ignores_label_but_changes_with_semantics() -> None:
+    left = _probe()
+    relabeled = left.model_copy(update={"probe_id": "another-label"})
+    changed = left.model_copy(
+        update={
+            "overrides": (
+                CapabilityDeclarationV1(
+                    capability="workspace_control",
+                    state="unsupported",
+                    evidence=("changed",),
+                ),
+            )
+        }
+    )
+
+    assert left.semantic_id == relabeled.semantic_id
+    assert left.semantic_id != changed.semantic_id
+    effective = resolve_governance_contract(_requested(), native_manifest(), left)
+    assert effective.runtime_probe_id == left.semantic_id
 
 
 def test_advisory_gap_is_visible_without_blocking_resolution() -> None:

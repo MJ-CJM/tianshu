@@ -294,7 +294,6 @@ class EffectiveGovernanceContractV1(CanonicalContractModel):
     executor_manifest_version: str = Field(min_length=1)
     executor_manifest_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     runtime_probe_id: str = Field(min_length=1)
-    runtime_probe_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     effective_controls: tuple[CapabilityResolutionV1, ...]
     unsupported_advisory: tuple[CapabilityId, ...] = ()
     degradations: tuple[CapabilityDegradationV1, ...] = ()

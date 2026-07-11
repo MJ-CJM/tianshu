@@ -238,7 +238,6 @@ export interface GovernanceEffectiveContract {
   executor_manifest_id: string;
   executor_manifest_version: string;
   runtime_probe_id: string;
-  runtime_probe_hash?: string | null;
   effective_controls: GovernanceEffectiveControl[];
   unsupported_advisory: string[];
 }

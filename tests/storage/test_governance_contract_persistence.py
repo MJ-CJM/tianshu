@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from pathlib import Path
 
+import pytest
+
+from tianshu.executor.adapters import DelegatingExecutorAdapter, ExecutorAdapterRegistry
 from tianshu.executor.capabilities import (
     CapabilityDeclarationV1,
     HostCapabilityProbeV1,
@@ -13,6 +18,7 @@ from tianshu.executor.capabilities import (
 from tianshu.models import Edict, Memorial
 from tianshu.models.edict import EdictRuntime
 from tianshu.models.governance_contract import (
+    EffectiveGovernanceContractV1,
     LegacyEdictGovernanceMapper,
     RequestedGovernanceContractV1,
 )
@@ -21,6 +27,7 @@ from tianshu.storage.migrations import MIGRATIONS, run_migrations
 
 _V1_CHECKSUM = "9672603c12dd858ea714b291d6ed94f1a27cb373bfcff97665b6316b4aa552a6"
 _V2_CHECKSUM = "a2bbf753e0c3244fccc86be2d4588af2c926399f6dfa0dba0af5d0c060179c5a"
+_FIXTURE_DIR = Path(__file__).parents[1] / "fixtures" / "governance"
 
 
 def _probe(probe_id: str, network_state: str = "best_effort") -> HostCapabilityProbeV1:
@@ -111,16 +118,89 @@ def test_effective_contract_is_stored_per_memorial_not_globally(storage) -> None
 
     loaded_first = storage.get_memorial(first.id)
     loaded_second = storage.get_memorial(second.id)
-    assert loaded_first.effective_governance_contract.runtime_probe_id == "probe-one"
-    assert loaded_second.effective_governance_contract.runtime_probe_id == "probe-two"
     assert (
-        loaded_first.effective_governance_contract.runtime_probe_hash
-        == _probe("probe-one", "best_effort").content_hash
+        loaded_first.effective_governance_contract.runtime_probe_id
+        == _probe("probe-one", "best_effort").semantic_id
+    )
+    assert (
+        loaded_second.effective_governance_contract.runtime_probe_id
+        == _probe("probe-two", "unsupported").semantic_id
     )
     assert loaded_first.effective_governance_contract.content_hash != (
         loaded_second.effective_governance_contract.content_hash
     )
     assert storage.get_edict(edict.id).governance_contract == contract
+
+
+def test_effective_v1_from_2e76851_keeps_its_canonical_json_and_hash(storage) -> None:
+    raw = (_FIXTURE_DIR / "effective_v1_2e76851.json").read_text().strip()
+    expected_hash = (_FIXTURE_DIR / "effective_v1_2e76851.sha256").read_text().strip()
+    legacy_effective = EffectiveGovernanceContractV1.model_validate_json(raw)
+
+    assert legacy_effective.canonical_json() == raw
+    assert legacy_effective.content_hash == expected_hash
+
+    requested = LegacyEdictGovernanceMapper.from_edict(
+        Edict(goal="legacy effective fixture"),
+        default_workspace_id="workspace-main",
+    )
+    edict = Edict(goal="legacy effective fixture", governance_contract=requested)
+    storage.save_edict(edict)
+    memorial = Memorial(edict_id=edict.id)
+    storage.save_memorial(memorial)
+    data = json.loads(raw)
+    with storage._lock, storage._conn:  # noqa: SLF001 - compatibility fixture insertion
+        storage._conn.execute(  # noqa: SLF001
+            """
+            INSERT INTO effective_governance_contracts
+                (memorial_id, edict_id, schema_version, requested_contract_hash,
+                 contract_json, contract_hash, executor_manifest_id,
+                 executor_manifest_version, executor_manifest_hash, runtime_probe_id,
+                 created_at)
+            VALUES (?, ?, '1', ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                memorial.id,
+                edict.id,
+                data["requested_contract_hash"],
+                raw,
+                expected_hash,
+                data["executor_manifest_id"],
+                data["executor_manifest_version"],
+                data["executor_manifest_hash"],
+                data["runtime_probe_id"],
+                "2026-07-11T00:00:00+00:00",
+            ),
+        )
+
+    assert storage.get_memorial(memorial.id).effective_governance_contract is not None
+    assert storage.list_memorials_by_edict(edict.id)[0].effective_governance_contract is not None
+
+    legacy_probe = HostCapabilityProbeV1(
+        probe_id="probe-legacy",
+        os_name="test-os",
+        architecture="test-arch",
+        git_available=True,
+        process_groups_available=True,
+        sandbox_backend=None,
+    )
+    registry = ExecutorAdapterRegistry(
+        (
+            DelegatingExecutorAdapter(
+                adapter_id="native",
+                manifest=native_manifest(),
+                delegate=object(),
+                probe_factory=lambda: legacy_probe,
+            ),
+        )
+    )
+    with pytest.raises(ValueError, match="probe drift"):
+        registry.bind_effective(
+            legacy_effective,
+            run_id=memorial.id,
+            instruction="legacy effective fixture",
+            execution_mode="single",
+        )
 
 
 def test_v3_backfills_legacy_rows_created_at_v2() -> None:

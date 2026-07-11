@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import platform
 import shutil
 from enum import StrEnum
@@ -118,6 +120,22 @@ class HostCapabilityProbeV1(CanonicalContractModel):
             (entry for entry in self.overrides if entry.capability == capability),
             None,
         )
+
+    @property
+    def semantic_id(self) -> str:
+        payload = self.model_dump(mode="json", exclude={"probe_id"})
+        canonical = json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        return hashlib.sha256(canonical.encode()).hexdigest()
+
+    @property
+    def semantic_hash(self) -> str:
+        return self.semantic_id
 
 
 class CapabilityMismatchV1(CanonicalContractModel):
@@ -237,8 +255,7 @@ def resolve_governance_contract(
         executor_manifest_id=manifest.manifest_id,
         executor_manifest_version=manifest.manifest_version,
         executor_manifest_hash=manifest.content_hash,
-        runtime_probe_id=probe.probe_id,
-        runtime_probe_hash=probe.content_hash,
+        runtime_probe_id=probe.semantic_id,
         effective_controls=tuple(controls),
         unsupported_advisory=tuple(advisory_gaps),
         degradations=tuple(degradations),
@@ -387,8 +404,6 @@ def probe_host_capabilities() -> HostCapabilityProbeV1:
     fingerprint = (
         f"{platform.system()}:{platform.machine()}:{int(git_available)}:{sandbox or 'none'}"
     )
-    import hashlib
-
     probe_id = "host-" + hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
     return HostCapabilityProbeV1(
         probe_id=probe_id,
