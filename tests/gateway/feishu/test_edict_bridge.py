@@ -10,6 +10,7 @@ from tianshu.bus.event_bus import EventBus
 from tianshu.gateway.core.edict_bridge import EdictBridge, EdictBusyError
 from tianshu.gateway.core.session_anchor import SessionAnchor
 from tianshu.models.common import EdictStatus, TaskStatus
+from tianshu.models.memorial import Memorial
 
 
 @pytest.fixture
@@ -43,6 +44,8 @@ async def test_create_new_when_no_anchor(bridge, storage):
     edict = storage.get_edict(result.edict_id)
     assert edict is not None
     assert edict.goal == "帮我查最近 3 天天气"
+    assert edict.governance_contract is not None
+    assert edict.governance_contract.workspace.source_id == "workspace-main"
     assert edict.metadata.get("chat_id") == "oc_x"
     assert edict.metadata.get("feishu_user") == "ou_a"
     assert anchor.get("oc_x") == result.edict_id
@@ -85,13 +88,25 @@ async def test_continue_or_create_with_active_anchor_follow_up(bridge, storage):
     for m in memorials:
         m.status = TaskStatus.COMPLETED
         storage.update_memorial(m)
+    storage.save_memorial(
+        Memorial(
+            edict_id=r1.edict_id,
+            instruction="DAG child",
+            status=TaskStatus.COMPLETED,
+            dag_node_id="child",
+            parent_memorial_id=r1.memorial_id,
+        )
+    )
     r2 = await b.continue_or_create(chat_id="oc_x", sender_open_id="ou_a", text="more")
     assert r2.edict_id == r1.edict_id
     assert r2.memorial_id != r1.memorial_id
     assert anchor.get("oc_x") == r1.edict_id
     # follow_up 会再加一个 SUBMITTED memorial
     memorials = storage.list_memorials_by_edict(r1.edict_id)
-    assert any(m.status == TaskStatus.SUBMITTED and m.instruction == "more" for m in memorials)
+    follow_up = next(
+        m for m in memorials if m.status == TaskStatus.SUBMITTED and m.instruction == "more"
+    )
+    assert follow_up.parent_memorial_id == r1.memorial_id
 
 
 @pytest.mark.asyncio

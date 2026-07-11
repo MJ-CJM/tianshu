@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -74,7 +75,7 @@ async def test_mandatory_mismatch_blocks_before_agent_invocation(
     storage,
     agent,
 ) -> None:
-    edict = _edict_with_capabilities(mandatory=("pre_run_restore_point",))
+    edict = _edict_with_capabilities(mandatory=("governed_apply_merge",))
     storage.save_edict(edict)
 
     await executor.execute_edict(storage.get_edict(edict.id))
@@ -83,7 +84,7 @@ async def test_mandatory_mismatch_blocks_before_agent_invocation(
     memorial = storage.get_memorial_by_edict(edict.id)
     assert memorial is not None
     assert memorial.status is TaskStatus.FAILED
-    assert "pre_run_restore_point=unsupported" in memorial.error
+    assert "governed_apply_merge=unsupported" in memorial.error
     assert memorial.effective_governance_contract is None
 
 
@@ -248,6 +249,11 @@ async def test_dag_retry_reuses_governed_prepared_executor(
     plan = Plan(tasks=[PlanTask(task_id="one", description="one")])
     await executor._execute_dag(storage.get_edict(edict.id), plan)  # noqa: SLF001
     execution = storage.get_dag_by_edict(edict.id)
+    root = storage.get_memorial(execution.root_memorial_id)
+    root.status = TaskStatus.FAILED
+    root.error = "retry"
+    root.completed_at = datetime.now(UTC)
+    storage.update_memorial(root)
     storage.update_dag_node_status(execution.id, "one", "failed", error="retry")
     storage.update_dag_execution_status(execution.id, "failed")
     scheduler.run.reset_mock()

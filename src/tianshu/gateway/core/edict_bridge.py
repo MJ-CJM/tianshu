@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from tianshu.bus.event_bus import EventBus
 from tianshu.edict_ops import submit_new_edict
 from tianshu.executor.executor import Executor
+from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.gateway.core.errors import EdictBusyError  # re-export，向后兼容
 from tianshu.gateway.core.session_anchor import SessionAnchor
 from tianshu.models.common import EdictStatus, TaskStatus
@@ -157,6 +158,7 @@ class EdictBridge:
                 "instance_id": self._instance_id,
                 "chat_id": chat_id,
                 self._user_meta_key: sender_open_id,
+                "workspace_id": WORKSPACE_MAIN_SOURCE_ID,
             },
         )
         memorial = submit_new_edict(
@@ -241,6 +243,7 @@ class EdictBridge:
                 "chat_id": chat_id,
                 self._user_meta_key: sender_open_id,
                 "assistant_chat": True,
+                "workspace_id": WORKSPACE_MAIN_SOURCE_ID,
             },
         )
         self._storage.save_edict(edict)
@@ -268,6 +271,10 @@ class EdictBridge:
             edict_id=edict.id,
             instruction=text,
             status=TaskStatus.SUBMITTED,
+            parent_memorial_id=next(
+                (item.id for item in reversed(prev_memorials) if item.dag_node_id is None),
+                None,
+            ),
         )
         self._storage.save_memorial(memorial)
         self._storage.append_event(

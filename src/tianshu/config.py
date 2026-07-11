@@ -54,6 +54,7 @@ class TianshuSettings(BaseSettings):
     # Exact Docker host gateway observed by the container; never a CIDR or broad private range.
     trusted_local_container_gateway: str = ""
     workspace_dir: str = "."
+    workspace_staging_root: str = "~/.tianshu/workspaces"
     skills_char_budget: int = 30000
     static_dir: str = "/app/static"
     memory_dir: str = "~/.tianshu/memory"

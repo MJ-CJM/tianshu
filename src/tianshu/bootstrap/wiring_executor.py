@@ -32,6 +32,7 @@ from tianshu.executor.executor import Executor
 from tianshu.executor.lanes import LaneManager
 from tianshu.executor.policy_hook import PolicyHook
 from tianshu.executor.worker_pool import WorkerPool
+from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.kernel.hooks import HookType
 from tianshu.skills.reviewer import SkillReviewHandler
 from tianshu.skills.validator import SkillValidator
@@ -70,6 +71,10 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         hook_registry=hook_registry,
         session_rule_store=session_rule_store,
         execution_gateway=app.state.execution_gateway,
+        workspace_service=app.state.workspace_service,
+        workspace_sources={
+            WORKSPACE_MAIN_SOURCE_ID: Path(settings.workspace_dir).expanduser().resolve()
+        },
     )
     executor.set_agent(agent)
     executor.set_persona_loader(persona_loader)

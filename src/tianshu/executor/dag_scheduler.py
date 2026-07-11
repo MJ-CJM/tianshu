@@ -47,8 +47,6 @@ class DAGScheduler:
         self._session_lane = session_lane
         self._global_lane = global_lane
         self._worker = Worker(agent, storage, prompt_builder)
-        self._node_results: dict[str, str] = {}
-        self._node_usage: dict[str, UsageSummary] = {}
 
     async def run(
         self,
@@ -59,6 +57,20 @@ class DAGScheduler:
     ) -> None:
         """Run a full DAG execution to completion."""
         dag = DAG.from_execution(execution)
+        node_results: dict[str, str] = {}
+        node_usage: dict[str, UsageSummary] = {}
+        for node in execution.nodes:
+            if node.status is not DAGNodeStatus.COMPLETED:
+                continue
+            memorial = self._storage.get_completed_dag_node_memorial(
+                execution.id,
+                node.node_id,
+            )
+            if memorial is None:
+                continue
+            if memorial.result:
+                node_results[node.node_id] = memorial.result
+            node_usage[node.node_id] = memorial.usage
 
         # Validate DAG
         try:
@@ -84,12 +96,31 @@ class DAGScheduler:
 
         # Scheduling loop
         completion_event = asyncio.Event()
-        pending_tasks: set[asyncio.Task] = set()
+        pending_tasks: set[asyncio.Task[None]] = set()
+        stopping = False
+
+        async def drain_pending(*, cancel: bool) -> None:
+            while True:
+                tasks = tuple(pending_tasks)
+                if cancel:
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                if all(task.done() for task in pending_tasks):
+                    return
 
         async def on_node_complete(node_id: str, error: str | None) -> None:
+            nonlocal stopping
             if error:
                 logger.debug("[DAG] Edict %s: node %s failed, error=%s", edict.id, node_id, error)
-                dag.mark_failed(node_id, error)
+                cancelled_by_runtime = error == "Cancelled"
+                if cancelled_by_runtime:
+                    dag.nodes[node_id].status = DAGNodeStatus.CANCELLED
+                    dag.nodes[node_id].error = error
+                else:
+                    dag.mark_failed(node_id, error)
                 cancelled = dag.propagate_failure(node_id)
                 for cid in cancelled:
                     self._storage.update_dag_node_status(
@@ -100,12 +131,16 @@ class DAGScheduler:
                 self._storage.update_dag_node_status(
                     execution.id,
                     node_id,
-                    DAGNodeStatus.FAILED.value,
+                    (
+                        DAGNodeStatus.CANCELLED.value
+                        if cancelled_by_runtime
+                        else DAGNodeStatus.FAILED.value
+                    ),
                     error=error,
                 )
                 await self._bus.emit(
                     make_event(
-                        "dag.node.failed",
+                        "dag.node.cancelled" if cancelled_by_runtime else "dag.node.failed",
                         edict_id=edict.id,
                         producer="dag_scheduler",
                         payload={"dag_id": execution.id, "node_id": node_id, "error": error},
@@ -131,7 +166,7 @@ class DAGScheduler:
             # Schedule next batch
             if dag.is_complete():
                 completion_event.set()
-            else:
+            elif not stopping:
                 await self._schedule_ready(
                     edict,
                     execution,
@@ -139,6 +174,9 @@ class DAGScheduler:
                     pending_tasks,
                     on_node_complete,
                     prepared_executor,
+                    node_results,
+                    node_usage,
+                    lambda: stopping,
                 )
 
         # Initial scheduling
@@ -149,17 +187,37 @@ class DAGScheduler:
             pending_tasks,
             on_node_complete,
             prepared_executor,
+            node_results,
+            node_usage,
+            lambda: stopping,
         )
 
         if not pending_tasks and dag.is_complete():
             completion_event.set()
 
-        # Wait for completion
-        await completion_event.wait()
+        # Wait for completion, retaining ownership of every worker task until
+        # its callback/finally tail has also completed.
+        try:
+            await completion_event.wait()
+        except asyncio.CancelledError:
+            stopping = True
+            await drain_pending(cancel=True)
+            execution.status = "cancelled"
+            execution.completed_at = datetime.now(UTC)
+            self._storage.update_dag_execution_status(
+                execution.id,
+                execution.status,
+                completed_at=execution.completed_at,
+            )
+            raise
+        stopping = True
+        await drain_pending(cancel=False)
 
         # Determine final status
         if dag.has_failures():
             execution.status = "failed"
+        elif any(node.status is DAGNodeStatus.CANCELLED for node in dag.nodes.values()):
+            execution.status = "cancelled"
         else:
             execution.status = "completed"
         execution.completed_at = datetime.now(UTC)
@@ -172,7 +230,7 @@ class DAGScheduler:
         # Aggregate usage + results into root memorial
         if execution.root_memorial_id:
             total_usage = UsageSummary()
-            for usage in self._node_usage.values():
+            for usage in node_usage.values():
                 total_usage = UsageSummary(
                     prompt_tokens=total_usage.prompt_tokens + usage.prompt_tokens,
                     completion_tokens=total_usage.completion_tokens + usage.completion_tokens,
@@ -182,7 +240,7 @@ class DAGScheduler:
             # Synthesize sub-task results into root memorial
             result_parts: list[str] = []
             for node in execution.nodes:
-                node_result = self._node_results.get(node.node_id)
+                node_result = node_results.get(node.node_id)
                 if node_result:
                     result_parts.append(f"## {node.node_id}: {node.description}\n\n{node_result}")
             combined_result = "\n\n---\n\n".join(result_parts) if result_parts else None
@@ -196,7 +254,7 @@ class DAGScheduler:
             for n in execution.nodes:
                 if n.node_id in depended_on:
                     continue
-                r = self._node_results.get(n.node_id)
+                r = node_results.get(n.node_id)
                 if r:
                     leaf_results.append(r)
             if len(leaf_results) == 1:
@@ -211,25 +269,12 @@ class DAGScheduler:
                 root.usage = total_usage
                 root.result = combined_result
                 root.final_output = final_output
-                root.status = (
-                    TaskStatus.COMPLETED if execution.status == "completed" else TaskStatus.FAILED
-                )
+                root.status = {
+                    "completed": TaskStatus.COMPLETED,
+                    "cancelled": TaskStatus.CANCELLED,
+                }.get(execution.status, TaskStatus.FAILED)
                 root.completed_at = datetime.now(UTC)
                 self._storage.update_memorial(root)
-
-        event_type = f"execution.{execution.status}"
-        await self._bus.emit(
-            make_event(
-                event_type,
-                edict_id=edict.id,
-                memorial_id=execution.root_memorial_id,
-                producer="dag_scheduler",
-                payload={
-                    "dag_id": execution.id,
-                    "status": execution.status,
-                },
-            )
-        )
 
     async def _schedule_ready(
         self,
@@ -239,9 +284,20 @@ class DAGScheduler:
         pending_tasks: set[asyncio.Task],
         on_complete,
         prepared_executor: PreparedExecutor | None = None,
+        node_results: dict[str, str] | None = None,
+        node_usage: dict[str, UsageSummary] | None = None,
+        is_stopping=lambda: False,
     ) -> None:
+        if is_stopping():
+            return
+        if node_results is None:
+            node_results = {}
+        if node_usage is None:
+            node_usage = {}
         ready_nodes = dag.get_ready_nodes()
         for node in ready_nodes:
+            if is_stopping():
+                return
             logger.debug(
                 "[DAG] Edict %s: scheduling node %s, persona=%s, deps=%s",
                 edict.id,
@@ -276,9 +332,7 @@ class DAGScheduler:
 
             # Gather upstream results
             upstream = {
-                dep: self._node_results.get(dep, "")
-                for dep in node.depends_on
-                if dep in self._node_results
+                dep: node_results.get(dep, "") for dep in node.depends_on if dep in node_results
             }
 
             # Acquire lanes if available
@@ -303,12 +357,15 @@ class DAGScheduler:
                         _upstream,
                         persona=_persona,
                         prepared_executor=prepared_executor,
+                        root_memorial_id=execution.root_memorial_id,
                     )
                     if result.result:
-                        self._node_results[_node.node_id] = result.result
-                    self._node_usage[_node.node_id] = result.usage
+                        node_results[_node.node_id] = result.result
+                    node_usage[_node.node_id] = result.usage
                     if result.status == TaskStatus.FAILED:
                         raise RuntimeError(result.error or "Node execution failed")
+                    if result.status == TaskStatus.CANCELLED:
+                        raise asyncio.CancelledError
                 finally:
                     if _global_lane:
                         _global_lane.release()
@@ -324,4 +381,3 @@ class DAGScheduler:
             )
             task = await self._pool.submit(item, on_complete=on_complete)
             pending_tasks.add(task)
-            task.add_done_callback(pending_tasks.discard)

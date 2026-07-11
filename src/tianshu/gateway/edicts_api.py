@@ -19,6 +19,7 @@ from tianshu.executor.capabilities import (
     resolve_governance_contract,
 )
 from tianshu.executor.executor import Executor
+from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.gateway._helpers import _build_history
 from tianshu.gateway.auth import get_auth_context
 from tianshu.models import (
@@ -64,10 +65,8 @@ def _validate_network_runtime(runtime: object) -> None:
 
 
 def _workspace_source_id(request: Request) -> str:
-    settings = getattr(request.app.state, "settings", None)
-    workspace = str(getattr(settings, "workspace_dir", "legacy-default"))
-    digest = hashlib.sha256(workspace.encode()).hexdigest()[:16]
-    return f"workspace-{digest}"
+    del request
+    return WORKSPACE_MAIN_SOURCE_ID
 
 
 def _runtime_from_request(body: EdictCreateRequest, request: Request) -> EdictRuntime:
@@ -755,6 +754,10 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
         edict_id=edict_id,
         instruction=body.instruction,
         status=TaskStatus.SUBMITTED,
+        parent_memorial_id=next(
+            (item.id for item in reversed(prev_memorials) if item.dag_node_id is None),
+            None,
+        ),
         runtime_override=runtime_override_dict,
         acceptance_override=body.acceptance_override,
     )

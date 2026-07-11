@@ -8,6 +8,11 @@ from datetime import UTC, datetime
 
 from tianshu.executor.adapters import PreparedExecutor
 from tianshu.executor.agent import Agent, AgentResult
+from tianshu.executor.workspace_context import (
+    get_bound_workspace,
+    require_bound_workspace,
+    requires_workspace_binding,
+)
 from tianshu.models.common import TaskStatus
 from tianshu.models.dag import DAGNode
 from tianshu.models.edict import Edict
@@ -40,6 +45,7 @@ class Worker:
         persona: AgentPersona | None = None,
         checkpoint_manager: object | None = None,
         prepared_executor: PreparedExecutor | None = None,
+        root_memorial_id: str | None = None,
     ) -> AgentResult:
         """Execute a single DAG node.
 
@@ -50,30 +56,59 @@ class Worker:
             persona: Optional persona for this worker.
             checkpoint_manager: Optional checkpoint manager for saving state.
         """
-        # Create memorial for this node
+        prepared_root_id = prepared_executor.prepared.run_id if prepared_executor else None
+        parent_memorial_id = root_memorial_id or prepared_root_id
+
+        # Create memorial for this node. DAG children share the root lease but
+        # retain explicit memorial lineage for audit/retry reconstruction.
         memorial = Memorial(
             edict_id=edict.id,
             instruction=node.description,
             status=TaskStatus.SUBMITTED,
             dag_node_id=node.node_id,
+            parent_memorial_id=parent_memorial_id,
         )
         if persona:
             memorial.persona_id = persona.id
         self._storage.save_memorial(memorial)
         node.memorial_id = memorial.id
 
-        node_executor = (
-            prepared_executor.bind_run(memorial.id, instruction=node.description)
-            if prepared_executor
-            else None
-        )
-        if node_executor is not None:
-            self._storage.save_effective_governance_contract(
+        try:
+            if node.dag_execution_id and not self._storage.update_dag_node_memorial(
+                node.dag_execution_id,
+                node.node_id,
                 memorial.id,
-                edict.id,
-                node_executor.effective,
+            ):
+                raise RuntimeError("DAG node memorial binding could not be persisted")
+            if root_memorial_id and prepared_root_id and root_memorial_id != prepared_root_id:
+                raise ValueError("DAG root memorial does not match prepared executor run")
+            node_executor = (
+                prepared_executor.bind_run(memorial.id, instruction=node.description)
+                if prepared_executor
+                else None
             )
-            memorial.effective_governance_contract = node_executor.effective
+            if node_executor is not None:
+                self._storage.save_effective_governance_contract(
+                    memorial.id,
+                    edict.id,
+                    node_executor.effective,
+                )
+                memorial.effective_governance_contract = node_executor.effective
+                if (
+                    requires_workspace_binding(node_executor.effective)
+                    or get_bound_workspace() is not None
+                ):
+                    bound = require_bound_workspace(
+                        run_id=prepared_root_id,
+                        effective_contract_hash=node_executor.effective.content_hash,
+                    )
+                    bound.authorize_run(memorial.id)
+        except Exception as exc:
+            memorial.status = TaskStatus.FAILED
+            memorial.error = str(exc)
+            memorial.completed_at = datetime.now(UTC)
+            self._storage.update_memorial(memorial)
+            return AgentResult(status=TaskStatus.FAILED, error=str(exc))
 
         memorial.status = TaskStatus.RUNNING
         memorial.started_at = datetime.now(UTC)

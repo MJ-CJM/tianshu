@@ -7,10 +7,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
+from tianshu.executor.git_backend import GitBackend
+from tianshu.executor.workspace_service import WorkspaceService
 from tianshu.kernel.hooks import HookRegistry
 from tianshu.storage import Storage
 
@@ -21,6 +25,12 @@ def wire_storage(app: FastAPI, settings: TianshuSettings) -> None:
     storage = Storage(settings.db_path)
     storage.init_db()
     app.state.storage = storage
+
+    app.state.workspace_service = WorkspaceService(
+        storage,
+        GitBackend(),
+        Path(settings.workspace_staging_root),
+    )
 
     # --- EventBus ---
     event_bus = EventBus(storage=storage)

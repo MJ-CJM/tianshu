@@ -9,13 +9,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tianshu.gateway.edicts_api import _runtime_from_request, edicts_router
-from tianshu.models import Edict
+from tianshu.models import Edict, Memorial, TaskStatus
 from tianshu.models.api import EdictCreateRequest
 from tianshu.models.edict import EdictRuntime
 from tianshu.models.governance_contract import (
     CapabilityRequirementsV1,
     ExecutorSelectionV1,
     LegacyEdictGovernanceMapper,
+    RecoveryPolicyV1,
     WorkspacePolicyV1,
 )
 
@@ -48,6 +49,7 @@ def test_preview_maps_legacy_request_and_exposes_advisory_gaps(config_manager) -
     data = response.json()["data"]
     assert data["compatible"] is True
     assert data["requested_contract"]["executor"]["adapter_id"] == "keqing:codex"
+    assert data["requested_contract"]["workspace"]["source_id"] == "workspace-main"
     assert data["requested_contract"]["permissions"]["policy_profile_name"] == "safe"
     assert data["effective_contract"]["executor_manifest_id"] == "tianshu.keqing.codex.v1"
     assert "action_interception" in data["advisory_gaps"]
@@ -64,7 +66,7 @@ def test_preview_returns_structured_mismatch_without_dispatch(config_manager) ->
     contract = base.model_copy(
         update={
             "capabilities": CapabilityRequirementsV1(
-                mandatory=("pre_run_restore_point",),
+                mandatory=("governed_apply_merge",),
                 advisory=(),
             )
         }
@@ -86,7 +88,7 @@ def test_preview_returns_structured_mismatch_without_dispatch(config_manager) ->
     assert data["mandatory_mismatches"] == [
         {
             "schema_version": "1",
-            "capability": "pre_run_restore_point",
+            "capability": "governed_apply_merge",
             "required_state": "enforced",
             "available_state": "unsupported",
             "manifest_id": "tianshu.native.v1",
@@ -123,7 +125,18 @@ def test_preview_derives_workspace_capability_from_contract_semantics(config_man
     contract = LegacyEdictGovernanceMapper.from_edict(
         Edict(goal="isolated", runtime=EdictRuntime(executor="native")),
         default_workspace_id="workspace-main",
-    ).model_copy(update={"workspace": WorkspacePolicyV1(staging_mode="isolated")})
+    ).model_copy(
+        update={
+            "workspace": WorkspacePolicyV1(
+                source_id="workspace-main",
+                base_revision="HEAD",
+                staging_mode="isolated",
+                apply_mode="governed",
+                require_clean_source=True,
+            ),
+            "recovery": RecoveryPolicyV1(require_restore_point=True),
+        }
+    )
 
     with TestClient(_app(config_manager)) as client:
         response = client.post(
@@ -136,8 +149,22 @@ def test_preview_derives_workspace_capability_from_contract_semantics(config_man
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["compatible"] is False
-    assert {item["capability"] for item in data["mandatory_mismatches"]} == {"workspace_control"}
+    assert data["compatible"] is True
+    assert data["mandatory_mismatches"] == []
+    workspace_control = next(
+        item
+        for item in data["effective_contract"]["effective_controls"]
+        if item["capability"] == "workspace_control"
+    )
+    assert workspace_control["requested_mode"] == "advisory"
+    assert workspace_control["state"] == "best_effort"
+    controls = {
+        item["capability"]: item for item in data["effective_contract"]["effective_controls"]
+    }
+    assert controls["pre_run_restore_point"]["requested_mode"] == "mandatory"
+    assert controls["pre_run_restore_point"]["state"] == "enforced"
+    assert controls["governed_apply_merge"]["requested_mode"] == "advisory"
+    assert controls["governed_apply_merge"]["state"] == "unsupported"
 
 
 def test_conflicting_new_and_legacy_payload_returns_422(config_manager) -> None:
@@ -287,6 +314,21 @@ def test_executor_only_follow_up_preserves_unspecified_grants(config_manager, st
         ),
     )
     storage.save_edict(edict)
+    parent = Memorial(
+        edict_id=edict.id,
+        instruction="first turn",
+        status=TaskStatus.COMPLETED,
+    )
+    storage.save_memorial(parent)
+    storage.save_memorial(
+        Memorial(
+            edict_id=edict.id,
+            instruction="DAG child",
+            status=TaskStatus.COMPLETED,
+            dag_node_id="child",
+            parent_memorial_id=parent.id,
+        )
+    )
     executor = SimpleNamespace(execute_edict=AsyncMock(), running_tasks=set())
     app = _app(config_manager)
     app.state.storage = storage
@@ -304,6 +346,7 @@ def test_executor_only_follow_up_preserves_unspecified_grants(config_manager, st
     assert response.status_code == 202, response.text
     memorial = storage.get_memorial(response.json()["data"]["id"])
     assert memorial.runtime_override == {"executor": "keqing:codex"}
+    assert memorial.parent_memorial_id == parent.id
 
 
 def test_frozen_governance_objective_cannot_be_edited(config_manager, storage) -> None:

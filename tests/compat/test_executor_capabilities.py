@@ -23,6 +23,7 @@ from tianshu.executor.capabilities import (
     native_manifest,
     resolve_governance_contract,
 )
+from tianshu.executor.workspace_context import WorkspaceBindingError
 from tianshu.models.edict import Edict, EdictRuntime
 from tianshu.models.governance_contract import (
     CAPABILITY_IDS,
@@ -82,6 +83,12 @@ def test_native_and_contained_manifests_declare_every_capability_once() -> None:
     assert codex_manifest().state("durable_resume") is CapabilityState.UNSUPPORTED
     assert native_manifest().state("action_interception") is CapabilityState.BEST_EFFORT
     assert codex_manifest().state("budget_enforcement") is CapabilityState.OBSERVED
+    for manifest in manifests:
+        assert manifest.state("pre_run_restore_point") is CapabilityState.ENFORCED
+        assert manifest.state("workspace_control") is CapabilityState.BEST_EFFORT
+        assert manifest.state("governed_apply_merge") is CapabilityState.UNSUPPORTED
+        assert manifest.state("durable_resume") is CapabilityState.UNSUPPORTED
+        assert manifest.state("side_effect_receipts") is CapabilityState.UNSUPPORTED
 
 
 def test_native_manifest_reports_named_git_receipt_limit_not_process_bypasses() -> None:
@@ -130,13 +137,13 @@ def test_manifest_rejects_missing_capabilities_and_false_managed_claim() -> None
 
 
 def test_mandatory_capability_requires_enforced_and_fails_closed() -> None:
-    requested = _requested(mandatory=("pre_run_restore_point",))
+    requested = _requested(mandatory=("governed_apply_merge",))
 
     with pytest.raises(MandatoryCapabilityMismatch) as exc_info:
         resolve_governance_contract(requested, native_manifest(), _probe())
 
     mismatch = exc_info.value.mismatches[0]
-    assert mismatch.capability == "pre_run_restore_point"
+    assert mismatch.capability == "governed_apply_merge"
     assert mismatch.required_state is CapabilityState.ENFORCED
     assert mismatch.available_state is CapabilityState.UNSUPPORTED
 
@@ -242,7 +249,7 @@ class _Adapter:
 def test_registry_rejects_mismatch_before_adapter_execute() -> None:
     adapter = _Adapter(native_manifest(), _probe())
     registry = ExecutorAdapterRegistry((adapter,))
-    requested = _requested(mandatory=("pre_run_restore_point",))
+    requested = _requested(mandatory=("governed_apply_merge",))
 
     with pytest.raises(MandatoryCapabilityMismatch):
         registry.prepare(
@@ -310,28 +317,53 @@ async def test_prepared_executor_passes_run_bound_effective_contract_to_adapter(
     assert adapter.execute_calls == 1
 
 
+def test_governed_policy_does_not_claim_unimplemented_apply_capability() -> None:
+    requested = _requested().model_copy(
+        update={"workspace": WorkspacePolicyV1(apply_mode="governed")}
+    )
+
+    effective = resolve_governance_contract(requested, native_manifest(), _probe())
+
+    control = next(
+        item for item in effective.effective_controls if item.capability == "governed_apply_merge"
+    )
+    assert control.requested_mode == "unrequested"
+    assert control.state == "unsupported"
+
+
+def test_restore_point_semantics_are_satisfied_by_production_manifest() -> None:
+    requested = _requested().model_copy(
+        update={"recovery": RecoveryPolicyV1(require_restore_point=True)}
+    )
+
+    effective = resolve_governance_contract(requested, native_manifest(), _probe())
+
+    control = next(
+        item for item in effective.effective_controls if item.capability == "pre_run_restore_point"
+    )
+    assert control.requested_mode == "mandatory"
+    assert control.state == "enforced"
+
+
 @pytest.mark.parametrize(
-    ("contract_update", "required_capability"),
-    [
-        ({"workspace": WorkspacePolicyV1(staging_mode="isolated")}, "workspace_control"),
-        ({"workspace": WorkspacePolicyV1(require_clean_source=True)}, "workspace_control"),
-        ({"workspace": WorkspacePolicyV1(apply_mode="governed")}, "governed_apply_merge"),
-        (
-            {"recovery": RecoveryPolicyV1(require_restore_point=True)},
-            "pre_run_restore_point",
-        ),
-    ],
+    "workspace",
+    (
+        WorkspacePolicyV1(staging_mode="isolated"),
+        WorkspacePolicyV1(require_clean_source=True),
+    ),
 )
-def test_contract_semantics_implicitly_require_enforced_capabilities(
-    contract_update,
-    required_capability,
+def test_workspace_isolation_does_not_promote_best_effort_control_to_mandatory(
+    workspace: WorkspacePolicyV1,
 ) -> None:
-    requested = _requested().model_copy(update=contract_update)
+    requested = _requested().model_copy(update={"workspace": workspace})
 
-    with pytest.raises(MandatoryCapabilityMismatch) as exc_info:
-        resolve_governance_contract(requested, native_manifest(), _probe())
+    effective = resolve_governance_contract(requested, native_manifest(), _probe())
 
-    assert required_capability in {item.capability for item in exc_info.value.mismatches}
+    control = next(
+        item for item in effective.effective_controls if item.capability == "workspace_control"
+    )
+    assert control.requested_mode == "unrequested"
+    assert control.state == "best_effort"
 
 
 def _persisted_effective():
@@ -416,7 +448,10 @@ async def test_prepared_runtime_rejects_unmaterialized_workspace_and_recovery() 
         execution_mode="single",
     )
 
-    with pytest.raises(ValueError, match="runtime policy"):
+    with pytest.raises(
+        WorkspaceBindingError,
+        match="requires a bound workspace lease",
+    ):
         await prepared.execute(Edict(goal="test"), memorial=SimpleNamespace(id="run-1"))
 
     delegate.execute.assert_not_awaited()

@@ -169,10 +169,6 @@ def _semantic_mandatory_capabilities(
     requested: RequestedGovernanceContractV1,
 ) -> set[CapabilityId]:
     required: set[CapabilityId] = set()
-    if requested.workspace.staging_mode == "isolated" or requested.workspace.require_clean_source:
-        required.add("workspace_control")
-    if requested.workspace.apply_mode == "governed":
-        required.add("governed_apply_merge")
     if requested.recovery.require_restore_point:
         required.add("pre_run_restore_point")
     return required
@@ -292,7 +288,7 @@ def native_manifest() -> ExecutorCapabilityManifestV1:
         "event_fidelity": CapabilityState.BEST_EFFORT,
         "artifact_export": CapabilityState.OBSERVED,
         "side_effect_receipts": CapabilityState.UNSUPPORTED,
-        "pre_run_restore_point": CapabilityState.UNSUPPORTED,
+        "pre_run_restore_point": CapabilityState.ENFORCED,
         "governed_apply_merge": CapabilityState.UNSUPPORTED,
     }
     return ExecutorCapabilityManifestV1(
@@ -305,7 +301,7 @@ def native_manifest() -> ExecutorCapabilityManifestV1:
         execution_modes=("single", "dag", "outer_loop"),
         capabilities=_declarations(states, evidence_prefix="native-current"),
         limitations=(
-            "shared workspace until G1 workspace isolation",
+            "isolated runs create a restore point but governed apply is not implemented",
             "fixed Git lifecycle operations are bounded but do not emit ExecutionGateway receipts",
             "no durable resume or side-effect receipts",
         ),
@@ -330,7 +326,7 @@ def _keqing_manifest(
         "event_fidelity": CapabilityState.OBSERVED,
         "artifact_export": CapabilityState.OBSERVED,
         "side_effect_receipts": CapabilityState.UNSUPPORTED,
-        "pre_run_restore_point": CapabilityState.UNSUPPORTED,
+        "pre_run_restore_point": CapabilityState.ENFORCED,
         "governed_apply_merge": CapabilityState.UNSUPPORTED,
     }
     return ExecutorCapabilityManifestV1(
@@ -344,7 +340,7 @@ def _keqing_manifest(
         limitations=(
             "opaque CLI actions are observed rather than intercepted",
             "workspace and budget controls have escape or overshoot windows",
-            "no durable resume, receipts, pre-run restore point, or governed apply",
+            "no durable resume, receipts, or governed apply",
         ),
     )
 

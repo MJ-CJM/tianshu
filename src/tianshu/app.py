@@ -128,8 +128,12 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, "_digest_task") and not app.state._digest_task.done():
         app.state._digest_task.cancel()
     await app.state.scheduler.stop()
-    await app.state.worker_pool.shutdown()
     await app.state.executor.shutdown()
+    await app.state.worker_pool.shutdown()
+    try:
+        await app.state.workspace_service.shutdown()
+    except Exception:
+        logger.exception("[workspace] service shutdown error")
     try:
         await app.state.code_sandbox.shutdown()
     except Exception:
