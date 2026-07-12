@@ -55,7 +55,16 @@ def _build_runner():
         context_factory=UniverseExecutionContextFactory(security_mode=settings.security_mode),
     )
     harness = EvalHarness(storage, sandbox, base_env=eval_base_env)
-    repo_root = Path(tianshu.__file__).resolve().parents[2]
+    if settings.eval_repo_root:
+        repo_root = Path(settings.eval_repo_root).expanduser()
+    else:
+        # 开发模式回退：源码树根。wheel 部署下应显式配置 TIANSHU_EVAL_REPO_ROOT。
+        repo_root = Path(tianshu.__file__).resolve().parents[2]
+        if not (repo_root / ".git").exists():
+            console.print(
+                f"[yellow]警告[/yellow]: eval_repo_root 未配置且推断路径 {repo_root} "
+                "不是 git 仓库；wheel 部署下请设置 TIANSHU_EVAL_REPO_ROOT"
+            )
     return PlatformEvalRunner(storage, harness, repo_root=repo_root), storage, settings
 
 

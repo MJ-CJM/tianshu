@@ -14,6 +14,7 @@ task-12 列出的 6 个待提升闭包之列，原样保留为行内 lambda。
 from __future__ import annotations
 
 import functools
+import logging
 import sys
 from pathlib import Path
 
@@ -32,6 +33,22 @@ from tianshu.universe.gate import Gate
 from tianshu.universe.manager import UniverseManager
 from tianshu.universe.sandbox import SandboxRunner
 from tianshu.universe.store import UniverseStore
+
+logger = logging.getLogger(__name__)
+
+
+def _universe_repo_root(settings: TianshuSettings) -> Path:
+    """自进化代码变体的源仓库根。wheel 部署必须显式配置；开发模式回退源码树根。"""
+    if settings.universe_repo_root:
+        return Path(settings.universe_repo_root).expanduser()
+    inferred = Path(__file__).resolve().parents[3]
+    if not (inferred / ".git").exists():
+        logger.warning(
+            "universe_repo_root 未配置且推断路径 %s 不是 git 仓库；"
+            "wheel 部署下请设置 TIANSHU_UNIVERSE_REPO_ROOT",
+            inferred,
+        )
+    return inferred
 
 
 def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
@@ -54,7 +71,7 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         live_skills_dir=skills.user_dir,
     )
     code_variant_store = CodeVariantStore(
-        repo_root=Path(__file__).resolve().parents[3],
+        repo_root=_universe_repo_root(settings),
         worktrees_root=Path("~/.tianshu/universes/worktrees").expanduser(),
     )
     deploy_pointer = DeployPointer(Path("~/.tianshu/universes/deploy_ptr.json").expanduser())

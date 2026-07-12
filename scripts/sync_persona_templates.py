@@ -31,7 +31,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEST_ROOT = REPO_ROOT / "templates" / "persona"
+DEST_ROOT = REPO_ROOT / "src" / "tianshu" / "resources" / "persona_templates"
 
 # (lang, GitHub owner, repository)
 SOURCES = [

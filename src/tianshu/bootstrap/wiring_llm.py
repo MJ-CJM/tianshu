@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import functools
 import logging
-from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -31,6 +30,7 @@ from tianshu.cost.manager import CostManager
 from tianshu.executor.agent import Agent
 from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.providers.manager import ProviderManager
+from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.loader import SkillsLoader
 from tianshu.skills.metrics import SkillMetricsStore
 from tianshu.storage import Storage
@@ -88,7 +88,7 @@ def wire_provider_and_agent(
     storage = app.state.storage
     config_manager = app.state.config_manager
     hook_registry = app.state.hook_registry
-    personas_dir = Path(__file__).parent.parent.parent.parent / "personas"
+    personas_dir = packaged_defaults().personas_dir()
 
     # --- ProviderManager ---
     provider_manager = ProviderManager(storage=storage, config_manager=config_manager)

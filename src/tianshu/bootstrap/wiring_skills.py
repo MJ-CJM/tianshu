@@ -25,6 +25,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from tianshu.config import TianshuSettings
+from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.curator import SkillCurator
 from tianshu.skills.loader import SkillsLoader, SkillsWatcher
 from tianshu.skills.metrics import SkillMetricsStore
@@ -45,7 +46,7 @@ def wire_skills(app: FastAPI, settings: TianshuSettings) -> tuple[SkillsLoader, 
     storage = app.state.storage
 
     # --- Skills ---
-    builtin_skills_dir = Path(__file__).parent.parent / "skills" / "builtin"
+    builtin_skills_dir = packaged_defaults().builtin_skills_dir()
     workspace_path = (
         Path(settings.workspace_dir).resolve() if settings.workspace_dir != "." else None
     )

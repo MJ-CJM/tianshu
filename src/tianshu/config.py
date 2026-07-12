@@ -56,7 +56,10 @@ class TianshuSettings(BaseSettings):
     workspace_dir: str = "."
     workspace_staging_root: str = "~/.tianshu/workspaces"
     skills_char_budget: int = 30000
-    static_dir: str = "/app/static"
+    static_dir: str = ""  # 空 = 使用打包 Web 资产；显式值（含 TIANSHU_STATIC_DIR）优先
+    plugins_dir: str = "~/.tianshu/plugins"
+    universe_repo_root: str = ""  # 空 = 开发模式回退仓库根推断；wheel 部署必须显式配置
+    eval_repo_root: str = ""
     memory_dir: str = "~/.tianshu/memory"
     runtime_personas_dir: str = "~/.tianshu/personas"
     log_dir: str = "~/.tianshu/logs"

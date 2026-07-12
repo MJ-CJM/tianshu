@@ -2056,6 +2056,48 @@ def _governed_apply_bindings_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V6: seed six default persona departments (data-only, additive) ---
+
+_DEFAULT_PERSONA_SEED_ROWS: tuple[tuple[str, str, str, str, int, int, str], ...] = (
+    ("bingbu", "兵部", "bingbu", "Ministry of War", 2, 0, "[]"),
+    ("ducha", "都察院", "ducha", "Censorate", 1, 0, "[]"),
+    ("hubu", "户部", "hubu", "Ministry of Revenue", 1, 0, "[]"),
+    ("neige", "内阁", "neige", "Imperial Cabinet", 1, 1, '["bingbu", "ducha", "wenyuan"]'),
+    ("tongzheng", "通政司", "tongzheng", "Bureau of Coordination", 1, 0, "[]"),
+    ("wenyuan", "文渊阁", "wenyuan", "Grand Secretariat", 1, 0, "[]"),
+)
+
+_SEED_DEFAULT_PERSONAS_SQL = """
+INSERT INTO personas
+    (id, name, department, title, tools_allowed, tools_denied, skills_allowed,
+     tool_tier_max, can_delegate, memory_global_read, delegates_to,
+     soul_path, role_path, llm_config_name, created_at, updated_at)
+VALUES
+    (?, ?, ?, ?, '[]', '[]', '[]', ?, ?, 0, ?, NULL, NULL, NULL,
+     datetime('now'), datetime('now'))
+"""
+
+_SEED_DEFAULT_PERSONAS_CHECKSUM = hashlib.sha256(
+    (
+        "0006_seed_default_personas\n"
+        + _SEED_DEFAULT_PERSONAS_SQL
+        + repr(_DEFAULT_PERSONA_SEED_ROWS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _seed_default_personas_upgrade(conn: MigrationConnection) -> None:
+    row = conn.execute("SELECT COUNT(*) FROM personas").fetchone()
+    if row is not None and int(row[0]) > 0:
+        # Existing user data: never overwrite, duplicate, or resurrect rows.
+        return
+    for pid, name, department, title, tier, delegate, delegates_to in _DEFAULT_PERSONA_SEED_ROWS:
+        conn.execute(
+            _SEED_DEFAULT_PERSONAS_SQL,
+            (pid, name, department, title, tier, delegate, delegates_to),
+        )
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -2086,6 +2128,12 @@ MIGRATIONS = (
         name="0005_governed_apply_bindings",
         checksum=_GOVERNED_APPLY_BINDING_CHECKSUM,
         upgrade=_governed_apply_bindings_upgrade,
+    ),
+    Migration(
+        version=6,
+        name="0006_seed_default_personas",
+        checksum=_SEED_DEFAULT_PERSONAS_CHECKSUM,
+        upgrade=_seed_default_personas_upgrade,
     ),
 )
 

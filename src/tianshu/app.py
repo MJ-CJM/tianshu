@@ -33,6 +33,7 @@ from tianshu.gateway.system_api import system_router
 from tianshu.gateway.universes_api import universes_router
 from tianshu.gateway.workspace_api import workspace_router
 from tianshu.logging_config import setup_logging
+from tianshu.resources.overlay import packaged_defaults
 from tianshu.web import mount_web
 
 logger = logging.getLogger(__name__)
@@ -213,8 +214,12 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
         logger.info("mcp extra not installed; MCP server disabled")
 
     # Conditionally mount frontend static files (container-integrated mode)
-    if mount_web(app, settings.static_dir):
-        logger.info("Web UI mounted from %s", settings.static_dir)
+    web_static_dir = settings.static_dir
+    if not web_static_dir:
+        packaged_web = packaged_defaults().web_static_dir()
+        web_static_dir = str(packaged_web) if packaged_web is not None else ""
+    if web_static_dir and mount_web(app, web_static_dir):
+        logger.info("Web UI mounted from %s", web_static_dir)
     else:
         logger.info("No static files found, running in API-only mode")
 

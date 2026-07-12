@@ -18,6 +18,7 @@ _AUTH_MIGRATION_NAME = "0002_auth_tokens"
 _GOVERNANCE_MIGRATION_NAME = "0003_governance_contracts"
 _WORKSPACE_MIGRATION_NAME = "0004_workspace_foundation"
 _GOVERNED_APPLY_MIGRATION_NAME = "0005_governed_apply_bindings"
+_SEED_PERSONAS_MIGRATION_NAME = "0006_seed_default_personas"
 _POST_BASELINE_TABLES = {
     "auth_tokens",
     "requested_governance_contracts",
@@ -525,6 +526,7 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
+        (6, _SEED_PERSONAS_MIGRATION_NAME),
     ]
     assert all(len(row["checksum"]) == 64 for row in first_ledger)
     storage.close()
@@ -551,6 +553,7 @@ def test_canonical_preledger_v042_upgrade_only_adds_ledger(tmp_path: Path) -> No
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
+        (6, _SEED_PERSONAS_MIGRATION_NAME),
     ]
     ledger = [tuple(row) for row in _ledger_rows(storage._conn)]
     storage.close()
@@ -581,6 +584,7 @@ def test_v4_shape_preledger_replays_v5_instead_of_adopt(tmp_path: Path) -> None:
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
+        (6, _SEED_PERSONAS_MIGRATION_NAME),
     ]
     columns = {
         str(row[1])
@@ -629,6 +633,7 @@ def test_canonical_preledger_accepts_semantically_equivalent_column_order(
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
+        (6, _SEED_PERSONAS_MIGRATION_NAME),
     ]
     storage.close()
 
@@ -677,6 +682,7 @@ def test_historical_preledger_core_shape_upgrades_to_canonical_without_valid_row
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
+        (6, _SEED_PERSONAS_MIGRATION_NAME),
     ]
     assert {
         table: _payload_rows(storage._conn, table, columns)
@@ -813,6 +819,7 @@ def test_combined_historical_core_session_and_supervision_adapters_reach_canonic
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
+        (6, _SEED_PERSONAS_MIGRATION_NAME),
     ]
     storage.close()
 

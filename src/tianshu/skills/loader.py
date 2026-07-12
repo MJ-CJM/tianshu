@@ -555,9 +555,13 @@ class SkillsLoader:
             self._l1_cache.pop(name, None)
             self._l2_metadata = None
             return self.get_skill(name)  # type: ignore[return-value]
-        for base, _source in self._search_dirs():
+        for base, source in self._search_dirs():
             skill_file = base / name / "SKILL.md"
             if skill_file.is_file():
+                if source == "builtin":
+                    # Builtin skills are immutable packaged defaults: edits are
+                    # copy-on-write materialized into the writable overlay.
+                    skill_file = self._materialize_writable_skill(name)
                 # Preserve frontmatter, replace content
                 try:
                     post = frontmatter.load(str(skill_file))
@@ -615,9 +619,16 @@ class SkillsLoader:
         if self._workspace_writes_only:
             self._materialize_writable_skill(name)
             search_dirs = [(self._writable_skills_dir(), "workspace")]
-        for base, _src in search_dirs:
+        for base, src in search_dirs:
             skill_dir = self._validate_overlay_write_path(base / name)
             if (skill_dir / "SKILL.md").is_file():
+                if src == "builtin":
+                    # Resource mutations on a builtin skill operate on a
+                    # copy-on-write overlay copy; packaged bytes stay immutable.
+                    self._materialize_writable_skill(name)
+                    skill_dir = self._validate_overlay_write_path(
+                        self._writable_skills_dir() / name
+                    )
                 target = self._validate_overlay_write_path(skill_dir / rel_path).resolve()
                 if not str(target).startswith(str(skill_dir.resolve()) + "/"):
                     raise ValueError(f"resolved path escapes skill dir: {rel_path!r}")

@@ -32,12 +32,13 @@ from tianshu.memory.config import MemoryConfig
 from tianshu.memory.drawer_store import DrawerStore
 from tianshu.memory.manager import MemoryManager
 from tianshu.persona.prompt_builder import PromptBuilder
+from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.loader import SkillsLoader
 from tianshu.skills.metrics import SkillMetricsStore
 
 
 def _personas_dir() -> Path:
-    return Path(__file__).parent.parent.parent.parent / "personas"
+    return packaged_defaults().personas_dir()
 
 
 def wire_memory_palace(
@@ -71,6 +72,7 @@ def wire_memory_palace(
         drawer_store=drawer_store,
         memory_config=memory_config,
         storage=storage,
+        runtime_personas_dir=Path(settings.runtime_personas_dir).expanduser(),
     )
     return prompt_builder
 

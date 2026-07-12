@@ -216,7 +216,7 @@ def wire_plugins(app: FastAPI, settings: TianshuSettings) -> None:
     app.state.plugin_api = plugin_api
 
     # Discover and register local plugins
-    plugins_dir = Path(__file__).parent.parent.parent.parent / "plugins"
+    plugins_dir = Path(settings.plugins_dir).expanduser()
     plugin_loader = PluginLoader(plugins_dir)
     for manifest in plugin_loader.discover():
         plugin_api.register_plugin(manifest)

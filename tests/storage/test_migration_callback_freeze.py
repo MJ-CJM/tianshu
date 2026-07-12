@@ -34,6 +34,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0005_governed_apply_bindings": (
         "6e9f9594dd9dfbe51185d050a4ec93b1881399067af03e28fe97bc742e3d91a2"
     ),
+    # v6 于 S1.2 追加（G1.5 六默认部门 seed），随切片提交冻结。
+    "0006_seed_default_personas": (
+        "5951a0b2025bf25608378ce6914afeeaf699fc661c1b4c667bc45af54830c132"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

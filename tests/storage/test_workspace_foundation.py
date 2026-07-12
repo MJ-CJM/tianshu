@@ -91,6 +91,7 @@ def test_migration_v5_appends_without_changing_frozen_checksums() -> None:
         (3, "0003_governance_contracts"),
         (4, "0004_workspace_foundation"),
         (5, "0005_governed_apply_bindings"),
+        (6, "0006_seed_default_personas"),
     ]
     assert [item.checksum for item in MIGRATIONS[:3]] == [
         _V1_CHECKSUM,
@@ -101,7 +102,7 @@ def test_migration_v5_appends_without_changing_frozen_checksums() -> None:
     assert MIGRATIONS[4].checksum == _V5_CHECKSUM
 
 
-@pytest.mark.parametrize("prior_count", [0, 1, 2, 3, 4])
+@pytest.mark.parametrize("prior_count", [0, 1, 2, 3, 4, 5])
 def test_migration_v5_supports_fresh_and_every_frozen_upgrade(prior_count: int) -> None:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -111,7 +112,7 @@ def test_migration_v5_supports_fresh_and_every_frozen_upgrade(prior_count: int) 
 
     applied = run_migrations(conn)
 
-    assert applied == tuple(range(prior_count + 1, 6))
+    assert applied == tuple(range(prior_count + 1, 7))
     tables = {
         row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
@@ -302,7 +303,7 @@ def test_migration_v5_backfills_and_preserves_v4_apply_decision() -> None:
 
     applied = run_migrations(conn)
 
-    assert applied == (5,)
+    assert applied == (5, 6)
     decision = conn.execute("SELECT * FROM apply_decisions WHERE id='decision-old'").fetchone()
     assert decision is not None
     assert decision["run_id"] == "run-old"

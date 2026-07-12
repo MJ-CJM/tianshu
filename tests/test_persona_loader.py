@@ -58,3 +58,43 @@ class TestPersonaLoaderEdgeCases:
         loader = PersonaLoader(Path("/nonexistent"))
         personas = loader.load_all()
         assert personas == {}
+
+
+class TestPersonaLoaderDeleteOverlayBoundary:
+    def test_delete_never_touches_packaged_defaults_dir(self, tmp_path):
+        """delete() 只清 runtime overlay 与 DB；packaged 默认目录不可变。"""
+        import hashlib
+
+        packaged = tmp_path / "packaged"
+        (packaged / "bingbu").mkdir(parents=True)
+        (packaged / "bingbu" / "SOUL.md").write_text(
+            "---\nname: 兵部\ndepartment: bingbu\n---\n# Soul", encoding="utf-8"
+        )
+        (packaged / "bingbu" / "ROLE.md").write_text("# Role", encoding="utf-8")
+        runtime = tmp_path / "runtime"
+        (runtime / "bingbu").mkdir(parents=True)
+        (runtime / "bingbu" / "SOUL.md").write_text("# runtime soul", encoding="utf-8")
+
+        class _FakeStorage:
+            def delete_persona(self, pid):
+                return True
+
+            def list_personas(self):
+                return []
+
+        loader = PersonaLoader(packaged, storage=_FakeStorage(), runtime_personas_dir=runtime)
+
+        digest_before = {
+            str(p.relative_to(packaged)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(packaged.rglob("*"))
+            if p.is_file()
+        }
+        assert loader.delete("bingbu") is True
+
+        digest_after = {
+            str(p.relative_to(packaged)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(packaged.rglob("*"))
+            if p.is_file()
+        }
+        assert digest_after == digest_before, "packaged 默认目录被 delete() 篡改"
+        assert not (runtime / "bingbu").exists(), "runtime overlay 目录应被清除"

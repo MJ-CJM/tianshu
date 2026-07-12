@@ -27,13 +27,14 @@ async def test_list_departments(client):
     assert "bingbu" in ids  # 内建部门之一（注意：这是部门 id，不是 persona id）
 
 
-async def test_list_personas_empty_by_default(client):
-    # 实测：personas 表不随 _seed_departments() 预置数据，全新库下 /api/personas 为空列表
+async def test_list_personas_seeds_six_default_departments(client):
+    # G1.5 v6 迁移：全新库 seed 恰好六个内建部门（0006_seed_default_personas）
     resp = await client.get("/api/personas")
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
-    assert body["data"] == []
+    ids = sorted(p["id"] for p in body["data"])
+    assert ids == ["bingbu", "ducha", "hubu", "neige", "tongzheng", "wenyuan"]
 
 
 async def test_create_update_delete_persona_roundtrip(client):
