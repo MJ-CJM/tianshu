@@ -295,17 +295,25 @@ class CanonicalChangeSet(WorkspaceRecord):
 
 class ApplyDecision(WorkspaceRecord):
     id: str = Field(min_length=1, max_length=128)
+    run_id: str = Field(min_length=1, max_length=256)
     lease_id: str = Field(min_length=1, max_length=128)
     restore_point_id: str = Field(min_length=1, max_length=128)
+    restore_point_hash: str
     change_set_id: str = Field(min_length=1, max_length=128)
     change_set_hash: str
     source_repository_id: str = Field(min_length=1)
     source_root: str = Field(min_length=1)
+    source_git_dir_identity: str
     base_revision: str
+    source_head_revision: str
     source_head_ref: str | None = None
+    source_index_tree: str
+    source_status_hash: str
+    staging_root: str = Field(min_length=1)
+    staging_git_dir_identity: str
     principal_digest: str
     apply_scope: Literal["workspace"] = "workspace"
-    reason: str = Field(min_length=1)
+    reason: str = Field(min_length=1, max_length=2_000)
     decision_hash: str
     token_hash: str
     state: Literal["pending", "consumed", "expired", "revoked"] = "pending"
@@ -314,10 +322,33 @@ class ApplyDecision(WorkspaceRecord):
     created_at: datetime
 
     _validate_digests = field_validator(
-        "change_set_hash", "principal_digest", "decision_hash", "token_hash"
+        "restore_point_hash",
+        "change_set_hash",
+        "source_git_dir_identity",
+        "source_status_hash",
+        "staging_git_dir_identity",
+        "principal_digest",
+        "decision_hash",
+        "token_hash",
     )(_validate_digest)
-    _validate_base = field_validator("base_revision")(_validate_oid)
+    _validate_oids = field_validator("base_revision", "source_head_revision", "source_index_tree")(
+        _validate_oid
+    )
     _normalize_timestamps = field_validator("expires_at", "created_at")(_utc)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value or any(char in value for char in "\x00\r\n"):
+            raise ValueError("apply reason must be non-empty single-line text")
+        return value
+
+    @model_validator(mode="after")
+    def validate_expiry(self) -> Self:
+        if self.expires_at <= self.created_at:
+            raise ValueError("apply decision expiry must be after creation")
+        return self
 
 
 class ApplyReceipt(WorkspaceRecord):
@@ -348,6 +379,20 @@ class ApplyReceipt(WorkspaceRecord):
     _normalize_created_at = field_validator("created_at")(_utc)
 
 
+class WorkspaceRunStatus(WorkspaceRecord):
+    run_id: str = Field(min_length=1, max_length=256)
+    memorial_status: str = Field(min_length=1)
+    effective_contract_hash: str
+    lease: WorkspaceLease
+    restore_point: RestorePoint
+    change_set: CanonicalChangeSet | None = None
+    latest_decision: ApplyDecision | None = None
+    latest_receipt: ApplyReceipt | None = None
+    host_crash_gap: bool = False
+
+    _validate_contract_hash = field_validator("effective_contract_hash")(_validate_digest)
+
+
 __all__ = [
     "ApplyDecision",
     "ApplyReceipt",
@@ -356,5 +401,6 @@ __all__ = [
     "RestorePoint",
     "WorkspaceLease",
     "WorkspaceLeaseState",
+    "WorkspaceRunStatus",
     "WorkspaceStagingIdentity",
 ]

@@ -341,35 +341,59 @@ class WorkspaceMixin:
         if decision.state != "pending" or decision.state_version != 1:
             raise ValueError("new apply decisions must be pending at version 1")
         with self._lock, self._conn:
-            self._conn.execute(
-                """
-                INSERT INTO apply_decisions (
-                    id, schema_version, lease_id, restore_point_id, change_set_id,
-                    change_set_hash, source_repository_id, source_root, base_revision,
-                    source_head_ref, principal_digest, apply_scope, reason,
-                    decision_hash, token_hash, expires_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    decision.id,
-                    decision.schema_version,
-                    decision.lease_id,
-                    decision.restore_point_id,
-                    decision.change_set_id,
-                    decision.change_set_hash,
-                    decision.source_repository_id,
-                    decision.source_root,
-                    decision.base_revision,
-                    decision.source_head_ref,
-                    decision.principal_digest,
-                    decision.apply_scope,
-                    decision.reason,
-                    decision.decision_hash,
-                    decision.token_hash,
-                    decision.expires_at.isoformat(),
-                    decision.created_at.isoformat(),
-                ),
-            )
+            existing = self._conn.execute(
+                "SELECT 1 FROM apply_decisions WHERE lease_id = ? LIMIT 1",
+                (decision.lease_id,),
+            ).fetchone()
+            if existing is not None:
+                raise WorkspaceStateConflict("apply authority was already issued for this lease")
+            try:
+                self._conn.execute(
+                    """
+                    INSERT INTO apply_decisions (
+                        id, schema_version, run_id, lease_id, restore_point_id,
+                        restore_point_hash, change_set_id, change_set_hash,
+                        source_repository_id, source_root, source_git_dir_identity,
+                        base_revision, source_head_revision, source_head_ref,
+                        source_index_tree, source_status_hash, staging_root,
+                        staging_git_dir_identity, principal_digest, apply_scope, reason,
+                        decision_hash, token_hash, expires_at, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        decision.id,
+                        decision.schema_version,
+                        decision.run_id,
+                        decision.lease_id,
+                        decision.restore_point_id,
+                        decision.restore_point_hash,
+                        decision.change_set_id,
+                        decision.change_set_hash,
+                        decision.source_repository_id,
+                        decision.source_root,
+                        decision.source_git_dir_identity,
+                        decision.base_revision,
+                        decision.source_head_revision,
+                        decision.source_head_ref,
+                        decision.source_index_tree,
+                        decision.source_status_hash,
+                        decision.staging_root,
+                        decision.staging_git_dir_identity,
+                        decision.principal_digest,
+                        decision.apply_scope,
+                        decision.reason,
+                        decision.decision_hash,
+                        decision.token_hash,
+                        decision.expires_at.isoformat(),
+                        decision.created_at.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if "apply authority already issued" in str(exc):
+                    raise WorkspaceStateConflict(
+                        "apply authority was already issued for this lease"
+                    ) from exc
+                raise
             self._conn.execute(
                 """
                 INSERT INTO apply_decision_states
@@ -385,6 +409,52 @@ class WorkspaceMixin:
                 _DECISION_SELECT.format(predicate="d.id = ?"), (decision_id,)
             ).fetchone()
         return row_to_apply_decision(row) if row is not None else None
+
+    def get_latest_apply_decision_for_lease(self, lease_id: str) -> ApplyDecision | None:
+        with self._lock:
+            row = self._conn.execute(
+                _DECISION_SELECT.format(predicate="d.lease_id = ?")
+                + """
+                  ORDER BY
+                    CASE
+                      WHEN EXISTS (
+                        SELECT 1 FROM apply_receipts AS receipt
+                        WHERE receipt.decision_id = d.id
+                      ) THEN 0
+                      WHEN s.state <> 'pending' THEN 1
+                      ELSE 2
+                    END,
+                    d.created_at DESC,
+                    d.id DESC
+                  LIMIT 1
+                """,
+                (lease_id,),
+            ).fetchone()
+        return row_to_apply_decision(row) if row is not None else None
+
+    def has_unreceipted_apply_claim_for_lease(self, lease_id: str) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM apply_decisions AS d
+                    JOIN apply_decision_states AS s ON s.decision_id = d.id
+                    LEFT JOIN apply_receipts AS r
+                      ON r.decision_id = d.id AND r.id = s.receipt_id
+                    WHERE d.lease_id = ?
+                      AND s.state = 'consumed'
+                      AND s.version = (
+                          SELECT MAX(latest.version)
+                          FROM apply_decision_states AS latest
+                          WHERE latest.decision_id = d.id
+                      )
+                      AND (s.receipt_id IS NULL OR r.id IS NULL)
+                )
+                """,
+                (lease_id,),
+            ).fetchone()
+        return bool(row[0])
 
     def transition_apply_decision(
         self,
@@ -437,6 +507,22 @@ class WorkspaceMixin:
             updated = row_to_apply_decision(updated_row)
         return updated
 
+    def claim_apply_decision(
+        self,
+        decision_id: str,
+        *,
+        expected_version: int,
+        receipt_id: str,
+        created_at: datetime,
+    ) -> ApplyDecision:
+        return self.transition_apply_decision(
+            decision_id,
+            expected_version=expected_version,
+            new_state="consumed",
+            receipt_id=receipt_id,
+            created_at=created_at,
+        )
+
     def save_apply_receipt(self, receipt: ApplyReceipt) -> None:
         with self._lock, self._conn:
             self._conn.execute(
@@ -474,6 +560,13 @@ class WorkspaceMixin:
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM apply_receipts WHERE id = ?", (receipt_id,)
+            ).fetchone()
+        return row_to_apply_receipt(row) if row is not None else None
+
+    def get_apply_receipt_for_decision(self, decision_id: str) -> ApplyReceipt | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM apply_receipts WHERE decision_id = ?", (decision_id,)
             ).fetchone()
         return row_to_apply_receipt(row) if row is not None else None
 

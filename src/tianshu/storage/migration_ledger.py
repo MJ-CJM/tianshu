@@ -430,6 +430,60 @@ def apply_migrations(conn: sqlite3.Connection, migrations: Iterable[Migration]) 
         applied_versions.append(migration.version)
 
 
+def ledger_exists(conn: sqlite3.Connection) -> bool:
+    """Return True when the migration ledger table exists, validating its shape."""
+
+    return _ledger_exists(conn)
+
+
+def adopt_migrations(conn: sqlite3.Connection, migrations: Iterable[Migration]) -> tuple[int, ...]:
+    """Record every migration as applied without executing any upgrade callback.
+
+    Used for pre-ledger databases whose schema already satisfies the complete
+    migration sequence; the caller is responsible for proving that equivalence
+    before adopting. The full ledger is written in one immediate transaction.
+    """
+
+    if conn.in_transaction:
+        raise MigrationTransactionError("cannot adopt migrations inside an existing transaction")
+
+    definitions = _validated_definitions(migrations)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if _ledger_exists(conn):
+            # A concurrent starter already recorded the ledger; nothing to adopt.
+            conn.rollback()
+            return ()
+        conn.execute(_CREATE_LEDGER_SQL)
+        adopted_at = datetime.now(UTC).isoformat()
+        for migration in definitions:
+            conn.execute(
+                """
+                INSERT INTO schema_migrations(version, name, checksum, applied_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (migration.version, migration.name, migration.checksum, adopted_at),
+            )
+        foreign_key_errors = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if foreign_key_errors:
+            raise MigrationIntegrityError(
+                f"migration adoption failed foreign_key_check: {foreign_key_errors!r}"
+            )
+        quick_check = conn.execute("PRAGMA quick_check").fetchall()
+        if not quick_check or any(str(row[0]).lower() != "ok" for row in quick_check):
+            raise MigrationIntegrityError(f"migration adoption failed quick_check: {quick_check!r}")
+        conn.commit()
+    except BaseException as exc:
+        if conn.in_transaction:
+            conn.rollback()
+        if isinstance(exc, MigrationError):
+            raise
+        if isinstance(exc, Exception):
+            raise MigrationExecutionError("migration adoption failed") from exc
+        raise
+    return tuple(migration.version for migration in definitions)
+
+
 __all__ = [
     "Migration",
     "MigrationConnection",
@@ -440,6 +494,8 @@ __all__ = [
     "MigrationIntegrityError",
     "MigrationStateError",
     "MigrationTransactionError",
+    "adopt_migrations",
     "apply_migrations",
+    "ledger_exists",
     "pending_migrations",
 ]

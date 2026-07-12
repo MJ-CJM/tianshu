@@ -418,6 +418,90 @@ def test_inspect_repository_does_not_write_dirty_index_tree_to_source_objects(
 
 
 @pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
+def test_inspect_repository_hashes_same_inode_same_size_pack_payload_changes(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _raw_git(repo, "init", "-q")
+    _raw_git(repo, "config", "user.name", "Fixture")
+    _raw_git(repo, "config", "user.email", "fixture@example.invalid")
+    (repo / "tracked.txt").write_text("base\n")
+    _raw_git(repo, "add", "tracked.txt")
+    _raw_git(repo, "commit", "-qm", "base")
+    pack = repo / ".git" / "objects" / "pack" / "governed.pack"
+    pack.parent.mkdir(exist_ok=True)
+    pack.write_bytes(b"pack-before\n")
+    inode = pack.stat().st_ino
+    backend = GitBackend()
+
+    before = backend.inspect_repository(GitLocation(repo))
+    pack.write_bytes(b"pack-extern\n")
+    after = backend.inspect_repository(GitLocation(repo))
+
+    assert pack.stat().st_ino == inode
+    assert pack.stat().st_size == len(b"pack-before\n")
+    assert before.object_database_hash != after.object_database_hash
+
+
+@pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
+def test_inspect_repository_fails_closed_for_alternate_object_database(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _raw_git(repo, "init", "-q")
+    _raw_git(repo, "config", "user.name", "Fixture")
+    _raw_git(repo, "config", "user.email", "fixture@example.invalid")
+    (repo / "tracked.txt").write_text("base\n")
+    _raw_git(repo, "add", "tracked.txt")
+    _raw_git(repo, "commit", "-qm", "base")
+    alternate = tmp_path / "alternate-objects"
+    alternate.mkdir()
+    alternates = repo / ".git" / "objects" / "info" / "alternates"
+    alternates.write_text(f"{alternate}\n", encoding="utf-8")
+
+    with pytest.raises(GitBackendError, match="alternate Git object"):
+        GitBackend().inspect_repository(GitLocation(repo))
+
+
+@pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
+@pytest.mark.parametrize(
+    "swap_stage",
+    ["after_leaf_stat_before_open", "after_open_before_read"],
+)
+def test_read_worktree_entry_rejects_in_operation_leaf_symlink_swap(
+    tmp_path: Path,
+    swap_stage: str,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _raw_git(repo, "init", "-q")
+    tracked = repo / "tracked.txt"
+    tracked.write_bytes(b"inside\n")
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_bytes(b"outside-secret\n")
+    displaced = repo / "displaced.txt"
+    swapped = False
+
+    def swap_leaf(stage: str, leaf: str) -> None:
+        nonlocal swapped
+        if not swapped and stage == swap_stage and leaf == "tracked.txt":
+            tracked.rename(displaced)
+            tracked.symlink_to(outside)
+            swapped = True
+
+    backend = GitBackend(filesystem_operation_hook=swap_leaf)
+
+    with pytest.raises(GitBackendError, match="identity changed"):
+        backend.read_worktree_entry(GitLocation(repo), "tracked.txt")
+
+    assert swapped is True
+    assert displaced.read_bytes() == b"inside\n"
+    assert outside.read_bytes() == b"outside-secret\n"
+
+
+@pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
 def test_git_backend_preflights_aggregate_stage_limit_before_writing_objects(
     tmp_path: Path,
 ) -> None:

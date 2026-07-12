@@ -15,12 +15,14 @@ import stat
 import subprocess
 import tempfile
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import BinaryIO, Literal
 
+from tianshu.executor.anchored_fs import AnchoredFilesystemError, AnchoredRoot
 from tianshu.security.clean_env import build_clean_env
 from tianshu.security.redact import redact_text
 
@@ -31,6 +33,8 @@ _DEFAULT_OUTPUT_LIMIT_BYTES = 1_000_000
 _DEFAULT_BLOB_LIMIT_BYTES = 100_000_000
 _DEFAULT_MATERIALIZATION_LIMIT_BYTES = 1_000_000_000
 _DEFAULT_STAGE_PATH_LIMIT = 10_000
+_DEFAULT_OBJECT_ENTRY_LIMIT = 200_000
+_DEFAULT_OBJECT_FINGERPRINT_BYTE_LIMIT = 64_000_000
 _MAX_PATH_BYTES = 4_096
 
 
@@ -84,6 +88,8 @@ class GitRepositorySnapshot:
     head_revision: str
     head_ref: str | None
     index_tree: str
+    refs_hash: str
+    object_database_hash: str
     status_hash: str
     clean: bool
 
@@ -103,6 +109,16 @@ class GitStagedChange:
     old_size: int | None
     new_size: int | None
     binary: bool
+
+
+@dataclass(frozen=True)
+class GitWorktreeEntry:
+    """Exact non-index worktree identity used by governed apply."""
+
+    mode: Literal["100644", "100755", "120000"]
+    oid: str
+    size: int
+    content: bytes = dataclass_field(repr=False)
 
 
 class GitBackendError(RuntimeError):
@@ -217,6 +233,7 @@ class GitBackend:
         blob_limit_bytes: int = _DEFAULT_BLOB_LIMIT_BYTES,
         materialization_limit_bytes: int = _DEFAULT_MATERIALIZATION_LIMIT_BYTES,
         stage_path_limit: int = _DEFAULT_STAGE_PATH_LIMIT,
+        filesystem_operation_hook: Callable[[str, str], None] | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
@@ -235,6 +252,7 @@ class GitBackend:
         self._stage_path_limit = stage_path_limit
         self._stage_metadata_limit_bytes = stage_path_limit * (_MAX_PATH_BYTES + 80)
         self._git_executable = trusted_git_executable()
+        self._filesystem_operation_hook = filesystem_operation_hook
 
     def resolve_revision(
         self,
@@ -286,6 +304,20 @@ class GitBackend:
             if exc.returncode != 1:
                 raise
             head_ref = None
+        refs = self._invoke(
+            "inspect_repository.refs",
+            location,
+            (
+                "for-each-ref",
+                "--sort=refname",
+                "--format=%(refname)%00%(objectname)%00%(symref)",
+            ),
+            max_output_bytes=min(self._materialization_limit_bytes, 40_000_000),
+        )
+        self._require_complete_output("inspect_repository.refs", refs)
+        object_database_hash = self._object_database_hash(
+            self._resolve_git_path(location, "objects")
+        )
         with self._isolated_git_state(location) as isolated_env:
             tree = self._invoke(
                 "inspect_repository.index",
@@ -313,9 +345,165 @@ class GitBackend:
             head_revision=head_revision,
             head_ref=head_ref,
             index_tree=index_tree,
+            refs_hash=hashlib.sha256(refs.stdout_bytes).hexdigest(),
+            object_database_hash=object_database_hash,
             status_hash=hashlib.sha256(status.stdout_bytes).hexdigest(),
             clean=not status.stdout_bytes,
         )
+
+    @staticmethod
+    def _object_database_hash(objects: Path) -> str:
+        """Fingerprint logical Git object storage within explicit safety bounds.
+
+        Git may freshen existing loose-object timestamps while hashing worktree
+        content against an alternate object directory.  Those timestamps are
+        deliberately excluded. File payloads are hashed within a total byte
+        limit, and alternate object databases fail closed because they cannot be
+        bound safely without recursively expanding the authority boundary.
+        """
+
+        digest = hashlib.sha256()
+        pending = [(Path(objects), b"")]
+        entry_count = 0
+        content_bytes = 0
+        try:
+            while pending:
+                directory, relative = pending.pop()
+                entry_count += 1
+                if entry_count > _DEFAULT_OBJECT_ENTRY_LIMIT:
+                    raise GitBackendError(
+                        "inspect_repository.objects",
+                        "Git object database exceeds the inspection entry limit",
+                    )
+                metadata = directory.stat(follow_symlinks=False)
+                if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                    raise GitBackendError(
+                        "inspect_repository.objects",
+                        "Git object database contains an unsafe directory",
+                    )
+                digest.update(
+                    b"D\x00"
+                    + relative
+                    + b"\x00"
+                    + str(stat.S_IMODE(metadata.st_mode)).encode("ascii")
+                    + b"\x00"
+                    + str(metadata.st_dev).encode("ascii")
+                    + b"\x00"
+                    + str(metadata.st_ino).encode("ascii")
+                    + b"\x00"
+                )
+                entries = sorted(
+                    os.scandir(directory),
+                    key=lambda entry: os.fsencode(entry.name),
+                    reverse=True,
+                )
+                for entry in entries:
+                    entry_count += 1
+                    if entry_count > _DEFAULT_OBJECT_ENTRY_LIMIT:
+                        raise GitBackendError(
+                            "inspect_repository.objects",
+                            "Git object database exceeds the inspection entry limit",
+                        )
+                    name = os.fsencode(entry.name)
+                    child_relative = name if not relative else relative + b"/" + name
+                    child_metadata = entry.stat(follow_symlinks=False)
+                    if stat.S_ISLNK(child_metadata.st_mode):
+                        raise GitBackendError(
+                            "inspect_repository.objects",
+                            "Git object database contains an unsafe link",
+                        )
+                    if stat.S_ISDIR(child_metadata.st_mode):
+                        pending.append((Path(entry.path), child_relative))
+                        continue
+                    if not stat.S_ISREG(child_metadata.st_mode):
+                        raise GitBackendError(
+                            "inspect_repository.objects",
+                            "Git object database contains an unsupported entry",
+                        )
+                    digest.update(
+                        b"F\x00"
+                        + child_relative
+                        + b"\x00"
+                        + str(stat.S_IMODE(child_metadata.st_mode)).encode("ascii")
+                        + b"\x00"
+                        + str(child_metadata.st_size).encode("ascii")
+                        + b"\x00"
+                        + str(child_metadata.st_dev).encode("ascii")
+                        + b"\x00"
+                        + str(child_metadata.st_ino).encode("ascii")
+                        + b"\x00"
+                    )
+                    if child_relative == b"info/alternates" and child_metadata.st_size:
+                        raise GitBackendError(
+                            "inspect_repository.objects",
+                            "alternate Git object databases are unsupported",
+                        )
+                    content_bytes += child_metadata.st_size
+                    if content_bytes > _DEFAULT_OBJECT_FINGERPRINT_BYTE_LIMIT:
+                        raise GitBackendError(
+                            "inspect_repository.objects",
+                            "Git object fingerprint exceeds the content byte limit",
+                        )
+                    digest.update(
+                        b"C\x00"
+                        + child_relative
+                        + b"\x00"
+                        + GitBackend._bounded_file_hash(Path(entry.path), child_metadata).encode(
+                            "ascii"
+                        )
+                        + b"\x00"
+                    )
+        except GitBackendError:
+            raise
+        except OSError as exc:
+            raise GitBackendError(
+                "inspect_repository.objects",
+                "Git object database changed during inspection",
+            ) from exc
+        return digest.hexdigest()
+
+    @staticmethod
+    def _bounded_file_hash(path: Path, expected: os.stat_result) -> str:
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(path, flags)
+            before = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_dev != expected.st_dev
+                or before.st_ino != expected.st_ino
+                or before.st_size != expected.st_size
+            ):
+                raise OSError("object fingerprint identity changed")
+            digest = hashlib.sha256()
+            remaining = before.st_size
+            while remaining:
+                chunk = os.read(descriptor, min(remaining, 65_536))
+                if not chunk:
+                    raise OSError("object fingerprint content was truncated")
+                digest.update(chunk)
+                remaining -= len(chunk)
+            after = os.fstat(descriptor)
+            if (
+                after.st_dev != before.st_dev
+                or after.st_ino != before.st_ino
+                or after.st_size != before.st_size
+                or after.st_mtime_ns != before.st_mtime_ns
+                or after.st_ctime_ns != before.st_ctime_ns
+            ):
+                raise OSError("object fingerprint content changed")
+            return digest.hexdigest()
+        except OSError as exc:
+            raise GitBackendError(
+                "inspect_repository.objects",
+                "Git object database changed during inspection",
+            ) from exc
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
 
     def create_detached_worktree(
         self,
@@ -880,6 +1068,47 @@ class GitBackend:
             identity=identity,
             allow_empty=True,
         )
+
+    def read_worktree_entry(
+        self,
+        location: GitLocation,
+        relative_path: str,
+    ) -> GitWorktreeEntry:
+        """Read and hash one safe worktree path without writing Git objects."""
+
+        try:
+            with AnchoredRoot(
+                location.work_tree,
+                byte_limit=self._blob_limit_bytes,
+                operation_hook=self._filesystem_operation_hook,
+            ) as root:
+                entry = root.capture(relative_path)
+            if entry.kind == "symlink":
+                mode: Literal["100644", "100755", "120000"] = "120000"
+                assert entry.content is not None
+                content = entry.content
+            elif entry.kind == "file":
+                assert entry.mode is not None and entry.content is not None
+                mode = "100755" if entry.mode & stat.S_IXUSR else "100644"
+                content = entry.content
+            else:
+                raise GitBackendError("read_worktree_entry", "unsupported worktree entry type")
+        except AnchoredFilesystemError as exc:
+            raise GitBackendError("read_worktree_entry", "worktree entry identity changed") from exc
+        if len(content) > self._blob_limit_bytes:
+            raise GitBackendError(
+                "read_worktree_entry",
+                f"blob exceeds {self._blob_limit_bytes} byte limit: {relative_path}",
+            )
+        result = self._invoke(
+            "read_worktree_entry.hash",
+            location,
+            ("hash-object", "--no-filters", "--stdin"),
+            stdin_bytes=content,
+        )
+        self._require_complete_output("read_worktree_entry.hash", result)
+        oid = _validate_sha(result.stdout.strip())
+        return GitWorktreeEntry(mode=mode, oid=oid, size=len(content), content=content)
 
     def _safe_worktree_path(self, location: GitLocation, relative_path: str) -> Path:
         normalized = _validate_pathspec(relative_path)

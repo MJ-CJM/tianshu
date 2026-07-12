@@ -10,7 +10,9 @@ from collections.abc import Iterable
 from tianshu.storage.migration_ledger import (
     Migration,
     MigrationConnection,
+    adopt_migrations,
     apply_migrations,
+    ledger_exists,
 )
 from tianshu.storage.schema import SCHEMA_V1_CHECKSUM, SCHEMA_V1_STATEMENTS
 
@@ -460,6 +462,220 @@ _WORKSPACE_FOUNDATION_CHECKSUM = hashlib.sha256(
     (
         "0004_workspace_foundation\n"
         + "\n".join(" ".join(sql.split()) for sql in _WORKSPACE_FOUNDATION_STATEMENTS)
+    ).encode()
+).hexdigest()
+
+_GOVERNED_APPLY_BINDING_COLUMNS = (
+    "run_id",
+    "restore_point_hash",
+    "source_git_dir_identity",
+    "source_head_revision",
+    "source_index_tree",
+    "source_status_hash",
+    "staging_root",
+    "staging_git_dir_identity",
+)
+_GOVERNED_APPLY_BINDING_ALTERS = (
+    "ALTER TABLE apply_decisions ADD COLUMN run_id TEXT",
+    """
+    ALTER TABLE apply_decisions ADD COLUMN restore_point_hash TEXT
+        CHECK (restore_point_hash IS NULL OR length(restore_point_hash) = 64)
+    """,
+    """
+    ALTER TABLE apply_decisions ADD COLUMN source_git_dir_identity TEXT
+        CHECK (source_git_dir_identity IS NULL OR length(source_git_dir_identity) = 64)
+    """,
+    "ALTER TABLE apply_decisions ADD COLUMN source_head_revision TEXT",
+    "ALTER TABLE apply_decisions ADD COLUMN source_index_tree TEXT",
+    """
+    ALTER TABLE apply_decisions ADD COLUMN source_status_hash TEXT
+        CHECK (source_status_hash IS NULL OR length(source_status_hash) = 64)
+    """,
+    "ALTER TABLE apply_decisions ADD COLUMN staging_root TEXT",
+    """
+    ALTER TABLE apply_decisions ADD COLUMN staging_git_dir_identity TEXT
+        CHECK (staging_git_dir_identity IS NULL OR length(staging_git_dir_identity) = 64)
+    """,
+)
+_BACKFILL_GOVERNED_APPLY_BINDINGS = """
+UPDATE apply_decisions
+SET run_id = (
+        SELECT l.run_id FROM workspace_leases AS l
+        WHERE l.id = apply_decisions.lease_id
+    ),
+    restore_point_hash = (
+        SELECT r.content_hash FROM restore_points AS r
+        WHERE r.id = apply_decisions.restore_point_id
+          AND r.lease_id = apply_decisions.lease_id
+    ),
+    source_git_dir_identity = (
+        SELECT r.source_git_dir_identity FROM restore_points AS r
+        WHERE r.id = apply_decisions.restore_point_id
+          AND r.lease_id = apply_decisions.lease_id
+    ),
+    source_head_revision = (
+        SELECT r.source_head_revision FROM restore_points AS r
+        WHERE r.id = apply_decisions.restore_point_id
+          AND r.lease_id = apply_decisions.lease_id
+    ),
+    source_index_tree = (
+        SELECT r.source_index_tree FROM restore_points AS r
+        WHERE r.id = apply_decisions.restore_point_id
+          AND r.lease_id = apply_decisions.lease_id
+    ),
+    source_status_hash = (
+        SELECT r.source_status_hash FROM restore_points AS r
+        WHERE r.id = apply_decisions.restore_point_id
+          AND r.lease_id = apply_decisions.lease_id
+    ),
+    staging_root = (
+        SELECT l.staging_root FROM workspace_leases AS l
+        WHERE l.id = apply_decisions.lease_id
+    ),
+    staging_git_dir_identity = (
+        SELECT a.git_dir_identity FROM workspace_staging_identities AS a
+        WHERE a.lease_id = apply_decisions.lease_id
+    )
+"""
+_IMMUTABLE_APPLY_DECISIONS_UPDATE = """
+CREATE TRIGGER immutable_apply_decisions_update
+BEFORE UPDATE ON apply_decisions
+BEGIN SELECT RAISE(ABORT, 'apply_decisions records are immutable'); END
+"""
+_VALIDATE_APPLY_DECISION_BINDING_V5 = """
+CREATE TRIGGER validate_apply_decision_binding
+BEFORE INSERT ON apply_decisions
+BEGIN
+    SELECT CASE WHEN EXISTS (
+        SELECT 1 FROM apply_decisions AS existing
+        WHERE existing.lease_id = NEW.lease_id
+    ) THEN RAISE(ABORT, 'apply authority already issued for workspace lease') END;
+    SELECT CASE WHEN NOT EXISTS (
+        SELECT 1
+        FROM canonical_change_sets AS c
+        JOIN restore_points AS r
+          ON r.id = c.restore_point_id AND r.lease_id = c.lease_id
+        JOIN workspace_leases AS l ON l.id = c.lease_id
+        JOIN workspace_staging_identities AS a ON a.lease_id = l.id
+        WHERE c.id = NEW.change_set_id
+          AND c.lease_id = NEW.lease_id
+          AND c.content_hash = NEW.change_set_hash
+          AND l.run_id = NEW.run_id
+          AND r.id = NEW.restore_point_id
+          AND r.content_hash = NEW.restore_point_hash
+          AND r.source_repository_id = NEW.source_repository_id
+          AND r.source_root = NEW.source_root
+          AND r.source_git_dir_identity = NEW.source_git_dir_identity
+          AND r.base_revision = NEW.base_revision
+          AND r.source_head_revision = NEW.source_head_revision
+          AND r.source_head_ref IS NEW.source_head_ref
+          AND r.source_index_tree = NEW.source_index_tree
+          AND r.source_status_hash = NEW.source_status_hash
+          AND l.source_repository_id = NEW.source_repository_id
+          AND l.source_root = NEW.source_root
+          AND l.source_git_dir_identity = NEW.source_git_dir_identity
+          AND l.base_revision = NEW.base_revision
+          AND l.staging_root = NEW.staging_root
+          AND a.staging_root = NEW.staging_root
+          AND a.git_dir_identity = NEW.staging_git_dir_identity
+          AND a.source_repository_id = NEW.source_repository_id
+          AND a.base_revision = NEW.base_revision
+          AND c.source_repository_id = NEW.source_repository_id
+          AND c.base_revision = NEW.base_revision
+    ) THEN RAISE(ABORT, 'apply decision binding mismatch') END;
+END
+"""
+_VALIDATE_APPLY_DECISION_STATE_V5 = """
+CREATE TRIGGER validate_apply_decision_state_insert
+BEFORE INSERT ON apply_decision_states
+BEGIN
+    SELECT CASE
+        WHEN NEW.version = 1 AND NEW.state <> 'pending'
+            THEN RAISE(ABORT, 'first apply decision state must be pending')
+        WHEN NEW.version = 1 AND EXISTS (
+            SELECT 1 FROM apply_decision_states WHERE decision_id = NEW.decision_id
+        )
+            THEN RAISE(ABORT, 'apply decision state already initialized')
+        WHEN NEW.version > 1 AND NOT EXISTS (
+            SELECT 1 FROM apply_decision_states
+            WHERE decision_id = NEW.decision_id AND version = NEW.version - 1
+              AND state = 'pending'
+        )
+            THEN RAISE(ABORT, 'apply decision is already terminal')
+        WHEN NEW.version > 1 AND NEW.state NOT IN ('consumed', 'expired', 'revoked')
+            THEN RAISE(ABORT, 'invalid apply decision terminal state')
+        WHEN NEW.version > 1 AND NEW.state = 'consumed' AND NEW.receipt_id IS NULL
+            THEN RAISE(ABORT, 'consumed apply decision requires receipt identity')
+        WHEN NEW.version > 1 AND NEW.state IN ('expired', 'revoked')
+             AND NEW.receipt_id IS NOT NULL
+            THEN RAISE(ABORT, 'non-consumed apply decision forbids receipt identity')
+        WHEN NEW.version > 1 AND NEW.state = 'consumed' AND NOT EXISTS (
+            SELECT 1
+            FROM apply_decisions AS d
+            JOIN workspace_lease_states AS lease_state
+              ON lease_state.lease_id = d.lease_id
+            WHERE d.id = NEW.decision_id
+              AND NEW.created_at < d.expires_at
+              AND lease_state.version = (
+                  SELECT MAX(latest.version)
+                  FROM workspace_lease_states AS latest
+                  WHERE latest.lease_id = d.lease_id
+              )
+              AND lease_state.state = 'active'
+        )
+            THEN RAISE(ABORT, 'apply decision claim authority is not active')
+    END;
+END
+"""
+_VALIDATE_APPLY_RECEIPT_BINDING_V5 = """
+CREATE TRIGGER validate_apply_receipt_binding
+BEFORE INSERT ON apply_receipts
+BEGIN
+    SELECT CASE WHEN NOT EXISTS (
+        SELECT 1
+        FROM apply_decisions AS d
+        JOIN canonical_change_sets AS c
+          ON c.id = d.change_set_id AND c.lease_id = d.lease_id
+        WHERE d.id = NEW.decision_id
+          AND d.lease_id = NEW.lease_id
+          AND d.decision_hash = NEW.decision_hash
+          AND c.id = NEW.change_set_id
+          AND c.content_hash = NEW.change_set_hash
+          AND EXISTS (
+              SELECT 1 FROM apply_decision_states AS s
+              WHERE s.decision_id = d.id
+                AND s.receipt_id = NEW.id
+                AND s.state = 'consumed'
+                AND s.version = (
+                    SELECT MAX(latest.version)
+                    FROM apply_decision_states AS latest
+                    WHERE latest.decision_id = d.id
+                )
+          )
+    ) THEN RAISE(ABORT, 'apply receipt binding mismatch') END;
+END
+"""
+_GOVERNED_APPLY_BINDING_TRIGGER_STATEMENTS = (
+    "DROP TRIGGER validate_apply_decision_binding",
+    "DROP TRIGGER validate_apply_decision_state_insert",
+    "DROP TRIGGER validate_apply_receipt_binding",
+    _VALIDATE_APPLY_DECISION_BINDING_V5,
+    _VALIDATE_APPLY_DECISION_STATE_V5,
+    _VALIDATE_APPLY_RECEIPT_BINDING_V5,
+)
+_GOVERNED_APPLY_BINDING_CHECKSUM = hashlib.sha256(
+    (
+        "0005_governed_apply_bindings\n"
+        + "\n".join(
+            " ".join(sql.split())
+            for sql in (
+                "DROP TRIGGER immutable_apply_decisions_update",
+                *_GOVERNED_APPLY_BINDING_ALTERS,
+                _BACKFILL_GOVERNED_APPLY_BINDINGS,
+                _IMMUTABLE_APPLY_DECISIONS_UPDATE,
+                *_GOVERNED_APPLY_BINDING_TRIGGER_STATEMENTS,
+            )
+        )
     ).encode()
 ).hexdigest()
 
@@ -1792,6 +2008,54 @@ def _workspace_foundation_upgrade(conn: MigrationConnection) -> None:
             conn.execute(statement)
 
 
+def _governed_apply_bindings_upgrade(conn: MigrationConnection) -> None:
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(apply_decisions)").fetchall()}
+    present = columns & set(_GOVERNED_APPLY_BINDING_COLUMNS)
+    if present and present != set(_GOVERNED_APPLY_BINDING_COLUMNS):
+        raise SchemaCompatibilityError("partial governed apply binding schema is incompatible")
+    if not present:
+        conn.execute("DROP TRIGGER immutable_apply_decisions_update")
+        for statement in _GOVERNED_APPLY_BINDING_ALTERS:
+            conn.execute(statement)
+        conn.execute(_BACKFILL_GOVERNED_APPLY_BINDINGS)
+        missing = conn.execute(
+            """
+            SELECT COUNT(*) FROM apply_decisions
+            WHERE run_id IS NULL
+               OR restore_point_hash IS NULL
+               OR source_git_dir_identity IS NULL
+               OR source_head_revision IS NULL
+               OR source_index_tree IS NULL
+               OR source_status_hash IS NULL
+               OR staging_root IS NULL
+               OR staging_git_dir_identity IS NULL
+            """
+        ).fetchone()
+        if missing is None or int(missing[0]) != 0:
+            raise SchemaCompatibilityError(
+                "legacy apply decisions cannot be bound to persisted workspace authority"
+            )
+        conn.execute(_IMMUTABLE_APPLY_DECISIONS_UPDATE)
+    else:
+        missing = conn.execute(
+            """
+            SELECT COUNT(*) FROM apply_decisions
+            WHERE run_id IS NULL
+               OR restore_point_hash IS NULL
+               OR source_git_dir_identity IS NULL
+               OR source_head_revision IS NULL
+               OR source_index_tree IS NULL
+               OR source_status_hash IS NULL
+               OR staging_root IS NULL
+               OR staging_git_dir_identity IS NULL
+            """
+        ).fetchone()
+        if missing is None or int(missing[0]) != 0:
+            raise SchemaCompatibilityError("governed apply bindings contain null authority")
+    for statement in _GOVERNED_APPLY_BINDING_TRIGGER_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -1817,12 +2081,70 @@ MIGRATIONS = (
         checksum=_WORKSPACE_FOUNDATION_CHECKSUM,
         upgrade=_workspace_foundation_upgrade,
     ),
+    Migration(
+        version=5,
+        name="0005_governed_apply_bindings",
+        checksum=_GOVERNED_APPLY_BINDING_CHECKSUM,
+        upgrade=_governed_apply_bindings_upgrade,
+    ),
 )
 
 
-def run_migrations(conn: sqlite3.Connection) -> tuple[int, ...]:
-    """Apply the versioned schema sequence and return newly applied versions."""
+def _matches_canonical_schema(conn: _Connection) -> bool:
+    """检查库的迁移 owned 对象是否与全部迁移完成后的权威形状语义等价。
 
+    比对基准是"内存库执行完整 MIGRATIONS 序列"的最终形状，因此随版本演进自动
+    保持最新；库中额外的非 owned 表（用户扩展）被忽略，`memory_entries` 上由
+    FTS 初始化建立的可选触发器按既有 `_EXPECTED_OPTIONAL_TRIGGERS` 准则豁免。
+    """
+
+    conn_tables = _table_names(conn)
+    if _RESERVED_TEMP_TABLES & conn_tables:
+        # 残留迁移临时表意味着此前有迁移中断，必须交由重放路径拒绝。
+        return False
+    reference = sqlite3.connect(":memory:")
+    reference.execute("PRAGMA foreign_keys=ON")
+    try:
+        apply_migrations(reference, MIGRATIONS)
+        owned_tables = {
+            name
+            for name in _table_names(reference)
+            if name != "schema_migrations" and not name.startswith("sqlite_")
+        }
+        if conn_tables & owned_tables != owned_tables:
+            return False
+        for table in owned_tables:
+            if _table_signature(conn, table) != _table_signature(reference, table):
+                return False
+        if _named_indexes(conn, owned_tables) != _named_indexes(reference, owned_tables):
+            return False
+        expected_triggers = _workspace_trigger_signatures(reference, owned_tables)
+        actual_triggers = _workspace_trigger_signatures(conn, owned_tables)
+        required_actual = {
+            name: signature
+            for name, signature in actual_triggers.items()
+            if _EXPECTED_OPTIONAL_TRIGGERS.get(name) != signature
+        }
+        return required_actual == expected_triggers
+    finally:
+        reference.close()
+
+
+def run_migrations(conn: sqlite3.Connection) -> tuple[int, ...]:
+    """Apply the versioned schema sequence and return newly applied versions.
+
+    Pre-ledger databases that already match the complete canonical shape are
+    adopted in place (the ledger is recorded without re-executing upgrades), so
+    each migration callback only ever observes schemas at or before its own
+    version during a replay.
+    """
+
+    if (
+        not ledger_exists(conn)
+        and _table_names(conn) & _OWNED_TABLES
+        and _matches_canonical_schema(conn)
+    ):
+        return adopt_migrations(conn, MIGRATIONS)
     return apply_migrations(conn, MIGRATIONS)
 
 

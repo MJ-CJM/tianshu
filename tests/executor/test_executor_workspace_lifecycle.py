@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -16,6 +16,7 @@ from tianshu.executor.agent import AgentResult
 from tianshu.executor.capabilities import (
     CapabilityState,
     HostCapabilityProbeV1,
+    claude_code_manifest,
     codex_manifest,
     native_manifest,
 )
@@ -27,7 +28,7 @@ from tianshu.executor.workspace_context import (
     resolve_workspace_root,
 )
 from tianshu.executor.workspace_runtime import WorkspaceContractError
-from tianshu.executor.workspace_service import WorkspaceService
+from tianshu.executor.workspace_service import WorkspaceApplyError, WorkspaceService
 from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.acceptance import AcceptanceCriteria
@@ -37,6 +38,7 @@ from tianshu.models.governance_contract import (
     WorkspacePolicyV1,
 )
 from tianshu.models.plan import Plan, PlanTask
+from tianshu.models.principal import Principal, PrincipalKind
 from tianshu.models.workspace import WorkspaceLeaseState
 
 _GIT = shutil.which("git") or "git"
@@ -90,6 +92,15 @@ def _promoted_manifest(manifest):
 
 def _manifest():
     return _promoted_manifest(native_manifest())
+
+
+def _reviewer() -> Principal:
+    return Principal(
+        id="workspace-reviewer",
+        kind=PrincipalKind.HUMAN,
+        display_name="Workspace Reviewer",
+        scopes=frozenset({"workspace:apply"}),
+    )
 
 
 def _governed_edict(
@@ -229,6 +240,76 @@ async def test_single_run_restores_before_hooks_and_captures_staging_changes(
     assert persisted is not None
     assert persisted.resolved_base_revision == _git(source, "rev-parse", "HEAD")
     await service.shutdown()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
+@pytest.mark.parametrize(
+    "apply_case", ["success", "rollback"], ids=["native-success", "native-rollback"]
+)
+async def test_native_run_to_governed_apply_uses_production_manifest(
+    storage,
+    config_manager,
+    tmp_path: Path,
+    apply_case: str,
+) -> None:
+    source = _repository(tmp_path / "source")
+    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+
+    async def execute(_edict, *, memorial: Memorial, **_kwargs):
+        bound = require_bound_workspace(run_id=memorial.id)
+        (bound.root / "tracked.txt").write_text("native applied\n")
+        return AgentResult(status=TaskStatus.COMPLETED, result="done")
+
+    agent = AsyncMock()
+    agent.execute.side_effect = execute
+    executor = _executor(
+        storage=storage,
+        config_manager=config_manager,
+        hooks=HookRegistry(),
+        service=service,
+        source=source,
+        agent=agent,
+    )
+    executor._adapter_registry.replace(  # noqa: SLF001 - production manifest E2E seam
+        DelegatingExecutorAdapter(
+            adapter_id="native",
+            manifest=native_manifest(),
+            delegate=agent,
+            probe_factory=_probe,
+        )
+    )
+    edict = _governed_edict()
+    storage.save_edict(edict)
+    memorial = Memorial(edict_id=edict.id, instruction=edict.goal)
+    storage.save_memorial(memorial)
+
+    await executor.execute_edict(storage.get_edict(edict.id), memorial=memorial)
+    decision, token = await service.issue_apply_decision(
+        memorial.id,
+        _reviewer(),
+        "native E2E reviewed",
+        timedelta(minutes=5),
+    )
+    if apply_case == "success":
+        receipt = await service.apply(memorial.id, decision.id, token, _reviewer())
+        assert receipt.outcome == "succeeded"
+        assert (source / "tracked.txt").read_text() == "native applied\n"
+    else:
+        service._apply_failure_injector = (  # noqa: SLF001 - exact rollback E2E seam
+            lambda stage: (
+                (_ for _ in ()).throw(RuntimeError("native rollback E2E"))
+                if stage == "after_materialize"
+                else None
+            )
+        )
+        with pytest.raises(WorkspaceApplyError) as caught:
+            await service.apply(memorial.id, decision.id, token, _reviewer())
+        assert caught.value.code == "materialization_failed"
+        receipt = storage.get_apply_receipt_for_decision(decision.id)
+        assert receipt is not None and receipt.outcome == "failed"
+        assert receipt.rollback_status == "succeeded"
+        assert (source / "tracked.txt").read_text() == "base\n"
+    assert storage.get_workspace_lease_by_run(memorial.id).state is WorkspaceLeaseState.CLOSED
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
@@ -943,11 +1024,29 @@ async def test_outer_loop_failure_and_cancellation_capture_then_close(
         assert cancelled_events[0].payload["workspace_change_count"] == 1
 
 
+@pytest.mark.parametrize(
+    ("adapter_id", "manifest_factory", "apply_case"),
+    [
+        ("keqing:claude-code", claude_code_manifest, "success"),
+        ("keqing:claude-code", claude_code_manifest, "rollback"),
+        ("keqing:codex", codex_manifest, "success"),
+        ("keqing:codex", codex_manifest, "rollback"),
+    ],
+    ids=[
+        "keqing:claude-code-success",
+        "keqing:claude-code-rollback",
+        "keqing:codex-success",
+        "keqing:codex-rollback",
+    ],
+)
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
-async def test_lease_backed_keqing_uses_staging_without_legacy_shadow(
+async def test_lease_backed_keqing_run_to_governed_apply_uses_production_manifest(
     storage,
     config_manager,
     tmp_path: Path,
+    adapter_id,
+    manifest_factory,
+    apply_case,
 ) -> None:
     source = _repository(tmp_path / "source")
     service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
@@ -972,8 +1071,8 @@ async def test_lease_backed_keqing_uses_staging_without_legacy_shadow(
     executor._keqing.execute = AsyncMock(side_effect=execute)  # noqa: SLF001
     executor._adapter_registry.replace(  # noqa: SLF001
         DelegatingExecutorAdapter(
-            adapter_id="keqing:codex",
-            manifest=_promoted_manifest(codex_manifest()),
+            adapter_id=adapter_id,
+            manifest=manifest_factory(),
             delegate=executor._keqing,  # noqa: SLF001
             probe_factory=_probe,
         )
@@ -981,7 +1080,7 @@ async def test_lease_backed_keqing_uses_staging_without_legacy_shadow(
     base = Edict(
         goal="keqing change",
         submitter="workspace-test",
-        runtime={"executor": "keqing:codex"},
+        runtime={"executor": adapter_id},
     )
     requested = LegacyEdictGovernanceMapper.from_edict(
         base,
@@ -1012,7 +1111,32 @@ async def test_lease_backed_keqing_uses_staging_without_legacy_shadow(
     assert lease is not None and lease.state is WorkspaceLeaseState.ACTIVE
     changes = storage.get_latest_canonical_change_set_for_lease(lease.id)
     assert changes is not None and len(changes.changes) == 1
-    await service.shutdown()
+    decision, token = await service.issue_apply_decision(
+        memorial.id,
+        _reviewer(),
+        "keqing E2E reviewed",
+        timedelta(minutes=5),
+    )
+    if apply_case == "success":
+        receipt = await service.apply(memorial.id, decision.id, token, _reviewer())
+        assert receipt.outcome == "succeeded"
+        assert (source / "tracked.txt").read_text() == "keqing staging\n"
+    else:
+        service._apply_failure_injector = (  # noqa: SLF001 - exact rollback E2E seam
+            lambda stage: (
+                (_ for _ in ()).throw(RuntimeError("keqing rollback E2E"))
+                if stage == "after_materialize"
+                else None
+            )
+        )
+        with pytest.raises(WorkspaceApplyError) as caught:
+            await service.apply(memorial.id, decision.id, token, _reviewer())
+        assert caught.value.code == "materialization_failed"
+        receipt = storage.get_apply_receipt_for_decision(decision.id)
+        assert receipt is not None and receipt.outcome == "failed"
+        assert receipt.rollback_status == "succeeded"
+        assert (source / "tracked.txt").read_text() == "base\n"
+    assert storage.get_workspace_lease_by_run(memorial.id).state is WorkspaceLeaseState.CLOSED
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")

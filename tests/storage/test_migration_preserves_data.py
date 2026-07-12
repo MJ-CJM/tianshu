@@ -10,12 +10,14 @@ from pathlib import Path
 import pytest
 
 from tianshu.storage import Storage
-from tianshu.storage.migration_ledger import MigrationExecutionError
+from tianshu.storage.migration_ledger import MigrationExecutionError, apply_migrations
+from tianshu.storage.migrations import MIGRATIONS
 
 _BASELINE_NAME = "0001_adopt_v042_baseline"
 _AUTH_MIGRATION_NAME = "0002_auth_tokens"
 _GOVERNANCE_MIGRATION_NAME = "0003_governance_contracts"
 _WORKSPACE_MIGRATION_NAME = "0004_workspace_foundation"
+_GOVERNED_APPLY_MIGRATION_NAME = "0005_governed_apply_bindings"
 _POST_BASELINE_TABLES = {
     "auth_tokens",
     "requested_governance_contracts",
@@ -260,6 +262,16 @@ def _build_historical_core_preledger(
     conn = _connect(path)
     conn.executescript(
         """
+        -- 历史库形状早于 workspace foundation：真实历史库不含这些表。
+        DROP TABLE apply_receipts;
+        DROP TABLE apply_decision_states;
+        DROP TABLE apply_decisions;
+        DROP TABLE canonical_change_sets;
+        DROP TABLE restore_points;
+        DROP TABLE workspace_staging_identities;
+        DROP TABLE workspace_lease_states;
+        DROP TABLE workspace_leases;
+
         DROP TABLE pending_notifications;
         DROP TABLE events;
         DROP TABLE memorials;
@@ -512,6 +524,7 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
         (2, _AUTH_MIGRATION_NAME),
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
+        (5, _GOVERNED_APPLY_MIGRATION_NAME),
     ]
     assert all(len(row["checksum"]) == 64 for row in first_ledger)
     storage.close()
@@ -537,6 +550,7 @@ def test_canonical_preledger_v042_upgrade_only_adds_ledger(tmp_path: Path) -> No
         (2, _AUTH_MIGRATION_NAME),
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
+        (5, _GOVERNED_APPLY_MIGRATION_NAME),
     ]
     ledger = [tuple(row) for row in _ledger_rows(storage._conn)]
     storage.close()
@@ -546,6 +560,43 @@ def test_canonical_preledger_v042_upgrade_only_adds_ledger(tmp_path: Path) -> No
     assert _snapshot(reopened._conn) == before
     assert [tuple(row) for row in _ledger_rows(reopened._conn)] == ledger
     reopened.close()
+
+
+def test_v4_shape_preledger_replays_v5_instead_of_adopt(tmp_path: Path) -> None:
+    """恰好 V4 完成形状的丢 ledger 库不得被整体采纳，必须逐版重放补齐 V5。"""
+
+    path = tmp_path / "v4-shape.sqlite3"
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA foreign_keys=ON")
+    apply_migrations(conn, MIGRATIONS[:4])
+    conn.execute("DROP TABLE schema_migrations")
+    conn.commit()
+    conn.close()
+
+    storage = Storage(str(path))
+    storage.init_db()
+    assert [(row["version"], row["name"]) for row in _ledger_rows(storage._conn)] == [
+        (1, _BASELINE_NAME),
+        (2, _AUTH_MIGRATION_NAME),
+        (3, _GOVERNANCE_MIGRATION_NAME),
+        (4, _WORKSPACE_MIGRATION_NAME),
+        (5, _GOVERNED_APPLY_MIGRATION_NAME),
+    ]
+    columns = {
+        str(row[1])
+        for row in storage._conn.execute("PRAGMA table_info(apply_decisions)").fetchall()
+    }
+    assert {
+        "run_id",
+        "restore_point_hash",
+        "source_git_dir_identity",
+        "source_head_revision",
+        "source_index_tree",
+        "source_status_hash",
+        "staging_root",
+        "staging_git_dir_identity",
+    } <= columns
+    storage.close()
 
 
 def test_canonical_preledger_accepts_semantically_equivalent_column_order(
@@ -577,6 +628,7 @@ def test_canonical_preledger_accepts_semantically_equivalent_column_order(
         (2, _AUTH_MIGRATION_NAME),
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
+        (5, _GOVERNED_APPLY_MIGRATION_NAME),
     ]
     storage.close()
 
@@ -624,6 +676,7 @@ def test_historical_preledger_core_shape_upgrades_to_canonical_without_valid_row
         (2, _AUTH_MIGRATION_NAME),
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
+        (5, _GOVERNED_APPLY_MIGRATION_NAME),
     ]
     assert {
         table: _payload_rows(storage._conn, table, columns)
@@ -759,6 +812,7 @@ def test_combined_historical_core_session_and_supervision_adapters_reach_canonic
         (2, _AUTH_MIGRATION_NAME),
         (3, _GOVERNANCE_MIGRATION_NAME),
         (4, _WORKSPACE_MIGRATION_NAME),
+        (5, _GOVERNED_APPLY_MIGRATION_NAME),
     ]
     storage.close()
 
@@ -940,6 +994,17 @@ def _replace_supervision_with_legacy(path: Path, *, composite_pk: bool) -> list[
     conn = _connect(path)
     conn.executescript(
         """
+        -- legacy supervision 形状的真实历史库早于 workspace foundation；
+        -- IF EXISTS：起点可能是 canonical，也可能是已降级的 historical 库。
+        DROP TABLE IF EXISTS apply_receipts;
+        DROP TABLE IF EXISTS apply_decision_states;
+        DROP TABLE IF EXISTS apply_decisions;
+        DROP TABLE IF EXISTS canonical_change_sets;
+        DROP TABLE IF EXISTS restore_points;
+        DROP TABLE IF EXISTS workspace_staging_identities;
+        DROP TABLE IF EXISTS workspace_lease_states;
+        DROP TABLE IF EXISTS workspace_leases;
+
         INSERT INTO edicts (id, title, goal, created_at)
         VALUES ('edict-legacy', 'legacy', 'legacy', '2026-07-11T01:00:00+00:00');
         INSERT INTO memorials (id, edict_id, status, usage_json, created_at)
