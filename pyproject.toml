@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=75.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -65,6 +65,17 @@ tianshu = "tianshu.cli.main:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+tianshu = [
+    "py.typed",
+    "resources/LICENSE",
+    "resources/personas/**/*",
+    "resources/persona_templates/**/*",
+    "skills/builtin/**/*",
+    "web/static/**/*",
+    "executor/templates/**/*.md",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
