@@ -222,7 +222,7 @@ def _gate_errors(findings: list[Finding], allowlist: tuple[LaunchSite, ...]) -> 
 
 _ALLOWED_LAUNCH_SITES = (
     LaunchSite(
-        "src/tianshu/executor/execution_gateway.py",
+        "src/tianshu/executor/execution_gateway/process_backend.py",
         "AsyncioProcessBackend.spawn",
         "asyncio.create_subprocess_exec",
     ),

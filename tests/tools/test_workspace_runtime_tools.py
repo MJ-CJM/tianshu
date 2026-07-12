@@ -10,13 +10,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from tianshu.executor import execution_gateway as gateway
 from tianshu.executor.capabilities import (
     native_manifest,
     probe_host_capabilities,
     resolve_governance_contract,
 )
 from tianshu.executor.execution_gateway import ExecutionContext, bind_execution_context
+from tianshu.executor.execution_gateway import grants as gateway_grants
 from tianshu.executor.policy_hook import PolicyHook
 from tianshu.executor.workspace_context import BoundWorkspace, bind_workspace
 from tianshu.lsp import diagnostics as lsp_module
@@ -338,7 +338,7 @@ async def test_process_tools_bind_grants_and_requests_to_staging_root(
         executable.chmod(0o755)
         executables[adapter] = executable.resolve()
     monkeypatch.setattr(
-        gateway,
+        gateway_grants,
         "_resolve_trusted_adapter_executable",
         lambda adapter, _root: executables[adapter],
     )

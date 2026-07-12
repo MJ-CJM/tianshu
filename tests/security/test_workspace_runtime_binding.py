@@ -15,6 +15,7 @@ from tianshu.executor.capabilities import (
     probe_host_capabilities,
     resolve_governance_contract,
 )
+from tianshu.executor.execution_gateway import grants as gateway_grants
 from tianshu.executor.workspace_context import (
     BoundWorkspace,
     WorkspaceBindingError,
@@ -239,7 +240,7 @@ def test_legacy_request_remains_compatible_without_fake_lease(
     search_root = tmp_path / "search"
     search_root.mkdir()
     monkeypatch.setattr(
-        gateway,
+        gateway_grants,
         "_resolve_trusted_adapter_executable",
         lambda _adapter, _root: executable.resolve(),
     )

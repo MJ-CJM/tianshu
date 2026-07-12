@@ -16,6 +16,7 @@ from tianshu.executor.capabilities import (
     probe_host_capabilities,
     resolve_governance_contract,
 )
+from tianshu.executor.execution_gateway import grants as gateway_grants
 from tianshu.lsp import diagnostics as lsp_module
 from tianshu.models.governance_contract import (
     NetworkPolicyV1,
@@ -42,7 +43,7 @@ def _trust_adapter_executables(
 ) -> None:
     executables = {"grep": grep, "lsp": lsp}
     monkeypatch.setattr(
-        gateway,
+        gateway_grants,
         "_resolve_trusted_adapter_executable",
         lambda adapter, _workspace_root: (
             Path(executables[adapter]).resolve() if executables[adapter] is not None else None
