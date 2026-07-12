@@ -298,8 +298,26 @@ def native_manifest() -> ExecutorCapabilityManifestV1:
         "artifact_export": CapabilityState.OBSERVED,
         "side_effect_receipts": CapabilityState.UNSUPPORTED,
         "pre_run_restore_point": CapabilityState.ENFORCED,
-        "governed_apply_merge": CapabilityState.UNSUPPORTED,
+        "governed_apply_merge": CapabilityState.ENFORCED,
     }
+    capabilities = _declarations(states, evidence_prefix="native-current")
+    capabilities = tuple(
+        declaration.model_copy(
+            update={
+                "evidence": (
+                    "tests/executor/test_executor_workspace_lifecycle.py::"
+                    "test_native_run_to_governed_apply_uses_production_manifest"
+                    "[native-success]",
+                    "tests/executor/test_executor_workspace_lifecycle.py::"
+                    "test_native_run_to_governed_apply_uses_production_manifest"
+                    "[native-rollback]",
+                )
+            }
+        )
+        if declaration.capability in {"pre_run_restore_point", "governed_apply_merge"}
+        else declaration
+        for declaration in capabilities
+    )
     return ExecutorCapabilityManifestV1(
         manifest_id="tianshu.native.v1",
         manifest_version="1",
@@ -308,9 +326,9 @@ def native_manifest() -> ExecutorCapabilityManifestV1:
         level=ExecutorLevel.CONTAINED,
         experimental=False,
         execution_modes=("single", "dag", "outer_loop"),
-        capabilities=_declarations(states, evidence_prefix="native-current"),
+        capabilities=capabilities,
         limitations=(
-            "isolated runs create a restore point but governed apply is not implemented",
+            "governed apply is coordinated locally and retains an explicit host-crash gap",
             "fixed Git lifecycle operations are bounded but do not emit ExecutionGateway receipts",
             "no durable resume or side-effect receipts",
         ),
@@ -336,8 +354,23 @@ def _keqing_manifest(
         "artifact_export": CapabilityState.OBSERVED,
         "side_effect_receipts": CapabilityState.UNSUPPORTED,
         "pre_run_restore_point": CapabilityState.ENFORCED,
-        "governed_apply_merge": CapabilityState.UNSUPPORTED,
+        "governed_apply_merge": CapabilityState.ENFORCED,
     }
+    capabilities = _declarations(states, evidence_prefix="opaque-cli-current")
+    capability_evidence = (
+        "tests/executor/test_executor_workspace_lifecycle.py::"
+        "test_lease_backed_keqing_run_to_governed_apply_uses_production_manifest"
+        f"[{adapter_id}-success]",
+        "tests/executor/test_executor_workspace_lifecycle.py::"
+        "test_lease_backed_keqing_run_to_governed_apply_uses_production_manifest"
+        f"[{adapter_id}-rollback]",
+    )
+    capabilities = tuple(
+        declaration.model_copy(update={"evidence": capability_evidence})
+        if declaration.capability in {"pre_run_restore_point", "governed_apply_merge"}
+        else declaration
+        for declaration in capabilities
+    )
     return ExecutorCapabilityManifestV1(
         manifest_id=f"tianshu.{adapter_id.replace(':', '.')}.v1",
         manifest_version="1",
@@ -345,11 +378,11 @@ def _keqing_manifest(
         display_name=display_name,
         level=ExecutorLevel.CONTAINED,
         experimental=True,
-        capabilities=_declarations(states, evidence_prefix="opaque-cli-current"),
+        capabilities=capabilities,
         limitations=(
             "opaque CLI actions are observed rather than intercepted",
             "workspace and budget controls have escape or overshoot windows",
-            "no durable resume, receipts, or governed apply",
+            "no durable resume or side-effect receipts",
         ),
     )
 

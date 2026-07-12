@@ -75,7 +75,7 @@ async def test_mandatory_mismatch_blocks_before_agent_invocation(
     storage,
     agent,
 ) -> None:
-    edict = _edict_with_capabilities(mandatory=("governed_apply_merge",))
+    edict = _edict_with_capabilities(mandatory=("durable_resume",))
     storage.save_edict(edict)
 
     await executor.execute_edict(storage.get_edict(edict.id))
@@ -84,7 +84,7 @@ async def test_mandatory_mismatch_blocks_before_agent_invocation(
     memorial = storage.get_memorial_by_edict(edict.id)
     assert memorial is not None
     assert memorial.status is TaskStatus.FAILED
-    assert "governed_apply_merge=unsupported" in memorial.error
+    assert "durable_resume=unsupported" in memorial.error
     assert memorial.effective_governance_contract is None
 
 

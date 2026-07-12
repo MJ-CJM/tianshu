@@ -220,7 +220,9 @@ def test_bootstrap_hash_authenticates_without_persisting_plaintext(storage: Stor
 
     assert context is not None
     assert context.principal.id == "user:owner"
-    assert context.principal.scopes == frozenset({"admin", "api", "mcp:read", "mcp:submit"})
+    assert context.principal.scopes == frozenset(
+        {"admin", "api", "mcp:read", "mcp:submit", "workspace:apply"}
+    )
     assert storage.list_auth_tokens() == []
 
 

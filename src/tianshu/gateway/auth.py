@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from tianshu.config import TianshuSettings
     from tianshu.storage import Storage
 
-ALL_AUTH_SCOPES = frozenset({"admin", "api", "mcp:read", "mcp:submit"})
+ALL_AUTH_SCOPES = frozenset({"admin", "api", "mcp:read", "mcp:submit", "workspace:apply"})
 _LOCAL_ORIGIN = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$")
 _current_auth_context: ContextVar[AuthContext | None] = ContextVar(
     "current_auth_context",
@@ -573,6 +573,14 @@ class SecurityBoundaryMiddleware:
         return frozenset({"api"})
 
     @staticmethod
+    def _requires_workspace_apply(method: str, path: str) -> bool:
+        return (
+            method == "POST"
+            and path.startswith("/api/workspace-runs/")
+            and path.rsplit("/", 1)[-1] in {"apply-decisions", "apply"}
+        )
+
+    @staticmethod
     def _unsafe_unknown(method: str, path: str, webhook_paths: set[str]) -> bool:
         if method not in {"POST", "PUT", "PATCH", "DELETE"}:
             return False
@@ -768,6 +776,14 @@ class SecurityBoundaryMiddleware:
             return
         required_scopes = self._required_scopes(path)
         if required_scopes.isdisjoint(context.principal.scopes):
+            if scope["type"] == "websocket":
+                await self._reject_websocket(send, 4403, "insufficient_scope")
+            else:
+                await self._reject_http(send, 403, "insufficient_scope", correlation_id)
+            return
+        if self._requires_workspace_apply(method, path) and (
+            "workspace:apply" not in context.principal.scopes
+        ):
             if scope["type"] == "websocket":
                 await self._reject_websocket(send, 4403, "insufficient_scope")
             else:

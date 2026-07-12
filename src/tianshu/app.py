@@ -31,6 +31,7 @@ from tianshu.gateway.providers_api import providers_router
 from tianshu.gateway.skills_api import skills_router
 from tianshu.gateway.system_api import system_router
 from tianshu.gateway.universes_api import universes_router
+from tianshu.gateway.workspace_api import workspace_router
 from tianshu.logging_config import setup_logging
 from tianshu.web import mount_web
 
@@ -187,6 +188,7 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     app.include_router(skills_router, prefix="/api")
     app.include_router(system_router, prefix="/api")
     app.include_router(universes_router, prefix="/api")
+    app.include_router(workspace_router, prefix="/api")
     from tianshu.gateway.tongzheng_api import tongzheng_router
 
     app.include_router(tongzheng_router, prefix="/api")

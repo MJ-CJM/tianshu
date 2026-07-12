@@ -69,7 +69,7 @@ def test_preview_returns_structured_mismatch_without_dispatch(config_manager) ->
     contract = base.model_copy(
         update={
             "capabilities": CapabilityRequirementsV1(
-                mandatory=("governed_apply_merge",),
+                mandatory=("durable_resume",),
                 advisory=(),
             )
         }
@@ -91,7 +91,7 @@ def test_preview_returns_structured_mismatch_without_dispatch(config_manager) ->
     assert data["mandatory_mismatches"] == [
         {
             "schema_version": "1",
-            "capability": "governed_apply_merge",
+            "capability": "durable_resume",
             "required_state": "enforced",
             "available_state": "unsupported",
             "manifest_id": "tianshu.native.v1",
@@ -167,7 +167,7 @@ def test_preview_derives_workspace_capability_from_contract_semantics(config_man
     assert controls["pre_run_restore_point"]["requested_mode"] == "mandatory"
     assert controls["pre_run_restore_point"]["state"] == "enforced"
     assert controls["governed_apply_merge"]["requested_mode"] == "advisory"
-    assert controls["governed_apply_merge"]["state"] == "unsupported"
+    assert controls["governed_apply_merge"]["state"] == "enforced"
 
 
 @pytest.mark.parametrize(
