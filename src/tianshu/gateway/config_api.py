@@ -76,6 +76,16 @@ def _state_to_config(s: LLMConfigState) -> LLMConfig:
 # --- Legacy single-config endpoints (operate on active config) ---
 
 
+def _require_writable_provider_config(request: Request) -> None:
+    """demo 档位下 provider 配置只读：runtime 掩蔽生效时写面一律 409。"""
+    cm: ConfigManager = request.app.state.config_manager
+    if cm.runtime_locked:
+        raise HTTPException(
+            status_code=409,
+            detail="provider config is read-only under demo profile",
+        )
+
+
 @config_router.get("/config", response_model=ApiResponse)
 def get_config(request: Request):
     cm: ConfigManager = request.app.state.config_manager
@@ -84,6 +94,7 @@ def get_config(request: Request):
 
 @config_router.put("/config", response_model=ApiResponse)
 def update_config(body: LLMConfigUpdateRequest, request: Request):
+    _require_writable_provider_config(request)
     cm: ConfigManager = request.app.state.config_manager
     updates = body.model_dump(exclude_none=True)
     if not updates:
@@ -109,6 +120,7 @@ def list_configs(request: Request):
 
 @config_router.post("/configs", response_model=ApiResponse, status_code=201)
 def create_config(body: LLMConfigCreateRequest, request: Request):
+    _require_writable_provider_config(request)
     cm: ConfigManager = request.app.state.config_manager
     state = LLMConfigState(
         name=body.name,
@@ -132,6 +144,7 @@ def create_config(body: LLMConfigCreateRequest, request: Request):
 
 @config_router.put("/configs/{name}", response_model=ApiResponse)
 def update_named_config(name: str, body: LLMConfigUpdateRequest, request: Request):
+    _require_writable_provider_config(request)
     cm: ConfigManager = request.app.state.config_manager
     updates = body.model_dump(exclude_none=True)
     try:
@@ -146,6 +159,7 @@ def update_named_config(name: str, body: LLMConfigUpdateRequest, request: Reques
 
 @config_router.delete("/configs/{name}", response_model=ApiResponse)
 def delete_named_config(name: str, request: Request):
+    _require_writable_provider_config(request)
     cm: ConfigManager = request.app.state.config_manager
     try:
         cm.delete_config(name)
@@ -160,6 +174,7 @@ def delete_named_config(name: str, request: Request):
 
 @config_router.put("/configs/{name}/activate", response_model=ApiResponse)
 def activate_config(name: str, request: Request):
+    _require_writable_provider_config(request)
     cm: ConfigManager = request.app.state.config_manager
     try:
         cm.set_active(name)

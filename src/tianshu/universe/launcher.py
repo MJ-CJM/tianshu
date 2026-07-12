@@ -45,6 +45,7 @@ def main() -> None:
     runtime_env = dict(os.environ)
     # Pydantic also loads .env; make that resolved mode explicit before selecting code.
     runtime_env["TIANSHU_SECURITY_MODE"] = settings.security_mode
+    runtime_env["TIANSHU_STARTUP_PROFILE"] = settings.startup_profile
     cwd, env = resolve_boot_plan(pointer, runtime_env)
     host = settings.host
     port = settings.port

@@ -96,10 +96,15 @@ class ConfigManager:
         initial: LLMConfigState,
         agent_config: AgentConfigState | None = None,
         storage: Storage | None = None,
+        runtime_override: LLMConfigState | None = None,
     ) -> None:
         self._storage = storage
         self._agent_config: AgentConfigState = agent_config or AgentConfigState()
         self._lock = threading.Lock()
+        # demo 等 runtime-only 档位：掩蔽全部解析路径（state/get_config），
+        # 但绝不写入 llm_configs，也不影响 list_configs 的持久化视图——
+        # 退出该档位后 live 行为原样恢复。
+        self._runtime_override = runtime_override
 
         # Load from DB first; seed with initial if DB is empty
         self._configs: dict[str, LLMConfigState] = {}
@@ -158,6 +163,8 @@ class ConfigManager:
 
     @property
     def state(self) -> LLMConfigState:
+        if self._runtime_override is not None:
+            return self._runtime_override
         with self._lock:
             return self._configs[self._active_name]
 
@@ -171,7 +178,20 @@ class ConfigManager:
 
     def get_config(self, name: str) -> LLMConfigState | None:
         with self._lock:
-            return self._configs.get(name)
+            state = self._configs.get(name)
+        if state is None:
+            # 掩蔽只替换内容、不伪造存在性：不存在的名字仍返回 None，
+            # 否则 persona llm_config_name 存在性校验会被静默禁用。
+            return None
+        if self._runtime_override is not None:
+            # persona/named 覆盖不得从 runtime 档位逃逸回 live 网络
+            return self._runtime_override
+        return state
+
+    @property
+    def runtime_locked(self) -> bool:
+        """runtime 档位（demo）掩蔽生效时，provider 配置写面必须只读。"""
+        return self._runtime_override is not None
 
     def add_config(self, state: LLMConfigState) -> None:
         with self._lock:

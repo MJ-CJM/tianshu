@@ -133,9 +133,40 @@ def test_launcher_main_uses_settings_resolved_security_mode(monkeypatch, tmp_pat
             security_mode="secure-remote",
             host="127.0.0.1",
             port=8000,
+            startup_profile="live",
         ),
     )
     monkeypatch.delenv("TIANSHU_SECURITY_MODE", raising=False)
 
     with pytest.raises(SecurityBoundaryError, match="disabled"):
         launcher.main()
+
+
+def test_launcher_main_pins_startup_profile_and_security_mode(monkeypatch, tmp_path: Path) -> None:
+    """launcher 必须把 resolved settings 的 profile/mode pin 进子进程 env,
+    防止子进程 cwd 缺 .env 时 profile 静默翻回 live。"""
+    import tianshu.universe.launcher as launcher
+
+    pointer_path = tmp_path / "deploy.json"
+    monkeypatch.setattr(launcher, "DEFAULT_POINTER", pointer_path)
+    monkeypatch.setattr(
+        launcher,
+        "TianshuSettings",
+        lambda: SimpleNamespace(
+            security_mode="trusted-local",
+            host="127.0.0.1",
+            port=8000,
+            startup_profile="demo",
+        ),
+    )
+    monkeypatch.delenv("TIANSHU_SECURITY_MODE", raising=False)
+    monkeypatch.delenv("TIANSHU_STARTUP_PROFILE", raising=False)
+    captured: dict = {}
+
+    def fake_execvpe(file: str, args: list, env: dict) -> None:
+        captured["env"] = env
+
+    monkeypatch.setattr(launcher.os, "execvpe", fake_execvpe)
+    launcher.main()
+    assert captured["env"]["TIANSHU_SECURITY_MODE"] == "trusted-local"
+    assert captured["env"]["TIANSHU_STARTUP_PROFILE"] == "demo"

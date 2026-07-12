@@ -29,9 +29,13 @@ class ProviderManager:
         self,
         storage: Storage,
         config_manager: ConfigManager,
+        demo_mode: bool = False,
     ) -> None:
         self._storage = storage
         self._config_manager = config_manager
+        # demo 档位：get_client 全路径只解析 runtime demo 状态（不选 live provider、
+        # 不建 Router），sync_all 成为 no-op（providers 表零改动）。
+        self._demo_mode = demo_mode
         # 共享 litellm.Router(spec P1-A):configs 指纹变更时懒重建
         self._router: object | None = None
         self._router_fp: tuple | None = None
@@ -68,6 +72,10 @@ class ProviderManager:
 
     def sync_from_config(self, config: LLMConfigState) -> None:
         """Create or update a provider entry from an LLMConfigState."""
+        if self._demo_mode:
+            # demo 状态 runtime-only：任何同步路径都不得写 providers 表
+            logger.warning("demo profile: sync_from_config(%s) ignored", config.name)
+            return
         configs, active_name = self._config_manager.list_configs()
         is_active = config.name == active_name
         self._storage.save_provider(
@@ -83,6 +91,9 @@ class ProviderManager:
 
     def sync_all(self) -> None:
         """Sync all LLM configs to the providers table."""
+        if self._demo_mode:
+            # demo 状态是 runtime-only 的：不同步、不删除任何 providers 行
+            return
         configs, active_name = self._config_manager.list_configs()
         synced_names: set[str] = set()
         for cfg in configs:
@@ -177,6 +188,9 @@ class ProviderManager:
         return {"miss": miss, "hit": hit, "out": out, "source": source}
 
     def unregister(self, name: str) -> bool:
+        if self._demo_mode:
+            logger.warning("demo profile: unregister(%s) ignored", name)
+            return False
         return self._storage.delete_provider(name)
 
     def list_providers(self) -> list[ProviderInfo]:
@@ -198,6 +212,20 @@ class ProviderManager:
         Falls back to ConfigManager's active config if no suitable provider found.
         If *config_name_override* is given (e.g. from a persona), use that config directly.
         """
+        if self._demo_mode:
+            # demo：任何 override/requirements 都解析到 runtime demo 状态，
+            # 不触碰 live provider 选择与 Router。
+            state = self._config_manager.state
+            return create_llm_client(
+                model=state.model,
+                api_key=state.api_key,
+                api_base=state.api_base,
+                max_retries=state.max_retries,
+                temperature=state.temperature,
+                top_p=state.top_p,
+                max_tokens=state.max_tokens,
+                provider_name=state.name,
+            )
         # Persona-level LLM config override
         if config_name_override:
             cfg = self._config_manager.get_config(config_name_override)

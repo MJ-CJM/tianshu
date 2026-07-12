@@ -28,6 +28,9 @@ class TianshuSettings(BaseSettings):
         extra="ignore",
     )
 
+    # demo 为精确 opt-in 的零网络确定性档位（TIANSHU_STARTUP_PROFILE=demo）；
+    # live provider 失败永不回退 demo。
+    startup_profile: Literal["live", "demo"] = "live"
     llm_model: str = "gpt-4o-mini"
     llm_api_key: str = ""
     llm_api_base: str = ""
