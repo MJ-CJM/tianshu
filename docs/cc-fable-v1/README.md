@@ -50,11 +50,12 @@
 
 1. [PROGRESS.md](./PROGRESS.md) —— 当前执行点与逐切片证据
 2. [05-lean-developer-preview-scope.md](./05-lean-developer-preview-scope.md) —— **D8-A 当前交付范围**
-3. [01-master-plan.md](./01-master-plan.md) —— 完整路线与 D8 当前执行覆盖
-4. [06-deferred-work-backlog.md](./06-deferred-work-backlog.md) —— 第一阶段后可直接续作的延期台账
-5. [02-decisions-for-approval.md](./02-decisions-for-approval.md) —— D1–D8 裁决记录
-6. [00-baseline-and-recovery.md](./00-baseline-and-recovery.md) —— 已完成的 P0 资产回收基线
-7. [03-risk-register.md](./03-risk-register.md) —— 风险登记
+3. [Lean Preview 实施计划索引](../superpowers/plans/2026-07-14-tianshu-lean-preview-index.md) —— S1 Gate 至候选收口的可执行计划套件
+4. [01-master-plan.md](./01-master-plan.md) —— 完整路线与 D8 当前执行覆盖
+5. [06-deferred-work-backlog.md](./06-deferred-work-backlog.md) —— 第一阶段后可直接续作的延期台账
+6. [02-decisions-for-approval.md](./02-decisions-for-approval.md) —— D1–D8 裁决记录
+7. [00-baseline-and-recovery.md](./00-baseline-and-recovery.md) —— 已完成的 P0 资产回收基线
+8. [03-risk-register.md](./03-risk-register.md) —— 风险登记
 
 ## 审批状态
 

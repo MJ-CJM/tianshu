@@ -8,6 +8,9 @@
 > [01-master-plan.md](./01-master-plan.md) 继续保留完整 G0–G5 技术路线，本文对其做当前版本的范围覆盖；
 > 全部延期项的续作顺序、前置条件和验收证据见
 > [06-deferred-work-backlog.md](./06-deferred-work-backlog.md)。
+>
+> 获批范围的分阶段实施计划见
+> [Lean Preview 实施计划索引](../superpowers/plans/2026-07-14-tianshu-lean-preview-index.md)。
 
 ## 1. 目标与版本身份
 
