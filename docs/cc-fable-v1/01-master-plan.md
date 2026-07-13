@@ -1,30 +1,35 @@
-# CC-Fable v1 主执行计划（P0 + S0–S6）
+# CC-Fable v1 主执行计划（完整路线 + D8 Lean 覆盖）
 
-> 状态：`user_approval_pending`。本文档拥有**执行顺序、阶段入口/出口与审批边界**；
+> 状态：D8-A `approved_2026-07-14`，当前停在 S1/G1.5 总门禁前。本文档保留
+> **完整 G0–G5 技术路线**；
 > 切片的技术细节一律以 `codex-v1` 对应 brief/recon/phase plan 为准，不在此复制。
-> 范围模式（完整 / 核心优先）由 [02 号文档](./02-decisions-for-approval.md) D4 裁决；
-> 本文按完整模式书写，核心优先模式的裁剪边界在各阶段内注明。
+> 当前交付范围由 [05 号文档](./05-lean-developer-preview-scope.md) 覆盖，延期项由
+> [06 号台账](./06-deferred-work-backlog.md) 管理。本文与 05 冲突时以 05 为准。
 
 ## 1. 阶段总览
 
 | 阶段 | 内容 | 当前状态 | 规模参考 | 出口审批 |
 |---|---|---|---|---|
-| **P0** | 资产回收与基线重建 | `in_progress`（2026-07-12 批准） | 0 行新代码，纯 git/环境操作 | 出口条件自查 + 台账证据 |
-| **P1** | 继承实现复审（只读，D1 附加条件） | `planned`，P0 后启动，可与 S0 并行 | 评审 44 个提交（约 2 万行 net），产出报告 | 报告入 `04-inherited-code-review.md`；Critical 前置 S0 |
-| **S0** | G1.4b3 governed apply 收口 | 迁移后 `in_progress`（WIP 已存在） | 约 7,400 行 WIP 收口为 2 个提交 | 单次 full Gate + G1.4b3 报告 |
-| **S1** | G1.5 wheel / 离线 Demo / Doctor | `planned` | 5 切片 | fresh HOME 黑盒完成受治理 Demo |
-| **S2** | G1.6 审计 / MCP 安全 / 发布基线 | `planned` | 7 切片 | G1 Developer Preview Gate |
-| **S3** | G2 durable governance 与证据 | `blocked_by_upstream`（等完整 G1 handoff） | 13 切片 | 故障矩阵 + G2 Gate |
-| **S4** | G3 正式桌面 Web | `blocked_by_upstream`（等 G2 API） | 12 切片 | automation_passed + 用户终审 |
-| **S5** | G4 受控演化与执行器中立 | `blocked_by_upstream` | 10 切片 | G4-A/B/C Gate（外部项可 `external_pending`） |
-| **S6** | G5 开源发布候选 | `blocked_by_upstream` | 9 切片 | release candidate；实际发布另行授权 |
+| **P0** | 资产回收与基线重建 | `passed` | 已完成 | 出口条件与台账证据已完成 |
+| **P1** | 继承实现复审 | `passed` | 已完成 | 04 号报告完成 |
+| **S0** | G1.4b3 governed apply 收口 | `passed` | 已完成 | G1.4b3 报告完成 |
+| **P1.R1** | execution gateway 等价拆分 | `passed` | 已完成 | commit `e0bdf74` |
+| **S1** | G1.5 Wheel / 离线 Demo / Doctor | 实现完成，**总 Gate pending** | S1.1–S1.5 已完成 | full + slow 黑盒 + G1.5 报告 |
+| **S2 Lean** | 审计 / MCP 密文 / 最小公开护栏 | `planned` | 05 §4.2 | Lean 安全底线报告 |
+| **S3 Core** | durable governance 与 Evidence | `blocked_by_upstream` | 05 §4.3 | 故障矩阵 + Core Gate |
+| **S4 Core** | 正式桌面 Web 三真实页 | `blocked_by_upstream` | 05 §4.4 | automation_passed + 用户终审 |
+| **S5 Core** | 受控演化真实路由 | `blocked_by_upstream` | 05 §4.5 | Lean Core Gate |
+| **Lean Closure** | 一个黄金 Demo 与最小候选包 | `blocked_by_upstream` | 05 §4.6 | Candidate 报告 + 用户最终审批 |
+| **延期轨道** | 完整 S2/S3/S4/S5/S6 | `deferred_by_D8` | 06 号台账 | 逐工作包重新批准 |
 
 ```mermaid
 flowchart LR
-    P0["P0 资产回收"] --> S0["S0 G1.4b3 收口"]
-    S0 --> S1["S1 G1.5"] --> S2["S2 G1.6"] --> S3["S3 G2"]
-    S3 --> S4["S4 G3"] --> S5["S5 G4"] --> S6["S6 G5"]
-    S6 --> U["用户最终发布审批"]
+    P0["P0 已通过"] --> S0["S0 已通过"]
+    S0 --> S1["S1 总 Gate"] --> S2["S2 Lean"] --> S3["S3 Core"]
+    S3 --> S4["S4 Core"] --> S5["S5 Core"] --> LC["Lean Closure"]
+    LC --> U["用户最终审批"]
+    U -. "另行选择工作包" .-> D["06 延期轨道"]
+    D -. "全部完成且另行授权" .-> PUB["外部发布"]
     S3 -. "G2 契约冻结后<br/>壳层/状态组件可受控并行" .-> S4
 ```
 
@@ -94,7 +99,8 @@ Doctor 与 live/ready 契约；S1.5 repo 外 fresh HOME 黑盒跑通受治理 De
 关键事实（冻结）：Logo hash 不变；site-packages 只读；`COURT.md` reset 语义 =
 删除 overlay override 自然回退 packaged 资源。
 
-> 核心优先模式（D4-B）：只做 S1.4（Doctor/readiness，安全相关），其余延后。
+> D8-A 处置：S1.1–S1.5 均已实现，全部保留；当前只做一次 G1.5 总 Gate，
+> 不删除 Wheel CI，也不重复已完成切片。
 
 ## 5. S2 —— G1.6 公开安全与发布基线
 
@@ -106,7 +112,9 @@ Doctor 与 live/ready 契约；S1.5 repo 外 fresh HOME 黑盒跑通受治理 De
 策略；S2.5 stdio 准入 grant / tool allowlist / drift binding；S2.6 exact-wheel
 非 root 容器；S2.7 CI/SBOM/扫描/威胁模型/发布演练 + Developer Preview Gate。
 
-> 核心优先模式：只做 S2.1–S2.3（审计与密文属安全底线），S2.4–S2.7 延后。
+> D8-A 处置：做 S2.1–S2.3，并补“remote MCP 与未审批 stdio 默认禁用”的最小
+> fail-closed 护栏及公开能力矩阵。S2.4–S2.7 的完整开放/容器/供应链工作进入 06
+> 号台账 P2-A；已存在的 Wheel/sdist CI 不属于延期项，继续保留。
 
 ## 6. S3 —— G2 durable governance 与证据
 
@@ -131,7 +139,9 @@ G1 workspace apply authorization 只作为已裁决请求的不可变单向 proj
 
 **语义边界**：G2 的"耐重启"是 SQLite 单机语义；PostgreSQL/K8s/多副本明确不做。
 
-> 核心优先模式：全部保留（此阶段不可裁剪），S3.9 与 S3.12 的 OTel 部分可延后。
+> D8-A 处置：S3.1–S3.8、S3.10–S3.11 与核心故障矩阵全部保留；S3.9 只保留
+> Evidence 所需的 plan hash/修订原因；S3.12 保留内部 durable 通知、审计、
+> correlation 与 readiness，完整 planner 质量体系、OTel 和外部通知进入 06 号 P2-B。
 
 ## 7. S4 —— G3 正式桌面 Web（含 UI 工作线索）
 
@@ -163,8 +173,9 @@ evidence/evolution 组件 + onboarding；S4.5 真实中枢总览 `/control`；S4
 状态组件切片与一个不冲突的 S3 后半切片并行；文件集不相交、owner 具名、
 integration owner 唯一；真实页面必须等待具名后端契约。
 
-> 核心优先模式：做 S4.1–S4.7 + S4.12（壳层、三张真实页、质量门）；
-> S4.8–S4.11 十四部门收敛降为后续迭代。
+> D8-A 处置：做 S4.1–S4.7 + 精简 S4.12（壳层、三张真实页、axe/键盘/200%
+> 缩放/核心视觉门）；S4.8–S4.11 和完整人工 A11y 进入 06 号 P2-C。十四部门导航、
+> Logo、格言、右上角五项、浅色模式和收起侧栏继续保留，延期页面必须诚实标注状态。
 
 **出口**：automation 全绿记 `automation_passed`，页面呈现记
 `user_approval_pending` 等待你的最终视觉/交互审批——两者不合并成一个状态。
@@ -187,8 +198,9 @@ paired ROI；S5.9 校准成本区间与诚实 enforcement 证据；S5.10 G4-A/B/
 **诚实性规则**（沿用）：代码候选永不自动晋升；OpenHands/真实 provider ROI/
 成本校准缺一时保持 `external_pending`，不得本机伪造，不得因此宣称 G4 passed。
 
-> 核心优先模式：做 S5.1–S5.5（"自进化"宣称的支柱）；S5.6–S5.9 延后为
-> `external_pending` 轨道。
+> D8-A 处置：做 S5.1–S5.5 + Lean Core Gate，证明候选、门禁、晋升、真实分流与
+> 回滚；S5.6–S5.10 完整轨道进入 06 号 P3。Lean Core Gate 不能替代完整 G4-A/B/C，
+> 缺少真实 OpenHands/ROI/成本窗口时持续 `external_pending`。
 
 ## 9. S6 —— G5 开源发布候选
 
@@ -204,7 +216,9 @@ workflows/社区文件；S6.9 三个独立外部环境验证与最终候选包�
 branch protection/OIDC、对外宣称 1.0 或自进化闭环——全部需要你在候选完成后
 另行明确授权。
 
-> 核心优先模式：整个 S6 延后；仅 `.idea` 等仓库卫生小项按 D7 提前。
+> D8-A 处置：完整 S6 进入 06 号 P4；当前只做 05 §4.6 的 Lean Closure：一个
+> 黄金 Demo、最小开源文档、Wheel/sdist 候选证据和 Candidate 总报告。SDK、三个
+> Demo、官方容器、正式 provenance 与三个独立外部环境不在第一阶段。
 
 ## 10. 全局工程纪律（沿用 + 环境映射）
 
@@ -227,21 +241,22 @@ RED → GREEN → focused 回归 → 静态门禁 → 独立 spec+质量双审 �
 
 ## 11. 节奏与量级参考（非承诺）
 
-历史节奏：G0 → G1.4b2 共 44 个提交在约 2 天连续实施内完成（含多轮独立审查）。
-剩余 S0–S6 共 56 个切片，其中 S3/S4 单片体量普遍更大。按相同纪律连续实施，
-粗估为 1–2 周量级的 agent 工作时间，外加：每 Gate 的你的审批窗口、S5/S6 的
-外部证据等待（真实 OpenHands、七日成本窗口、三个外部环境等，可与后续开发
-并行挂起为 `external_pending`）。核心优先模式（D4-B）约减去 4 成切片。
+D8-A 把当前路线收敛为 S1 Gate、S2 Lean、S3 Core、S4 Core、S5 Core 和 Lean
+Closure，避免让真实 OpenHands、七日成本窗口、三个外部环境、容器和供应链发布
+阻塞第一阶段。各阶段仍需先按当前代码重新 recon 和拆切片，不沿用旧计划给出时间
+承诺。延期工作已按 P2/P3/P4 工作包拆入 06 号台账，第一阶段验收后再排期。
 
-## 12. 审批模式（2026-07-12 裁决：D5-B 连续实施）
+## 12. 审批模式（D5-B，经 D8-A 收窄）
 
-用户已批准**连续实施至 G5**：Gate 之间不等待人工审批，每个 Gate 仍须完成
+用户已批准在 **D8-A Lean 范围内连续实施**：本设计和后续独立实施计划经用户复核后，
+Gate 之间不等待人工审批；每个 Gate 仍须完成
 自动验收（focused/full suite、静态门禁、独立审查、Gate 报告入台账）后才进入
-下一阶段，最终统一交付用户验证。仍单独保留的人工授权点只有两个：
+下一阶段，最终统一交付用户验证。仍单独保留的人工授权点包括：
 
 1. **S4 视觉/交互终审**：三张真实页 automation 绿后记 `user_approval_pending`，
    等待你亲自走查（不阻塞 S5 后端切片的启动）；
-2. **S6 外部发布授权**：repo Public、tag/release、PyPI/GHCR、对外宣发——
+2. **外部发布授权**：repo Public、tag/release、PyPI/GHCR、对外宣发——
    候选包完成后逐项等待你的明确指令，绝不自动执行。
+3. **延期工作恢复**：从 06 号台账选择工作包、重新核对现场并批准独立计划后才启动。
 
 执行中任何阶段你都可随时叫停或改回逐 Gate 审批（修订 02 号文档 D5 即可）。

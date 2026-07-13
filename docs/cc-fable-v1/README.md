@@ -1,8 +1,9 @@
 # 天枢 Agent OS · CC-Fable v1 执行包
 
 本目录是在**当前工作区**（`~/tiangong/tianshu-worktree/tianshu`，分支
-`feat_cc_fable_v1`）继续 G0–G5 工程的完整执行方案，由 Claude（Fable 5）于
-2026-07-12 基于 `docs/codex-v1` 交接包与现场核查生成。
+`feat_cc_fable_v1`）继续天枢 Agent OS 工程的执行权威。它于 2026-07-12 基于
+`docs/codex-v1` 交接包与现场核查建立，并于 2026-07-14 经 D8-A 收敛为
+**精简 Developer Preview**：先完成核心竞争力闭环，延期工程另有可续作台账。
 
 产品定位不变：
 
@@ -10,9 +11,9 @@
 
 ## 为什么需要本包
 
-`docs/codex-v1` 描述的全部实现工作（G0–G1.4b2 的 44 个提交 + G1.4b3 约 7,400 行
+建立本包时，`docs/codex-v1` 描述的全部实现工作（G0–G1.4b2 的 44 个提交 + G1.4b3 约 7,400 行
 未提交 WIP）位于另一个 clone `~/tiangong/tianshu` 的 `feat_codex_phase_1` 分支，
-该分支**没有任何远程 upstream**。当前工作区是干净的 main 基线，两边已经形成
+该分支**没有任何远程 upstream**。当时当前工作区是干净的 main 基线，两边已经形成
 "文档在这里、代码在那里"的断裂。本包解决三件事：
 
 1. **P0 资产回收**：把 44 个提交与 WIP 无损迁移到当前工作区，消除单点丢失风险；
@@ -35,32 +36,33 @@
 | `evidence/` | 历史台账快照，其证据边界声明继续有效 |
 | `RISK-REGISTER.md` | 由本包 [03-risk-register.md](./03-risk-register.md) 继承并扩展 |
 
-## 当前事实基线（2026-07-12 现场核查，全部经 git 验证）
+## 当前事实基线（2026-07-14）
 
-- 当前分支 `feat_cc_fable_v1` = main（`d8631a2`），**不含**任何 Agent OS 实现提交。
-- 全部已完成实现在 `~/tiangong/tianshu` 的 `feat_codex_phase_1`（HEAD `7386cf3`）：
-  44 个提交领先 main，含 G0 审批原型（`prototypes/tianshu-agent-os/`，6,570 行）、
-  生产 `web/` 术语与 palette 校准（+2,938/−254）、版本化迁移 v1–v4、G1 全部安全边界。
-- `merge-base(feat_codex_phase_1, main) = d8631a2` = 当前 HEAD →
-  **迁移是纯快进（fast-forward），无冲突**。
-- G1.4b3 约 7,400 行 WIP（17 tracked +2703/−104、8 个 untracked）在该 clone
-  未提交；两处 `docs/codex-v1` 内容字节级一致；两 clone 同一 origin。
-- 当前工作区无 `.venv`（uv 0.9.27 可用，P0 重建）；codex clone 为 Python 3.12.12。
+- 唯一开发现场已迁移到本工作区与 `feat_cc_fable_v1`；P0、P1 与 S0 均已通过；
+- S1.1–S1.5 已全部实现，最新实现基线为 `498b1e4`；
+- 当前阶段是 **S1/G1.5 总门禁待执行**：full not-slow、显式 slow Wheel/manifest/
+  fresh HOME 黑盒与 G1.5 报告；
+- Wheel/sdist、离线 demo、Doctor/readiness 和 CI 构建路径已经形成，继续保留；
+- D8-A 已取代 D4-A 作为当前交付范围；完整 G0–G5 仍保留为长期技术路线；
+- 逐切片真实状态、测试证据和提交号只以 [PROGRESS.md](./PROGRESS.md) 为准。
 
 ## 必读顺序
 
-1. [02-decisions-for-approval.md](./02-decisions-for-approval.md) —— 待你裁决的 7 项决策（**先看这个**）
-2. [00-baseline-and-recovery.md](./00-baseline-and-recovery.md) —— P0 资产回收与基线重建
-3. [01-master-plan.md](./01-master-plan.md) —— P0 + S0–S6 完整执行计划
-4. [03-risk-register.md](./03-risk-register.md) —— 风险登记
-5. [PROGRESS.md](./PROGRESS.md) —— 执行台账（P0 起启用）
+1. [PROGRESS.md](./PROGRESS.md) —— 当前执行点与逐切片证据
+2. [05-lean-developer-preview-scope.md](./05-lean-developer-preview-scope.md) —— **D8-A 当前交付范围**
+3. [01-master-plan.md](./01-master-plan.md) —— 完整路线与 D8 当前执行覆盖
+4. [06-deferred-work-backlog.md](./06-deferred-work-backlog.md) —— 第一阶段后可直接续作的延期台账
+5. [02-decisions-for-approval.md](./02-decisions-for-approval.md) —— D1–D8 裁决记录
+6. [00-baseline-and-recovery.md](./00-baseline-and-recovery.md) —— 已完成的 P0 资产回收基线
+7. [03-risk-register.md](./03-risk-register.md) —— 风险登记
 
 ## 审批状态
 
-**2026-07-12 已获用户批准**（裁决全文见
-[02-decisions-for-approval.md](./02-decisions-for-approval.md) 审批记录）：
-D1 全量迁移 + P1 继承复审附加条件；D3 授权推送私有 origin；D4 完整 G0–G5；
-D5 连续实施至 G5（S4 视觉终审、S6 外部发布授权单独保留）。
+**当前批准范围：D8-A 精简 Developer Preview**（2026-07-14）。D1–D7 的迁移、
+唯一现场、私有备份、执行纪律和权限边界继续有效；D8-A 取代 D4-A 的当前交付范围，
+D5 的连续实施只适用于 [05 号文档](./05-lean-developer-preview-scope.md) 定义的
+Lean 范围。延期工作按 [06 号台账](./06-deferred-work-backlog.md) 保留，需重新选择
+工作包并批准计划后再启动。
 
 公开仓库、tag、PyPI/GHCR、宣发等外部发布动作始终需要另行明确授权，
 沿用 `codex-v1/SOURCE-OF-TRUTH.md` 的发布权限边界。
