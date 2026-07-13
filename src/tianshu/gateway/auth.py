@@ -33,6 +33,9 @@ if TYPE_CHECKING:
     from tianshu.storage import Storage
 
 ALL_AUTH_SCOPES = frozenset({"admin", "api", "mcp:read", "mcp:submit", "workspace:apply"})
+# public（免认证可达）但仍需知道调用方是否已认证的路由：未认证只得摘要，
+# 已认证才拿到内部检查详情。解析失败一律当匿名处理，绝不因此拒绝请求。
+_AUTH_AWARE_PUBLIC_PATHS = frozenset({"/health/ready"})
 _LOCAL_ORIGIN = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$")
 _current_auth_context: ContextVar[AuthContext | None] = ContextVar(
     "current_auth_context",
@@ -760,6 +763,23 @@ class SecurityBoundaryMiddleware:
         if scope["type"] == "http" and (
             is_cors_preflight or self._public_route(method, path, webhook_paths)
         ):
+            # public 路由永不拒绝；但对"认证分级"路由（readiness 详情）仍解析身份，
+            # 让处理器能区分匿名与已认证调用方（解析失败只当匿名，不产生 401）。
+            # scope 不足者同样按匿名处理——只发摘要，绝不 403：详情层与其他
+            # "读系统状态"的 /api GET 路由同权（_required_scopes），不做隐性放宽。
+            if not is_cors_preflight and path in _AUTH_AWARE_PUBLIC_PATHS:
+                public_context = self._authenticate(scope, headers, correlation_id)
+                if public_context is not None and not self._required_scopes(path).isdisjoint(
+                    public_context.principal.scopes
+                ):
+                    scope.setdefault("state", {})["auth_context"] = public_context
+                    with bind_auth_context(public_context):
+                        await self.app(
+                            scope,
+                            receive,
+                            self._send_with_correlation(send, correlation_id),
+                        )
+                    return
             await self.app(
                 scope,
                 receive,

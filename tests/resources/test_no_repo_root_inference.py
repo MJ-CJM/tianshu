@@ -19,6 +19,8 @@ _FOUR_PARENT_CHAIN = re.compile(r"\.parent\.parent\.parent\.parent")
 
 _PARENTS_INDEX = re.compile(r"__file__\)\.resolve\(\)\.parents\[|__file__\)\.parents\[")
 _PARENTS_ALLOWLIST = {
+    # doctor 的 repo-root 显式配置检查需读取推断路径来生成告警证据
+    "diagnostics.py",
     # 显式设置为空时的开发模式回退，均有对应 TIANSHU_* 显式配置项
     "bootstrap/wiring_universe.py",
     "cli/commands/evals.py",

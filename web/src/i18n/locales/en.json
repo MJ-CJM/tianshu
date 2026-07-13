@@ -939,6 +939,8 @@
       "tagline": "There is only one kind of success — to be able to spend your life in your own way."
     },
     "healthDot": {
+      "degraded": "Degraded",
+      "demo": "[DEMO]",
       "ok": "Online",
       "err": "Offline"
     },

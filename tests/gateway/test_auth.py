@@ -808,7 +808,7 @@ def test_real_app_has_public_liveness_and_parent_boundary(tmp_path) -> None:
         client.close()
 
     assert live.status_code == 200
-    assert live.json() == {"status": "ok"}
+    assert live.json() == {"schema_version": "1", "status": "live"}
     assert anonymous.status_code == 401
 
 

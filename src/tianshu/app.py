@@ -6,7 +6,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from tianshu import bootstrap
@@ -194,13 +194,106 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
 
     app.include_router(tongzheng_router, prefix="/api")
 
-    @app.get("/health")
+    @app.api_route("/health", methods=["GET", "HEAD"])
     async def health():
+        # legacy liveness 兼容（旧消费者）；owned 消费者一律使用 /health/ready
         return {"status": "ok"}
 
-    @app.get("/health/live")
+    @app.api_route("/health/live", methods=["GET", "HEAD"])
     async def health_live():
-        return {"status": "ok"}
+        # 只证明进程/事件循环可应答，不代表依赖就绪
+        return {"schema_version": "1", "status": "live"}
+
+    @app.api_route("/health/ready", methods=["GET", "HEAD"])
+    async def health_ready(request: Request):
+        from fastapi.responses import JSONResponse
+
+        from tianshu.diagnostics import ReadinessInputs, assess_readiness, provider_config_check
+
+        state = app.state
+
+        def _probe_database() -> tuple[bool, bool]:
+            """(可连接, 迁移到位)。与 Doctor 同口径：pending_migrations 判定迁移。
+
+            纯同步 SQLite，走 storage 锁并在线程池执行，不阻塞事件循环。
+            """
+            from tianshu.storage.migration_ledger import pending_migrations
+            from tianshu.storage.migrations import MIGRATIONS
+
+            storage = state.storage
+            try:
+                with storage._lock:
+                    storage._conn.execute("SELECT 1").fetchone()
+            except Exception:  # noqa: BLE001 - readiness 探针不得抛出
+                return False, False
+            try:
+                with storage._lock:
+                    pending = pending_migrations(storage._conn, MIGRATIONS)
+            except Exception:  # noqa: BLE001
+                return True, False
+            return True, not pending
+
+        database_ok, migrations_ok = await asyncio.to_thread(_probe_database)
+
+        def _resources_ok() -> bool:
+            from tianshu.resources import catalog
+
+            return (catalog.persona_defaults() / "court" / "COURT.md").is_file()
+
+        def _optional_integrations() -> dict[str, bool | None]:
+            """MCP 的**真实**健康信号。
+
+            两个陷阱：会话对象存在 ≠ 已连接（真实字段是 ``status``）；启动就没连上的
+            server 压根不会进 ``sessions``（``_start_one`` 失败返回 None）——所以必须拿
+            "应连"基线（enabled ∧ 准入）去比"实连"，否则最常见的生产故障（npx 拉包失败、
+            命令不存在）在健康端点上完全不可见。
+            """
+            manager = getattr(state, "mcp_manager", None)
+            if manager is None:
+                return {"mcp": None}
+            expected = set(manager.admitted_enabled_names)
+            if not expected:
+                return {"mcp": None}  # 未配置任何 enabled server = 未启用
+            connected = {
+                name for name, session in manager.sessions.items() if session.status == "connected"
+            }
+            # 启动中的 server 既未连上也未失败：算作失败会让每次冷启动先报一段假降级。
+            # 只有"既没连上、也不在启动中"才是真失败。
+            failed = expected - connected - set(manager.starting_names)
+            return {"mcp": not failed}
+
+        def _provider_ready() -> bool:
+            """判定源 = 运行时实际会用到的 active 配置，不是 env（见 provider_config_check）。"""
+            return (
+                provider_config_check(
+                    profile=state.settings.startup_profile,
+                    effective=state.config_manager.state,
+                    config_source="runtime",
+                ).status
+                == "pass"
+            )
+
+        report = assess_readiness(
+            ReadinessInputs(
+                database_ok=lambda: database_ok,
+                migrations_current=lambda: migrations_ok,
+                scheduler_ready=lambda: state.scheduler.is_ready,
+                worker_ready=lambda: state.worker_pool.is_ready,
+                resources_ok=_resources_ok,
+                provider_ready=_provider_ready,
+                provider_profile=lambda: state.settings.startup_profile,
+                workspace_ready=lambda: state.workspace_service.is_ready,
+                optional_integrations=_optional_integrations,
+            )
+        )
+        http_status = 200 if report.status in ("ready", "degraded") else 503
+        # 未认证调用方（任何 runtime mode）只拿摘要；已认证才看内部检查细节
+        authenticated = request.scope.get("state", {}).get("auth_context") is not None
+        if not authenticated:
+            return JSONResponse(report.to_summary_dict(), status_code=http_status)
+        detail = report.to_detail_dict()
+        detail["profile"] = state.settings.startup_profile
+        return JSONResponse(detail, status_code=http_status)
 
     # MCP server(可选能力:mcp extra 未安装则跳过)——外部 MCP 宿主经 POST /mcp 驱动天枢
     try:

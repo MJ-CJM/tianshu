@@ -84,6 +84,7 @@ class Scheduler:
         self._storage = storage
         self._jobs: dict[str, _Job] = {}
         self._running = False
+        self._restored = False  # 作业恢复+常驻任务装配完成后才对外 ready
         self._cron_task: asyncio.Task | None = None
         self._system_jobs: list[dict] = []
         self._system_cron_tasks: list[asyncio.Task] = []
@@ -137,6 +138,9 @@ class Scheduler:
             logger.info("Registered system job: universe.daily_code_propose (30 5 * * *)")
 
     async def start(self) -> None:
+        # _running 必须先置位：_restore_jobs 恢复出来的 cron/one-shot 循环体以
+        # `while self._running` 为条件，晚置位会让它们一启动就退出。
+        # 对外 ready 由独立的 _restored 标志把关（恢复+常驻任务装配完成才为 True）。
         self._running = True
         await self._restore_jobs()
         self._review_timeout_task = asyncio.create_task(self._review_timeout_loop())
@@ -144,7 +148,23 @@ class Scheduler:
         for job in self._system_jobs:
             task = asyncio.create_task(self._system_cron_loop(job["cron"], job["name"], job["fn"]))
             self._system_cron_tasks.append(task)
+        self._restored = True
         logger.info("Scheduler started")
+
+    @property
+    def is_ready(self) -> bool:
+        """运行中、作业已恢复、且全部常驻后台任务存活（任一死亡即不再 ready）。"""
+        if not self._running or not self._restored:
+            return False
+        mandatory: list[asyncio.Task] = []
+        review = getattr(self, "_review_timeout_task", None)
+        orphan = getattr(self, "_orphan_sweep_task", None)
+        if review is not None:
+            mandatory.append(review)
+        if orphan is not None:
+            mandatory.append(orphan)
+        mandatory.extend(self._system_cron_tasks)
+        return all(not task.done() for task in mandatory)
 
     async def _restore_jobs(self) -> None:
         """Restore persisted jobs from DB on startup."""
@@ -351,6 +371,7 @@ class Scheduler:
 
     async def stop(self) -> None:
         self._running = False
+        self._restored = False
         for job in list(self._jobs.values()):
             if job.task and not job.task.done():
                 job.task.cancel()

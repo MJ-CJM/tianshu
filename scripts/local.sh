@@ -180,7 +180,7 @@ wait_port_free() {
 # Poll backend /health until healthy (start 后的健康确认,失败非零退出)
 wait_healthy() {
     local uvicorn_pid="$1"
-    local url="http://localhost:${UVICORN_PORT}/health"
+    local url="http://localhost:${UVICORN_PORT}/health/ready"
     local waited=0
     while (( waited < 60 )); do
         local parent_pid
@@ -374,10 +374,10 @@ cmd_status() {
 
     echo ""
     echo "--- Health Check ---"
-    if curl -sf "http://localhost:${UVICORN_PORT}/health" -o /dev/null 2>/dev/null; then
-        echo "http://localhost:${UVICORN_PORT}/health  OK"
+    if curl -sf "http://localhost:${UVICORN_PORT}/health/ready" -o /dev/null 2>/dev/null; then
+        echo "http://localhost:${UVICORN_PORT}/health/ready  OK"
     else
-        echo "http://localhost:${UVICORN_PORT}/health  UNREACHABLE"
+        echo "http://localhost:${UVICORN_PORT}/health/ready  UNREACHABLE"
     fi
 }
 

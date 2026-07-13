@@ -149,6 +149,11 @@ class WorkspaceService:
         self._starting_runs: set[str] = set()
         self._closing = False
 
+    @property
+    def is_ready(self) -> bool:
+        """进入 shutdown 流程后不再 ready（G1.5 readiness 契约）。"""
+        return not self._closing
+
     @staticmethod
     def _now() -> datetime:
         return datetime.now(UTC)

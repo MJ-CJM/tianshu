@@ -120,6 +120,32 @@ class MCPManager:
         return dict(self._sessions)
 
     @property
+    def starting_names(self) -> tuple[str, ...]:
+        """正在启动、尚未落地 ``_sessions`` 的 server 名。
+
+        MCP 在后台任务里启动（``wiring_tools._mcp_bg_start``），冷启动（如 npx 拉包）
+        可达数十秒。这段窗口内 server 既没连上也没失败——readiness 若把它算作失败，
+        每次重启都会先报一段假降级。
+        """
+        return tuple(sorted(self._starting_sessions))
+
+    @property
+    def admitted_enabled_names(self) -> tuple[str, ...]:
+        """``start()`` 会尝试启动的 server 名（enabled ∧ 准入）。
+
+        readiness 的"应连"基线：启动失败的 session 不会进 ``_sessions``
+        （``_start_one`` 返回 None），只看 ``sessions`` 就永远发现不了
+        "配置了却压根没连上"。
+        """
+        return tuple(
+            sorted(
+                name
+                for name, cfg in self._config.mcp_servers.items()
+                if cfg.enabled and self._admitted(name)
+            )
+        )
+
+    @property
     def terminal_receipts(self) -> dict[str, ExecutionReceipt]:
         receipts = dict(self._terminal_receipts)
         receipts.update(

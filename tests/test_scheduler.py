@@ -297,3 +297,52 @@ class TestSchedulerJobControl:
         assert await scheduler.pause("nope") is False
         assert await scheduler.resume("nope") is False
         assert await scheduler.run_now("nope") is False
+
+
+class TestSchedulerReadiness:
+    """G1.5 readiness 契约:运行中且常驻后台任务全部存活。"""
+
+    @pytest.fixture
+    def event_bus(self):
+        return EventBus()
+
+    @pytest.fixture
+    def scheduler(self, event_bus, storage):
+        return Scheduler(event_bus=event_bus, storage=storage)
+
+    async def test_ready_lifecycle_start_dead_task_stop(self, scheduler):
+        assert scheduler.is_ready is False  # 未 start
+        await scheduler.start()
+        assert scheduler.is_ready is True
+        scheduler._orphan_sweep_task.cancel()
+        import asyncio
+
+        await asyncio.sleep(0)
+        assert scheduler.is_ready is False  # 常驻任务死亡即不 ready
+        await scheduler.stop()
+        assert scheduler.is_ready is False
+
+
+class TestSchedulerReadinessWindow:
+    @pytest.fixture
+    def event_bus(self):
+        return EventBus()
+
+    @pytest.mark.asyncio
+    async def test_not_ready_until_job_restore_completes(self, event_bus, storage):
+        """start() 期间（_restore_jobs 未完成）不得报告 ready。"""
+        scheduler = Scheduler(event_bus=event_bus, storage=storage)
+        observed: list[bool] = []
+        original = scheduler._restore_jobs
+
+        async def _slow_restore():
+            observed.append(scheduler.is_ready)  # 恢复进行中的 readiness 快照
+            await original()
+
+        scheduler._restore_jobs = _slow_restore  # type: ignore[method-assign]
+        await scheduler.start()
+        try:
+            assert observed == [False], "任务恢复完成前不得 ready"
+            assert scheduler.is_ready is True
+        finally:
+            await scheduler.stop()
