@@ -32,6 +32,7 @@ _EXPECTED_CHECK_IDS = [
     "server.live",
     "server.ready",
     "sandbox.capability",
+    "network.search_provider",
     "mcp.integration",
     "optional.feishu",
     "optional.telegram",

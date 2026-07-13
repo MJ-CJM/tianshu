@@ -47,9 +47,10 @@ body {
   background: var(--ts-color-accent);
 }
 
-/* 侧栏分组标题:宋体小字 + 字距,如卷宗签条 */
+/* 侧栏分组标题:宋体小字 + 字距,如卷宗签条(仅用本地字体,无外部 CDN) */
 .ant-menu .ant-menu-item-group-title {
-  font-family: "Noto Serif SC", serif;
+  font-family: "Noto Serif SC", "Songti SC", "SimSun", "Source Han Serif SC",
+    serif;
   font-weight: 700;
   letter-spacing: 0.14em;
 }

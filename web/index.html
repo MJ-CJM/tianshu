@@ -5,10 +5,11 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>天枢 · 中枢台</title>
-    <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@700&family=Noto+Sans+SC:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+    <!--
+      不引入任何外部字体（原 Google Fonts 外链已移除）：天枢要能在完全离线的
+      环境里跑起来，wheel/容器发行物不得依赖公网 CDN。字体族在 theme/index.ts
+      与 global.css 里降级到系统字体栈——本机若装了 Noto/JetBrains 仍优先使用。
+    -->
     <script>
       (function() {
         try {

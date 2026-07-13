@@ -317,6 +317,10 @@ class Executor:
         """Run one governed DAG attempt under its root workspace lease."""
         cancelled_error: asyncio.CancelledError | None = None
         terminal_evidence = WorkspaceTerminalEvidence()
+        # 根终态先只在内存里定形，finalize（捕获变更集）之后才落库——与 execute_edict /
+        # _execute_outer_loop 同一条不变量：终态可见 ⟹ 变更集立即可读。
+        terminal_root: Memorial | None = None
+        persist_terminal = False
         binding = bind_workspace(bound_workspace) if bound_workspace is not None else nullcontext()
         with binding:
             try:
@@ -334,17 +338,20 @@ class Executor:
                     )
                     self._dag_scheduler._global_lane = self._lane_manager.global_lane
 
-                await self._dag_scheduler.run(
+                terminal_root = await self._dag_scheduler.run(
                     edict,
                     execution,
                     prepared_executor=prepared_executor,
+                    persist_root_terminal=False,
                 )
+                persist_terminal = terminal_root is not None
             except asyncio.CancelledError as exc:
                 cancelled_error = exc
                 root_memorial.status = TaskStatus.CANCELLED
                 root_memorial.error = "DAG execution cancelled"
                 root_memorial.completed_at = datetime.now(UTC)
-                self._storage.update_memorial(root_memorial)
+                terminal_root = root_memorial
+                persist_terminal = True
                 execution.status = "cancelled"
                 execution.completed_at = root_memorial.completed_at
                 self._storage.update_dag_execution_status(
@@ -357,7 +364,8 @@ class Executor:
                 root_memorial.status = TaskStatus.FAILED
                 root_memorial.error = str(exc)
                 root_memorial.completed_at = datetime.now(UTC)
-                self._storage.update_memorial(root_memorial)
+                terminal_root = root_memorial
+                persist_terminal = True
                 execution.status = "failed"
                 execution.completed_at = root_memorial.completed_at
                 self._storage.update_dag_execution_status(
@@ -368,17 +376,29 @@ class Executor:
             finally:
                 if self._lane_manager:
                     self._lane_manager.remove_session(edict.id)
-                terminal_memorial = self._storage.get_memorial(root_memorial.id) or root_memorial
-                terminal_evidence, terminal_cancellation = await complete_workspace_lifecycle(
-                    self._workspace_runtime.finalize(
-                        bound_workspace,
-                        terminal_memorial.status,
+                if terminal_root is None:
+                    # scheduler 没把根终态交回来（自行落库，或没有 root_memorial_id）：
+                    # 以库为准。绝不能拿内存里那份仍是 RUNNING 的副本去覆盖已落库的终态。
+                    terminal_root = self._storage.get_memorial(root_memorial.id) or root_memorial
+                try:
+                    terminal_evidence, terminal_cancellation = await complete_workspace_lifecycle(
+                        self._workspace_runtime.finalize(
+                            bound_workspace,
+                            terminal_root.status,
+                        )
                     )
-                )
-                if terminal_cancellation is not None and cancelled_error is None:
-                    cancelled_error = terminal_cancellation
+                    if terminal_cancellation is not None and cancelled_error is None:
+                        cancelled_error = terminal_cancellation
+                finally:
+                    # finalize 失败也不能让根 memorial 卡在非终态（修一个竞态换来一个
+                    # 更糟的挂起）。
+                    if persist_terminal:
+                        try:
+                            self._storage.update_memorial(terminal_root)
+                        except Exception:
+                            logger.exception("Failed to update root memorial %s", terminal_root.id)
 
-        terminal_memorial = self._storage.get_memorial(root_memorial.id) or root_memorial
+        terminal_memorial = self._storage.get_memorial(root_memorial.id) or terminal_root
         event_type = {
             TaskStatus.COMPLETED: "execution.completed",
             TaskStatus.CANCELLED: "execution.cancelled",
@@ -767,17 +787,21 @@ class Executor:
             finally:
                 memorial.completed_at = datetime.now(UTC)
                 try:
-                    self._storage.update_memorial(memorial)
-                except Exception:
-                    logger.exception("Failed to update memorial %s", memorial.id)
-                terminal_evidence, terminal_cancellation = await complete_workspace_lifecycle(
-                    self._workspace_runtime.finalize(
-                        bound_workspace,
-                        memorial.status,
+                    terminal_evidence, terminal_cancellation = await complete_workspace_lifecycle(
+                        self._workspace_runtime.finalize(
+                            bound_workspace,
+                            memorial.status,
+                        )
                     )
-                )
-                if terminal_cancellation is not None and cancelled_error is None:
-                    cancelled_error = terminal_cancellation
+                    if terminal_cancellation is not None and cancelled_error is None:
+                        cancelled_error = terminal_cancellation
+                finally:
+                    # 同 execute_edict：终态可见 ⟹ 变更集已可读；finalize 失败也不能
+                    # 让 memorial 卡在非终态。
+                    try:
+                        self._storage.update_memorial(memorial)
+                    except Exception:
+                        logger.exception("Failed to update memorial %s", memorial.id)
 
         event_type = {
             TaskStatus.COMPLETED: "execution.completed",
@@ -976,10 +1000,6 @@ class Executor:
             event_type = "execution.failed"
         finally:
             memorial.completed_at = datetime.now(UTC)
-            try:
-                self._storage.update_memorial(memorial)
-            except Exception:
-                logger.exception("Failed to update memorial %s", memorial.id)
 
         async def finish_terminal_lifecycle() -> WorkspaceTerminalEvidence:
             terminal_binding = (
@@ -1016,9 +1036,19 @@ class Executor:
                     )
                 return evidence
 
-        terminal_evidence, terminal_cancellation = await complete_workspace_lifecycle(
-            finish_terminal_lifecycle()
-        )
+        try:
+            terminal_evidence, terminal_cancellation = await complete_workspace_lifecycle(
+                finish_terminal_lifecycle()
+            )
+        finally:
+            # 终态只有在变更集捕获之后才对外可见：客户端看到 memorial=completed 就会
+            # 立刻取 /workspace-runs/{run}/changes，先落终态会让这个再正常不过的序列
+            # 撞上 changes_unavailable。放 finally 是因为 finalize 失败也绝不能让
+            # memorial 卡在非终态。
+            try:
+                self._storage.update_memorial(memorial)
+            except Exception:
+                logger.exception("Failed to update memorial %s", memorial.id)
         if terminal_cancellation is not None and cancelled_error is None:
             cancelled_error = terminal_cancellation
         terminal_payload: dict[str, object] = {

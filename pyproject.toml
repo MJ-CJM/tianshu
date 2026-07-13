@@ -1,6 +1,9 @@
 [build-system]
 requires = ["setuptools>=75.0"]
-build-backend = "setuptools.build_meta"
+# in-tree 后端：构建前清空 setuptools 暂存树（否则陈旧产物会混进 wheel，
+# 同源码构建出不同结果），且 wheel 缺 Web 载荷时 fail-closed。见 build_backend/。
+build-backend = "tianshu_build"
+backend-path = ["build_backend"]
 
 [project]
 name = "tianshu"
@@ -47,7 +50,10 @@ dev = [
 scrapling = ["scrapling[fetchers]>=0.3"]
 feishu = ["lark-oapi>=1.4.0"]
 telegram = ["python-telegram-bot>=22.6,<23"]
-web = ["trafilatura>=1.12"]
+# lxml 显式声明：DuckDuckGo 搜索引擎（NETWORK_DEFAULT/NETWORK_RESEARCH 两个档位的
+# 默认 search_provider）硬依赖它。此前只靠 trafilatura/scrapling 传递带入——一次上游
+# 依赖调整就会让默认搜索引擎无声消失。
+web = ["trafilatura>=1.12", "lxml>=5.3"]
 mcp = ["mcp>=1.0"]
 # OTel GenAI 埋点(迭代 3):默认不装、默认关;设 TIANSHU_OTEL_ENDPOINT 才导出。
 # semconv gen_ai.* 仍 experimental,故薄封装集中定义属性,升级只改一处。

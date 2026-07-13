@@ -564,6 +564,41 @@ def _check_sandbox_capability() -> DoctorCheck:
     )
 
 
+def _check_default_search_provider() -> DoctorCheck:
+    """默认档位的默认搜索引擎，在这份发行物里到底能不能用。
+
+    ``NETWORK_DEFAULT`` / ``NETWORK_RESEARCH`` 的 ``search_provider`` 默认是
+    duckduckgo，而它硬依赖 lxml（web extra）。核心发行物里该引擎不会注册，
+    web_search 会返回 ``provider_not_registered:duckduckgo``——这是个明确错误，
+    但运维在跑之前看不见。这里让它在 doctor 里可见。
+    """
+    from tianshu.tools.hongluisi.policy import NETWORK_DEFAULT
+
+    provider = NETWORK_DEFAULT.search_provider
+    if provider is None:
+        return DoctorCheck(
+            id="network.search_provider",
+            status="skipped",
+            required=False,
+            evidence=_safe_evidence({"configured": False}),
+        )
+    try:
+        from tianshu.tools.hongluisi.engine_registry import get_registered_search_providers
+
+        registered = provider in get_registered_search_providers()
+    except Exception:  # noqa: BLE001
+        registered = False
+    return DoctorCheck(
+        id="network.search_provider",
+        status="pass" if registered else "degraded",
+        required=False,
+        evidence=_safe_evidence({"provider": provider, "registered": registered}),
+        remediation=""
+        if registered
+        else f"默认搜索引擎 {provider} 未注册（缺可选依赖）；装 tianshu[web] 或改用其他 provider",
+    )
+
+
 def _check_optional_dependency(check_id: str, module: str) -> DoctorCheck:
     import importlib.util
 
@@ -601,6 +636,7 @@ def run_doctor_checks(settings, *, probe_server: bool = True) -> DoctorReport:
         _check_workspace_git(settings),
         *_check_server(settings, probe_server=probe_server),
         _check_sandbox_capability(),
+        _check_default_search_provider(),
         _check_optional_dependency("mcp.integration", "mcp"),
         _check_optional_dependency("optional.feishu", "lark_oapi"),
         _check_optional_dependency("optional.telegram", "telegram"),

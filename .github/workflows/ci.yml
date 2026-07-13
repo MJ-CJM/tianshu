@@ -38,3 +38,40 @@ jobs:
       - run: npm run typecheck
       - run: npm test -- --run
       - run: npm run build
+
+  # 发行物正确性：backend job 的 `-m "not slow"` 把 wheel manifest 与黑盒全部排除在外，
+  # 于是"干净检出构建出的 wheel 没有 Web 界面"这类回归 CI 永远发现不了。这个 job 从
+  # 干净检出走完整的发行链路（前端构建 → wheel）并断言归档内容。
+  release-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --extra dev
+      - name: Build frontend into the wheel payload
+        run: npm ci && npm run build
+        working-directory: web
+      - name: Wheel manifest assertions (web/static + brand.png + 六部门资源)
+        run: uv run pytest tests/resources/test_wheel_manifest.py -q
+
+      # sdist 是发行链路的另一条腿：build_backend/ 是 backend-path 指向的 in-tree
+      # 后端，setuptools 不会自动收录它 —— 缺了它，从 sdist 构建/安装直接断掉，而
+      # 只跑 wheel 路径的 CI 看不见。这里从干净检出走完整 sdist → wheel → 安装 → smoke。
+      - name: sdist → wheel → install → smoke
+        run: |
+          set -euo pipefail
+          rm -rf dist build
+          uv build --sdist
+          uv build --wheel dist/*.tar.gz --out-dir dist/from-sdist
+          uv venv /tmp/sdist-smoke --python 3.12
+          VIRTUAL_ENV=/tmp/sdist-smoke uv pip install "$(ls dist/from-sdist/*.whl)[cli]"
+          /tmp/sdist-smoke/bin/python -c "import tianshu, tianshu.app; print('sdist wheel importable:', tianshu.__file__)"
+          /tmp/sdist-smoke/bin/tianshu doctor --format json > /dev/null

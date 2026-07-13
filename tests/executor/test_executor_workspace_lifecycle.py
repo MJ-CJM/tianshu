@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shutil
 import subprocess
 from datetime import UTC, datetime, timedelta
@@ -239,6 +240,75 @@ async def test_single_run_restores_before_hooks_and_captures_staging_changes(
     persisted = storage.get_effective_governance_contract(memorial.id)
     assert persisted is not None
     assert persisted.resolved_base_revision == _git(source, "rev-parse", "HEAD")
+    await service.shutdown()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
+async def test_terminal_memorial_is_visible_only_after_changes_are_readable(
+    storage,
+    config_manager,
+    tmp_path: Path,
+) -> None:
+    """终态对外可见的那一刻，变更集必须已经可读。
+
+    客户端 `GET /api/edicts/{id}/memorial` 看到 completed 就会立刻去取
+    `GET /api/workspace-runs/{run_id}/changes`。若终态先落库、变更集在其后才捕获，
+    这个再正常不过的调用序列会撞上 `changes_unavailable`——一个产品可见的竞态。
+    这里在终态写库的**那一刻**同步去读变更集，不轮询（轮询会把竞态盖回去）。
+    """
+    source = _repository(tmp_path / "source")
+    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+
+    async def execute(_edict, *, memorial: Memorial, **_kwargs):
+        bound = require_bound_workspace(run_id=memorial.id)
+        (bound.root / "tracked.txt").write_text("raced\n")
+        return AgentResult(status=TaskStatus.COMPLETED, result="done")
+
+    agent = AsyncMock()
+    agent.execute.side_effect = execute
+    executor = _executor(
+        storage=storage,
+        config_manager=config_manager,
+        hooks=HookRegistry(),
+        service=service,
+        source=source,
+        agent=agent,
+    )
+    edict = _governed_edict()
+    storage.save_edict(edict)
+    memorial = Memorial(edict_id=edict.id, instruction=edict.goal)
+    storage.save_memorial(memorial)
+
+    # 在终态落库的**那一刻**同步查库：这正是一个真实客户端看到 completed 之后
+    # 立刻取 changes 时，服务端会读到的东西。不用 create_task/轮询——那会把竞态盖回去。
+    changes_at_terminal: list[object] = []
+    real_update = storage.update_memorial
+
+    def update_memorial_spy(updated: Memorial):
+        result = real_update(updated)
+        if updated.status == TaskStatus.COMPLETED:
+            lease = storage.get_workspace_lease_by_run(updated.id)
+            changes_at_terminal.append(
+                storage.get_latest_canonical_change_set_for_lease(lease.id) if lease else None
+            )
+        return result
+
+    storage.update_memorial = update_memorial_spy  # type: ignore[method-assign]
+    try:
+        await executor.execute_edict(storage.get_edict(edict.id), memorial=memorial)
+    finally:
+        storage.update_memorial = real_update  # type: ignore[method-assign]
+
+    assert changes_at_terminal, "终态从未落库"
+    change_set = changes_at_terminal[0]
+    assert change_set is not None, (
+        "memorial 已 completed，变更集却还没落库——客户端此刻取 changes 会拿到 changes_unavailable"
+    )
+    assert {change.new_path for change in change_set.changes} == {"tracked.txt"}
+
+    # REST 读路径同样可用（同一事实的另一面）。
+    served = await service.get_run_changes(memorial.id)
+    assert served.id == change_set.id
     await service.shutdown()
 
 
@@ -868,7 +938,9 @@ async def test_pre_running_cancellation_persists_terminal_and_closes_lease(
     elif execution_path in {"dag", "retry"}:
 
         class Scheduler:
-            async def run(self, _edict, execution, *, prepared_executor):
+            async def run(
+                self, _edict, execution, *, prepared_executor, persist_root_terminal=True
+            ):
                 require_bound_workspace(run_id=prepared_executor.prepared.run_id)
                 active_root = storage.get_memorial(execution.root_memorial_id)
                 active_root.status = TaskStatus.FAILED
@@ -1157,7 +1229,7 @@ async def test_dag_root_finalizes_workspace_before_single_terminal_event(
     )
 
     class Scheduler:
-        async def run(self, _edict, execution, *, prepared_executor):
+        async def run(self, _edict, execution, *, prepared_executor, persist_root_terminal=True):
             bound = require_bound_workspace(run_id=prepared_executor.prepared.run_id)
             assert execution.root_memorial_id == bound.lease.run_id
             (bound.root / "tracked.txt").write_text("dag staging\n")
@@ -1254,7 +1326,7 @@ async def test_dag_scheduler_failure_persists_matching_root_and_execution_termin
     executor._bus.on("execution.cancelled", on_cancelled)  # noqa: SLF001
 
     class Scheduler:
-        async def run(self, _edict, _execution, *, prepared_executor):
+        async def run(self, _edict, _execution, *, prepared_executor, persist_root_terminal=True):
             bound = require_bound_workspace(run_id=prepared_executor.prepared.run_id)
             (bound.root / "tracked.txt").write_text("dag terminal\n")
             if outcome == "error":
@@ -1320,7 +1392,7 @@ async def test_dag_retry_startup_failure_persists_consistent_terminal_root(
     )
 
     class FailedScheduler:
-        async def run(self, _edict, execution, *, prepared_executor):
+        async def run(self, _edict, execution, *, prepared_executor, persist_root_terminal=True):
             require_bound_workspace(run_id=prepared_executor.prepared.run_id)
             root = storage.get_memorial(execution.root_memorial_id)
             root.status = TaskStatus.FAILED
@@ -1408,7 +1480,7 @@ async def test_dag_retry_uses_new_lineage_root_and_finalizes_each_attempt(
     terminal_contexts: list[object] = []
 
     class Scheduler:
-        async def run(self, _edict, execution, *, prepared_executor):
+        async def run(self, _edict, execution, *, prepared_executor, persist_root_terminal=True):
             bound = require_bound_workspace(run_id=prepared_executor.prepared.run_id)
             assert execution.root_memorial_id == bound.lease.run_id
             run_roots.append(bound.lease.run_id)
@@ -1468,3 +1540,132 @@ async def test_dag_retry_uses_new_lineage_root_and_finalizes_each_attempt(
     assert storage.get_latest_canonical_change_set_for_lease(retry_lease.id) is not None
     assert (source / "tracked.txt").read_text() == "base\n"
     await service.shutdown()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
+@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
+async def test_dag_terminal_memorial_is_visible_only_after_changes_are_readable(
+    storage,
+    config_manager,
+    tmp_path: Path,
+    outcome: str,
+) -> None:
+    """DAG 路径的同一条不变量：根 memorial 终态可见 ⟹ 变更集立即可读。
+
+    多任务受治理计划走的正是 DAG 路径（executor 按 plan.tasks > 1 分流），这是常见
+    路径而非边角。成功/失败/取消三条分支都必须遵守同一时序：先捕获变更集，再落根终态。
+    """
+    from tianshu.executor.dag_scheduler import DAGScheduler
+    from tianshu.executor.worker_pool import WorkerPool
+
+    source = _repository(tmp_path / "source")
+    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+
+    async def execute(_edict, *, memorial: Memorial, **_kwargs):
+        bound = require_bound_workspace(run_id=memorial.id)
+        (bound.root / f"{memorial.dag_node_id or 'node'}.txt").write_text("dag change\n")
+        if outcome == "failed":
+            raise RuntimeError("node blew up")
+        if outcome == "cancelled":
+            raise asyncio.CancelledError()
+        return AgentResult(status=TaskStatus.COMPLETED, result="node done")
+
+    agent = AsyncMock()
+    agent.execute.side_effect = execute
+    executor = _executor(
+        storage=storage,
+        config_manager=config_manager,
+        hooks=HookRegistry(),
+        service=service,
+        source=source,
+        agent=agent,
+    )
+    executor.set_dag_scheduler(
+        DAGScheduler(
+            event_bus=executor._bus,  # noqa: SLF001 - test seam
+            storage=storage,
+            agent=agent,
+            worker_pool=WorkerPool(max_concurrency=1),
+        )
+    )
+
+    edict = _governed_edict()
+    storage.save_edict(edict)
+    root = Memorial(edict_id=edict.id, instruction=edict.goal)
+    storage.save_memorial(root)
+    plan = Plan(
+        tasks=[
+            PlanTask(task_id="t1", description="first"),
+            PlanTask(task_id="t2", description="second", depends_on=["t1"]),
+        ]
+    )
+
+    terminal_statuses = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
+    changes_at_terminal: list[object] = []
+    real_update = storage.update_memorial
+
+    def update_memorial_spy(updated: Memorial):
+        result = real_update(updated)
+        if updated.id == root.id and updated.status in terminal_statuses:
+            lease = storage.get_workspace_lease_by_run(updated.id)
+            changes_at_terminal.append(
+                storage.get_latest_canonical_change_set_for_lease(lease.id) if lease else None
+            )
+        return result
+
+    storage.update_memorial = update_memorial_spy  # type: ignore[method-assign]
+    try:
+        with contextlib.suppress(asyncio.CancelledError):
+            await executor._execute_dag(  # noqa: SLF001 - exercising the DAG path directly
+                storage.get_edict(edict.id), plan, memorial=root
+            )
+    finally:
+        storage.update_memorial = real_update  # type: ignore[method-assign]
+
+    assert changes_at_terminal, "根 memorial 从未落终态"
+    change_set = changes_at_terminal[0]
+    assert change_set is not None, (
+        "根 memorial 已落终态，变更集却还没落库——客户端此刻取 changes 会拿到 changes_unavailable"
+    )
+
+
+def test_fake_dag_schedulers_track_the_real_run_signature() -> None:
+    """本文件里的假 scheduler 必须接受真实 DAGScheduler.run 的全部关键字。
+
+    桩落后于真实接口时，生产代码传新关键字会 TypeError——而它会被上游的
+    `except Exception` 吞成 FAILED，测试于是挂起或以错误的理由通过（本轮就
+    真的挂了）。这条守卫让"桩必须跟随真实签名"成为可执行的纪律，而不是口头约定。
+    """
+    import ast
+    import inspect
+
+    from tianshu.executor.dag_scheduler import DAGScheduler
+
+    real_kwonly = {
+        name
+        for name, param in inspect.signature(DAGScheduler.run).parameters.items()
+        if param.kind is inspect.Parameter.KEYWORD_ONLY
+    }
+
+    source = Path(__file__).read_text(encoding="utf-8")
+    # 只认 DAG scheduler 形态：类方法（首参 self）且第二个位置参数是 edict。
+    # outer-loop 的 orchestrator 桩是模块级函数，不在此列。
+    fakes = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "run"
+        and [arg.arg for arg in node.args.args][:1] == ["self"]
+        and any(arg.arg in {"_edict", "edict"} for arg in node.args.args)
+    ]
+    assert fakes, "未找到假 scheduler——守卫失效了"
+
+    for fake in fakes:
+        accepted = {arg.arg for arg in fake.args.kwonlyargs}
+        if fake.args.kwarg is not None:  # **kwargs 兜底也算兼容
+            continue
+        missing = real_kwonly - accepted
+        assert not missing, (
+            f"tests/executor/test_executor_workspace_lifecycle.py:{fake.lineno} 的假 scheduler "
+            f"未接受 DAGScheduler.run 的关键字 {sorted(missing)}——生产代码调用它会 TypeError"
+        )

@@ -3,10 +3,14 @@ import type { ThemeConfig } from "antd";
 import type { ThemeMode } from "../hooks/useTheme";
 import { palettes, presetSeeds } from "./palette";
 
+// 字体一律走本地：不引入 Google Fonts 等外部 CDN(离线 wheel/容器必须可用)。
+// Noto/JetBrains 若本机已装则优先，否则降级到各平台的系统中文字体栈。
 const sharedToken = {
   fontFamily:
-    "'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  fontFamilyCode: "'JetBrains Mono', 'Fira Code', monospace",
+    "'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', " +
+    "'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif",
+  fontFamilyCode:
+    "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace",
   borderRadius: 8,
   borderRadiusLG: 12,
   borderRadiusSM: 6,

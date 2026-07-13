@@ -16,6 +16,7 @@ from tianshu.models.common import TaskStatus, UsageSummary
 from tianshu.models.dag import DAGExecution, DAGNode, DAGNodeStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import make_event
+from tianshu.models.memorial import Memorial
 from tianshu.persona.loader import PersonaLoader
 from tianshu.persona.model import DEFAULT_EXECUTOR_ID
 from tianshu.persona.prompt_builder import PromptBuilder
@@ -54,8 +55,15 @@ class DAGScheduler:
         execution: DAGExecution,
         *,
         prepared_executor: PreparedExecutor | None = None,
-    ) -> None:
-        """Run a full DAG execution to completion."""
+        persist_root_terminal: bool = True,
+    ) -> Memorial | None:
+        """Run a full DAG execution to completion; return the aggregated root memorial.
+
+        ``persist_root_terminal=False`` 时只计算根终态、**不落库**——受治理的 DAG
+        运行由调用方在 workspace finalize 之后统一落终态，以维持"终态可见 ⟹ 变更集
+        可读"这条不变量（三条执行路径共用同一纪律）。直接驱动 scheduler 的调用方
+        （无 workspace lease）保持默认落库行为。
+        """
         # Keep a defensive validation boundary for direct scheduler callers.
         try:
             validate_dag_structure(execution.nodes)
@@ -278,7 +286,10 @@ class DAGScheduler:
                     "cancelled": TaskStatus.CANCELLED,
                 }.get(execution.status, TaskStatus.FAILED)
                 root.completed_at = datetime.now(UTC)
-                self._storage.update_memorial(root)
+                if persist_root_terminal:
+                    self._storage.update_memorial(root)
+                return root
+        return None
 
     async def _schedule_ready(
         self,
