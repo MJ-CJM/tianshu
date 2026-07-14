@@ -322,6 +322,7 @@ class MCPManager:
         self._stopping = True
         try:
             async with self._shutdown_lock:
+                self._sync_stdio_commands({})
                 starting_sessions = tuple(self._starting_sessions.values())
                 if starting_sessions:
                     await asyncio.gather(
@@ -347,7 +348,6 @@ class MCPManager:
                     if session.terminal_receipt is not None:
                         self._terminal_receipts[name] = session.terminal_receipt
                 self._sessions.clear()
-                self._sync_stdio_commands({})
         finally:
             self._shutdown_waiters -= 1
             self._stopping = self._shutdown_waiters > 0

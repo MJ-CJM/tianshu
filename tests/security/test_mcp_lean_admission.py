@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import sys
+from collections.abc import Mapping, Sequence
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -53,6 +55,19 @@ class _NoSpawnBackend:
     async def spawn(self, **_: object) -> None:
         self.spawned = True
         raise AssertionError("revoked MCP command must not spawn")
+
+
+class _RecordingExecutionGateway(ExecutionGateway):
+    def __init__(self, backend: _NoSpawnBackend) -> None:
+        self.configurations: list[dict[str, tuple[str, ...]]] = []
+        super().__init__(backend=backend)
+
+    def configure_mcp_stdio_commands(
+        self,
+        commands: Mapping[str, Sequence[str]],
+    ) -> None:
+        self.configurations.append({name: tuple(argv) for name, argv in commands.items()})
+        super().configure_mcp_stdio_commands(commands)
 
 
 def _execution_context():
@@ -373,3 +388,99 @@ async def test_hot_reload_revokes_previous_stdio_gateway_command_and_grant(
     with pytest.raises(ExecutionDenied):
         await gateway.start(_execution_request(tmp_path, context, old_grant, argv))
     assert backend.spawned is False
+
+
+@pytest.mark.asyncio
+async def test_shutdown_revokes_stdio_command_before_waiting_for_live_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    shutdown_entered = asyncio.Event()
+    release_shutdown = asyncio.Event()
+
+    class _BlockingSession:
+        def __init__(self, *, config: MCPServerConfig, **_: object) -> None:
+            self.config = config
+            self.tools = []
+            self.terminal_receipt = None
+
+        async def start(self) -> bool:
+            return True
+
+        async def shutdown(self) -> None:
+            shutdown_entered.set()
+            await release_shutdown.wait()
+
+    monkeypatch.setattr("tianshu.tools.mcp.manager.MCPServerSession", _BlockingSession)
+    backend = _NoSpawnBackend()
+    gateway = _RecordingExecutionGateway(backend)
+    manager = MCPManager(
+        ToolRegistry(),
+        gateway,
+        allowlist="demo,next",
+    )
+    argv = (sys.executable, "-c", "pass")
+    manager._config = MCPConfig(
+        mcp_servers={
+            "demo": MCPServerConfig(
+                name="demo",
+                transport="stdio",
+                command=argv[0],
+                args=list(argv[1:]),
+                tools=ToolFilter(include=["approved"]),
+            )
+        }
+    )
+    await manager.start()
+    context = _execution_context()
+    with bind_execution_context(context):
+        old_grant = gateway.issue_mcp_stdio_command_grant("demo", argv)
+    empty_configurations_before = gateway.configurations.count({})
+
+    second_shutdown_started = asyncio.Event()
+    shutdown_calls = 0
+    original_shutdown = manager.shutdown
+
+    async def tracked_shutdown() -> None:
+        nonlocal shutdown_calls
+        shutdown_calls += 1
+        if shutdown_calls == 2:
+            second_shutdown_started.set()
+        await original_shutdown()
+
+    monkeypatch.setattr(manager, "shutdown", tracked_shutdown)
+
+    first_shutdown = asyncio.create_task(manager.shutdown())
+    await shutdown_entered.wait()
+    second_shutdown = asyncio.create_task(manager.shutdown())
+    await second_shutdown_started.wait()
+    assert first_shutdown.done() is False
+    assert second_shutdown.done() is False
+    try:
+        with pytest.raises(ExecutionDenied):
+            await gateway.start(_execution_request(tmp_path, context, old_grant, argv))
+        assert backend.spawned is False
+    finally:
+        release_shutdown.set()
+        await asyncio.gather(first_shutdown, second_shutdown)
+
+    assert gateway.configurations.count({}) == empty_configurations_before + 1
+
+    next_argv = (sys.executable, "-c", "pass # next")
+    manager._config = MCPConfig(
+        mcp_servers={
+            "next": MCPServerConfig(
+                name="next",
+                transport="stdio",
+                command=next_argv[0],
+                args=list(next_argv[1:]),
+                tools=ToolFilter(include=["approved"]),
+            )
+        }
+    )
+    await manager.start()
+    with bind_execution_context(context):
+        gateway.issue_mcp_stdio_command_grant("next", next_argv)
+        with pytest.raises(ExecutionDenied, match="mcp_command_not_configured"):
+            gateway.issue_mcp_stdio_command_grant("demo", argv)
+    await manager.shutdown()
