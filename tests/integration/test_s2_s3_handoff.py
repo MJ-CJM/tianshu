@@ -10,6 +10,11 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from tianshu.app import create_app
+from tianshu.executor.capabilities import (
+    native_manifest,
+    probe_host_capabilities,
+    resolve_governance_contract,
+)
 from tianshu.executor.execution_gateway import ExecutionGateway
 from tianshu.executor.workspace_service import WorkspaceService
 from tianshu.gateway.workspace_api import WorkspaceApplySurface
@@ -29,13 +34,50 @@ from tianshu.tools.registry import ToolRegistry
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _assert_s2_report_green(report: str) -> None:
+    lines = report.splitlines()
+    assert lines[:2] == ["# S2 Lean Security Gate Report", ""]
+
+    metadata_end = lines.index("", 2)
+    metadata_status = [line for line in lines[2:metadata_end] if line.startswith("- status:")]
+    all_status_lines = [line for line in lines if line.startswith("- status:")]
+    assert metadata_status == ["- status: passed"]
+    assert all_status_lines == ["- status: passed"]
+
+    section_starts = [index for index, line in enumerate(lines) if line.startswith("## ")]
+    assert section_starts and lines[section_starts[-1]] == "## Exit"
+    exit_body = "\n".join(lines[section_starts[-1] + 1 :]).strip()
+    assert exit_body == (
+        "S2 Lean Security is passed at the boundary above. "
+        "The next stage is **S3 Core Governance**."
+    )
+
+
 def test_s2_lean_security_report_is_green() -> None:
     report = (_REPOSITORY_ROOT / "docs/cc-fable-v1/reports/s2-lean-security-report.md").read_text(
         encoding="utf-8"
     )
 
-    assert "- status: passed" in report
-    assert "S2 Lean Security is passed" in report
+    _assert_s2_report_green(report)
+
+
+def test_s2_report_guard_rejects_failed_status_with_historical_pass() -> None:
+    report = """# S2 Lean Security Gate Report
+
+- status: failed
+
+## Gate history
+
+- status: passed
+- S2 Lean Security is passed in an earlier attempt.
+
+## Exit
+
+S2 Lean Security is passed at the boundary above. The next stage is **S3 Core Governance**.
+"""
+
+    with pytest.raises(AssertionError):
+        _assert_s2_report_green(report)
 
 
 def test_live_migration_versions_are_contiguous_through_v8() -> None:
@@ -86,21 +128,40 @@ def test_governance_contract_remains_frozen_and_canonical() -> None:
     assert RequestedGovernanceContractV1.model_config["frozen"] is True
     assert EffectiveGovernanceContractV1.model_config["frozen"] is True
 
-    contract = RequestedGovernanceContractV1(
+    requested = RequestedGovernanceContractV1(
         objective=ObjectiveV1(goal="freeze the S2 to S3 handoff", context=None)
     )
-    expected = json.dumps(
-        contract.model_dump(mode="json"),
+    requested_json = json.dumps(
+        requested.model_dump(mode="json"),
         ensure_ascii=False,
         allow_nan=False,
         separators=(",", ":"),
         sort_keys=True,
     )
 
-    assert contract.canonical_json() == expected
-    assert contract.content_hash == hashlib.sha256(expected.encode("utf-8")).hexdigest()
+    assert requested.canonical_json() == requested_json
+    assert requested.content_hash == hashlib.sha256(requested_json.encode("utf-8")).hexdigest()
     with pytest.raises(ValidationError, match="frozen"):
-        contract.objective = ObjectiveV1(goal="mutated")
+        requested.objective = ObjectiveV1(goal="mutated")
+
+    effective = resolve_governance_contract(
+        requested,
+        native_manifest(),
+        probe_host_capabilities(),
+    )
+    effective_json = json.dumps(
+        effective.model_dump(mode="json"),
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+    assert isinstance(effective, EffectiveGovernanceContractV1)
+    assert effective.canonical_json() == effective_json
+    assert effective.content_hash == hashlib.sha256(effective_json.encode("utf-8")).hexdigest()
+    with pytest.raises(ValidationError, match="frozen"):
+        effective.runtime_probe_id = "mutated"
 
 
 def test_g1_governed_apply_is_only_a_projection_binding() -> None:

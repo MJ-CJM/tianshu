@@ -27,6 +27,10 @@ class _Payload(BaseModel):
     nested: dict[str, object]
 
 
+class _IntegerKeyPayload(BaseModel):
+    nested: dict[int, str]
+
+
 def test_canonical_json_is_sorted_utf8_and_keeps_explicit_nulls() -> None:
     payload = _Payload(
         zeta="天枢",
@@ -65,6 +69,13 @@ def test_canonical_json_rejects_non_finite_numbers(non_finite: float) -> None:
 def test_canonical_json_rejects_non_string_mapping_keys(payload: object) -> None:
     with pytest.raises(TypeError, match="mapping keys must be strings"):
         _canonical_json_bytes(payload)  # type: ignore[arg-type]
+
+
+def test_canonical_json_rejects_model_mapping_keys_before_json_coercion() -> None:
+    payload = _IntegerKeyPayload(nested={1: "must-not-be-stringified"})
+
+    with pytest.raises(TypeError, match="mapping keys must be strings"):
+        _canonical_json_bytes(payload)
 
 
 def test_canonical_json_does_not_coerce_unknown_values_with_default_str() -> None:
