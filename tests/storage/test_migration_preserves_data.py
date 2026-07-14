@@ -19,6 +19,7 @@ _GOVERNANCE_MIGRATION_NAME = "0003_governance_contracts"
 _WORKSPACE_MIGRATION_NAME = "0004_workspace_foundation"
 _GOVERNED_APPLY_MIGRATION_NAME = "0005_governed_apply_bindings"
 _SEED_PERSONAS_MIGRATION_NAME = "0006_seed_default_personas"
+_SYSTEM_AUDIT_MIGRATION_NAME = "0007_system_audit_events"
 _POST_BASELINE_TABLES = {
     "auth_tokens",
     "requested_governance_contracts",
@@ -31,6 +32,7 @@ _POST_BASELINE_TABLES = {
     "apply_decisions",
     "apply_decision_states",
     "apply_receipts",
+    "system_audit_events",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -44,6 +46,8 @@ _POST_BASELINE_INDEXES = {
     "idx_change_sets_restore",
     "idx_apply_decisions_lease",
     "idx_apply_receipts_lease",
+    "idx_system_audit_correlation_sequence",
+    "idx_system_audit_action_sequence",
 }
 _V042_OWNED_TABLE_MANIFEST = (
     48,
@@ -120,6 +124,7 @@ _REQUIRED_TABLES = {
     "pending_steers",
     "feature_flags",
     "evolution_petitions",
+    "system_audit_events",
 }
 _REQUIRED_COLUMNS = {
     "edicts": {
@@ -182,6 +187,8 @@ _REQUIRED_INDEXES = {
     "idx_kg_valid",
     "idx_steers_edict",
     "idx_petitions_status",
+    "idx_system_audit_correlation_sequence",
+    "idx_system_audit_action_sequence",
 }
 
 
@@ -264,6 +271,7 @@ def _build_historical_core_preledger(
     conn.executescript(
         """
         -- 历史库形状早于 workspace foundation：真实历史库不含这些表。
+        DROP TABLE system_audit_events;
         DROP TABLE apply_receipts;
         DROP TABLE apply_decision_states;
         DROP TABLE apply_decisions;
@@ -503,6 +511,12 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
             "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL"
         )
     }
+    triggers = {
+        str(row[0])
+        for row in storage._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger'"
+        )
+    }
     first_ledger = _ledger_rows(storage._conn)
     owned_tables = {
         table
@@ -520,6 +534,10 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
         }
         assert actual_columns >= required_columns
     assert indexes >= _REQUIRED_INDEXES
+    assert {
+        "system_audit_events_no_update",
+        "system_audit_events_no_delete",
+    } <= triggers
     assert [(row["version"], row["name"]) for row in first_ledger] == [
         (1, _BASELINE_NAME),
         (2, _AUTH_MIGRATION_NAME),
@@ -527,6 +545,7 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
+        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
     ]
     assert all(len(row["checksum"]) == 64 for row in first_ledger)
     storage.close()
@@ -554,6 +573,7 @@ def test_canonical_preledger_v042_upgrade_only_adds_ledger(tmp_path: Path) -> No
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
+        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
     ]
     ledger = [tuple(row) for row in _ledger_rows(storage._conn)]
     storage.close()
@@ -585,6 +605,7 @@ def test_v4_shape_preledger_replays_v5_instead_of_adopt(tmp_path: Path) -> None:
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
+        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
     ]
     columns = {
         str(row[1])
@@ -634,6 +655,7 @@ def test_canonical_preledger_accepts_semantically_equivalent_column_order(
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
+        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
     ]
     storage.close()
 
@@ -683,6 +705,7 @@ def test_historical_preledger_core_shape_upgrades_to_canonical_without_valid_row
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
+        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
     ]
     assert {
         table: _payload_rows(storage._conn, table, columns)
@@ -820,6 +843,7 @@ def test_combined_historical_core_session_and_supervision_adapters_reach_canonic
         (4, _WORKSPACE_MIGRATION_NAME),
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
+        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
     ]
     storage.close()
 
@@ -1003,6 +1027,7 @@ def _replace_supervision_with_legacy(path: Path, *, composite_pk: bool) -> list[
         """
         -- legacy supervision 形状的真实历史库早于 workspace foundation；
         -- IF EXISTS：起点可能是 canonical，也可能是已降级的 historical 库。
+        DROP TABLE IF EXISTS system_audit_events;
         DROP TABLE IF EXISTS apply_receipts;
         DROP TABLE IF EXISTS apply_decision_states;
         DROP TABLE IF EXISTS apply_decisions;

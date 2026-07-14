@@ -2098,6 +2098,63 @@ def _seed_default_personas_upgrade(conn: MigrationConnection) -> None:
         )
 
 
+# --- V7: immutable system audit chain ---
+
+_SYSTEM_AUDIT_STATEMENTS = (
+    """
+    CREATE TABLE system_audit_events (
+        sequence INTEGER PRIMARY KEY CHECK (sequence > 0),
+        id TEXT NOT NULL UNIQUE,
+        schema_version TEXT NOT NULL CHECK (schema_version = '1'),
+        correlation_id TEXT NOT NULL,
+        actor_digest TEXT NOT NULL CHECK (length(actor_digest) = 64),
+        action TEXT NOT NULL,
+        outcome TEXT NOT NULL CHECK (outcome IN ('allowed', 'denied', 'succeeded', 'failed')),
+        reason_code TEXT NOT NULL,
+        subject_kind TEXT NOT NULL,
+        subject_digest TEXT NOT NULL CHECK (length(subject_digest) = 64),
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        previous_hash TEXT NOT NULL CHECK (length(previous_hash) = 64),
+        event_hash TEXT NOT NULL UNIQUE CHECK (length(event_hash) = 64),
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX idx_system_audit_correlation_sequence
+    ON system_audit_events(correlation_id, sequence)
+    """,
+    """
+    CREATE INDEX idx_system_audit_action_sequence
+    ON system_audit_events(action, sequence)
+    """,
+    """
+    CREATE TRIGGER system_audit_events_no_update
+    BEFORE UPDATE ON system_audit_events
+    BEGIN
+        SELECT RAISE(ABORT, 'system audit events are append-only');
+    END
+    """,
+    """
+    CREATE TRIGGER system_audit_events_no_delete
+    BEFORE DELETE ON system_audit_events
+    BEGIN
+        SELECT RAISE(ABORT, 'system audit events are append-only');
+    END
+    """,
+)
+_SYSTEM_AUDIT_CHECKSUM = hashlib.sha256(
+    (
+        "0007_system_audit_events\n"
+        + "\n".join(" ".join(statement.split()) for statement in _SYSTEM_AUDIT_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _system_audit_upgrade(conn: MigrationConnection) -> None:
+    for statement in _SYSTEM_AUDIT_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -2134,6 +2191,12 @@ MIGRATIONS = (
         name="0006_seed_default_personas",
         checksum=_SEED_DEFAULT_PERSONAS_CHECKSUM,
         upgrade=_seed_default_personas_upgrade,
+    ),
+    Migration(
+        version=7,
+        name="0007_system_audit_events",
+        checksum=_SYSTEM_AUDIT_CHECKSUM,
+        upgrade=_system_audit_upgrade,
     ),
 )
 

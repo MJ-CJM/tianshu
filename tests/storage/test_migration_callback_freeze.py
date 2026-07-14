@@ -38,6 +38,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0006_seed_default_personas": (
         "5951a0b2025bf25608378ce6914afeeaf699fc661c1b4c667bc45af54830c132"
     ),
+    # v7 于 S2 追加不可变 SystemAudit 表、索引与拒绝更新/删除的触发器。
+    "0007_system_audit_events": (
+        "7cf4b15285537247e322a390c0ba18bd692aa34b5a8cb4a85ad02f371117c44b"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

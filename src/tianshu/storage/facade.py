@@ -28,6 +28,7 @@ from tianshu.storage.persona_repo import PersonaMixin
 from tianshu.storage.petition_repo import PetitionMixin
 from tianshu.storage.scheduler_repo import SchedulerMixin
 from tianshu.storage.security_repo import SecurityMixin
+from tianshu.storage.system_audit_repo import SystemAuditMixin
 from tianshu.storage.telegram_repo import TelegramMixin
 from tianshu.storage.universe_repo import UniverseMixin
 from tianshu.storage.workspace_repo import WorkspaceMixin
@@ -48,6 +49,7 @@ class Storage(
     UniverseMixin,
     EvalsMixin,
     SecurityMixin,
+    SystemAuditMixin,
     KgMixin,
     NotifyMixin,
     FlagMixin,
