@@ -6,7 +6,7 @@ import json
 import sqlite3
 import threading
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal, cast
 
 from pydantic import ValidationError
 from ulid import ULID
@@ -59,7 +59,7 @@ def _row_to_event(row: sqlite3.Row) -> SystemAuditEventV1:
     if not isinstance(metadata, dict):
         raise ValueError("metadata_json must contain an object")
     return SystemAuditEventV1(
-        schema_version=int(row["schema_version"]),
+        schema_version=cast(Literal[1], int(row["schema_version"])),
         id=row["id"],
         sequence=row["sequence"],
         correlation_id=row["correlation_id"],
