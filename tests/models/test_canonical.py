@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 
 def _canonical_json_bytes(value: BaseModel | Mapping[str, object]) -> bytes:
@@ -85,3 +85,33 @@ def test_canonical_json_does_not_coerce_unknown_values_with_default_str() -> Non
 
     with pytest.raises(TypeError, match="JSON-compatible"):
         _canonical_json_bytes({"value": Stringifiable()})
+
+
+def test_redacted_error_is_frozen_and_rejects_unknown_fields() -> None:
+    from tianshu.models.canonical import RedactedError
+
+    error = RedactedError(
+        code="consumer_dispatch_failed",
+        message="one or more consumers failed",
+        retryable=True,
+        details_hash=None,
+    )
+
+    assert error.model_dump() == {
+        "code": "consumer_dispatch_failed",
+        "message": "one or more consumers failed",
+        "retryable": True,
+        "details_hash": None,
+    }
+    with pytest.raises(ValidationError):
+        error.code = "changed"  # type: ignore[misc]
+    with pytest.raises(ValidationError):
+        RedactedError.model_validate(
+            {
+                "code": "failed",
+                "message": "redacted",
+                "retryable": True,
+                "details_hash": None,
+                "raw_error": "must not be accepted",
+            }
+        )

@@ -7,10 +7,19 @@ import json
 import math
 from collections.abc import Mapping
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
+
+
+class RedactedError(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    code: str
+    message: str
+    retryable: bool
+    details_hash: str | None
 
 
 def _require_string_mapping_keys(value: object) -> None:
@@ -71,6 +80,7 @@ def canonical_sha256(value: BaseModel | Mapping[str, object]) -> str:
 __all__ = [
     "JsonScalar",
     "JsonValue",
+    "RedactedError",
     "canonical_json_bytes",
     "canonical_sha256",
 ]
