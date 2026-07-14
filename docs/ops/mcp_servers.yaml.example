@@ -1,6 +1,6 @@
 # 藏兵阁 · MCP server 配置示例
 #
-# 把本文件复制到 ~/.tianshu/mcp_servers.yaml 后修改，启动 tianshu 即可生效。
+# 把本文件复制到 ~/.tianshu/mcp_servers.yaml 后修改；默认不启动任何 MCP server。
 # 也可以从 web 后台 → 系统管理 → MCP Tab 启停 / 覆写 env / 改过滤名单。
 #
 # server name 在 dict key 上（如下面的 "filesystem"、"github"），不允许包含
@@ -10,29 +10,40 @@
 # 错误消息和日志会自动对常见 token 模式做 [REDACTED] 脱敏。
 
 mcp_servers:
-  # 本地 stdio 子进程：filesystem 沙盒
+  # 本地 stdio 子进程：filesystem 示例（不是 OS 安全沙箱）
+  # 仅在核对 command/args/workspace 后才改 enabled: true，且必须保留
+  # 显式 non-empty tools.include。持久 exact grant/executable binding 仍 deferred。
   filesystem:
+    # 启用前必须保留 non-empty tools.include。
     transport: stdio
     command: npx
     args:
       - "-y"
       - "@modelcontextprotocol/server-filesystem"
       - "/tmp/tianshu-sandbox"
-    enabled: true
+    enabled: false
     default_tier: 2          # 全部工具默认 T2（需裁决）
     tool_overrides:
       read_file: 0           # 只读工具改 T0（快路径，免裁决）
       list_directory: 0
+    tools:
+      include:               # Lean 准入要求：enabled 时必须显式非空
+        - read_file
+        - list_directory
+      exclude: []
     timeout: 120
     connect_timeout: 30
 
-  # 远程 HTTP MCP server：GitHub
+  # 远程 HTTP MCP server：GitHub（deferred）
+  # secure-remote 当前无 trusted egress boundary，因此必须保持 disabled；
+  # 本示例不提供安全开启路径。
   github:
+    # secure-remote remote MCP remains disabled and deferred.
     transport: streamable_http
     url: https://api.githubcopilot.com/mcp
     headers:
       Authorization: "Bearer ${MCP_GITHUB_TOKEN}"
-    enabled: false           # 默认关；填好 token 后改 true
+    enabled: false           # 必须保持关闭；remote MCP 安全开放延期
     default_tier: 3
     tools:
       include: []            # 空 = 全开

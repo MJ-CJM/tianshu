@@ -141,3 +141,11 @@ S1 Gate: pending (唯一一次 full not-slow + 显式跑 slow 黑盒/manifest; G
 S1 Gate: passed (non-slow: 2821 passed, 2 skipped, 24 deselected, 19 warnings in 654.96s (0:10:54); manifest: 13 passed, 4 warnings in 7.11s; fresh-HOME: 10 passed, 4 warnings in 23.22s)
 Report: docs/cc-fable-v1/reports/g1.5-report.md
 Next: S2 Lean Security
+
+=== S2 / Lean Security Gate (2026-07-14) ===
+S2 Gate: passed (focused security: 106 passed / 0 skipped / 0 deselected / 4 warnings in 19.73s; final non-slow Attempt 3: 2925 passed / 2 skipped / 24 deselected / 20 warnings in 751.37s; four static Gates passed)
+Gate history: Attempt 1 = 4 failed / 966 passed / 1 skipped / 24 deselected / 8 warnings in 278.76s; Attempt 2 = 10 failed / 2231 passed / 2 skipped / 24 deselected / 18 warnings in 754.24s; both stopped and fixed through reviewed test-only amendments before Attempt 3
+Live migration tail: v8 `0008_encrypt_mcp_secret_mappings` (runtime checksum/fingerprint and run-specific SystemAudit terminal hash recorded in report)
+Report: docs/cc-fable-v1/reports/s2-lean-security-report.md
+Review: zero unresolved Critical / zero unresolved Important; full G1.6, remote MCP security, persistent stdio exact binding, container and public supply-chain release remain deferred
+Next: S3 Core Governance

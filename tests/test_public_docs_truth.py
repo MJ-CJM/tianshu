@@ -12,6 +12,8 @@ import re
 import tomllib
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "0.4.2"
 
@@ -390,3 +392,73 @@ def test_launch_materials_describe_only_currently_demoable_channels() -> None:
     assert "contained + experimental" in decisions
     assert "当前不提供手机 App" in decisions
     assert "MCP 入口能力有限" in decisions
+
+
+def test_s2_lean_threat_model_states_only_proven_and_deferred_security() -> None:
+    threat_model_path = ROOT / "docs/security/lean-preview-threat-model.md"
+    assert threat_model_path.is_file(), "the S2 Lean public threat model is required"
+    threat_model = threat_model_path.read_text(encoding="utf-8")
+    normalized_threat_model = " ".join(threat_model.split())
+
+    for status in ("Proven", "Disabled by design", "Deferred", "Not proven"):
+        assert status in threat_model
+
+    for current_truth in (
+        "source checkout and exact Wheel are the current official installation paths",
+        "SystemAudit tamper-evident chain: implemented",
+        "MCP persisted secret mappings at rest: implemented as ciphertext",
+        "secure-remote remote MCP: disabled and deferred",
+        "stdio persistent exact grant and executable binding: deferred",
+        "current Lean stdio boundary is an explicit non-empty `tools.include` allowlist",
+        "container images, PyPI, GHCR, and artifact signing: deferred",
+        "single-node SQLite",
+        "exactly one mode `0600` `legacy-sensitive` recovery backup",
+        "protect it from disclosure and remove it manually after recovery",
+    ):
+        assert current_truth in normalized_threat_model
+
+    for overclaim in (
+        "status: full G1.6 passed",
+        "full SSRF protection: proven",
+        "DNS pinning: implemented",
+        "remote MCP security: proven",
+        "official container: published",
+        "PyPI: published",
+        "GHCR: published",
+        "artifact signing: implemented",
+    ):
+        assert overclaim not in threat_model
+
+
+def test_s2_lean_public_docs_preserve_mcp_and_recovery_boundaries() -> None:
+    matrix = _read("docs/launch/capability-matrix.md")
+    credentials = _read("docs/ops/credentials.md")
+    mcp_example = _read("docs/ops/mcp_servers.yaml.example")
+
+    assert "SystemAudit tamper-evident chain" in matrix
+    assert "MCP persisted secret mappings" in matrix
+    assert "Implemented / 已实现" in matrix
+    assert "single-node SQLite" in matrix
+    assert "remote MCP" in matrix and "Disabled / Deferred" in matrix
+    assert "stdio exact grant / executable binding" in matrix and "Deferred / 延期" in matrix
+    assert "container / PyPI / GHCR / signing" in matrix and "Deferred / 延期" in matrix
+
+    assert "legacy-sensitive recovery backup" in credentials
+    assert "exactly one" in credentials
+    assert "`0600`" in credentials
+    assert "manual protection and cleanup" in credentials
+
+    filesystem_example = mcp_example.split("\n  filesystem:", maxsplit=1)[1].split(
+        "\n  github:", maxsplit=1
+    )[0]
+    remote_example = mcp_example.split("\n  github:", maxsplit=1)[1].split("\n# -----", maxsplit=1)[
+        0
+    ]
+    normalized_filesystem_example = " ".join(filesystem_example.split())
+    parsed_servers = yaml.safe_load(mcp_example)["mcp_servers"]
+    assert "enabled: false" in filesystem_example
+    assert parsed_servers["filesystem"]["tools"]["include"]
+    assert "non-empty tools.include" in normalized_filesystem_example
+    assert "enabled: false" in remote_example
+    assert "secure-remote" in remote_example
+    assert "deferred" in remote_example

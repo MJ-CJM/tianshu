@@ -27,6 +27,16 @@
 | 容器或 OS 级安全沙箱 | Planned / 规划 | Not available | 规划中的 managed executor | — | 当前 eval 子进程、独立目录与 clean-env 均不是安全沙箱 | [G1 roadmap](../superpowers/plans/2026-07-10-open-source-agent-os-master-roadmap.md#13-统一外部执行边界) | G1 |
 | 真实 challenger 路由与可信自动晋升 | Planned / 规划 | Not available | 规划中的 governed evolution | — | v0.4.2 无在线 challenger 分流和自动晋升 | [G4 roadmap](../superpowers/plans/2026-07-10-open-source-agent-os-master-roadmap.md#42-真实-challenger-路由与晋升) | G4 |
 
+## S2 Lean security status / 安全边界
+
+| Boundary | Status | Default / current limit | Evidence |
+| --- | --- | --- | --- |
+| SystemAudit tamper-evident chain | **Implemented / 已实现** | single-node SQLite；不是外部 WORM 或分布式审计服务 | [`SystemAudit storage tests`](../../tests/storage/test_system_audit.py)；[`API tests`](../../tests/gateway/test_system_audit_api.py)；[`transaction tests`](../../tests/security/test_system_audit_transactions.py) |
+| MCP persisted secret mappings | **Implemented / 已实现** | 持久化 env/header 是密文；密钥缺失、错误或密文损坏时 fail closed | [`ciphertext migration tests`](../../tests/secrets/test_mcp_secret_migration.py)；[`rotation tests`](../../tests/cli/test_secrets_rotate.py) |
+| remote MCP | **Disabled / Deferred** | secure-remote 下默认拒绝；不承诺完整 SSRF、DNS pinning 或 remote MCP security | [`Lean admission tests`](../../tests/security/test_mcp_lean_admission.py)；[P2-A1](../cc-fable-v1/06-deferred-work-backlog.md#p2-a1-remote-mcp-公开安全s24) |
+| stdio exact grant / executable binding | **Deferred / 延期** | 当前 Lean 边界只要求 enabled 配置使用显式非空 `tools.include`；不承诺持久 exact grant 或 executable drift binding | [`Lean admission tests`](../../tests/security/test_mcp_lean_admission.py)；[P2-A2](../cc-fable-v1/06-deferred-work-backlog.md#p2-a2-stdio-mcp-准入与漂移绑定s25) |
+| container / PyPI / GHCR / signing | **Deferred / 延期** | 当前官方安装路径只有 source checkout 与该 checkout 产出的 exact Wheel | [S2 threat model](../security/lean-preview-threat-model.md)；[P2-A3/A4](../cc-fable-v1/06-deferred-work-backlog.md#p2-a3-官方-exact-wheel-容器s26s67-部分) |
+
 ## Keqing capability flags / 客卿能力标记
 
 当前 external CLI adapter 的机器可读事实语义如下；后续只有在对应 Gate 的证据完成后才能改为 `true`：
