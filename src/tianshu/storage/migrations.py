@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import sqlite3
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from tianshu.storage.migration_ledger import (
     Migration,
@@ -15,6 +17,9 @@ from tianshu.storage.migration_ledger import (
     ledger_exists,
 )
 from tianshu.storage.schema import SCHEMA_V1_CHECKSUM, SCHEMA_V1_STATEMENTS
+
+if TYPE_CHECKING:
+    from tianshu.secrets.vault import SecretVault
 
 _AUTH_TOKEN_STATEMENTS = (
     """
@@ -2168,6 +2173,136 @@ def _system_audit_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V8: encrypt persisted MCP env/header mappings ---
+
+_MCP_SECRET_MAPPING_TABLE_SQL = """
+CREATE TABLE _mcp_server_overrides_v8 (
+    name                 TEXT PRIMARY KEY,
+    enabled              INTEGER,
+    env_ciphertext       BLOB,
+    env_keys_json        TEXT,
+    tools_include_json   TEXT,
+    tools_exclude_json   TEXT,
+    transport            TEXT,
+    command              TEXT,
+    args_json            TEXT,
+    url                  TEXT,
+    headers_ciphertext   BLOB,
+    header_keys_json     TEXT,
+    default_tier         INTEGER,
+    timeout              INTEGER,
+    connect_timeout      INTEGER,
+    tool_overrides_json  TEXT,
+    updated_at           TEXT NOT NULL
+)
+"""
+_MCP_SECRET_MAPPING_CHECKSUM = hashlib.sha256(
+    ("0008_encrypt_mcp_secret_mappings\n" + " ".join(_MCP_SECRET_MAPPING_TABLE_SQL.split())).encode(
+        "utf-8"
+    )
+).hexdigest()
+
+
+def _parse_legacy_secret_mapping(value: object) -> dict[str, str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("MCP legacy secret mapping is invalid")
+    try:
+        mapping = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        raise ValueError("MCP legacy secret mapping is invalid") from None
+    if not isinstance(mapping, dict) or not all(
+        isinstance(key, str) and isinstance(item, str) for key, item in mapping.items()
+    ):
+        raise ValueError("MCP legacy secret mapping is invalid")
+    return mapping
+
+
+def _encrypt_verified_mapping(vault: SecretVault, mapping: dict[str, str]) -> tuple[bytes, str]:
+    from tianshu.secrets.vault import decrypt_canonical_mapping, encrypt_canonical_mapping
+
+    ciphertext = encrypt_canonical_mapping(vault, mapping)
+    if decrypt_canonical_mapping(vault, ciphertext) != mapping:
+        raise ValueError("MCP secret mapping verification failed")
+    keys_json = json.dumps(sorted(mapping), separators=(",", ":"), ensure_ascii=False)
+    return ciphertext, keys_json
+
+
+def _mcp_secret_mapping_upgrade(conn: MigrationConnection) -> None:
+    from tianshu.secrets.vault import require_mcp_vault
+
+    legacy_rows = conn.execute(
+        """
+        SELECT name, enabled, env_json, tools_include_json, tools_exclude_json,
+               transport, command, args_json, url, headers_json,
+               default_tier, timeout, connect_timeout, tool_overrides_json,
+               updated_at
+        FROM mcp_server_overrides ORDER BY name
+        """
+    ).fetchall()
+    parsed_rows: list[tuple[tuple[object, ...], dict[str, str] | None, dict[str, str] | None]] = []
+    needs_vault = False
+    for row in legacy_rows:
+        values = tuple(row)
+        env = _parse_legacy_secret_mapping(values[2])
+        headers = _parse_legacy_secret_mapping(values[9])
+        needs_vault = needs_vault or env is not None or headers is not None
+        parsed_rows.append((values, env, headers))
+
+    vault = require_mcp_vault() if needs_vault else None
+    encrypted_rows: list[tuple[object, ...]] = []
+    for values, env, headers in parsed_rows:
+        env_ciphertext, env_keys_json = (
+            _encrypt_verified_mapping(vault, env)
+            if vault is not None and env is not None
+            else (None, None)
+        )
+        headers_ciphertext, header_keys_json = (
+            _encrypt_verified_mapping(vault, headers)
+            if vault is not None and headers is not None
+            else (None, None)
+        )
+        encrypted_rows.append(
+            (
+                values[0],
+                values[1],
+                env_ciphertext,
+                env_keys_json,
+                values[3],
+                values[4],
+                values[5],
+                values[6],
+                values[7],
+                values[8],
+                headers_ciphertext,
+                header_keys_json,
+                values[10],
+                values[11],
+                values[12],
+                values[13],
+                values[14],
+            )
+        )
+
+    conn.execute("PRAGMA secure_delete=ON")
+    conn.execute(_MCP_SECRET_MAPPING_TABLE_SQL)
+    conn.executemany(
+        """
+        INSERT INTO _mcp_server_overrides_v8 (
+            name, enabled, env_ciphertext, env_keys_json,
+            tools_include_json, tools_exclude_json, transport, command,
+            args_json, url, headers_ciphertext, header_keys_json,
+            default_tier, timeout, connect_timeout, tool_overrides_json,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        encrypted_rows,
+    )
+    conn.execute("DROP TABLE mcp_server_overrides")
+    conn.execute("ALTER TABLE _mcp_server_overrides_v8 RENAME TO mcp_server_overrides")
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -2210,6 +2345,12 @@ MIGRATIONS = (
         name="0007_system_audit_events",
         checksum=_SYSTEM_AUDIT_CHECKSUM,
         upgrade=_system_audit_upgrade,
+    ),
+    Migration(
+        version=8,
+        name="0008_encrypt_mcp_secret_mappings",
+        checksum=_MCP_SECRET_MAPPING_CHECKSUM,
+        upgrade=_mcp_secret_mapping_upgrade,
     ),
 )
 

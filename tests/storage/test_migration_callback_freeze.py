@@ -42,6 +42,9 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0007_system_audit_events": (
         "d46142290fbe10412291c6f0d3b73d6c83835c0a0247cb43bcd599d504afb070"
     ),
+    "0008_encrypt_mcp_secret_mappings": (
+        "c0576edfc0637532b1488aae740e658f122e837b2155648f0dabf351671bd3a5"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

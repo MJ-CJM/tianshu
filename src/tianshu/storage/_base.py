@@ -6,19 +6,16 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 from tianshu.storage.migration_ledger import MigrationError, pending_migrations
 from tianshu.storage.migrations import MIGRATIONS, run_migrations
-from tianshu.storage.sqlite_backup import create_online_backup
+from tianshu.storage.sqlite_backup import create_online_backup, remove_backup
 
 
 def _new_migration_backup_path(path: Path) -> Path:
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
-    return path.with_name(f"{path.name}.pre-migration-{timestamp}-{uuid4().hex}.bak")
+    return path.with_name(f"{path.name}.pre-migration-recovery.legacy-sensitive.bak")
 
 
 @contextmanager
@@ -81,6 +78,9 @@ class _StorageBase:
                         exc.backup_path = backup_path  # type: ignore[attr-defined]
                         exc.add_note(f"pre-migration backup: {backup_path}")
                     raise
+                if backup_path is not None:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    remove_backup(backup_path)
                 conn.execute("PRAGMA journal_mode=WAL")
                 self._seed_departments()
                 self._init_fts()

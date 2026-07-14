@@ -6,6 +6,18 @@ import threading
 from datetime import UTC, datetime
 
 
+def _encrypt_optional_mapping(
+    value: dict[str, str] | None,
+) -> tuple[bytes | None, str | None]:
+    from tianshu.secrets.vault import encrypt_canonical_mapping, require_mcp_vault
+
+    if value is None:
+        return None, None
+    ciphertext = encrypt_canonical_mapping(require_mcp_vault(), value)
+    keys_json = json.dumps(sorted(value), separators=(",", ":"), ensure_ascii=False)
+    return ciphertext, keys_json
+
+
 class ConfigMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
@@ -214,12 +226,14 @@ class ConfigMixin:
           * 若 YAML 中存在同名 server：NULL = 沿用 YAML，非 NULL = 覆写
           * 若 YAML 中无同名 server：DB 必须填够 transport + 主字段，merge 时晋级为完整 server
         """
+        from tianshu.secrets.vault import decrypt_canonical_mapping, require_mcp_vault
+
         with self._lock:
             rows = self._conn.execute(
-                """SELECT name, enabled, env_json,
+                """SELECT name, enabled, env_ciphertext,
                           tools_include_json, tools_exclude_json,
                           transport, command, args_json,
-                          url, headers_json,
+                          url, headers_ciphertext,
                           default_tier, timeout, connect_timeout,
                           tool_overrides_json
                      FROM mcp_server_overrides"""
@@ -230,7 +244,11 @@ class ConfigMixin:
                 {
                     "name": r["name"],
                     "enabled": None if r["enabled"] is None else bool(r["enabled"]),
-                    "env": json.loads(r["env_json"]) if r["env_json"] else None,
+                    "env": (
+                        decrypt_canonical_mapping(require_mcp_vault(), r["env_ciphertext"])
+                        if r["env_ciphertext"] is not None
+                        else None
+                    ),
                     "tools_include": (
                         json.loads(r["tools_include_json"]) if r["tools_include_json"] else None
                     ),
@@ -241,7 +259,11 @@ class ConfigMixin:
                     "command": r["command"],
                     "args": json.loads(r["args_json"]) if r["args_json"] else None,
                     "url": r["url"],
-                    "headers": (json.loads(r["headers_json"]) if r["headers_json"] else None),
+                    "headers": (
+                        decrypt_canonical_mapping(require_mcp_vault(), r["headers_ciphertext"])
+                        if r["headers_ciphertext"] is not None
+                        else None
+                    ),
                     "default_tier": r["default_tier"],
                     "timeout": r["timeout"],
                     "connect_timeout": r["connect_timeout"],
@@ -274,27 +296,33 @@ class ConfigMixin:
         from datetime import UTC, datetime
 
         now = datetime.now(UTC).isoformat()
+        env_ciphertext, env_keys_json = _encrypt_optional_mapping(env)
+        headers_ciphertext, header_keys_json = _encrypt_optional_mapping(headers)
         with self._lock, self._conn:
             self._conn.execute(
                 # COALESCE 让 NULL 入参表示「不动该字段」，保留旧值。
                 # 这避免 PATCH 单字段时把其他列清成 NULL。
                 # 想真的清字段 → 走 DELETE override 删整行后重建。
                 """INSERT INTO mcp_server_overrides
-                   (name, enabled, env_json, tools_include_json, tools_exclude_json,
-                    transport, command, args_json, url, headers_json,
+                   (name, enabled, env_ciphertext, env_keys_json,
+                    tools_include_json, tools_exclude_json,
+                    transport, command, args_json, url,
+                    headers_ciphertext, header_keys_json,
                     default_tier, timeout, connect_timeout, tool_overrides_json,
                     updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(name) DO UPDATE SET
                      enabled = COALESCE(excluded.enabled, mcp_server_overrides.enabled),
-                     env_json = COALESCE(excluded.env_json, mcp_server_overrides.env_json),
+                     env_ciphertext = COALESCE(excluded.env_ciphertext, mcp_server_overrides.env_ciphertext),
+                     env_keys_json = COALESCE(excluded.env_keys_json, mcp_server_overrides.env_keys_json),
                      tools_include_json = COALESCE(excluded.tools_include_json, mcp_server_overrides.tools_include_json),
                      tools_exclude_json = COALESCE(excluded.tools_exclude_json, mcp_server_overrides.tools_exclude_json),
                      transport = COALESCE(excluded.transport, mcp_server_overrides.transport),
                      command = COALESCE(excluded.command, mcp_server_overrides.command),
                      args_json = COALESCE(excluded.args_json, mcp_server_overrides.args_json),
                      url = COALESCE(excluded.url, mcp_server_overrides.url),
-                     headers_json = COALESCE(excluded.headers_json, mcp_server_overrides.headers_json),
+                     headers_ciphertext = COALESCE(excluded.headers_ciphertext, mcp_server_overrides.headers_ciphertext),
+                     header_keys_json = COALESCE(excluded.header_keys_json, mcp_server_overrides.header_keys_json),
                      default_tier = COALESCE(excluded.default_tier, mcp_server_overrides.default_tier),
                      timeout = COALESCE(excluded.timeout, mcp_server_overrides.timeout),
                      connect_timeout = COALESCE(excluded.connect_timeout, mcp_server_overrides.connect_timeout),
@@ -303,14 +331,16 @@ class ConfigMixin:
                 (
                     name,
                     None if enabled is None else (1 if enabled else 0),
-                    json.dumps(env) if env is not None else None,
+                    env_ciphertext,
+                    env_keys_json,
                     json.dumps(tools_include) if tools_include is not None else None,
                     json.dumps(tools_exclude) if tools_exclude is not None else None,
                     transport,
                     command,
                     json.dumps(args) if args is not None else None,
                     url,
-                    json.dumps(headers) if headers is not None else None,
+                    headers_ciphertext,
+                    header_keys_json,
                     default_tier,
                     timeout,
                     connect_timeout,

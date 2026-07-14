@@ -20,6 +20,7 @@ _WORKSPACE_MIGRATION_NAME = "0004_workspace_foundation"
 _GOVERNED_APPLY_MIGRATION_NAME = "0005_governed_apply_bindings"
 _SEED_PERSONAS_MIGRATION_NAME = "0006_seed_default_personas"
 _SYSTEM_AUDIT_MIGRATION_NAME = "0007_system_audit_events"
+_MCP_SECRET_MAPPING_MIGRATION_NAME = "0008_encrypt_mcp_secret_mappings"
 _POST_BASELINE_TABLES = {
     "auth_tokens",
     "requested_governance_contracts",
@@ -218,7 +219,9 @@ def _snapshot(conn: sqlite3.Connection) -> dict[str, tuple[tuple[object, ...], .
     return {table: _rows(conn, table) for table in _DATA_TABLES}
 
 
-def _build_canonical_preledger(path: Path) -> dict[str, tuple[tuple[object, ...], ...]]:
+def _build_canonical_preledger(
+    path: Path, *, prior_mcp_schema: bool = False
+) -> dict[str, tuple[tuple[object, ...], ...]]:
     storage = Storage(str(path))
     storage.init_db()
     conn = storage._conn
@@ -252,9 +255,34 @@ def _build_canonical_preledger(path: Path) -> dict[str, tuple[tuple[object, ...]
              total_cost_cny, updated_at)
         VALUES
             ('persona-1', 2, 2, 1.0, 7, 1.25, '2026-07-11T00:03:00+00:00');
-        DROP TABLE IF EXISTS schema_migrations;
+
         """
     )
+    if prior_mcp_schema:
+        conn.executescript(
+            """
+            -- Historical adapters consume the canonical pre-v8 table shape.
+            DROP TABLE mcp_server_overrides;
+            CREATE TABLE mcp_server_overrides (
+                name                 TEXT PRIMARY KEY,
+                enabled              INTEGER,
+                env_json             TEXT,
+                tools_include_json   TEXT,
+                tools_exclude_json   TEXT,
+                transport            TEXT,
+                command              TEXT,
+                args_json            TEXT,
+                url                  TEXT,
+                headers_json         TEXT,
+                default_tier         INTEGER,
+                timeout              INTEGER,
+                connect_timeout      INTEGER,
+                tool_overrides_json  TEXT,
+                updated_at           TEXT NOT NULL
+            );
+            """
+        )
+    conn.execute("DROP TABLE IF EXISTS schema_migrations")
     before = _snapshot(conn)
     storage.close()
     return before
@@ -266,7 +294,7 @@ def _build_historical_core_preledger(
     include_orphan_event: bool = False,
     pending_edict_id: str = "edict-1",
 ) -> dict[str, tuple[tuple[object, ...], ...]]:
-    _build_canonical_preledger(path)
+    _build_canonical_preledger(path, prior_mcp_schema=True)
     conn = _connect(path)
     conn.executescript(
         """
@@ -513,9 +541,7 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
     }
     triggers = {
         str(row[0])
-        for row in storage._conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='trigger'"
-        )
+        for row in storage._conn.execute("SELECT name FROM sqlite_master WHERE type='trigger'")
     }
     first_ledger = _ledger_rows(storage._conn)
     owned_tables = {
@@ -546,6 +572,7 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
         (7, _SYSTEM_AUDIT_MIGRATION_NAME),
+        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
     ]
     assert all(len(row["checksum"]) == 64 for row in first_ledger)
     storage.close()
@@ -574,6 +601,7 @@ def test_canonical_preledger_v042_upgrade_only_adds_ledger(tmp_path: Path) -> No
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
         (7, _SYSTEM_AUDIT_MIGRATION_NAME),
+        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
     ]
     ledger = [tuple(row) for row in _ledger_rows(storage._conn)]
     storage.close()
@@ -606,6 +634,7 @@ def test_v4_shape_preledger_replays_v5_instead_of_adopt(tmp_path: Path) -> None:
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
         (7, _SYSTEM_AUDIT_MIGRATION_NAME),
+        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
     ]
     columns = {
         str(row[1])
@@ -656,6 +685,7 @@ def test_canonical_preledger_accepts_semantically_equivalent_column_order(
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
         (7, _SYSTEM_AUDIT_MIGRATION_NAME),
+        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
     ]
     storage.close()
 
@@ -706,6 +736,7 @@ def test_historical_preledger_core_shape_upgrades_to_canonical_without_valid_row
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
         (7, _SYSTEM_AUDIT_MIGRATION_NAME),
+        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
     ]
     assert {
         table: _payload_rows(storage._conn, table, columns)
@@ -844,6 +875,7 @@ def test_combined_historical_core_session_and_supervision_adapters_reach_canonic
         (5, _GOVERNED_APPLY_MIGRATION_NAME),
         (6, _SEED_PERSONAS_MIGRATION_NAME),
         (7, _SYSTEM_AUDIT_MIGRATION_NAME),
+        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
     ]
     storage.close()
 
@@ -852,7 +884,7 @@ def test_wrong_legacy_session_canonical_index_is_rejected_during_initial_check(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "legacy-session-wrong-index.sqlite3"
-    _build_canonical_preledger(path)
+    _build_canonical_preledger(path, prior_mcp_schema=True)
     _replace_session_with_legacy(path)
     conn = _connect(path)
     conn.execute("CREATE INDEX idx_feishu_seen_at ON feishu_seen_messages(message_id)")
@@ -1109,7 +1141,7 @@ def test_legacy_supervision_rows_map_to_latest_memorial_without_loss(
     tmp_path: Path, composite_pk: bool
 ) -> None:
     path = tmp_path / "legacy-supervision.sqlite3"
-    _build_canonical_preledger(path)
+    _build_canonical_preledger(path, prior_mcp_schema=True)
     legacy_rows = _replace_supervision_with_legacy(path, composite_pk=composite_pk)
 
     storage = Storage(str(path))
@@ -1149,7 +1181,7 @@ def test_wrong_legacy_supervision_canonical_index_definition_fails_closed(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "legacy-supervision-wrong-index.sqlite3"
-    _build_canonical_preledger(path)
+    _build_canonical_preledger(path, prior_mcp_schema=True)
     _replace_supervision_with_legacy(path, composite_pk=False)
     conn = _connect(path)
     conn.execute("CREATE INDEX idx_supervision_edict ON supervision_reports(persona_id)")
@@ -1183,7 +1215,7 @@ def _assert_failed_baseline_preserved(path: Path) -> None:
 
 def test_unmapped_legacy_supervision_row_rolls_back_entire_baseline(tmp_path: Path) -> None:
     path = tmp_path / "unmapped.sqlite3"
-    _build_canonical_preledger(path)
+    _build_canonical_preledger(path, prior_mcp_schema=True)
     _replace_supervision_with_legacy(path, composite_pk=False)
     conn = _connect(path)
     conn.execute("UPDATE supervision_reports SET edict_id='missing-edict'")

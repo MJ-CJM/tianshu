@@ -1,0 +1,476 @@
+"""MCP persisted env/header mappings are encrypted by migration v8."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import stat
+from contextlib import closing
+from pathlib import Path
+from typing import Any
+
+import pytest
+from cryptography.fernet import Fernet
+
+from tianshu.secrets import vault as vault_module
+from tianshu.secrets.vault import SecretVault, reset_vault
+from tianshu.storage import Storage
+from tianshu.storage.migration_ledger import MigrationExecutionError, apply_migrations
+from tianshu.storage.migrations import MIGRATIONS
+from tianshu.tools.mcp.config import (
+    MCPConfig,
+    MCPServerConfig,
+    MCPServerOverride,
+    merge_overrides,
+)
+
+_MIGRATION_NAME = "0008_encrypt_mcp_secret_mappings"
+_ENV_SENTINEL = "mcp-env-sentinel-7c92f5"
+_HEADER_SENTINEL = "mcp-header-sentinel-1ad843"
+
+
+@pytest.fixture(autouse=True)
+def _isolated_vault(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+    reset_vault()
+    monkeypatch.delenv("TIANSHU_SECRET_MASTER_KEY", raising=False)
+    yield
+    reset_vault()
+
+
+@pytest.fixture
+def master_key() -> str:
+    return Fernet.generate_key().decode()
+
+
+def _v7_migrations():  # type: ignore[no-untyped-def]
+    return tuple(migration for migration in MIGRATIONS if migration.version <= 7)
+
+
+def _create_v7_database(path: Path, rows: list[dict[str, Any]]) -> None:
+    with closing(sqlite3.connect(path)) as connection:
+        apply_migrations(connection, _v7_migrations())
+        for row in rows:
+            values = {
+                "name": row["name"],
+                "enabled": None,
+                "env_json": None,
+                "tools_include_json": None,
+                "tools_exclude_json": None,
+                "transport": None,
+                "command": None,
+                "args_json": None,
+                "url": None,
+                "headers_json": None,
+                "default_tier": None,
+                "timeout": None,
+                "connect_timeout": None,
+                "tool_overrides_json": None,
+                "updated_at": "2026-07-14T00:00:00+00:00",
+                **row,
+            }
+            connection.execute(
+                """
+                INSERT INTO mcp_server_overrides (
+                    name, enabled, env_json, tools_include_json, tools_exclude_json,
+                    transport, command, args_json, url, headers_json,
+                    default_tier, timeout, connect_timeout, tool_overrides_json,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                tuple(values[column] for column in values),
+            )
+        connection.commit()
+
+
+def _legacy_state(path: Path) -> tuple[tuple[Any, ...], ...]:
+    with closing(sqlite3.connect(path)) as connection:
+        columns = tuple(
+            tuple(row) for row in connection.execute("PRAGMA table_info(mcp_server_overrides)")
+        )
+        rows = tuple(
+            tuple(row)
+            for row in connection.execute(
+                "SELECT * FROM mcp_server_overrides ORDER BY name"
+            ).fetchall()
+        )
+        ledger = tuple(
+            tuple(row)
+            for row in connection.execute(
+                "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
+            ).fetchall()
+        )
+    return columns, rows, ledger
+
+
+def _legacy_sensitive_backups(path: Path) -> list[Path]:
+    return sorted(path.parent.glob(f"{path.name}.pre-migration-*.legacy-sensitive.bak"))
+
+
+def _cause(error: pytest.ExceptionInfo[MigrationExecutionError]) -> BaseException:
+    cause = error.value.__cause__
+    assert cause is not None
+    return cause
+
+
+def test_migration_tail_appends_only_v8() -> None:
+    assert [(migration.version, migration.name) for migration in MIGRATIONS[-2:]] == [
+        (7, "0007_system_audit_events"),
+        (8, _MIGRATION_NAME),
+    ]
+
+
+def test_canonical_mapping_codec_sorts_compacts_and_preserves_utf8(master_key: str) -> None:
+    vault = SecretVault(master_key)
+    encrypt = vault_module.encrypt_canonical_mapping
+    decrypt = vault_module.decrypt_canonical_mapping
+
+    ciphertext = encrypt(vault, {"z": "last", "a": "秘密"})
+
+    assert vault.decrypt(ciphertext) == '{"a":"秘密","z":"last"}'
+    assert decrypt(vault, ciphertext) == {"a": "秘密", "z": "last"}
+
+
+@pytest.mark.parametrize("payload", ["null", "[]", '{"TOKEN":7}', '{"TOKEN":true}'])
+def test_canonical_mapping_codec_rejects_non_string_mappings(master_key: str, payload: str) -> None:
+    vault = SecretVault(master_key)
+    decrypt = vault_module.decrypt_canonical_mapping
+
+    with pytest.raises(ValueError, match="^MCP secret mapping is invalid$"):
+        decrypt(vault, vault.encrypt(payload))
+
+
+def test_canonical_mapping_codec_rejects_wrong_key_without_disclosing_secret(
+    master_key: str,
+) -> None:
+    encrypt = vault_module.encrypt_canonical_mapping
+    decrypt = vault_module.decrypt_canonical_mapping
+    ciphertext = encrypt(SecretVault(master_key), {"TOKEN": _ENV_SENTINEL})
+
+    with pytest.raises(ValueError, match="^credential decryption failed$") as error:
+        decrypt(SecretVault(Fernet.generate_key().decode()), ciphertext)
+
+    assert _ENV_SENTINEL not in str(error.value)
+
+
+def test_v8_migrates_null_empty_env_headers_and_preserves_non_secret_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, master_key: str
+) -> None:
+    database_path = tmp_path / "mcp.sqlite3"
+    _create_v7_database(
+        database_path,
+        [
+            {"name": "null-mappings"},
+            {"name": "empty-mappings", "env_json": "{}", "headers_json": "{}"},
+            {
+                "name": "env-only",
+                "env_json": json.dumps({"TOKEN": _ENV_SENTINEL, "ALPHA": "一"}),
+                "transport": "stdio",
+                "command": "npx",
+                "args_json": '["-y","server"]',
+            },
+            {
+                "name": "headers-only",
+                "headers_json": json.dumps({"Authorization": f"Bearer {_HEADER_SENTINEL}"}),
+                "transport": "streamable_http",
+                "url": "https://example.test/mcp",
+            },
+            {
+                "name": "db-only",
+                "enabled": 0,
+                "env_json": json.dumps({"DB_SECRET": _ENV_SENTINEL}),
+                "tools_include_json": '["read"]',
+                "tools_exclude_json": '["write"]',
+                "transport": "stdio",
+                "command": "uvx",
+                "args_json": '["db-server"]',
+                "default_tier": 2,
+                "timeout": 90,
+                "connect_timeout": 15,
+                "tool_overrides_json": '{"read":1}',
+                "updated_at": "2026-07-14T01:02:03+00:00",
+            },
+        ],
+    )
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
+
+    storage = Storage(str(database_path))
+    storage.init_db()
+    try:
+        assert storage._conn.execute("PRAGMA secure_delete").fetchone()[0] == 1
+        rows = {row["name"]: row for row in storage.list_mcp_overrides()}
+        assert rows["null-mappings"]["env"] is None
+        assert rows["null-mappings"]["headers"] is None
+        assert rows["empty-mappings"]["env"] == {}
+        assert rows["empty-mappings"]["headers"] == {}
+        assert rows["env-only"]["env"] == {"TOKEN": _ENV_SENTINEL, "ALPHA": "一"}
+        assert rows["env-only"]["headers"] is None
+        assert rows["headers-only"]["env"] is None
+        assert rows["headers-only"]["headers"] == {"Authorization": f"Bearer {_HEADER_SENTINEL}"}
+        assert rows["db-only"] == {
+            "name": "db-only",
+            "enabled": False,
+            "env": {"DB_SECRET": _ENV_SENTINEL},
+            "tools_include": ["read"],
+            "tools_exclude": ["write"],
+            "transport": "stdio",
+            "command": "uvx",
+            "args": ["db-server"],
+            "url": None,
+            "headers": None,
+            "default_tier": 2,
+            "timeout": 90,
+            "connect_timeout": 15,
+            "tool_overrides": {"read": 1},
+        }
+
+        columns = {
+            row[1] for row in storage._conn.execute("PRAGMA table_info(mcp_server_overrides)")
+        }
+        assert {"env_json", "headers_json"}.isdisjoint(columns)
+        assert {
+            "env_ciphertext",
+            "env_keys_json",
+            "headers_ciphertext",
+            "header_keys_json",
+        } <= columns
+        raw_empty = storage._conn.execute(
+            """
+            SELECT env_ciphertext, env_keys_json, headers_ciphertext, header_keys_json
+            FROM mcp_server_overrides WHERE name = 'empty-mappings'
+            """
+        ).fetchone()
+        assert raw_empty[0] is not None
+        assert raw_empty[1] == "[]"
+        assert raw_empty[2] is not None
+        assert raw_empty[3] == "[]"
+        raw_env = storage._conn.execute(
+            "SELECT env_keys_json FROM mcp_server_overrides WHERE name = 'env-only'"
+        ).fetchone()
+        assert raw_env[0] == '["ALPHA","TOKEN"]'
+        for active_file in (database_path, Path(f"{database_path}-wal")):
+            if active_file.exists():
+                content = active_file.read_bytes()
+                assert _ENV_SENTINEL.encode() not in content
+                assert _HEADER_SENTINEL.encode() not in content
+    finally:
+        storage.close()
+
+    assert _legacy_sensitive_backups(database_path) == []
+
+
+def test_v8_prior_prefix_upgrade_preserves_yaml_override_semantics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, master_key: str
+) -> None:
+    database_path = tmp_path / "prior-prefix.sqlite3"
+    _create_v7_database(
+        database_path,
+        [
+            {
+                "name": "yaml-server",
+                "env_json": json.dumps({"TOKEN": _ENV_SENTINEL}),
+                "headers_json": json.dumps({"X-Secret": _HEADER_SENTINEL}),
+            }
+        ],
+    )
+    assert _legacy_state(database_path)[2][-1][0] == 7
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
+
+    storage = Storage(str(database_path))
+    storage.init_db()
+    try:
+        [override] = storage.list_mcp_overrides()
+        merged = merge_overrides(
+            MCPConfig(
+                mcp_servers={
+                    "yaml-server": MCPServerConfig(
+                        name="yaml-server", transport="stdio", command="from-yaml"
+                    )
+                }
+            ),
+            # Storage dictionaries intentionally cross the public override boundary here.
+            [MCPServerOverride(**override)],
+        )
+        server = merged.mcp_servers["yaml-server"]
+        assert server.command == "from-yaml"
+        assert server.env == {"TOKEN": _ENV_SENTINEL}
+        assert server.headers == {"X-Secret": _HEADER_SENTINEL}
+        ledger = [
+            tuple(row)
+            for row in storage._conn.execute(
+                "SELECT version, name FROM schema_migrations ORDER BY version"
+            ).fetchall()
+        ]
+        assert ledger[-2:] == [(7, "0007_system_audit_events"), (8, _MIGRATION_NAME)]
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize(
+    ("env_json", "expected_message"),
+    [
+        ("not-json", "MCP legacy secret mapping is invalid"),
+        ("[]", "MCP legacy secret mapping is invalid"),
+        ('{"TOKEN":7}', "MCP legacy secret mapping is invalid"),
+    ],
+)
+def test_malformed_legacy_mapping_fails_before_schema_or_ledger_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    master_key: str,
+    env_json: str,
+    expected_message: str,
+) -> None:
+    database_path = tmp_path / "malformed.sqlite3"
+    _create_v7_database(database_path, [{"name": "bad", "env_json": env_json}])
+    before = _legacy_state(database_path)
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
+    storage = Storage(str(database_path))
+
+    with pytest.raises(MigrationExecutionError) as error:
+        storage.init_db()
+
+    assert str(_cause(error)) == expected_message
+    assert _legacy_state(database_path) == before
+
+
+@pytest.mark.parametrize("key", [None, "not-a-fernet-key"])
+def test_missing_or_malformed_master_key_fails_closed_and_keeps_one_private_backup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    key: str | None,
+) -> None:
+    database_path = tmp_path / "missing-key.sqlite3"
+    _create_v7_database(
+        database_path,
+        [{"name": "secret", "env_json": json.dumps({"TOKEN": _ENV_SENTINEL})}],
+    )
+    before = _legacy_state(database_path)
+    if key is not None:
+        monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", key)
+
+    for _ in range(2):
+        reset_vault()
+        storage = Storage(str(database_path))
+        with pytest.raises(MigrationExecutionError) as error:
+            storage.init_db()
+        assert str(_cause(error)) == "MCP secret vault unavailable"
+        assert _legacy_state(database_path) == before
+
+    backups = _legacy_sensitive_backups(database_path)
+    assert len(backups) == 1
+    assert stat.S_IMODE(backups[0].stat().st_mode) == 0o600
+    assert _ENV_SENTINEL.encode() in backups[0].read_bytes()
+    assert Path(error.value.backup_path) == backups[0]  # type: ignore[attr-defined]
+
+
+def test_migration_verifies_ciphertext_round_trip_before_schema_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    master_key: str,
+) -> None:
+    database_path = tmp_path / "round-trip.sqlite3"
+    _create_v7_database(
+        database_path,
+        [{"name": "secret", "env_json": json.dumps({"TOKEN": _ENV_SENTINEL})}],
+    )
+    before = _legacy_state(database_path)
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
+    monkeypatch.setattr(
+        vault_module,
+        "decrypt_canonical_mapping",
+        lambda _vault, _ciphertext: {"TOKEN": "changed"},
+    )
+    storage = Storage(str(database_path))
+
+    with pytest.raises(MigrationExecutionError) as error:
+        storage.init_db()
+
+    assert str(_cause(error)) == "MCP secret mapping verification failed"
+    assert _legacy_state(database_path) == before
+
+
+def test_list_mcp_overrides_rejects_wrong_key_and_corrupt_ciphertext(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, master_key: str
+) -> None:
+    database_path = tmp_path / "corrupt.sqlite3"
+    _create_v7_database(
+        database_path,
+        [{"name": "secret", "env_json": json.dumps({"TOKEN": _ENV_SENTINEL})}],
+    )
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
+    storage = Storage(str(database_path))
+    storage.init_db()
+    storage.close()
+
+    reset_vault()
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", Fernet.generate_key().decode())
+    wrong_key_storage = Storage(str(database_path))
+    wrong_key_storage.init_db()
+    try:
+        with pytest.raises(ValueError, match="^credential decryption failed$") as wrong_key:
+            wrong_key_storage.list_mcp_overrides()
+        assert _ENV_SENTINEL not in str(wrong_key.value)
+    finally:
+        wrong_key_storage.close()
+
+    reset_vault()
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.execute(
+            "UPDATE mcp_server_overrides SET env_ciphertext = ? WHERE name = 'secret'",
+            (b"corrupt-ciphertext",),
+        )
+        connection.commit()
+    corrupt_storage = Storage(str(database_path))
+    corrupt_storage.init_db()
+    try:
+        with pytest.raises(ValueError, match="^credential decryption failed$"):
+            corrupt_storage.list_mcp_overrides()
+    finally:
+        corrupt_storage.close()
+
+
+def test_upsert_encrypts_secret_mappings_and_preserves_nullable_patch_semantics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, master_key: str
+) -> None:
+    database_path = tmp_path / "upsert.sqlite3"
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
+    storage = Storage(str(database_path))
+    storage.init_db()
+    try:
+        storage.upsert_mcp_override(
+            "server",
+            transport="stdio",
+            command="npx",
+            env={"TOKEN": _ENV_SENTINEL},
+            headers={"Authorization": _HEADER_SENTINEL},
+        )
+        storage.upsert_mcp_override("server", enabled=False)
+
+        [row] = storage.list_mcp_overrides()
+        assert row["enabled"] is False
+        assert row["env"] == {"TOKEN": _ENV_SENTINEL}
+        assert row["headers"] == {"Authorization": _HEADER_SENTINEL}
+        persisted = storage._conn.execute(
+            """
+            SELECT env_ciphertext, env_keys_json, headers_ciphertext, header_keys_json
+            FROM mcp_server_overrides WHERE name = 'server'
+            """
+        ).fetchone()
+        assert _ENV_SENTINEL.encode() not in bytes(persisted[0])
+        assert persisted[1] == '["TOKEN"]'
+        assert _HEADER_SENTINEL.encode() not in bytes(persisted[2])
+        assert persisted[3] == '["Authorization"]'
+    finally:
+        storage.close()
+
+
+def test_upsert_non_null_mapping_requires_master_key(tmp_path: Path) -> None:
+    storage = Storage(str(tmp_path / "missing-upsert-key.sqlite3"))
+    storage.init_db()
+    try:
+        with pytest.raises(ValueError, match="^MCP secret vault unavailable$"):
+            storage.upsert_mcp_override("server", env={"TOKEN": _ENV_SENTINEL})
+        assert storage.list_mcp_overrides() == []
+    finally:
+        storage.close()

@@ -104,6 +104,12 @@ def create_online_backup(source: sqlite3.Connection, destination: Path) -> Path:
     return destination
 
 
+def remove_backup(path: Path) -> None:
+    """Remove a completed migration's transient recovery backup and sidecars."""
+
+    _remove_database_files(Path(path))
+
+
 def restore_from_backup(backup_path: Path, target_path: Path) -> Path:
     """Restore a validated SQLite backup while the target database is offline."""
     backup_path = Path(backup_path)

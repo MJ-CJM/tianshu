@@ -86,11 +86,7 @@ class MCPManager:
     def _load_overrides_from_storage(self) -> list[MCPServerOverride]:
         if self._storage is None or not hasattr(self._storage, "list_mcp_overrides"):
             return []
-        try:
-            rows = self._storage.list_mcp_overrides()
-        except Exception:
-            logger.exception("[mcp] failed to load overrides from storage")
-            return []
+        rows = self._storage.list_mcp_overrides()
         return [
             MCPServerOverride(
                 name=r["name"],

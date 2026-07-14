@@ -270,7 +270,7 @@ def test_storage_only_backs_up_existing_database_with_pending_migration(tmp_path
     assert _migration_backups(database_path) == []
 
 
-def test_existing_preledger_database_is_backed_up_once_before_migration(tmp_path: Path) -> None:
+def test_successful_migration_removes_pre_migration_recovery_backup(tmp_path: Path) -> None:
     database_path = tmp_path / "storage.sqlite3"
     _create_preledger_database(database_path)
 
@@ -278,24 +278,12 @@ def test_existing_preledger_database_is_backed_up_once_before_migration(tmp_path
     storage.init_db()
     storage.close()
 
-    backups = _migration_backups(database_path)
-    assert len(backups) == 1
-    assert backups[0].parent == database_path.parent
-    with closing(sqlite3.connect(backups[0])) as backup:
-        assert backup.execute("SELECT value FROM backup_sentinel").fetchone() == (
-            "before-migration",
-        )
-        assert (
-            backup.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
-            ).fetchone()
-            is None
-        )
+    assert _migration_backups(database_path) == []
 
     reopened = Storage(str(database_path))
     reopened.init_db()
     reopened.close()
-    assert _migration_backups(database_path) == backups
+    assert _migration_backups(database_path) == []
 
 
 def test_concurrent_storage_startup_creates_one_true_pre_migration_backup(
@@ -335,15 +323,7 @@ def test_concurrent_storage_startup_creates_one_true_pre_migration_backup(
 
     assert all(not thread.is_alive() for thread in threads)
     assert errors == []
-    backups = _migration_backups(database_path)
-    assert len(backups) == 1
-    with closing(sqlite3.connect(backups[0])) as backup:
-        assert (
-            backup.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
-            ).fetchone()
-            is None
-        )
+    assert _migration_backups(database_path) == []
     with closing(sqlite3.connect(database_path)) as current:
         assert current.execute(
             "SELECT version, name FROM schema_migrations ORDER BY version"
@@ -401,8 +381,10 @@ def test_migration_failure_reports_unique_backup_and_backup_can_restore(
         assert str(backup_path) in "\n".join(error.value.__notes__)
         reported_paths.append(backup_path)
 
-    assert reported_paths[0] != reported_paths[1]
-    assert _migration_backups(database_path) == sorted(reported_paths)
+    assert reported_paths[0] == reported_paths[1]
+    assert _migration_backups(database_path) == [reported_paths[0]]
+    assert "legacy-sensitive" in reported_paths[0].name
+    assert stat.S_IMODE(reported_paths[0].stat().st_mode) == 0o600
 
     with closing(sqlite3.connect(database_path)) as connection:
         connection.execute("CREATE TABLE post_failure_mutation (value TEXT)")
