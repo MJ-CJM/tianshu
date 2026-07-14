@@ -38,6 +38,33 @@ class SchedulerMixin:
                 ),
             )
 
+    def save_scheduler_job_if_absent(
+        self,
+        job_id: str,
+        edict_id: str,
+        schedule_type: str,
+        cron_expr: str | None = None,
+        next_run: datetime | None = None,
+        interval_seconds: int | None = None,
+    ) -> bool:
+        """Reserve a durable job ID once without replacing a replayed effect."""
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """INSERT OR IGNORE INTO scheduler_jobs
+                   (job_id, edict_id, schedule_type, cron_expr, next_run, status, created_at, interval_seconds)
+                   VALUES (?, ?, ?, ?, ?, 'active', ?, ?)""",
+                (
+                    job_id,
+                    edict_id,
+                    schedule_type,
+                    cron_expr,
+                    next_run.isoformat() if next_run else None,
+                    datetime.now(UTC).isoformat(),
+                    interval_seconds,
+                ),
+            )
+        return cursor.rowcount == 1
+
     def update_scheduler_job_next_run(self, job_id: str, next_run: datetime | None) -> None:
         with self._lock, self._conn:
             self._conn.execute(

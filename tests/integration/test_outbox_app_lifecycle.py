@@ -29,6 +29,22 @@ def _settings(tmp_path, **overrides) -> TianshuSettings:
     return TianshuSettings(**values)
 
 
+async def _cleanup_failed_start(app) -> None:  # type: ignore[no-untyped-def]
+    lifecycle = getattr(app.state, "outbox_lifecycle", None)
+    if lifecycle is not None and not app.state.outbox_dispatcher.is_stopped:
+        await lifecycle.stop()
+    app.state.agent.request_shutdown()
+    await app.state.scheduler.stop()
+    await app.state.executor.shutdown()
+    await app.state.worker_pool.shutdown()
+    await app.state.workspace_service.shutdown()
+    await app.state.code_sandbox.shutdown()
+    await app.state.mcp_manager.shutdown()
+    await app.state.bot_manager.stop_all()
+    app.state.drawer_store.close()
+    app.state.storage.close()
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -95,6 +111,81 @@ async def test_lifespan_starts_one_configured_dispatcher_after_consumer_wiring(
 
     assert lifecycle.state is OutboxLifecycleState.STOPPED
     assert lifecycle.task is not None and lifecycle.task.done()
+
+
+@pytest.mark.parametrize("failure_point", ["tracing", "telemetry"])
+async def test_fallible_startup_finishes_before_outbox_is_created(
+    tmp_path,
+    monkeypatch,
+    failure_point: str,
+) -> None:
+    from tianshu import bootstrap, observability, telemetry
+
+    settings = _settings(tmp_path, telemetry="on" if failure_point == "telemetry" else "off")
+    app = create_app(settings)
+    if hasattr(app.state, "tianshu_mcp_server"):
+        del app.state.tianshu_mcp_server
+    monkeypatch.setattr(bootstrap, "wire_skills_watcher", lambda _app, _settings: None)
+    outbox_created = False
+    original_wire_outbox = bootstrap.wire_outbox
+
+    async def record_outbox_creation(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        nonlocal outbox_created
+        outbox_created = True
+        await original_wire_outbox(*args, **kwargs)
+
+    monkeypatch.setattr(bootstrap, "wire_outbox", record_outbox_creation)
+    if failure_point == "tracing":
+
+        def fail_tracing(_settings) -> bool:  # type: ignore[no-untyped-def]
+            raise RuntimeError("injected tracing startup failure")
+
+        monkeypatch.setattr(observability, "init_tracing", fail_tracing)
+    else:
+
+        async def fail_telemetry(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            raise RuntimeError("injected telemetry startup failure")
+
+        monkeypatch.setattr(telemetry, "emit_startup", fail_telemetry)
+
+    context = lifespan(app)
+    try:
+        with pytest.raises(RuntimeError, match=f"injected {failure_point}"):
+            await context.__aenter__()
+        assert not outbox_created
+        assert not hasattr(app.state, "outbox_lifecycle")
+    finally:
+        await _cleanup_failed_start(app)
+
+
+async def test_failure_after_outbox_start_confirms_worker_stopped_before_propagating(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from tianshu import app as app_module
+    from tianshu import bootstrap
+
+    app = create_app(_settings(tmp_path))
+    if hasattr(app.state, "tianshu_mcp_server"):
+        del app.state.tianshu_mcp_server
+    monkeypatch.setattr(bootstrap, "wire_skills_watcher", lambda _app, _settings: None)
+    original_info = app_module.logger.info
+
+    def fail_after_outbox(message, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        if message == "Tianshu started on %s:%s":
+            raise RuntimeError("injected post-outbox startup failure")
+        original_info(message, *args, **kwargs)
+
+    monkeypatch.setattr(app_module.logger, "info", fail_after_outbox)
+    context = lifespan(app)
+    try:
+        with pytest.raises(RuntimeError, match="post-outbox startup failure"):
+            await context.__aenter__()
+        assert app.state.outbox_dispatcher.is_stopped
+        assert app.state.outbox_task.done()
+        assert not app.state.outbox_lifecycle.is_ready
+    finally:
+        await _cleanup_failed_start(app)
 
 
 async def test_outbox_stops_before_scheduler_executor_channels_and_storage(

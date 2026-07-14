@@ -86,11 +86,11 @@ class _ManagedOutboxDispatcher(Protocol):
     @property
     def is_stopped(self) -> bool: ...
 
-    async def drain_once(self, *, limit: int = 50) -> int: ...
-
     async def run(self) -> None: ...
 
     async def stop(self) -> None: ...
+
+    async def wait_until_ready(self) -> None: ...
 
 
 class OutboxLifecycle:
@@ -131,18 +131,47 @@ class OutboxLifecycle:
         self._state = OutboxLifecycleState.STARTING
         self._failure_code = None
         self._stop_requested = False
-        try:
-            await self._dispatcher.drain_once()
-        except BaseException:
-            self._state = OutboxLifecycleState.FATAL
-            self._failure_code = "startup_probe_failed"
-            raise
-
         task = asyncio.create_task(self._dispatcher.run(), name="outbox-dispatcher")
         self._task = task
-        self._state = OutboxLifecycleState.RUNNING
         task.add_done_callback(self._observe_run_exit)
-        await asyncio.sleep(0)
+        ready_waiter = asyncio.create_task(
+            self._dispatcher.wait_until_ready(),
+            name="outbox-startup-barrier",
+        )
+        try:
+            done, _ = await asyncio.wait(
+                {task, ready_waiter},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if ready_waiter in done:
+                await ready_waiter
+                await asyncio.sleep(0)
+                if self._stop_requested:
+                    raise RuntimeError("outbox lifecycle stopped during startup")
+                if task.done():
+                    await task
+                    raise RuntimeError("outbox dispatcher exited during startup")
+                if self._state is not OutboxLifecycleState.STARTING:
+                    raise RuntimeError("outbox lifecycle left startup state")
+                self._state = OutboxLifecycleState.RUNNING
+                return
+
+            if self._stop_requested:
+                raise RuntimeError("outbox lifecycle stopped during startup")
+            try:
+                await task
+            except BaseException:
+                self._state = OutboxLifecycleState.FATAL
+                self._failure_code = "startup_probe_failed"
+                raise
+            self._state = OutboxLifecycleState.FATAL
+            self._failure_code = "startup_probe_failed"
+            raise RuntimeError("outbox dispatcher exited before its startup probe")
+        finally:
+            if not ready_waiter.done():
+                ready_waiter.cancel()
+            with suppress(asyncio.CancelledError):
+                await ready_waiter
 
     async def stop(self) -> None:
         task = self._task
@@ -249,6 +278,7 @@ class OutboxDispatcher:
         self._stop_event = asyncio.Event()
         self._stopped_event = asyncio.Event()
         self._stopped_event.set()
+        self._first_drain_succeeded = asyncio.Event()
         self._running = False
         self._drain_task: asyncio.Task[int] | None = None
 
@@ -256,6 +286,10 @@ class OutboxDispatcher:
     def is_stopped(self) -> bool:
         """Whether no dispatcher run is still waiting for an active drain."""
         return self._stopped_event.is_set()
+
+    async def wait_until_ready(self) -> None:
+        """Wait until the run task owns and completes its first durable drain."""
+        await self._first_drain_succeeded.wait()
 
     async def drain_once(self, *, limit: int = 50) -> int:
         records = self._repository.claim_batch(
@@ -280,6 +314,7 @@ class OutboxDispatcher:
                 self._drain_task = drain_task
                 try:
                     await drain_task
+                    self._first_drain_succeeded.set()
                 except asyncio.CancelledError:
                     if run_task is not None and run_task.cancelling():
                         raise
