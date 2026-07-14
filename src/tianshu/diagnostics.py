@@ -667,6 +667,7 @@ class ReadinessInputs:
     migrations_current: Callable[[], bool]
     scheduler_ready: Callable[[], bool]
     worker_ready: Callable[[], bool]
+    outbox_ready: Callable[[], bool]
     resources_ok: Callable[[], bool]
     # provider：真实可用性判定（复用 provider_config_check，不是 profile 字符串回显）
     provider_ready: Callable[[], bool]
@@ -721,6 +722,7 @@ def assess_readiness(inputs: ReadinessInputs) -> ReadinessReport:
         ("migrations", inputs.migrations_current),
         ("scheduler", inputs.scheduler_ready),
         ("worker", inputs.worker_ready),
+        ("outbox", inputs.outbox_ready),
         ("resources", inputs.resources_ok),
         ("workspace", inputs.workspace_ready),
     )

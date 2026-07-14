@@ -33,6 +33,7 @@ from tianshu.bootstrap.wiring_executor import (
 )
 from tianshu.bootstrap.wiring_llm import wire_cost_manager, wire_llm_config, wire_provider_and_agent
 from tianshu.bootstrap.wiring_memory import wire_memory_manager, wire_memory_palace
+from tianshu.bootstrap.wiring_outbox import wire_outbox
 from tianshu.bootstrap.wiring_persona import wire_persona, wire_persona_quality, wire_profile
 from tianshu.bootstrap.wiring_scheduler import (
     wire_auditor,
@@ -62,6 +63,7 @@ __all__ = [
     "wire_llm_config",
     "wire_memory_manager",
     "wire_memory_palace",
+    "wire_outbox",
     "wire_persona",
     "wire_persona_quality",
     "wire_plugins",

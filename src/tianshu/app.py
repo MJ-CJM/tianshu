@@ -79,6 +79,9 @@ async def lifespan(app: FastAPI):
     # --- Start scheduler ---
     await app.state.scheduler.start()
 
+    # Consumers are registered and scheduler recovery is complete before dispatch.
+    await bootstrap.wire_outbox(app, settings)
+
     # --- MCP server session manager(stateless 模式仍需运行;挂载见 create_app)---
     # 放独立后台 task:anyio TaskGroup 的 cancel scope 必须在同一 task 进出,
     # 而 lifespan 的 startup/teardown 可能被测试框架驱动在不同 task 上。
@@ -115,6 +118,9 @@ async def lifespan(app: FastAPI):
 
     logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     yield
+
+    # Do not close consumers or shared Storage while a durable drain is live.
+    await app.state.outbox_lifecycle.stop()
 
     # --- MCP server session manager 停止 ---
     if _mcp_stop is not None and _mcp_task is not None:
@@ -281,6 +287,7 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
                 migrations_current=lambda: migrations_ok,
                 scheduler_ready=lambda: state.scheduler.is_ready,
                 worker_ready=lambda: state.worker_pool.is_ready,
+                outbox_ready=lambda: state.outbox_lifecycle.is_ready,
                 resources_ok=_resources_ok,
                 provider_ready=_provider_ready,
                 provider_profile=lambda: state.settings.startup_profile,

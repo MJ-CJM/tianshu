@@ -9,6 +9,7 @@ import math
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any, Protocol, cast
 
 from tianshu.bus.event_bus import EventBus
@@ -19,6 +20,16 @@ from tianshu.storage.outbox_repo import OutboxRecord
 
 class OutboxShutdownTimeout(TimeoutError):
     """The dispatcher still owns a live drain after its shutdown deadline."""
+
+
+class OutboxLifecycleState(StrEnum):
+    """Process-local truth for the single outbox run task."""
+
+    STARTING = "starting"
+    RUNNING = "running"
+    FATAL = "fatal"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
 
 
 class _OutboxOperations(Protocol):
@@ -69,6 +80,124 @@ class _OutboxOperations(Protocol):
     ) -> bool: ...
 
     def consumed_consumers(self, event_id: str) -> frozenset[str]: ...
+
+
+class _ManagedOutboxDispatcher(Protocol):
+    @property
+    def is_stopped(self) -> bool: ...
+
+    async def drain_once(self, *, limit: int = 50) -> int: ...
+
+    async def run(self) -> None: ...
+
+    async def stop(self) -> None: ...
+
+
+class OutboxLifecycle:
+    """Supervise one dispatcher task and expose fail-closed readiness truth."""
+
+    def __init__(self, dispatcher: _ManagedOutboxDispatcher) -> None:
+        self._dispatcher = dispatcher
+        self._state = OutboxLifecycleState.STOPPED
+        self._failure_code: str | None = None
+        self._task: asyncio.Task[None] | None = None
+        self._stop_requested = False
+
+    @property
+    def state(self) -> OutboxLifecycleState:
+        return self._state
+
+    @property
+    def failure_code(self) -> str | None:
+        return self._failure_code
+
+    @property
+    def task(self) -> asyncio.Task[None] | None:
+        return self._task
+
+    @property
+    def is_ready(self) -> bool:
+        task = self._task
+        return (
+            self._state is OutboxLifecycleState.RUNNING
+            and task is not None
+            and not task.done()
+            and not self._dispatcher.is_stopped
+        )
+
+    async def start(self) -> None:
+        if self._state is not OutboxLifecycleState.STOPPED or self._task is not None:
+            raise RuntimeError("outbox lifecycle is already started")
+        self._state = OutboxLifecycleState.STARTING
+        self._failure_code = None
+        self._stop_requested = False
+        try:
+            await self._dispatcher.drain_once()
+        except BaseException:
+            self._state = OutboxLifecycleState.FATAL
+            self._failure_code = "startup_probe_failed"
+            raise
+
+        task = asyncio.create_task(self._dispatcher.run(), name="outbox-dispatcher")
+        self._task = task
+        self._state = OutboxLifecycleState.RUNNING
+        task.add_done_callback(self._observe_run_exit)
+        await asyncio.sleep(0)
+
+    async def stop(self) -> None:
+        task = self._task
+        was_fatal = self._state is OutboxLifecycleState.FATAL
+        if self._state is OutboxLifecycleState.STOPPED and task is None:
+            return
+        self._stop_requested = True
+        if not was_fatal:
+            self._state = OutboxLifecycleState.STOPPING
+        try:
+            await self._dispatcher.stop()
+        except OutboxShutdownTimeout:
+            self._state = OutboxLifecycleState.FATAL
+            self._failure_code = "shutdown_timeout"
+            raise
+        except BaseException as error:
+            self._state = OutboxLifecycleState.FATAL
+            self._failure_code = (
+                "shutdown_cancelled"
+                if isinstance(error, asyncio.CancelledError)
+                else "shutdown_failed"
+            )
+            raise
+        if not self._dispatcher.is_stopped:
+            self._state = OutboxLifecycleState.FATAL
+            self._failure_code = "shutdown_incomplete"
+            raise OutboxShutdownTimeout("outbox dispatcher did not confirm it stopped")
+        if task is not None:
+            try:
+                await task
+            except asyncio.CancelledError:
+                if not was_fatal:
+                    self._state = OutboxLifecycleState.FATAL
+                    self._failure_code = "run_cancelled"
+                    was_fatal = True
+            except Exception:
+                self._state = OutboxLifecycleState.FATAL
+                if self._failure_code is None:
+                    self._failure_code = "run_failed"
+                was_fatal = True
+        if not was_fatal and self._state is not OutboxLifecycleState.FATAL:
+            self._state = OutboxLifecycleState.STOPPED
+
+    def _observe_run_exit(self, task: asyncio.Task[None]) -> None:
+        if self._stop_requested:
+            if not task.cancelled():
+                task.exception()
+            return
+        if task.cancelled():
+            self._failure_code = "run_cancelled"
+        elif task.exception() is not None:
+            self._failure_code = "run_failed"
+        else:
+            self._failure_code = "unexpected_exit"
+        self._state = OutboxLifecycleState.FATAL
 
 
 class OutboxDispatcher:
@@ -401,4 +530,9 @@ def _bounded_error_hash(error: Exception) -> str:
     return hashlib.sha256(bounded).hexdigest()
 
 
-__all__ = ["OutboxDispatcher", "OutboxShutdownTimeout"]
+__all__ = [
+    "OutboxDispatcher",
+    "OutboxLifecycle",
+    "OutboxLifecycleState",
+    "OutboxShutdownTimeout",
+]

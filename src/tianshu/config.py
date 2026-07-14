@@ -1,11 +1,12 @@
 """Configuration management via Pydantic Settings."""
 
 import ipaddress
+import math
 import re
 from typing import Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _SHA256_HASH = re.compile(r"sha256:[0-9a-f]{64}")
@@ -69,6 +70,13 @@ class TianshuSettings(BaseSettings):
     log_level: str = "INFO"
     # Phase 3: concurrency
     max_global_concurrency: int = 8
+    # Durable outbox worker. Per-row max_attempts remains durable row state;
+    # ingress configuration of that value belongs to the unified-ingress slice.
+    outbox_poll_interval_seconds: float = 0.25
+    outbox_lease_seconds: int = 30
+    durable_retry_base_seconds: float = 1.0
+    durable_retry_max_seconds: float = 300.0
+    outbox_shutdown_timeout_seconds: float = 5.0
     # Phase 2: notification channels
     feishu_webhook: str = ""
     # Feishu Bot —— inbound + outbound (与 hermes 同名同义)
@@ -151,6 +159,39 @@ class TianshuSettings(BaseSettings):
     @property
     def trusted_proxy_cidrs_list(self) -> tuple[str, ...]:
         return _split_csv(self.trusted_proxy_cidrs)
+
+    @field_validator(
+        "outbox_poll_interval_seconds",
+        "outbox_lease_seconds",
+        "durable_retry_base_seconds",
+        "durable_retry_max_seconds",
+        "outbox_shutdown_timeout_seconds",
+        mode="before",
+    )
+    @classmethod
+    def reject_boolean_outbox_settings(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("outbox numeric settings cannot be boolean")
+        return value
+
+    @model_validator(mode="after")
+    def validate_outbox_worker(self) -> Self:
+        timing_values = {
+            "outbox_poll_interval_seconds": self.outbox_poll_interval_seconds,
+            "durable_retry_base_seconds": self.durable_retry_base_seconds,
+            "durable_retry_max_seconds": self.durable_retry_max_seconds,
+            "outbox_shutdown_timeout_seconds": self.outbox_shutdown_timeout_seconds,
+        }
+        for name, value in timing_values.items():
+            if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if type(self.outbox_lease_seconds) is not int or self.outbox_lease_seconds <= 0:
+            raise ValueError("outbox_lease_seconds must be a positive integer")
+        if self.outbox_lease_seconds <= 2 * self.outbox_poll_interval_seconds:
+            raise ValueError("outbox_lease_seconds must exceed two polling intervals")
+        if self.durable_retry_max_seconds < self.durable_retry_base_seconds:
+            raise ValueError("durable_retry_max_seconds must be at least the retry base")
+        return self
 
     @model_validator(mode="after")
     def validate_security_mode(self) -> Self:

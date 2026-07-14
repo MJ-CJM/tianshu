@@ -46,6 +46,7 @@ async def test_ready_reports_ready_with_profile_detail_in_trusted_local(client):
         "migrations",
         "scheduler",
         "worker",
+        "outbox",
         "resources",
         "workspace",
         "provider",
@@ -105,6 +106,29 @@ async def test_scheduler_dead_background_task_flips_readiness(client):
     assert not scheduler.is_ready
     resp = await c.get("/health/ready")
     assert resp.status_code == 503
+
+
+async def test_outbox_unexpected_exit_flips_readiness_but_not_liveness(client):
+    import asyncio
+
+    c, app = client
+    task = app.state.outbox_task
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0)
+
+    assert not app.state.outbox_lifecycle.is_ready
+    ready = await c.get("/health/ready")
+    assert ready.status_code == 503
+    outbox = next(check for check in ready.json()["checks"] if check["id"] == "outbox")
+    assert outbox == {
+        "id": "outbox",
+        "status": "fail",
+        "required": True,
+        "evidence": {"ok": False},
+    }
+    assert (await c.get("/health/live")).status_code == 200
 
 
 def _bootstrap_hash(token: str = "bootstrap-token-for-tests") -> str:
