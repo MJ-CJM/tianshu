@@ -77,6 +77,43 @@ def _insert_credential(path: Path, key: str) -> bytes:
     return encrypted
 
 
+def _insert_rotation_families(path: Path, key: str) -> dict[str, bytes]:
+    ciphertexts = {"network": _insert_credential(path, key)}
+    fernet = Fernet(key.encode())
+    ciphertexts.update(
+        {
+            "channel": fernet.encrypt(b"channel-secret-before-rotation"),
+            "mcp_env": fernet.encrypt(b'{"TOKEN":"env-before-rotation"}'),
+            "mcp_headers": fernet.encrypt(b'{"Authorization":"Bearer header-before-rotation"}'),
+        }
+    )
+    storage = Storage(str(path))
+    storage.init_db()
+    with storage._conn:
+        storage._conn.execute(
+            """
+            INSERT INTO channel_configs (
+                channel_type, config_json, encrypted_secret, updated_at
+            ) VALUES ('feishu', '{}', ?, '2026-07-14T00:00:00+00:00')
+            """,
+            (ciphertexts["channel"],),
+        )
+        storage._conn.execute(
+            """
+            INSERT INTO mcp_server_overrides (
+                name, env_ciphertext, env_keys_json, headers_ciphertext,
+                header_keys_json, updated_at
+            ) VALUES (
+                'backup-mcp', ?, '["TOKEN"]', ?, '["Authorization"]',
+                '2026-07-14T00:00:00+00:00'
+            )
+            """,
+            (ciphertexts["mcp_env"], ciphertexts["mcp_headers"]),
+        )
+    storage.close()
+    return ciphertexts
+
+
 def _tracking_storage_class(instances: list[Storage]) -> type[Storage]:
     class TrackingStorage(Storage):
         def __init__(self, db_path: str) -> None:
@@ -406,7 +443,7 @@ def test_rotate_master_key_uses_online_backup_and_closes_storage(
     database_path = tmp_path / "secrets.sqlite3"
     old_key = Fernet.generate_key().decode()
     new_key = Fernet.generate_key().decode()
-    old_ciphertext = _insert_credential(database_path, old_key)
+    old_ciphertexts = _insert_rotation_families(database_path, old_key)
     instances: list[Storage] = []
     backup_calls: list[tuple[sqlite3.Connection, Path]] = []
     real_backup = sqlite_backup.create_online_backup
@@ -438,12 +475,29 @@ def test_rotate_master_key_uses_online_backup_and_closes_storage(
     backup_path = backup_calls[0][1]
     assert backup_path == expected_backup
     assert backup_path.exists()
+    assert "legacy-sensitive" not in backup_path.name
     with closing(sqlite3.connect(backup_path)) as backup:
         assert (
             backup.execute(
                 "SELECT encrypted_value FROM network_credentials WHERE id='credential-1'"
             ).fetchone()[0]
-            == old_ciphertext
+            == old_ciphertexts["network"]
+        )
+        assert (
+            backup.execute(
+                "SELECT encrypted_secret FROM channel_configs WHERE channel_type='feishu'"
+            ).fetchone()[0]
+            == old_ciphertexts["channel"]
+        )
+        mcp = backup.execute(
+            """
+            SELECT env_ciphertext, headers_ciphertext
+            FROM mcp_server_overrides WHERE name='backup-mcp'
+            """
+        ).fetchone()
+        assert mcp == (
+            old_ciphertexts["mcp_env"],
+            old_ciphertexts["mcp_headers"],
         )
 
 
@@ -478,9 +532,16 @@ def test_rotate_master_key_closes_storage_on_no_credentials_early_exit(
     storage.init_db()
     storage.close()
     instances: list[Storage] = []
+    backup_calls: list[Path] = []
     old_key = Fernet.generate_key().decode()
     new_key = Fernet.generate_key().decode()
+
+    def tracking_backup(_source: sqlite3.Connection, destination: Path) -> Path:
+        backup_calls.append(destination)
+        return destination
+
     monkeypatch.setattr(storage_package, "Storage", _tracking_storage_class(instances))
+    monkeypatch.setattr(sqlite_backup, "create_online_backup", tracking_backup)
     monkeypatch.setenv("TIANSHU_DB_PATH", str(database_path))
 
     result = CliRunner().invoke(
@@ -489,6 +550,8 @@ def test_rotate_master_key_closes_storage_on_no_credentials_early_exit(
     )
 
     assert result.exit_code == 0, result.output
-    assert "库中无凭证" in result.output
+    assert "无需轮换" in result.output
+    assert "轮换完成" not in result.output
+    assert backup_calls == []
     assert len(instances) == 1
     assert instances[0]._conn is None
