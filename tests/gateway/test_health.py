@@ -357,10 +357,15 @@ def _real_mcp_session(app, name: str, status: str):
     from pathlib import Path
 
     from tianshu.tools.mcp.client import MCPServerSession
-    from tianshu.tools.mcp.config import MCPServerConfig
+    from tianshu.tools.mcp.config import MCPServerConfig, ToolFilter
 
     session = MCPServerSession(
-        config=MCPServerConfig(name=name, transport="stdio", command="/bin/true"),
+        config=MCPServerConfig(
+            name=name,
+            transport="stdio",
+            command="/bin/true",
+            tools=ToolFilter(include=["health_probe"]),
+        ),
         execution_gateway=app.state.execution_gateway,
         workspace_root=Path("."),
         security_mode="trusted-local",
@@ -372,11 +377,16 @@ def _real_mcp_session(app, name: str, status: str):
 def _install_mcp_state(
     manager, *, enabled_names: tuple[str, ...], sessions: dict, starting: dict | None = None
 ) -> None:
-    from tianshu.tools.mcp.config import MCPConfig, MCPServerConfig
+    from tianshu.tools.mcp.config import MCPConfig, MCPServerConfig, ToolFilter
 
     config = MCPConfig(
         mcp_servers={
-            n: MCPServerConfig(name=n, transport="stdio", command="/bin/true")
+            n: MCPServerConfig(
+                name=n,
+                transport="stdio",
+                command="/bin/true",
+                tools=ToolFilter(include=["health_probe"]),
+            )
             for n in enabled_names
         }
     )
