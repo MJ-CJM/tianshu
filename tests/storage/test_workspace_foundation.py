@@ -85,7 +85,7 @@ def _staging_identity() -> WorkspaceStagingIdentity:
 
 
 def test_migration_v5_appends_without_changing_frozen_checksums() -> None:
-    assert [(item.version, item.name) for item in MIGRATIONS] == [
+    assert [(item.version, item.name) for item in MIGRATIONS[:6]] == [
         (1, "0001_adopt_v042_baseline"),
         (2, "0002_auth_tokens"),
         (3, "0003_governance_contracts"),
@@ -112,7 +112,7 @@ def test_migration_v5_supports_fresh_and_every_frozen_upgrade(prior_count: int) 
 
     applied = run_migrations(conn)
 
-    assert applied == tuple(range(prior_count + 1, 7))
+    assert applied == tuple(item.version for item in MIGRATIONS[prior_count:])
     tables = {
         row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
@@ -303,7 +303,7 @@ def test_migration_v5_backfills_and_preserves_v4_apply_decision() -> None:
 
     applied = run_migrations(conn)
 
-    assert applied == (5, 6)
+    assert applied == tuple(item.version for item in MIGRATIONS[4:])
     decision = conn.execute("SELECT * FROM apply_decisions WHERE id='decision-old'").fetchone()
     assert decision is not None
     assert decision["run_id"] == "run-old"

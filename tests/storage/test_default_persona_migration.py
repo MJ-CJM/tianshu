@@ -22,9 +22,11 @@ def _personas_rows(db: Path) -> dict[str, dict]:
     return rows
 
 
-def test_migrations_tail_is_v6_seed_default_personas() -> None:
-    assert MIGRATIONS[-1].version == 6
-    assert MIGRATIONS[-1].name == "0006_seed_default_personas"
+def test_migration_v6_is_frozen_seed_default_personas() -> None:
+    assert (MIGRATIONS[5].version, MIGRATIONS[5].name) == (
+        6,
+        "0006_seed_default_personas",
+    )
 
 
 def test_fresh_db_seeds_exactly_six_departments(tmp_path: Path) -> None:
