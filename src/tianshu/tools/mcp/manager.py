@@ -58,6 +58,7 @@ class MCPManager:
         self._security_mode = security_mode
         self._config_path = Path(config_path).expanduser()
         self._storage = storage
+        self._configured_stdio_commands: dict[str, tuple[str, ...]] = {}
         # MCP 治理·准入清单(D15):非空 → 只启动清单内 server。空/None → 不强制。
         self._allowlist: frozenset[str] | None = (
             frozenset(n.strip() for n in allowlist.split(",") if n.strip())
@@ -117,6 +118,14 @@ class MCPManager:
                 metadata={},
             )
         )
+
+    def _sync_stdio_commands(self, commands: dict[str, tuple[str, ...]]) -> None:
+        if commands:
+            self._execution_gateway.configure_mcp_stdio_commands(commands)
+            self._configured_stdio_commands = dict(commands)
+        elif self._configured_stdio_commands:
+            self._execution_gateway.configure_mcp_stdio_commands({})
+            self._configured_stdio_commands = {}
 
     # -- 配置 ---------------------------------------------------------------
 
@@ -230,8 +239,7 @@ class MCPManager:
             for name, cfg in admitted
             if cfg.transport == "stdio" and cfg.command is not None
         }
-        if stdio_commands:
-            self._execution_gateway.configure_mcp_stdio_commands(stdio_commands)
+        self._sync_stdio_commands(stdio_commands)
         for name, cfg in self._config.mcp_servers.items():
             decision = decisions[name]
             if decision.allowed:
@@ -339,6 +347,7 @@ class MCPManager:
                     if session.terminal_receipt is not None:
                         self._terminal_receipts[name] = session.terminal_receipt
                 self._sessions.clear()
+                self._sync_stdio_commands({})
         finally:
             self._shutdown_waiters -= 1
             self._stopping = self._shutdown_waiters > 0

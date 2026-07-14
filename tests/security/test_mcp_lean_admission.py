@@ -3,11 +3,34 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
+from tianshu.executor.capabilities import (
+    native_manifest,
+    probe_host_capabilities,
+    resolve_governance_contract,
+)
+from tianshu.executor.execution_gateway import (
+    ArgvCommand,
+    EnvironmentPolicy,
+    ExecutionContext,
+    ExecutionDenied,
+    ExecutionGateway,
+    ExecutionRequest,
+    NetworkPolicy,
+    SandboxRequirement,
+    bind_execution_context,
+)
+from tianshu.models.governance_contract import (
+    NetworkPolicyV1,
+    ObjectiveV1,
+    RequestedGovernanceContractV1,
+)
+from tianshu.models.principal import Principal, PrincipalKind
 from tianshu.tools.mcp.config import (
     MCPConfig,
     MCPServerConfig,
@@ -17,6 +40,69 @@ from tianshu.tools.mcp.config import (
 )
 from tianshu.tools.mcp.manager import MCPManager
 from tianshu.tools.registry import ToolRegistry
+
+
+class _NoSpawnBackend:
+    backend_id = "no-spawn"
+    supports_sandbox = False
+    supports_network_enforcement = False
+
+    def __init__(self) -> None:
+        self.spawned = False
+
+    async def spawn(self, **_: object) -> None:
+        self.spawned = True
+        raise AssertionError("revoked MCP command must not spawn")
+
+
+def _execution_context():
+    requested = RequestedGovernanceContractV1(
+        objective=ObjectiveV1(goal="test stale MCP command revocation"),
+        network=NetworkPolicyV1(mode="unrestricted_requested"),
+    )
+    contract = resolve_governance_contract(
+        requested,
+        native_manifest(),
+        probe_host_capabilities(),
+    )
+    return ExecutionContext(
+        correlation_id="mcp-stale-command",
+        actor=Principal(
+            id="system:mcp",
+            kind=PrincipalKind.SERVICE,
+            display_name="MCP Manager",
+        ),
+        effective_contract=contract,
+        workspace_lease_id="system:mcp",
+    )
+
+
+def _execution_request(tmp_path, context: ExecutionContext, grant, argv):
+    return ExecutionRequest(
+        execution_id="mcp-stale-execution",
+        correlation_id=context.correlation_id,
+        actor=context.actor,
+        purpose="mcp_stdio",
+        mcp_server_name="demo",
+        effective_contract=context.effective_contract,
+        argv_command=ArgvCommand(argv=argv),
+        workspace_lease_id=context.workspace_lease_id,
+        workspace_root=tmp_path,
+        cwd=".",
+        environment=EnvironmentPolicy(),
+        network=NetworkPolicy(mode="unrestricted"),
+        timeout_seconds=3,
+        stdout_limit_bytes=4096,
+        stderr_limit_bytes=4096,
+        stdin_mode="pipe",
+        stdin_write_limit_bytes=4096,
+        sandbox=SandboxRequirement(
+            trust_level="trusted-local",
+            mode="host",
+            allow_host=True,
+        ),
+        command_grant=grant,
+    )
 
 
 def _stdio(
@@ -209,3 +295,81 @@ def test_registration_rechecks_the_same_admission_decision() -> None:
 
     assert count == 0
     assert registry.get_definition("mcp_late-remote_late-tool") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "denied_config",
+    [
+        _stdio("demo", enabled=False, include=["approved"]),
+        _stdio("demo"),
+        _stdio("not-allowlisted", include=["approved"]),
+    ],
+    ids=["disabled", "empty-include", "allowlist-denied"],
+)
+async def test_hot_reload_revokes_previous_stdio_gateway_command_and_grant(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    denied_config: MCPServerConfig,
+) -> None:
+    class _ConnectedSession:
+        def __init__(self, *, config: MCPServerConfig, **_: object) -> None:
+            self.config = config
+            self.tools = [
+                SimpleNamespace(
+                    name="approved",
+                    description="approved fixture tool",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ]
+            self.terminal_receipt = None
+
+        async def start(self) -> bool:
+            return True
+
+        async def shutdown(self) -> None:
+            return None
+
+    monkeypatch.setattr("tianshu.tools.mcp.manager.MCPServerSession", _ConnectedSession)
+    backend = _NoSpawnBackend()
+    gateway = ExecutionGateway(backend=backend)
+    registry = ToolRegistry()
+    manager = MCPManager(
+        registry,
+        gateway,
+        allowlist="demo",
+    )
+    argv = (sys.executable, "-c", "pass")
+    manager._config = MCPConfig(
+        mcp_servers={
+            "demo": MCPServerConfig(
+                name="demo",
+                transport="stdio",
+                command=argv[0],
+                args=list(argv[1:]),
+                tools=ToolFilter(include=["approved"]),
+            )
+        }
+    )
+    await manager.start()
+    context = _execution_context()
+    with bind_execution_context(context):
+        old_grant = gateway.issue_mcp_stdio_command_grant("demo", argv)
+    assert manager.sessions.keys() == {"demo"}
+    assert registry.get_definition("mcp_demo_approved") is not None
+
+    manager._config = MCPConfig(mcp_servers={denied_config.name: denied_config})
+    from tianshu.gateway.mcp_api import _restart_mcp_sessions
+
+    await _restart_mcp_sessions(manager, registry)
+
+    assert manager.sessions == {}
+    assert not any(definition.name.startswith("mcp_") for definition in registry.list_definitions())
+    with (
+        bind_execution_context(context),
+        pytest.raises(ExecutionDenied, match="mcp_command_not_configured"),
+    ):
+        gateway.issue_mcp_stdio_command_grant("demo", argv)
+    with pytest.raises(ExecutionDenied):
+        await gateway.start(_execution_request(tmp_path, context, old_grant, argv))
+    assert backend.spawned is False
