@@ -78,9 +78,13 @@ async def test_storage_wiring_registers_explicit_history_consumer(tmp_path):
     )
 
     try:
+        report = await app.state.event_bus.dispatch(event)
         await app.state.event_bus.emit(event)
         events = app.state.storage.get_events(edict.id)
     finally:
         app.state.storage.close()
 
     assert [row["id"] for row in events] == ["wired-event-id"]
+    assert [(result.consumer_name, result.succeeded) for result in report.results] == [
+        ("event_history.v1", True)
+    ]

@@ -586,10 +586,9 @@ async def trigger_profile_synthesis(persona_id: str, request: Request):
             "profile.synthesis.failed",
             "profile.synthesis.skipped",
         ]:
-            event_bus.on(
+            event_bus.on_local(
                 et,
                 _listener,
-                consumer_name=f"personas.synthesis_stream.{persona_id}.v1",
                 priority=10,
             )
 
@@ -623,7 +622,7 @@ async def trigger_profile_synthesis(persona_id: str, request: Request):
                 "profile.synthesis.failed",
                 "profile.synthesis.skipped",
             ]:
-                event_bus.off(et, _listener)
+                event_bus.off_local(et, _listener)
             if not task.done():
                 task.cancel()
 

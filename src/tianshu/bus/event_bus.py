@@ -42,6 +42,14 @@ class _HandlerEntry:
         self.priority = priority
 
 
+class _LocalHandlerEntry:
+    __slots__ = ("handler", "priority")
+
+    def __init__(self, handler: EventHandler, priority: int) -> None:
+        self.handler = handler
+        self.priority = priority
+
+
 class EventBus:
     """Pure-asyncio event bus with priority ordering and exception isolation.
 
@@ -52,6 +60,7 @@ class EventBus:
 
     def __init__(self) -> None:
         self._handlers: dict[str, list[_HandlerEntry]] = defaultdict(list)
+        self._local_handlers: dict[str, list[_LocalHandlerEntry]] = defaultdict(list)
         self._background_tasks: set[asyncio.Task[None]] = set()
 
     async def dispatch(
@@ -97,6 +106,7 @@ class EventBus:
         )
         report = await self.dispatch(event)
         self._log_failures(event, report)
+        await self._run_local_handlers(event)
 
     def fire(self, event: EventEnvelope) -> None:
         """Schedule best-effort fan-out without blocking the caller."""
@@ -123,11 +133,11 @@ class EventBus:
         """Register one stable consumer name for an event type."""
         if not consumer_name.strip():
             raise ValueError("consumer_name must be non-blank")
-        entries = self._handlers[event_type]
-        if any(entry.consumer_name == consumer_name for entry in entries):
+        if self._consumer_name_is_registered(event_type, consumer_name):
             raise ValueError(
                 f"consumer_name {consumer_name!r} is already registered for {event_type!r}"
             )
+        entries = self._handlers[event_type]
         entries.append(_HandlerEntry(consumer_name, handler, priority))
         entries.sort(key=lambda entry: entry.priority)
 
@@ -135,6 +145,40 @@ class EventBus:
         """Unregister a handler."""
         entries = self._handlers.get(event_type, [])
         self._handlers[event_type] = [entry for entry in entries if entry.handler is not handler]
+
+    def on_local(
+        self,
+        event_type: str,
+        handler: EventHandler,
+        *,
+        priority: int = 100,
+    ) -> None:
+        """Register an ephemeral best-effort subscriber excluded from dispatch reports."""
+        entries = self._local_handlers[event_type]
+        entries.append(_LocalHandlerEntry(handler, priority))
+        entries.sort(key=lambda entry: entry.priority)
+
+    def off_local(self, event_type: str, handler: EventHandler) -> None:
+        """Unregister one ephemeral subscriber by handler identity."""
+        entries = self._local_handlers.get(event_type, [])
+        self._local_handlers[event_type] = [
+            entry for entry in entries if entry.handler is not handler
+        ]
+
+    def _consumer_name_is_registered(self, event_type: str, consumer_name: str) -> bool:
+        if event_type == "*":
+            return any(
+                entry.consumer_name == consumer_name
+                for event_entries in self._handlers.values()
+                for entry in event_entries
+            )
+        return any(
+            entry.consumer_name == consumer_name
+            for entry in (
+                *self._handlers.get("*", ()),
+                *self._handlers.get(event_type, ()),
+            )
+        )
 
     def _entries_for(self, event_type: str) -> list[_HandlerEntry]:
         if event_type == "*":
@@ -148,6 +192,19 @@ class EventBus:
     async def _run_handlers(self, event: EventEnvelope) -> None:
         report = await self.dispatch(event)
         self._log_failures(event, report)
+        await self._run_local_handlers(event)
+
+    async def _run_local_handlers(self, event: EventEnvelope) -> None:
+        entries = list(self._local_handlers.get(event.event_type, ()))
+        for entry in entries:
+            try:
+                await entry.handler(event)
+            except Exception:
+                logger.exception(
+                    "Local handler %s failed for event %s",
+                    getattr(entry.handler, "__qualname__", repr(entry.handler)),
+                    event.event_type,
+                )
 
     @staticmethod
     def _log_failures(event: EventEnvelope, report: DispatchReport) -> None:

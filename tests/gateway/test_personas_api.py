@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from tianshu.app import create_app, lifespan
+from tianshu.bus.event_bus import EventBus
+from tianshu.gateway.personas_api import trigger_profile_synthesis
+from tianshu.models.events import make_event
 
 
 @pytest.fixture
@@ -161,3 +167,55 @@ async def test_department_not_found_paths(client):
     assert resp.status_code == 404
     resp = await client.delete("/api/departments/ghost-dept")
     assert resp.status_code == 404
+
+
+async def test_two_synthesis_streams_for_same_persona_receive_local_events():
+    event_bus = EventBus()
+
+    class _Synthesizer:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.both_started = asyncio.Event()
+
+        async def run(self, persona_id: str, *, trigger_source: str) -> None:
+            assert trigger_source == "api_manual"
+            self.calls += 1
+            if self.calls == 2:
+                self.both_started.set()
+            await self.both_started.wait()
+            await event_bus.emit(
+                make_event(
+                    "profile.synthesis.completed",
+                    payload={"persona_id": persona_id},
+                )
+            )
+
+    synthesizer = _Synthesizer()
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                persona_loader=SimpleNamespace(get=lambda persona_id: object()),
+                profile_synthesizer=synthesizer,
+                event_bus=event_bus,
+            )
+        )
+    )
+    first = await trigger_profile_synthesis("bingbu", request)
+    second = await trigger_profile_synthesis("bingbu", request)
+
+    async def consume(response) -> str:
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+        return "".join(chunks)
+
+    first_body, second_body = await asyncio.wait_for(
+        asyncio.gather(consume(first), consume(second)),
+        timeout=1,
+    )
+
+    assert synthesizer.calls == 2
+    assert "event: profile.synthesis.completed" in first_body
+    assert "event: profile.synthesis.completed" in second_body
+    report = await event_bus.dispatch(make_event("profile.synthesis.completed"))
+    assert report.results == ()

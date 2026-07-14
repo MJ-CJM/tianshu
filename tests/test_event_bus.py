@@ -83,6 +83,14 @@ class TestEventBus:
         with pytest.raises(ValueError, match="test.unique.v1"):
             bus.on("test", AsyncMock(), consumer_name="test.unique.v1")
 
+    @pytest.mark.parametrize("wildcard_first", [True, False])
+    def test_consumer_name_cannot_overlap_wildcard_and_exact(self, bus, wildcard_first):
+        first_type, second_type = ("*", "test") if wildcard_first else ("test", "*")
+        bus.on(first_type, AsyncMock(), consumer_name="test.overlap.v1")
+
+        with pytest.raises(ValueError, match="test.overlap.v1"):
+            bus.on(second_type, AsyncMock(), consumer_name="test.overlap.v1")
+
     async def test_dispatch_reports_failures_and_continues_in_priority_order(self, bus):
         order: list[str] = []
 
@@ -129,6 +137,96 @@ class TestEventBus:
 
         assert handler.await_args_list[0].args == (first,)
         assert handler.await_args_list[1].args == (second,)
+
+    async def test_dispatch_orders_wildcard_and_exact_consumers_by_priority(self, bus):
+        order: list[str] = []
+
+        async def exact_first(_event):
+            order.append("exact-first")
+
+        async def wildcard(_event):
+            order.append("wildcard")
+
+        async def exact_last(_event):
+            order.append("exact-last")
+
+        bus.on("test", exact_last, consumer_name="test.exact-last.v1", priority=300)
+        bus.on("*", wildcard, consumer_name="test.wildcard.v1", priority=200)
+        bus.on("test", exact_first, consumer_name="test.exact-first.v1", priority=100)
+
+        report = await bus.dispatch(make_event("test"))
+
+        assert order == ["exact-first", "wildcard", "exact-last"]
+        assert [result.consumer_name for result in report.results] == [
+            "test.exact-first.v1",
+            "test.wildcard.v1",
+            "test.exact-last.v1",
+        ]
+
+    async def test_dispatch_skips_wildcard_consumer_by_exact_name(self, bus):
+        wildcard = AsyncMock()
+        exact = AsyncMock()
+        bus.on("*", wildcard, consumer_name="test.wildcard.v1", priority=10)
+        bus.on("test", exact, consumer_name="test.exact.v1", priority=20)
+
+        report = await bus.dispatch(
+            make_event("test"),
+            skip_consumers={"test.wildcard.v1"},
+        )
+
+        wildcard.assert_not_awaited()
+        exact.assert_awaited_once()
+        assert [result.consumer_name for result in report.results] == ["test.exact.v1"]
+
+    async def test_dispatch_excludes_local_subscribers(self, bus):
+        local = AsyncMock()
+        bus.on_local("test", local, priority=10)
+
+        report = await bus.dispatch(make_event("test"))
+
+        local.assert_not_awaited()
+        assert report.results == ()
+
+    async def test_emit_isolates_and_cleans_up_multiple_local_subscribers(self, bus):
+        order: list[str] = []
+
+        async def failed(_event):
+            order.append("failed")
+            raise ValueError("boom")
+
+        async def first_stream(_event):
+            order.append("first-stream")
+
+        async def second_stream(_event):
+            order.append("second-stream")
+
+        bus.on_local("profile.synthesis.completed", second_stream, priority=20)
+        bus.on_local("profile.synthesis.completed", failed, priority=10)
+        bus.on_local("profile.synthesis.completed", first_stream, priority=20)
+
+        await bus.emit(make_event("profile.synthesis.completed"))
+        bus.off_local("profile.synthesis.completed", first_stream)
+        await bus.emit(make_event("profile.synthesis.completed"))
+
+        assert order == [
+            "failed",
+            "second-stream",
+            "first-stream",
+            "failed",
+            "second-stream",
+        ]
+
+    async def test_fire_invokes_local_subscribers(self, bus):
+        delivered = asyncio.Event()
+
+        async def local(_event):
+            delivered.set()
+
+        bus.on_local("test", local)
+
+        bus.fire(make_event("test"))
+
+        await asyncio.wait_for(delivered.wait(), timeout=1)
 
     async def test_fire_is_best_effort_and_continues_after_failure(self, bus):
         delivered = asyncio.Event()
