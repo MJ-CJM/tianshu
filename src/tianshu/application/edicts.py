@@ -61,6 +61,31 @@ _SENSITIVE_COMPACT_KEY_ALIASES = frozenset(
         "xauthtoken",
     }
 )
+_SENSITIVE_COMPACT_KEY_ANCHORS = frozenset(
+    {
+        "accesstoken",
+        "apikey",
+        "apisecret",
+        "authorization",
+        "authtoken",
+        "clientsecret",
+        "cookievalue",
+        "credential",
+        "databaseurl",
+        "dbpassword",
+        "dburl",
+        "masterkey",
+        "password",
+        "passwd",
+        "privatekey",
+        "refreshtoken",
+        "redisurl",
+        "secretkey",
+        "secretvalue",
+        "setcookie",
+        "tokenvalue",
+    }
+)
 _SENSITIVE_KEY_TOKEN_SEQUENCES = (
     ("api", "key"),
     ("database", "url"),
@@ -312,9 +337,19 @@ def _contains_key_token_sequence(
     )
 
 
-def _is_sensitive_payload_key(key_tokens: tuple[str, ...], compact_key: str) -> bool:
+def _is_json_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_sensitive_payload_key(
+    key_tokens: tuple[str, ...],
+    compact_key: str,
+    value: object,
+) -> bool:
     if compact_key in _TOKEN_METRIC_COMPACT_KEY_ALIASES:
-        return False
+        return not _is_json_number(value)
+    if any(anchor in compact_key for anchor in _SENSITIVE_COMPACT_KEY_ANCHORS):
+        return True
     if any(token in _SENSITIVE_COMPACT_KEY_ALIASES for token in key_tokens):
         return True
     return any(
@@ -334,7 +369,7 @@ def _redact_durable_mapping(payload: Mapping[str, object]) -> dict[str, object]:
                 if isinstance(value, Mapping)
                 else "[REDACTED]"
             )
-        elif _is_sensitive_payload_key(key_tokens, compact_key):
+        elif _is_sensitive_payload_key(key_tokens, compact_key, value):
             redacted[key] = "[REDACTED]"
         else:
             redacted[key] = _redact_durable_value(value)

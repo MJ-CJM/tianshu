@@ -254,6 +254,14 @@ def test_outbox_redacts_compact_camel_and_snake_credential_aliases(storage: Stor
         "client_secret_value": "opaque-qualified-client-secret-6da78",
         "password_value": "opaque-qualified-password-b593e",
         "credential_value": "opaque-qualified-credential-30ec7",
+        "apikeyvalue": "opaque-compact-qualified-api-key-d10f4",
+        "passwordvalue": "opaque-compact-qualified-password-5fc21",
+        "refreshtokenvalue": "opaque-compact-qualified-refresh-token-49ae8",
+        "credentialvalue": "opaque-compact-qualified-credential-7b62d",
+        "clientsecretvalue": "opaque-compact-qualified-client-secret-38c5a",
+        "tokenvalue": "opaque-compact-qualified-token-405d3",
+        "secretvalue": "opaque-compact-qualified-secret-f830a",
+        "cookievalue": "opaque-compact-qualified-cookie-2d7b1",
     }
 
     result = _service(storage).submit(
@@ -306,7 +314,7 @@ def test_outbox_preserves_non_secret_token_metrics(storage: Storage) -> None:
                     "completionTokens": 202,
                     "input_tokens": 303,
                     "outputTokens": 404,
-                    "total_tokens": 505,
+                    "total_tokens": 505.5,
                     "max_tokens": 606,
                 },
             }
@@ -331,8 +339,61 @@ def test_outbox_preserves_non_secret_token_metrics(storage: Storage) -> None:
         "outputTokens": 404,
         "prompt_tokens": 101,
         "token_count": 3,
-        "total_tokens": 505,
+        "total_tokens": 505.5,
     }
+
+
+def test_outbox_redacts_non_numeric_values_under_token_metric_keys(storage: Storage) -> None:
+    budget_string = "opaque-budget-string-51c9d"
+    count_string = "opaque-count-string-b7e4f"
+    result = _service(storage).submit(
+        _command(
+            extra_payload={
+                "token_budget": budget_string,
+                "tokenCount": count_string,
+                "nested": {"prompt_tokens": True},
+            }
+        ),
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-invalid-token-metrics",
+    )
+
+    payload_json = storage._conn.execute(  # noqa: SLF001 - persisted redaction proof
+        "SELECT payload_json FROM outbox_events WHERE event_id = ?",
+        (result.event_id,),
+    ).fetchone()[0]
+    assert budget_string not in payload_json
+    assert count_string not in payload_json
+    payload = json.loads(payload_json)
+    assert payload["token_budget"] == "[REDACTED]"
+    assert payload["tokenCount"] == "[REDACTED]"
+    assert payload["nested"]["prompt_tokens"] == "[REDACTED]"
+
+
+def test_outbox_preserves_non_credential_compact_substrings(storage: Storage) -> None:
+    result = _service(storage).submit(
+        _command(
+            extra_payload={
+                "tokenizerValue": "byte-pair",
+                "secretary_name": "Ada",
+                "cookiecutterTemplate": "service",
+            }
+        ),
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-compact-non-credentials",
+    )
+
+    payload = json.loads(
+        storage._conn.execute(  # noqa: SLF001 - persisted preservation proof
+            "SELECT payload_json FROM outbox_events WHERE event_id = ?",
+            (result.event_id,),
+        ).fetchone()[0]
+    )
+    assert payload["tokenizerValue"] == "byte-pair"
+    assert payload["secretary_name"] == "Ada"
+    assert payload["cookiecutterTemplate"] == "service"
 
 
 def test_idempotency_blob_stores_only_safe_identity_and_replays_exact_models(
