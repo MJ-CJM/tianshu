@@ -82,9 +82,24 @@ class ApprovalKeyboardHandler:
         self._sub_decree_resolved = self._on_decree_resolved
 
     def start(self) -> None:
-        self._event_bus.on("tool.approval_required", self._sub_approval_required, priority=200)
-        self._event_bus.on("decree.approved", self._sub_decree_resolved, priority=200)
-        self._event_bus.on("decree.rejected", self._sub_decree_resolved, priority=200)
+        self._event_bus.on(
+            "tool.approval_required",
+            self._sub_approval_required,
+            consumer_name=f"telegram.approval.{self._instance_id}.required.v1",
+            priority=200,
+        )
+        self._event_bus.on(
+            "decree.approved",
+            self._sub_decree_resolved,
+            consumer_name=f"telegram.approval.{self._instance_id}.resolved.v1",
+            priority=200,
+        )
+        self._event_bus.on(
+            "decree.rejected",
+            self._sub_decree_resolved,
+            consumer_name=f"telegram.approval.{self._instance_id}.resolved.v1",
+            priority=200,
+        )
 
     def stop(self) -> None:
         """取消 EventBus 订阅（实例停止时调用）。"""

@@ -14,7 +14,7 @@ from tianshu.tools.submit_edict import register_submit_edict
 
 @pytest.fixture
 def setup(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     registry = ToolRegistry()
     register_submit_edict(registry, storage=storage, event_bus=bus)
     return registry, storage, bus
@@ -47,7 +47,12 @@ async def test_submit_edict_fires_event(setup):
     async def handler(ev):
         received.append(ev)
 
-    bus.on("edict.submitted", handler, priority=200)
+    bus.on(
+        "edict.submitted",
+        handler,
+        consumer_name="test.edict_submitted.v1",
+        priority=200,
+    )
     _, func = registry._tools["submit_edict"]
     res = await func(goal="x", priority="urgent")
     import asyncio
@@ -76,7 +81,7 @@ async def test_submit_edict_rejects_invalid_priority(setup):
 
 @pytest.mark.asyncio
 async def test_submit_edict_validates_persona_when_loader_provided(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     registry = ToolRegistry()
     loader = MagicMock()
     loader.get.return_value = None  # persona 不存在
@@ -89,7 +94,7 @@ async def test_submit_edict_validates_persona_when_loader_provided(storage):
 
 @pytest.mark.asyncio
 async def test_submit_edict_accepts_known_persona(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     registry = ToolRegistry()
     loader = MagicMock()
     persona = MagicMock()

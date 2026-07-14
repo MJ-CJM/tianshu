@@ -10,7 +10,7 @@ from tianshu.models import Decree, Edict, Memorial, TaskStatus
 class TestDecreeIntegration:
     @pytest.fixture
     def event_bus(self, storage):
-        return EventBus(storage=storage)
+        return EventBus()
 
     @pytest.fixture
     def manager(self, event_bus, storage):
@@ -23,7 +23,7 @@ class TestDecreeIntegration:
         async def track(e):
             events_seen.append(e.event_type)
 
-        event_bus.on("decree.approved", track)
+        event_bus.on("decree.approved", track, consumer_name="test.decree_approved.v1")
 
         edict = Edict(goal="test")
         storage.save_edict(edict)
@@ -67,7 +67,7 @@ class TestDecreeIntegration:
         async def track(e):
             events_seen.append(e.event_type)
 
-        event_bus.on("decree.retry", track)
+        event_bus.on("decree.retry", track, consumer_name="test.decree_retry.v1")
 
         edict = Edict(goal="test")
         storage.save_edict(edict)

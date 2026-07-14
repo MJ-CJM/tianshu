@@ -158,26 +158,95 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         tools.disable("schedule_edict")
 
     # --- EventBus subscriptions ---
-    event_bus.on("edict.submitted", scheduler.handle_submitted)
-    event_bus.on("edict.scheduled", planner.handle_scheduled, priority=50)
-    event_bus.on("plan.completed", executor.handle_plan_completed, priority=100)
-    event_bus.on("edict.resume", executor.handle_resume)
-    event_bus.on("execution.completed", auditor.handle_execution_completed)
-    event_bus.on("execution.completed", cost_manager.handle_execution_completed, priority=150)
-    event_bus.on("execution.completed", memory_manager.handle_execution_completed, priority=200)
-    event_bus.on("execution.failed", notifier.handle_execution_failed)
-    event_bus.on("execution.failed", cost_manager.handle_execution_failed, priority=150)
-    event_bus.on("audit.completed", notifier.handle_audit_completed)
-    event_bus.on("audit.completed", memory_manager.handle_audit_completed, priority=200)
-    event_bus.on("cost.budget_exceeded", notifier.handle_execution_failed)
+    event_bus.on(
+        "edict.submitted",
+        scheduler.handle_submitted,
+        consumer_name="scheduler.edict_submitted.v1",
+    )
+    event_bus.on(
+        "edict.scheduled",
+        planner.handle_scheduled,
+        consumer_name="planner.edict_scheduled.v1",
+        priority=50,
+    )
+    event_bus.on(
+        "plan.completed",
+        executor.handle_plan_completed,
+        consumer_name="executor.plan_completed.v1",
+        priority=100,
+    )
+    event_bus.on(
+        "edict.resume",
+        executor.handle_resume,
+        consumer_name="executor.edict_resume.v1",
+    )
+    event_bus.on(
+        "execution.completed",
+        auditor.handle_execution_completed,
+        consumer_name="auditor.execution_completed.v1",
+    )
+    event_bus.on(
+        "execution.completed",
+        cost_manager.handle_execution_completed,
+        consumer_name="cost.execution_completed.v1",
+        priority=150,
+    )
+    event_bus.on(
+        "execution.completed",
+        memory_manager.handle_execution_completed,
+        consumer_name="memory.execution_completed.v1",
+        priority=200,
+    )
+    event_bus.on(
+        "execution.failed",
+        notifier.handle_execution_failed,
+        consumer_name="notifier.execution_failed.v1",
+    )
+    event_bus.on(
+        "execution.failed",
+        cost_manager.handle_execution_failed,
+        consumer_name="cost.execution_failed.v1",
+        priority=150,
+    )
+    event_bus.on(
+        "audit.completed",
+        notifier.handle_audit_completed,
+        consumer_name="notifier.audit_completed.v1",
+    )
+    event_bus.on(
+        "audit.completed",
+        memory_manager.handle_audit_completed,
+        consumer_name="memory.audit_completed.v1",
+        priority=200,
+    )
+    event_bus.on(
+        "cost.budget_exceeded",
+        notifier.handle_execution_failed,
+        consumer_name="notifier.cost_budget_exceeded.v1",
+    )
 
     # 平行位面：memorial 完成 → 重算其所属位面的适应度
     async def _on_universe_fitness_event(event: EventEnvelope) -> None:
         await _update_universe_fitness(event, config_manager=config_manager, storage=storage)
 
-    event_bus.on("execution.completed", _on_universe_fitness_event, priority=250)
-    event_bus.on("execution.failed", _on_universe_fitness_event, priority=250)
-    event_bus.on("audit.completed", _on_universe_fitness_event, priority=250)
+    event_bus.on(
+        "execution.completed",
+        _on_universe_fitness_event,
+        consumer_name="universe.execution_completed_fitness.v1",
+        priority=250,
+    )
+    event_bus.on(
+        "execution.failed",
+        _on_universe_fitness_event,
+        consumer_name="universe.execution_failed_fitness.v1",
+        priority=250,
+    )
+    event_bus.on(
+        "audit.completed",
+        _on_universe_fitness_event,
+        consumer_name="universe.audit_completed_fitness.v1",
+        priority=250,
+    )
     # 长任务 outer loop 事件实时广播到 WebSocket
     for outer_loop_event in (
         "outer_loop.started",
@@ -192,7 +261,11 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         "outer_loop.supervision_completed",
         "outer_loop.resumed",
     ):
-        event_bus.on(outer_loop_event, notifier.handle_outer_loop_event)
+        event_bus.on(
+            outer_loop_event,
+            notifier.handle_outer_loop_event,
+            consumer_name="notifier.outer_loop_event.v1",
+        )
 
 
 def wire_plugins(app: FastAPI, settings: TianshuSettings) -> None:

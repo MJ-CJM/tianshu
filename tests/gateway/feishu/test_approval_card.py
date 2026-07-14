@@ -66,7 +66,7 @@ def test_build_resolved_card():
 
 @pytest.fixture
 def handler(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     approval = MagicMock()
     approval.submit_tool_decision = AsyncMock()
     outbound = MagicMock()
@@ -121,7 +121,7 @@ async def test_on_approval_required_falls_back_to_home(handler, storage):
 @pytest.mark.asyncio
 async def test_on_approval_required_skipped_when_no_chat(storage):
     """edict.metadata 无 chat_id 且 home_channel 为空 → 不下发卡片（兜底 web 端）。"""
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     approval = MagicMock()
     outbound = MagicMock()
     outbound.send_card = AsyncMock()

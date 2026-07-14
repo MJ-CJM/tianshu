@@ -15,7 +15,7 @@ from tianshu.models.memorial import Memorial
 
 @pytest.fixture
 def bridge(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     anchor = SessionAnchor(storage)
     executor = MagicMock()
     executor.execute_edict = AsyncMock()
@@ -128,7 +128,12 @@ async def test_create_new_emits_edict_submitted_event(bridge, storage):
     async def handler(ev):
         received.append(ev)
 
-    bus.on("edict.submitted", handler, priority=200)
+    bus.on(
+        "edict.submitted",
+        handler,
+        consumer_name="test.edict_submitted.v1",
+        priority=200,
+    )
     result = await b.create_new(chat_id="oc_z", sender_open_id="ou_c", goal="x")
     # EventBus.fire 是同步派发到 handler（asyncio.create_task），等一拍
     import asyncio

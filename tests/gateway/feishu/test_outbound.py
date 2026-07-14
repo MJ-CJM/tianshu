@@ -41,7 +41,7 @@ def test_md_hint_regex_detects_markdown():
 
 @pytest.mark.asyncio
 async def test_send_text_uses_post_when_markdown_detected(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     fake_client = MagicMock()
     fake_resp = MagicMock()
@@ -56,7 +56,7 @@ async def test_send_text_uses_post_when_markdown_detected(storage):
 
 @pytest.mark.asyncio
 async def test_send_text_plain_when_no_markdown(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     fake_client = MagicMock()
     fake_resp = MagicMock()
@@ -71,7 +71,7 @@ async def test_send_text_plain_when_no_markdown(storage):
 
 @pytest.mark.asyncio
 async def test_send_returns_none_when_client_uninitialized(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     # 未调 start()，self._client = None
     mid = await out.send_text("oc_x", "hello")
@@ -80,7 +80,7 @@ async def test_send_returns_none_when_client_uninitialized(storage):
 
 @pytest.mark.asyncio
 async def test_send_text_empty_inputs_short_circuits(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     assert await out.send_text("", "x") is None
     assert await out.send_text("oc", "") is None
@@ -89,7 +89,7 @@ async def test_send_text_empty_inputs_short_circuits(storage):
 @pytest.mark.asyncio
 async def test_lookup_chat_id_uses_metadata(storage):
     """events handler 反查 edict.metadata.chat_id。"""
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_meta"})
     storage.save_edict(edict)
@@ -101,7 +101,7 @@ async def test_lookup_chat_id_uses_metadata(storage):
 @pytest.mark.asyncio
 async def test_lookup_chat_id_fallback_home_channel(storage):
     """metadata 无 chat_id → 兜底 home_channel。"""
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(home="oc_home"), storage=storage, event_bus=bus)
     edict = Edict(title="t", goal="g", source="api", metadata={})
     storage.save_edict(edict)
@@ -112,7 +112,7 @@ async def test_lookup_chat_id_fallback_home_channel(storage):
 
 @pytest.mark.asyncio
 async def test_lookup_chat_id_returns_none_when_no_edict_no_home(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(home=""), storage=storage, event_bus=bus)
     event = EventEnvelope(event_type="execution.completed", edict_id="missing")
     assert out._lookup_chat_id(event) is None
@@ -129,7 +129,7 @@ def _fake_resp(success: bool = True, msg_id: str = "m_ok"):
 
 @pytest.mark.asyncio
 async def test_send_card_invokes_acreate(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     fake_client = MagicMock()
     fake_client.im.v1.message.acreate = AsyncMock(return_value=_fake_resp(msg_id="mc_1"))
@@ -140,7 +140,7 @@ async def test_send_card_invokes_acreate(storage):
 
 @pytest.mark.asyncio
 async def test_update_card_returns_true_on_success(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     fake_client = MagicMock()
     fake_client.im.v1.message.apatch = AsyncMock(return_value=_fake_resp())
@@ -151,14 +151,14 @@ async def test_update_card_returns_true_on_success(storage):
 
 @pytest.mark.asyncio
 async def test_update_card_false_when_client_none(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     assert await out.update_card("m", {}) is False
 
 
 @pytest.mark.asyncio
 async def test_update_card_false_on_failure(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     fake_client = MagicMock()
     fake_client.im.v1.message.apatch = AsyncMock(return_value=_fake_resp(success=False))
@@ -168,7 +168,7 @@ async def test_update_card_false_on_failure(storage):
 
 @pytest.mark.asyncio
 async def test_update_card_false_when_apatch_raises(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     fake_client = MagicMock()
     fake_client.im.v1.message.apatch = AsyncMock(side_effect=RuntimeError("net"))
@@ -179,7 +179,7 @@ async def test_update_card_false_when_apatch_raises(storage):
 @pytest.mark.asyncio
 async def test_send_post_falls_back_to_plain_when_post_fails(storage):
     """post 发送失败 → fallback 到 plain text。"""
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     fake_client = MagicMock()
     # 第一次 acreate（post）失败，第二次（plain）成功
@@ -197,7 +197,7 @@ async def test_send_post_falls_back_to_plain_when_post_fails(storage):
 
 @pytest.mark.asyncio
 async def test_send_returns_none_when_acreate_raises(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     fake_client = MagicMock()
     fake_client.im.v1.message.acreate = AsyncMock(side_effect=RuntimeError("net"))
@@ -211,7 +211,7 @@ async def test_on_execution_completed_sends_post_with_table_converted(storage):
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
 
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out._send_post = AsyncMock(return_value="m1")
 
@@ -244,7 +244,7 @@ async def test_on_execution_completed_prefers_final_output(storage):
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
 
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out._send_post = AsyncMock(return_value="m1")
 
@@ -286,7 +286,7 @@ async def test_on_execution_completed_falls_back_to_result_when_no_final(storage
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
 
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out._send_post = AsyncMock(return_value="m1")
 
@@ -316,7 +316,7 @@ async def test_on_execution_completed_long_content_split(storage):
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
 
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out._send_post = AsyncMock(return_value="m1")
     edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
@@ -339,7 +339,7 @@ async def test_on_execution_completed_removes_typing_then_posts(storage):
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
 
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out.remove_reaction = AsyncMock(return_value=True)
     out._send_post = AsyncMock(return_value="m_post")
@@ -372,7 +372,7 @@ async def test_on_execution_failed_swaps_typing_to_crossmark(storage):
     """失败 → 移除 typing + 加 CrossMark + 发失败提示。"""
     from tianshu.models.edict import Edict
 
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out.remove_reaction = AsyncMock(return_value=True)
     out.add_reaction = AsyncMock(return_value="rx_fail")
@@ -400,7 +400,7 @@ async def test_on_execution_failed_swaps_typing_to_crossmark(storage):
 
 @pytest.mark.asyncio
 async def test_on_execution_completed_skips_when_no_chat(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(home=""), storage=storage, event_bus=bus)
     out._send_post = AsyncMock()
     event = EventEnvelope(
@@ -416,7 +416,7 @@ async def test_on_execution_completed_skips_when_no_chat(storage):
 async def test_on_execution_failed_sends_error(storage):
     from tianshu.models.edict import Edict
 
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out.send_text = AsyncMock(return_value="m")
     edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
@@ -438,7 +438,7 @@ async def test_on_execution_completed_skips_no_memorial_result(storage):
     from tianshu.models.edict import Edict
     from tianshu.models.memorial import Memorial
 
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_settings(), storage=storage, event_bus=bus)
     out.send_text = AsyncMock()
     edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})

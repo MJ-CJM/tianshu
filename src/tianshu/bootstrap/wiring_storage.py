@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from tianshu.application.event_history import EventHistoryConsumer
 from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
 from tianshu.executor.git_backend import GitBackend
@@ -38,7 +39,14 @@ def wire_storage(app: FastAPI, settings: TianshuSettings) -> None:
     )
 
     # --- EventBus ---
-    event_bus = EventBus(storage=storage)
+    event_bus = EventBus()
+    event_history = EventHistoryConsumer(storage)
+    event_bus.on(
+        "*",
+        event_history,
+        consumer_name=event_history.consumer_name,
+        priority=0,
+    )
     app.state.event_bus = event_bus
 
     # --- HookRegistry ---

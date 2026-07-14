@@ -823,7 +823,7 @@ def test_authenticated_edict_submitter_and_idempotency_ignore_forged_body(
     app = FastAPI()
     app.state.settings = settings
     app.state.storage = storage
-    app.state.event_bus = EventBus(storage=storage)
+    app.state.event_bus = EventBus()
     app.state.config_manager = config_manager
     app.state.auth_service = __import__(
         "tianshu.gateway.auth", fromlist=["AuthService"]

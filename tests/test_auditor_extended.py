@@ -13,7 +13,7 @@ from tianshu.models.events import make_event
 class TestAuditorHandler:
     @pytest.fixture
     def event_bus(self, storage):
-        return EventBus(storage=storage)
+        return EventBus()
 
     @pytest.fixture
     def auditor(self, event_bus, storage, config_manager):
@@ -25,7 +25,11 @@ class TestAuditorHandler:
 
     async def test_handle_execution_completed_pass(self, auditor, storage, event_bus):
         audit_handler = AsyncMock()
-        event_bus.on("audit.completed", audit_handler)
+        event_bus.on(
+            "audit.completed",
+            audit_handler,
+            consumer_name="test.audit_completed.v1",
+        )
 
         edict = Edict(goal="test", review_policy="never")
         storage.save_edict(edict)
@@ -88,7 +92,11 @@ class TestAuditorHandler:
 
     async def test_on_failure_policy(self, auditor, storage, event_bus):
         audit_handler = AsyncMock()
-        event_bus.on("audit.completed", audit_handler)
+        event_bus.on(
+            "audit.completed",
+            audit_handler,
+            consumer_name="test.audit_completed.v1",
+        )
         auditor.audit = AsyncMock()
         edict = Edict(goal="test", review_policy="on_failure")
         storage.save_edict(edict)

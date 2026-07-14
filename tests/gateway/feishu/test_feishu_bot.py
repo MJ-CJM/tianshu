@@ -40,7 +40,7 @@ def _settings(disable_assistant_mode: bool = True) -> FeishuSettings:
 
 @pytest.fixture
 def bot(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     approval = MagicMock()
     approval.submit_tool_decision = AsyncMock()
     executor = MagicMock()

@@ -41,7 +41,7 @@ def _master_key(monkeypatch):
 def _manager(storage) -> ChannelBotManager:
     return ChannelBotManager(
         storage=storage,
-        event_bus=EventBus(storage=storage),
+        event_bus=EventBus(),
         approval_manager=MagicMock(),
         executor=MagicMock(),
         notifier=MagicMock(),
@@ -148,7 +148,7 @@ def test_legacy_config_migrated_to_default_instance(storage, _master_key):
 
 @pytest.mark.asyncio
 async def test_outbound_stop_unsubscribes_from_event_bus(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     settings = FeishuSettings(
         app_id="x",
         app_secret="y",
@@ -206,7 +206,7 @@ async def test_webhook_public_path_exists_only_while_instance_runs(storage, monk
     app.state.public_webhook_paths = set()
     manager = ChannelBotManager(
         storage=storage,
-        event_bus=EventBus(storage=storage),
+        event_bus=EventBus(),
         approval_manager=MagicMock(),
         executor=MagicMock(),
         notifier=MagicMock(),
@@ -250,7 +250,7 @@ def _webhook_manager(storage, *, security_mode: str = "trusted-local"):
     app.state.public_webhook_paths = set()
     manager = ChannelBotManager(
         storage=storage,
-        event_bus=EventBus(storage=storage),
+        event_bus=EventBus(),
         approval_manager=MagicMock(),
         executor=MagicMock(),
         notifier=MagicMock(),

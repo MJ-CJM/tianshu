@@ -134,8 +134,6 @@ layers = [
     "tianshu.kernel : tianshu.models : tianshu.config : tianshu.bus",
 ]
 ignore_imports = [
-    # EventBus 可选持有 Storage 做事件落盘（DI 注入，非类型断言），历史遗留耦合，拆包时再引入 Protocol 解耦
-    "tianshu.bus.event_bus -> tianshu.storage",
     # TYPE_CHECKING-only 类型标注（bind_persona 参数类型），运行时零依赖；kernel 在 mypy 覆盖范围内需要该导入解析类型
     "tianshu.kernel.ambient -> tianshu.persona.model",
 ]

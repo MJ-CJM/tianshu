@@ -586,7 +586,12 @@ async def trigger_profile_synthesis(persona_id: str, request: Request):
             "profile.synthesis.failed",
             "profile.synthesis.skipped",
         ]:
-            event_bus.on(et, _listener, priority=10)
+            event_bus.on(
+                et,
+                _listener,
+                consumer_name=f"personas.synthesis_stream.{persona_id}.v1",
+                priority=10,
+            )
 
         task = asyncio.create_task(syn.run(persona_id, trigger_source="api_manual"))
         try:

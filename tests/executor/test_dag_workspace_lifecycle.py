@@ -65,7 +65,7 @@ def _scheduler(storage, agent, pool) -> DAGScheduler:
         pool,
         agent,
         storage,
-        EventBus(storage=storage),
+        EventBus(),
     )
 
 
@@ -344,7 +344,7 @@ async def test_invalid_dag_fails_before_workspace_or_execution_with_one_terminal
     source.mkdir()
     staging_root = tmp_path / "leases"
     service = WorkspaceService(storage, GitBackend(), staging_root)
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     agent = AsyncMock()
     pool = WorkerPool(max_concurrency=1)
     scheduler = DAGScheduler(pool, agent, storage, bus)
@@ -383,7 +383,7 @@ async def test_invalid_dag_fails_before_workspace_or_execution_with_one_terminal
         terminal_events.append(event)
 
     for event_type in ("execution.completed", "execution.failed", "execution.cancelled"):
-        bus.on(event_type, on_terminal)
+        bus.on(event_type, on_terminal, consumer_name="test.dag_terminal.v1")
 
     try:
         await executor._execute_dag(edict, plan, memorial=root)  # noqa: SLF001

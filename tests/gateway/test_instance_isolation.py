@@ -17,7 +17,7 @@ from .telegram._helpers import make_settings
 
 
 def _tg_outbound(storage, instance_id: str, home: str = "") -> TelegramOutbound:
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     return TelegramOutbound(
         settings=make_settings(instance_id=instance_id, home_channel=home),
         storage=storage,
@@ -47,7 +47,7 @@ def _feishu_settings(instance_id: str, home: str = "") -> FeishuSettings:
 
 
 def _fs_outbound(storage, instance_id: str, home: str = "") -> FeishuOutbound:
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     return FeishuOutbound(
         settings=_feishu_settings(instance_id, home),
         storage=storage,

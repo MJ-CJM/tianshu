@@ -12,7 +12,7 @@ from tianshu.gateway.telegram.session_anchor import SessionAnchor
 
 
 def _bridge(storage, **kw):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     anchor = SessionAnchor(storage)
     executor = MagicMock()
     executor.execute_edict = AsyncMock()

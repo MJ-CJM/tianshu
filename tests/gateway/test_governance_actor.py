@@ -21,7 +21,7 @@ from tianshu.models.principal import (
 def _app_with_identity(storage) -> FastAPI:
     app = FastAPI()
     app.state.storage = storage
-    app.state.event_bus = EventBus(storage=storage)
+    app.state.event_bus = EventBus()
     app.include_router(edicts_router)
     context = AuthContext(
         principal=Principal(

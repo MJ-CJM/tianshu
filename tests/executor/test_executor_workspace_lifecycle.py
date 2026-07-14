@@ -144,7 +144,7 @@ def _executor(
     agent,
 ) -> Executor:
     executor = Executor(
-        event_bus=EventBus(storage=storage),
+        event_bus=EventBus(),
         storage=storage,
         config_manager=config_manager,
         hook_registry=hooks,
@@ -429,8 +429,16 @@ async def test_terminal_event_observes_captured_workspace_after_context_reset(
         changes = storage.get_latest_canonical_change_set_for_lease(lease.id)
         assert changes is not None and len(changes.changes) == 1
 
-    executor._bus.on("execution.started", on_started)  # noqa: SLF001
-    executor._bus.on("execution.completed", on_completed)  # noqa: SLF001
+    executor._bus.on(  # noqa: SLF001
+        "execution.started",
+        on_started,
+        consumer_name="test.execution_started.v1",
+    )
+    executor._bus.on(  # noqa: SLF001
+        "execution.completed",
+        on_completed,
+        consumer_name="test.execution_completed.v1",
+    )
 
     await executor.execute_edict(storage.get_edict(edict.id), memorial=memorial)
 
@@ -599,7 +607,11 @@ async def test_task_cancellation_cleans_workspace_and_propagates(
     async def on_cancelled(event):
         cancelled_events.append(event)
 
-    executor._bus.on("execution.cancelled", on_cancelled)  # noqa: SLF001
+    executor._bus.on(  # noqa: SLF001
+        "execution.cancelled",
+        on_cancelled,
+        consumer_name="test.execution_cancelled.v1",
+    )
     edict = _governed_edict()
     storage.save_edict(edict)
     memorial = Memorial(edict_id=edict.id, instruction=edict.goal)
@@ -665,7 +677,11 @@ async def test_workspace_finalization_errors_are_evidence_not_result_overrides(
     async def completed(event):
         payloads.append(event.payload)
 
-    executor._bus.on("execution.completed", completed)  # noqa: SLF001
+    executor._bus.on(  # noqa: SLF001
+        "execution.completed",
+        completed,
+        consumer_name="test.execution_completed.v1",
+    )
 
     await executor.execute_edict(storage.get_edict(edict.id), memorial=memorial)
 
@@ -885,7 +901,11 @@ async def test_workspace_materialization_failure_rejects_before_running(
     async def on_rejected(event):
         rejected.append(event.payload)
 
-    executor._bus.on("execution.rejected", on_rejected)  # noqa: SLF001
+    executor._bus.on(  # noqa: SLF001
+        "execution.rejected",
+        on_rejected,
+        consumer_name="test.execution_rejected.v1",
+    )
 
     await executor.execute_edict(storage.get_edict(edict.id), memorial=memorial)
 
@@ -980,7 +1000,11 @@ async def test_pre_running_cancellation_persists_terminal_and_closes_lease(
     async def on_cancelled(event):
         terminal_ids.append(event.memorial_id)
 
-    executor._bus.on("execution.cancelled", on_cancelled)  # noqa: SLF001
+    executor._bus.on(  # noqa: SLF001
+        "execution.cancelled",
+        on_cancelled,
+        consumer_name="test.execution_cancelled.v1",
+    )
 
     if execution_path == "single":
         coroutine = executor.execute_edict(edict, memorial=root)
@@ -1056,7 +1080,11 @@ async def test_outer_loop_failure_and_cancellation_capture_then_close(
     async def on_cancelled(event):
         cancelled_events.append(event)
 
-    executor._bus.on("execution.cancelled", on_cancelled)  # noqa: SLF001
+    executor._bus.on(  # noqa: SLF001
+        "execution.cancelled",
+        on_cancelled,
+        consumer_name="test.execution_cancelled.v1",
+    )
 
     async def run(_edict, active_memorial: Memorial, _context):
         bound = require_bound_workspace(run_id=active_memorial.id)
@@ -1265,7 +1293,11 @@ async def test_dag_root_finalizes_workspace_before_single_terminal_event(
         assert lease is not None
         assert storage.get_latest_canonical_change_set_for_lease(lease.id) is not None
 
-    executor._bus.on("execution.completed", completed)  # noqa: SLF001
+    executor._bus.on(  # noqa: SLF001
+        "execution.completed",
+        completed,
+        consumer_name="test.execution_completed.v1",
+    )
     plan = Plan(
         tasks=[
             PlanTask(task_id="one", description="one"),
@@ -1323,7 +1355,11 @@ async def test_dag_scheduler_failure_persists_matching_root_and_execution_termin
     async def on_cancelled(event):
         cancelled_events.append(event)
 
-    executor._bus.on("execution.cancelled", on_cancelled)  # noqa: SLF001
+    executor._bus.on(  # noqa: SLF001
+        "execution.cancelled",
+        on_cancelled,
+        consumer_name="test.execution_cancelled.v1",
+    )
 
     class Scheduler:
         async def run(self, _edict, _execution, *, prepared_executor, persist_root_terminal=True):
@@ -1503,8 +1539,16 @@ async def test_dag_retry_uses_new_lineage_root_and_finalizes_each_attempt(
         terminal_contexts.append(get_bound_workspace())
 
     executor.set_dag_scheduler(Scheduler())
-    executor._bus.on("execution.failed", on_terminal)  # noqa: SLF001
-    executor._bus.on("execution.completed", on_terminal)  # noqa: SLF001
+    executor._bus.on(  # noqa: SLF001
+        "execution.failed",
+        on_terminal,
+        consumer_name="test.execution_terminal.v1",
+    )
+    executor._bus.on(  # noqa: SLF001
+        "execution.completed",
+        on_terminal,
+        consumer_name="test.execution_terminal.v1",
+    )
     edict = _governed_edict()
     storage.save_edict(edict)
     first_root = Memorial(edict_id=edict.id, instruction=edict.goal)

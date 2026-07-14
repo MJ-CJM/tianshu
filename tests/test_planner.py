@@ -32,7 +32,7 @@ class TestPlanner:
 
     async def test_handle_scheduled(self, planner, event_bus, storage, config_manager):
         handler = AsyncMock()
-        event_bus.on("plan.completed", handler)
+        event_bus.on("plan.completed", handler, consumer_name="test.plan_completed.v1")
 
         edict = Edict(goal="test")
         storage.save_edict(edict)

@@ -32,7 +32,7 @@ def _feishu_settings(home: str = "") -> FeishuSettings:
 
 
 def test_telegram_outbound_delivers_only_telegram(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = TelegramOutbound(
         settings=make_settings(home_channel="home_tg"), storage=storage, event_bus=bus
     )
@@ -53,7 +53,7 @@ def test_telegram_outbound_delivers_only_telegram(storage):
 
 
 def test_telegram_outbound_home_fallback_for_sourceless(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = TelegramOutbound(
         settings=make_settings(home_channel="home_tg"), storage=storage, event_bus=bus
     )
@@ -63,7 +63,7 @@ def test_telegram_outbound_home_fallback_for_sourceless(storage):
 
 
 def test_feishu_outbound_rejects_telegram_edict(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = FeishuOutbound(settings=_feishu_settings(home="oc_home"), storage=storage, event_bus=bus)
     tg_edict = Edict(
         title="t", goal="g", source="channel", metadata={"channel": "telegram", "chat_id": "555"}

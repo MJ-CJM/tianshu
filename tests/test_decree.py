@@ -118,7 +118,7 @@ class TestApprovalManager:
         async def collect(evt):
             captured.append(evt)
 
-        event_bus.on("decree.approved", collect)
+        event_bus.on("decree.approved", collect, consumer_name="test.decree_approved.v1")
 
         decree = await manager.submit_tool_decision(
             memorial_id=memorial.id,
@@ -160,7 +160,7 @@ class TestApprovalManager:
         async def collect(evt):
             captured.append(evt)
 
-        event_bus.on("decree.approved", collect)
+        event_bus.on("decree.approved", collect, consumer_name="test.decree_approved.v1")
 
         decree = await manager.submit_tool_decision(
             memorial_id=memorial.id,
@@ -201,7 +201,11 @@ class TestDecreeGuidance:
         manager._pending_tool[memorial.id] = "shell_exec"
 
         captured: list = []
-        event_bus.on("decree.guided", lambda e: captured.append(e))
+        event_bus.on(
+            "decree.guided",
+            lambda e: captured.append(e),
+            consumer_name="test.decree_guided.v1",
+        )
 
         decree = await manager.submit_tool_decision(
             memorial_id=memorial.id,

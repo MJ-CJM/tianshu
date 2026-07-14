@@ -23,7 +23,7 @@ class TestScheduler:
 
     async def test_immediate_schedule(self, scheduler, event_bus, storage):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
 
         edict = Edict(goal="do now")
         storage.save_edict(edict)
@@ -34,7 +34,7 @@ class TestScheduler:
 
     async def test_once_past_time(self, scheduler, event_bus, storage):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
 
         past = datetime.now(UTC) - timedelta(hours=1)
         edict = Edict(
@@ -48,7 +48,7 @@ class TestScheduler:
 
     async def test_once_no_at(self, scheduler, event_bus, storage):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
 
         edict = Edict(
             goal="once no at",
@@ -91,7 +91,7 @@ class TestScheduler:
 
     async def test_handle_submitted(self, scheduler, event_bus, storage):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
 
         edict = Edict(goal="via event")
         storage.save_edict(edict)
@@ -107,7 +107,7 @@ class TestScheduler:
 
     async def test_cron_fallback_to_immediate(self, scheduler, event_bus, storage):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
 
         edict = Edict(
             goal="cron task",
@@ -277,7 +277,7 @@ class TestSchedulerJobControl:
         storage,
     ):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
         edict = Edict(
             goal="立即触发一次",
             schedule=EdictSchedule(type="cron", cron="0 9 * * *"),

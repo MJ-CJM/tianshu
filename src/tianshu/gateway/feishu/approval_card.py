@@ -103,9 +103,24 @@ class ApprovalCardHandler:
 
         注意：tool.approval_required 在 PolicyHook 内 fire 到 EventBus（修订 1）。
         """
-        self._event_bus.on("tool.approval_required", self._sub_approval_required, priority=200)
-        self._event_bus.on("decree.approved", self._sub_decree_resolved, priority=200)
-        self._event_bus.on("decree.rejected", self._sub_decree_resolved, priority=200)
+        self._event_bus.on(
+            "tool.approval_required",
+            self._sub_approval_required,
+            consumer_name=f"feishu.approval.{self._instance_id}.required.v1",
+            priority=200,
+        )
+        self._event_bus.on(
+            "decree.approved",
+            self._sub_decree_resolved,
+            consumer_name=f"feishu.approval.{self._instance_id}.resolved.v1",
+            priority=200,
+        )
+        self._event_bus.on(
+            "decree.rejected",
+            self._sub_decree_resolved,
+            consumer_name=f"feishu.approval.{self._instance_id}.resolved.v1",
+            priority=200,
+        )
 
     def stop(self) -> None:
         """取消 EventBus 订阅（实例停止时调用）。"""

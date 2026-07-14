@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tianshu.application.event_history import EventHistoryConsumer
 from tianshu.auditor.auditor import Auditor
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigState
@@ -29,7 +30,10 @@ class TestFullEventChain:
 
     @pytest.fixture
     def event_bus(self, storage):
-        return EventBus(storage=storage)
+        bus = EventBus()
+        history = EventHistoryConsumer(storage)
+        bus.on("*", history, consumer_name=history.consumer_name, priority=0)
+        return bus
 
     @pytest.fixture
     def hooks(self):
@@ -52,7 +56,12 @@ class TestFullEventChain:
             events_seen.append(e.event_type)
 
         for etype in tracked_events:
-            event_bus.on(etype, track, priority=999)
+            event_bus.on(
+                etype,
+                track,
+                consumer_name="test.integration_track.v1",
+                priority=999,
+            )
 
         # Create components
         scheduler = Scheduler(event_bus=event_bus, storage=storage)
@@ -77,11 +86,33 @@ class TestFullEventChain:
         executor.set_agent(mock_agent)
 
         # Wire subscriptions
-        event_bus.on("edict.submitted", scheduler.handle_submitted)
-        event_bus.on("edict.scheduled", planner.handle_scheduled, priority=50)
-        event_bus.on("plan.completed", executor.handle_plan_completed, priority=100)
-        event_bus.on("execution.completed", auditor.handle_execution_completed)
-        event_bus.on("audit.completed", notifier.handle_audit_completed)
+        event_bus.on(
+            "edict.submitted",
+            scheduler.handle_submitted,
+            consumer_name="test.scheduler.v1",
+        )
+        event_bus.on(
+            "edict.scheduled",
+            planner.handle_scheduled,
+            consumer_name="test.planner.v1",
+            priority=50,
+        )
+        event_bus.on(
+            "plan.completed",
+            executor.handle_plan_completed,
+            consumer_name="test.executor.v1",
+            priority=100,
+        )
+        event_bus.on(
+            "execution.completed",
+            auditor.handle_execution_completed,
+            consumer_name="test.auditor.v1",
+        )
+        event_bus.on(
+            "audit.completed",
+            notifier.handle_audit_completed,
+            consumer_name="test.notifier.v1",
+        )
 
         # Create edict
         edict = Edict(goal="test full chain", assigned_persona_id="bingbu")
@@ -125,7 +156,7 @@ class TestFullEventChain:
         async def capture(e):
             plan_events.append(e)
 
-        event_bus.on("plan.completed", capture)
+        event_bus.on("plan.completed", capture, consumer_name="test.plan_capture.v1")
 
         await planner.handle_scheduled(make_event("edict.scheduled", edict_id=edict.id))
 
