@@ -85,10 +85,17 @@ class _StorageBase:
                 conn.execute("PRAGMA foreign_keys=ON")
                 pending = pending_migrations(conn, MIGRATIONS)
                 sensitive_pending = _has_sensitive_migration(pending)
+                sensitive_backup_path = (
+                    _new_migration_backup_path(path) if existing_disk_database else None
+                )
+                sensitive_cleanup_required = (
+                    sensitive_backup_path is not None and sensitive_backup_path.exists()
+                )
                 if existing_disk_database and sensitive_pending:
                     _truncate_sensitive_migration_wal(conn)
                 if existing_disk_database and pending:
-                    backup_path = _new_migration_backup_path(path)
+                    assert sensitive_backup_path is not None
+                    backup_path = sensitive_backup_path
                     create_online_backup(conn, backup_path)
                 try:
                     run_migrations(conn)
@@ -97,11 +104,12 @@ class _StorageBase:
                         exc.backup_path = backup_path  # type: ignore[attr-defined]
                         exc.add_note(f"pre-migration backup: {backup_path}")
                     raise
-                if backup_path is not None:
-                    if sensitive_pending:
-                        _truncate_sensitive_migration_wal(conn)
-                    else:
-                        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                if existing_disk_database and (sensitive_pending or sensitive_cleanup_required):
+                    assert sensitive_backup_path is not None
+                    _truncate_sensitive_migration_wal(conn)
+                    remove_backup(sensitive_backup_path)
+                elif backup_path is not None:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                     remove_backup(backup_path)
                 conn.execute("PRAGMA journal_mode=WAL")
                 self._seed_departments()

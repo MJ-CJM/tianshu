@@ -17,6 +17,7 @@ from collections.abc import Callable
 import pytest
 
 from tianshu.secrets import vault as vault_module
+from tianshu.storage import _base as storage_base_module
 from tianshu.storage import migration_ledger as migration_ledger_module
 from tianshu.storage import migrations as migrations_module
 from tianshu.storage.migrations import MIGRATIONS
@@ -69,6 +70,9 @@ _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {
     ("migrations", "_encrypt_verified_mapping"): (
         "6e70862523c3614fe3d701976e0b9240117fdf02d8ce41f9181d1d162d9ef291"
     ),
+    ("storage_base", "_truncate_sensitive_migration_wal"): (
+        "ed0fa42bcad3116fc412702e3da6b93d743352875d1a219d933e92529746b71c"
+    ),
     ("vault", "encrypt_canonical_mapping"): (
         "7d44ac2228b6f041aaa5ece476301180b4d166c5732873b07fb3e75e4a6a9bc0"
     ),
@@ -83,6 +87,7 @@ _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {
 _HELPER_MODULES = {
     "migrations": migrations_module,
     "migration_ledger": migration_ledger_module,
+    "storage_base": storage_base_module,
     "vault": vault_module,
 }
 
@@ -97,6 +102,7 @@ _V8_SECURITY_HELPERS = {
     ("vault", "encrypt_canonical_mapping"),
     ("vault", "decrypt_canonical_mapping"),
     ("vault", "require_mcp_vault"),
+    ("storage_base", "_truncate_sensitive_migration_wal"),
 }
 
 

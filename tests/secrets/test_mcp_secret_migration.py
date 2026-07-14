@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import stat
+import threading
 from contextlib import closing
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from cryptography.fernet import Fernet
 from tianshu.secrets import vault as vault_module
 from tianshu.secrets.vault import SecretVault, reset_vault
 from tianshu.storage import Storage
+from tianshu.storage import _base as storage_base
 from tianshu.storage.migration_ledger import MigrationExecutionError, apply_migrations
 from tianshu.storage.migrations import MIGRATIONS
 from tianshu.tools.mcp.config import (
@@ -336,6 +338,118 @@ def test_v8_fails_before_backup_when_legacy_wal_checkpoint_is_busy(
     finally:
         retry.close()
     assert _legacy_sensitive_backups(database_path) == []
+
+
+def test_v8_resumes_post_migration_wal_cleanup_while_backup_marker_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, master_key: str
+) -> None:
+    database_path = tmp_path / "resume-wal-cleanup.sqlite3"
+    wal_path = Path(f"{database_path}-wal")
+    _create_v7_database(
+        database_path,
+        [
+            {
+                "name": "cleanup-secret",
+                "env_json": json.dumps({"TOKEN": _ENV_SENTINEL}),
+            }
+        ],
+    )
+    with closing(sqlite3.connect(database_path)) as connection:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+
+    real_run_migrations = storage_base.run_migrations
+    preflight_complete = threading.Event()
+    reader_pinned = threading.Event()
+    phase_calls = 0
+
+    def run_after_reader_pin(connection: sqlite3.Connection) -> None:
+        nonlocal phase_calls
+        connection.execute("PRAGMA busy_timeout=1")
+        phase_calls += 1
+        if phase_calls == 1:
+            preflight_complete.set()
+            assert reader_pinned.wait(timeout=5), "reader did not pin the pre-v8 snapshot"
+        real_run_migrations(connection)
+
+    monkeypatch.setattr(storage_base, "run_migrations", run_after_reader_pin)
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
+
+    first = Storage(str(database_path))
+    first_errors: list[BaseException] = []
+
+    def initialize_first() -> None:
+        try:
+            first.init_db()
+        except BaseException as error:
+            first_errors.append(error)
+
+    reader: sqlite3.Connection | None = sqlite3.connect(database_path)
+    first_thread = threading.Thread(target=initialize_first, daemon=True)
+    first_thread.start()
+    try:
+        assert preflight_complete.wait(timeout=5), "migration did not reach the phase hook"
+        reader.execute("BEGIN")
+        assert reader.execute(
+            "SELECT env_json FROM mcp_server_overrides WHERE name = 'cleanup-secret'"
+        ).fetchone() == (json.dumps({"TOKEN": _ENV_SENTINEL}),)
+        assert reader.in_transaction
+        reader_pinned.set()
+        first_thread.join(timeout=5)
+        assert not first_thread.is_alive(), "first initialization did not finish"
+
+        assert len(first_errors) == 1
+        assert isinstance(first_errors[0], RuntimeError)
+        assert str(first_errors[0]) == "sensitive migration WAL checkpoint is busy"
+        assert first._conn is None
+        [backup_path] = _legacy_sensitive_backups(database_path)
+        with closing(sqlite3.connect(database_path)) as current:
+            assert current.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (8,)
+        assert _ENV_SENTINEL.encode() in database_path.read_bytes()
+
+        second = Storage(str(database_path))
+        try:
+            second.init_db()
+        except RuntimeError as error:
+            assert str(error) == "sensitive migration WAL checkpoint is busy"
+        else:
+            second.close()
+            with closing(sqlite3.connect(database_path)) as current:
+                ledger = current.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
+            sentinel_present = any(
+                active_file.exists() and _ENV_SENTINEL.encode() in active_file.read_bytes()
+                for active_file in (database_path, wal_path)
+            )
+            pytest.fail(
+                "sensitive cleanup marker was ignored while reader remained pinned: "
+                f"ledger={ledger}, active_contains_sentinel={sentinel_present}"
+            )
+        assert second._conn is None
+        assert _legacy_sensitive_backups(database_path) == [backup_path]
+
+        reader.rollback()
+        reader.close()
+        reader = None
+
+        third = Storage(str(database_path))
+        third.init_db()
+        try:
+            assert (
+                third._conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 8
+            )
+            assert third.list_mcp_overrides()[0]["env"] == {"TOKEN": _ENV_SENTINEL}
+            for active_file in (database_path, wal_path):
+                if active_file.exists():
+                    assert _ENV_SENTINEL.encode() not in active_file.read_bytes()
+            assert _legacy_sensitive_backups(database_path) == []
+        finally:
+            third.close()
+    finally:
+        reader_pinned.set()
+        first_thread.join(timeout=5)
+        first.close()
+        if reader is not None:
+            reader.rollback()
+            reader.close()
 
 
 def test_v8_prior_prefix_upgrade_preserves_yaml_override_semantics(
