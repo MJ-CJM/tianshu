@@ -816,7 +816,11 @@ class SecurityBoundaryMiddleware:
         )
 
     @staticmethod
-    def _required_scopes(path: str) -> frozenset[str]:
+    def _required_scopes(method: str, path: str) -> frozenset[str]:
+        if path == "/api/mcp" or path.startswith("/api/mcp/"):
+            if method in {"POST", "PUT", "PATCH", "DELETE"}:
+                return frozenset({"admin"})
+            return frozenset({"api", "admin"})
         if path.startswith("/mcp"):
             return frozenset({"mcp:read", "mcp:submit"})
         if path.startswith(("/api/auth/tokens", "/api/audit/system")):
@@ -1018,9 +1022,9 @@ class SecurityBoundaryMiddleware:
             # "读系统状态"的 /api GET 路由同权（_required_scopes），不做隐性放宽。
             if not is_cors_preflight and path in _AUTH_AWARE_PUBLIC_PATHS:
                 public_context = self._authenticate(scope, headers, correlation_id)
-                if public_context is not None and not self._required_scopes(path).isdisjoint(
-                    public_context.principal.scopes
-                ):
+                if public_context is not None and not self._required_scopes(
+                    method, path
+                ).isdisjoint(public_context.principal.scopes):
                     scope.setdefault("state", {})["auth_context"] = public_context
                     with bind_auth_context(public_context):
                         await self.app(
@@ -1043,7 +1047,7 @@ class SecurityBoundaryMiddleware:
             else:
                 await self._reject_http(send, 401, "authentication_required", correlation_id)
             return
-        required_scopes = self._required_scopes(path)
+        required_scopes = self._required_scopes(method, path)
         if required_scopes.isdisjoint(context.principal.scopes):
             if scope["type"] == "websocket":
                 await self._reject_websocket(send, 4403, "insufficient_scope")

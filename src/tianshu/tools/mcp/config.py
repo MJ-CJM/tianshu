@@ -38,7 +38,7 @@ def _interpolate_mapping(mapping: dict[str, str]) -> dict[str, str]:
 
 
 class ToolFilter(BaseModel):
-    """工具白/黑名单。``include`` 为空表示全开。"""
+    """工具白/黑名单。stdio 的 ``include`` 为空时不会通过 Lean 准入。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -234,7 +234,7 @@ def merge_overrides(
                 url=ov.url,
                 headers=dict(ov.headers or {}),
                 env=dict(ov.env or {}),
-                enabled=True if ov.enabled is None else ov.enabled,
+                enabled=False if ov.enabled is None else ov.enabled,
                 default_tier=2 if ov.default_tier is None else ov.default_tier,
                 tool_overrides=dict(ov.tool_overrides or {}),
                 tools=tools_filter,

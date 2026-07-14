@@ -30,6 +30,10 @@ SYSTEM_AUDIT_METADATA_KEYS: dict[str, frozenset[str]] = {
     "auth.session.revoked": frozenset({"family_size"}),
     "estop.engaged": frozenset({"frozen_tool_count", "kill_all", "network_kill"}),
     "estop.resumed": frozenset({"frozen_tool_count", "kill_all", "network_kill"}),
+    "mcp.admission.denied": frozenset(),
+    "mcp.config.created": frozenset(),
+    "mcp.config.updated": frozenset(),
+    "mcp.config.deleted": frozenset(),
     "secrets.master_key.rotated": frozenset(),
 }
 

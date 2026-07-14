@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from tianshu.executor.execution_gateway import ExecutionGateway, ExecutionReceipt
+from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.tools.mcp.client import MCPServerSession
 from tianshu.tools.mcp.config import (
     MCPConfig,
@@ -24,6 +27,15 @@ if TYPE_CHECKING:
     from tianshu.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+_MCP_RUNTIME_ACTOR_DIGEST = hashlib.sha256(b"internal:mcp-manager").hexdigest()
+_MCP_RUNTIME_CORRELATION = "mcp-runtime:admission"
+
+
+@dataclass(frozen=True, slots=True)
+class AdmissionDecision:
+    allowed: bool
+    reason_code: str
 
 
 class MCPManager:
@@ -64,6 +76,47 @@ class MCPManager:
     def _admitted(self, name: str) -> bool:
         """准入判定:无清单则全允(启动时另有明示告警);有清单则须在册。"""
         return self._allowlist is None or name in self._allowlist
+
+    def _admission_for(self, config: MCPServerConfig) -> AdmissionDecision:
+        if not config.enabled:
+            return AdmissionDecision(False, "disabled")
+        if config.transport == "streamable_http" and self._security_mode == "secure-remote":
+            return AdmissionDecision(False, "trusted_egress_unavailable")
+        if config.transport == "stdio" and not config.tools.include:
+            return AdmissionDecision(False, "approved_tools_required")
+        if not self._admitted(config.name):
+            return AdmissionDecision(False, "server_not_allowlisted")
+        return AdmissionDecision(True, "admitted")
+
+    def admission_for(self, config: MCPServerConfig) -> AdmissionDecision:
+        """Return the immutable Lean admission result without changing runtime state."""
+
+        return self._admission_for(config)
+
+    def _audit_admission_denial(
+        self,
+        config: MCPServerConfig,
+        decision: AdmissionDecision,
+    ) -> None:
+        if (
+            decision.allowed
+            or decision.reason_code == "disabled"
+            or self._storage is None
+            or not hasattr(self._storage, "append_system_audit")
+        ):
+            return
+        self._storage.append_system_audit(
+            AppendSystemAuditRequest(
+                correlation_id=_MCP_RUNTIME_CORRELATION,
+                actor_digest=_MCP_RUNTIME_ACTOR_DIGEST,
+                action="mcp.admission.denied",
+                outcome="denied",
+                reason_code=decision.reason_code,
+                subject_kind="mcp_server",
+                subject_digest=hashlib.sha256(config.name.encode()).hexdigest(),
+                metadata={},
+            )
+        )
 
     # -- 配置 ---------------------------------------------------------------
 
@@ -137,7 +190,7 @@ class MCPManager:
             sorted(
                 name
                 for name, cfg in self._config.mcp_servers.items()
-                if cfg.enabled and self._admitted(name)
+                if self._admission_for(cfg).allowed
             )
         )
 
@@ -166,23 +219,31 @@ class MCPManager:
                 "[mcp] 未设准入清单(TIANSHU_MCP_SERVER_ALLOWLIST):所有 enabled server "
                 "将被加载。生产环境建议显式配置白名单(D15 治理护栏)。"
             )
-        enabled = [
-            (name, cfg)
-            for name, cfg in self._config.mcp_servers.items()
-            if cfg.enabled and self._admitted(name)
+        decisions = {
+            name: self._admission_for(cfg) for name, cfg in self._config.mcp_servers.items()
+        }
+        admitted = [
+            (name, cfg) for name, cfg in self._config.mcp_servers.items() if decisions[name].allowed
         ]
-        self._execution_gateway.configure_mcp_stdio_commands(
-            {
-                name: (cfg.command, *cfg.args)
-                for name, cfg in enabled
-                if cfg.transport == "stdio" and cfg.command is not None
-            }
-        )
+        stdio_commands = {
+            name: (cfg.command, *cfg.args)
+            for name, cfg in admitted
+            if cfg.transport == "stdio" and cfg.command is not None
+        }
+        if stdio_commands:
+            self._execution_gateway.configure_mcp_stdio_commands(stdio_commands)
         for name, cfg in self._config.mcp_servers.items():
-            if not cfg.enabled:
+            decision = decisions[name]
+            if decision.allowed:
+                continue
+            self._audit_admission_denial(cfg, decision)
+            if decision.reason_code == "disabled":
                 logger.info("[mcp] skip disabled server: %s", name)
-            elif not self._admitted(name):
-                logger.warning("[mcp] server %s 未在准入清单内,拒绝加载(D15)", name)
+            else:
+                logger.warning(
+                    "[mcp] server admission denied: reason=%s",
+                    decision.reason_code,
+                )
 
         async def _start_one(
             name: str,
@@ -211,10 +272,10 @@ class MCPManager:
                 return name, None
             return name, session
 
-        if not enabled:
+        if not admitted:
             return
 
-        for name, cfg in enabled:
+        for name, cfg in admitted:
             session = MCPServerSession(
                 config=cfg,
                 execution_gateway=self._execution_gateway,
@@ -289,6 +350,10 @@ class MCPManager:
 
         count = 0
         cfg = session.config
+        decision = self._admission_for(cfg)
+        if not decision.allowed:
+            self._audit_admission_denial(cfg, decision)
+            return 0
         for tool in session.tools:
             if not _passes_filter(tool.name, cfg):
                 continue

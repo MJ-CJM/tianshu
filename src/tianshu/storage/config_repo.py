@@ -5,6 +5,35 @@ import sqlite3
 import threading
 from datetime import UTC, datetime
 
+from tianshu.models.system_audit import AppendSystemAuditRequest
+from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
+
+_UPSERT_MCP_OVERRIDE = """INSERT INTO mcp_server_overrides
+   (name, enabled, env_ciphertext, env_keys_json,
+    tools_include_json, tools_exclude_json,
+    transport, command, args_json, url,
+    headers_ciphertext, header_keys_json,
+    default_tier, timeout, connect_timeout, tool_overrides_json,
+    updated_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   ON CONFLICT(name) DO UPDATE SET
+     enabled = COALESCE(excluded.enabled, mcp_server_overrides.enabled),
+     env_ciphertext = COALESCE(excluded.env_ciphertext, mcp_server_overrides.env_ciphertext),
+     env_keys_json = COALESCE(excluded.env_keys_json, mcp_server_overrides.env_keys_json),
+     tools_include_json = COALESCE(excluded.tools_include_json, mcp_server_overrides.tools_include_json),
+     tools_exclude_json = COALESCE(excluded.tools_exclude_json, mcp_server_overrides.tools_exclude_json),
+     transport = COALESCE(excluded.transport, mcp_server_overrides.transport),
+     command = COALESCE(excluded.command, mcp_server_overrides.command),
+     args_json = COALESCE(excluded.args_json, mcp_server_overrides.args_json),
+     url = COALESCE(excluded.url, mcp_server_overrides.url),
+     headers_ciphertext = COALESCE(excluded.headers_ciphertext, mcp_server_overrides.headers_ciphertext),
+     header_keys_json = COALESCE(excluded.header_keys_json, mcp_server_overrides.header_keys_json),
+     default_tier = COALESCE(excluded.default_tier, mcp_server_overrides.default_tier),
+     timeout = COALESCE(excluded.timeout, mcp_server_overrides.timeout),
+     connect_timeout = COALESCE(excluded.connect_timeout, mcp_server_overrides.connect_timeout),
+     tool_overrides_json = COALESCE(excluded.tool_overrides_json, mcp_server_overrides.tool_overrides_json),
+     updated_at = excluded.updated_at"""
+
 
 def _encrypt_optional_mapping(
     value: dict[str, str] | None,
@@ -16,6 +45,47 @@ def _encrypt_optional_mapping(
     ciphertext = encrypt_canonical_mapping(require_mcp_vault(), value)
     keys_json = json.dumps(sorted(value), separators=(",", ":"), ensure_ascii=False)
     return ciphertext, keys_json
+
+
+def _mcp_override_values(
+    name: str,
+    *,
+    enabled: bool | None,
+    env: dict[str, str] | None,
+    tools_include: list[str] | None,
+    tools_exclude: list[str] | None,
+    transport: str | None,
+    command: str | None,
+    args: list[str] | None,
+    url: str | None,
+    headers: dict[str, str] | None,
+    default_tier: int | None,
+    timeout: int | None,
+    connect_timeout: int | None,
+    tool_overrides: dict[str, int] | None,
+) -> tuple[object, ...]:
+    now = datetime.now(UTC).isoformat()
+    env_ciphertext, env_keys_json = _encrypt_optional_mapping(env)
+    headers_ciphertext, header_keys_json = _encrypt_optional_mapping(headers)
+    return (
+        name,
+        None if enabled is None else (1 if enabled else 0),
+        env_ciphertext,
+        env_keys_json,
+        json.dumps(tools_include) if tools_include is not None else None,
+        json.dumps(tools_exclude) if tools_exclude is not None else None,
+        transport,
+        command,
+        json.dumps(args) if args is not None else None,
+        url,
+        headers_ciphertext,
+        header_keys_json,
+        default_tier,
+        timeout,
+        connect_timeout,
+        json.dumps(tool_overrides) if tool_overrides is not None else None,
+        now,
+    )
 
 
 class ConfigMixin:
@@ -293,65 +363,81 @@ class ConfigMixin:
         tool_overrides: dict[str, int] | None = None,
     ) -> None:
         """upsert 一行 server 配置；None 字段写入 NULL（= 沿用 YAML 或不指定）。"""
-        from datetime import UTC, datetime
-
-        now = datetime.now(UTC).isoformat()
-        env_ciphertext, env_keys_json = _encrypt_optional_mapping(env)
-        headers_ciphertext, header_keys_json = _encrypt_optional_mapping(headers)
+        values = _mcp_override_values(
+            name,
+            enabled=enabled,
+            env=env,
+            tools_include=tools_include,
+            tools_exclude=tools_exclude,
+            transport=transport,
+            command=command,
+            args=args,
+            url=url,
+            headers=headers,
+            default_tier=default_tier,
+            timeout=timeout,
+            connect_timeout=connect_timeout,
+            tool_overrides=tool_overrides,
+        )
         with self._lock, self._conn:
-            self._conn.execute(
-                # COALESCE 让 NULL 入参表示「不动该字段」，保留旧值。
-                # 这避免 PATCH 单字段时把其他列清成 NULL。
-                # 想真的清字段 → 走 DELETE override 删整行后重建。
-                """INSERT INTO mcp_server_overrides
-                   (name, enabled, env_ciphertext, env_keys_json,
-                    tools_include_json, tools_exclude_json,
-                    transport, command, args_json, url,
-                    headers_ciphertext, header_keys_json,
-                    default_tier, timeout, connect_timeout, tool_overrides_json,
-                    updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(name) DO UPDATE SET
-                     enabled = COALESCE(excluded.enabled, mcp_server_overrides.enabled),
-                     env_ciphertext = COALESCE(excluded.env_ciphertext, mcp_server_overrides.env_ciphertext),
-                     env_keys_json = COALESCE(excluded.env_keys_json, mcp_server_overrides.env_keys_json),
-                     tools_include_json = COALESCE(excluded.tools_include_json, mcp_server_overrides.tools_include_json),
-                     tools_exclude_json = COALESCE(excluded.tools_exclude_json, mcp_server_overrides.tools_exclude_json),
-                     transport = COALESCE(excluded.transport, mcp_server_overrides.transport),
-                     command = COALESCE(excluded.command, mcp_server_overrides.command),
-                     args_json = COALESCE(excluded.args_json, mcp_server_overrides.args_json),
-                     url = COALESCE(excluded.url, mcp_server_overrides.url),
-                     headers_ciphertext = COALESCE(excluded.headers_ciphertext, mcp_server_overrides.headers_ciphertext),
-                     header_keys_json = COALESCE(excluded.header_keys_json, mcp_server_overrides.header_keys_json),
-                     default_tier = COALESCE(excluded.default_tier, mcp_server_overrides.default_tier),
-                     timeout = COALESCE(excluded.timeout, mcp_server_overrides.timeout),
-                     connect_timeout = COALESCE(excluded.connect_timeout, mcp_server_overrides.connect_timeout),
-                     tool_overrides_json = COALESCE(excluded.tool_overrides_json, mcp_server_overrides.tool_overrides_json),
-                     updated_at = excluded.updated_at""",
-                (
-                    name,
-                    None if enabled is None else (1 if enabled else 0),
-                    env_ciphertext,
-                    env_keys_json,
-                    json.dumps(tools_include) if tools_include is not None else None,
-                    json.dumps(tools_exclude) if tools_exclude is not None else None,
-                    transport,
-                    command,
-                    json.dumps(args) if args is not None else None,
-                    url,
-                    headers_ciphertext,
-                    header_keys_json,
-                    default_tier,
-                    timeout,
-                    connect_timeout,
-                    json.dumps(tool_overrides) if tool_overrides is not None else None,
-                    now,
-                ),
-            )
+            self._conn.execute(_UPSERT_MCP_OVERRIDE, values)
+
+    def upsert_mcp_override_with_audit(
+        self,
+        name: str,
+        audit: AppendSystemAuditRequest,
+        *,
+        enabled: bool | None = None,
+        env: dict[str, str] | None = None,
+        tools_include: list[str] | None = None,
+        tools_exclude: list[str] | None = None,
+        transport: str | None = None,
+        command: str | None = None,
+        args: list[str] | None = None,
+        url: str | None = None,
+        headers: dict[str, str] | None = None,
+        default_tier: int | None = None,
+        timeout: int | None = None,
+        connect_timeout: int | None = None,
+        tool_overrides: dict[str, int] | None = None,
+    ) -> None:
+        values = _mcp_override_values(
+            name,
+            enabled=enabled,
+            env=env,
+            tools_include=tools_include,
+            tools_exclude=tools_exclude,
+            transport=transport,
+            command=command,
+            args=args,
+            url=url,
+            headers=headers,
+            default_tier=default_tier,
+            timeout=timeout,
+            connect_timeout=connect_timeout,
+            tool_overrides=tool_overrides,
+        )
+        with self._lock, self._conn:
+            self._conn.execute(_UPSERT_MCP_OVERRIDE, values)
+            _append_system_audit_unlocked(self._conn, audit)
 
     def delete_mcp_override(self, name: str) -> None:
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM mcp_server_overrides WHERE name = ?", (name,))
+
+    def delete_mcp_override_with_audit(
+        self,
+        name: str,
+        audit: AppendSystemAuditRequest,
+    ) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM mcp_server_overrides WHERE name = ?",
+                (name,),
+            )
+            if cursor.rowcount > 0:
+                _append_system_audit_unlocked(self._conn, audit)
+        return cursor.rowcount > 0
 
     # --- engine preferences ---------------------------------------------
 

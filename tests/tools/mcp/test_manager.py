@@ -47,7 +47,7 @@ def _fixture_server_config(
         args=[str(_FIXTURE_PATH)],
         enabled=enabled,
         default_tier=default_tier,
-        tools=tools or ToolFilter(),
+        tools=tools or ToolFilter(include=["echo", "add", "env_value"]),
         tool_overrides=tool_overrides or {},
     )
 
@@ -338,6 +338,7 @@ async def test_protocol_error_reaps_process_and_retains_receipt(
                 transport="stdio",
                 command=sys.executable,
                 args=["-c", "import time;print('not-json',flush=True);time.sleep(60)"],
+                tools=ToolFilter(include=["probe"]),
             )
         }
     )
@@ -529,7 +530,10 @@ async def test_exclude_filter_applied(manager: MCPManager, registry: ToolRegistr
         mcp_servers={
             "fx": _fixture_server_config(
                 name="fx",
-                tools=ToolFilter(exclude=["add"]),
+                tools=ToolFilter(
+                    include=["echo", "add", "env_value"],
+                    exclude=["add"],
+                ),
             )
         }
     )
@@ -586,6 +590,7 @@ async def test_failing_server_does_not_break_others(
                 command="/no/such/command-definitely-missing",
                 args=[],
                 enabled=True,
+                tools=ToolFilter(include=["probe"]),
             ),
             "ok": _fixture_server_config(name="ok"),
         }
