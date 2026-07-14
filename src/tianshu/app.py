@@ -30,6 +30,7 @@ from tianshu.gateway.personas_api import personas_router
 from tianshu.gateway.providers_api import providers_router
 from tianshu.gateway.skills_api import skills_router
 from tianshu.gateway.system_api import system_router
+from tianshu.gateway.system_audit_api import system_audit_router
 from tianshu.gateway.universes_api import universes_router
 from tianshu.gateway.workspace_api import workspace_router
 from tianshu.logging_config import setup_logging
@@ -187,6 +188,7 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     app.include_router(personas_router, prefix="/api")
     app.include_router(providers_router, prefix="/api")
     app.include_router(skills_router, prefix="/api")
+    app.include_router(system_audit_router, prefix="/api")
     app.include_router(system_router, prefix="/api")
     app.include_router(universes_router, prefix="/api")
     app.include_router(workspace_router, prefix="/api")

@@ -7,6 +7,9 @@ import sqlite3
 import threading
 from typing import Any
 
+from tianshu.models.system_audit import AppendSystemAuditRequest
+from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
+
 
 def _row_to_auth_token(row: sqlite3.Row) -> dict[str, Any]:
     return {
@@ -65,12 +68,36 @@ class AuthMixin:
         with self._lock, self._conn:
             self._conn.execute(_INSERT_AUTH_TOKEN, _auth_token_values(record))
 
+    def save_auth_token_with_audit(
+        self,
+        record: dict[str, object],
+        audit: AppendSystemAuditRequest,
+    ) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(_INSERT_AUTH_TOKEN, _auth_token_values(record))
+            _append_system_audit_unlocked(self._conn, audit)
+
     def save_auth_tokens(self, records: list[dict[str, object]]) -> None:
         with self._lock, self._conn:
             self._conn.executemany(
                 _INSERT_AUTH_TOKEN,
                 [_auth_token_values(record) for record in records],
             )
+
+    def save_auth_tokens_with_audit(
+        self,
+        records: list[dict[str, object]],
+        audits: list[AppendSystemAuditRequest],
+    ) -> None:
+        if len(records) != len(audits):
+            raise ValueError("each auth token requires one audit event")
+        with self._lock, self._conn:
+            self._conn.executemany(
+                _INSERT_AUTH_TOKEN,
+                [_auth_token_values(record) for record in records],
+            )
+            for audit in audits:
+                _append_system_audit_unlocked(self._conn, audit)
 
     def get_auth_token_by_prefix(self, prefix: str) -> dict[str, Any] | None:
         with self._lock:
@@ -111,6 +138,25 @@ class AuthMixin:
             )
         return cursor.rowcount > 0
 
+    def revoke_auth_token_with_audit(
+        self,
+        token_id: str,
+        revoked_at: str,
+        audit: AppendSystemAuditRequest,
+    ) -> bool:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """
+                UPDATE auth_tokens
+                SET revoked_at = COALESCE(revoked_at, ?)
+                WHERE id = ?
+                """,
+                (revoked_at, token_id),
+            )
+            if cursor.rowcount > 0:
+                _append_system_audit_unlocked(self._conn, audit)
+        return cursor.rowcount > 0
+
     def revoke_auth_family(self, family_id: str, revoked_at: str) -> int:
         with self._lock, self._conn:
             cursor = self._conn.execute(
@@ -121,6 +167,25 @@ class AuthMixin:
                 """,
                 (revoked_at, family_id),
             )
+        return cursor.rowcount
+
+    def revoke_auth_family_with_audit(
+        self,
+        family_id: str,
+        revoked_at: str,
+        audit: AppendSystemAuditRequest,
+    ) -> int:
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """
+                UPDATE auth_tokens
+                SET revoked_at = COALESCE(revoked_at, ?)
+                WHERE family_id = ?
+                """,
+                (revoked_at, family_id),
+            )
+            if cursor.rowcount > 0:
+                _append_system_audit_unlocked(self._conn, audit)
         return cursor.rowcount
 
     def replace_auth_token(
@@ -141,6 +206,27 @@ class AuthMixin:
             )
             if cursor.rowcount != 1:
                 raise ValueError("active auth token not found")
+
+    def replace_auth_token_with_audit(
+        self,
+        old_token_id: str,
+        new_record: dict[str, object],
+        revoked_at: str,
+        audit: AppendSystemAuditRequest,
+    ) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(_INSERT_AUTH_TOKEN, _auth_token_values(new_record))
+            cursor = self._conn.execute(
+                """
+                UPDATE auth_tokens
+                SET revoked_at = COALESCE(revoked_at, ?), replaced_by = ?
+                WHERE id = ? AND revoked_at IS NULL
+                """,
+                (revoked_at, new_record["id"], old_token_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("active auth token not found")
+            _append_system_audit_unlocked(self._conn, audit)
 
     def replace_auth_session_family(
         self,
@@ -179,6 +265,46 @@ class AuthMixin:
                 "UPDATE auth_tokens SET replaced_by = ? WHERE id = ?",
                 (replacement_refresh_ids[0], refresh_token_id),
             )
+
+    def replace_auth_session_family_with_audit(
+        self,
+        family_id: str,
+        refresh_token_id: str,
+        new_records: list[dict[str, object]],
+        revoked_at: str,
+        audit: AppendSystemAuditRequest,
+    ) -> None:
+        replacement_refresh_ids = [
+            str(record["id"]) for record in new_records if record.get("token_type") == "refresh"
+        ]
+        if len(replacement_refresh_ids) != 1:
+            raise ValueError("session rotation requires exactly one refresh token")
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                """
+                SELECT revoked_at FROM auth_tokens
+                WHERE id = ? AND family_id = ? AND token_type = 'refresh'
+                """,
+                (refresh_token_id, family_id),
+            ).fetchone()
+            if row is None or row["revoked_at"] is not None:
+                raise ValueError("active refresh token not found")
+            self._conn.execute(
+                """
+                UPDATE auth_tokens SET revoked_at = COALESCE(revoked_at, ?)
+                WHERE family_id = ?
+                """,
+                (revoked_at, family_id),
+            )
+            self._conn.executemany(
+                _INSERT_AUTH_TOKEN,
+                [_auth_token_values(record) for record in new_records],
+            )
+            self._conn.execute(
+                "UPDATE auth_tokens SET replaced_by = ? WHERE id = ?",
+                (replacement_refresh_ids[0], refresh_token_id),
+            )
+            _append_system_audit_unlocked(self._conn, audit)
 
     def touch_auth_token(self, token_id: str, used_at: str) -> None:
         with self._lock, self._conn:

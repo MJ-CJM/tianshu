@@ -8,7 +8,15 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from tianshu.gateway.auth import IssuedToken, SessionPair, TokenMetadata, get_auth_context
+from tianshu.gateway.auth import (
+    IssuedToken,
+    SecurityAuditContext,
+    SessionPair,
+    TokenMetadata,
+    get_auth_context,
+    hash_system_audit_identity,
+)
+from tianshu.models.principal import AuthContext
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -33,6 +41,21 @@ def _settings(request: Request):
 
 def _service(request: Request):
     return request.app.state.auth_service
+
+
+def _audit_context(request: Request) -> SecurityAuditContext:
+    correlation_id = getattr(request.state, "correlation_id", None)
+    if not isinstance(correlation_id, str) or not correlation_id:
+        raise RuntimeError("request correlation is unavailable")
+    context = getattr(request.state, "auth_context", None)
+    return SecurityAuditContext(
+        correlation_id=correlation_id,
+        actor_digest=(
+            hash_system_audit_identity(context.principal.id)
+            if isinstance(context, AuthContext)
+            else None
+        ),
+    )
 
 
 def _metadata_payload(metadata: TokenMetadata) -> dict:
@@ -97,7 +120,10 @@ def auth_mode(request: Request) -> dict:
 
 @auth_router.post("/session")
 def create_session(body: SessionRequest, request: Request, response: Response) -> dict:
-    pair = _service(request).create_session(body.token)
+    pair = _service(request).create_session(
+        body.token,
+        audit_context=_audit_context(request),
+    )
     if pair is None:
         raise HTTPException(status_code=401, detail="invalid credentials")
     _set_session_cookies(response, pair, request)
@@ -110,7 +136,10 @@ def create_session(body: SessionRequest, request: Request, response: Response) -
 @auth_router.post("/refresh")
 def refresh_session(request: Request, response: Response) -> dict:
     raw_refresh = request.cookies.get("tianshu_refresh", "")
-    pair = _service(request).refresh_session(raw_refresh)
+    pair = _service(request).refresh_session(
+        raw_refresh,
+        audit_context=_audit_context(request),
+    )
     if pair is None:
         _clear_session_cookies(response, request)
         raise HTTPException(status_code=401, detail="invalid credentials")
@@ -125,7 +154,10 @@ def refresh_session(request: Request, response: Response) -> dict:
 def delete_session(request: Request, response: Response) -> Response:
     context = get_auth_context(request)
     if context.credential_id:
-        _service(request).revoke_session(context.credential_id)
+        _service(request).revoke_session(
+            context.credential_id,
+            audit_context=_audit_context(request),
+        )
     _clear_session_cookies(response, request)
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
@@ -156,6 +188,7 @@ def issue_token(body: TokenIssueRequest, request: Request) -> dict:
             label=body.label,
             scopes=body.scopes,
             expires_at=body.expires_at,
+            audit_context=_audit_context(request),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -166,7 +199,10 @@ def issue_token(body: TokenIssueRequest, request: Request) -> dict:
 def rotate_token(token_id: str, request: Request) -> dict:
     get_auth_context(request)
     try:
-        issued = _service(request).rotate_pat(token_id)
+        issued = _service(request).rotate_pat(
+            token_id,
+            audit_context=_audit_context(request),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="active token not found") from exc
     return _issued_payload(issued)
@@ -175,7 +211,10 @@ def rotate_token(token_id: str, request: Request) -> dict:
 @auth_router.delete("/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
 def revoke_token(token_id: str, request: Request) -> Response:
     get_auth_context(request)
-    if not _service(request).revoke_token(token_id):
+    if not _service(request).revoke_token(
+        token_id,
+        audit_context=_audit_context(request),
+    ):
         raise HTTPException(status_code=404, detail="active token not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -13,13 +13,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from tianshu.gateway.auth import SecurityAuditContext
     from tianshu.storage import Storage
+
+from ulid import ULID
+
+from tianshu.models.system_audit import AppendSystemAuditRequest
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +101,7 @@ class EstopManager:
         network_kill: bool | None = None,
         freeze_tools: list[str] | None = None,
         reason: str | None = None,
+        audit_context: SecurityAuditContext | None = None,
     ) -> EstopState:
         """叠加式收紧:给定的档位开启,未给定的保持现状。"""
         from datetime import UTC, datetime
@@ -107,7 +114,14 @@ class EstopManager:
             updated_at=datetime.now(UTC).isoformat(),
             reason=reason or cur.reason,
         )
-        self._persist(new)
+        self._persist(
+            new,
+            self._audit_request(
+                new,
+                action="estop.engaged",
+                audit_context=audit_context,
+            ),
+        )
         logger.warning("[estop] engaged: %s", new.to_dict())
         return new
 
@@ -118,6 +132,7 @@ class EstopManager:
         network_kill: bool = False,
         unfreeze_tools: list[str] | None = None,
         all_clear: bool = False,
+        audit_context: SecurityAuditContext | None = None,
     ) -> EstopState:
         """选择性恢复;all_clear=True 一键全解。"""
         from datetime import UTC, datetime
@@ -133,7 +148,14 @@ class EstopManager:
                 updated_at=datetime.now(UTC).isoformat(),
                 reason=cur.reason,
             )
-        self._persist(new)
+        self._persist(
+            new,
+            self._audit_request(
+                new,
+                action="estop.resumed",
+                audit_context=audit_context,
+            ),
+        )
         logger.warning("[estop] resumed: %s", new.to_dict())
         return new
 
@@ -159,14 +181,51 @@ class EstopManager:
             logger.exception("[estop] state corrupted — fail closed")
             return EstopState.fail_closed()
 
-    def _persist(self, state: EstopState) -> None:
-        self._storage.save_estop_state(
+    @staticmethod
+    def _audit_request(
+        state: EstopState,
+        *,
+        action: str,
+        audit_context: SecurityAuditContext | None,
+    ) -> AppendSystemAuditRequest:
+        correlation_id = (
+            audit_context.correlation_id
+            if audit_context is not None
+            else f"estop-internal:{ULID()}"
+        )
+        actor_digest = (
+            audit_context.actor_digest
+            if audit_context is not None and audit_context.actor_digest is not None
+            else hashlib.sha256(b"system").hexdigest()
+        )
+        return AppendSystemAuditRequest(
+            correlation_id=correlation_id,
+            actor_digest=actor_digest,
+            action=action,
+            outcome="succeeded",
+            reason_code="state_updated",
+            subject_kind="estop_state",
+            subject_digest=hashlib.sha256(b"estop-state").hexdigest(),
+            metadata={
+                "kill_all": state.kill_all,
+                "network_kill": state.network_kill,
+                "frozen_tool_count": len(state.frozen_tools),
+            },
+        )
+
+    def _persist(
+        self,
+        state: EstopState,
+        audit: AppendSystemAuditRequest,
+    ) -> None:
+        self._storage.save_estop_state_with_audit(
             {
                 "kill_all": state.kill_all,
                 "network_kill": state.network_kill,
                 "frozen_tools_json": json.dumps(sorted(state.frozen_tools)),
                 "updated_at": state.updated_at,
                 "reason": state.reason,
-            }
+            },
+            audit,
         )
         self._state = state

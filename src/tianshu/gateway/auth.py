@@ -27,6 +27,7 @@ from tianshu.models.principal import (
     Principal,
     PrincipalKind,
 )
+from tianshu.models.system_audit import AppendSystemAuditRequest, SystemAuditOutcome
 
 if TYPE_CHECKING:
     from tianshu.config import TianshuSettings
@@ -92,8 +93,65 @@ class SessionPair:
     refresh_expires_at: str
 
 
+@dataclass(frozen=True)
+class SecurityAuditContext:
+    """Request linkage already reduced to audit-safe identity fields."""
+
+    correlation_id: str
+    actor_digest: str | None = None
+
+
 def hash_auth_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode()).hexdigest()
+
+
+def hash_system_audit_identity(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _effective_audit_context(
+    audit_context: SecurityAuditContext | None,
+    *,
+    actor_identity: str,
+) -> SecurityAuditContext:
+    if audit_context is None:
+        current = get_current_auth_context()
+        if current is not None:
+            audit_context = SecurityAuditContext(
+                correlation_id=current.correlation_id,
+                actor_digest=hash_system_audit_identity(current.principal.id),
+            )
+        else:
+            audit_context = SecurityAuditContext(
+                correlation_id=f"auth-internal:{ULID()}",
+            )
+    return SecurityAuditContext(
+        correlation_id=audit_context.correlation_id,
+        actor_digest=(audit_context.actor_digest or hash_system_audit_identity(actor_identity)),
+    )
+
+
+def _auth_audit_request(
+    context: SecurityAuditContext,
+    *,
+    action: str,
+    outcome: SystemAuditOutcome,
+    reason_code: str,
+    subject_kind: str,
+    subject_identity: str,
+    metadata: dict[str, str | int | bool | None],
+) -> AppendSystemAuditRequest:
+    assert context.actor_digest is not None
+    return AppendSystemAuditRequest(
+        correlation_id=context.correlation_id,
+        actor_digest=context.actor_digest,
+        action=action,
+        outcome=outcome,
+        reason_code=reason_code,
+        subject_kind=subject_kind,
+        subject_digest=hash_system_audit_identity(subject_identity),
+        metadata=metadata,
+    )
 
 
 def _parse_timestamp(value: str | None) -> datetime | None:
@@ -201,6 +259,7 @@ class AuthService:
         label: str,
         scopes: frozenset[str],
         expires_at: datetime | None = None,
+        audit_context: SecurityAuditContext | None = None,
     ) -> IssuedToken:
         if not scopes or not scopes <= principal.scopes or not scopes <= ALL_AUTH_SCOPES:
             raise ValueError("issued token scopes must be a non-empty subset of principal scopes")
@@ -212,8 +271,17 @@ class AuthService:
             family_id=None,
             expires_at=expires_at,
         )
-        self._storage.save_auth_token(record)
-        row = self._storage.get_auth_token(record["id"])
+        audit = _auth_audit_request(
+            _effective_audit_context(audit_context, actor_identity=principal.id),
+            action="auth.token.issued",
+            outcome="succeeded",
+            reason_code="policy_allowed",
+            subject_kind="auth_token",
+            subject_identity=str(record["id"]),
+            metadata={"scope_count": len(scopes), "token_type": "pat"},
+        )
+        self._storage.save_auth_token_with_audit(record, audit)
+        row = self._storage.get_auth_token(str(record["id"]))
         assert row is not None
         return IssuedToken(
             id=row["id"],
@@ -225,7 +293,12 @@ class AuthService:
     def list_pats(self) -> list[TokenMetadata]:
         return [_metadata(row) for row in self._storage.list_auth_tokens("pat")]
 
-    def rotate_pat(self, token_id: str) -> IssuedToken:
+    def rotate_pat(
+        self,
+        token_id: str,
+        *,
+        audit_context: SecurityAuditContext | None = None,
+    ) -> IssuedToken:
         old = self._storage.get_auth_token(token_id)
         if old is None or old["token_type"] != "pat" or old["revoked_at"] is not None:
             raise ValueError("active personal token not found")
@@ -240,8 +313,25 @@ class AuthService:
             family_id=None,
             expires_at=expires_at,
         )
-        self._storage.replace_auth_token(token_id, record, self._now().isoformat())
-        row = self._storage.get_auth_token(record["id"])
+        audit = _auth_audit_request(
+            _effective_audit_context(
+                audit_context,
+                actor_identity=str(old["principal_id"]),
+            ),
+            action="auth.token.rotated",
+            outcome="succeeded",
+            reason_code="policy_allowed",
+            subject_kind="auth_token",
+            subject_identity=token_id,
+            metadata={"scope_count": len(old["scopes"]), "token_type": "pat"},
+        )
+        self._storage.replace_auth_token_with_audit(
+            token_id,
+            record,
+            self._now().isoformat(),
+            audit,
+        )
+        row = self._storage.get_auth_token(str(record["id"]))
         assert row is not None
         return IssuedToken(
             id=row["id"],
@@ -250,8 +340,29 @@ class AuthService:
             metadata=_metadata(row),
         )
 
-    def revoke_token(self, token_id: str) -> bool:
-        return self._storage.revoke_auth_token(token_id, self._now().isoformat())
+    def revoke_token(
+        self,
+        token_id: str,
+        *,
+        audit_context: SecurityAuditContext | None = None,
+    ) -> bool:
+        row = self._storage.get_auth_token(token_id)
+        actor_identity = str(row["principal_id"]) if row is not None else "system"
+        token_type = str(row["token_type"]) if row is not None else "pat"
+        audit = _auth_audit_request(
+            _effective_audit_context(audit_context, actor_identity=actor_identity),
+            action="auth.token.revoked",
+            outcome="succeeded",
+            reason_code="policy_allowed",
+            subject_kind="auth_token",
+            subject_identity=token_id,
+            metadata={"family_size": 1, "token_type": token_type},
+        )
+        return self._storage.revoke_auth_token_with_audit(
+            token_id,
+            self._now().isoformat(),
+            audit,
+        )
 
     def _bootstrap_context(
         self,
@@ -346,53 +457,148 @@ class AuthService:
             refresh_expires_at=refresh_expires.isoformat(),
         )
 
-    def create_session(self, raw_pat: str) -> SessionPair | None:
+    def create_session(
+        self,
+        raw_pat: str,
+        *,
+        audit_context: SecurityAuditContext | None = None,
+    ) -> SessionPair | None:
+        correlation_id = (
+            audit_context.correlation_id if audit_context is not None else f"auth-internal:{ULID()}"
+        )
         context = self.authenticate_token(
             raw_pat,
             client_kind=ClientKind.WEB,
-            correlation_id=str(ULID()),
+            correlation_id=correlation_id,
             allowed_types=frozenset({"pat"}),
         )
         if context is None:
+            denied = _auth_audit_request(
+                _effective_audit_context(audit_context, actor_identity="anonymous"),
+                action="auth.session.denied",
+                outcome="denied",
+                reason_code="invalid_credentials",
+                subject_kind="session_credential",
+                subject_identity="pat-session-credential",
+                metadata={"token_type": "pat"},
+            )
+            self._storage.append_system_audit(denied)
             return None
         family_id = str(ULID())
         records, pair = self._session_records(context.principal, family_id)
-        self._storage.save_auth_tokens(records)
+        effective = _effective_audit_context(
+            audit_context,
+            actor_identity=context.principal.id,
+        )
+        audits = [
+            _auth_audit_request(
+                effective,
+                action="auth.token.issued",
+                outcome="succeeded",
+                reason_code="policy_allowed",
+                subject_kind="auth_token",
+                subject_identity=str(record["id"]),
+                metadata={
+                    "scope_count": len(context.principal.scopes),
+                    "token_type": str(record["token_type"]),
+                },
+            )
+            for record in records
+        ]
+        self._storage.save_auth_tokens_with_audit(records, audits)
         return pair
 
-    def refresh_session(self, raw_refresh: str) -> SessionPair | None:
+    def refresh_session(
+        self,
+        raw_refresh: str,
+        *,
+        audit_context: SecurityAuditContext | None = None,
+    ) -> SessionPair | None:
+        correlation_id = (
+            audit_context.correlation_id if audit_context is not None else f"auth-internal:{ULID()}"
+        )
         context = self.authenticate_token(
             raw_refresh,
             client_kind=ClientKind.WEB,
-            correlation_id=str(ULID()),
+            correlation_id=correlation_id,
             allowed_types=frozenset({"refresh"}),
             source=AuthenticationSource.SESSION_COOKIE,
         )
         if context is None:
-            self._revoke_replayed_refresh(raw_refresh)
+            self._revoke_replayed_refresh(raw_refresh, audit_context=audit_context)
             return None
         if context.credential_id is None:
+            self._append_session_denial(
+                audit_context,
+                actor_identity=context.principal.id,
+                token_type="refresh",
+            )
             return None
         old = self._storage.get_auth_token(context.credential_id)
         if old is None or old["family_id"] is None:
+            self._append_session_denial(
+                audit_context,
+                actor_identity=context.principal.id,
+                token_type="refresh",
+            )
             return None
         records, pair = self._session_records(context.principal, old["family_id"])
+        effective = _effective_audit_context(
+            audit_context,
+            actor_identity=context.principal.id,
+        )
+        audit = _auth_audit_request(
+            effective,
+            action="auth.session.rotated",
+            outcome="succeeded",
+            reason_code="policy_allowed",
+            subject_kind="session_family",
+            subject_identity=str(old["family_id"]),
+            metadata={"family_size": len(records)},
+        )
         try:
-            self._storage.replace_auth_session_family(
+            self._storage.replace_auth_session_family_with_audit(
                 old["family_id"],
                 old["id"],
                 records,
                 self._now().isoformat(),
+                audit,
             )
         except ValueError:
+            self._append_session_denial(
+                audit_context,
+                actor_identity=context.principal.id,
+                token_type="refresh",
+            )
             return None
         return pair
 
-    def _revoke_replayed_refresh(self, raw_refresh: str) -> None:
+    def _append_session_denial(
+        self,
+        audit_context: SecurityAuditContext | None,
+        *,
+        actor_identity: str,
+        token_type: str,
+    ) -> None:
+        audit = _auth_audit_request(
+            _effective_audit_context(audit_context, actor_identity=actor_identity),
+            action="auth.session.denied",
+            outcome="denied",
+            reason_code="invalid_credentials",
+            subject_kind="session_credential",
+            subject_identity=f"{token_type}-session-credential",
+            metadata={"token_type": token_type},
+        )
+        self._storage.append_system_audit(audit)
+
+    def _revoke_replayed_refresh(
+        self,
+        raw_refresh: str,
+        *,
+        audit_context: SecurityAuditContext | None,
+    ) -> None:
         prefix = self._token_prefix(raw_refresh)
-        if prefix is None:
-            return
-        row = self._storage.get_auth_token_by_prefix(prefix)
+        row = self._storage.get_auth_token_by_prefix(prefix) if prefix is not None else None
         if (
             row is None
             or row["token_type"] != "refresh"
@@ -401,14 +607,64 @@ class AuthService:
             or row["family_id"] is None
             or not hmac.compare_digest(row["token_hash"], hash_auth_token(raw_refresh))
         ):
+            self._append_session_denial(
+                audit_context,
+                actor_identity="anonymous",
+                token_type="refresh",
+            )
             return
-        self._storage.revoke_auth_family(row["family_id"], self._now().isoformat())
+        audit = _auth_audit_request(
+            _effective_audit_context(
+                audit_context,
+                actor_identity=str(row["principal_id"]),
+            ),
+            action="auth.session.denied",
+            outcome="denied",
+            reason_code="refresh_replay",
+            subject_kind="session_family",
+            subject_identity=str(row["family_id"]),
+            metadata={"token_type": "refresh"},
+        )
+        self._storage.revoke_auth_family_with_audit(
+            row["family_id"],
+            self._now().isoformat(),
+            audit,
+        )
 
-    def revoke_session(self, credential_id: str) -> bool:
+    def revoke_session(
+        self,
+        credential_id: str,
+        *,
+        audit_context: SecurityAuditContext | None = None,
+    ) -> bool:
         row = self._storage.get_auth_token(credential_id)
         if row is None or row["family_id"] is None:
             return False
-        return self._storage.revoke_auth_family(row["family_id"], self._now().isoformat()) > 0
+        family_size = sum(
+            1
+            for token in self._storage.list_auth_tokens()
+            if token["family_id"] == row["family_id"]
+        )
+        audit = _auth_audit_request(
+            _effective_audit_context(
+                audit_context,
+                actor_identity=str(row["principal_id"]),
+            ),
+            action="auth.session.revoked",
+            outcome="succeeded",
+            reason_code="policy_allowed",
+            subject_kind="session_family",
+            subject_identity=str(row["family_id"]),
+            metadata={"family_size": family_size},
+        )
+        return (
+            self._storage.revoke_auth_family_with_audit(
+                row["family_id"],
+                self._now().isoformat(),
+                audit,
+            )
+            > 0
+        )
 
     def is_context_active(self, context: AuthContext) -> bool:
         """Revalidate an established transport without retaining its raw credential."""
@@ -571,7 +827,7 @@ class SecurityBoundaryMiddleware:
     def _required_scopes(path: str) -> frozenset[str]:
         if path.startswith("/mcp"):
             return frozenset({"mcp:read", "mcp:submit"})
-        if path.startswith("/api/auth/tokens"):
+        if path.startswith(("/api/auth/tokens", "/api/audit/system")):
             return frozenset({"admin"})
         return frozenset({"api"})
 
@@ -722,6 +978,7 @@ class SecurityBoundaryMiddleware:
 
         headers = Headers(scope=scope)
         correlation_id = str(ULID())
+        scope.setdefault("state", {})["correlation_id"] = correlation_id
         host = headers.get("host", "")
         if not self._host_allowed(host):
             if scope["type"] == "websocket":
@@ -822,9 +1079,11 @@ class SecurityBoundaryMiddleware:
 __all__ = [
     "ALL_AUTH_SCOPES",
     "AuthService",
+    "SecurityAuditContext",
     "SecurityBoundaryMiddleware",
     "get_auth_context",
     "hash_auth_token",
+    "hash_system_audit_identity",
     "IssuedToken",
     "SessionPair",
     "TokenMetadata",
