@@ -66,7 +66,7 @@ class _StorageBase:
 
     def __init__(self, db_path: str) -> None:
         self._db_path = str(Path(db_path).expanduser())
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()  # type: ignore[assignment]
         # _conn 对外（Mixin）声明为非 Optional 供跨文件复用；此处仅是 init_db() 前的瞬时占位。
         self._conn = None  # type: ignore[assignment]  # TODO(治理): 全面 Optional 化需级联标注所有 15 个 Mixin，超出本次任务范围
 

@@ -30,6 +30,7 @@ from tianshu.storage.scheduler_repo import SchedulerMixin
 from tianshu.storage.security_repo import SecurityMixin
 from tianshu.storage.system_audit_repo import SystemAuditMixin
 from tianshu.storage.telegram_repo import TelegramMixin
+from tianshu.storage.unit_of_work import SqliteUnitOfWork
 from tianshu.storage.universe_repo import UniverseMixin
 from tianshu.storage.workspace_repo import WorkspaceMixin
 
@@ -61,6 +62,9 @@ class Storage(
     TelegramMixin,
     WorkspaceMixin,
 ):
+    def unit_of_work(self) -> SqliteUnitOfWork:
+        return SqliteUnitOfWork(self._conn, self._lock)
+
     # 以下 3 个方法命中多个领域 Mixin 的表（真跨表 JOIN 或语义横跨 persona/memorial/cost），
     # 无法唯一归入某个领域 Mixin，保留在组合根。
 

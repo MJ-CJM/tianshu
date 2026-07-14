@@ -80,11 +80,11 @@ S2 Lean Security is passed at the boundary above. The next stage is **S3 Core Go
         _assert_s2_report_green(report)
 
 
-def test_live_migration_versions_are_contiguous_through_v8() -> None:
-    assert tuple(migration.version for migration in MIGRATIONS) == tuple(range(1, 9))
+def test_live_migration_versions_are_contiguous_through_v9() -> None:
+    assert tuple(migration.version for migration in MIGRATIONS) == tuple(range(1, 10))
     assert (MIGRATIONS[-1].version, MIGRATIONS[-1].name) == (
-        8,
-        "0008_encrypt_mcp_secret_mappings",
+        9,
+        "0009_durable_edict_ingress",
     )
 
 

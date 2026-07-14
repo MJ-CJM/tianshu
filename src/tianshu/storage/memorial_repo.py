@@ -10,6 +10,58 @@ from tianshu.models.governance_contract import EffectiveGovernanceContractV1
 from tianshu.storage.mappers import _memorial_to_params, _row_to_memorial
 
 
+def _insert_effective_governance_contract(
+    conn: sqlite3.Connection,
+    memorial_id: str,
+    edict_id: str,
+    contract: EffectiveGovernanceContractV1,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO effective_governance_contracts
+            (memorial_id, edict_id, schema_version, requested_contract_hash,
+             contract_json, contract_hash, executor_manifest_id,
+             executor_manifest_version, executor_manifest_hash, runtime_probe_id,
+             created_at)
+        VALUES (?, ?, '1', ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            memorial_id,
+            edict_id,
+            contract.requested_contract_hash,
+            contract.canonical_json(),
+            contract.content_hash,
+            contract.executor_manifest_id,
+            contract.executor_manifest_version,
+            contract.executor_manifest_hash,
+            contract.runtime_probe_id,
+            datetime.now(UTC).isoformat(),
+        ),
+    )
+
+
+def _insert_memorial(conn: sqlite3.Connection, memorial: Memorial) -> None:
+    conn.execute(
+        """INSERT INTO memorials
+           (id, edict_id, instruction, status, summary, result, usage_json,
+            error, created_at, started_at, completed_at,
+            attempt, parent_memorial_id, review_status, audit_json,
+            artifacts_json, timeline_json, dag_node_id, persona_id,
+            runtime_override_json, acceptance_override_json,
+            reasoning_content, final_output, universe_id, last_heartbeat_at,
+            failure_reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        _memorial_to_params(memorial),
+    )
+    if memorial.effective_governance_contract is not None:
+        _insert_effective_governance_contract(
+            conn,
+            memorial.id,
+            memorial.edict_id,
+            memorial.effective_governance_contract,
+        )
+
+
 class MemorialMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
@@ -20,28 +72,7 @@ class MemorialMixin:
         edict_id: str,
         contract: EffectiveGovernanceContractV1,
     ) -> None:
-        self._conn.execute(
-            """
-            INSERT INTO effective_governance_contracts
-                (memorial_id, edict_id, schema_version, requested_contract_hash,
-                 contract_json, contract_hash, executor_manifest_id,
-                 executor_manifest_version, executor_manifest_hash, runtime_probe_id,
-                 created_at)
-            VALUES (?, ?, '1', ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                memorial_id,
-                edict_id,
-                contract.requested_contract_hash,
-                contract.canonical_json(),
-                contract.content_hash,
-                contract.executor_manifest_id,
-                contract.executor_manifest_version,
-                contract.executor_manifest_hash,
-                contract.runtime_probe_id,
-                datetime.now(UTC).isoformat(),
-            ),
-        )
+        _insert_effective_governance_contract(self._conn, memorial_id, edict_id, contract)
 
     def save_effective_governance_contract(
         self,
@@ -83,24 +114,7 @@ class MemorialMixin:
 
     def save_memorial(self, memorial: Memorial) -> None:
         with self._lock, self._conn:
-            self._conn.execute(
-                """INSERT INTO memorials
-                   (id, edict_id, instruction, status, summary, result, usage_json,
-                    error, created_at, started_at, completed_at,
-                    attempt, parent_memorial_id, review_status, audit_json,
-                    artifacts_json, timeline_json, dag_node_id, persona_id,
-                    runtime_override_json, acceptance_override_json,
-                    reasoning_content, final_output, universe_id, last_heartbeat_at,
-                    failure_reason)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                _memorial_to_params(memorial),
-            )
-            if memorial.effective_governance_contract is not None:
-                self._save_effective_governance_contract_unlocked(
-                    memorial.id,
-                    memorial.edict_id,
-                    memorial.effective_governance_contract,
-                )
+            _insert_memorial(self._conn, memorial)
 
     def update_memorial(self, memorial: Memorial) -> None:
         with self._lock, self._conn:

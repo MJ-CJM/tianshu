@@ -13,6 +13,73 @@ from tianshu.models.governance_contract import (
 from tianshu.storage.mappers import _row_to_edict
 
 
+def _insert_requested_governance_contract(
+    conn: sqlite3.Connection,
+    edict: Edict,
+) -> RequestedGovernanceContractV1:
+    explicit = edict.governance_contract is not None
+    contract = edict.governance_contract or LegacyEdictGovernanceMapper.from_edict(
+        edict,
+        default_workspace_id=str(edict.metadata.get("workspace_id") or "legacy-default"),
+    )
+    conn.execute(
+        """
+        INSERT INTO requested_governance_contracts
+            (edict_id, schema_version, contract_json, contract_hash, source, created_at)
+        VALUES (?, '1', ?, ?, ?, ?)
+        """,
+        (
+            edict.id,
+            contract.canonical_json(),
+            contract.content_hash,
+            "explicit" if explicit else "legacy_derived",
+            datetime.now(UTC).isoformat(),
+        ),
+    )
+    return contract
+
+
+def _insert_edict(
+    conn: sqlite3.Connection,
+    edict: Edict,
+) -> RequestedGovernanceContractV1:
+    acceptance_json = edict.acceptance.model_dump_json() if edict.acceptance else None
+    conn.execute(
+        """INSERT INTO edicts
+           (id, title, goal, context, status, created_at,
+            idempotency_key, source, submitter, priority, review_policy,
+            output_format, constraints_json, schedule_json, dispatch_json,
+            runtime_json, metadata_json, assigned_persona_id,
+            planner_persona_id, plan_review, acceptance_json, execution_profile)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            edict.id,
+            edict.title,
+            edict.goal,
+            edict.context,
+            edict.status.value,
+            edict.created_at.isoformat(),
+            edict.idempotency_key,
+            edict.source,
+            edict.submitter,
+            edict.priority,
+            edict.review_policy,
+            edict.output_format,
+            json.dumps(edict.constraints),
+            edict.schedule.model_dump_json(),
+            edict.dispatch.model_dump_json() if edict.dispatch else None,
+            edict.runtime.model_dump_json(),
+            json.dumps(edict.metadata, default=str),
+            edict.assigned_persona_id,
+            edict.planner_persona_id,
+            int(edict.plan_review),
+            acceptance_json,
+            edict.execution_profile,
+        ),
+    )
+    return _insert_requested_governance_contract(conn, edict)
+
+
 class EdictMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
@@ -23,26 +90,7 @@ class EdictMixin:
         self,
         edict: Edict,
     ) -> RequestedGovernanceContractV1:
-        explicit = edict.governance_contract is not None
-        contract = edict.governance_contract or LegacyEdictGovernanceMapper.from_edict(
-            edict,
-            default_workspace_id=str(edict.metadata.get("workspace_id") or "legacy-default"),
-        )
-        self._conn.execute(
-            """
-            INSERT INTO requested_governance_contracts
-                (edict_id, schema_version, contract_json, contract_hash, source, created_at)
-            VALUES (?, '1', ?, ?, ?, ?)
-            """,
-            (
-                edict.id,
-                contract.canonical_json(),
-                contract.content_hash,
-                "explicit" if explicit else "legacy_derived",
-                datetime.now(UTC).isoformat(),
-            ),
-        )
-        return contract
+        return _insert_requested_governance_contract(self._conn, edict)
 
     def get_requested_governance_contract_record(self, edict_id: str) -> dict | None:
         with self._lock:
@@ -67,42 +115,8 @@ class EdictMixin:
         }
 
     def save_edict(self, edict: Edict) -> None:
-        acceptance_json = edict.acceptance.model_dump_json() if edict.acceptance else None
         with self._lock, self._conn:
-            self._conn.execute(
-                """INSERT INTO edicts
-                   (id, title, goal, context, status, created_at,
-                    idempotency_key, source, submitter, priority, review_policy,
-                    output_format, constraints_json, schedule_json, dispatch_json,
-                    runtime_json, metadata_json, assigned_persona_id,
-                    planner_persona_id, plan_review, acceptance_json, execution_profile)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    edict.id,
-                    edict.title,
-                    edict.goal,
-                    edict.context,
-                    edict.status.value,
-                    edict.created_at.isoformat(),
-                    edict.idempotency_key,
-                    edict.source,
-                    edict.submitter,
-                    edict.priority,
-                    edict.review_policy,
-                    edict.output_format,
-                    json.dumps(edict.constraints),
-                    edict.schedule.model_dump_json(),
-                    edict.dispatch.model_dump_json() if edict.dispatch else None,
-                    edict.runtime.model_dump_json(),
-                    json.dumps(edict.metadata, default=str),
-                    edict.assigned_persona_id,
-                    edict.planner_persona_id,
-                    int(edict.plan_review),
-                    acceptance_json,
-                    edict.execution_profile,
-                ),
-            )
-            self._save_requested_governance_contract_unlocked(edict)
+            _insert_edict(self._conn, edict)
 
     def get_edict(self, edict_id: str) -> Edict | None:
         with self._lock:

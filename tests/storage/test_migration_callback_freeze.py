@@ -47,6 +47,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0008_encrypt_mcp_secret_mappings": (
         "c0576edfc0637532b1488aae740e658f122e837b2155648f0dabf351671bd3a5"
     ),
+    # v9 于 S3 追加 Edict 幂等提交与 durable outbox 基础表。
+    "0009_durable_edict_ingress": (
+        "70c0dd79302fd10401c7dcacfb675eb047f759650cbc9ceb657f54c5b27b1588"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

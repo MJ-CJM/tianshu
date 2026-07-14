@@ -2303,6 +2303,77 @@ def _mcp_secret_mapping_upgrade(conn: MigrationConnection) -> None:
     conn.execute("ALTER TABLE _mcp_server_overrides_v8 RENAME TO mcp_server_overrides")
 
 
+# --- V9: atomic Edict submission and durable outbox foundation ---
+
+_DURABLE_EDICT_INGRESS_STATEMENTS = (
+    """
+    CREATE TABLE outbox_events (
+        event_id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        aggregate_type TEXT NOT NULL,
+        edict_id TEXT REFERENCES edicts(id) ON DELETE CASCADE,
+        memorial_id TEXT REFERENCES memorials(id) ON DELETE CASCADE,
+        producer TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        available_at TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (
+            status IN ('pending','claimed','published','retry_wait','dead_letter')
+        ),
+        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        max_attempts INTEGER NOT NULL DEFAULT 20 CHECK (max_attempts > 0),
+        lease_owner TEXT,
+        lease_expires_at TEXT,
+        last_error_json TEXT,
+        published_at TEXT,
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)
+    )
+    """,
+    """
+    CREATE TABLE submission_idempotency (
+        principal_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        request_hash TEXT NOT NULL CHECK (length(request_hash) = 64),
+        edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE RESTRICT,
+        memorial_id TEXT NOT NULL REFERENCES memorials(id) ON DELETE RESTRICT,
+        event_id TEXT NOT NULL REFERENCES outbox_events(event_id) ON DELETE RESTRICT,
+        response_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (principal_id, idempotency_key),
+        UNIQUE (event_id)
+    )
+    """,
+    """
+    CREATE TABLE outbox_consumptions (
+        event_id TEXT NOT NULL REFERENCES outbox_events(event_id) ON DELETE CASCADE,
+        consumer_name TEXT NOT NULL,
+        result_hash TEXT,
+        consumed_at TEXT NOT NULL,
+        PRIMARY KEY (event_id, consumer_name)
+    )
+    """,
+    """
+    CREATE INDEX idx_outbox_claim
+    ON outbox_events(status, available_at, lease_expires_at)
+    """,
+    """
+    CREATE INDEX idx_outbox_edict
+    ON outbox_events(edict_id, occurred_at)
+    """,
+)
+_DURABLE_EDICT_INGRESS_CHECKSUM = hashlib.sha256(
+    (
+        "0009_durable_edict_ingress\n"
+        + "\n".join(" ".join(statement.split()) for statement in _DURABLE_EDICT_INGRESS_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _durable_edict_ingress_upgrade(conn: MigrationConnection) -> None:
+    for statement in _DURABLE_EDICT_INGRESS_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -2351,6 +2422,12 @@ MIGRATIONS = (
         name="0008_encrypt_mcp_secret_mappings",
         checksum=_MCP_SECRET_MAPPING_CHECKSUM,
         upgrade=_mcp_secret_mapping_upgrade,
+    ),
+    Migration(
+        version=9,
+        name="0009_durable_edict_ingress",
+        checksum=_DURABLE_EDICT_INGRESS_CHECKSUM,
+        upgrade=_durable_edict_ingress_upgrade,
     ),
 )
 
