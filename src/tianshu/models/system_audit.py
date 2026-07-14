@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal, Self
 
@@ -107,6 +108,15 @@ class AppendSystemAuditRequest(BaseModel):
     _validate_reason_and_subject = field_validator("reason_code", "subject_kind")(
         _validate_stable_code
     )
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def validate_metadata_value_types(cls, metadata: Any) -> Any:
+        if isinstance(metadata, Mapping):
+            for value in metadata.values():
+                if value is not None and type(value) not in (str, int, bool):
+                    raise ValueError("metadata values must use exact primitive types")
+        return metadata
 
     @model_validator(mode="after")
     def validate_action_metadata(self) -> Self:

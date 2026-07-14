@@ -6,6 +6,7 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Iterator
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -124,6 +125,22 @@ def test_metadata_is_action_specific_fail_closed_and_never_persists_secret(
             assert secret_sentinel.encode("utf-8") not in path.read_bytes()
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"scope_count": 2.0},
+        {"token_type": b"pat"},
+        {"scope_count": Decimal("2")},
+    ],
+    ids=["float", "bytes", "decimal"],
+)
+def test_metadata_rejects_values_that_pydantic_could_coerce(
+    metadata: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError, match="metadata values must use exact primitive types"):
+        _request(metadata=metadata)  # type: ignore[arg-type]
+
+
 def test_page_validates_predecessor_anchor_before_returning_events(
     audit_storage: tuple[Storage, Path],
 ) -> None:
@@ -150,6 +167,24 @@ def test_page_validates_predecessor_anchor_before_returning_events(
         storage.list_system_audit(after=1, limit=1)
 
 
+def test_deep_page_validates_the_entire_prefix_from_genesis(
+    audit_storage: tuple[Storage, Path],
+) -> None:
+    storage, _ = audit_storage
+    for token_type in ("pat", "access", "refresh", "pat"):
+        storage.append_system_audit(_request(metadata={"token_type": token_type}))
+
+    storage._conn.execute("DROP TRIGGER system_audit_events_no_delete")
+    storage._conn.execute("DELETE FROM system_audit_events WHERE sequence = 1")
+    storage._conn.commit()
+
+    with pytest.raises(
+        SystemAuditIntegrityError,
+        match=r"sequence_gap at sequence 1$",
+    ):
+        storage.list_system_audit(after=3, limit=1)
+
+
 def test_update_and_delete_triggers_unconditionally_reject_changes(
     audit_storage: tuple[Storage, Path],
 ) -> None:
@@ -165,6 +200,30 @@ def test_update_and_delete_triggers_unconditionally_reject_changes(
         storage._conn.execute(
             "DELETE FROM system_audit_events WHERE sequence = ?",
             (event.sequence,),
+        )
+    storage._conn.rollback()
+
+    assert storage._conn.execute("SELECT COUNT(*) FROM system_audit_events").fetchone()[0] == 1
+
+
+def test_insert_or_replace_cannot_replace_an_existing_event(
+    audit_storage: tuple[Storage, Path],
+) -> None:
+    storage, _ = audit_storage
+    event = storage.append_system_audit(_request())
+    storage._conn.execute("PRAGMA recursive_triggers = OFF")
+    row = storage._conn.execute(
+        "SELECT * FROM system_audit_events WHERE sequence = ?",
+        (event.sequence,),
+    ).fetchone()
+    columns = tuple(row.keys())
+    placeholders = ", ".join("?" for _ in columns)
+
+    with pytest.raises(sqlite3.IntegrityError, match="system audit events are append-only"):
+        storage._conn.execute(
+            f"INSERT OR REPLACE INTO system_audit_events ({', '.join(columns)}) "
+            f"VALUES ({placeholders})",
+            tuple(row[column] for column in columns),
         )
     storage._conn.rollback()
 

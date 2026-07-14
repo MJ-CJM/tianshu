@@ -252,32 +252,23 @@ class SystemAuditMixin:
         with self._lock:
             previous_hash = GENESIS_SYSTEM_AUDIT_HASH
             if after > 0:
-                anchor = self._conn.execute(
-                    "SELECT * FROM system_audit_events WHERE sequence = ?",
+                prefix_rows = self._conn.execute(
+                    """
+                    SELECT * FROM system_audit_events
+                    WHERE sequence <= ?
+                    ORDER BY sequence
+                    """,
                     (after,),
-                ).fetchone()
-                if anchor is None:
-                    raise SystemAuditIntegrityError("missing_anchor", after)
-                expected_anchor_previous: str | None = GENESIS_SYSTEM_AUDIT_HASH
-                if after > 1:
-                    predecessor = self._conn.execute(
-                        "SELECT * FROM system_audit_events WHERE sequence = ?",
-                        (after - 1,),
-                    ).fetchone()
-                    if predecessor is None:
-                        raise SystemAuditIntegrityError("sequence_gap", after - 1)
-                    predecessor_event = _validate_row(
-                        predecessor,
-                        expected_sequence=after - 1,
-                        expected_previous_hash=None,
+                ).fetchall()
+                verification, prefix = _verification(prefix_rows)
+                if not verification.verified:
+                    raise SystemAuditIntegrityError(
+                        verification.reason_code,
+                        verification.failure_sequence or 1,
                     )
-                    expected_anchor_previous = predecessor_event.event_hash
-                anchor_event = _validate_row(
-                    anchor,
-                    expected_sequence=after,
-                    expected_previous_hash=expected_anchor_previous,
-                )
-                previous_hash = anchor_event.event_hash
+                if not prefix or prefix[-1].sequence != after:
+                    raise SystemAuditIntegrityError("missing_anchor", after)
+                previous_hash = prefix[-1].event_hash
             rows = self._conn.execute(
                 """
                 SELECT * FROM system_audit_events

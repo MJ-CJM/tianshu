@@ -2128,6 +2128,17 @@ _SYSTEM_AUDIT_STATEMENTS = (
     ON system_audit_events(action, sequence)
     """,
     """
+    CREATE TRIGGER system_audit_events_no_replace
+    BEFORE INSERT ON system_audit_events
+    WHEN EXISTS (
+        SELECT 1 FROM system_audit_events
+        WHERE sequence = NEW.sequence OR id = NEW.id OR event_hash = NEW.event_hash
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'system audit events are append-only');
+    END
+    """,
+    """
     CREATE TRIGGER system_audit_events_no_update
     BEFORE UPDATE ON system_audit_events
     BEGIN
@@ -2151,6 +2162,8 @@ _SYSTEM_AUDIT_CHECKSUM = hashlib.sha256(
 
 
 def _system_audit_upgrade(conn: MigrationConnection) -> None:
+    """Create system audit storage with insert, update, and delete immutability guards."""
+
     for statement in _SYSTEM_AUDIT_STATEMENTS:
         conn.execute(statement)
 
