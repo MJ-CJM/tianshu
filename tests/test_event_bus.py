@@ -216,6 +216,51 @@ class TestEventBus:
             "second-stream",
         ]
 
+    async def test_emit_orders_durable_and_local_globally_after_local_failure(self, bus):
+        order: list[str] = []
+
+        async def failed_local(_event):
+            order.append("local-10")
+            raise ValueError("boom")
+
+        async def wildcard(_event):
+            order.append("wildcard-100")
+
+        async def exact(_event):
+            order.append("exact-200")
+
+        async def last_local(_event):
+            order.append("local-300")
+
+        bus.on("test", exact, consumer_name="test.exact.v1", priority=200)
+        bus.on("*", wildcard, consumer_name="test.wildcard.v1", priority=100)
+        bus.on_local("test", last_local, priority=300)
+        bus.on_local("test", failed_local, priority=10)
+
+        await bus.emit(make_event("test"))
+
+        assert order == ["local-10", "wildcard-100", "exact-200", "local-300"]
+
+    async def test_emit_breaks_equal_priority_ties_durable_wildcard_exact_then_local(self, bus):
+        order: list[str] = []
+
+        async def exact(_event):
+            order.append("exact")
+
+        async def wildcard(_event):
+            order.append("wildcard")
+
+        async def local(_event):
+            order.append("local")
+
+        bus.on("test", exact, consumer_name="test.exact.v1", priority=100)
+        bus.on("*", wildcard, consumer_name="test.wildcard.v1", priority=100)
+        bus.on_local("test", local, priority=100)
+
+        await bus.emit(make_event("test"))
+
+        assert order == ["wildcard", "exact", "local"]
+
     async def test_fire_invokes_local_subscribers(self, bus):
         delivered = asyncio.Event()
 
@@ -227,6 +272,34 @@ class TestEventBus:
         bus.fire(make_event("test"))
 
         await asyncio.wait_for(delivered.wait(), timeout=1)
+
+    async def test_fire_orders_durable_and_local_globally_after_local_failure(self, bus):
+        order: list[str] = []
+        delivered = asyncio.Event()
+
+        async def failed_local(_event):
+            order.append("local-10")
+            raise ValueError("boom")
+
+        async def wildcard(_event):
+            order.append("wildcard-100")
+
+        async def exact(_event):
+            order.append("exact-200")
+
+        async def last_local(_event):
+            order.append("local-300")
+            delivered.set()
+
+        bus.on("test", exact, consumer_name="test.exact.v1", priority=200)
+        bus.on("*", wildcard, consumer_name="test.wildcard.v1", priority=100)
+        bus.on_local("test", last_local, priority=300)
+        bus.on_local("test", failed_local, priority=10)
+
+        bus.fire(make_event("test"))
+
+        await asyncio.wait_for(delivered.wait(), timeout=1)
+        assert order == ["local-10", "wildcard-100", "exact-200", "local-300"]
 
     async def test_fire_is_best_effort_and_continues_after_failure(self, bus):
         delivered = asyncio.Event()

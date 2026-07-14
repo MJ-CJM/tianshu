@@ -217,5 +217,13 @@ async def test_two_synthesis_streams_for_same_persona_receive_local_events():
     assert synthesizer.calls == 2
     assert "event: profile.synthesis.completed" in first_body
     assert "event: profile.synthesis.completed" in second_body
-    report = await event_bus.dispatch(make_event("profile.synthesis.completed"))
-    assert report.results == ()
+    assert all(
+        event_bus.local_subscriber_count(event_type) == 0
+        for event_type in (
+            "profile.synthesis.started",
+            "profile.synthesis.completed",
+            "profile.synthesis.degraded",
+            "profile.synthesis.failed",
+            "profile.synthesis.skipped",
+        )
+    )

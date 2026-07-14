@@ -96,7 +96,7 @@ class EventBus:
 
     async def emit(self, event: EventEnvelope) -> None:
         """Best-effort sequential fan-out in priority order."""
-        entries = self._entries_for(event.event_type)
+        entries = self._best_effort_entries_for(event.event_type)
         logger.debug(
             "[BUS] emit %s: edict=%s, memorial=%s, handlers=%d",
             event.event_type,
@@ -104,13 +104,11 @@ class EventBus:
             event.memorial_id,
             len(entries),
         )
-        report = await self.dispatch(event)
-        self._log_failures(event, report)
-        await self._run_local_handlers(event)
+        await self._run_handlers(event, entries)
 
     def fire(self, event: EventEnvelope) -> None:
         """Schedule best-effort fan-out without blocking the caller."""
-        entries = self._entries_for(event.event_type)
+        entries = self._best_effort_entries_for(event.event_type)
         logger.debug(
             "[BUS] fire %s: edict=%s, memorial=%s, handlers=%d",
             event.event_type,
@@ -118,7 +116,7 @@ class EventBus:
             event.memorial_id,
             len(entries),
         )
-        task = asyncio.create_task(self._run_handlers(event))
+        task = asyncio.create_task(self._run_handlers(event, entries))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
@@ -165,6 +163,10 @@ class EventBus:
             entry for entry in entries if entry.handler is not handler
         ]
 
+    def local_subscriber_count(self, event_type: str) -> int:
+        """Return the number of active ephemeral subscribers for an event type."""
+        return len(self._local_handlers.get(event_type, ()))
+
     def _consumer_name_is_registered(self, event_type: str, consumer_name: str) -> bool:
         if event_type == "*":
             return any(
@@ -189,31 +191,32 @@ class EventBus:
         ]
         return sorted(entries, key=lambda entry: entry.priority)
 
-    async def _run_handlers(self, event: EventEnvelope) -> None:
-        report = await self.dispatch(event)
-        self._log_failures(event, report)
-        await self._run_local_handlers(event)
+    def _best_effort_entries_for(self, event_type: str) -> list[_HandlerEntry | _LocalHandlerEntry]:
+        """Merge by priority; ties keep wildcard durable, exact durable, then local order."""
+        entries: list[_HandlerEntry | _LocalHandlerEntry] = [
+            *self._entries_for(event_type),
+            *self._local_handlers.get(event_type, ()),
+        ]
+        return sorted(entries, key=lambda entry: entry.priority)
 
-    async def _run_local_handlers(self, event: EventEnvelope) -> None:
-        entries = list(self._local_handlers.get(event.event_type, ()))
+    async def _run_handlers(
+        self,
+        event: EventEnvelope,
+        entries: list[_HandlerEntry | _LocalHandlerEntry],
+    ) -> None:
         for entry in entries:
             try:
                 await entry.handler(event)
             except Exception:
-                logger.exception(
-                    "Local handler %s failed for event %s",
-                    getattr(entry.handler, "__qualname__", repr(entry.handler)),
-                    event.event_type,
-                )
-
-    @staticmethod
-    def _log_failures(event: EventEnvelope, report: DispatchReport) -> None:
-        for result in report.results:
-            if result.error is None:
-                continue
-            logger.error(
-                "Consumer %s failed for event %s",
-                result.consumer_name,
-                event.event_type,
-                exc_info=(type(result.error), result.error, result.error.__traceback__),
-            )
+                if isinstance(entry, _HandlerEntry):
+                    logger.exception(
+                        "Consumer %s failed for event %s",
+                        entry.consumer_name,
+                        event.event_type,
+                    )
+                else:
+                    logger.exception(
+                        "Local handler %s failed for event %s",
+                        getattr(entry.handler, "__qualname__", repr(entry.handler)),
+                        event.event_type,
+                    )
