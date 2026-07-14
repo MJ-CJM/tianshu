@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +79,75 @@ def _submit(storage: Storage, command: Any, principal_id: str = "principal-a") -
     )
 
 
+def _submit_with_service(service: Any, command: Any) -> Any:
+    return service.submit(
+        command,
+        auth=_auth("principal-a"),
+        producer="integration",
+        correlation_id="correlation-idempotency",
+    )
+
+
+def _overlap_two_submissions(
+    database_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    first_command: Any,
+    second_command: Any,
+) -> tuple[Any, Any]:
+    first_storage = Storage(str(database_path))
+    first_storage.init_db()
+    second_storage = Storage(str(database_path))
+    second_storage.init_db()
+    first_service = _service(first_storage)
+    second_service = _service(second_storage)
+    first_holding_transaction = threading.Event()
+    release_first = threading.Event()
+    second_attempted_uow_entry = threading.Event()
+
+    original_lookup = first_service._outbox.get_submission  # noqa: SLF001 - lock coordination
+
+    def hold_after_namespace_lookup(*args: Any, **kwargs: Any) -> Any:
+        result = original_lookup(*args, **kwargs)
+        first_holding_transaction.set()
+        if not release_first.wait(timeout=10):
+            raise AssertionError("timed out waiting to release first submission transaction")
+        return result
+
+    monkeypatch.setattr(first_service._outbox, "get_submission", hold_after_namespace_lookup)
+
+    original_unit_of_work = second_storage.unit_of_work
+
+    @contextmanager
+    def signaling_unit_of_work() -> Iterator[Any]:
+        second_attempted_uow_entry.set()
+        with original_unit_of_work() as unit_of_work:
+            yield unit_of_work
+
+    monkeypatch.setattr(second_storage, "unit_of_work", signaling_unit_of_work)
+
+    def capture(service: Any, command: Any) -> Any:
+        try:
+            return _submit_with_service(service, command)
+        except Exception as error:  # noqa: BLE001 - outcomes are asserted by the caller
+            return error
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first_future = executor.submit(capture, first_service, first_command)
+            try:
+                assert first_holding_transaction.wait(timeout=10)
+                second_future = executor.submit(capture, second_service, second_command)
+                assert second_attempted_uow_entry.wait(timeout=10)
+                assert not second_future.done()
+            finally:
+                release_first.set()
+            outcomes = (first_future.result(), second_future.result())
+        return outcomes
+    finally:
+        second_storage.close()
+        first_storage.close()
+
+
 def test_same_principal_key_and_canonical_hash_returns_original_response() -> None:
     storage = Storage(":memory:")
     storage.init_db()
@@ -138,12 +210,13 @@ def test_same_principal_and_key_with_different_hash_raises_stable_conflict() -> 
         storage.close()
 
 
-def test_legacy_response_with_mismatched_memorial_edict_relation_is_rejected() -> None:
+def test_non_identity_response_blob_fails_closed_without_replaying_embedded_secret() -> None:
     storage = Storage(":memory:")
     storage.init_db()
     try:
         command = _command("tamper proof", "tamper-key")
         first = _submit(storage, command)
+        embedded_secret = "legacy-response-secret-52bd9"
         legacy_response = {
             "deduplicated": False,
             "edict": first.edict.model_dump(mode="json", exclude_none=False),
@@ -151,14 +224,16 @@ def test_legacy_response_with_mismatched_memorial_edict_relation_is_rejected() -
             "memorial": first.memorial.model_dump(mode="json", exclude_none=False),
             "request_hash": first.request_hash,
         }
-        legacy_response["memorial"]["edict_id"] = "tampered-edict-id"
+        legacy_response["edict"]["metadata"] = {"password": embedded_secret}
+        response_json = canonical_json_bytes(legacy_response).decode("utf-8")
         storage._conn.execute(  # noqa: SLF001 - durable tamper injection
             "UPDATE submission_idempotency SET response_json = ?",
-            (canonical_json_bytes(legacy_response).decode("utf-8"),),
+            (response_json,),
         )
         storage._conn.commit()  # noqa: SLF001 - durable tamper injection
 
-        with pytest.raises(ValueError, match="durable identity"):
+        assert embedded_secret in response_json
+        with pytest.raises(ValueError, match="identity-only"):
             _submit(storage, command)
     finally:
         storage.close()
@@ -307,61 +382,36 @@ def test_idempotent_response_survives_storage_restart(tmp_path: Path) -> None:
         second_storage.close()
 
 
-def test_concurrent_unique_race_resolves_to_new_plus_deduplicated(tmp_path: Path) -> None:
-    database_path = tmp_path / "race.sqlite3"
-    first_storage = Storage(str(database_path))
-    first_storage.init_db()
-    second_storage = Storage(str(database_path))
-    second_storage.init_db()
-    try:
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = [
-                executor.submit(
-                    _submit,
-                    storage,
-                    _command("racing request", "race-key", payload={"stable": True}),
-                )
-                for storage in (first_storage, second_storage)
-            ]
-            results = [future.result() for future in futures]
+def test_concurrent_unique_race_resolves_to_new_plus_deduplicated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    results = _overlap_two_submissions(
+        tmp_path / "race.sqlite3",
+        monkeypatch,
+        _command("racing request", "race-key", payload={"stable": True}),
+        _command("racing request", "race-key", payload={"stable": True}),
+    )
 
-        assert sorted(result.deduplicated for result in results) == [False, True]
-        assert len({result.edict.id for result in results}) == 1
-        assert len({result.memorial.id for result in results}) == 1
-        assert len({result.event_id for result in results}) == 1
-    finally:
-        second_storage.close()
-        first_storage.close()
+    assert not any(isinstance(result, Exception) for result in results)
+    assert sorted(result.deduplicated for result in results) == [False, True]
+    assert len({result.edict.id for result in results}) == 1
+    assert len({result.memorial.id for result in results}) == 1
+    assert len({result.event_id for result in results}) == 1
 
 
-def test_concurrent_same_key_with_different_hash_resolves_to_conflict(tmp_path: Path) -> None:
+def test_concurrent_same_key_with_different_hash_resolves_to_conflict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _, _, conflict_type = _application_types()
-    database_path = tmp_path / "race-conflict.sqlite3"
-    first_storage = Storage(str(database_path))
-    first_storage.init_db()
-    second_storage = Storage(str(database_path))
-    second_storage.init_db()
+    new_result, conflict = _overlap_two_submissions(
+        tmp_path / "race-conflict.sqlite3",
+        monkeypatch,
+        _command("first racing hash", "race-conflict-key"),
+        _command("second racing hash", "race-conflict-key"),
+    )
 
-    def submit_or_capture(storage: Storage, goal: str) -> Any:
-        try:
-            return _submit(storage, _command(goal, "race-conflict-key"))
-        except conflict_type as error:
-            return error
-
-    try:
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = [
-                executor.submit(submit_or_capture, first_storage, "first racing hash"),
-                executor.submit(submit_or_capture, second_storage, "second racing hash"),
-            ]
-            outcomes = [future.result() for future in futures]
-
-        new_results = [outcome for outcome in outcomes if not isinstance(outcome, conflict_type)]
-        conflicts = [outcome for outcome in outcomes if isinstance(outcome, conflict_type)]
-        assert len(new_results) == 1
-        assert new_results[0].deduplicated is False
-        assert len(conflicts) == 1
-        assert conflicts[0].existing_edict_id == new_results[0].edict.id
-    finally:
-        second_storage.close()
-        first_storage.close()
+    assert new_result.deduplicated is False
+    assert isinstance(conflict, conflict_type)
+    assert conflict.existing_edict_id == new_result.edict.id

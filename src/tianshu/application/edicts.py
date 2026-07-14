@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 import unicodedata
 from collections.abc import Mapping
@@ -32,44 +31,47 @@ class _SubmissionStorage(Protocol):
     def get_memorial(self, memorial_id: str) -> Memorial | None: ...
 
 
-_SENSITIVE_PAYLOAD_KEYS = frozenset(
+_SENSITIVE_COMPACT_KEY_ALIASES = frozenset(
     {
         "authorization",
-        "access-token",
-        "api-key",
-        "api-secret",
-        "auth-token",
-        "cookie",
-        "database-url",
-        "db-password",
-        "db-url",
-        "master-key",
-        "password",
-        "private-key",
-        "proxy-authorization",
-        "redis-url",
-        "secret",
-        "secret-key",
-        "set-cookie",
-        "token",
-        "x-api-key",
-        "x-auth-token",
-    }
-)
-_SENSITIVE_PAYLOAD_KEY_PARTS = frozenset(
-    {
-        "authorization",
+        "authorizationheader",
+        "accesstoken",
+        "apikey",
+        "apisecret",
+        "authtoken",
         "cookie",
         "credential",
         "credentials",
+        "databaseurl",
+        "dbpassword",
+        "dburl",
+        "masterkey",
         "password",
         "passwd",
+        "privatekey",
+        "proxyauthorization",
+        "refreshtoken",
+        "redisurl",
         "secret",
+        "secretkey",
+        "setcookie",
         "token",
+        "xapikey",
+        "xauthtoken",
     }
 )
-_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-_NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
+_SENSITIVE_COMPACT_KEY_SUFFIXES = (
+    "apikey",
+    "credential",
+    "credentials",
+    "password",
+    "passwd",
+    "secret",
+    "token",
+)
+_ENVIRONMENT_COMPACT_KEY_ALIASES = frozenset(
+    {"env", "environment", "environmentvalues", "environmentvariables", "envvars"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,7 +199,7 @@ class EdictApplicationService:
                 existing.edict_id,
             )
         payload = json.loads(existing.response_json)
-        identity, legacy_models = _replay_identity(payload)
+        identity = _replay_identity(payload)
         if identity != (
             existing.edict_id,
             existing.memorial_id,
@@ -221,10 +223,9 @@ class EdictApplicationService:
             raise ValueError("stored idempotency response references missing durable identity")
         if durable_memorial.edict_id != durable_edict.id:
             raise ValueError("stored idempotency response has an invalid durable identity relation")
-        edict, memorial = legacy_models or (durable_edict, durable_memorial)
         return SubmitEdictResult(
-            edict=edict,
-            memorial=memorial,
+            edict=durable_edict,
+            memorial=durable_memorial,
             event_id=existing.event_id,
             request_hash=existing.request_hash,
             deduplicated=True,
@@ -274,28 +275,27 @@ def _event_payload(
     return cast(dict[str, JsonValue], _redact_durable_mapping(payload))
 
 
-def _normalized_payload_key(key: str) -> str:
-    separated = _CAMEL_CASE_BOUNDARY.sub("-", key)
-    return _NON_ALPHANUMERIC.sub("-", separated.casefold()).strip("-")
+def _compact_payload_key(key: str) -> str:
+    return "".join(character for character in key.casefold() if character.isalnum())
 
 
-def _is_sensitive_payload_key(normalized_key: str) -> bool:
-    return normalized_key in _SENSITIVE_PAYLOAD_KEYS or bool(
-        set(normalized_key.split("-")) & _SENSITIVE_PAYLOAD_KEY_PARTS
+def _is_sensitive_payload_key(compact_key: str) -> bool:
+    return compact_key in _SENSITIVE_COMPACT_KEY_ALIASES or compact_key.endswith(
+        _SENSITIVE_COMPACT_KEY_SUFFIXES
     )
 
 
 def _redact_durable_mapping(payload: Mapping[str, object]) -> dict[str, object]:
     redacted: dict[str, object] = {}
     for key, value in payload.items():
-        normalized_key = _normalized_payload_key(key)
-        if normalized_key in {"env", "environment"}:
+        compact_key = _compact_payload_key(key)
+        if compact_key in _ENVIRONMENT_COMPACT_KEY_ALIASES:
             redacted[key] = (
                 {str(environment_key): "[REDACTED]" for environment_key in value}
                 if isinstance(value, Mapping)
                 else "[REDACTED]"
             )
-        elif _is_sensitive_payload_key(normalized_key):
+        elif _is_sensitive_payload_key(compact_key):
             redacted[key] = "[REDACTED]"
         else:
             redacted[key] = _redact_durable_value(value)
@@ -327,37 +327,23 @@ def _serialize_replay_identity(result: SubmitEdictResult) -> str:
 
 def _replay_identity(
     payload: object,
-) -> tuple[tuple[str, str, str, str], tuple[Edict, Memorial] | None]:
-    if not isinstance(payload, dict):
-        raise ValueError("stored idempotency response is not an object")
-    if "edict_id" in payload:
-        if set(payload) != {"edict_id", "memorial_id", "event_id", "request_hash"}:
-            raise ValueError("stored idempotency response has invalid durable identity fields")
-        identity = (
-            payload["edict_id"],
-            payload["memorial_id"],
-            payload["event_id"],
-            payload["request_hash"],
-        )
-        if not all(isinstance(value, str) for value in identity):
-            raise ValueError("stored idempotency response has non-string durable identity")
-        return cast(tuple[str, str, str, str], identity), None
-
-    try:
-        edict = Edict.model_validate(payload["edict"])
-        memorial = Memorial.model_validate(payload["memorial"])
-        event_id = payload["event_id"]
-        stored_request_hash = payload["request_hash"]
-    except (KeyError, TypeError, ValueError) as error:
-        raise ValueError("stored idempotency response has invalid legacy identity") from error
-    if not isinstance(event_id, str) or not isinstance(stored_request_hash, str):
-        raise ValueError("stored idempotency response has non-string legacy identity")
-    if memorial.edict_id != edict.id:
-        raise ValueError("stored idempotency response has an invalid durable identity relation")
-    return (
-        (edict.id, memorial.id, event_id, stored_request_hash),
-        (edict, memorial),
+) -> tuple[str, str, str, str]:
+    if not isinstance(payload, dict) or set(payload) != {
+        "edict_id",
+        "memorial_id",
+        "event_id",
+        "request_hash",
+    }:
+        raise ValueError("stored idempotency response must be identity-only")
+    identity = (
+        payload["edict_id"],
+        payload["memorial_id"],
+        payload["event_id"],
+        payload["request_hash"],
     )
+    if not all(isinstance(value, str) for value in identity):
+        raise ValueError("stored idempotency response has non-string durable identity")
+    return cast(tuple[str, str, str, str], identity)
 
 
 __all__ = [

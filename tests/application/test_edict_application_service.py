@@ -239,15 +239,21 @@ def test_outbox_redacts_sensitive_fields_even_without_a_known_token_pattern(
     assert '"environment":{"TOKEN":"[REDACTED]"}' in payload_json
 
 
-def test_outbox_redacts_refresh_token_and_credentials_key_variants(storage: Storage) -> None:
-    refresh_token = "opaque-refresh-value-67c02"
+def test_outbox_redacts_compact_camel_and_snake_credential_aliases(storage: Storage) -> None:
+    api_key = "opaque-api-key-8f31d"
+    compact_refresh_token = "opaque-compact-refresh-value-67c02"
+    camel_refresh_token = "opaque-camel-refresh-value-d44b7"
+    snake_refresh_token = "opaque-snake-refresh-value-c29a1"
     client_credentials = "opaque-client-credentials-a91ed"
     oauth_credentials = "opaque-oauth-credentials-4bd32"
 
     result = _service(storage).submit(
         _command(
             extra_payload={
-                "refresh_token": refresh_token,
+                "apikey": api_key,
+                "refreshtoken": compact_refresh_token,
+                "refreshToken": camel_refresh_token,
+                "refresh_token": snake_refresh_token,
                 "clientCredentials": {"value": client_credentials},
                 "oauth_credentials": oauth_credentials,
             }
@@ -261,12 +267,43 @@ def test_outbox_redacts_refresh_token_and_credentials_key_variants(storage: Stor
         "SELECT payload_json FROM outbox_events WHERE event_id = ?",
         (result.event_id,),
     ).fetchone()[0]
-    assert refresh_token not in payload_json
+    assert api_key not in payload_json
+    assert compact_refresh_token not in payload_json
+    assert camel_refresh_token not in payload_json
+    assert snake_refresh_token not in payload_json
     assert client_credentials not in payload_json
     assert oauth_credentials not in payload_json
+    assert '"apikey":"[REDACTED]"' in payload_json
+    assert '"refreshtoken":"[REDACTED]"' in payload_json
+    assert '"refreshToken":"[REDACTED]"' in payload_json
     assert '"refresh_token":"[REDACTED]"' in payload_json
     assert '"clientCredentials":"[REDACTED]"' in payload_json
     assert '"oauth_credentials":"[REDACTED]"' in payload_json
+
+
+def test_outbox_preserves_non_secret_token_metrics(storage: Storage) -> None:
+    result = _service(storage).submit(
+        _command(
+            extra_payload={
+                "token_budget": 4096,
+                "tokenCount": 17,
+                "nested": {"token_count": 3},
+            }
+        ),
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-token-metrics",
+    )
+
+    payload = json.loads(
+        storage._conn.execute(  # noqa: SLF001 - persisted preservation proof
+            "SELECT payload_json FROM outbox_events WHERE event_id = ?",
+            (result.event_id,),
+        ).fetchone()[0]
+    )
+    assert payload["token_budget"] == 4096
+    assert payload["tokenCount"] == 17
+    assert payload["nested"]["token_count"] == 3
 
 
 def test_idempotency_blob_stores_only_safe_identity_and_replays_exact_models(
@@ -315,28 +352,23 @@ def test_idempotency_blob_stores_only_safe_identity_and_replays_exact_models(
     assert second.event_id == first.event_id
 
 
-def test_unrelated_integrity_error_is_not_reclassified_as_idempotent_dedupe(
-    storage: Storage,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_duplicate_edict_id_integrity_error_propagates_and_rolls_back(storage: Storage) -> None:
     command = _command()
-    service = _service(storage)
-    service.submit(
-        command,
-        auth=_auth(),
-        producer="test",
-        correlation_id="correlation-first",
-    )
+    storage.save_edict(command.edict)
 
-    def fail_with_unrelated_integrity(*_args: object, **_kwargs: object) -> None:
-        raise sqlite3.IntegrityError("CHECK constraint failed: unrelated_table")
-
-    monkeypatch.setattr(service, "_submit_once", fail_with_unrelated_integrity)
-
-    with pytest.raises(sqlite3.IntegrityError, match="unrelated_table"):
-        service.submit(
+    with pytest.raises(sqlite3.IntegrityError, match="edicts.id"):
+        _service(storage).submit(
             command,
             auth=_auth(),
             producer="test",
-            correlation_id="correlation-retry",
+            correlation_id="correlation-duplicate-edict",
         )
+
+    assert storage._conn.in_transaction is False  # noqa: SLF001 - rollback proof
+    assert storage._conn.execute("SELECT COUNT(*) FROM edicts").fetchone()[0] == 1  # noqa: SLF001
+    assert (  # noqa: SLF001 - pre-existing contract preserved
+        storage._conn.execute("SELECT COUNT(*) FROM requested_governance_contracts").fetchone()[0]
+        == 1
+    )
+    for table in ("memorials", "outbox_events", "submission_idempotency"):
+        assert storage._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0  # noqa: SLF001
