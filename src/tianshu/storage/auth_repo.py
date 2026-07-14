@@ -60,6 +60,17 @@ INSERT INTO auth_tokens (
 """
 
 
+def _with_transition_count(
+    audit: AppendSystemAuditRequest,
+    transition_count: int,
+) -> AppendSystemAuditRequest:
+    if audit.action not in {"auth.token.revoked", "auth.session.revoked"}:
+        return audit
+    payload = audit.model_dump()
+    payload["metadata"] = {**audit.metadata, "family_size": transition_count}
+    return AppendSystemAuditRequest.model_validate(payload)
+
+
 class AuthMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
@@ -131,8 +142,8 @@ class AuthMixin:
             cursor = self._conn.execute(
                 """
                 UPDATE auth_tokens
-                SET revoked_at = COALESCE(revoked_at, ?)
-                WHERE id = ?
+                SET revoked_at = ?
+                WHERE id = ? AND revoked_at IS NULL
                 """,
                 (revoked_at, token_id),
             )
@@ -148,13 +159,16 @@ class AuthMixin:
             cursor = self._conn.execute(
                 """
                 UPDATE auth_tokens
-                SET revoked_at = COALESCE(revoked_at, ?)
-                WHERE id = ?
+                SET revoked_at = ?
+                WHERE id = ? AND revoked_at IS NULL
                 """,
                 (revoked_at, token_id),
             )
             if cursor.rowcount > 0:
-                _append_system_audit_unlocked(self._conn, audit)
+                _append_system_audit_unlocked(
+                    self._conn,
+                    _with_transition_count(audit, cursor.rowcount),
+                )
         return cursor.rowcount > 0
 
     def revoke_auth_family(self, family_id: str, revoked_at: str) -> int:
@@ -162,8 +176,8 @@ class AuthMixin:
             cursor = self._conn.execute(
                 """
                 UPDATE auth_tokens
-                SET revoked_at = COALESCE(revoked_at, ?)
-                WHERE family_id = ?
+                SET revoked_at = ?
+                WHERE family_id = ? AND revoked_at IS NULL
                 """,
                 (revoked_at, family_id),
             )
@@ -179,13 +193,16 @@ class AuthMixin:
             cursor = self._conn.execute(
                 """
                 UPDATE auth_tokens
-                SET revoked_at = COALESCE(revoked_at, ?)
-                WHERE family_id = ?
+                SET revoked_at = ?
+                WHERE family_id = ? AND revoked_at IS NULL
                 """,
                 (revoked_at, family_id),
             )
-            if cursor.rowcount > 0:
-                _append_system_audit_unlocked(self._conn, audit)
+            if cursor.rowcount > 0 or audit.outcome == "denied":
+                _append_system_audit_unlocked(
+                    self._conn,
+                    _with_transition_count(audit, cursor.rowcount),
+                )
         return cursor.rowcount
 
     def replace_auth_token(

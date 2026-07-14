@@ -38,6 +38,7 @@ ALL_AUTH_SCOPES = frozenset({"admin", "api", "mcp:read", "mcp:submit", "workspac
 # 已认证才拿到内部检查详情。解析失败一律当匿名处理，绝不因此拒绝请求。
 _AUTH_AWARE_PUBLIC_PATHS = frozenset({"/health/ready"})
 _LOCAL_ORIGIN = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$")
+_INTERNAL_AUDIT_ACTOR_IDENTITY = "internal-legacy-unattributed-caller"
 _current_auth_context: ContextVar[AuthContext | None] = ContextVar(
     "current_auth_context",
     default=None,
@@ -112,7 +113,7 @@ def hash_system_audit_identity(value: str) -> str:
 def _effective_audit_context(
     audit_context: SecurityAuditContext | None,
     *,
-    actor_identity: str,
+    authenticated_actor_identity: str | None = None,
 ) -> SecurityAuditContext:
     if audit_context is None:
         current = get_current_auth_context()
@@ -125,6 +126,7 @@ def _effective_audit_context(
             audit_context = SecurityAuditContext(
                 correlation_id=f"auth-internal:{ULID()}",
             )
+    actor_identity = authenticated_actor_identity or _INTERNAL_AUDIT_ACTOR_IDENTITY
     return SecurityAuditContext(
         correlation_id=audit_context.correlation_id,
         actor_digest=(audit_context.actor_digest or hash_system_audit_identity(actor_identity)),
@@ -272,7 +274,7 @@ class AuthService:
             expires_at=expires_at,
         )
         audit = _auth_audit_request(
-            _effective_audit_context(audit_context, actor_identity=principal.id),
+            _effective_audit_context(audit_context),
             action="auth.token.issued",
             outcome="succeeded",
             reason_code="policy_allowed",
@@ -314,10 +316,7 @@ class AuthService:
             expires_at=expires_at,
         )
         audit = _auth_audit_request(
-            _effective_audit_context(
-                audit_context,
-                actor_identity=str(old["principal_id"]),
-            ),
+            _effective_audit_context(audit_context),
             action="auth.token.rotated",
             outcome="succeeded",
             reason_code="policy_allowed",
@@ -347,16 +346,15 @@ class AuthService:
         audit_context: SecurityAuditContext | None = None,
     ) -> bool:
         row = self._storage.get_auth_token(token_id)
-        actor_identity = str(row["principal_id"]) if row is not None else "system"
         token_type = str(row["token_type"]) if row is not None else "pat"
         audit = _auth_audit_request(
-            _effective_audit_context(audit_context, actor_identity=actor_identity),
+            _effective_audit_context(audit_context),
             action="auth.token.revoked",
             outcome="succeeded",
             reason_code="policy_allowed",
             subject_kind="auth_token",
             subject_identity=token_id,
-            metadata={"family_size": 1, "token_type": token_type},
+            metadata={"token_type": token_type},
         )
         return self._storage.revoke_auth_token_with_audit(
             token_id,
@@ -474,7 +472,7 @@ class AuthService:
         )
         if context is None:
             denied = _auth_audit_request(
-                _effective_audit_context(audit_context, actor_identity="anonymous"),
+                _effective_audit_context(audit_context),
                 action="auth.session.denied",
                 outcome="denied",
                 reason_code="invalid_credentials",
@@ -488,7 +486,7 @@ class AuthService:
         records, pair = self._session_records(context.principal, family_id)
         effective = _effective_audit_context(
             audit_context,
-            actor_identity=context.principal.id,
+            authenticated_actor_identity=context.principal.id,
         )
         audits = [
             _auth_audit_request(
@@ -530,7 +528,7 @@ class AuthService:
         if context.credential_id is None:
             self._append_session_denial(
                 audit_context,
-                actor_identity=context.principal.id,
+                authenticated_actor_identity=context.principal.id,
                 token_type="refresh",
             )
             return None
@@ -538,14 +536,14 @@ class AuthService:
         if old is None or old["family_id"] is None:
             self._append_session_denial(
                 audit_context,
-                actor_identity=context.principal.id,
+                authenticated_actor_identity=context.principal.id,
                 token_type="refresh",
             )
             return None
         records, pair = self._session_records(context.principal, old["family_id"])
         effective = _effective_audit_context(
             audit_context,
-            actor_identity=context.principal.id,
+            authenticated_actor_identity=context.principal.id,
         )
         audit = _auth_audit_request(
             effective,
@@ -567,7 +565,7 @@ class AuthService:
         except ValueError:
             self._append_session_denial(
                 audit_context,
-                actor_identity=context.principal.id,
+                authenticated_actor_identity=context.principal.id,
                 token_type="refresh",
             )
             return None
@@ -577,11 +575,14 @@ class AuthService:
         self,
         audit_context: SecurityAuditContext | None,
         *,
-        actor_identity: str,
+        authenticated_actor_identity: str | None = None,
         token_type: str,
     ) -> None:
         audit = _auth_audit_request(
-            _effective_audit_context(audit_context, actor_identity=actor_identity),
+            _effective_audit_context(
+                audit_context,
+                authenticated_actor_identity=authenticated_actor_identity,
+            ),
             action="auth.session.denied",
             outcome="denied",
             reason_code="invalid_credentials",
@@ -609,14 +610,13 @@ class AuthService:
         ):
             self._append_session_denial(
                 audit_context,
-                actor_identity="anonymous",
                 token_type="refresh",
             )
             return
         audit = _auth_audit_request(
             _effective_audit_context(
                 audit_context,
-                actor_identity=str(row["principal_id"]),
+                authenticated_actor_identity=str(row["principal_id"]),
             ),
             action="auth.session.denied",
             outcome="denied",
@@ -640,22 +640,14 @@ class AuthService:
         row = self._storage.get_auth_token(credential_id)
         if row is None or row["family_id"] is None:
             return False
-        family_size = sum(
-            1
-            for token in self._storage.list_auth_tokens()
-            if token["family_id"] == row["family_id"]
-        )
         audit = _auth_audit_request(
-            _effective_audit_context(
-                audit_context,
-                actor_identity=str(row["principal_id"]),
-            ),
+            _effective_audit_context(audit_context),
             action="auth.session.revoked",
             outcome="succeeded",
             reason_code="policy_allowed",
             subject_kind="session_family",
             subject_identity=str(row["family_id"]),
-            metadata={"family_size": family_size},
+            metadata={},
         )
         return (
             self._storage.revoke_auth_family_with_audit(

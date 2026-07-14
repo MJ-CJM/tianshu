@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable
+from threading import Event, Thread
 
 import pytest
 
 from tianshu.config import TianshuSettings
 from tianshu.gateway.auth import AuthService
 from tianshu.models.principal import Principal, PrincipalKind
+from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.security.estop import EstopManager
 from tianshu.storage import Storage
 
@@ -158,6 +161,123 @@ def test_session_create_rotate_revoke_and_denials_are_audited(storage: Storage) 
     assert "SECRET_DENIED_SESSION_SENTINEL" not in serialized
     assert pat.raw_token not in serialized
     assert first.refresh_token not in serialized
+
+
+def test_repeated_pat_revoke_returns_false_without_duplicate_success_audit(
+    storage: Storage,
+) -> None:
+    service = AuthService(storage, _settings())
+    issued = service.issue_pat(
+        _principal(suffix="repeat-pat"),
+        label="repeat-pat",
+        scopes=frozenset({"api"}),
+        audit_context=_audit_context("repeat-pat-issue"),
+    )
+
+    assert service.revoke_token(
+        issued.id,
+        audit_context=_audit_context("repeat-pat-first-revoke"),
+    )
+    assert not service.revoke_token(
+        issued.id,
+        audit_context=_audit_context("repeat-pat-second-revoke"),
+    )
+
+    revoked = [
+        event for event in storage.list_system_audit() if event.action == "auth.token.revoked"
+    ]
+    assert len(revoked) == 1
+    assert revoked[0].correlation_id == "repeat-pat-first-revoke"
+    assert revoked[0].metadata["family_size"] == 1
+
+
+def test_repeated_session_revoke_returns_false_and_uses_transitioned_family_size(
+    storage: Storage,
+) -> None:
+    service = AuthService(storage, _settings())
+    pat = service.issue_pat(
+        _principal(suffix="repeat-session"),
+        label="repeat-session",
+        scopes=frozenset({"api"}),
+        audit_context=_audit_context("repeat-session-pat"),
+    )
+    pair = service.create_session(
+        pat.raw_token,
+        audit_context=_audit_context("repeat-session-create"),
+    )
+    assert pair is not None
+    credential_id = next(
+        row["id"]
+        for row in _token_rows(storage)
+        if row["family_id"] == pair.family_id and row["token_type"] == "access"
+    )
+
+    assert service.revoke_session(
+        credential_id,
+        audit_context=_audit_context("repeat-session-first-revoke"),
+    )
+    assert not service.revoke_session(
+        credential_id,
+        audit_context=_audit_context("repeat-session-second-revoke"),
+    )
+
+    revoked = [
+        event for event in storage.list_system_audit() if event.action == "auth.session.revoked"
+    ]
+    assert len(revoked) == 1
+    assert revoked[0].correlation_id == "repeat-session-first-revoke"
+    assert revoked[0].metadata["family_size"] == 2
+
+
+def test_unattributed_direct_mutations_use_internal_actor_not_target_owner(
+    storage: Storage,
+) -> None:
+    service = AuthService(storage, _settings())
+    principal = _principal(suffix="unattributed-target")
+    target_digest = hashlib.sha256(principal.id.encode()).hexdigest()
+    internal_literal = "internal-legacy-unattributed-caller"
+    internal_digest = hashlib.sha256(internal_literal.encode()).hexdigest()
+
+    rotate_target = service.issue_pat(
+        principal,
+        label="rotate-target",
+        scopes=frozenset({"api"}),
+        audit_context=_audit_context("unattributed-rotate-setup"),
+    )
+    service.rotate_pat(rotate_target.id)
+
+    revoke_target = service.issue_pat(
+        principal,
+        label="revoke-target",
+        scopes=frozenset({"api"}),
+        audit_context=_audit_context("unattributed-revoke-setup"),
+    )
+    assert service.revoke_token(revoke_target.id)
+
+    session_pat = service.issue_pat(
+        principal,
+        label="session-target",
+        scopes=frozenset({"api"}),
+        audit_context=_audit_context("unattributed-session-pat"),
+    )
+    pair = service.create_session(
+        session_pat.raw_token,
+        audit_context=_audit_context("unattributed-session-create"),
+    )
+    assert pair is not None
+    credential_id = next(
+        row["id"]
+        for row in _token_rows(storage)
+        if row["family_id"] == pair.family_id and row["token_type"] == "access"
+    )
+    assert service.revoke_session(credential_id)
+
+    actions = {"auth.token.rotated", "auth.token.revoked", "auth.session.revoked"}
+    direct_events = [event for event in storage.list_system_audit() if event.action in actions]
+    assert len(direct_events) == 3
+    assert all(event.actor_digest == internal_digest for event in direct_events)
+    assert all(event.actor_digest != target_digest for event in direct_events)
+    assert internal_literal not in repr([event.model_dump(mode="json") for event in direct_events])
 
 
 @pytest.mark.parametrize(
@@ -341,3 +461,68 @@ def test_estop_database_and_memory_roll_back_when_audit_append_fails(
 
     assert manager.status() == before_memory
     assert storage.get_estop_state() == before_database
+
+
+def test_estop_concurrent_transitions_keep_cache_database_and_last_audit_consistent(
+    storage: Storage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = EstopManager(storage)
+    engage_committed = Event()
+    release_engage = Event()
+    original_save = storage.save_estop_state_with_audit
+
+    def controlled_save(state: dict, audit: AppendSystemAuditRequest) -> None:
+        original_save(state, audit)
+        if audit.action == "estop.engaged":
+            engage_committed.set()
+            assert release_engage.wait(timeout=5)
+
+    monkeypatch.setattr(storage, "save_estop_state_with_audit", controlled_save)
+    errors: list[BaseException] = []
+
+    def run(call: Callable[[], object]) -> None:
+        try:
+            call()
+        except BaseException as exc:  # noqa: BLE001 - thread failures must fail the test
+            errors.append(exc)
+
+    engage_thread = Thread(
+        target=run,
+        args=(
+            lambda: manager.engage(
+                kill_all=True,
+                audit_context=_audit_context("concurrent-estop-engage"),
+            ),
+        ),
+    )
+    engage_thread.start()
+    assert engage_committed.wait(timeout=5)
+
+    resume_thread = Thread(
+        target=run,
+        args=(
+            lambda: manager.resume(
+                all_clear=True,
+                audit_context=_audit_context("concurrent-estop-resume"),
+            ),
+        ),
+    )
+    resume_thread.start()
+    resume_thread.join(timeout=1)
+    release_engage.set()
+    engage_thread.join(timeout=5)
+    resume_thread.join(timeout=5)
+
+    assert not engage_thread.is_alive()
+    assert not resume_thread.is_alive()
+    assert errors == []
+    state = manager.status()
+    row = storage.get_estop_state()
+    assert row is not None
+    last_audit = storage.list_system_audit()[-1]
+    assert last_audit.action == "estop.resumed"
+    assert state.kill_all is bool(row["kill_all"]) is last_audit.metadata["kill_all"]
+    assert state.network_kill is bool(row["network_kill"]) is last_audit.metadata["network_kill"]
+    assert state.frozen_tools == frozenset(json.loads(row["frozen_tools_json"]))
+    assert len(state.frozen_tools) == last_audit.metadata["frozen_tool_count"]
