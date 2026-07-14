@@ -30,6 +30,49 @@ def test_edict_submit_smoke(respx_mock, monkeypatch, tmp_path):
     assert "submitted" in result.stdout
 
 
+def test_edict_submit_sends_one_stable_header_and_body_key(respx_mock, monkeypatch, tmp_path):
+    monkeypatch.delenv("TIANSHU_API_URL", raising=False)
+    monkeypatch.delenv("TIANSHU_API_TOKEN", raising=False)
+    monkeypatch.setenv("TIANSHU_CREDENTIAL_FILE", str(tmp_path / "credentials.json"))
+    route = respx_mock.post("http://localhost:8000/api/edicts").respond(
+        202,
+        json={"data": {"id": "01HSTABLE", "goal": "写周报", "status": "open"}},
+    )
+
+    result = runner.invoke(
+        app,
+        ["edict", "submit", "--goal", "写周报", "--idempotency-key", "cli-request-1"],
+    )
+
+    assert result.exit_code == 0
+    assert len(route.calls) == 1
+    request = route.calls[0].request
+    assert request.headers["Idempotency-Key"] == "cli-request-1"
+    import json
+
+    assert json.loads(request.content)["idempotency_key"] == "cli-request-1"
+
+
+def test_edict_submit_generates_key_once_when_omitted(respx_mock, monkeypatch, tmp_path):
+    monkeypatch.delenv("TIANSHU_API_URL", raising=False)
+    monkeypatch.delenv("TIANSHU_API_TOKEN", raising=False)
+    monkeypatch.setenv("TIANSHU_CREDENTIAL_FILE", str(tmp_path / "credentials.json"))
+    route = respx_mock.post("http://localhost:8000/api/edicts").respond(
+        202,
+        json={"data": {"id": "01HGENERATED", "goal": "写周报", "status": "open"}},
+    )
+
+    result = runner.invoke(app, ["edict", "submit", "--goal", "写周报"])
+
+    assert result.exit_code == 0
+    request = route.calls[0].request
+    generated = request.headers["Idempotency-Key"]
+    import json
+
+    assert generated
+    assert json.loads(request.content)["idempotency_key"] == generated
+
+
 def test_edict_list_smoke(respx_mock, monkeypatch, tmp_path):
     monkeypatch.delenv("TIANSHU_API_URL", raising=False)
     monkeypatch.delenv("TIANSHU_API_TOKEN", raising=False)

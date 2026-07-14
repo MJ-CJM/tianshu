@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
+from tianshu.application.edicts import (
+    EdictApplicationService,
+    IdempotencyConflict,
+    SubmitEdictCommand,
+)
 from tianshu.bus.event_bus import EventBus
-from tianshu.edict_ops import submit_new_edict
 from tianshu.executor.capabilities import (
     MandatoryCapabilityMismatch,
     get_executor_manifest,
@@ -261,35 +263,30 @@ def _governance_preview(
     }
 
 
-def _idempotency_request_hash(
-    body: EdictCreateRequest,
-    contract: RequestedGovernanceContractV1,
-    execution_mode: Literal["single", "outer_loop"],
-) -> str:
-    payload = {
-        "contract_hash": contract.content_hash,
-        "execution_mode": execution_mode,
-        "title": title_from_goal(body.goal, body.title),
-        "priority": body.priority or "normal",
-        "assigned_persona_id": body.assigned_persona_id,
-        "planner_persona_id": body.planner_persona_id,
-        "plan_review": body.plan_review,
-        "execution_profile": body.execution_profile,
-    }
-    canonical = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-    return hashlib.sha256(canonical.encode()).hexdigest()
-
-
 @edicts_router.post("", response_model=ApiResponse, status_code=202)
-async def create_edict(body: EdictCreateRequest, request: Request):
+async def create_edict(body: EdictCreateRequest, request: Request, response: Response):
     storage: Storage = request.app.state.storage
-    event_bus: EventBus = request.app.state.event_bus
-    submitter = get_auth_context(request).principal.id
+    auth = get_auth_context(request)
+    submitter = auth.principal.id
+    header_key = request.headers.get("Idempotency-Key")
+    if (
+        header_key is not None
+        and body.idempotency_key is not None
+        and header_key != body.idempotency_key
+    ):
+        raise HTTPException(
+            422,
+            {
+                "code": "idempotency_key_mismatch",
+                "header": header_key,
+                "body": body.idempotency_key,
+            },
+        )
+    idempotency_key = header_key or body.idempotency_key or f"http:{auth.correlation_id}"
 
     runtime = _runtime_from_request(body, request)
     requested_contract = _requested_contract_from_body(body, request, runtime)
     execution_mode = _execution_mode_from_body(body, requested_contract)
-    request_hash = _idempotency_request_hash(body, requested_contract, execution_mode)
 
     preview = _governance_preview(requested_contract, execution_mode=execution_mode)
     if not preview["compatible"]:
@@ -313,37 +310,6 @@ async def create_edict(body: EdictCreateRequest, request: Request):
             },
         )
 
-    # Idempotency check: the same actor/key only deduplicates the same request.
-    if body.idempotency_key:
-        existing = storage.find_edict_by_idempotency_key(
-            submitter,
-            body.idempotency_key,
-        )
-        if existing:
-            existing_hash = existing.metadata.get("idempotency_request_hash")
-            if existing_hash is None:
-                existing_contract = existing.governance_contract
-                same_legacy_request = (
-                    existing.goal == body.goal
-                    and existing_contract is not None
-                    and existing_contract.content_hash == requested_contract.content_hash
-                )
-                if not same_legacy_request:
-                    raise HTTPException(
-                        409,
-                        {"code": "idempotency_conflict", "idempotency_key": body.idempotency_key},
-                    )
-            elif existing_hash != request_hash:
-                raise HTTPException(
-                    409,
-                    {"code": "idempotency_conflict", "idempotency_key": body.idempotency_key},
-                )
-            return ApiResponse(
-                success=True,
-                data=existing.model_dump(mode="json"),
-                metadata={"deduplicated": True},
-            )
-
     title = title_from_goal(body.goal, body.title)
     edict_kwargs: dict = {
         "title": title,
@@ -355,10 +321,8 @@ async def create_edict(body: EdictCreateRequest, request: Request):
         "review_policy": requested_contract.permissions.review_policy,
         "runtime": runtime,
         "governance_contract": requested_contract,
+        "idempotency_key": idempotency_key,
     }
-    if body.idempotency_key:
-        edict_kwargs["idempotency_key"] = body.idempotency_key
-        edict_kwargs["metadata"] = {"idempotency_request_hash": request_hash}
     if body.priority:
         edict_kwargs["priority"] = body.priority
     # 六科给事中·封驳(迭代 7):提交预检——超长封还 / 成本超阈升 plan_review 票拟(D9)
@@ -398,12 +362,37 @@ async def create_edict(body: EdictCreateRequest, request: Request):
         edict.assigned_persona_id,
     )
 
-    # Fire-and-forget: 不阻塞 API 响应，事件链在后台异步执行
-    submit_new_edict(storage, event_bus, edict, producer=f"gateway:{submitter}")
+    service = getattr(request.app.state, "edict_application_service", None)
+    if service is None:
+        service = EdictApplicationService(storage)
+    command = SubmitEdictCommand(
+        edict=edict,
+        idempotency_key=idempotency_key,
+        requested_contract=requested_contract,
+        extra_payload={"via": "http"},
+    )
+    try:
+        result = service.submit(
+            command,
+            auth=auth,
+            producer=f"gateway:{submitter}",
+            correlation_id=auth.correlation_id,
+        )
+    except IdempotencyConflict as conflict:
+        raise HTTPException(
+            409,
+            {
+                "code": "idempotency_conflict",
+                "idempotency_key": conflict.idempotency_key,
+            },
+        ) from conflict
+
+    response.status_code = 200 if result.deduplicated else 202
 
     return ApiResponse(
         success=True,
-        data=edict.model_dump(mode="json"),
+        data=result.edict.model_dump(mode="json"),
+        metadata={"deduplicated": True} if result.deduplicated else None,
     )
 
 

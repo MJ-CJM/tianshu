@@ -7,12 +7,22 @@ import logging
 from datetime import UTC, datetime
 from typing import Literal
 
+from tianshu.application.edicts import EdictApplicationService, SubmitEdictCommand
+from tianshu.application.ingress import (
+    make_ingress_auth_context,
+    requested_contract_for_edict,
+)
 from tianshu.bus.event_bus import EventBus
 from tianshu.models.common import TaskStatus
 from tianshu.models.decree import Decree
 from tianshu.models.edict import Edict, title_from_goal
 from tianshu.models.events import make_event
 from tianshu.models.memorial import Memorial
+from tianshu.models.principal import (
+    AuthenticationSource,
+    ClientKind,
+    PrincipalKind,
+)
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -28,10 +38,12 @@ class ApprovalManager:
         event_bus: EventBus,
         storage: Storage,
         session_rule_store: object | None = None,
+        edict_application_service: EdictApplicationService | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
         self._session_rule_store = session_rule_store
+        self._edict_application = edict_application_service or EdictApplicationService(storage)
         self._pending: dict[str, asyncio.Event] = {}
         self._results: dict[str, Decree] = {}
         # Spec Section 4: 记录 wait_for_approval 时的 tool_name，方便 _handle_approve 生成 session rule
@@ -385,15 +397,29 @@ class ApprovalManager:
                 goal=decree.amended_goal,
                 title=title_from_goal(decree.amended_goal),
                 context=f"Amended from memorial {memorial.id}",
+                submitter=f"approval:{decree.actor}",
             )
-            self._storage.save_edict(new_edict)
-            await self._bus.emit(
-                make_event(
-                    "edict.submitted",
-                    edict_id=new_edict.id,
-                    producer="approval_manager",
-                    payload={"goal": new_edict.goal, "amended_from": memorial.id},
-                )
+            correlation_id = f"amend:{decree.id}"
+            command = SubmitEdictCommand(
+                edict=new_edict,
+                idempotency_key=correlation_id,
+                requested_contract=requested_contract_for_edict(new_edict),
+                extra_payload={
+                    "amended_from": memorial.id,
+                    "decree_id": decree.id,
+                },
+            )
+            self._edict_application.submit(
+                command,
+                auth=make_ingress_auth_context(
+                    principal_id=f"approval:{decree.actor}",
+                    principal_kind=PrincipalKind.SERVICE,
+                    source=AuthenticationSource.TRUSTED_LOCAL,
+                    client_kind=ClientKind.SYSTEM,
+                    correlation_id=correlation_id,
+                ),
+                producer="approval_manager",
+                correlation_id=correlation_id,
             )
 
     async def _handle_cancel(self, memorial: Memorial, decree: Decree) -> None:

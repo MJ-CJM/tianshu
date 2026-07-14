@@ -28,6 +28,10 @@ class FeishuMessage:
     raw: dict
     message_id: str = ""  # 原 user 消息 id（用于 emoji reaction api）
 
+    @property
+    def ingress_id(self) -> str:
+        return self.event_id or self.message_id
+
 
 @dataclass
 class FeishuCardAction:

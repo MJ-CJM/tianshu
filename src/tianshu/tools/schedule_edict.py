@@ -16,10 +16,21 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from tianshu.kernel.ambient import get_current_edict
+from tianshu.application.edicts import EdictApplicationService, SubmitEdictCommand
+from tianshu.application.ingress import (
+    make_ingress_auth_context,
+    requested_contract_for_edict,
+)
+from tianshu.kernel.ambient import get_current_edict, get_current_tool_invocation_id
 from tianshu.models.common import VALID_EXECUTION_PROFILES, VALID_PRIORITIES
 from tianshu.models.edict import Edict, title_from_goal
+from tianshu.models.principal import (
+    AuthenticationSource,
+    ClientKind,
+    PrincipalKind,
+)
 from tianshu.scheduler.schedule_spec import parse_spec
+from tianshu.scheduler.scheduler import submission_job_id
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
@@ -72,8 +83,10 @@ def register_schedule_edict(
     storage: Storage,
     scheduler: Scheduler,
     persona_loader: PersonaLoader | None = None,
+    edict_application_service: EdictApplicationService | None = None,
 ) -> None:
     """注册 schedule_edict tool 到 ToolRegistry。"""
+    edict_application = edict_application_service or EdictApplicationService(storage)
 
     async def _create(
         goal: str | None,
@@ -150,18 +163,32 @@ def register_schedule_edict(
         if isinstance(resolved, dict) and resolved:
             edict_kwargs["metadata"] = resolved
         edict = Edict(**edict_kwargs)
-        storage.save_edict(edict)
-
-        # 不预建 memorial：每次到点触发由 executor 自动创建独立 memorial（运行记录）。
-        job_id = await scheduler.schedule(edict)
-
-        job_row = storage.get_scheduler_job(job_id)
-        next_run = (
-            job_row.get("next_run") if job_row else (parsed.at.isoformat() if parsed.at else None)
+        invocation_id = get_current_tool_invocation_id() or edict.id
+        correlation_id = f"tool:{invocation_id}"
+        caller = get_current_edict()
+        command = SubmitEdictCommand(
+            edict=edict,
+            idempotency_key=correlation_id,
+            requested_contract=requested_contract_for_edict(edict),
+            extra_payload={"via": "schedule_edict_tool"},
         )
+        submission = edict_application.submit(
+            command,
+            auth=make_ingress_auth_context(
+                principal_id=f"tool:{caller.submitter if caller and caller.submitter else 'assistant'}",
+                principal_kind=PrincipalKind.SERVICE,
+                source=AuthenticationSource.TRUSTED_LOCAL,
+                client_kind=ClientKind.SYSTEM,
+                correlation_id=correlation_id,
+            ),
+            producer="schedule_edict_tool",
+            correlation_id=correlation_id,
+        )
+        job_id = submission_job_id(submission.event_id)
+        next_run = parsed.at.isoformat() if parsed.at else None
         logger.info(
-            "[tools/schedule_edict] scheduled edict=%s job=%s type=%s goal=%.50s",
-            edict.id,
+            "[tools/schedule_edict] queued edict=%s job=%s type=%s goal=%.50s",
+            submission.edict.id,
             job_id,
             parsed.type,
             goal,
@@ -179,18 +206,20 @@ def register_schedule_edict(
         else:
             deliver_label = "仅 Web"
         return ok_result(
-            f"已安排 {type_label}任务 #{edict.id[:8]}「{edict_title}」"
-            f"（job={job_id[:8]}，下次 {next_run or '即将'}，回执→{deliver_label}）",
+            f"已提交 {type_label}任务 #{submission.edict.id[:8]}「{edict_title}」"
+            f"（job={job_id[:8]}，等待调度器接管，回执→{deliver_label}）",
             details={
                 "job_id": job_id,
-                "edict_id": edict.id,
+                "edict_id": submission.edict.id,
+                "memorial_id": submission.memorial.id,
+                "status": "queued",
                 "title": edict_title,
                 "schedule_type": parsed.type,
                 "next_run": next_run,
                 "cron": parsed.cron,
                 "interval_seconds": parsed.interval_seconds,
                 "timezone": parsed.timezone,
-                "assigned_persona_id": edict.assigned_persona_id,
+                "assigned_persona_id": submission.edict.assigned_persona_id,
                 "deliver": deliver_label,
             },
         )

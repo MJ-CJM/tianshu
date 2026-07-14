@@ -86,7 +86,12 @@ class ToolRegistry:
         return entry[0] if entry else None
 
     async def execute(
-        self, name: str, args: str | dict, lifecycle_phase: str = "active"
+        self,
+        name: str,
+        args: str | dict,
+        lifecycle_phase: str = "active",
+        *,
+        invocation_id: str | None = None,
     ) -> ToolResult:
         # Spec Section 2: function-local import to avoid top-level circular dependency
         from tianshu.tools.types import ToolTier
@@ -178,11 +183,14 @@ class ToolRegistry:
             list(args.keys()) if isinstance(args, dict) else "raw",
         )
 
-        if bound_workspace is not None:
-            async with bound_workspace.tool_lock:
-                bound_workspace.validate_identity()
-                return await self._invoke(name, args, defn, func)
-        return await self._invoke(name, args, defn, func)
+        from tianshu.kernel.ambient import bind_tool_invocation_id
+
+        with bind_tool_invocation_id(invocation_id):
+            if bound_workspace is not None:
+                async with bound_workspace.tool_lock:
+                    bound_workspace.validate_identity()
+                    return await self._invoke(name, args, defn, func)
+            return await self._invoke(name, args, defn, func)
 
     async def _invoke(
         self,

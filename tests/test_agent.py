@@ -11,7 +11,7 @@ from tianshu.kernel.hooks import HookRegistry, HookResult, HookType
 from tianshu.models import Edict, TaskStatus, UsageSummary
 from tianshu.skills.loader import SkillsLoader
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
-from tianshu.tools.types import error_result
+from tianshu.tools.types import ToolResult, error_result, ok_result
 
 
 class TestAgent:
@@ -325,6 +325,50 @@ class TestAgentIntegration:
         assert result.exit_reason == ExitReason.COMPLETED
         assert result.iteration_count == 2
         assert "2 bugs" in result.summary
+
+    async def test_agent_propagates_llm_tool_call_id_to_registry(
+        self,
+        config_manager,
+        skills,
+    ):
+        from tianshu.kernel.ambient import get_current_tool_invocation_id
+
+        seen: list[str | None] = []
+        tools = ToolRegistry()
+
+        async def capture() -> ToolResult:
+            seen.append(get_current_tool_invocation_id())
+            return ok_result("captured")
+
+        tools.register(
+            "capture",
+            capture,
+            ToolDefinition(
+                name="capture",
+                description="capture",
+                parameters={"type": "object", "properties": {}},
+            ),
+        )
+        agent = Agent(config_manager=config_manager, tools=tools, skills=skills)
+        responses = [
+            MagicMock(
+                content="calling",
+                tool_calls=[{"id": "llm-call-7", "name": "capture", "args": "{}"}],
+                usage=UsageSummary(),
+                finish_reason="tool_calls",
+            ),
+            MagicMock(
+                content="done",
+                tool_calls=None,
+                usage=UsageSummary(),
+                finish_reason="stop",
+            ),
+        ]
+        with patch("tianshu.executor.agent.LLMClient") as MockLLM:
+            MockLLM.return_value = AsyncMock(chat=AsyncMock(side_effect=responses))
+            await agent.execute(Edict(goal="capture id"))
+
+        assert seen == ["llm-call-7"]
 
 
 class TestAgentHighRiskPaths:

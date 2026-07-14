@@ -64,7 +64,9 @@ async def test_create_interval(setup):
     assert edict.schedule.type == "interval"
     assert edict.schedule.interval_seconds == 7200
     assert result.details["schedule_type"] == "interval"
-    assert len(sched.scheduled) == 1
+    assert result.details["status"] == "queued"
+    assert storage.get_scheduler_job(result.details["job_id"]) is None
+    assert sched.scheduled == []
 
 
 @pytest.mark.asyncio
@@ -107,7 +109,7 @@ async def test_create_default_action_is_create(setup):
     # action 缺省即 create
     result = await func(goal="默认即创建", schedule="1h")
     assert result.is_error is False
-    assert len(sched.scheduled) == 1
+    assert sched.scheduled == []
 
 
 @pytest.mark.asyncio

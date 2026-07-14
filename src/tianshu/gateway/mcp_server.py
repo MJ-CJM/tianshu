@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 if TYPE_CHECKING:
@@ -41,6 +41,8 @@ def _memorial_brief(m: Any) -> dict:
 
 def build_mcp_server(app: FastAPI) -> FastMCP:
     """构造天枢 MCP server;tools 经闭包在请求时读取 app.state(届时已完成装配)。"""
+    from tianshu.application.edicts import EdictApplicationService
+
     settings = app.state.settings
     if settings.security_mode == "secure-remote":
         transport_security = TransportSecuritySettings(
@@ -91,9 +93,10 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
         return context
 
     @mcp.tool()
-    def submit_edict(goal: str, context: str = "") -> dict:
+    def submit_edict(ctx: Context, goal: str, context: str = "") -> dict:
         """下旨:提交一道诏令(异步执行)。返回 edict_id 与 memorial_id 用于跟踪。"""
-        from tianshu.edict_ops import submit_new_edict
+        from tianshu.application.edicts import SubmitEdictCommand
+        from tianshu.application.ingress import requested_contract_for_edict
         from tianshu.models.edict import Edict, title_from_goal
 
         auth_context = _require_scope("mcp:submit")
@@ -103,13 +106,26 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
             context=context or None,
             submitter=auth_context.principal.id,
         )
-        memorial = submit_new_edict(
-            app.state.storage,
-            app.state.event_bus,
-            edict,
-            producer=f"mcp:{auth_context.principal.id}",
+        request_id = ctx.request_id
+        call_id = str(request_id) if request_id is not None else auth_context.correlation_id
+        command = SubmitEdictCommand(
+            edict=edict,
+            idempotency_key=f"mcp:{call_id}",
+            requested_contract=requested_contract_for_edict(edict),
+            extra_payload={"via": "mcp"},
         )
-        return {"edict_id": edict.id, "memorial_id": memorial.id, "status": "submitted"}
+        result = EdictApplicationService(app.state.storage).submit(
+            command,
+            auth=auth_context,
+            producer=f"mcp:{auth_context.principal.id}",
+            correlation_id=auth_context.correlation_id,
+        )
+        return {
+            "edict_id": result.edict.id,
+            "memorial_id": result.memorial.id,
+            "status": "submitted",
+            "deduplicated": result.deduplicated,
+        }
 
     @mcp.tool()
     def get_edict_status(edict_id: str) -> dict:

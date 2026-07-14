@@ -199,3 +199,52 @@ def test_mcp_submit_only_scope_can_submit_but_cannot_read(secure_mcp) -> None:
     assert denied_read.status_code == 200
     assert denied_read.json()["result"]["isError"] is True
     assert "mcp:read" in denied_read.json()["result"]["content"][0]["text"]
+
+
+def test_mcp_request_id_is_the_submission_idempotency_key(secure_mcp) -> None:
+    client, app, _ = secure_mcp
+    issued = app.state.auth_service.issue_pat(
+        Principal(
+            id="service:mcp-idempotent",
+            kind="service",
+            display_name="MCP Idempotent",
+            scopes=frozenset({"mcp:submit"}),
+        ),
+        label="MCP idempotent",
+        scopes=frozenset({"mcp:submit"}),
+    )
+    headers = {**_MCP_HEADERS, "Authorization": f"Bearer {issued.raw_token}"}
+
+    first = client.post(
+        "/mcp/",
+        json=_rpc(
+            "tools/call",
+            {"name": "submit_edict", "arguments": {"goal": "same MCP request"}},
+            id_=77,
+        ),
+        headers=headers,
+    )
+    retry = client.post(
+        "/mcp/",
+        json=_rpc(
+            "tools/call",
+            {"name": "submit_edict", "arguments": {"goal": "same MCP request"}},
+            id_=77,
+        ),
+        headers=headers,
+    )
+    conflict = client.post(
+        "/mcp/",
+        json=_rpc(
+            "tools/call",
+            {"name": "submit_edict", "arguments": {"goal": "different MCP request"}},
+            id_=77,
+        ),
+        headers=headers,
+    )
+
+    first_payload = json.loads(first.json()["result"]["content"][0]["text"])
+    retry_payload = json.loads(retry.json()["result"]["content"][0]["text"])
+    assert first_payload["edict_id"] == retry_payload["edict_id"]
+    assert retry_payload["deduplicated"] is True
+    assert conflict.json()["result"]["isError"] is True

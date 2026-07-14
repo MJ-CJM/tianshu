@@ -324,8 +324,13 @@ def api_get(path: str, params: dict | None = None) -> dict:
     return _request("GET", path, params=params)
 
 
-def api_post(path: str, json_data: dict) -> dict:
-    return _request("POST", path, json=json_data)
+def api_post(
+    path: str,
+    json_data: dict,
+    *,
+    headers: dict[str, str] | None = None,
+) -> dict:
+    return _request("POST", path, json=json_data, headers=headers)
 
 
 def api_put(path: str, json_data: dict) -> dict:

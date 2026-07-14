@@ -40,8 +40,8 @@ async def test_submit_edict_creates_edict_and_memorial(setup):
 
 
 @pytest.mark.asyncio
-async def test_submit_edict_fires_event(setup):
-    registry, _, bus = setup
+async def test_submit_edict_enqueues_event(setup):
+    registry, storage, bus = setup
     received: list = []
 
     async def handler(ev):
@@ -55,10 +55,13 @@ async def test_submit_edict_fires_event(setup):
     )
     _, func = registry._tools["submit_edict"]
     res = await func(goal="x", priority="urgent")
-    import asyncio
-
-    await asyncio.sleep(0.05)
-    assert any(e.edict_id == res.details["edict_id"] for e in received)
+    row = storage._conn.execute(  # noqa: SLF001 - durable boundary proof
+        "SELECT status FROM outbox_events WHERE edict_id = ?",
+        (res.details["edict_id"],),
+    ).fetchone()
+    assert row is not None
+    assert row["status"] == "pending"
+    assert received == []
 
 
 @pytest.mark.asyncio

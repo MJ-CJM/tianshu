@@ -705,6 +705,7 @@ class Agent:
                             tc["name"],
                             tc["args"],
                             lifecycle_phase=edict.runtime.lifecycle_phase,
+                            invocation_id=tc["id"],
                         )
                 except Exception as tool_err:
                     tool_result = ToolResult(content=f"Tool error: {tool_err}", is_error=True)

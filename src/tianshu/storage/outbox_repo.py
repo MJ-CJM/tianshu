@@ -344,6 +344,23 @@ class OutboxRepository:
             unit_of_work.commit()
         return frozenset(row["consumer_name"] for row in rows)
 
+    def submission_identities_for_edict(self, edict_id: str) -> tuple[tuple[str, str], ...]:
+        """Return durable event/memorial identities used to restore scheduler timers."""
+        with self._unit_of_work() as unit_of_work:
+            rows = unit_of_work.connection.execute(
+                """
+                SELECT event_id, memorial_id
+                FROM outbox_events
+                WHERE event_type = 'edict.submitted'
+                  AND edict_id = ?
+                  AND memorial_id IS NOT NULL
+                ORDER BY occurred_at, event_id
+                """,
+                (edict_id,),
+            ).fetchall()
+            unit_of_work.commit()
+        return tuple((row["event_id"], row["memorial_id"]) for row in rows)
+
     def _unit_of_work(self) -> SqliteUnitOfWork:
         if self._unit_of_work_factory is None:
             raise RuntimeError("repository requires a unit-of-work factory for durable dispatch")

@@ -227,6 +227,7 @@ async def test_natural_language_calls_continue_or_create(branch):
         chat_id="oc_x",
         sender_open_id="ou_a",
         text="你是谁?",
+        source_message_id="e",
     )
 
 

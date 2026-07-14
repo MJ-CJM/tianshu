@@ -19,6 +19,17 @@ _EVENT_CONSUMER_FILES = (
     _ROOT / "src/tianshu/gateway/telegram/approval_kb.py",
     _ROOT / "src/tianshu/gateway/personas_api.py",
 )
+_INGRESS_METHODS = {
+    _ROOT / "src/tianshu/edict_ops.py": {"submit_new_edict"},
+    _ROOT / "src/tianshu/gateway/edicts_api.py": {"create_edict"},
+    _ROOT / "src/tianshu/gateway/mcp_server.py": {"submit_edict"},
+    _ROOT / "src/tianshu/gateway/core/edict_bridge.py": {"create_new"},
+    _ROOT / "src/tianshu/tools/submit_edict.py": {"submit_edict"},
+    _ROOT / "src/tianshu/tools/schedule_edict.py": {"_create"},
+    _ROOT / "src/tianshu/executor/approvals.py": {"_handle_amend"},
+    _ROOT / "src/tianshu/cli/commands/edict.py": {"submit"},
+}
+_FORBIDDEN_INGRESS_WRITES = {"save_edict", "save_memorial", "append_event"}
 
 
 def _calls(path: Path) -> list[ast.Call]:
@@ -100,3 +111,48 @@ def test_production_event_consumers_have_explicit_stable_names() -> None:
                 unnamed.append(f"{path.name}:{call.lineno}")
 
     assert unnamed == []
+
+
+def test_named_top_level_ingress_methods_do_not_write_storage_directly() -> None:
+    violations: list[str] = []
+    for path, method_names in _INGRESS_METHODS.items():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for function in (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in method_names
+        ):
+            for node in ast.walk(function):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in _FORBIDDEN_INGRESS_WRITES
+                ):
+                    violations.append(f"{path.name}:{function.name}:{node.func.attr}:{node.lineno}")
+                if isinstance(node, ast.Attribute) and node.attr == "_conn":
+                    violations.append(f"{path.name}:{function.name}:_conn:{node.lineno}")
+
+    assert violations == []
+
+
+def test_bot_business_submission_calls_propagate_ingress_identity() -> None:
+    paths = (
+        _ROOT / "src/tianshu/gateway/core/assistant_branch.py",
+        _ROOT / "src/tianshu/gateway/core/edict_branch.py",
+        _ROOT / "src/tianshu/gateway/feishu/bot.py",
+        _ROOT / "src/tianshu/gateway/telegram/bot.py",
+    )
+    missing: list[str] = []
+    for path in paths:
+        for call in _calls(path):
+            if not isinstance(call.func, ast.Attribute) or call.func.attr not in {
+                "create_new",
+                "continue_or_create",
+            }:
+                continue
+            keywords = {keyword.arg for keyword in call.keywords}
+            if "source_message_id" not in keywords:
+                missing.append(f"{path.name}:{call.lineno}")
+
+    assert missing == []

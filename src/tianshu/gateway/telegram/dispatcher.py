@@ -38,6 +38,10 @@ class TelegramMessage:
     def sender_open_id(self) -> str:
         return self.sender_id
 
+    @property
+    def ingress_id(self) -> str:
+        return self.update_id or self.message_id
+
 
 @dataclass
 class TelegramCallback:

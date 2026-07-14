@@ -129,6 +129,7 @@ async def test_text_batching_merges_consecutive(dispatcher):
     assert len(msgs) == 1
     assert "part1" in msgs[0].text
     assert "part2" in msgs[0].text
+    assert msgs[0].ingress_id == "e2"
 
 
 @pytest.mark.asyncio

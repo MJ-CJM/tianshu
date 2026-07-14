@@ -279,6 +279,7 @@ class TelegramBot:
                 chat_id=msg.chat_id,
                 sender_open_id=msg.sender_id,
                 goal=goal,
+                source_message_id=msg.ingress_id,
             )
             await self._reply(msg.chat_id, f"✅ 新敕令 #{result.edict_id[:8]} 已创建")
             return
@@ -324,6 +325,7 @@ class TelegramBot:
                 chat_id=msg.chat_id,
                 sender_open_id=msg.sender_id,
                 text=text,
+                source_message_id=msg.ingress_id,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))

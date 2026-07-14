@@ -18,8 +18,12 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
+from tianshu.application.edicts import EdictApplicationService, SubmitEdictCommand
+from tianshu.application.ingress import (
+    make_ingress_auth_context,
+    requested_contract_for_edict,
+)
 from tianshu.bus.event_bus import EventBus
-from tianshu.edict_ops import submit_new_edict
 from tianshu.executor.executor import Executor
 from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.gateway.core.errors import EdictBusyError  # re-export，向后兼容
@@ -27,6 +31,11 @@ from tianshu.gateway.core.session_anchor import SessionAnchor
 from tianshu.models.common import EdictStatus, TaskStatus
 from tianshu.models.edict import Edict, title_from_goal
 from tianshu.models.memorial import Memorial
+from tianshu.models.principal import (
+    AuthenticationSource,
+    ClientKind,
+    PrincipalKind,
+)
 from tianshu.storage import Storage
 
 
@@ -89,6 +98,7 @@ class EdictBridge:
         instance_id: str = "feishu-default",
         user_meta_key: str = "feishu_user",
         chat_title_prefix: str = "飞书助手对话",
+        edict_application_service: EdictApplicationService | None = None,
     ) -> None:
         self._storage = storage
         self._event_bus = event_bus
@@ -102,6 +112,7 @@ class EdictBridge:
         self._instance_id = instance_id
         self._user_meta_key = user_meta_key
         self._chat_title_prefix = chat_title_prefix
+        self._edict_application = edict_application_service or EdictApplicationService(storage)
 
     async def continue_or_create(
         self,
@@ -109,6 +120,7 @@ class EdictBridge:
         chat_id: str,
         sender_open_id: str,
         text: str,
+        source_message_id: str | None = None,
     ) -> EdictBridgeResult:
         """主入口。返回 (edict_id, memorial_id)。
 
@@ -137,6 +149,7 @@ class EdictBridge:
             chat_id=chat_id,
             sender_open_id=sender_open_id,
             goal=text,
+            source_message_id=source_message_id,
         )
 
     async def create_new(
@@ -145,6 +158,7 @@ class EdictBridge:
         chat_id: str,
         sender_open_id: str,
         goal: str,
+        source_message_id: str | None = None,
     ) -> EdictBridgeResult:
         """显式新建（来自 /new 或 anchor 已结案后的自动新建）。"""
         title = title_from_goal(goal)
@@ -161,26 +175,40 @@ class EdictBridge:
                 "workspace_id": WORKSPACE_MAIN_SOURCE_ID,
             },
         )
-        memorial = submit_new_edict(
-            self._storage,
-            self._event_bus,
+        correlation_id = f"{self._channel}:{source_message_id or edict.id}"
+        command = SubmitEdictCommand(
             edict,
-            producer=f"{self._channel}_bot",
+            idempotency_key=correlation_id,
+            requested_contract=requested_contract_for_edict(edict),
             extra_payload={
                 "channel": self._channel,
                 "instance_id": self._instance_id,
                 "chat_id": chat_id,
             },
         )
-        # fire 是后台异步任务，本协程内无 await，anchor.set 必在其执行前完成，无竞态。
-        self._anchor.set(chat_id, edict.id)
+        result = self._edict_application.submit(
+            command,
+            auth=make_ingress_auth_context(
+                principal_id=f"{self._channel}:{sender_open_id}",
+                principal_kind=PrincipalKind.WEBHOOK,
+                source=AuthenticationSource.WEBHOOK,
+                client_kind=ClientKind.WEBHOOK,
+                correlation_id=correlation_id,
+            ),
+            producer=f"{self._channel}_bot",
+            correlation_id=correlation_id,
+        )
+        self._anchor.set(chat_id, result.edict.id)
         logger.info(
             "[feishu/edict] created edict=%s chat=%s sender=%s",
-            edict.id,
+            result.edict.id,
             chat_id,
             sender_open_id,
         )
-        return EdictBridgeResult(edict_id=edict.id, memorial_id=memorial.id)
+        return EdictBridgeResult(
+            edict_id=result.edict.id,
+            memorial_id=result.memorial.id,
+        )
 
     async def ensure_chat_edict(
         self,

@@ -11,7 +11,8 @@ from __future__ import annotations
 import pytest
 
 from tianshu.tools.builtins import register_builtins
-from tianshu.tools.registry import ToolRegistry
+from tianshu.tools.registry import ToolDefinition, ToolRegistry
+from tianshu.tools.types import ok_result
 
 # ── tool_registry：过滤 schema 外 kwargs ────────────────────────────────────
 
@@ -61,7 +62,71 @@ async def test_registry_keeps_declared_kwargs(registry):
     assert "line 8" not in result.content  # 第 8 行超出 limit
 
 
+@pytest.mark.asyncio
+async def test_registry_binds_and_resets_stable_tool_invocation_id() -> None:
+    from tianshu.kernel.ambient import get_current_tool_invocation_id
+
+    seen: list[str | None] = []
+    registry = ToolRegistry()
+
+    async def capture() -> object:
+        seen.append(get_current_tool_invocation_id())
+        return ok_result("captured")
+
+    registry.register(
+        "capture_invocation",
+        capture,
+        ToolDefinition(
+            name="capture_invocation",
+            description="capture",
+            parameters={"type": "object", "properties": {}},
+        ),
+    )
+
+    result = await registry.execute("capture_invocation", {}, invocation_id="tool-call-42")
+
+    assert result.is_error is False
+    assert seen == ["tool-call-42"]
+    assert get_current_tool_invocation_id() is None
+
+
 # ── read_file 切片行为 ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_registry_restores_nested_invocation_id_after_tool_error() -> None:
+    from tianshu.kernel.ambient import get_current_tool_invocation_id
+
+    seen: list[str | None] = []
+    registry = ToolRegistry()
+
+    async def inner() -> object:
+        seen.append(get_current_tool_invocation_id())
+        return ok_result("inner")
+
+    async def outer() -> object:
+        seen.append(get_current_tool_invocation_id())
+        await registry.execute("inner", {}, invocation_id="inner-call")
+        seen.append(get_current_tool_invocation_id())
+        raise RuntimeError("outer failed")
+
+    schema = {"type": "object", "properties": {}}
+    registry.register(
+        "inner",
+        inner,
+        ToolDefinition(name="inner", description="inner", parameters=schema),
+    )
+    registry.register(
+        "outer",
+        outer,
+        ToolDefinition(name="outer", description="outer", parameters=schema),
+    )
+
+    result = await registry.execute("outer", {}, invocation_id="outer-call")
+
+    assert result.is_error is True
+    assert seen == ["outer-call", "inner-call", "outer-call"]
+    assert get_current_tool_invocation_id() is None
 
 
 @pytest.mark.asyncio

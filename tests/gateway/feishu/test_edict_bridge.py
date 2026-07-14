@@ -120,8 +120,8 @@ async def test_continue_or_create_raises_when_active_memorial(bridge, storage):
 
 
 @pytest.mark.asyncio
-async def test_create_new_emits_edict_submitted_event(bridge, storage):
-    """create_new 应 fire edict.submitted 事件（含 chat_id）。"""
+async def test_create_new_enqueues_edict_submitted_event(bridge, storage):
+    """create_new 只落耐久 outbox，由 dispatcher 后续派发。"""
     b, bus, _ = bridge
     received: list = []
 
@@ -135,8 +135,11 @@ async def test_create_new_emits_edict_submitted_event(bridge, storage):
         priority=200,
     )
     result = await b.create_new(chat_id="oc_z", sender_open_id="ou_c", goal="x")
-    # EventBus.fire 是同步派发到 handler（asyncio.create_task），等一拍
-    import asyncio
-
-    await asyncio.sleep(0.05)
-    assert any(e.edict_id == result.edict_id for e in received)
+    row = storage._conn.execute(  # noqa: SLF001 - durable boundary proof
+        "SELECT status, payload_json FROM outbox_events WHERE edict_id = ?",
+        (result.edict_id,),
+    ).fetchone()
+    assert row is not None
+    assert row["status"] == "pending"
+    assert '"chat_id":"oc_z"' in row["payload_json"]
+    assert received == []

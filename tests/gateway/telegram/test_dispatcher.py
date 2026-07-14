@@ -89,6 +89,7 @@ async def test_text_batching_merges(storage):
     await asyncio.sleep(0.06)
     assert len(msgs) == 1
     assert msgs[0].text == "第一句\n第二句"
+    assert msgs[0].ingress_id == "t2"
 
 
 @pytest.mark.asyncio
