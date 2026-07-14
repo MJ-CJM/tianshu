@@ -17,6 +17,10 @@ from tianshu.models.events import EventEnvelope
 from tianshu.storage.outbox_repo import OutboxRecord
 
 
+class OutboxShutdownTimeout(TimeoutError):
+    """The dispatcher still owns a live drain after its shutdown deadline."""
+
+
 class _OutboxOperations(Protocol):
     def claim_batch(
         self,
@@ -81,6 +85,7 @@ class OutboxDispatcher:
         base_backoff_seconds: float = 1,
         max_backoff_seconds: float = 300,
         poll_interval_seconds: float = 1,
+        shutdown_timeout_seconds: float = 5,
     ) -> None:
         if not owner_id.strip():
             raise ValueError("owner_id must be non-blank")
@@ -97,6 +102,10 @@ class OutboxDispatcher:
             poll_interval_seconds,
             "poll_interval_seconds",
         )
+        validated_shutdown_timeout = _finite_positive_number(
+            shutdown_timeout_seconds,
+            "shutdown_timeout_seconds",
+        )
         if validated_max_backoff < validated_base_backoff:
             raise ValueError("max_backoff_seconds must be at least base_backoff_seconds")
         self._repository = repository
@@ -107,11 +116,17 @@ class OutboxDispatcher:
         self._base_backoff_seconds = validated_base_backoff
         self._max_backoff_seconds = validated_max_backoff
         self._poll_interval_seconds = validated_poll_interval
+        self._shutdown_timeout_seconds = validated_shutdown_timeout
         self._stop_event = asyncio.Event()
         self._stopped_event = asyncio.Event()
         self._stopped_event.set()
         self._running = False
         self._drain_task: asyncio.Task[int] | None = None
+
+    @property
+    def is_stopped(self) -> bool:
+        """Whether no dispatcher run is still waiting for an active drain."""
+        return self._stopped_event.is_set()
 
     async def drain_once(self, *, limit: int = 50) -> int:
         records = self._repository.claim_batch(
@@ -152,24 +167,42 @@ class OutboxDispatcher:
                         timeout=self._poll_interval_seconds,
                     )
         finally:
-            drain_task = self._drain_task
-            if drain_task is not None and not drain_task.done():
-                drain_task.cancel()
+            final_drain_task = self._drain_task
+            if final_drain_task is not None and not final_drain_task.done():
+                final_drain_task.cancel()
                 with suppress(asyncio.CancelledError):
-                    await drain_task
+                    await final_drain_task
             self._drain_task = None
             self._running = False
             self._stopped_event.set()
 
     async def stop(self) -> None:
         self._stop_event.set()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._shutdown_timeout_seconds
         drain_task = self._drain_task
         if drain_task is not None and not drain_task.done():
             drain_task.cancel()
+            done, _ = await asyncio.wait(
+                {drain_task},
+                timeout=max(deadline - loop.time(), 0),
+            )
+            if drain_task not in done:
+                raise OutboxShutdownTimeout("outbox drain did not stop before the shutdown timeout")
             with suppress(asyncio.CancelledError):
-                await drain_task
-        if self._running:
-            await self._stopped_event.wait()
+                drain_task.result()
+        if self._running and not self._stopped_event.is_set():
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise OutboxShutdownTimeout(
+                    "outbox dispatcher did not stop before the shutdown timeout"
+                )
+            try:
+                await asyncio.wait_for(self._stopped_event.wait(), timeout=remaining)
+            except TimeoutError as error:
+                raise OutboxShutdownTimeout(
+                    "outbox dispatcher did not stop before the shutdown timeout"
+                ) from error
 
     async def _dispatch_record(self, record: OutboxRecord) -> None:
         try:
@@ -368,4 +401,4 @@ def _bounded_error_hash(error: Exception) -> str:
     return hashlib.sha256(bounded).hexdigest()
 
 
-__all__ = ["OutboxDispatcher"]
+__all__ = ["OutboxDispatcher", "OutboxShutdownTimeout"]

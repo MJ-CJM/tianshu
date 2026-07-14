@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from tianshu.application.outbox import OutboxShutdownTimeout
 from tianshu.bus.event_bus import EventBus
 from tianshu.models.events import EventEnvelope
 from tianshu.storage import Storage
@@ -111,6 +112,10 @@ class _TamperClaimedRecord:
         ({"poll_interval_seconds": True}, "poll_interval_seconds"),
         ({"poll_interval_seconds": float("nan")}, "poll_interval_seconds"),
         ({"poll_interval_seconds": float("inf")}, "poll_interval_seconds"),
+        ({"shutdown_timeout_seconds": 0}, "shutdown_timeout_seconds"),
+        ({"shutdown_timeout_seconds": True}, "shutdown_timeout_seconds"),
+        ({"shutdown_timeout_seconds": float("nan")}, "shutdown_timeout_seconds"),
+        ({"shutdown_timeout_seconds": float("inf")}, "shutdown_timeout_seconds"),
     ],
 )
 def test_dispatcher_rejects_invalid_timing_configuration(
@@ -344,6 +349,63 @@ async def test_malformed_dispatch_control_is_forced_dead_without_handler_deliver
     assert json.loads(record.last_error_json or "")["code"] == "malformed_outbox_event"
 
 
+@pytest.mark.parametrize(
+    ("column_name", "tampered_value", "storage_class"),
+    [
+        ("attempt_count", "invalid-attempt", "text"),
+        ("attempt_count", b"invalid-attempt", "blob"),
+        ("attempt_count", 1.5, "real"),
+        ("version", "invalid-version", "text"),
+        ("version", b"invalid-version", "blob"),
+        ("version", 1.5, "real"),
+    ],
+)
+async def test_preclaim_poison_control_is_preserved_and_dead_lettered(
+    storage: Storage,
+    column_name: str,
+    tampered_value: object,
+    storage_class: str,
+) -> None:
+    _add_event(storage, event_id="preclaim-poison", max_attempts=20)
+    storage._conn.execute(  # noqa: SLF001 - deliberate pre-claim tamper
+        f"UPDATE outbox_events SET {column_name} = ? WHERE event_id = ?",
+        (tampered_value, "preclaim-poison"),
+    )
+    storage._conn.commit()  # noqa: SLF001 - deliberate pre-claim tamper
+    repository = OutboxRepository(storage.unit_of_work)
+    event_bus = EventBus()
+    calls = 0
+
+    async def handler(_event: EventEnvelope) -> None:
+        nonlocal calls
+        calls += 1
+
+    event_bus.on("test.dispatch", handler, consumer_name="test.never-preclaim.v1")
+    dispatcher = _dispatcher_type()(
+        repository,
+        event_bus,
+        owner_id="worker",
+        clock=lambda: _NOW,
+    )
+
+    assert await dispatcher.drain_once() == 1
+
+    record = repository.get(storage._conn, "preclaim-poison")  # noqa: SLF001
+    assert record is not None
+    assert record.status == "dead_letter"
+    assert record.lease_owner is None
+    assert record.lease_expires_at is None
+    assert calls == 0
+    raw = storage._conn.execute(  # noqa: SLF001 - assert forensic value and type
+        f"SELECT {column_name} AS value, typeof({column_name}) AS storage_class "
+        "FROM outbox_events WHERE event_id = ?",
+        ("preclaim-poison",),
+    ).fetchone()
+    assert raw["value"] == tampered_value
+    assert raw["storage_class"] == storage_class
+    assert json.loads(record.last_error_json or "")["code"] == "malformed_outbox_event"
+
+
 async def test_dispatcher_run_stops_promptly_after_processing(storage: Storage) -> None:
     _add_event(storage, event_id="run-stop")
     repository = OutboxRepository(storage.unit_of_work)
@@ -427,6 +489,69 @@ async def test_stop_cancels_hanging_dispatch_and_claim_can_be_recovered(
     recovered = repository.get(storage._conn, "hanging-stop")  # noqa: SLF001
     assert recovered is not None
     assert (recovered.status, recovered.attempt_count, calls) == ("published", 2, 2)
+
+
+async def test_stop_reports_bounded_timeout_until_cancellation_suppressor_releases(
+    storage: Storage,
+) -> None:
+    _add_event(storage, event_id="suppressed-cancel")
+    repository = OutboxRepository(storage.unit_of_work)
+    event_bus = EventBus()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    cancellations = 0
+
+    async def handler(_event: EventEnvelope) -> None:
+        nonlocal cancellations
+        entered.set()
+        while not release.is_set():
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                cancellations += 1
+
+    event_bus.on("test.dispatch", handler, consumer_name="test.suppressed-cancel.v1")
+    dispatcher = _dispatcher_type()(
+        repository,
+        event_bus,
+        owner_id="worker",
+        clock=lambda: _NOW,
+        poll_interval_seconds=60,
+        shutdown_timeout_seconds=0.01,
+    )
+
+    run_task = asyncio.create_task(dispatcher.run())
+    first_stop: asyncio.Task[None] | None = None
+    second_stop: asyncio.Task[None] | None = None
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        first_stop = asyncio.create_task(dispatcher.stop())
+        await asyncio.sleep(0.05)
+
+        assert first_stop.done(), "stop must return or raise within its configured bound"
+        with pytest.raises(OutboxShutdownTimeout) as first_error:
+            await first_stop
+        assert first_error.type is OutboxShutdownTimeout
+        assert not dispatcher.is_stopped
+        assert not run_task.done()
+
+        second_stop = asyncio.create_task(dispatcher.stop())
+        await asyncio.sleep(0.05)
+        assert second_stop.done(), "a repeated stop must use the same finite bound"
+        with pytest.raises(OutboxShutdownTimeout) as second_error:
+            await second_stop
+        assert second_error.type is first_error.type
+        assert cancellations >= 2
+        assert not dispatcher.is_stopped
+
+        release.set()
+        await asyncio.wait_for(run_task, timeout=1)
+        assert dispatcher.is_stopped
+        await asyncio.wait_for(dispatcher.stop(), timeout=1)
+    finally:
+        release.set()
+        tasks = [task for task in (first_stop, second_stop, run_task) if task is not None]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def test_immediate_stop_request_is_preserved_before_run_starts(

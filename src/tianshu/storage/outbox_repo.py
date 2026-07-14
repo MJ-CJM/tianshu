@@ -153,7 +153,7 @@ class OutboxRepository:
             conn = unit_of_work.connection
             candidates = conn.execute(
                 """
-                SELECT event_id, version
+                SELECT event_id, version, typeof(version) AS version_storage_class
                 FROM outbox_events
                 WHERE (
                     status IN ('pending', 'retry_wait') AND available_at <= ?
@@ -171,11 +171,18 @@ class OutboxRepository:
                     """
                     UPDATE outbox_events
                     SET status = 'claimed',
-                        attempt_count = attempt_count + 1,
+                        attempt_count = CASE
+                            WHEN typeof(attempt_count) = 'integer' THEN attempt_count + 1
+                            ELSE attempt_count
+                        END,
                         lease_owner = ?,
                         lease_expires_at = ?,
-                        version = version + 1
-                    WHERE event_id = ? AND version = ? AND (
+                        version = CASE
+                            WHEN typeof(version) = 'integer' THEN version + 1
+                            ELSE version
+                        END
+                    WHERE event_id = ? AND version = ?
+                      AND typeof(version) = ? AND (
                         (status IN ('pending', 'retry_wait') AND available_at <= ?)
                         OR (
                             status = 'claimed' AND lease_expires_at IS NOT NULL
@@ -188,6 +195,7 @@ class OutboxRepository:
                         lease_expires_at,
                         candidate["event_id"],
                         candidate["version"],
+                        candidate["version_storage_class"],
                         now_iso,
                         now_iso,
                     ),

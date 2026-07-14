@@ -138,21 +138,22 @@ def test_mark_poisoned_forces_dead_letter_with_owner_and_version_fence(
 ) -> None:
     _add_event(storage, event_id="malformed-control")
     repository = _repository(storage)
+    storage._conn.execute(  # noqa: SLF001 - deliberate pre-claim tamper
+        """
+        UPDATE outbox_events
+        SET max_attempts = ?, version = ?
+        WHERE event_id = ?
+        """,
+        ("invalid-max", 2.5, "malformed-control"),
+    )
+    storage._conn.commit()  # noqa: SLF001 - deliberate pre-claim tamper
     claimed = repository.claim_batch(
         owner_id="worker",
         now=_NOW,
         limit=1,
         lease_seconds=30,
     )[0]
-    storage._conn.execute(  # noqa: SLF001 - deliberate claimed-row tamper
-        """
-        UPDATE outbox_events
-        SET max_attempts = ?, version = ?
-        WHERE event_id = ?
-        """,
-        ("invalid-max", 2.5, claimed.event_id),
-    )
-    storage._conn.commit()  # noqa: SLF001 - deliberate claimed-row tamper
+    assert claimed.version == 2.5
     error = RedactedError(
         code="malformed_outbox_event",
         message="durable dispatch control is invalid",
