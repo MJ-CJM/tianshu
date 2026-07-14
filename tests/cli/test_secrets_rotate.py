@@ -330,6 +330,90 @@ class TestRotate:
             ).fetchone()
         assert backed_up_headers == (before["mcp_headers"],)
 
+    @pytest.mark.parametrize("change_kind", ["insert", "null_to_nonnull"])
+    def test_new_non_null_target_after_backup_aborts_before_any_rotation_write(
+        self,
+        storage: Storage,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        keys: tuple[str, str],
+        change_kind: str,
+    ) -> None:
+        old, new = keys
+        credential_id, _ = _seed_all_families(storage, old)
+        before = _ciphertexts(storage, credential_id)
+        ledger_before = _ledger(storage)
+        backup_path = tmp_path / f"new-target-{change_kind}.bak"
+        if change_kind == "insert":
+            added_plaintext = b"channel-added-after-backup"
+        else:
+            added_plaintext = b'{"ADDED":"mcp-added-after-backup"}'
+        added_ciphertext = Fernet(old.encode()).encrypt(added_plaintext)
+        real_backup = sqlite_backup.create_online_backup
+
+        def backup_then_add_target(source: sqlite3.Connection, destination: Path) -> Path:
+            result = real_backup(source, destination)
+            with closing(sqlite3.connect(storage._db_path)) as concurrent:
+                if change_kind == "insert":
+                    concurrent.execute(
+                        """
+                        INSERT INTO channel_configs (
+                            channel_type, config_json, encrypted_secret, updated_at
+                        ) VALUES (
+                            'added-after-backup', '{}', ?, '2026-07-14T00:00:01+00:00'
+                        )
+                        """,
+                        (added_ciphertext,),
+                    )
+                else:
+                    cursor = concurrent.execute(
+                        """
+                        UPDATE mcp_server_overrides
+                        SET env_ciphertext = ?, env_keys_json = '["ADDED"]'
+                        WHERE name = 'null-mappings' AND env_ciphertext IS NULL
+                        """,
+                        (added_ciphertext,),
+                    )
+                    assert cursor.rowcount == 1
+                concurrent.commit()
+            return result
+
+        monkeypatch.setattr(secrets_command, "_new_rotation_backup_path", lambda _path: backup_path)
+        monkeypatch.setattr(sqlite_backup, "create_online_backup", backup_then_add_target)
+
+        result = _invoke_rotation(storage, monkeypatch, old, new)
+
+        assert result.exit_code == 1
+        assert backup_path.exists()
+        after = _ciphertexts(storage, credential_id)
+        for family, ciphertext in before.items():
+            if change_kind != "null_to_nonnull" or family != "null_mcp_env":
+                assert after[family] == ciphertext
+        if change_kind == "insert":
+            added_row = storage._conn.execute(
+                """
+                SELECT encrypted_secret FROM channel_configs
+                WHERE channel_type = 'added-after-backup'
+                """
+            ).fetchone()
+        else:
+            added_row = storage._conn.execute(
+                """
+                SELECT env_ciphertext FROM mcp_server_overrides
+                WHERE name = 'null-mappings'
+                """
+            ).fetchone()
+        assert added_row is not None
+        assert added_row[0] == added_ciphertext
+        assert Fernet(old.encode()).decrypt(added_row[0]) == added_plaintext
+        with pytest.raises(InvalidToken):
+            Fernet(new.encode()).decrypt(added_row[0])
+        assert _ledger(storage) == ledger_before
+        assert _audit_rows(storage) == ()
+        assert "secret_rotation_concurrent_change" in result.output
+        assert "secret_rotation_succeeded" not in result.output
+        assert "added-after-backup" not in result.output
+
     def test_same_decoded_key_is_rejected_before_storage_or_backup(
         self,
         storage: Storage,

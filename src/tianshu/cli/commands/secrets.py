@@ -38,11 +38,11 @@ class _RotationTarget:
 
 
 _ROTATION_FAMILIES = (
-    ("network_credentials", "encrypted_value", False),
-    ("channel_configs", "encrypted_secret", False),
-    ("channel_instances", "encrypted_secret", False),
-    ("mcp_server_overrides", "env_ciphertext", True),
-    ("mcp_server_overrides", "headers_ciphertext", True),
+    ("network_credentials", "encrypted_value"),
+    ("channel_configs", "encrypted_secret"),
+    ("channel_instances", "encrypted_secret"),
+    ("mcp_server_overrides", "env_ciphertext"),
+    ("mcp_server_overrides", "headers_ciphertext"),
 )
 
 
@@ -50,9 +50,30 @@ class _SecretRotationConcurrentChange(RuntimeError):
     pass
 
 
+type _RotationSnapshot = tuple[tuple[str, str, int, bytes], ...]
+
+
 def _new_rotation_backup_path(db_path: Path) -> Path:
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
     return db_path.with_name(f"{db_path.name}.rotation-{timestamp}-{uuid4().hex}.bak")
+
+
+def _rotation_snapshot(conn: sqlite3.Connection) -> _RotationSnapshot:
+    snapshot: list[tuple[str, str, int, bytes]] = []
+    for table, ciphertext_column in _ROTATION_FAMILIES:
+        rows = conn.execute(
+            f"SELECT rowid, {ciphertext_column} FROM {table} "
+            f"WHERE {ciphertext_column} IS NOT NULL ORDER BY rowid"
+        ).fetchall()
+        snapshot.extend((table, ciphertext_column, int(row[0]), row[1]) for row in rows)
+    return tuple(snapshot)
+
+
+def _plan_snapshot(plan: list[_RotationTarget]) -> _RotationSnapshot:
+    return tuple(
+        (target.table, target.ciphertext_column, target.rowid, target.original_ciphertext)
+        for target in plan
+    )
 
 
 def _rotation_plan(conn: sqlite3.Connection, old_fernet: Fernet) -> list[_RotationTarget]:
@@ -60,31 +81,25 @@ def _rotation_plan(conn: sqlite3.Connection, old_fernet: Fernet) -> list[_Rotati
 
     plan: list[_RotationTarget] = []
     try:
-        for table, ciphertext_column, is_mcp_mapping in _ROTATION_FAMILIES:
-            rows = conn.execute(
-                f"SELECT rowid, {ciphertext_column} FROM {table} "
-                f"WHERE {ciphertext_column} IS NOT NULL ORDER BY rowid"
-            ).fetchall()
-            for row in rows:
-                original_ciphertext = row[1]
-                plaintext = old_fernet.decrypt(original_ciphertext)
-                decoded = plaintext.decode("utf-8")
-                if is_mcp_mapping:
-                    mapping = json.loads(decoded)
-                    if not isinstance(mapping, dict) or not all(
-                        isinstance(key, str) and isinstance(value, str)
-                        for key, value in mapping.items()
-                    ):
-                        raise ValueError("invalid MCP mapping")
-                plan.append(
-                    _RotationTarget(
-                        table=table,
-                        rowid=int(row[0]),
-                        ciphertext_column=ciphertext_column,
-                        original_ciphertext=original_ciphertext,
-                        plaintext=plaintext,
-                    )
+        for table, ciphertext_column, rowid, original_ciphertext in _rotation_snapshot(conn):
+            plaintext = old_fernet.decrypt(original_ciphertext)
+            decoded = plaintext.decode("utf-8")
+            if table == "mcp_server_overrides":
+                mapping = json.loads(decoded)
+                if not isinstance(mapping, dict) or not all(
+                    isinstance(key, str) and isinstance(value, str)
+                    for key, value in mapping.items()
+                ):
+                    raise ValueError("invalid MCP mapping")
+            plan.append(
+                _RotationTarget(
+                    table=table,
+                    rowid=rowid,
+                    ciphertext_column=ciphertext_column,
+                    original_ciphertext=original_ciphertext,
+                    plaintext=plaintext,
                 )
+            )
     except (InvalidToken, TypeError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
         raise ValueError("secret rotation validation failed") from None
     return plan
@@ -188,6 +203,8 @@ def rotate_master_key(
 
             with storage._lock, storage._conn:
                 storage._conn.execute("BEGIN IMMEDIATE")
+                if _rotation_snapshot(storage._conn) != _plan_snapshot(plan):
+                    raise _SecretRotationConcurrentChange
                 for target in plan:
                     cursor = storage._conn.execute(
                         f"UPDATE {target.table} "
