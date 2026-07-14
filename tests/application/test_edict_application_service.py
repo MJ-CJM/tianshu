@@ -246,6 +246,15 @@ def test_outbox_redacts_compact_camel_and_snake_credential_aliases(storage: Stor
     snake_refresh_token = "opaque-snake-refresh-value-c29a1"
     client_credentials = "opaque-client-credentials-a91ed"
     oauth_credentials = "opaque-oauth-credentials-4bd32"
+    qualified_credentials = {
+        "token_value": "opaque-qualified-token-a1d04",
+        "tokenValue": "opaque-qualified-camel-token-8ab29",
+        "api_key_value": "opaque-qualified-api-key-f24c1",
+        "api-key-value": "opaque-qualified-kebab-api-key-9ec32",
+        "client_secret_value": "opaque-qualified-client-secret-6da78",
+        "password_value": "opaque-qualified-password-b593e",
+        "credential_value": "opaque-qualified-credential-30ec7",
+    }
 
     result = _service(storage).submit(
         _command(
@@ -256,6 +265,7 @@ def test_outbox_redacts_compact_camel_and_snake_credential_aliases(storage: Stor
                 "refresh_token": snake_refresh_token,
                 "clientCredentials": {"value": client_credentials},
                 "oauth_credentials": oauth_credentials,
+                **qualified_credentials,
             }
         ),
         auth=_auth(),
@@ -273,12 +283,15 @@ def test_outbox_redacts_compact_camel_and_snake_credential_aliases(storage: Stor
     assert snake_refresh_token not in payload_json
     assert client_credentials not in payload_json
     assert oauth_credentials not in payload_json
+    assert all(secret not in payload_json for secret in qualified_credentials.values())
     assert '"apikey":"[REDACTED]"' in payload_json
     assert '"refreshtoken":"[REDACTED]"' in payload_json
     assert '"refreshToken":"[REDACTED]"' in payload_json
     assert '"refresh_token":"[REDACTED]"' in payload_json
     assert '"clientCredentials":"[REDACTED]"' in payload_json
     assert '"oauth_credentials":"[REDACTED]"' in payload_json
+    payload = json.loads(payload_json)
+    assert all(payload[key] == "[REDACTED]" for key in qualified_credentials)
 
 
 def test_outbox_preserves_non_secret_token_metrics(storage: Storage) -> None:
@@ -287,7 +300,15 @@ def test_outbox_preserves_non_secret_token_metrics(storage: Storage) -> None:
             extra_payload={
                 "token_budget": 4096,
                 "tokenCount": 17,
-                "nested": {"token_count": 3},
+                "nested": {
+                    "token_count": 3,
+                    "prompt_tokens": 101,
+                    "completionTokens": 202,
+                    "input_tokens": 303,
+                    "outputTokens": 404,
+                    "total_tokens": 505,
+                    "max_tokens": 606,
+                },
             }
         ),
         auth=_auth(),
@@ -303,7 +324,15 @@ def test_outbox_preserves_non_secret_token_metrics(storage: Storage) -> None:
     )
     assert payload["token_budget"] == 4096
     assert payload["tokenCount"] == 17
-    assert payload["nested"]["token_count"] == 3
+    assert payload["nested"] == {
+        "completionTokens": 202,
+        "input_tokens": 303,
+        "max_tokens": 606,
+        "outputTokens": 404,
+        "prompt_tokens": 101,
+        "token_count": 3,
+        "total_tokens": 505,
+    }
 
 
 def test_idempotency_blob_stores_only_safe_identity_and_replays_exact_models(

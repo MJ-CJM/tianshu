@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import unicodedata
 from collections.abc import Mapping
@@ -60,18 +61,37 @@ _SENSITIVE_COMPACT_KEY_ALIASES = frozenset(
         "xauthtoken",
     }
 )
-_SENSITIVE_COMPACT_KEY_SUFFIXES = (
-    "apikey",
-    "credential",
-    "credentials",
-    "password",
-    "passwd",
-    "secret",
-    "token",
+_SENSITIVE_KEY_TOKEN_SEQUENCES = (
+    ("api", "key"),
+    ("database", "url"),
+    ("db", "url"),
+    ("master", "key"),
+    ("private", "key"),
+    ("redis", "url"),
+)
+_TOKEN_METRIC_COMPACT_KEY_ALIASES = frozenset(
+    {
+        "completiontokencount",
+        "completiontokens",
+        "inputtokencount",
+        "inputtokens",
+        "maxtokencount",
+        "maxtokens",
+        "outputtokencount",
+        "outputtokens",
+        "prompttokencount",
+        "prompttokens",
+        "tokenbudget",
+        "tokencount",
+        "totaltokencount",
+        "totaltokens",
+    }
 )
 _ENVIRONMENT_COMPACT_KEY_ALIASES = frozenset(
     {"env", "environment", "environmentvalues", "environmentvariables", "envvars"}
 )
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+_NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,27 +295,46 @@ def _event_payload(
     return cast(dict[str, JsonValue], _redact_durable_mapping(payload))
 
 
-def _compact_payload_key(key: str) -> str:
-    return "".join(character for character in key.casefold() if character.isalnum())
+def _payload_key_tokens(key: str) -> tuple[str, ...]:
+    separated = _CAMEL_CASE_BOUNDARY.sub("_", key)
+    normalized = _NON_ALPHANUMERIC.sub("_", separated.casefold())
+    return tuple(token for token in normalized.split("_") if token)
 
 
-def _is_sensitive_payload_key(compact_key: str) -> bool:
-    return compact_key in _SENSITIVE_COMPACT_KEY_ALIASES or compact_key.endswith(
-        _SENSITIVE_COMPACT_KEY_SUFFIXES
+def _contains_key_token_sequence(
+    key_tokens: tuple[str, ...],
+    sequence: tuple[str, ...],
+) -> bool:
+    width = len(sequence)
+    return any(
+        key_tokens[index : index + width] == sequence
+        for index in range(len(key_tokens) - width + 1)
+    )
+
+
+def _is_sensitive_payload_key(key_tokens: tuple[str, ...], compact_key: str) -> bool:
+    if compact_key in _TOKEN_METRIC_COMPACT_KEY_ALIASES:
+        return False
+    if any(token in _SENSITIVE_COMPACT_KEY_ALIASES for token in key_tokens):
+        return True
+    return any(
+        _contains_key_token_sequence(key_tokens, sequence)
+        for sequence in _SENSITIVE_KEY_TOKEN_SEQUENCES
     )
 
 
 def _redact_durable_mapping(payload: Mapping[str, object]) -> dict[str, object]:
     redacted: dict[str, object] = {}
     for key, value in payload.items():
-        compact_key = _compact_payload_key(key)
+        key_tokens = _payload_key_tokens(key)
+        compact_key = "".join(key_tokens)
         if compact_key in _ENVIRONMENT_COMPACT_KEY_ALIASES:
             redacted[key] = (
                 {str(environment_key): "[REDACTED]" for environment_key in value}
                 if isinstance(value, Mapping)
                 else "[REDACTED]"
             )
-        elif _is_sensitive_payload_key(compact_key):
+        elif _is_sensitive_payload_key(key_tokens, compact_key):
             redacted[key] = "[REDACTED]"
         else:
             redacted[key] = _redact_durable_value(value)

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -102,7 +100,7 @@ def _overlap_two_submissions(
     second_service = _service(second_storage)
     first_holding_transaction = threading.Event()
     release_first = threading.Event()
-    second_attempted_uow_entry = threading.Event()
+    second_began_immediate = threading.Event()
 
     original_lookup = first_service._outbox.get_submission  # noqa: SLF001 - lock coordination
 
@@ -115,15 +113,13 @@ def _overlap_two_submissions(
 
     monkeypatch.setattr(first_service._outbox, "get_submission", hold_after_namespace_lookup)
 
-    original_unit_of_work = second_storage.unit_of_work
+    def observe_second_connection(statement: str) -> None:
+        if " ".join(statement.upper().split()) == "BEGIN IMMEDIATE":
+            second_began_immediate.set()
 
-    @contextmanager
-    def signaling_unit_of_work() -> Iterator[Any]:
-        second_attempted_uow_entry.set()
-        with original_unit_of_work() as unit_of_work:
-            yield unit_of_work
-
-    monkeypatch.setattr(second_storage, "unit_of_work", signaling_unit_of_work)
+    second_storage._conn.set_trace_callback(  # noqa: SLF001 - real BEGIN coordination
+        observe_second_connection
+    )
 
     def capture(service: Any, command: Any) -> Any:
         try:
@@ -137,13 +133,14 @@ def _overlap_two_submissions(
             try:
                 assert first_holding_transaction.wait(timeout=10)
                 second_future = executor.submit(capture, second_service, second_command)
-                assert second_attempted_uow_entry.wait(timeout=10)
+                assert second_began_immediate.wait(timeout=10)
                 assert not second_future.done()
             finally:
                 release_first.set()
             outcomes = (first_future.result(), second_future.result())
         return outcomes
     finally:
+        second_storage._conn.set_trace_callback(None)  # noqa: SLF001 - clear test observer
         second_storage.close()
         first_storage.close()
 
