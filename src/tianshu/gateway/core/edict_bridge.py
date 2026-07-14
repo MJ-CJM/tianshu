@@ -175,7 +175,8 @@ class EdictBridge:
                 "workspace_id": WORKSPACE_MAIN_SOURCE_ID,
             },
         )
-        correlation_id = f"{self._channel}:{source_message_id or edict.id}"
+        instance_namespace = f"{self._channel}:{self._instance_id}"
+        correlation_id = f"{instance_namespace}:{source_message_id or edict.id}"
         command = SubmitEdictCommand(
             edict,
             idempotency_key=correlation_id,
@@ -189,7 +190,7 @@ class EdictBridge:
         result = self._edict_application.submit(
             command,
             auth=make_ingress_auth_context(
-                principal_id=f"{self._channel}:{sender_open_id}",
+                principal_id=f"{instance_namespace}:{sender_open_id}",
                 principal_kind=PrincipalKind.WEBHOOK,
                 source=AuthenticationSource.WEBHOOK,
                 client_kind=ClientKind.WEBHOOK,

@@ -26,9 +26,11 @@ export async function getSupervisionReport(edictId: string): Promise<Supervision
 }
 
 export async function createEdict(body: EdictCreateRequest): Promise<ApiResponse<Edict>> {
+  const idempotencyKey = body.idempotency_key ?? crypto.randomUUID();
   const { data } = await apiClient.post<ApiResponse<Edict>>(
     "/edicts",
-    body,
+    { ...body, idempotency_key: idempotencyKey },
+    { headers: { "Idempotency-Key": idempotencyKey } },
   );
   return data;
 }

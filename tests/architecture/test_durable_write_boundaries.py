@@ -29,7 +29,13 @@ _INGRESS_METHODS = {
     _ROOT / "src/tianshu/executor/approvals.py": {"_handle_amend"},
     _ROOT / "src/tianshu/cli/commands/edict.py": {"submit"},
 }
-_FORBIDDEN_INGRESS_WRITES = {"save_edict", "save_memorial", "append_event"}
+_FORBIDDEN_INGRESS_ACTIONS = {
+    "append_event",
+    "emit",
+    "fire",
+    "save_edict",
+    "save_memorial",
+}
 
 
 def _calls(path: Path) -> list[ast.Call]:
@@ -117,21 +123,25 @@ def test_named_top_level_ingress_methods_do_not_write_storage_directly() -> None
     violations: list[str] = []
     for path, method_names in _INGRESS_METHODS.items():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        matched_names: set[str] = set()
         for function in (
             node
             for node in ast.walk(tree)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and node.name in method_names
         ):
+            matched_names.add(function.name)
             for node in ast.walk(function):
                 if (
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
-                    and node.func.attr in _FORBIDDEN_INGRESS_WRITES
+                    and node.func.attr in _FORBIDDEN_INGRESS_ACTIONS
                 ):
                     violations.append(f"{path.name}:{function.name}:{node.func.attr}:{node.lineno}")
                 if isinstance(node, ast.Attribute) and node.attr == "_conn":
                     violations.append(f"{path.name}:{function.name}:_conn:{node.lineno}")
+        for missing_name in sorted(method_names - matched_names):
+            violations.append(f"{path.name}:{missing_name}:not_found")
 
     assert violations == []
 

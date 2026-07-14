@@ -160,7 +160,7 @@ class EdictApplicationService:
         producer: str,
         correlation_id: str,
     ) -> SubmitEdictResult:
-        _validate_idempotency_key(command.idempotency_key)
+        validate_idempotency_key(command.idempotency_key)
         request_hash = _request_hash(command)
         principal_id = auth.principal.id
         return self._submit_once(
@@ -277,7 +277,7 @@ class EdictApplicationService:
         )
 
 
-def _validate_idempotency_key(idempotency_key: str) -> None:
+def validate_idempotency_key(idempotency_key: str) -> None:
     if not 1 <= len(idempotency_key) <= 200:
         raise ValueError("idempotency key must contain 1 to 200 characters")
     if any(unicodedata.category(character) == "Cc" for character in idempotency_key):

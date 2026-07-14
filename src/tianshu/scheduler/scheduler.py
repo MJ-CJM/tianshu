@@ -234,6 +234,7 @@ class Scheduler:
                             edict,
                             delay,
                             memorial_id=initial_memorial_id,
+                            job_id=job_id,
                         )
                     )
                     job = _Job(
@@ -510,7 +511,12 @@ class Scheduler:
                     ):
                         return job_id
                     task = asyncio.create_task(
-                        self._delayed_emit(edict, delay, memorial_id=memorial_id)
+                        self._delayed_emit(
+                            edict,
+                            delay,
+                            memorial_id=memorial_id,
+                            job_id=job_id,
+                        )
                     )
                     job = _Job(
                         job_id,
@@ -647,7 +653,12 @@ class Scheduler:
                 await self._emit_scheduled(edict, memorial_id=memorial_id)
                 return
             job.task = asyncio.create_task(
-                self._delayed_emit(edict, delay, memorial_id=memorial_id)
+                self._delayed_emit(
+                    edict,
+                    delay,
+                    memorial_id=memorial_id,
+                    job_id=job.job_id,
+                )
             )
             job.next_run = schedule.at
         elif schedule.type == "cron" and schedule.cron:
@@ -677,10 +688,23 @@ class Scheduler:
         job.initial_memorial_id = memorial_id
 
     async def cancel(self, job_id: str) -> None:
+        row = self._storage.get_scheduler_job(job_id)
         job = self._jobs.pop(job_id, None)
+        initial_memorial_id = job.initial_memorial_id if job else None
+        if initial_memorial_id is None and row is not None:
+            initial_memorial_id = self._restore_initial_memorial_id(
+                row["edict_id"],
+                job_id,
+            )
         if job and job.task and not job.task.done():
             job.task.cancel()
         self._storage.delete_scheduler_job(job_id)
+        if initial_memorial_id is not None:
+            memorial = self._storage.get_memorial(initial_memorial_id)
+            if memorial and memorial.status == TaskStatus.SUBMITTED:
+                memorial.status = TaskStatus.CANCELLED
+                memorial.completed_at = datetime.now(UTC)
+                self._storage.update_memorial(memorial)
 
     async def pause(self, job_id: str) -> bool:
         """Pause an active job: cancel its timer but keep it for resume."""
@@ -703,31 +727,69 @@ class Scheduler:
             self._storage.delete_scheduler_job(job_id)
             return False
         sched = edict.schedule
+        initial_memorial_id = self._restore_initial_memorial_id(edict.id, job_id)
         next_run: datetime | None = None
         if sched.type == "cron" and sched.cron:
             tz_name = sched.timezone or "UTC"
             next_run = _next_cron_utc(sched.cron, tz_name)
-            task = asyncio.create_task(self._cron_loop(edict, sched.cron, job_id, tz_name))
-            self._jobs[job_id] = _Job(job_id, edict.id, "cron", task=task, next_run=next_run)
+            task = asyncio.create_task(
+                self._cron_loop(
+                    edict,
+                    sched.cron,
+                    job_id,
+                    tz_name,
+                    initial_memorial_id=initial_memorial_id,
+                )
+            )
+            self._jobs[job_id] = _Job(
+                job_id,
+                edict.id,
+                "cron",
+                task=task,
+                next_run=next_run,
+                initial_memorial_id=initial_memorial_id,
+            )
         elif sched.type == "interval" and sched.interval_seconds:
             next_run = datetime.now(UTC) + timedelta(seconds=sched.interval_seconds)
-            task = asyncio.create_task(self._interval_loop(edict, sched.interval_seconds, job_id))
+            task = asyncio.create_task(
+                self._interval_loop(
+                    edict,
+                    sched.interval_seconds,
+                    job_id,
+                    initial_memorial_id=initial_memorial_id,
+                )
+            )
             self._jobs[job_id] = _Job(
                 job_id,
                 edict.id,
                 "interval",
                 task=task,
                 next_run=next_run,
+                initial_memorial_id=initial_memorial_id,
             )
         elif sched.type == "once" and sched.at:
             delay = (sched.at - datetime.now(UTC)).total_seconds()
             if delay <= 0:
-                await self._emit_scheduled(edict)
+                await self._emit_scheduled(edict, memorial_id=initial_memorial_id)
                 self._storage.delete_scheduler_job(job_id)
                 return True
             next_run = sched.at
-            task = asyncio.create_task(self._delayed_emit(edict, delay))
-            self._jobs[job_id] = _Job(job_id, edict.id, "once", task=task, next_run=next_run)
+            task = asyncio.create_task(
+                self._delayed_emit(
+                    edict,
+                    delay,
+                    memorial_id=initial_memorial_id,
+                    job_id=job_id,
+                )
+            )
+            self._jobs[job_id] = _Job(
+                job_id,
+                edict.id,
+                "once",
+                task=task,
+                next_run=next_run,
+                initial_memorial_id=initial_memorial_id,
+            )
         else:
             return False
         self._storage.set_scheduler_job_status(job_id, "active")
@@ -916,9 +978,13 @@ class Scheduler:
         delay: float,
         *,
         memorial_id: str | None = None,
+        job_id: str | None = None,
     ) -> None:
         try:
             await asyncio.sleep(delay)
             await self._emit_scheduled(edict, memorial_id=memorial_id)
+            if job_id is not None:
+                self._storage.delete_scheduler_job(job_id)
+                self._jobs.pop(job_id, None)
         except asyncio.CancelledError:
             logger.info("Delayed schedule cancelled for edict %s", edict.id)

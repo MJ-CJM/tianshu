@@ -8,16 +8,64 @@ import pytest
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.gateway.core.edict_bridge import EdictBridge
-from tianshu.gateway.telegram.session_anchor import SessionAnchor
+from tianshu.gateway.core.session_anchor import SessionAnchor as FeishuSessionAnchor
+from tianshu.gateway.telegram.session_anchor import SessionAnchor as TelegramSessionAnchor
 
 
 def _bridge(storage, **kw):
     bus = EventBus()
-    anchor = SessionAnchor(storage)
+    anchor = TelegramSessionAnchor(storage)
     executor = MagicMock()
     executor.execute_edict = AsyncMock()
     executor.running_tasks = set()
     return EdictBridge(storage=storage, event_bus=bus, executor=executor, anchor=anchor, **kw)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["feishu", "telegram"])
+async def test_same_source_identity_is_isolated_by_bot_instance(storage, channel: str) -> None:
+    anchor_type = FeishuSessionAnchor if channel == "feishu" else TelegramSessionAnchor
+    user_meta_key = f"{channel}_user"
+    executor = MagicMock(execute_edict=AsyncMock(), running_tasks=set())
+    first_anchor = anchor_type(storage, instance_id=f"{channel}-first")
+    second_anchor = anchor_type(storage, instance_id=f"{channel}-second")
+    first = EdictBridge(
+        storage=storage,
+        event_bus=EventBus(),
+        executor=executor,
+        anchor=first_anchor,
+        channel=channel,
+        instance_id=f"{channel}-first",
+        user_meta_key=user_meta_key,
+    )
+    second = EdictBridge(
+        storage=storage,
+        event_bus=EventBus(),
+        executor=executor,
+        anchor=second_anchor,
+        channel=channel,
+        instance_id=f"{channel}-second",
+        user_meta_key=user_meta_key,
+    )
+    request = {
+        "chat_id": "shared-chat",
+        "sender_open_id": "shared-sender",
+        "goal": "shared goal",
+        "source_message_id": "shared-source",
+    }
+
+    first_result = await first.create_new(**request)
+    second_result = await second.create_new(**request)
+    first_retry = await first.create_new(**request)
+
+    assert first_result.edict_id != second_result.edict_id
+    assert first_retry == first_result
+    first_edict = storage.get_edict(first_result.edict_id)
+    second_edict = storage.get_edict(second_result.edict_id)
+    assert first_edict.metadata["instance_id"] == f"{channel}-first"
+    assert second_edict.metadata["instance_id"] == f"{channel}-second"
+    assert first_anchor.get("shared-chat") == first_result.edict_id
+    assert second_anchor.get("shared-chat") == second_result.edict_id
 
 
 @pytest.mark.asyncio

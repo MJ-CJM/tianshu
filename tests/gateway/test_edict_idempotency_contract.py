@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -46,9 +47,20 @@ def test_http_new_retry_conflict_and_header_body_mismatch(storage, config_manage
         )
 
     assert first.status_code == 202
-    assert first.json()["metadata"] is None
+    first_metadata = first.json()["metadata"]
+    assert first_metadata == {
+        "deduplicated": False,
+        "idempotency_key": "http-request-1",
+        "request_hash": first_metadata["request_hash"],
+        "event_id": first_metadata["event_id"],
+        "memorial_id": first_metadata["memorial_id"],
+    }
+    assert len(first_metadata["request_hash"]) == 64
     assert retry.status_code == 200
-    assert retry.json()["metadata"] == {"deduplicated": True}
+    assert retry.json()["metadata"] == {
+        **first_metadata,
+        "deduplicated": True,
+    }
     assert retry.json()["data"]["id"] == first.json()["data"]["id"]
     assert conflict.status_code == 409
     assert conflict.json()["detail"] == {
@@ -57,6 +69,65 @@ def test_http_new_retry_conflict_and_header_body_mismatch(storage, config_manage
     }
     assert mismatch.status_code == 422
     assert mismatch.json()["detail"]["code"] == "idempotency_key_mismatch"
+
+
+@pytest.mark.parametrize(
+    ("headers", "payload", "expected_code", "expected_source"),
+    [
+        ({}, {"goal": "missing"}, "idempotency_key_required", None),
+        (
+            {"Idempotency-Key": ""},
+            {"goal": "empty header"},
+            "invalid_idempotency_key",
+            "header",
+        ),
+        (
+            {"Idempotency-Key": "x" * 201},
+            {"goal": "long header"},
+            "invalid_idempotency_key",
+            "header",
+        ),
+        (
+            {},
+            {"goal": "empty body", "idempotency_key": ""},
+            "invalid_idempotency_key",
+            "body",
+        ),
+        (
+            {},
+            {"goal": "long body", "idempotency_key": "x" * 201},
+            "invalid_idempotency_key",
+            "body",
+        ),
+        (
+            {},
+            {"goal": "control body", "idempotency_key": "bad\u0001key"},
+            "invalid_idempotency_key",
+            "body",
+        ),
+    ],
+)
+def test_http_rejects_missing_or_invalid_idempotency_key(
+    storage,
+    config_manager,
+    headers,
+    payload,
+    expected_code,
+    expected_source,
+) -> None:
+    app = _app(storage, config_manager)
+
+    with TestClient(
+        app,
+        client=("127.0.0.1", 41000),
+        raise_server_exceptions=False,
+    ) as client:
+        response = client.post("/api/edicts", headers=headers, json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == expected_code
+    if expected_source is not None:
+        assert response.json()["detail"]["source"] == expected_source
 
 
 def test_http_body_key_remains_a_compatible_stable_source(storage, config_manager) -> None:
@@ -69,7 +140,12 @@ def test_http_body_key_remains_a_compatible_stable_source(storage, config_manage
 
     assert first.status_code == 202
     assert retry.status_code == 200
-    assert retry.json()["metadata"] == {"deduplicated": True}
+    assert first.json()["metadata"]["idempotency_key"] == "body-request-1"
+    assert first.json()["metadata"]["deduplicated"] is False
+    assert retry.json()["metadata"] == {
+        **first.json()["metadata"],
+        "deduplicated": True,
+    }
 
 
 def test_http_constructs_one_command_and_calls_application_service_once(

@@ -16,7 +16,7 @@ from tianshu.models.common import TaskStatus
 from tianshu.models.edict import EdictSchedule
 from tianshu.models.events import EventEnvelope
 from tianshu.models.memorial import Memorial
-from tianshu.scheduler.scheduler import Scheduler
+from tianshu.scheduler.scheduler import Scheduler, submission_job_id
 from tianshu.storage import Storage
 from tianshu.storage.outbox_repo import OutboxRepository
 
@@ -46,6 +46,202 @@ def _register_scheduler(bus: EventBus, storage: Storage) -> Scheduler:
         consumer_name=_CONSUMER_NAME,
     )
     return scheduler
+
+
+def _save_submission(
+    storage: Storage,
+    edict: Edict,
+    memorial: Memorial,
+    event_id: str,
+) -> EventEnvelope:
+    storage.save_edict(edict)
+    storage.save_memorial(memorial)
+    event = EventEnvelope(
+        event_id=event_id,
+        event_type="edict.submitted",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
+        timestamp=datetime.now(UTC),
+        producer="tests",
+    )
+    with storage.unit_of_work() as unit_of_work:
+        OutboxRepository().add(unit_of_work.connection, event)
+        unit_of_work.commit()
+    return event
+
+
+@pytest.mark.asyncio
+async def test_future_once_first_fire_is_not_restored_after_restart(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "scheduler-once-terminal.sqlite3"
+    target = datetime.now(UTC) + timedelta(milliseconds=100)
+    job_id = "future-once-terminal-job"
+
+    first_storage = Storage(str(database_path))
+    first_storage.init_db()
+    edict = Edict(
+        goal="fire a durable once schedule only once",
+        schedule=EdictSchedule(type="once", at=target),
+    )
+    first_storage.save_edict(edict)
+    first_bus = EventBus()
+    first_scheduler = _register_scheduler(first_bus, first_storage)
+    first_delivery = asyncio.Event()
+
+    async def capture_first(_event: EventEnvelope) -> None:
+        first_delivery.set()
+
+    first_bus.on(
+        "edict.scheduled",
+        capture_first,
+        consumer_name="tests.scheduler_once_terminal.first.v1",
+    )
+    await first_scheduler.start()
+
+    try:
+        await first_scheduler.schedule(edict, job_id=job_id)
+        await asyncio.wait_for(first_delivery.wait(), timeout=1)
+        row = first_storage.get_scheduler_job(job_id)
+        assert row is not None
+        assert row["status"] != "active"
+    finally:
+        await first_scheduler.stop()
+        await asyncio.sleep(0)
+        first_storage.close()
+
+    second_storage = Storage(str(database_path))
+    second_storage.init_db()
+    second_bus = EventBus()
+    second_scheduler = _register_scheduler(second_bus, second_storage)
+    second_deliveries: list[EventEnvelope] = []
+
+    async def capture_second(event: EventEnvelope) -> None:
+        second_deliveries.append(event)
+
+    second_bus.on(
+        "edict.scheduled",
+        capture_second,
+        consumer_name="tests.scheduler_once_terminal.second.v1",
+    )
+    await second_scheduler.start()
+
+    try:
+        await asyncio.sleep(0.1)
+        assert second_deliveries == []
+        assert second_storage.list_active_scheduler_jobs() == []
+    finally:
+        await second_scheduler.stop()
+        await asyncio.sleep(0)
+        second_storage.close()
+
+
+@pytest.mark.parametrize("schedule_type", ["once", "cron", "interval"])
+@pytest.mark.parametrize("storage_mode", ["file", "memory"])
+@pytest.mark.asyncio
+async def test_pause_resume_preserves_authoritative_initial_memorial(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    schedule_type: str,
+    storage_mode: str,
+) -> None:
+    if schedule_type == "cron":
+        monkeypatch.setattr(
+            "tianshu.scheduler.scheduler._next_cron_utc",
+            lambda *_args: datetime.now(UTC) + timedelta(milliseconds=50),
+        )
+    schedule = {
+        "once": EdictSchedule(
+            type="once",
+            at=datetime.now(UTC) + timedelta(milliseconds=300),
+        ),
+        "cron": EdictSchedule(type="cron", cron="* * * * *", timezone="UTC"),
+        "interval": EdictSchedule(type="interval", interval_seconds=1),
+    }[schedule_type]
+    event_id = f"pause-resume-{schedule_type}-event"
+    database = (
+        str(tmp_path / f"pause-resume-{schedule_type}.sqlite3")
+        if storage_mode == "file"
+        else ":memory:"
+    )
+    storage = Storage(database)
+    storage.init_db()
+    edict = Edict(goal=f"resume {schedule_type}", schedule=schedule)
+    memorial = Memorial(edict_id=edict.id, instruction=edict.goal)
+    event = _save_submission(storage, edict, memorial, event_id)
+    bus = EventBus()
+    scheduler = _register_scheduler(bus, storage)
+    delivered = asyncio.Event()
+    received: list[EventEnvelope] = []
+
+    async def capture(scheduled: EventEnvelope) -> None:
+        received.append(scheduled)
+        delivered.set()
+
+    bus.on(
+        "edict.scheduled",
+        capture,
+        consumer_name=f"tests.pause_resume_{schedule_type}.v1",
+    )
+    await scheduler.start()
+    job_id = submission_job_id(event_id)
+
+    try:
+        await scheduler.handle_submitted(event)
+        assert await scheduler.pause(job_id) is True
+        assert storage.get_scheduler_job(job_id)["status"] == "paused"
+        assert storage.get_memorial(memorial.id).status == TaskStatus.SUBMITTED
+
+        assert await scheduler.resume(job_id) is True
+        await asyncio.wait_for(delivered.wait(), timeout=2)
+
+        assert received[0].memorial_id == memorial.id
+        assert storage.get_memorial(memorial.id).status == TaskStatus.SCHEDULED
+    finally:
+        await scheduler.cancel(job_id)
+        await scheduler.stop()
+        await asyncio.sleep(0)
+        storage.close()
+
+
+@pytest.mark.parametrize("storage_mode", ["file", "memory"])
+@pytest.mark.asyncio
+async def test_cancel_terminalizes_unfired_initial_memorial(
+    tmp_path: Path,
+    storage_mode: str,
+) -> None:
+    database = (
+        str(tmp_path / "cancel-initial-memorial.sqlite3") if storage_mode == "file" else ":memory:"
+    )
+    storage = Storage(database)
+    storage.init_db()
+    edict = Edict(
+        goal="cancel durable submission before fire",
+        schedule=EdictSchedule(
+            type="once",
+            at=datetime.now(UTC) + timedelta(hours=1),
+        ),
+    )
+    memorial = Memorial(edict_id=edict.id, instruction=edict.goal)
+    event_id = "cancel-initial-memorial-event"
+    event = _save_submission(storage, edict, memorial, event_id)
+    scheduler = _register_scheduler(EventBus(), storage)
+    await scheduler.start()
+    job_id = submission_job_id(event_id)
+
+    try:
+        await scheduler.handle_submitted(event)
+        await scheduler.cancel(job_id)
+
+        cancelled = storage.get_memorial(memorial.id)
+        assert cancelled.status == TaskStatus.CANCELLED
+        assert cancelled.completed_at is not None
+        assert storage.has_unfinished_memorials(edict.id) is False
+        assert storage.get_scheduler_job(job_id)["status"] == "cancelled"
+    finally:
+        await scheduler.stop()
+        await asyncio.sleep(0)
+        storage.close()
 
 
 @pytest.mark.parametrize("schedule_type", ["once", "cron"])
@@ -131,7 +327,8 @@ async def test_published_submission_restart_preserves_initial_memorial_until_fir
         await asyncio.wait_for(delivered.wait(), timeout=2)
         assert received[0].memorial_id == memorial.id
         assert second_storage.get_memorial(memorial.id).status == TaskStatus.SCHEDULED
-        assert len(second_storage.list_active_scheduler_jobs()) == 1
+        expected_active_jobs = 0 if schedule_type == "once" else 1
+        assert len(second_storage.list_active_scheduler_jobs()) == expected_active_jobs
     finally:
         await second_scheduler.stop()
         await asyncio.sleep(0)

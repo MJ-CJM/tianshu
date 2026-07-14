@@ -12,6 +12,7 @@ from tianshu.application.edicts import (
     EdictApplicationService,
     IdempotencyConflict,
     SubmitEdictCommand,
+    validate_idempotency_key,
 )
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.capabilities import (
@@ -70,6 +71,40 @@ def _validate_network_runtime(runtime: object) -> None:
 def _workspace_source_id(request: Request) -> str:
     del request
     return WORKSPACE_MAIN_SOURCE_ID
+
+
+def _idempotency_key_from_request(body: EdictCreateRequest, request: Request) -> str:
+    header_key = request.headers.get("Idempotency-Key")
+    body_key = body.idempotency_key
+    if header_key is None and body_key is None:
+        raise HTTPException(422, {"code": "idempotency_key_required"})
+    for source, key in (("header", header_key), ("body", body_key)):
+        if key is None:
+            continue
+        try:
+            validate_idempotency_key(key)
+        except ValueError as exc:
+            raise HTTPException(
+                422,
+                {
+                    "code": "invalid_idempotency_key",
+                    "source": source,
+                    "reason": str(exc),
+                },
+            ) from exc
+    if header_key is not None and body_key is not None and header_key != body_key:
+        raise HTTPException(
+            422,
+            {
+                "code": "idempotency_key_mismatch",
+                "header": header_key,
+                "body": body_key,
+            },
+        )
+    if header_key is not None:
+        return header_key
+    assert body_key is not None
+    return body_key
 
 
 def _runtime_from_request(body: EdictCreateRequest, request: Request) -> EdictRuntime:
@@ -268,21 +303,7 @@ async def create_edict(body: EdictCreateRequest, request: Request, response: Res
     storage: Storage = request.app.state.storage
     auth = get_auth_context(request)
     submitter = auth.principal.id
-    header_key = request.headers.get("Idempotency-Key")
-    if (
-        header_key is not None
-        and body.idempotency_key is not None
-        and header_key != body.idempotency_key
-    ):
-        raise HTTPException(
-            422,
-            {
-                "code": "idempotency_key_mismatch",
-                "header": header_key,
-                "body": body.idempotency_key,
-            },
-        )
-    idempotency_key = header_key or body.idempotency_key or f"http:{auth.correlation_id}"
+    idempotency_key = _idempotency_key_from_request(body, request)
 
     runtime = _runtime_from_request(body, request)
     requested_contract = _requested_contract_from_body(body, request, runtime)
@@ -392,7 +413,13 @@ async def create_edict(body: EdictCreateRequest, request: Request, response: Res
     return ApiResponse(
         success=True,
         data=result.edict.model_dump(mode="json"),
-        metadata={"deduplicated": True} if result.deduplicated else None,
+        metadata={
+            "deduplicated": result.deduplicated,
+            "idempotency_key": idempotency_key,
+            "request_hash": result.request_hash,
+            "event_id": result.event_id,
+            "memorial_id": result.memorial.id,
+        },
     )
 
 

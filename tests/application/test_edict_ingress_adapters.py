@@ -96,10 +96,10 @@ async def test_bot_bridge_uses_verified_source_message_identity_once(storage) ->
     assert result.edict_id
     assert len(service.calls) == 1
     command, auth, producer, correlation_id = service.calls[0]
-    assert command.idempotency_key == "feishu:evt-source-1"
-    assert auth.principal.id == "feishu:ou-user"
+    assert command.idempotency_key == "feishu:feishu-default:evt-source-1"
+    assert auth.principal.id == "feishu:feishu-default:ou-user"
     assert producer == "feishu_bot"
-    assert correlation_id == "feishu:evt-source-1"
+    assert correlation_id == "feishu:feishu-default:evt-source-1"
     anchor.set.assert_called_once_with("oc-chat", result.edict_id)
 
 
