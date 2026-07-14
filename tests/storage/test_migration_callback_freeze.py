@@ -16,6 +16,7 @@ from collections.abc import Callable
 
 import pytest
 
+from tianshu.secrets import vault as vault_module
 from tianshu.storage import migration_ledger as migration_ledger_module
 from tianshu.storage import migrations as migrations_module
 from tianshu.storage.migrations import MIGRATIONS
@@ -62,17 +63,41 @@ _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {
     ("migration_ledger", "adopt_migrations"): (
         "74022265c8b0a3b47301ab947fa3c1ed5dd5ad856fd2bb11d4c4e026704c3a01"
     ),
+    ("migrations", "_parse_legacy_secret_mapping"): (
+        "6c29b81b33339a2c85c85ac628e2196d1074d4d338e31c9c446fb89341918429"
+    ),
+    ("migrations", "_encrypt_verified_mapping"): (
+        "6e70862523c3614fe3d701976e0b9240117fdf02d8ce41f9181d1d162d9ef291"
+    ),
+    ("vault", "encrypt_canonical_mapping"): (
+        "7d44ac2228b6f041aaa5ece476301180b4d166c5732873b07fb3e75e4a6a9bc0"
+    ),
+    ("vault", "decrypt_canonical_mapping"): (
+        "c752b957ea17b7936ccc2818b3356eb8e73ce8646cd429d0b6519f74cca09f09"
+    ),
+    ("vault", "require_mcp_vault"): (
+        "0336ca958f13df4125d97ca2a3cc5b248ad0b571d17164e5548cbc767330f236"
+    ),
 }
 
 _HELPER_MODULES = {
     "migrations": migrations_module,
     "migration_ledger": migration_ledger_module,
+    "vault": vault_module,
 }
 
 _FREEZE_VIOLATION_HINT = (
     "冻结迁移的 callback 源码被修改。已提交迁移的行为不得漂移；"
     "若这是经裁决的正式修订，先在 docs/cc-fable-v1/PROGRESS.md 记录后更新指纹。"
 )
+
+_V8_SECURITY_HELPERS = {
+    ("migrations", "_parse_legacy_secret_mapping"),
+    ("migrations", "_encrypt_verified_mapping"),
+    ("vault", "encrypt_canonical_mapping"),
+    ("vault", "decrypt_canonical_mapping"),
+    ("vault", "require_mcp_vault"),
+}
 
 
 def _source_fingerprint(obj: Callable[..., object]) -> str:
@@ -84,6 +109,10 @@ def test_every_migration_upgrade_callback_is_fingerprinted() -> None:
     assert {migration.name for migration in MIGRATIONS} == set(_FROZEN_UPGRADE_FINGERPRINTS), (
         "MIGRATIONS 序列与冻结指纹表不同步：新增迁移必须同时登记其 callback 指纹"
     )
+
+
+def test_v8_security_helpers_are_all_fingerprinted() -> None:
+    assert _V8_SECURITY_HELPERS.issubset(_FROZEN_HELPER_FINGERPRINTS)
 
 
 @pytest.mark.parametrize("migration", MIGRATIONS, ids=lambda m: m.name)

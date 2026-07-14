@@ -258,6 +258,86 @@ def test_v8_migrates_null_empty_env_headers_and_preserves_non_secret_columns(
     assert _legacy_sensitive_backups(database_path) == []
 
 
+def test_v8_fails_before_backup_when_legacy_wal_checkpoint_is_busy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, master_key: str
+) -> None:
+    database_path = tmp_path / "busy-wal.sqlite3"
+    wal_path = Path(f"{database_path}-wal")
+    _create_v7_database(database_path, [])
+    writer = sqlite3.connect(database_path)
+    reader = sqlite3.connect(database_path)
+    storage = Storage(str(database_path))
+    try:
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.execute("PRAGMA busy_timeout=1")
+        reader.execute("BEGIN")
+        assert reader.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (7,)
+        writer.execute(
+            """
+            INSERT INTO mcp_server_overrides (name, env_json, updated_at)
+            VALUES ('busy-secret', ?, '2026-07-14T02:00:00+00:00')
+            """,
+            (json.dumps({"TOKEN": _ENV_SENTINEL}),),
+        )
+        writer.commit()
+        assert wal_path.exists()
+        assert _ENV_SENTINEL.encode() in wal_path.read_bytes()
+        checkpoint = writer.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        assert checkpoint is not None
+        assert checkpoint[0] != 0
+        monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", master_key)
+
+        failure: RuntimeError | None = None
+        try:
+            storage.init_db()
+        except RuntimeError as error:
+            failure = error
+            assert str(error) == "sensitive migration WAL checkpoint is busy"
+        else:
+            applied_version = storage._conn.execute(
+                "SELECT MAX(version) FROM schema_migrations"
+            ).fetchone()[0]
+            wal_contains_sentinel = (
+                wal_path.exists() and _ENV_SENTINEL.encode() in wal_path.read_bytes()
+            )
+            pytest.fail(
+                "busy sensitive migration succeeded: "
+                f"ledger={applied_version}, wal_contains_sentinel={wal_contains_sentinel}"
+            )
+
+        assert failure is not None
+        assert _ENV_SENTINEL not in str(failure)
+        assert storage._conn is None
+        assert _legacy_sensitive_backups(database_path) == []
+        with closing(sqlite3.connect(database_path)) as current:
+            columns = {row[1] for row in current.execute("PRAGMA table_info(mcp_server_overrides)")}
+            assert {"env_json", "headers_json"} <= columns
+            assert "env_ciphertext" not in columns
+            assert current.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (7,)
+            assert current.execute(
+                "SELECT env_json FROM mcp_server_overrides WHERE name = 'busy-secret'"
+            ).fetchone() == (json.dumps({"TOKEN": _ENV_SENTINEL}),)
+    finally:
+        storage.close()
+        reader.rollback()
+        reader.close()
+        writer.close()
+
+    retry = Storage(str(database_path))
+    retry.init_db()
+    try:
+        [row] = retry.list_mcp_overrides()
+        assert row["env"] == {"TOKEN": _ENV_SENTINEL}
+        assert retry._conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 8
+        for active_file in (database_path, wal_path):
+            if active_file.exists():
+                assert _ENV_SENTINEL.encode() not in active_file.read_bytes()
+    finally:
+        retry.close()
+    assert _legacy_sensitive_backups(database_path) == []
+
+
 def test_v8_prior_prefix_upgrade_preserves_yaml_override_semantics(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, master_key: str
 ) -> None:

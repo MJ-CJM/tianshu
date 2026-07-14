@@ -9,9 +9,25 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tianshu.storage.migration_ledger import MigrationError, pending_migrations
+from tianshu.storage.migration_ledger import Migration, MigrationError, pending_migrations
 from tianshu.storage.migrations import MIGRATIONS, run_migrations
 from tianshu.storage.sqlite_backup import create_online_backup, remove_backup
+
+_SENSITIVE_MIGRATION_NAMES = frozenset({"0008_encrypt_mcp_secret_mappings"})
+
+
+class SensitiveMigrationWALCheckpointError(RuntimeError):
+    """Raised when plaintext WAL frames cannot be truncated before a migration."""
+
+
+def _has_sensitive_migration(pending: tuple[Migration, ...]) -> bool:
+    return any(migration.name in _SENSITIVE_MIGRATION_NAMES for migration in pending)
+
+
+def _truncate_sensitive_migration_wal(conn: sqlite3.Connection) -> None:
+    result = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    if result is None or int(result[0]) != 0:
+        raise SensitiveMigrationWALCheckpointError("sensitive migration WAL checkpoint is busy")
 
 
 def _new_migration_backup_path(path: Path) -> Path:
@@ -68,6 +84,9 @@ class _StorageBase:
                 conn.row_factory = sqlite3.Row
                 conn.execute("PRAGMA foreign_keys=ON")
                 pending = pending_migrations(conn, MIGRATIONS)
+                sensitive_pending = _has_sensitive_migration(pending)
+                if existing_disk_database and sensitive_pending:
+                    _truncate_sensitive_migration_wal(conn)
                 if existing_disk_database and pending:
                     backup_path = _new_migration_backup_path(path)
                     create_online_backup(conn, backup_path)
@@ -79,7 +98,10 @@ class _StorageBase:
                         exc.add_note(f"pre-migration backup: {backup_path}")
                     raise
                 if backup_path is not None:
-                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    if sensitive_pending:
+                        _truncate_sensitive_migration_wal(conn)
+                    else:
+                        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                     remove_backup(backup_path)
                 conn.execute("PRAGMA journal_mode=WAL")
                 self._seed_departments()
