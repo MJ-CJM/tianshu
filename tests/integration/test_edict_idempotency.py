@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from tianshu.models import Edict
+from tianshu.models.canonical import canonical_json_bytes
 from tianshu.models.governance_contract import ObjectiveV1, RequestedGovernanceContractV1
 from tianshu.models.principal import (
     AuthContext,
@@ -97,6 +98,23 @@ def test_same_principal_key_and_canonical_hash_returns_original_response() -> No
         storage.close()
 
 
+def test_idempotency_key_does_not_participate_in_the_request_hash() -> None:
+    storage = Storage(":memory:")
+    storage.init_db()
+    try:
+        first = _submit(storage, _command("same request", "first-key", payload={"stable": True}))
+        second = _submit(
+            storage,
+            _command("same request", "second-key", payload={"stable": True}),
+        )
+
+        assert first.deduplicated is False
+        assert second.deduplicated is False
+        assert first.request_hash == second.request_hash
+    finally:
+        storage.close()
+
+
 def test_same_principal_and_key_with_different_hash_raises_stable_conflict() -> None:
     service_type, _, conflict_type = _application_types()
     storage = Storage(":memory:")
@@ -116,6 +134,72 @@ def test_same_principal_and_key_with_different_hash_raises_stable_conflict() -> 
         assert raised.value.idempotency_key == "shared-key"  # type: ignore[attr-defined]
         assert raised.value.existing_edict_id == first.edict.id  # type: ignore[attr-defined]
         assert storage._conn.execute("SELECT COUNT(*) FROM edicts").fetchone()[0] == 1  # noqa: SLF001
+    finally:
+        storage.close()
+
+
+def test_legacy_response_with_mismatched_memorial_edict_relation_is_rejected() -> None:
+    storage = Storage(":memory:")
+    storage.init_db()
+    try:
+        command = _command("tamper proof", "tamper-key")
+        first = _submit(storage, command)
+        legacy_response = {
+            "deduplicated": False,
+            "edict": first.edict.model_dump(mode="json", exclude_none=False),
+            "event_id": first.event_id,
+            "memorial": first.memorial.model_dump(mode="json", exclude_none=False),
+            "request_hash": first.request_hash,
+        }
+        legacy_response["memorial"]["edict_id"] = "tampered-edict-id"
+        storage._conn.execute(  # noqa: SLF001 - durable tamper injection
+            "UPDATE submission_idempotency SET response_json = ?",
+            (canonical_json_bytes(legacy_response).decode("utf-8"),),
+        )
+        storage._conn.commit()  # noqa: SLF001 - durable tamper injection
+
+        with pytest.raises(ValueError, match="durable identity"):
+            _submit(storage, command)
+    finally:
+        storage.close()
+
+
+def test_safe_replay_rejects_tampered_memorial_edict_relation() -> None:
+    storage = Storage(":memory:")
+    storage.init_db()
+    try:
+        command = _command("durable relation", "memorial-relation-key")
+        first = _submit(storage, command)
+        other_edict = Edict(goal="different durable parent")
+        storage.save_edict(other_edict)
+        storage._conn.execute(  # noqa: SLF001 - durable tamper injection
+            "UPDATE memorials SET edict_id = ? WHERE id = ?",
+            (other_edict.id, first.memorial.id),
+        )
+        storage._conn.commit()  # noqa: SLF001 - durable tamper injection
+
+        with pytest.raises(ValueError, match="durable identity relation"):
+            _submit(storage, command)
+    finally:
+        storage.close()
+
+
+def test_safe_replay_rejects_tampered_outbox_aggregate_binding() -> None:
+    storage = Storage(":memory:")
+    storage.init_db()
+    try:
+        command = _command("durable outbox relation", "outbox-relation-key")
+        first = _submit(storage, command)
+        other_edict = Edict(goal="different outbox parent")
+        storage.save_edict(other_edict)
+        storage._conn.execute(  # noqa: SLF001 - durable tamper injection
+            "UPDATE outbox_events SET edict_id = ? WHERE event_id = ?",
+            (other_edict.id, first.event_id),
+        )
+        storage._conn.commit()  # noqa: SLF001 - durable tamper injection
+
+        with pytest.raises(ValueError, match="durable outbox identity"):
+            _submit(storage, command)
     finally:
         storage.close()
 
@@ -245,6 +329,39 @@ def test_concurrent_unique_race_resolves_to_new_plus_deduplicated(tmp_path: Path
         assert len({result.edict.id for result in results}) == 1
         assert len({result.memorial.id for result in results}) == 1
         assert len({result.event_id for result in results}) == 1
+    finally:
+        second_storage.close()
+        first_storage.close()
+
+
+def test_concurrent_same_key_with_different_hash_resolves_to_conflict(tmp_path: Path) -> None:
+    _, _, conflict_type = _application_types()
+    database_path = tmp_path / "race-conflict.sqlite3"
+    first_storage = Storage(str(database_path))
+    first_storage.init_db()
+    second_storage = Storage(str(database_path))
+    second_storage.init_db()
+
+    def submit_or_capture(storage: Storage, goal: str) -> Any:
+        try:
+            return _submit(storage, _command(goal, "race-conflict-key"))
+        except conflict_type as error:
+            return error
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(submit_or_capture, first_storage, "first racing hash"),
+                executor.submit(submit_or_capture, second_storage, "second racing hash"),
+            ]
+            outcomes = [future.result() for future in futures]
+
+        new_results = [outcome for outcome in outcomes if not isinstance(outcome, conflict_type)]
+        conflicts = [outcome for outcome in outcomes if isinstance(outcome, conflict_type)]
+        assert len(new_results) == 1
+        assert new_results[0].deduplicated is False
+        assert len(conflicts) == 1
+        assert conflicts[0].existing_edict_id == new_results[0].edict.id
     finally:
         second_storage.close()
         first_storage.close()

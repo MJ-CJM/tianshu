@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 from tianshu.models import Edict, EventEnvelope, Memorial, TaskStatus
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
@@ -25,6 +26,10 @@ from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 class _SubmissionStorage(Protocol):
     def unit_of_work(self) -> SqliteUnitOfWork: ...
+
+    def get_edict(self, edict_id: str) -> Edict | None: ...
+
+    def get_memorial(self, memorial_id: str) -> Memorial | None: ...
 
 
 _SENSITIVE_PAYLOAD_KEYS = frozenset(
@@ -51,6 +56,20 @@ _SENSITIVE_PAYLOAD_KEYS = frozenset(
         "x-auth-token",
     }
 )
+_SENSITIVE_PAYLOAD_KEY_PARTS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "credential",
+        "credentials",
+        "password",
+        "passwd",
+        "secret",
+        "token",
+    }
+)
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,19 +116,13 @@ class EdictApplicationService:
         _validate_idempotency_key(command.idempotency_key)
         request_hash = _request_hash(command)
         principal_id = auth.principal.id
-        try:
-            return self._submit_once(
-                command,
-                principal_id=principal_id,
-                producer=producer,
-                correlation_id=correlation_id,
-                request_hash=request_hash,
-            )
-        except sqlite3.IntegrityError:
-            existing = self._load_existing(principal_id, command.idempotency_key)
-            if existing is None:
-                raise
-            return _resolve_existing(existing, request_hash)
+        return self._submit_once(
+            command,
+            principal_id=principal_id,
+            producer=producer,
+            correlation_id=correlation_id,
+            request_hash=request_hash,
+        )
 
     def _submit_once(
         self,
@@ -128,7 +141,7 @@ class EdictApplicationService:
                 idempotency_key=command.idempotency_key,
             )
             if existing is not None:
-                return _resolve_existing(existing, request_hash)
+                return self._resolve_existing(conn, existing, request_hash)
 
             edict = _edict_for_submission(command)
             memorial = Memorial(
@@ -150,7 +163,7 @@ class EdictApplicationService:
                 request_hash=request_hash,
                 deduplicated=False,
             )
-            response_json = _serialize_result(result)
+            response_json = _serialize_replay_identity(result)
 
             _insert_edict(conn, edict)
             _insert_memorial(conn, memorial)
@@ -171,17 +184,51 @@ class EdictApplicationService:
             unit_of_work.commit()
             return result
 
-    def _load_existing(
+    def _resolve_existing(
         self,
-        principal_id: str,
-        idempotency_key: str,
-    ) -> SubmissionIdempotencyRecord | None:
-        with self._storage.unit_of_work() as unit_of_work:
-            return self._outbox.get_submission(
-                unit_of_work.connection,
-                principal_id=principal_id,
-                idempotency_key=idempotency_key,
+        conn: sqlite3.Connection,
+        existing: SubmissionIdempotencyRecord,
+        request_hash: str,
+    ) -> SubmitEdictResult:
+        if existing.request_hash != request_hash:
+            raise IdempotencyConflict(
+                existing.principal_id,
+                existing.idempotency_key,
+                existing.edict_id,
             )
+        payload = json.loads(existing.response_json)
+        identity, legacy_models = _replay_identity(payload)
+        if identity != (
+            existing.edict_id,
+            existing.memorial_id,
+            existing.event_id,
+            existing.request_hash,
+        ):
+            raise ValueError("stored idempotency response does not match its durable identity")
+        outbox_event = self._outbox.get(conn, existing.event_id)
+        if (
+            outbox_event is None
+            or outbox_event.event_type != "edict.submitted"
+            or outbox_event.aggregate_type != "edict"
+            or outbox_event.edict_id != existing.edict_id
+            or outbox_event.memorial_id != existing.memorial_id
+        ):
+            raise ValueError("stored idempotency response has an invalid durable outbox identity")
+
+        durable_edict = self._storage.get_edict(existing.edict_id)
+        durable_memorial = self._storage.get_memorial(existing.memorial_id)
+        if durable_edict is None or durable_memorial is None:
+            raise ValueError("stored idempotency response references missing durable identity")
+        if durable_memorial.edict_id != durable_edict.id:
+            raise ValueError("stored idempotency response has an invalid durable identity relation")
+        edict, memorial = legacy_models or (durable_edict, durable_memorial)
+        return SubmitEdictResult(
+            edict=edict,
+            memorial=memorial,
+            event_id=existing.event_id,
+            request_hash=existing.request_hash,
+            deduplicated=True,
+        )
 
 
 def _validate_idempotency_key(idempotency_key: str) -> None:
@@ -224,70 +271,93 @@ def _event_payload(
 ) -> dict[str, JsonValue]:
     payload = dict(command.extra_payload)
     payload.update({"correlation_id": correlation_id, "goal": command.edict.goal})
-    return _redact_payload_mapping(payload)
+    return cast(dict[str, JsonValue], _redact_durable_mapping(payload))
 
 
-def _redact_payload_mapping(payload: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
-    redacted: dict[str, JsonValue] = {}
+def _normalized_payload_key(key: str) -> str:
+    separated = _CAMEL_CASE_BOUNDARY.sub("-", key)
+    return _NON_ALPHANUMERIC.sub("-", separated.casefold()).strip("-")
+
+
+def _is_sensitive_payload_key(normalized_key: str) -> bool:
+    return normalized_key in _SENSITIVE_PAYLOAD_KEYS or bool(
+        set(normalized_key.split("-")) & _SENSITIVE_PAYLOAD_KEY_PARTS
+    )
+
+
+def _redact_durable_mapping(payload: Mapping[str, object]) -> dict[str, object]:
+    redacted: dict[str, object] = {}
     for key, value in payload.items():
-        normalized_key = key.casefold().replace("_", "-")
-        if normalized_key in _SENSITIVE_PAYLOAD_KEYS:
+        normalized_key = _normalized_payload_key(key)
+        if normalized_key in {"env", "environment"}:
+            redacted[key] = (
+                {str(environment_key): "[REDACTED]" for environment_key in value}
+                if isinstance(value, Mapping)
+                else "[REDACTED]"
+            )
+        elif _is_sensitive_payload_key(normalized_key):
             redacted[key] = "[REDACTED]"
-        elif normalized_key in {"env", "environment"} and isinstance(value, dict):
-            redacted[key] = {environment_key: "[REDACTED]" for environment_key in value}
         else:
-            redacted[key] = _redact_payload_value(value)
+            redacted[key] = _redact_durable_value(value)
     return redacted
 
 
-def _redact_payload_value(value: JsonValue) -> JsonValue:
+def _redact_durable_value(value: object) -> object:
     if isinstance(value, str):
         return redact_text(value)
-    if isinstance(value, dict):
-        return _redact_payload_mapping(value)
+    if isinstance(value, Mapping):
+        return _redact_durable_mapping({str(key): item for key, item in value.items()})
     if isinstance(value, list):
-        return [_redact_payload_value(item) for item in value]
+        return [_redact_durable_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_durable_value(item) for item in value]
     return value
 
 
-def _serialize_result(result: SubmitEdictResult) -> str:
+def _serialize_replay_identity(result: SubmitEdictResult) -> str:
     return canonical_json_bytes(
         {
-            "deduplicated": result.deduplicated,
-            "edict": result.edict.model_dump(mode="json", exclude_none=False),
+            "edict_id": result.edict.id,
             "event_id": result.event_id,
-            "memorial": result.memorial.model_dump(mode="json", exclude_none=False),
+            "memorial_id": result.memorial.id,
             "request_hash": result.request_hash,
         }
     ).decode("utf-8")
 
 
-def _resolve_existing(
-    existing: SubmissionIdempotencyRecord,
-    request_hash: str,
-) -> SubmitEdictResult:
-    if existing.request_hash != request_hash:
-        raise IdempotencyConflict(
-            existing.principal_id,
-            existing.idempotency_key,
-            existing.edict_id,
+def _replay_identity(
+    payload: object,
+) -> tuple[tuple[str, str, str, str], tuple[Edict, Memorial] | None]:
+    if not isinstance(payload, dict):
+        raise ValueError("stored idempotency response is not an object")
+    if "edict_id" in payload:
+        if set(payload) != {"edict_id", "memorial_id", "event_id", "request_hash"}:
+            raise ValueError("stored idempotency response has invalid durable identity fields")
+        identity = (
+            payload["edict_id"],
+            payload["memorial_id"],
+            payload["event_id"],
+            payload["request_hash"],
         )
-    payload = json.loads(existing.response_json)
-    result = SubmitEdictResult(
-        edict=Edict.model_validate(payload["edict"]),
-        memorial=Memorial.model_validate(payload["memorial"]),
-        event_id=payload["event_id"],
-        request_hash=payload["request_hash"],
-        deduplicated=True,
+        if not all(isinstance(value, str) for value in identity):
+            raise ValueError("stored idempotency response has non-string durable identity")
+        return cast(tuple[str, str, str, str], identity), None
+
+    try:
+        edict = Edict.model_validate(payload["edict"])
+        memorial = Memorial.model_validate(payload["memorial"])
+        event_id = payload["event_id"]
+        stored_request_hash = payload["request_hash"]
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("stored idempotency response has invalid legacy identity") from error
+    if not isinstance(event_id, str) or not isinstance(stored_request_hash, str):
+        raise ValueError("stored idempotency response has non-string legacy identity")
+    if memorial.edict_id != edict.id:
+        raise ValueError("stored idempotency response has an invalid durable identity relation")
+    return (
+        (edict.id, memorial.id, event_id, stored_request_hash),
+        (edict, memorial),
     )
-    if (
-        result.edict.id != existing.edict_id
-        or result.memorial.id != existing.memorial_id
-        or result.event_id != existing.event_id
-        or result.request_hash != existing.request_hash
-    ):
-        raise ValueError("stored idempotency response does not match its durable identity")
-    return result
 
 
 __all__ = [

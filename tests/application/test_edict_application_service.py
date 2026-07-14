@@ -126,11 +126,10 @@ def test_first_submit_persists_one_complete_canonical_transaction(storage: Stora
     ).fetchone()[0]
     response_payload = json.loads(response_json)
     assert response_json == canonical_json_bytes(response_payload).decode("utf-8")
-    assert response_payload["edict"]["id"] == result.edict.id
-    assert response_payload["memorial"]["id"] == result.memorial.id
+    assert response_payload["edict_id"] == result.edict.id
+    assert response_payload["memorial_id"] == result.memorial.id
     assert response_payload["event_id"] == result.event_id
     assert response_payload["request_hash"] == result.request_hash
-    assert response_payload["deduplicated"] is False
 
 
 @pytest.mark.parametrize(
@@ -238,3 +237,106 @@ def test_outbox_redacts_sensitive_fields_even_without_a_known_token_pattern(
     assert '"Authorization":"[REDACTED]"' in payload_json
     assert '"password":"[REDACTED]"' in payload_json
     assert '"environment":{"TOKEN":"[REDACTED]"}' in payload_json
+
+
+def test_outbox_redacts_refresh_token_and_credentials_key_variants(storage: Storage) -> None:
+    refresh_token = "opaque-refresh-value-67c02"
+    client_credentials = "opaque-client-credentials-a91ed"
+    oauth_credentials = "opaque-oauth-credentials-4bd32"
+
+    result = _service(storage).submit(
+        _command(
+            extra_payload={
+                "refresh_token": refresh_token,
+                "clientCredentials": {"value": client_credentials},
+                "oauth_credentials": oauth_credentials,
+            }
+        ),
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-credential-variants",
+    )
+
+    payload_json = storage._conn.execute(  # noqa: SLF001 - persisted redaction proof
+        "SELECT payload_json FROM outbox_events WHERE event_id = ?",
+        (result.event_id,),
+    ).fetchone()[0]
+    assert refresh_token not in payload_json
+    assert client_credentials not in payload_json
+    assert oauth_credentials not in payload_json
+    assert '"refresh_token":"[REDACTED]"' in payload_json
+    assert '"clientCredentials":"[REDACTED]"' in payload_json
+    assert '"oauth_credentials":"[REDACTED]"' in payload_json
+
+
+def test_idempotency_blob_stores_only_safe_identity_and_replays_exact_models(
+    storage: Storage,
+) -> None:
+    _, command_type = _application_types()
+    metadata_password = "metadata-password-sentinel-5c943"
+    requested_contract = RequestedGovernanceContractV1(objective=ObjectiveV1(goal="safe replay"))
+    command = command_type(
+        edict=Edict(
+            goal="safe replay",
+            metadata={"password": metadata_password, "visible": "preserved"},
+        ),
+        idempotency_key="safe-replay-key",
+        requested_contract=requested_contract,
+        extra_payload={},
+    )
+    service = _service(storage)
+
+    first = service.submit(
+        command,
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-safe-replay",
+    )
+    response_json = storage._conn.execute(  # noqa: SLF001 - durable blob proof
+        "SELECT response_json FROM submission_idempotency"
+    ).fetchone()[0]
+    second = service.submit(
+        command,
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-safe-replay",
+    )
+
+    assert metadata_password not in response_json
+    assert set(json.loads(response_json)) == {
+        "edict_id",
+        "event_id",
+        "memorial_id",
+        "request_hash",
+    }
+    assert second.deduplicated is True
+    assert second.edict == first.edict
+    assert second.memorial == first.memorial
+    assert second.event_id == first.event_id
+
+
+def test_unrelated_integrity_error_is_not_reclassified_as_idempotent_dedupe(
+    storage: Storage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = _command()
+    service = _service(storage)
+    service.submit(
+        command,
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-first",
+    )
+
+    def fail_with_unrelated_integrity(*_args: object, **_kwargs: object) -> None:
+        raise sqlite3.IntegrityError("CHECK constraint failed: unrelated_table")
+
+    monkeypatch.setattr(service, "_submit_once", fail_with_unrelated_integrity)
+
+    with pytest.raises(sqlite3.IntegrityError, match="unrelated_table"):
+        service.submit(
+            command,
+            auth=_auth(),
+            producer="test",
+            correlation_id="correlation-retry",
+        )

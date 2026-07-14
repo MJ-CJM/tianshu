@@ -67,6 +67,40 @@ class OutboxRepository:
             ),
         )
 
+    def get(self, conn: sqlite3.Connection, event_id: str) -> OutboxRecord | None:
+        row = conn.execute(
+            """
+            SELECT event_id, event_type, aggregate_type, edict_id, memorial_id,
+                   producer, payload_json, occurred_at, available_at, status,
+                   attempt_count, max_attempts, lease_owner, lease_expires_at,
+                   last_error_json, published_at, version
+            FROM outbox_events
+            WHERE event_id = ?
+            """,
+            (event_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return OutboxRecord(
+            event_id=row["event_id"],
+            event_type=row["event_type"],
+            aggregate_type=row["aggregate_type"],
+            edict_id=row["edict_id"],
+            memorial_id=row["memorial_id"],
+            producer=row["producer"],
+            payload_json=row["payload_json"],
+            occurred_at=row["occurred_at"],
+            available_at=row["available_at"],
+            status=row["status"],
+            attempt_count=row["attempt_count"],
+            max_attempts=row["max_attempts"],
+            lease_owner=row["lease_owner"],
+            lease_expires_at=row["lease_expires_at"],
+            last_error_json=row["last_error_json"],
+            published_at=row["published_at"],
+            version=row["version"],
+        )
+
     def get_submission(
         self,
         conn: sqlite3.Connection,
