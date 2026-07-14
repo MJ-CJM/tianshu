@@ -70,9 +70,7 @@ def test_append_builds_genesis_and_contiguous_exact_canonical_hash_chain(
 ) -> None:
     storage, _ = audit_storage
 
-    first = storage.append_system_audit(
-        _request(metadata={"token_type": "pat", "scope_count": 2})
-    )
+    first = storage.append_system_audit(_request(metadata={"token_type": "pat", "scope_count": 2}))
     second = storage.append_system_audit(
         _request(
             action="estop.engaged",
@@ -88,9 +86,7 @@ def test_append_builds_genesis_and_contiguous_exact_canonical_hash_chain(
     with pytest.raises(ValidationError, match="frozen"):
         first.sequence = 99  # type: ignore[misc]
 
-    rows = storage._conn.execute(
-        "SELECT * FROM system_audit_events ORDER BY sequence"
-    ).fetchall()
+    rows = storage._conn.execute("SELECT * FROM system_audit_events ORDER BY sequence").fetchall()
     assert len(rows) == 2
     assert [row["sequence"] for row in rows] == [1, 2]
     assert all(row["event_hash"] == _canonical_row_hash(row) for row in rows)
@@ -111,9 +107,7 @@ def test_metadata_is_action_specific_fail_closed_and_never_persists_secret(
     with pytest.raises(ValidationError, match="metadata keys are not allowed"):
         _request(action="estop.engaged", metadata={"token_type": "pat"})
 
-    event = storage.append_system_audit(
-        _request(metadata={"token_type": "pat", "scope_count": 2})
-    )
+    event = storage.append_system_audit(_request(metadata={"token_type": "pat", "scope_count": 2}))
     row = storage._conn.execute(
         "SELECT metadata_json FROM system_audit_events WHERE sequence = ?",
         (event.sequence,),
@@ -256,9 +250,7 @@ def test_verify_and_export_fail_stably_without_partial_data_after_tamper(
     ]
 
     _drop_update_trigger(storage)
-    storage._conn.execute(
-        "UPDATE system_audit_events SET metadata_json = '{}' WHERE sequence = 2"
-    )
+    storage._conn.execute("UPDATE system_audit_events SET metadata_json = '{}' WHERE sequence = 2")
     storage._conn.commit()
 
     failed = storage.verify_system_audit()
