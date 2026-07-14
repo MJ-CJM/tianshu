@@ -133,6 +133,77 @@ def test_expired_claim_is_reclaimed_and_stale_owner_version_is_fenced(storage: S
     assert published.version == 4
 
 
+def test_mark_poisoned_forces_dead_letter_with_owner_and_version_fence(
+    storage: Storage,
+) -> None:
+    _add_event(storage, event_id="malformed-control")
+    repository = _repository(storage)
+    claimed = repository.claim_batch(
+        owner_id="worker",
+        now=_NOW,
+        limit=1,
+        lease_seconds=30,
+    )[0]
+    storage._conn.execute(  # noqa: SLF001 - deliberate claimed-row tamper
+        """
+        UPDATE outbox_events
+        SET max_attempts = ?, version = ?
+        WHERE event_id = ?
+        """,
+        ("invalid-max", 2.5, claimed.event_id),
+    )
+    storage._conn.commit()  # noqa: SLF001 - deliberate claimed-row tamper
+    error = RedactedError(
+        code="malformed_outbox_event",
+        message="durable dispatch control is invalid",
+        retryable=False,
+        details_hash="a" * 64,
+    )
+
+    assert (
+        repository.mark_poisoned(
+            event_id=claimed.event_id,
+            owner_id="other-worker",
+            expected_version=2.5,
+            error=error,
+            now=_NOW,
+        )
+        is False
+    )
+    assert (
+        repository.mark_poisoned(
+            event_id=claimed.event_id,
+            owner_id="worker",
+            expected_version=2.0,
+            error=error,
+            now=_NOW,
+        )
+        is False
+    )
+    assert (
+        repository.mark_poisoned(
+            event_id=claimed.event_id,
+            owner_id="worker",
+            expected_version=2.5,
+            error=error,
+            now=_NOW,
+        )
+        is True
+    )
+
+    dead = repository.get(storage._conn, claimed.event_id)  # noqa: SLF001
+    assert dead is not None
+    assert dead.status == "dead_letter"
+    assert dead.lease_owner is None
+    assert dead.lease_expires_at is None
+    assert dead.version == 2.5
+    assert dead.last_error_json == (
+        '{"code":"malformed_outbox_event","details_hash":"'
+        + "a" * 64
+        + '","message":"durable dispatch control is invalid","retryable":false}'
+    )
+
+
 def test_mark_failed_retries_nonretryable_error_until_max_attempts(storage: Storage) -> None:
     _add_event(storage, event_id="poison", max_attempts=2)
     repository = _repository(storage)
@@ -239,6 +310,8 @@ def test_repository_rejects_invalid_claim_arguments_without_mutation(storage: St
         {"owner_id": " ", "limit": 1, "lease_seconds": 1},
         {"owner_id": "worker", "limit": 0, "lease_seconds": 1},
         {"owner_id": "worker", "limit": 1, "lease_seconds": 0},
+        {"owner_id": "worker", "limit": 1, "lease_seconds": True},
+        {"owner_id": "worker", "limit": 1, "lease_seconds": 1.5},
     ):
         try:
             repository.claim_batch(now=_NOW, **kwargs)

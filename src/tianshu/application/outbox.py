@@ -46,6 +46,16 @@ class _OutboxOperations(Protocol):
         available_at: datetime,
     ) -> bool: ...
 
+    def mark_poisoned(
+        self,
+        *,
+        event_id: str,
+        owner_id: str,
+        expected_version: object,
+        error: RedactedError,
+        now: datetime,
+    ) -> bool: ...
+
     def record_consumption(
         self,
         *,
@@ -74,26 +84,34 @@ class OutboxDispatcher:
     ) -> None:
         if not owner_id.strip():
             raise ValueError("owner_id must be non-blank")
-        if lease_seconds <= 0:
-            raise ValueError("lease_seconds must be positive")
-        if base_backoff_seconds <= 0:
-            raise ValueError("base_backoff_seconds must be positive")
-        if max_backoff_seconds < base_backoff_seconds:
+        validated_lease_seconds = _exact_positive_integer(lease_seconds, "lease_seconds")
+        validated_base_backoff = _finite_positive_number(
+            base_backoff_seconds,
+            "base_backoff_seconds",
+        )
+        validated_max_backoff = _finite_positive_number(
+            max_backoff_seconds,
+            "max_backoff_seconds",
+        )
+        validated_poll_interval = _finite_positive_number(
+            poll_interval_seconds,
+            "poll_interval_seconds",
+        )
+        if validated_max_backoff < validated_base_backoff:
             raise ValueError("max_backoff_seconds must be at least base_backoff_seconds")
-        if poll_interval_seconds <= 0:
-            raise ValueError("poll_interval_seconds must be positive")
         self._repository = repository
         self._event_bus = event_bus
         self._owner_id = owner_id
         self._clock = clock or (lambda: datetime.now(UTC))
-        self._lease_seconds = lease_seconds
-        self._base_backoff_seconds = base_backoff_seconds
-        self._max_backoff_seconds = max_backoff_seconds
-        self._poll_interval_seconds = poll_interval_seconds
+        self._lease_seconds = validated_lease_seconds
+        self._base_backoff_seconds = validated_base_backoff
+        self._max_backoff_seconds = validated_max_backoff
+        self._poll_interval_seconds = validated_poll_interval
         self._stop_event = asyncio.Event()
         self._stopped_event = asyncio.Event()
         self._stopped_event.set()
         self._running = False
+        self._drain_task: asyncio.Task[int] | None = None
 
     async def drain_once(self, *, limit: int = 50) -> int:
         records = self._repository.claim_batch(
@@ -110,11 +128,22 @@ class OutboxDispatcher:
         if self._running:
             raise RuntimeError("outbox dispatcher is already running")
         self._running = True
-        self._stop_event.clear()
         self._stopped_event.clear()
+        run_task = asyncio.current_task()
         try:
             while not self._stop_event.is_set():
-                await self.drain_once()
+                drain_task = asyncio.create_task(self.drain_once())
+                self._drain_task = drain_task
+                try:
+                    await drain_task
+                except asyncio.CancelledError:
+                    if run_task is not None and run_task.cancelling():
+                        raise
+                    if not self._stop_event.is_set():
+                        raise
+                finally:
+                    if self._drain_task is drain_task:
+                        self._drain_task = None
                 if self._stop_event.is_set():
                     break
                 with suppress(TimeoutError):
@@ -123,15 +152,42 @@ class OutboxDispatcher:
                         timeout=self._poll_interval_seconds,
                     )
         finally:
+            drain_task = self._drain_task
+            if drain_task is not None and not drain_task.done():
+                drain_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await drain_task
+            self._drain_task = None
             self._running = False
             self._stopped_event.set()
 
     async def stop(self) -> None:
         self._stop_event.set()
+        drain_task = self._drain_task
+        if drain_task is not None and not drain_task.done():
+            drain_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await drain_task
         if self._running:
             await self._stopped_event.wait()
 
     async def _dispatch_record(self, record: OutboxRecord) -> None:
+        try:
+            _validate_dispatch_control(record)
+        except (TypeError, ValueError) as error:
+            self._repository.mark_poisoned(
+                event_id=record.event_id,
+                owner_id=self._owner_id,
+                expected_version=record.version,
+                error=RedactedError(
+                    code="malformed_outbox_event",
+                    message="durable dispatch control is invalid",
+                    retryable=False,
+                    details_hash=_bounded_error_hash(error),
+                ),
+                now=self._clock(),
+            )
+            return
         try:
             event = _event_from_record(record)
         except (TypeError, ValueError, OverflowError, RecursionError) as error:
@@ -216,10 +272,6 @@ def _event_from_record(record: OutboxRecord) -> EventEnvelope:
     expected_aggregate_type = "edict" if edict_id is not None else "system"
     if aggregate_type != expected_aggregate_type:
         raise ValueError("aggregate_type does not match envelope identity")
-    if not isinstance(record.attempt_count, int) or isinstance(record.attempt_count, bool):
-        raise TypeError("attempt_count must be an integer")
-    if record.attempt_count <= 0:
-        raise ValueError("attempt_count must be positive")
 
     occurred_at = _required_text(record.occurred_at, "occurred_at")
     timestamp = datetime.fromisoformat(occurred_at)
@@ -241,6 +293,31 @@ def _event_from_record(record: OutboxRecord) -> EventEnvelope:
         producer=producer,
         payload=cast(dict[str, Any], payload),
     )
+
+
+def _validate_dispatch_control(record: OutboxRecord) -> None:
+    attempt_count = _exact_positive_integer(record.attempt_count, "attempt_count")
+    max_attempts = _exact_positive_integer(record.max_attempts, "max_attempts")
+    _exact_positive_integer(record.version, "version")
+    if attempt_count > max_attempts:
+        raise ValueError("attempt_count must not exceed max_attempts")
+
+
+def _exact_positive_integer(value: object, field_name: str) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{field_name} must be an integer")
+    if value <= 0:
+        raise ValueError(f"{field_name} must be positive")
+    return value
+
+
+def _finite_positive_number(value: object, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a number")
+    normalized = float(value)
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ValueError(f"{field_name} must be finite and positive")
+    return normalized
 
 
 def _required_text(value: object, field_name: str, *, allow_blank: bool = False) -> str:

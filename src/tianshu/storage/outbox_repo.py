@@ -144,8 +144,8 @@ class OutboxRepository:
             raise ValueError("owner_id must be non-blank")
         if limit <= 0:
             raise ValueError("limit must be positive")
-        if lease_seconds <= 0:
-            raise ValueError("lease_seconds must be positive")
+        if type(lease_seconds) is not int or lease_seconds <= 0:
+            raise ValueError("lease_seconds must be a positive integer")
         now_iso = _utc_iso(now)
         lease_expires_at = _utc_iso(now + timedelta(seconds=lease_seconds))
         claimed: list[OutboxRecord] = []
@@ -264,6 +264,41 @@ class OutboxRepository:
             unit_of_work.commit()
         return updated
 
+    def mark_poisoned(
+        self,
+        *,
+        event_id: str,
+        owner_id: str,
+        expected_version: object,
+        error: RedactedError,
+        now: datetime,
+    ) -> bool:
+        expected_storage_class = _sqlite_storage_class(expected_version)
+        with self._unit_of_work() as unit_of_work:
+            cursor = unit_of_work.connection.execute(
+                """
+                UPDATE outbox_events
+                SET status = 'dead_letter',
+                    available_at = ?,
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    last_error_json = ?
+                WHERE event_id = ? AND status = 'claimed'
+                  AND lease_owner = ? AND version = ? AND typeof(version) = ?
+                """,
+                (
+                    _utc_iso(now),
+                    canonical_json_bytes(error).decode("utf-8"),
+                    event_id,
+                    owner_id,
+                    expected_version,
+                    expected_storage_class,
+                ),
+            )
+            updated = cursor.rowcount == 1
+            unit_of_work.commit()
+        return updated
+
     def record_consumption(
         self,
         *,
@@ -349,6 +384,20 @@ def _utc_iso(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("outbox timestamps must be timezone-aware UTC values")
     return value.isoformat()
+
+
+def _sqlite_storage_class(value: object) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bytes):
+        return "blob"
+    if isinstance(value, str):
+        return "text"
+    if isinstance(value, float):
+        return "real"
+    if isinstance(value, int):
+        return "integer"
+    raise TypeError("expected_version must be a SQLite scalar value")
 
 
 __all__ = ["OutboxRecord", "OutboxRepository", "SubmissionIdempotencyRecord"]
