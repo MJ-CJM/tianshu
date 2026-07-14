@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 from typer.testing import CliRunner
 
+import tianshu.storage as storage_package
 from tianshu.cli.commands import secrets as secrets_command
 from tianshu.cli.commands.secrets import app
 from tianshu.secrets.models import CredentialCreate
@@ -132,6 +135,25 @@ def _ciphertexts(storage: Storage, credential_id: str) -> dict[str, bytes | None
     }
 
 
+def _seed_null_primary_key_credential(storage: Storage, key: str) -> tuple[int, bytes]:
+    ciphertext = Fernet(key.encode()).encrypt(b"null-primary-key-secret")
+    with storage._conn:
+        cursor = storage._conn.execute(
+            """
+            INSERT INTO network_credentials (
+                id, name, host_pattern, header_template, extra_headers,
+                encrypted_value, created_at, updated_at
+            ) VALUES (
+                NULL, 'null-primary-key', 'null.example', 'Bearer {value}', '{}', ?,
+                '2026-07-14T00:00:00+00:00', '2026-07-14T00:00:00+00:00'
+            )
+            """,
+            (ciphertext,),
+        )
+    assert cursor.lastrowid is not None
+    return cursor.lastrowid, ciphertext
+
+
 def _ledger(storage: Storage) -> tuple[tuple[object, ...], ...]:
     return tuple(
         tuple(row)
@@ -227,6 +249,122 @@ class TestRotate:
         ) == before
         assert "secret_rotation_validation_failed" in result.output
         assert "轮换完成" not in result.output
+        assert "secret_rotation_succeeded" not in result.output
+
+    def test_null_business_primary_key_ciphertext_is_not_silently_skipped(
+        self,
+        storage: Storage,
+        monkeypatch: pytest.MonkeyPatch,
+        keys: tuple[str, str],
+    ) -> None:
+        old, new = keys
+        rowid, old_ciphertext = _seed_null_primary_key_credential(storage, old)
+
+        result = _invoke_rotation(storage, monkeypatch, old, new)
+
+        assert result.exit_code == 0, result.output
+        row = storage._conn.execute(
+            "SELECT id, encrypted_value FROM network_credentials WHERE rowid = ?",
+            (rowid,),
+        ).fetchone()
+        assert row is not None
+        assert row[0] is None
+        assert row[1] != old_ciphertext
+        assert Fernet(new.encode()).decrypt(row[1]) == b"null-primary-key-secret"
+        with pytest.raises(InvalidToken):
+            Fernet(old.encode()).decrypt(row[1])
+        assert len(storage.list_system_audit()) == 1
+
+    def test_ciphertext_change_after_backup_aborts_and_rolls_back_prior_family_updates(
+        self,
+        storage: Storage,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        keys: tuple[str, str],
+    ) -> None:
+        old, new = keys
+        credential_id, _ = _seed_all_families(storage, old)
+        before = _ciphertexts(storage, credential_id)
+        ledger_before = _ledger(storage)
+        backup_path = tmp_path / "concurrent-change-rotation.bak"
+        changed_headers = Fernet(old.encode()).encrypt(
+            b'{"Authorization":"Bearer changed-after-backup"}'
+        )
+        real_backup = sqlite_backup.create_online_backup
+
+        def backup_then_change(source: sqlite3.Connection, destination: Path) -> Path:
+            result = real_backup(source, destination)
+            with closing(sqlite3.connect(storage._db_path)) as concurrent:
+                concurrent.execute(
+                    """
+                    UPDATE mcp_server_overrides SET headers_ciphertext = ?
+                    WHERE name = 'encrypted-mappings'
+                    """,
+                    (changed_headers,),
+                )
+                concurrent.commit()
+            return result
+
+        monkeypatch.setattr(secrets_command, "_new_rotation_backup_path", lambda _path: backup_path)
+        monkeypatch.setattr(sqlite_backup, "create_online_backup", backup_then_change)
+
+        result = _invoke_rotation(storage, monkeypatch, old, new)
+
+        assert result.exit_code == 1
+        assert backup_path.exists()
+        after = _ciphertexts(storage, credential_id)
+        assert after["mcp_headers"] == changed_headers
+        for family, ciphertext in before.items():
+            if family != "mcp_headers":
+                assert after[family] == ciphertext
+        assert _ledger(storage) == ledger_before
+        assert _audit_rows(storage) == ()
+        assert "secret_rotation_concurrent_change" in result.output
+        assert "secret_rotation_succeeded" not in result.output
+        with closing(sqlite3.connect(backup_path)) as backup:
+            backed_up_headers = backup.execute(
+                """
+                SELECT headers_ciphertext FROM mcp_server_overrides
+                WHERE name = 'encrypted-mappings'
+                """
+            ).fetchone()
+        assert backed_up_headers == (before["mcp_headers"],)
+
+    def test_same_decoded_key_is_rejected_before_storage_or_backup(
+        self,
+        storage: Storage,
+        monkeypatch: pytest.MonkeyPatch,
+        keys: tuple[str, str],
+    ) -> None:
+        old, _ = keys
+        credential_id, _ = _seed_all_families(storage, old)
+        before = _ciphertexts(storage, credential_id), _ledger(storage), _audit_rows(storage)
+        storage_calls: list[str] = []
+        backup_calls: list[Path] = []
+
+        def unexpected_storage(db_path: str) -> None:
+            storage_calls.append(db_path)
+            raise AssertionError("same-key rotation must fail before opening storage")
+
+        def unexpected_backup(_source: sqlite3.Connection, destination: Path) -> Path:
+            backup_calls.append(destination)
+            raise AssertionError("same-key rotation must fail before backup")
+
+        equivalent_new_key = old[:8] + "\n" + old[8:]
+        monkeypatch.setattr(storage_package, "Storage", unexpected_storage)
+        monkeypatch.setattr(sqlite_backup, "create_online_backup", unexpected_backup)
+
+        result = _invoke_rotation(storage, monkeypatch, old, equivalent_new_key)
+
+        assert result.exit_code == 1
+        assert storage_calls == []
+        assert backup_calls == []
+        assert (
+            _ciphertexts(storage, credential_id),
+            _ledger(storage),
+            _audit_rows(storage),
+        ) == before
+        assert "secret_rotation_same_key" in result.output
         assert "secret_rotation_succeeded" not in result.output
 
     def test_corrupt_late_family_fails_before_backup_without_partial_network_write(

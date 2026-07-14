@@ -6,6 +6,8 @@ network、channel 与 MCP secret 均以 Fernet 密文落库。本命令先全量
 
 from __future__ import annotations
 
+import base64
+import hmac
 import json
 import sqlite3
 from dataclasses import dataclass
@@ -29,19 +31,23 @@ console = Console()
 @dataclass(frozen=True)
 class _RotationTarget:
     table: str
-    key_column: str
-    key: str
+    rowid: int
     ciphertext_column: str
+    original_ciphertext: bytes
     plaintext: bytes
 
 
 _ROTATION_FAMILIES = (
-    ("network_credentials", "id", "encrypted_value", False),
-    ("channel_configs", "channel_type", "encrypted_secret", False),
-    ("channel_instances", "instance_id", "encrypted_secret", False),
-    ("mcp_server_overrides", "name", "env_ciphertext", True),
-    ("mcp_server_overrides", "name", "headers_ciphertext", True),
+    ("network_credentials", "encrypted_value", False),
+    ("channel_configs", "encrypted_secret", False),
+    ("channel_instances", "encrypted_secret", False),
+    ("mcp_server_overrides", "env_ciphertext", True),
+    ("mcp_server_overrides", "headers_ciphertext", True),
 )
+
+
+class _SecretRotationConcurrentChange(RuntimeError):
+    pass
 
 
 def _new_rotation_backup_path(db_path: Path) -> Path:
@@ -54,13 +60,14 @@ def _rotation_plan(conn: sqlite3.Connection, old_fernet: Fernet) -> list[_Rotati
 
     plan: list[_RotationTarget] = []
     try:
-        for table, key_column, ciphertext_column, is_mcp_mapping in _ROTATION_FAMILIES:
+        for table, ciphertext_column, is_mcp_mapping in _ROTATION_FAMILIES:
             rows = conn.execute(
-                f"SELECT {key_column}, {ciphertext_column} FROM {table} "
-                f"WHERE {ciphertext_column} IS NOT NULL ORDER BY {key_column}"
+                f"SELECT rowid, {ciphertext_column} FROM {table} "
+                f"WHERE {ciphertext_column} IS NOT NULL ORDER BY rowid"
             ).fetchall()
             for row in rows:
-                plaintext = old_fernet.decrypt(row[1])
+                original_ciphertext = row[1]
+                plaintext = old_fernet.decrypt(original_ciphertext)
                 decoded = plaintext.decode("utf-8")
                 if is_mcp_mapping:
                     mapping = json.loads(decoded)
@@ -72,9 +79,9 @@ def _rotation_plan(conn: sqlite3.Connection, old_fernet: Fernet) -> list[_Rotati
                 plan.append(
                     _RotationTarget(
                         table=table,
-                        key_column=key_column,
-                        key=str(row[0]),
+                        rowid=int(row[0]),
                         ciphertext_column=ciphertext_column,
+                        original_ciphertext=original_ciphertext,
                         plaintext=plaintext,
                     )
                 )
@@ -135,9 +142,14 @@ def rotate_master_key(
     try:
         old_fernet = Fernet(old_key.encode())
         new_fernet = Fernet(new_key.encode())
+        old_key_material = base64.urlsafe_b64decode(old_key.encode())
+        new_key_material = base64.urlsafe_b64decode(new_key.encode())
     except Exception:  # noqa: BLE001
         console.print("secret_rotation_invalid_key", style="red")
         raise typer.Exit(1) from None
+    if hmac.compare_digest(old_key_material, new_key_material):
+        console.print("secret_rotation_same_key", style="red")
+        raise typer.Exit(1)
 
     settings = TianshuSettings()
     db_path = Path(settings.db_path).expanduser()
@@ -177,20 +189,26 @@ def rotate_master_key(
             with storage._lock, storage._conn:
                 storage._conn.execute("BEGIN IMMEDIATE")
                 for target in plan:
-                    storage._conn.execute(
+                    cursor = storage._conn.execute(
                         f"UPDATE {target.table} "
                         f"SET {target.ciphertext_column} = ?, updated_at = ? "
-                        f"WHERE {target.key_column} = ?",
+                        f"WHERE rowid = ? AND {target.ciphertext_column} = ?",
                         (
                             new_fernet.encrypt(target.plaintext),
                             now_iso,
-                            target.key,
+                            target.rowid,
+                            target.original_ciphertext,
                         ),
                     )
+                    if cursor.rowcount != 1:
+                        raise _SecretRotationConcurrentChange
                 system_audit_repo._append_system_audit_unlocked(
                     storage._conn,
                     _rotation_audit_request(),
                 )
+        except _SecretRotationConcurrentChange:
+            console.print("secret_rotation_concurrent_change", style="red")
+            raise typer.Exit(1) from None
         except Exception:  # noqa: BLE001
             console.print("secret_rotation_commit_failed", style="red")
             raise typer.Exit(1) from None
