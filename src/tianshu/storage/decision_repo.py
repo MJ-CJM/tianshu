@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime
 
 from pydantic import ValidationError
 
 from tianshu.models.canonical import canonical_json_bytes
 from tianshu.models.decision import (
+    DecisionKind,
     DecisionRecordV1,
     DecisionRequestV1,
     DecisionResolutionV1,
@@ -24,9 +26,17 @@ class DecisionRepositoryError(RuntimeError):
 class DecisionIdentityConflict(DecisionRepositoryError):
     """The stable request identity was reused with different content."""
 
+    def __init__(self, message: str, *, existing_request_id: str | None = None) -> None:
+        self.existing_request_id = existing_request_id
+        super().__init__(message)
+
 
 class DecisionStateConflict(DecisionRepositoryError):
     """The decision was missing, stale, or no longer pending."""
+
+    def __init__(self, reason_code: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(reason_code)
 
 
 class DecisionDecodeError(DecisionRepositoryError):
@@ -138,6 +148,43 @@ class DecisionRepository:
         ).fetchone()
         return _decode_record(row) if row is not None else None
 
+    def list_pending(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        kind: DecisionKind | None = None,
+    ) -> list[DecisionRequestV1]:
+        parameters: tuple[object, ...] = ()
+        where = " WHERE request.status = 'pending'"
+        if kind is not None:
+            where += " AND request.kind = ?"
+            parameters = (kind.value,)
+        rows = connection.execute(
+            _SELECT_RECORD + where + " ORDER BY request.created_at, request.decision_request_id",
+            parameters,
+        ).fetchall()
+        return [_decode_record(row).request for row in rows]
+
+    def list_due(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        now: datetime,
+        limit: int,
+    ) -> list[DecisionRequestV1]:
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        rows = connection.execute(
+            _SELECT_RECORD
+            + """
+            WHERE request.status = 'pending' AND request.expires_at <= ?
+            ORDER BY request.expires_at, request.decision_request_id
+            LIMIT ?
+            """,
+            (now.isoformat(), limit),
+        ).fetchall()
+        return [_decode_record(row).request for row in rows]
+
     def add_or_get(
         self, connection: sqlite3.Connection, request: DecisionRequestV1
     ) -> DecisionRequestV1:
@@ -152,7 +199,10 @@ class DecisionRepository:
         if existing_row is not None:
             existing = _decode_record(existing_row).request
             if existing.payload_hash != request.payload_hash:
-                raise DecisionIdentityConflict("decision request identity payload hash conflict")
+                raise DecisionIdentityConflict(
+                    "decision request identity payload hash conflict",
+                    existing_request_id=existing.decision_request_id,
+                )
             return existing
         try:
             connection.execute(
@@ -181,7 +231,20 @@ class DecisionRepository:
                 ),
             )
         except sqlite3.IntegrityError as exc:
-            raise DecisionIdentityConflict("decision request identity conflict") from exc
+            existing_row = connection.execute(
+                _SELECT_RECORD
+                + " WHERE request.memorial_id = ? AND request.kind = ? AND request.request_key = ?",
+                (request.memorial_id, request.kind.value, request.request_key),
+            ).fetchone()
+            if existing_row is None:
+                raise DecisionIdentityConflict("decision request identity conflict") from exc
+            existing = _decode_record(existing_row).request
+            if existing.payload_hash != request.payload_hash:
+                raise DecisionIdentityConflict(
+                    "decision request identity payload hash conflict",
+                    existing_request_id=existing.decision_request_id,
+                ) from exc
+            return existing
         return request
 
     def resolve(
@@ -190,25 +253,43 @@ class DecisionRepository:
         resolution: DecisionResolutionV1,
         *,
         expected_version: int,
+        now: datetime,
     ) -> DecisionRecordV1:
         record = self.get(connection, resolution.decision_request_id)
         if record is None:
-            raise DecisionStateConflict("decision request does not exist")
+            raise DecisionStateConflict("not_found")
         validate_resolution_payload(record.request.kind, resolution.action, resolution.payload)
+        if record.request.status is not DecisionStatus.PENDING:
+            raise DecisionStateConflict(record.request.status.value)
+        if record.request.version != expected_version:
+            raise DecisionStateConflict("stale_version")
+        if record.request.expires_at <= now:
+            raise DecisionStateConflict("deadline_elapsed")
         cursor = connection.execute(
             """
             UPDATE decision_requests
             SET status = 'resolved', version = version + 1, updated_at = ?
             WHERE decision_request_id = ? AND status = 'pending' AND version = ?
+              AND expires_at > ?
             """,
             (
                 resolution.resolved_at.isoformat(),
                 resolution.decision_request_id,
                 expected_version,
+                now.isoformat(),
             ),
         )
         if cursor.rowcount != 1:
-            raise DecisionStateConflict("decision request is stale or no longer pending")
+            current = self.get(connection, resolution.decision_request_id)
+            if current is None:
+                raise DecisionStateConflict("not_found")
+            if current.request.status is not DecisionStatus.PENDING:
+                raise DecisionStateConflict(current.request.status.value)
+            if current.request.version != expected_version:
+                raise DecisionStateConflict("stale_version")
+            if current.request.expires_at <= now:
+                raise DecisionStateConflict("deadline_elapsed")
+            raise DecisionStateConflict("cas_lost")
         connection.execute(
             """
             INSERT INTO decision_resolutions (
@@ -228,8 +309,32 @@ class DecisionRepository:
         )
         saved = self.get(connection, resolution.decision_request_id)
         if saved is None:  # pragma: no cover - guarded by the successful CAS above
-            raise DecisionStateConflict("resolved decision disappeared")
+            raise DecisionStateConflict("not_found")
         return saved
+
+    def expire(
+        self,
+        connection: sqlite3.Connection,
+        decision_request_id: str,
+        *,
+        expected_version: int,
+        now: datetime,
+    ) -> DecisionRequestV1 | None:
+        cursor = connection.execute(
+            """
+            UPDATE decision_requests
+            SET status = 'expired', version = version + 1, updated_at = ?
+            WHERE decision_request_id = ? AND status = 'pending' AND version = ?
+              AND expires_at <= ?
+            """,
+            (now.isoformat(), decision_request_id, expected_version, now.isoformat()),
+        )
+        if cursor.rowcount != 1:
+            return None
+        record = self.get(connection, decision_request_id)
+        if record is None:  # pragma: no cover - guarded by the successful CAS above
+            raise DecisionStateConflict("not_found")
+        return record.request
 
 
 __all__ = [

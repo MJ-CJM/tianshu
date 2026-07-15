@@ -35,6 +35,8 @@ SYSTEM_AUDIT_METADATA_KEYS: dict[str, frozenset[str]] = {
     "mcp.config.updated": frozenset(),
     "mcp.config.deleted": frozenset(),
     "secrets.master_key.rotated": frozenset(),
+    "decision.request.denied": frozenset({"kind"}),
+    "decision.resolve.denied": frozenset({"actual_version", "expected_version", "kind", "status"}),
 }
 
 
@@ -92,6 +94,25 @@ def _validate_metadata_value(key: str, value: SystemAuditMetadataValue) -> None:
         return
     if key in {"kill_all", "network_kill"} and not isinstance(value, bool):
         raise ValueError(f"{key} must be a boolean")
+    if key in {"actual_version", "expected_version"}:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{key} must be a non-negative integer")
+        return
+    if key == "kind" and value not in {
+        "tool",
+        "outer_loop",
+        "plan_review",
+        "governed_apply",
+    }:
+        raise ValueError("kind must be a stable decision kind")
+    if key == "status" and value not in {
+        "pending",
+        "resolved",
+        "expired",
+        "cancelled",
+        "missing",
+    }:
+        raise ValueError("status must be a stable decision status")
 
 
 class AppendSystemAuditRequest(BaseModel):

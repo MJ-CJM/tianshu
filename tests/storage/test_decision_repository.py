@@ -150,7 +150,10 @@ def test_resolution_round_trip_uses_cas_and_database_immutability() -> None:
             uow.commit()
         with storage.unit_of_work() as uow:
             record = storage.decision_repo.resolve(
-                uow.connection, _resolution(), expected_version=1
+                uow.connection,
+                _resolution(),
+                expected_version=1,
+                now=datetime(2026, 7, 15, 1, 1, tzinfo=UTC),
             )
             uow.commit()
         assert record.request.status is DecisionStatus.RESOLVED
@@ -158,7 +161,12 @@ def test_resolution_round_trip_uses_cas_and_database_immutability() -> None:
         assert record.resolution == _resolution()
 
         with pytest.raises(state_conflict), storage.unit_of_work() as uow:
-            storage.decision_repo.resolve(uow.connection, _resolution(), expected_version=1)
+            storage.decision_repo.resolve(
+                uow.connection,
+                _resolution(),
+                expected_version=1,
+                now=datetime(2026, 7, 15, 1, 1, tzinfo=UTC),
+            )
         with pytest.raises(sqlite3.IntegrityError, match="immutable"):
             storage._conn.execute(  # noqa: SLF001 - database immutability contract
                 "UPDATE decision_resolutions SET reason = 'changed' WHERE decision_request_id = ?",
@@ -180,6 +188,7 @@ def test_resolution_action_is_bound_to_request_kind_and_decode_is_strict() -> No
                 uow.connection,
                 _resolution(action="amend", payload={"schema_version": 1, "amendment": "x"}),
                 expected_version=1,
+                now=datetime(2026, 7, 15, 1, 1, tzinfo=UTC),
             )
 
         storage._conn.execute("PRAGMA ignore_check_constraints=ON")  # noqa: SLF001
@@ -190,6 +199,115 @@ def test_resolution_action_is_bound_to_request_kind_and_decode_is_strict() -> No
         storage._conn.commit()  # noqa: SLF001 - corrupted row fixture
         with storage.unit_of_work() as uow, pytest.raises(decode_error):
             storage.decision_repo.get(uow.connection, "decision-1")
+    finally:
+        storage.close()
+
+
+def test_list_pending_filters_kind_and_due_order_without_opening_a_transaction() -> None:
+    storage = _storage()
+    try:
+        requests = (
+            _request(
+                decision_request_id="decision-later",
+                request_key="tool-call:later",
+                created_at=datetime(2026, 7, 15, 1, 2, tzinfo=UTC),
+                updated_at=datetime(2026, 7, 15, 1, 2, tzinfo=UTC),
+                expires_at=datetime(2026, 7, 15, 1, 12, tzinfo=UTC),
+            ),
+            _request(
+                decision_request_id="decision-plan",
+                kind=DecisionKind.PLAN_REVIEW,
+                request_key="plan:1",
+                created_at=datetime(2026, 7, 15, 1, 1, tzinfo=UTC),
+                updated_at=datetime(2026, 7, 15, 1, 1, tzinfo=UTC),
+                expires_at=datetime(2026, 7, 15, 1, 11, tzinfo=UTC),
+            ),
+            _request(decision_request_id="decision-first", request_key="tool-call:first"),
+        )
+        with storage.unit_of_work() as uow:
+            for request in requests:
+                storage.decision_repo.add_or_get(uow.connection, request)
+            uow.commit()
+
+        assert [
+            request.decision_request_id
+            for request in storage.decision_repo.list_pending(
+                storage._conn,  # noqa: SLF001 - connection-level repository contract
+                kind=DecisionKind.TOOL,
+            )
+        ] == ["decision-first", "decision-later"]
+        assert [
+            request.decision_request_id
+            for request in storage.decision_repo.list_due(
+                storage._conn,  # noqa: SLF001 - connection-level repository contract
+                now=datetime(2026, 7, 15, 1, 11, 30, tzinfo=UTC),
+                limit=10,
+            )
+        ] == ["decision-first", "decision-plan"]
+    finally:
+        storage.close()
+
+
+def test_resolve_requires_exact_version_and_unexpired_pending_status() -> None:
+    _, _, state_conflict, _ = _contracts()
+    storage = _storage()
+    try:
+        with storage.unit_of_work() as uow:
+            storage.decision_repo.add_or_get(uow.connection, _request())
+            uow.commit()
+
+        for expected_version, now, reason_code in (
+            (2, datetime(2026, 7, 15, 1, 1, tzinfo=UTC), "stale_version"),
+            (1, datetime(2026, 7, 15, 1, 10, tzinfo=UTC), "deadline_elapsed"),
+        ):
+            with pytest.raises(state_conflict) as error, storage.unit_of_work() as uow:
+                storage.decision_repo.resolve(
+                    uow.connection,
+                    _resolution(),
+                    expected_version=expected_version,
+                    now=now,
+                )
+            assert error.value.reason_code == reason_code
+
+        record = storage.decision_repo.get(storage._conn, "decision-1")  # noqa: SLF001
+        assert record is not None
+        assert record.request.status is DecisionStatus.PENDING
+        assert record.resolution is None
+    finally:
+        storage.close()
+
+
+def test_expire_uses_pending_version_and_deadline_cas() -> None:
+    storage = _storage()
+    try:
+        with storage.unit_of_work() as uow:
+            storage.decision_repo.add_or_get(uow.connection, _request())
+            uow.commit()
+        now = datetime(2026, 7, 15, 1, 10, tzinfo=UTC)
+
+        with storage.unit_of_work() as uow:
+            expired = storage.decision_repo.expire(
+                uow.connection,
+                "decision-1",
+                expected_version=1,
+                now=now,
+            )
+            uow.commit()
+        assert expired is not None
+        assert expired.status is DecisionStatus.EXPIRED
+        assert expired.version == 2
+
+        with storage.unit_of_work() as uow:
+            assert (
+                storage.decision_repo.expire(
+                    uow.connection,
+                    "decision-1",
+                    expected_version=1,
+                    now=now,
+                )
+                is None
+            )
+            uow.commit()
     finally:
         storage.close()
 
