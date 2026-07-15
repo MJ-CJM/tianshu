@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from typing import NoReturn, Protocol
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import ValidationError
 
 from tianshu.gateway.auth import get_auth_context
 from tianshu.governance.decision_service import (
@@ -110,7 +108,8 @@ async def _parse_resolution(
     try:
         payload = await request.json()
         return ResolveDecisionCommand.model_validate(payload)
-    except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, TypeError):
+    # JSONDecodeError, UnicodeDecodeError, and Pydantic ValidationError are ValueError subclasses.
+    except (ValueError, TypeError, RecursionError):
         _service(request).deny_invalid_resolution(
             decision_request_id,
             auth=context,

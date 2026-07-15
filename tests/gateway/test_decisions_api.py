@@ -304,3 +304,69 @@ def test_unparsed_resolution_denials_are_audited_via_service_without_body_disclo
         ).fetchone()[0]
         == 0
     )
+
+
+def test_resolution_json_parser_failures_are_safe_audited_422_without_authority_change(
+    decision_api,
+) -> None:
+    storage, service, _, app = decision_api
+    requested = service.request(
+        _request_command(request_key="tool-call:json-parser-failures"),
+        auth=_requester(),
+    )
+    secret = "DEEP_JSON_SECRET_MUST_NOT_REACH_AUDIT"
+    oversized_integer = (
+        '{"action":"approve","reason":"reviewed","payload":{},"expected_version":'
+        + ("9" * 5000)
+        + "}"
+    )
+    deeply_nested = ("[" * 10000) + json.dumps(secret) + ("]" * 10000)
+
+    with TestClient(
+        app,
+        base_url=_BASE_URL,
+        client=("127.0.0.1", 41000),
+        raise_server_exceptions=False,
+    ) as client:
+        responses = [
+            client.post(
+                f"/api/decisions/{requested.decision_request_id}/resolve",
+                headers={**_HEADERS, "content-type": "application/json"},
+                content=body,
+            )
+            for body in (oversized_integer, deeply_nested)
+        ]
+
+    assert [response.status_code for response in responses] == [422, 422]
+    assert {response.json()["detail"]["code"] for response in responses} == {
+        "invalid_decision_resolution"
+    }
+    assert all(secret not in response.text for response in responses)
+
+    denials = [
+        event for event in storage.list_system_audit() if event.action == "decision.resolve.denied"
+    ]
+    assert len(denials) == 2
+    assert {event.reason_code for event in denials} == {"invalid_decision_resolution"}
+    assert {event.correlation_id for event in denials} == {
+        response.headers["x-correlation-id"] for response in responses
+    }
+    assert {event.actor_digest for event in denials} == {hashlib.sha256(b"user:owner").hexdigest()}
+    assert {event.subject_digest for event in denials} == {
+        hashlib.sha256(requested.decision_request_id.encode()).hexdigest()
+    }
+    assert {tuple(sorted(event.metadata.items())) for event in denials} == {
+        (("actual_version", 1), ("kind", "tool"), ("status", "pending"))
+    }
+    assert secret not in repr(denials)
+
+    record = service.get(requested.decision_request_id)
+    assert record is not None
+    assert record.request == requested
+    assert record.resolution is None
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM outbox_events"
+        ).fetchone()[0]
+        == 0
+    )
