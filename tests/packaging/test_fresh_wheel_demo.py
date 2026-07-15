@@ -440,6 +440,7 @@ def governed_demo_edict(server: dict, installed: dict) -> dict:
         server,
         "/api/edicts",
         {
+            "idempotency_key": "fresh-wheel-governed-demo",
             "goal": goal,
             "title": "fresh-wheel 黑盒",
             "assigned_persona_id": "bingbu",

@@ -236,6 +236,10 @@ class EdictMixin:
 
     def delete_edict(self, edict_id: str) -> None:
         with self._lock, self._conn:
+            self._conn.execute(
+                "DELETE FROM submission_idempotency WHERE edict_id = ?",
+                (edict_id,),
+            )
             self._conn.execute("DELETE FROM events WHERE edict_id = ?", (edict_id,))
             self._conn.execute("DELETE FROM memorials WHERE edict_id = ?", (edict_id,))
             self._conn.execute("DELETE FROM edicts WHERE id = ?", (edict_id,))

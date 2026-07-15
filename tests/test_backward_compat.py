@@ -65,7 +65,13 @@ class TestBackwardCompatAPI:
 
     async def test_create_edict(self, client):
         with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post("/api/edicts", json={"goal": "compat test"})
+            resp = await client.post(
+                "/api/edicts",
+                json={
+                    "idempotency_key": "backward-compat-create-edict",
+                    "goal": "compat test",
+                },
+            )
         assert resp.status_code == 202
         assert resp.json()["success"] is True
 
