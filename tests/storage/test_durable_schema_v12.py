@@ -220,8 +220,8 @@ def test_live_migration_tail_is_v12_without_drifting_v1_to_v11() -> None:
     assert tuple((item.version, item.name, item.checksum) for item in MIGRATIONS[:11]) == (
         _FROZEN_V1_TO_V11_DEFINITIONS
     )
-    assert tuple(item.version for item in MIGRATIONS) == tuple(range(1, 13))
-    assert (MIGRATIONS[-1].version, MIGRATIONS[-1].name) == (
+    assert tuple(item.version for item in MIGRATIONS[:12]) == tuple(range(1, 13))
+    assert (MIGRATIONS[11].version, MIGRATIONS[11].name) == (
         12,
         "0012_decision_run_state_guards",
     )
@@ -410,7 +410,7 @@ def test_valid_v11_rows_upgrade_to_v12_and_are_preserved() -> None:
         _insert_run_state(connection, _valid_agent_continuation())
         connection.commit()
 
-        assert apply_migrations(connection, MIGRATIONS) == (12,)
+        assert apply_migrations(connection, MIGRATIONS[:12]) == (12,)
         assert connection.execute("SELECT payload_json FROM decision_requests").fetchall() == [
             ("{}",)
         ]
@@ -452,8 +452,8 @@ def test_v12_failure_rolls_back_guards_and_ledger() -> None:
 def test_applied_v12_checksum_drift_is_rejected_without_writes() -> None:
     connection = sqlite3.connect(":memory:")
     try:
-        assert apply_migrations(connection, MIGRATIONS) == tuple(range(1, 13))
-        drifted = (*MIGRATIONS[:-1], replace(MIGRATIONS[-1], checksum="f" * 64))
+        assert apply_migrations(connection, MIGRATIONS[:12]) == tuple(range(1, 13))
+        drifted = (*MIGRATIONS[:11], replace(MIGRATIONS[11], checksum="f" * 64))
         before = connection.total_changes
         with pytest.raises(MigrationStateError, match="checksum drift"):
             pending_migrations(connection, drifted)

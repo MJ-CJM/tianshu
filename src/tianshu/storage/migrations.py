@@ -2760,6 +2760,58 @@ def _decision_run_state_guards_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V13: bind governed apply projections to generic decisions ---
+
+_GOVERNED_APPLY_DECISION_BINDING_STATEMENTS = (
+    """
+    ALTER TABLE apply_decisions
+    ADD COLUMN decision_request_id TEXT
+        REFERENCES decision_requests(decision_request_id)
+    """,
+    """
+    CREATE UNIQUE INDEX idx_apply_decisions_decision_request
+    ON apply_decisions(decision_request_id)
+    WHERE decision_request_id IS NOT NULL
+    """,
+    """
+    CREATE TRIGGER validate_governed_apply_decision_projection
+    BEFORE INSERT ON apply_decisions
+    WHEN NEW.decision_request_id IS NOT NULL
+    BEGIN
+        SELECT CASE WHEN NEW.id <> NEW.decision_request_id
+            THEN RAISE(ABORT, 'governed apply projection identity mismatch')
+        END;
+        SELECT CASE WHEN NOT EXISTS (
+            SELECT 1
+            FROM decision_requests AS request
+            JOIN decision_resolutions AS resolution
+              ON resolution.decision_request_id = request.decision_request_id
+            WHERE request.decision_request_id = NEW.decision_request_id
+              AND request.kind = 'governed_apply'
+              AND request.status = 'resolved'
+              AND resolution.action = 'approve'
+        ) THEN RAISE(
+            ABORT,
+            'governed apply projection requires resolved approve'
+        ) END;
+    END
+    """,
+)
+_GOVERNED_APPLY_DECISION_BINDING_CHECKSUM = hashlib.sha256(
+    (
+        "0013_governed_apply_decision_binding\n"
+        + "\n".join(
+            " ".join(statement.split()) for statement in _GOVERNED_APPLY_DECISION_BINDING_STATEMENTS
+        )
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _governed_apply_decision_binding_upgrade(conn: MigrationConnection) -> None:
+    for statement in _GOVERNED_APPLY_DECISION_BINDING_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -2832,6 +2884,12 @@ MIGRATIONS = (
         name="0012_decision_run_state_guards",
         checksum=_DECISION_RUN_STATE_GUARD_CHECKSUM,
         upgrade=_decision_run_state_guards_upgrade,
+    ),
+    Migration(
+        version=13,
+        name="0013_governed_apply_decision_binding",
+        checksum=_GOVERNED_APPLY_DECISION_BINDING_CHECKSUM,
+        upgrade=_governed_apply_decision_binding_upgrade,
     ),
 )
 

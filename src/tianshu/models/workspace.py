@@ -295,6 +295,7 @@ class CanonicalChangeSet(WorkspaceRecord):
 
 class ApplyDecision(WorkspaceRecord):
     id: str = Field(min_length=1, max_length=128)
+    decision_request_id: str | None = Field(default=None, min_length=1, max_length=128)
     run_id: str = Field(min_length=1, max_length=256)
     lease_id: str = Field(min_length=1, max_length=128)
     restore_point_id: str = Field(min_length=1, max_length=128)
@@ -346,6 +347,8 @@ class ApplyDecision(WorkspaceRecord):
 
     @model_validator(mode="after")
     def validate_expiry(self) -> Self:
+        if self.decision_request_id is not None and self.id != self.decision_request_id:
+            raise ValueError("decision_request_id must equal apply decision id")
         if self.expires_at <= self.created_at:
             raise ValueError("apply decision expiry must be after creation")
         return self

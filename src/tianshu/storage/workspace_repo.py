@@ -59,6 +59,11 @@ WHERE {predicate}
 """
 
 
+def _same_projection_envelope(existing: ApplyDecision, replay: ApplyDecision) -> bool:
+    excluded = {"state", "state_version"}
+    return existing.model_dump(exclude=excluded) == replay.model_dump(exclude=excluded)
+
+
 class WorkspaceMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
@@ -338,9 +343,18 @@ class WorkspaceMixin:
         return row_to_canonical_change_set(row) if row is not None else None
 
     def save_apply_decision(self, decision: ApplyDecision) -> None:
-        if decision.state != "pending" or decision.state_version != 1:
-            raise ValueError("new apply decisions must be pending at version 1")
         with self._lock, self._conn:
+            existing_row = self._conn.execute(
+                _DECISION_SELECT.format(predicate="d.id = ?"),
+                (decision.id,),
+            ).fetchone()
+            if existing_row is not None and decision.decision_request_id is not None:
+                existing_projection = row_to_apply_decision(existing_row)
+                if _same_projection_envelope(existing_projection, decision):
+                    return
+                raise WorkspaceStateConflict("governed apply projection envelope conflict")
+            if decision.state != "pending" or decision.state_version != 1:
+                raise ValueError("new apply decisions must be pending at version 1")
             existing = self._conn.execute(
                 "SELECT 1 FROM apply_decisions WHERE lease_id = ? LIMIT 1",
                 (decision.lease_id,),
@@ -351,17 +365,19 @@ class WorkspaceMixin:
                 self._conn.execute(
                     """
                     INSERT INTO apply_decisions (
-                        id, schema_version, run_id, lease_id, restore_point_id,
+                        id, decision_request_id, schema_version, run_id, lease_id,
+                        restore_point_id,
                         restore_point_hash, change_set_id, change_set_hash,
                         source_repository_id, source_root, source_git_dir_identity,
                         base_revision, source_head_revision, source_head_ref,
                         source_index_tree, source_status_hash, staging_root,
                         staging_git_dir_identity, principal_digest, apply_scope, reason,
                         decision_hash, token_hash, expires_at, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         decision.id,
+                        decision.decision_request_id,
                         decision.schema_version,
                         decision.run_id,
                         decision.lease_id,

@@ -84,6 +84,92 @@ def _staging_identity() -> WorkspaceStagingIdentity:
     )
 
 
+def _insert_resolved_governed_apply(storage, decision_id: str) -> None:
+    storage._conn.execute(  # noqa: SLF001 - repository binding fixture
+        "INSERT INTO edicts (id, goal, created_at) VALUES (?, ?, ?)",
+        ("edict-apply", "apply", _NOW.isoformat()),
+    )
+    storage._conn.execute(  # noqa: SLF001 - repository binding fixture
+        """
+        INSERT INTO memorials (id, edict_id, status, created_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        ("memorial-apply", "edict-apply", "submitted", _NOW.isoformat()),
+    )
+    storage._conn.execute(  # noqa: SLF001 - repository binding fixture
+        """
+        INSERT INTO decision_requests (
+            decision_request_id, schema_version, kind, edict_id, memorial_id,
+            request_key, payload_json, payload_hash, requested_by, expires_at,
+            status, version, created_at, updated_at
+        ) VALUES (?, 1, 'governed_apply', ?, ?, ?, '{}', ?, ?, ?,
+                  'resolved', 2, ?, ?)
+        """,
+        (
+            decision_id,
+            "edict-apply",
+            "memorial-apply",
+            f"apply:{decision_id}",
+            "0" * 64,
+            "user:operator",
+            datetime(2026, 7, 13, tzinfo=UTC).isoformat(),
+            _NOW.isoformat(),
+            _NOW.isoformat(),
+        ),
+    )
+    storage._conn.execute(  # noqa: SLF001 - repository binding fixture
+        """
+        INSERT INTO decision_resolutions (
+            decision_request_id, action, reason, payload_json,
+            actor_principal_id, actor_display_name, resolved_at
+        ) VALUES (?, 'approve', 'reviewed', '{"schema_version":1}',
+                  'user:reviewer', 'Reviewer', ?)
+        """,
+        (decision_id, _NOW.isoformat()),
+    )
+    storage._conn.commit()  # noqa: SLF001 - repository binding fixture
+
+
+def _bound_apply_decision(decision_id: str = "decision-1") -> ApplyDecision:
+    restore = _restore_point()
+    change_set = CanonicalChangeSet(
+        id="changes-1",
+        lease_id="lease-1",
+        restore_point_id=restore.id,
+        source_repository_id="repo-1",
+        base_revision=_SHA,
+        sequence=1,
+        changes=(),
+        created_at=_NOW,
+    )
+    return ApplyDecision(
+        id=decision_id,
+        decision_request_id=decision_id,
+        run_id="run-1",
+        lease_id="lease-1",
+        restore_point_id=restore.id,
+        restore_point_hash=restore.content_hash,
+        change_set_id=change_set.id,
+        change_set_hash=change_set.content_hash,
+        source_repository_id="repo-1",
+        source_root="/source",
+        source_git_dir_identity=restore.source_git_dir_identity,
+        base_revision=_SHA,
+        source_head_revision=restore.source_head_revision,
+        source_head_ref="refs/heads/main",
+        source_index_tree=restore.source_index_tree,
+        source_status_hash=restore.source_status_hash,
+        staging_root="/staging/lease-1",
+        staging_git_dir_identity=_staging_identity().git_dir_identity,
+        principal_digest="d" * 64,
+        reason="reviewed",
+        decision_hash="e" * 64,
+        token_hash="f" * 64,
+        expires_at=datetime(2026, 7, 13, tzinfo=UTC),
+        created_at=_NOW,
+    )
+
+
 def test_migration_v5_appends_without_changing_frozen_checksums() -> None:
     assert [(item.version, item.name) for item in MIGRATIONS[:6]] == [
         (1, "0001_adopt_v042_baseline"),
@@ -336,6 +422,14 @@ def test_workspace_models_are_frozen_strict_and_canonical() -> None:
         lease.state = WorkspaceLeaseState.ACTIVE  # type: ignore[misc]
     with pytest.raises(ValidationError):
         WorkspaceLease.model_validate({**lease.model_dump(), "unknown": True})
+
+    with pytest.raises(ValidationError, match="decision_request_id"):
+        ApplyDecision.model_validate(
+            {
+                **_bound_apply_decision().model_dump(),
+                "decision_request_id": "another-decision",
+            }
+        )
 
     first = CanonicalChangeSet(
         id="changes-1",
@@ -667,6 +761,78 @@ def test_workspace_repository_persists_changes_and_apply_foundation(storage) -> 
         )
     with pytest.raises(sqlite3.IntegrityError):
         storage.create_workspace_foundation(_lease(run_id="run-1"), restore)
+
+
+def test_governed_apply_projection_exact_replay_ignores_mutable_state(storage) -> None:
+    lease = _lease()
+    restore = _restore_point()
+    storage.create_workspace_foundation(lease, restore)
+    storage.save_workspace_staging_identity(_staging_identity())
+    storage.transition_workspace_lease(
+        lease.id,
+        expected_version=1,
+        expected_state=WorkspaceLeaseState.STARTING,
+        new_state=WorkspaceLeaseState.ACTIVE,
+        created_at=_NOW,
+    )
+    storage.save_canonical_change_set(
+        CanonicalChangeSet(
+            id="changes-1",
+            lease_id=lease.id,
+            restore_point_id=restore.id,
+            source_repository_id="repo-1",
+            base_revision=_SHA,
+            sequence=1,
+            changes=(),
+            created_at=_NOW,
+        )
+    )
+    _insert_resolved_governed_apply(storage, "decision-1")
+    projection = _bound_apply_decision()
+
+    storage.save_apply_decision(projection)
+    consumed = storage.claim_apply_decision(
+        projection.id,
+        expected_version=1,
+        receipt_id="receipt-1",
+        created_at=_NOW,
+    )
+    storage.save_apply_decision(projection)
+
+    assert consumed.state == "consumed"
+    assert storage.get_apply_decision(projection.id) == consumed
+
+
+def test_governed_apply_projection_conflicting_immutable_envelope_fails_closed(storage) -> None:
+    lease = _lease()
+    restore = _restore_point()
+    storage.create_workspace_foundation(lease, restore)
+    storage.save_workspace_staging_identity(_staging_identity())
+    storage.save_canonical_change_set(
+        CanonicalChangeSet(
+            id="changes-1",
+            lease_id=lease.id,
+            restore_point_id=restore.id,
+            source_repository_id="repo-1",
+            base_revision=_SHA,
+            sequence=1,
+            changes=(),
+            created_at=_NOW,
+        )
+    )
+    _insert_resolved_governed_apply(storage, "decision-1")
+    projection = _bound_apply_decision()
+    storage.save_apply_decision(projection)
+
+    with pytest.raises(WorkspaceStateConflict, match="projection.*conflict"):
+        storage.save_apply_decision(
+            projection.model_copy(
+                update={
+                    "reason": "different immutable envelope",
+                    "decision_hash": "1" * 64,
+                }
+            )
+        )
 
 
 def test_workspace_repository_preserves_change_set_chronology(storage) -> None:

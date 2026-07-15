@@ -25,6 +25,7 @@ _DURABLE_EDICT_INGRESS_MIGRATION_NAME = "0009_durable_edict_ingress"
 _TELEGRAM_SEEN_IDENTITY_MIGRATION_NAME = "0010_telegram_seen_instance_identity"
 _DECISIONS_RUN_STATE_MIGRATION_NAME = "0011_decisions_run_state"
 _DECISION_RUN_STATE_GUARDS_MIGRATION_NAME = "0012_decision_run_state_guards"
+_GOVERNED_APPLY_DECISION_BINDING_MIGRATION_NAME = "0013_governed_apply_decision_binding"
 _COMPLETE_MIGRATION_LEDGER = [
     (1, _BASELINE_NAME),
     (2, _AUTH_MIGRATION_NAME),
@@ -38,6 +39,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (10, _TELEGRAM_SEEN_IDENTITY_MIGRATION_NAME),
     (11, _DECISIONS_RUN_STATE_MIGRATION_NAME),
     (12, _DECISION_RUN_STATE_GUARDS_MIGRATION_NAME),
+    (13, _GOVERNED_APPLY_DECISION_BINDING_MIGRATION_NAME),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -70,6 +72,7 @@ _POST_BASELINE_INDEXES = {
     "idx_restore_points_repository",
     "idx_change_sets_restore",
     "idx_apply_decisions_lease",
+    "idx_apply_decisions_decision_request",
     "idx_apply_receipts_lease",
     "idx_system_audit_correlation_sequence",
     "idx_system_audit_action_sequence",

@@ -63,6 +63,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0012_decision_run_state_guards": (
         "5f554ac8d24fe9ea3f060c81365100ae4ecb40d55340421cb18882268155b9c8"
     ),
+    # v13 binds new apply projections to resolved generic governed-apply decisions.
+    "0013_governed_apply_decision_binding": (
+        "2608a3bcc6f66c6a68fb745f4aa058fc65b130153b71a25aa870bcb280ce6f9c"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {
