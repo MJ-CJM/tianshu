@@ -14,6 +14,7 @@ from tianshu.storage.config_repo import ConfigMixin
 from tianshu.storage.cost_repo import CostMixin
 from tianshu.storage.credential_repo import CredentialMixin
 from tianshu.storage.dag_repo import DagMixin
+from tianshu.storage.decision_repo import DecisionRepository
 from tianshu.storage.edict_repo import EdictMixin
 from tianshu.storage.evals_repo import EvalsMixin
 from tianshu.storage.event_repo import EventMixin
@@ -26,6 +27,7 @@ from tianshu.storage.notify_repo import NotifyMixin
 from tianshu.storage.orchestrator_repo import OrchestratorMixin
 from tianshu.storage.persona_repo import PersonaMixin
 from tianshu.storage.petition_repo import PetitionMixin
+from tianshu.storage.run_state_repo import RunStateRepository
 from tianshu.storage.scheduler_repo import SchedulerMixin
 from tianshu.storage.security_repo import SecurityMixin
 from tianshu.storage.system_audit_repo import SystemAuditMixin
@@ -62,6 +64,11 @@ class Storage(
     TelegramMixin,
     WorkspaceMixin,
 ):
+    def __init__(self, db_path: str) -> None:
+        super().__init__(db_path)
+        self.decision_repo = DecisionRepository()
+        self.run_state_repo = RunStateRepository()
+
     def unit_of_work(self) -> SqliteUnitOfWork:
         return SqliteUnitOfWork(self._conn, self._lock)
 
