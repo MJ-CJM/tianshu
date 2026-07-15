@@ -8,7 +8,7 @@ import sqlite3
 from pydantic import ValidationError
 
 from tianshu.models.canonical import canonical_json_bytes
-from tianshu.models.run_state import RunStateV1
+from tianshu.models.run_state import RunPhase, RunStateV1
 from tianshu.security.sensitive_payload import contains_raw_sensitive_payload
 
 
@@ -31,6 +31,20 @@ class RunStateSecretError(RunStateRepositoryError):
 def _require_secret_free(state: RunStateV1) -> None:
     if contains_raw_sensitive_payload(state.model_dump(mode="python")):
         raise RunStateSecretError("raw secret is not allowed in durable RunState")
+
+
+def _require_decision_binding(state: RunStateV1) -> None:
+    pending = state.continuation.pending_decision_id
+    resolved = state.continuation.resolved_decision_id
+    if resolved is not None and not resolved.strip():
+        raise RunStateConflict("invalid RunState decision binding")
+    if pending is not None and (not pending.strip() or resolved is not None):
+        raise RunStateConflict("invalid RunState decision binding")
+    if state.phase is RunPhase.WAITING_DECISION:
+        if pending is None:
+            raise RunStateConflict("invalid RunState decision binding")
+    elif pending is not None:
+        raise RunStateConflict("invalid RunState decision binding")
 
 
 def _require_memorial_binding(
@@ -84,6 +98,7 @@ class RunStateRepository:
     def create(self, connection: sqlite3.Connection, state: RunStateV1) -> RunStateV1:
         if state.version != 1:
             raise ValueError("new RunState must start at version 1")
+        _require_decision_binding(state)
         _require_memorial_binding(connection, state.memorial_id, state.edict_id)
         _require_secret_free(state)
         try:
@@ -122,6 +137,7 @@ class RunStateRepository:
     ) -> RunStateV1:
         if state.version != expected_version:
             raise ValueError("RunState input version must equal expected_version")
+        _require_decision_binding(state)
         current = self.load(connection, state.memorial_id)
         if current is None:
             raise RunStateConflict("RunState compare-and-swap conflict")

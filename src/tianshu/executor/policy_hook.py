@@ -157,15 +157,6 @@ class PolicyHook:
                 reason=f"[{decision.rule_id}] approval required but no continuation state",
             )
 
-        # 司礼监·代批(迭代 7):低风险 + 历史高通过率 + 未急停 → 自动代批留痕放行,不扰人工
-        if self._silijian is not None:
-            auto = self._silijian.maybe_auto_approve(  # type: ignore[attr-defined]
-                memorial_id, ctx.tool_tier, decision.rule_id
-            )
-            if auto is not None:
-                self._emit_event(ctx, "decree.auto_approved", decision)
-                return HookResult(authorization_source="policy-engine")
-
         request = self._approval_manager.request_tool_decision(  # type: ignore[attr-defined]
             edict=ctx.edict,
             memorial=ctx.memorial,
@@ -178,6 +169,26 @@ class PolicyHook:
             iteration=ctx.iteration,
             usage=usage,
         )
+
+        auto_resolved = False
+        if self._silijian is not None:
+            proposal = self._silijian.maybe_auto_approve(  # type: ignore[attr-defined]
+                memorial_id, ctx.tool_tier, decision.rule_id
+            )
+            if proposal is not None:
+                try:
+                    self._approval_manager.resolve_tool_decision_as_silijian(  # type: ignore[attr-defined]
+                        request,
+                        reason=proposal.reason,
+                    )
+                except Exception:
+                    logger.exception(
+                        "policy_hook: Silijian proposal failed generic resolution; "
+                        "falling back to human review"
+                    )
+                else:
+                    auto_resolved = True
+                    self._emit_event(ctx, "decree.auto_approved", decision)
 
         # 写事件，触发前端 toast
         approval_payload = {
@@ -192,7 +203,7 @@ class PolicyHook:
 
         # tool.approval_required 通过 EventBus.fire 单点持久化（_persist 自动写入 events 表）
         # + 派发给订阅者（飞书机器人等）。避免双写导致 PolicyTimeline/EventTimeline 重复显示。
-        if self._event_bus is not None:
+        if not auto_resolved and self._event_bus is not None:
             try:
                 from tianshu.models.events import make_event
 
@@ -209,7 +220,7 @@ class PolicyHook:
                 logger.exception("policy_hook: failed to fire tool.approval_required to EventBus")
 
         # Broadcast to WS so frontend can show toast
-        if self._notifier is not None:
+        if not auto_resolved and self._notifier is not None:
             try:
                 import asyncio
 

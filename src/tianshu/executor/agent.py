@@ -76,6 +76,49 @@ ASSISTANT_ONLY_TOOLS: frozenset[str] = frozenset(
 REPEATED_FAILURE_LIMIT = 3
 
 
+def _parse_tool_arguments(arguments: object) -> dict:
+    """Return one strict JSON object for policy and execution."""
+
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except (ValueError, TypeError, RecursionError) as exc:
+            raise ValueError("tool arguments must be valid JSON") from exc
+    if not isinstance(arguments, dict):
+        raise ValueError("tool arguments must be a JSON object")
+    return arguments
+
+
+def _durable_tool_messages(
+    messages: list[dict],
+    parsed_arguments: dict[str, dict],
+) -> list[dict]:
+    """Copy provider history with tool arguments normalized to safe object boundaries."""
+
+    durable: list[dict] = []
+    for message in messages:
+        copied = dict(message)
+        tool_calls = message.get("tool_calls")
+        if isinstance(tool_calls, list):
+            copied_calls: list[dict] = []
+            for tool_call in tool_calls:
+                copied_call = dict(tool_call)
+                function = tool_call.get("function")
+                if isinstance(function, dict):
+                    copied_function = dict(function)
+                    invocation_id = tool_call.get("id")
+                    copied_function["arguments"] = (
+                        parsed_arguments[invocation_id]
+                        if isinstance(invocation_id, str) and invocation_id in parsed_arguments
+                        else _parse_tool_arguments(function.get("arguments"))
+                    )
+                    copied_call["function"] = copied_function
+                copied_calls.append(copied_call)
+            copied["tool_calls"] = copied_calls
+        durable.append(copied)
+    return durable
+
+
 @dataclass
 class _LlmCallOutcome:
     """`Agent._call_llm_with_recovery` 的返回值。
@@ -641,8 +684,34 @@ class Agent:
                 assistant_msg["reasoning_content"] = response.reasoning_content
             new_messages = list(state.messages) + [assistant_msg]
 
+            parsed_calls: list[tuple[dict, dict]] = []
+            try:
+                for tool_call in response.tool_calls:
+                    parsed_calls.append((tool_call, _parse_tool_arguments(tool_call.get("args"))))
+                parsed_by_id = {tool_call["id"]: arguments for tool_call, arguments in parsed_calls}
+                durable_messages = _durable_tool_messages(new_messages, parsed_by_id)
+            except (KeyError, TypeError, ValueError) as exc:
+                reason = f"invalid tool arguments: {exc}"
+                for tool_call in response.tool_calls:
+                    new_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.get("id", "invalid-tool-call"),
+                            "content": f"Tool blocked: {reason}",
+                        }
+                    )
+                    emit(
+                        {
+                            "type": "tool.blocked",
+                            "tool": tool_call.get("name", "unknown"),
+                            "iteration": state.iteration,
+                            "reason": reason,
+                        }
+                    )
+                return state.next_turn(new_messages), repeated_failures, None
+
             # Execute each tool call sequentially
-            for tc in response.tool_calls:
+            for tc, parsed_args in parsed_calls:
                 # Tier fast-path: T0_READONLY bypasses HookRegistry at agent layer.
                 # Registry has its own T0 fast path too — defense in depth, avoids
                 # emitting noise hook events for readonly tools. Spec Section 2.
@@ -658,8 +727,8 @@ class Agent:
                         HookType.BEFORE_TOOL_CALL,
                         invocation_id=tc["id"],
                         tool_name=tc["name"],
-                        tool_args=tc["args"],
-                        messages=list(new_messages),
+                        tool_args=parsed_args,
+                        messages=list(durable_messages),
                         iteration=state.iteration,
                         usage=usage,
                         edict=edict,
@@ -673,6 +742,7 @@ class Agent:
                                 "content": f"Tool blocked: {hook_result.reason}",
                             }
                         )
+                        durable_messages.append(dict(new_messages[-1]))
                         emit(
                             {
                                 "type": "tool.blocked",
@@ -686,14 +756,14 @@ class Agent:
                         hook_result.authorization_source == "policy-engine"
                         and get_execution_context() is not None
                     ):
-                        policy_decision = _issue_tool_policy_decision(tc["name"], tc["args"])
+                        policy_decision = _issue_tool_policy_decision(tc["name"], parsed_args)
 
                 logger.debug(
                     "[AGENT] Edict %s: iter %d tool=%s, args=%.200s",
                     edict.id,
                     state.iteration,
                     tc["name"],
-                    str(tc["args"])[:200],
+                    str(parsed_args)[:200],
                 )
                 if stream_callback:
                     await stream_callback.on_tool_call_start(tc["name"])
@@ -706,7 +776,7 @@ class Agent:
                     with bind_edict(edict), bind_persona(persona), decision_context:
                         tool_result = await self._tools.execute(
                             tc["name"],
-                            tc["args"],
+                            parsed_args,
                             lifecycle_phase=edict.runtime.lifecycle_phase,
                             invocation_id=tc["id"],
                         )
@@ -726,19 +796,20 @@ class Agent:
                         "content": content,
                     }
                 )
+                durable_messages.append(dict(new_messages[-1]))
 
                 if self._hooks and not is_fast_path:
                     await self._hooks.run(
                         HookType.AFTER_TOOL_CALL,
                         tool_name=tc["name"],
-                        tool_args=tc["args"],
+                        tool_args=parsed_args,
                         tool_result=tool_result,
                         iteration=state.iteration,
                         edict=edict,
                         memorial=memorial,
                     )
 
-                args_str = tc["args"] if isinstance(tc["args"], str) else json.dumps(tc["args"])
+                args_str = json.dumps(parsed_args)
                 emit(
                     {
                         "type": "tool.failed" if tool_result.is_error else "tool.completed",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -20,6 +21,13 @@ from tianshu.models.principal import (
     ClientKind,
     Principal,
     PrincipalKind,
+)
+from tianshu.models.run_state import (
+    AgentContinuationV1,
+    OuterLoopContinuationV1,
+    PersistedUsageSummaryV1,
+    RunPhase,
+    RunStateV1,
 )
 from tianshu.storage import Storage
 
@@ -94,6 +102,126 @@ def _service(storage: Storage, clock: list[datetime]):
     from tianshu.governance.decision_service import DecisionService
 
     return DecisionService(storage, clock=lambda: clock[0])
+
+
+def _waiting_state(continuation_kind: str) -> RunStateV1:
+    usage = PersistedUsageSummaryV1(
+        prompt_tokens=0,
+        completion_tokens=0,
+        total_tokens=0,
+        cache_read_tokens=0,
+        cost_cny=0,
+        actual_model=None,
+        upstream_provider=None,
+    )
+    if continuation_kind == "agent":
+        continuation = AgentContinuationV1(
+            messages=(),
+            pending_tool=None,
+            iteration=0,
+            usage=usage,
+            checkpoint_ref=None,
+            resolved_decision_id=None,
+            side_effect_cursor=0,
+        )
+    else:
+        continuation = OuterLoopContinuationV1(
+            level="L0",
+            iteration=0,
+            best_output=None,
+            feedback=None,
+            steer=None,
+            history=(),
+            same_issue_streak=0,
+            last_critic_issue_class=None,
+            l1_rounds_used=0,
+            l2_rounds_used=0,
+            consultation_advice=None,
+            usage=usage,
+            total_cost_cny=Decimal("0"),
+            checkpoint_ref=None,
+            resolved_decision_id=None,
+            side_effect_cursor=0,
+        )
+    return RunStateV1(
+        memorial_id="memorial-1",
+        edict_id="edict-1",
+        phase=RunPhase.WAITING_DECISION,
+        continuation=continuation,
+        checkpoint_ref=None,
+        side_effect_cursor=0,
+        version=1,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "continuation_kind"),
+    (
+        (DecisionKind.TOOL, "outer_loop"),
+        (DecisionKind.OUTER_LOOP, "agent"),
+        (DecisionKind.PLAN_REVIEW, "agent"),
+        (DecisionKind.PLAN_REVIEW, "outer_loop"),
+        (DecisionKind.GOVERNED_APPLY, "agent"),
+        (DecisionKind.GOVERNED_APPLY, "outer_loop"),
+    ),
+)
+def test_request_with_run_state_rejects_unsupported_kind_continuation_before_writes(
+    decision_storage: Storage,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: DecisionKind,
+    continuation_kind: str,
+) -> None:
+    from tianshu.governance.decision_service import DecisionValidationError
+
+    service = _service(decision_storage, [_NOW])
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("validation must precede request creation and UoW")
+
+    monkeypatch.setattr(service, "_new_request", forbidden)
+    monkeypatch.setattr(decision_storage, "unit_of_work", forbidden)
+    command = _request_command(
+        kind=kind,
+        request_key=f"{kind.value}:unsupported-continuation",
+        payload={"schema_version": 1},
+    )
+
+    with pytest.raises(DecisionValidationError) as error:
+        service.request_with_run_state(
+            command,
+            _waiting_state(continuation_kind),
+            auth=_auth(),
+        )
+
+    assert error.value.code == "invalid_decision_run_state"
+    for table in ("decision_requests", "run_states", "outbox_events", "system_audit_events"):
+        assert decision_storage._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0  # noqa: S608, SLF001
+
+
+def test_request_with_run_state_accepts_outer_loop_continuation(
+    decision_storage: Storage,
+) -> None:
+    service = _service(decision_storage, [_NOW])
+    run_state = _waiting_state("outer_loop")
+    request = service.request_with_run_state(
+        _request_command(
+            kind=DecisionKind.OUTER_LOOP,
+            request_key="outer-loop:1",
+            payload={"schema_version": 1},
+        ),
+        run_state,
+        auth=_auth(),
+    )
+
+    with decision_storage.unit_of_work() as unit_of_work:
+        saved = decision_storage.run_state_repo.load(unit_of_work.connection, "memorial-1")
+        unit_of_work.commit()
+    assert saved is not None
+    assert saved.continuation.kind == "outer_loop"
+    assert saved.continuation.pending_decision_id == request.decision_request_id
 
 
 def test_request_uses_auth_identity_deduplicates_and_audits_payload_conflict(

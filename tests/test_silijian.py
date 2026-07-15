@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from tianshu.executor.silijian import Silijian
 from tianshu.models.common import TaskStatus
 from tianshu.models.decree import Decree
@@ -70,17 +72,14 @@ class TestGates:
         s = _silijian(storage, config_manager)
         assert s.maybe_auto_approve("mx", ToolTier.T1_WORKSPACE, "r") is None
 
-    def test_all_gates_pass_auto_approves(self, storage, config_manager):
+    def test_all_gates_pass_returns_proposal_without_legacy_decree(self, storage, config_manager):
         _seed_human_approvals(storage, approve=12, reject=0)
         s = _silijian(storage, config_manager)
         storage.save_memorial(Memorial(id="mx", edict_id="e1", status=TaskStatus.SUBMITTED))
-        decree = s.maybe_auto_approve("mx", ToolTier.T1_WORKSPACE, "workspace_write")
-        assert decree is not None
-        assert decree.action == "approve" and decree.actor == "silijian"
-        assert decree.grant_scope == "once"
-        # 闸2:留痕——落库可查可撤
-        persisted = storage.list_decrees_by_memorial("mx")
-        assert any(d.actor == "silijian" for d in persisted)
+        proposal = s.maybe_auto_approve("mx", ToolTier.T1_WORKSPACE, "workspace_write")
+        assert proposal is not None
+        assert "T1/workspace_write" in proposal.reason
+        assert storage.list_decrees_by_memorial("mx") == []
 
     def test_self_approvals_excluded_from_signal(self, storage, config_manager):
         # 只人工 decree 计入通过率:全是 silijian 自批时样本不足,不自我强化
@@ -88,5 +87,28 @@ class TestGates:
         for i in range(12):
             storage.save_memorial(Memorial(id=f"s{i}", edict_id="e1", status=TaskStatus.COMPLETED))
             storage.save_decree(Decree(memorial_id=f"s{i}", action="approve", actor="silijian"))
+        s = _silijian(storage, config_manager)
+        assert s.maybe_auto_approve("mx", ToolTier.T1_WORKSPACE, "r") is None
+
+    def test_ingress_human_actors_contribute_to_signal(self, storage, config_manager):
+        storage.save_edict(Edict(id="e1", goal="seed"))
+        actors = ("human", "user:alice", "feishu:ou_alice", "telegram:123")
+        for i in range(12):
+            storage.save_memorial(Memorial(id=f"u{i}", edict_id="e1", status=TaskStatus.COMPLETED))
+            storage.save_decree(
+                Decree(memorial_id=f"u{i}", action="approve", actor=actors[i % len(actors)])
+            )
+        s = _silijian(storage, config_manager)
+        assert s.maybe_auto_approve("mx", ToolTier.T1_WORKSPACE, "r") is not None
+
+    @pytest.mark.parametrize(
+        "actor",
+        ("system:service", "mcp:service", "service:worker", "unknown"),
+    )
+    def test_non_human_actors_are_excluded_from_signal(self, storage, config_manager, actor):
+        storage.save_edict(Edict(id="e1", goal="seed"))
+        for i in range(12):
+            storage.save_memorial(Memorial(id=f"x{i}", edict_id="e1", status=TaskStatus.COMPLETED))
+            storage.save_decree(Decree(memorial_id=f"x{i}", action="approve", actor=actor))
         s = _silijian(storage, config_manager)
         assert s.maybe_auto_approve("mx", ToolTier.T1_WORKSPACE, "r") is None

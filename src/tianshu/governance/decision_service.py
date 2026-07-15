@@ -22,7 +22,12 @@ from tianshu.models.decision import (
 )
 from tianshu.models.events import EventEnvelope
 from tianshu.models.principal import AuthContext
-from tianshu.models.run_state import AgentContinuationV1, RunPhase, RunStateV1
+from tianshu.models.run_state import (
+    AgentContinuationV1,
+    OuterLoopContinuationV1,
+    RunPhase,
+    RunStateV1,
+)
 from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.storage.decision_repo import (
     DecisionIdentityConflict,
@@ -149,13 +154,21 @@ class DecisionService:
     ) -> DecisionRequestV1:
         """Atomically create one decision request and its waiting continuation."""
 
-        now = self._now()
+        continuation_matches_kind = (
+            command.kind is DecisionKind.TOOL
+            and isinstance(run_state.continuation, AgentContinuationV1)
+        ) or (
+            command.kind is DecisionKind.OUTER_LOOP
+            and isinstance(run_state.continuation, OuterLoopContinuationV1)
+        )
         if (
             run_state.phase is not RunPhase.WAITING_DECISION
             or run_state.edict_id != command.edict_id
             or run_state.memorial_id != command.memorial_id
+            or not continuation_matches_kind
         ):
             raise DecisionValidationError("invalid_decision_run_state")
+        now = self._now()
         request = self._new_request(command, auth=auth, now=now)
         with self._storage.unit_of_work() as unit_of_work:
             saved = self._add_request(
@@ -165,6 +178,7 @@ class DecisionService:
                 auth=auth,
             )
             if saved.status is not DecisionStatus.PENDING:
+                self._require_terminal_replay(unit_of_work, saved, request, run_state)
                 unit_of_work.commit()
                 return saved
             continuation = run_state.continuation.model_copy(
@@ -211,6 +225,60 @@ class DecisionService:
                 raise DecisionConflict("decision_run_state_conflict")
             unit_of_work.commit()
             return saved
+
+    def _require_terminal_replay(
+        self,
+        unit_of_work: SqliteUnitOfWork,
+        saved: DecisionRequestV1,
+        requested: DecisionRequestV1,
+        run_state: RunStateV1,
+    ) -> None:
+        current = self._run_states.load(unit_of_work.connection, saved.memorial_id)
+        if current is None:
+            raise DecisionConflict("decision_run_state_conflict")
+        business_continuation = run_state.continuation
+        if (
+            isinstance(business_continuation, AgentContinuationV1)
+            and business_continuation.pending_tool
+        ):
+            business_continuation = business_continuation.model_copy(
+                update={
+                    "pending_tool": business_continuation.pending_tool.model_copy(
+                        update={"proposed_at": saved.created_at}
+                    )
+                }
+            )
+        normalized_state = {
+            "version": current.version,
+            "created_at": current.created_at,
+            "updated_at": current.updated_at,
+        }
+        waiting = run_state.model_copy(
+            update={
+                **normalized_state,
+                "phase": RunPhase.WAITING_DECISION,
+                "continuation": business_continuation.model_copy(
+                    update={
+                        "pending_decision_id": saved.decision_request_id,
+                        "resolved_decision_id": None,
+                    }
+                ),
+            }
+        )
+        executing = run_state.model_copy(
+            update={
+                **normalized_state,
+                "phase": RunPhase.EXECUTING,
+                "continuation": business_continuation.model_copy(
+                    update={
+                        "pending_decision_id": None,
+                        "resolved_decision_id": saved.decision_request_id,
+                    }
+                ),
+            }
+        )
+        if saved.payload_hash != requested.payload_hash or current not in (waiting, executing):
+            raise DecisionConflict("decision_run_state_conflict")
 
     def mark_run_state_resolved(self, decision_request_id: str) -> RunStateV1:
         """CAS a live tool suspension back to executing after generic resolution."""

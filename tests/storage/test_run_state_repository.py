@@ -87,7 +87,7 @@ def _state(arguments: dict[str, object] | None = None) -> RunStateV1:
     return RunStateV1(
         memorial_id="memorial-1",
         edict_id="edict-1",
-        phase=RunPhase.WAITING_DECISION,
+        phase=RunPhase.EXECUTING,
         continuation=continuation,
         checkpoint_ref="artifact:checkpoint-1",
         side_effect_cursor=0,
@@ -95,6 +95,63 @@ def _state(arguments: dict[str, object] | None = None) -> RunStateV1:
         created_at=now,
         updated_at=now,
     )
+
+
+@pytest.mark.parametrize("operation", ("create", "cas"))
+@pytest.mark.parametrize(
+    ("phase", "pending_decision_id", "resolved_decision_id"),
+    (
+        (RunPhase.WAITING_DECISION, None, None),
+        (RunPhase.WAITING_DECISION, "", None),
+        (RunPhase.EXECUTING, "decision-pending", None),
+        (RunPhase.EXECUTING, None, ""),
+        (RunPhase.WAITING_DECISION, "decision-pending", "decision-resolved"),
+    ),
+)
+def test_durable_decision_binding_invariants_reject_zero_write_create_and_cas(
+    operation: str,
+    phase: RunPhase,
+    pending_decision_id: str | None,
+    resolved_decision_id: str | None,
+) -> None:
+    _, conflict_type, *_ = _contracts()
+    storage = _storage()
+    original = _state()
+    continuation = original.continuation.model_copy(
+        update={
+            "pending_decision_id": pending_decision_id,
+            "resolved_decision_id": resolved_decision_id,
+        }
+    )
+    candidate = original.model_copy(
+        update={
+            "phase": phase,
+            "continuation": continuation,
+            "updated_at": original.updated_at + timedelta(seconds=1),
+        }
+    )
+    try:
+        if operation == "cas":
+            with storage.unit_of_work() as unit_of_work:
+                storage.run_state_repo.create(unit_of_work.connection, original)
+                unit_of_work.commit()
+
+        with pytest.raises(conflict_type, match="decision binding"), storage.unit_of_work() as uow:
+            if operation == "create":
+                storage.run_state_repo.create(uow.connection, candidate)
+            else:
+                storage.run_state_repo.compare_and_swap(
+                    uow.connection,
+                    candidate.model_copy(update={"version": original.version}),
+                    expected_version=original.version,
+                )
+
+        with storage.unit_of_work() as unit_of_work:
+            durable = storage.run_state_repo.load(unit_of_work.connection, "memorial-1")
+            unit_of_work.commit()
+        assert durable == (original if operation == "cas" else None)
+    finally:
+        storage.close()
 
 
 def test_storage_wires_repository_and_round_trip_survives_restart(tmp_path: Path) -> None:

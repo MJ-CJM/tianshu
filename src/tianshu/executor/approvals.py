@@ -25,6 +25,7 @@ from tianshu.models.decision import (
     DecisionResolutionV1,
     DecisionStatus,
     RequestDecisionCommand,
+    ResolveDecisionCommand,
 )
 from tianshu.models.decree import Decree
 from tianshu.models.edict import Edict, title_from_goal
@@ -164,6 +165,27 @@ class ApprovalManager:
             auth=self._policy_auth(invocation_id),
         )
 
+    def resolve_tool_decision_as_silijian(
+        self,
+        request: DecisionRequestV1,
+        *,
+        reason: str,
+    ) -> DecisionResolutionV1:
+        """Resolve an already-durable tool request through fixed service identity."""
+
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable tool decisions")
+        return self._decision_service.resolve(
+            request.decision_request_id,
+            ResolveDecisionCommand(
+                action="approve",
+                reason=reason,
+                payload={"schema_version": 1, "grant_scope": "once", "grant_reason": reason},
+                expected_version=request.version,
+            ),
+            auth=self._silijian_auth(request.decision_request_id),
+        )
+
     async def wait_for_tool_decision(
         self,
         decision_request_id: str,
@@ -182,32 +204,39 @@ class ApprovalManager:
                 record = service.get(decision_request_id)
                 if record is None:
                     return None
-                if record.request.status is DecisionStatus.RESOLVED:
-                    service.mark_run_state_resolved(decision_request_id)
-                    try:
-                        self._project_tool_decree(record)
-                    except Exception:
-                        logger.exception(
-                            "tool decision %s committed but Decree projection failed",
-                            decision_request_id,
-                        )
-                    return record.resolution
-                if record.request.status is not DecisionStatus.PENDING:
-                    service.mark_run_state_terminal(decision_request_id)
-                    return None
-                await asyncio.sleep(poll_interval_seconds)
+                if record.request.status is DecisionStatus.PENDING:
+                    await asyncio.sleep(poll_interval_seconds)
+                    continue
+                return self._consume_tool_decision_terminal(record)
 
         try:
             return await asyncio.wait_for(poll(), timeout=timeout_seconds)
         except TimeoutError:
             service.expire_due()
             record = service.get(decision_request_id)
-            if record is not None and record.request.status in {
-                DecisionStatus.EXPIRED,
-                DecisionStatus.CANCELLED,
-            }:
-                service.mark_run_state_terminal(decision_request_id)
+            return self._consume_tool_decision_terminal(record)
+
+    def _consume_tool_decision_terminal(
+        self,
+        record: DecisionRecordV1 | None,
+    ) -> DecisionResolutionV1 | None:
+        if record is None or record.request.status is DecisionStatus.PENDING:
             return None
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable tool decisions")
+        decision_request_id = record.request.decision_request_id
+        if record.request.status is DecisionStatus.RESOLVED:
+            self._decision_service.mark_run_state_resolved(decision_request_id)
+            try:
+                self._project_tool_decree(record)
+            except Exception:
+                logger.exception(
+                    "tool decision %s committed but Decree projection failed",
+                    decision_request_id,
+                )
+            return record.resolution
+        self._decision_service.mark_run_state_terminal(decision_request_id)
+        return None
 
     async def handle_decision_resolved(self, event: EventEnvelope) -> None:
         """Durably replay the one-way legacy Decree projection for tool decisions."""
@@ -235,6 +264,21 @@ class ApprovalManager:
             source=AuthenticationSource.TRUSTED_LOCAL,
             client_kind=ClientKind.SYSTEM,
             correlation_id=f"tool:{correlation}",
+        )
+
+    @staticmethod
+    def _silijian_auth(decision_request_id: str) -> AuthContext:
+        correlation = hashlib.sha256(decision_request_id.encode("utf-8")).hexdigest()[:32]
+        return AuthContext(
+            principal=Principal(
+                id="system:silijian",
+                kind=PrincipalKind.SERVICE,
+                display_name="Silijian",
+                scopes=frozenset({"decision:resolve"}),
+            ),
+            source=AuthenticationSource.TRUSTED_LOCAL,
+            client_kind=ClientKind.SYSTEM,
+            correlation_id=f"silijian:{correlation}",
         )
 
     @staticmethod
