@@ -75,15 +75,15 @@ def _primary_key(connection: sqlite3.Connection) -> tuple[tuple[int, str], ...]:
     )
 
 
-def test_live_migration_tail_is_v10_without_drifting_v1_to_v9() -> None:
+def test_live_migration_prefix_through_v10_does_not_drift_v1_to_v9() -> None:
     assert (
         tuple(
             (migration.version, migration.name, migration.checksum) for migration in MIGRATIONS[:9]
         )
         == _FROZEN_V1_TO_V9_DEFINITIONS
     )
-    assert tuple(migration.version for migration in MIGRATIONS) == tuple(range(1, 11))
-    assert (MIGRATIONS[-1].version, MIGRATIONS[-1].name) == (
+    assert tuple(migration.version for migration in MIGRATIONS[:10]) == tuple(range(1, 11))
+    assert (MIGRATIONS[9].version, MIGRATIONS[9].name) == (
         10,
         "0010_telegram_seen_instance_identity",
     )
@@ -131,7 +131,7 @@ def test_v9_to_v10_upgrade_preserves_instance_and_default_rows() -> None:
         )
         connection.commit()
 
-        assert apply_migrations(connection, MIGRATIONS) == (10,)
+        assert apply_migrations(connection, MIGRATIONS[:10]) == (10,)
 
         assert _primary_key(connection) == ((1, "instance_id"), (2, "update_id"))
         assert connection.execute(
@@ -208,7 +208,7 @@ def test_applied_v10_checksum_drift_is_rejected_without_writes() -> None:
     connection = sqlite3.connect(":memory:")
     connection.execute("PRAGMA foreign_keys=ON")
     try:
-        assert apply_migrations(connection, MIGRATIONS) == tuple(range(1, 11))
+        assert apply_migrations(connection, MIGRATIONS[:10]) == tuple(range(1, 11))
         connection.execute(
             """
             INSERT INTO telegram_seen_messages (instance_id, update_id, seen_at)
@@ -216,7 +216,7 @@ def test_applied_v10_checksum_drift_is_rejected_without_writes() -> None:
             """
         )
         connection.commit()
-        drifted = (*MIGRATIONS[:-1], replace(MIGRATIONS[-1], checksum="f" * 64))
+        drifted = (*MIGRATIONS[:9], replace(MIGRATIONS[9], checksum="f" * 64))
 
         with pytest.raises(MigrationStateError, match="checksum drift"):
             pending_migrations(connection, drifted)

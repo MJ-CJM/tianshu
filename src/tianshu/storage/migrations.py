@@ -2427,6 +2427,103 @@ def _telegram_seen_instance_identity_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V11: durable governance decisions and resumable run state ---
+
+_DECISIONS_RUN_STATE_STATEMENTS = (
+    """
+    CREATE TABLE decision_requests (
+        decision_request_id TEXT PRIMARY KEY,
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        kind TEXT NOT NULL CHECK (kind IN ('tool','outer_loop','plan_review','governed_apply')),
+        edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE CASCADE,
+        memorial_id TEXT NOT NULL REFERENCES memorials(id) ON DELETE CASCADE,
+        request_key TEXT NOT NULL CHECK (length(trim(request_key)) > 0),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        payload_hash TEXT NOT NULL CHECK (
+            length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        requested_by TEXT NOT NULL CHECK (length(trim(requested_by)) > 0),
+        expires_at TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending','resolved','expired','cancelled')),
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (memorial_id, kind, request_key)
+    )
+    """,
+    """
+    CREATE TABLE decision_resolutions (
+        decision_request_id TEXT PRIMARY KEY
+            REFERENCES decision_requests(decision_request_id) ON DELETE RESTRICT,
+        action TEXT NOT NULL CHECK (length(trim(action)) > 0),
+        reason TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+        payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
+        actor_principal_id TEXT NOT NULL CHECK (length(trim(actor_principal_id)) > 0),
+        actor_display_name TEXT NOT NULL CHECK (length(trim(actor_display_name)) > 0),
+        resolved_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE run_states (
+        memorial_id TEXT PRIMARY KEY REFERENCES memorials(id) ON DELETE CASCADE,
+        edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE CASCADE,
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        phase TEXT NOT NULL CHECK (phase IN (
+            'submitted','planning','executing','waiting_decision',
+            'paused','auditing','completed','failed'
+        )),
+        continuation_kind TEXT NOT NULL CHECK (continuation_kind IN ('agent','outer_loop')),
+        continuation_json TEXT NOT NULL CHECK (
+            json_valid(continuation_json)
+            AND json_extract(continuation_json, '$.kind') = continuation_kind
+        ),
+        checkpoint_ref TEXT,
+        side_effect_cursor INTEGER NOT NULL DEFAULT 0 CHECK (side_effect_cursor >= 0),
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE INDEX idx_decisions_pending
+    ON decision_requests(status, kind, expires_at)
+    """,
+    """
+    CREATE INDEX idx_decisions_memorial
+    ON decision_requests(memorial_id, created_at)
+    """,
+    """
+    CREATE INDEX idx_run_states_edict
+    ON run_states(edict_id, updated_at)
+    """,
+    """
+    CREATE TRIGGER decision_resolutions_no_update
+    BEFORE UPDATE ON decision_resolutions
+    BEGIN
+        SELECT RAISE(ABORT, 'decision resolutions are immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER decision_resolutions_no_delete
+    BEFORE DELETE ON decision_resolutions
+    BEGIN
+        SELECT RAISE(ABORT, 'decision resolutions are immutable');
+    END
+    """,
+)
+_DECISIONS_RUN_STATE_CHECKSUM = hashlib.sha256(
+    (
+        "0011_decisions_run_state\n"
+        + "\n".join(" ".join(statement.split()) for statement in _DECISIONS_RUN_STATE_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _decisions_run_state_upgrade(conn: MigrationConnection) -> None:
+    for statement in _DECISIONS_RUN_STATE_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -2487,6 +2584,12 @@ MIGRATIONS = (
         name="0010_telegram_seen_instance_identity",
         checksum=_TELEGRAM_SEEN_INSTANCE_IDENTITY_CHECKSUM,
         upgrade=_telegram_seen_instance_identity_upgrade,
+    ),
+    Migration(
+        version=11,
+        name="0011_decisions_run_state",
+        checksum=_DECISIONS_RUN_STATE_CHECKSUM,
+        upgrade=_decisions_run_state_upgrade,
     ),
 )
 

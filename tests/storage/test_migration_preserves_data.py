@@ -23,6 +23,7 @@ _SYSTEM_AUDIT_MIGRATION_NAME = "0007_system_audit_events"
 _MCP_SECRET_MAPPING_MIGRATION_NAME = "0008_encrypt_mcp_secret_mappings"
 _DURABLE_EDICT_INGRESS_MIGRATION_NAME = "0009_durable_edict_ingress"
 _TELEGRAM_SEEN_IDENTITY_MIGRATION_NAME = "0010_telegram_seen_instance_identity"
+_DECISIONS_RUN_STATE_MIGRATION_NAME = "0011_decisions_run_state"
 _COMPLETE_MIGRATION_LEDGER = [
     (1, _BASELINE_NAME),
     (2, _AUTH_MIGRATION_NAME),
@@ -34,6 +35,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
     (9, _DURABLE_EDICT_INGRESS_MIGRATION_NAME),
     (10, _TELEGRAM_SEEN_IDENTITY_MIGRATION_NAME),
+    (11, _DECISIONS_RUN_STATE_MIGRATION_NAME),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -51,6 +53,9 @@ _POST_BASELINE_TABLES = {
     "outbox_events",
     "submission_idempotency",
     "outbox_consumptions",
+    "decision_requests",
+    "decision_resolutions",
+    "run_states",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -68,6 +73,9 @@ _POST_BASELINE_INDEXES = {
     "idx_system_audit_action_sequence",
     "idx_outbox_claim",
     "idx_outbox_edict",
+    "idx_decisions_pending",
+    "idx_decisions_memorial",
+    "idx_run_states_edict",
 }
 _V042_OWNED_TABLE_MANIFEST = (
     48,
@@ -280,6 +288,10 @@ def _build_canonical_preledger(
     if prior_mcp_schema:
         conn.executescript(
             """
+            DROP TABLE run_states;
+            DROP TABLE decision_resolutions;
+            DROP TABLE decision_requests;
+
             DROP TABLE outbox_consumptions;
             DROP TABLE submission_idempotency;
             DROP TABLE outbox_events;

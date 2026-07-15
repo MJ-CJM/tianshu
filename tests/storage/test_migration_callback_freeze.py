@@ -55,6 +55,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0010_telegram_seen_instance_identity": (
         "ae200078d7b60187fdb8c15a75082b9a9e655cb955c77b12f7512a77f5a36daa"
     ),
+    # v11 追加 durable Decision/RunState 表与不可变 resolution 触发器。
+    "0011_decisions_run_state": (
+        "bda8e1761d17d27051e5c7b52dbfa224398e86c794666007f61f8e2a097d5e7c"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {
