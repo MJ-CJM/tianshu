@@ -94,6 +94,12 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         event_bus=event_bus,
         storage=storage,
         session_rule_store=session_rule_store,
+        decision_service=app.state.decision_service,
+    )
+    event_bus.on(
+        "decision.resolved",
+        approval_manager.handle_decision_resolved,
+        consumer_name="approval_manager.tool_decree_projection.v1",
     )
     app.state.approval_manager = approval_manager
 

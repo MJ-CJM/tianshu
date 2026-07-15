@@ -256,6 +256,27 @@ class MemorialMixin:
                 ),
             )
 
+    def save_decree_if_absent(self, decree: Decree) -> bool:
+        """Persist an idempotent compatibility projection by deterministic Decree ID."""
+
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """INSERT INTO decrees
+                   (id, memorial_id, action, comment, amended_goal, actor, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO NOTHING""",
+                (
+                    decree.id,
+                    decree.memorial_id,
+                    decree.action,
+                    decree.comment,
+                    decree.amended_goal,
+                    decree.actor,
+                    decree.created_at.isoformat(),
+                ),
+            )
+        return cursor.rowcount == 1
+
     def list_decrees_by_memorial(self, memorial_id: str) -> list[Decree]:
         with self._lock:
             rows = self._conn.execute(

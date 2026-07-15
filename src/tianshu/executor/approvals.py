@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
-from datetime import UTC, datetime
-from typing import Literal
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Literal, cast
 
 from tianshu.application.edicts import EdictApplicationService, SubmitEdictCommand
 from tianshu.application.ingress import (
@@ -13,16 +15,37 @@ from tianshu.application.ingress import (
     requested_contract_for_edict,
 )
 from tianshu.bus.event_bus import EventBus
-from tianshu.models.common import TaskStatus
+from tianshu.governance.decision_service import DecisionService
+from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
+from tianshu.models.common import TaskStatus, UsageSummary
+from tianshu.models.decision import (
+    DecisionKind,
+    DecisionRecordV1,
+    DecisionRequestV1,
+    DecisionResolutionV1,
+    DecisionStatus,
+    RequestDecisionCommand,
+)
 from tianshu.models.decree import Decree
 from tianshu.models.edict import Edict, title_from_goal
-from tianshu.models.events import make_event
+from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.memorial import Memorial
 from tianshu.models.principal import (
+    AuthContext,
     AuthenticationSource,
     ClientKind,
+    Principal,
     PrincipalKind,
 )
+from tianshu.models.run_state import (
+    AgentContinuationV1,
+    PersistedChatMessageV1,
+    PersistedUsageSummaryV1,
+    RunPhase,
+    RunStateV1,
+    ToolProposalV1,
+)
+from tianshu.security.sensitive_payload import redact_sensitive_mapping
 from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -39,11 +62,15 @@ class ApprovalManager:
         storage: Storage,
         session_rule_store: object | None = None,
         edict_application_service: EdictApplicationService | None = None,
+        decision_service: DecisionService | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
         self._session_rule_store = session_rule_store
         self._edict_application = edict_application_service or EdictApplicationService(storage)
+        self._decision_service = decision_service
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._pending: dict[str, asyncio.Event] = {}
         self._results: dict[str, Decree] = {}
         # Spec Section 4: 记录 wait_for_approval 时的 tool_name，方便 _handle_approve 生成 session rule
@@ -63,6 +90,183 @@ class ApprovalManager:
         由 PolicyHook 在 require_approval 分支里直接调用。
         """
         return None
+
+    def request_tool_decision(
+        self,
+        *,
+        edict: Edict,
+        memorial: Memorial,
+        invocation_id: str,
+        tool_name: str,
+        tool_args: dict[str, object],
+        tool_tier: str,
+        policy_rule_id: str | None,
+        messages: list[dict],
+        iteration: int,
+        usage: UsageSummary,
+    ) -> DecisionRequestV1:
+        """Persist one tool decision and its pre-effect Agent continuation atomically."""
+
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable tool decisions")
+        now = self._clock().astimezone(UTC)
+        safe_arguments = cast(
+            dict[str, JsonValue],
+            redact_sensitive_mapping(tool_args),
+        )
+        persisted_messages = tuple(self._persist_message(message) for message in messages)
+        persisted_usage = PersistedUsageSummaryV1.model_validate(usage.model_dump(mode="python"))
+        continuation = AgentContinuationV1(
+            messages=persisted_messages,
+            pending_tool=ToolProposalV1(
+                tool_call_id=invocation_id,
+                tool_name=tool_name,
+                arguments=safe_arguments,
+                arguments_hash=canonical_sha256(safe_arguments),
+                tool_tier=tool_tier,
+                policy_rule_id=policy_rule_id,
+                proposed_at=now,
+            ),
+            iteration=iteration,
+            usage=persisted_usage,
+            checkpoint_ref=None,
+            resolved_decision_id=None,
+            side_effect_cursor=0,
+        )
+        run_state = RunStateV1(
+            memorial_id=memorial.id,
+            edict_id=edict.id,
+            phase=RunPhase.WAITING_DECISION,
+            continuation=continuation,
+            checkpoint_ref=None,
+            side_effect_cursor=0,
+            version=1,
+            created_at=now,
+            updated_at=now,
+        )
+        command = RequestDecisionCommand(
+            kind=DecisionKind.TOOL,
+            edict_id=edict.id,
+            memorial_id=memorial.id,
+            request_key=invocation_id,
+            payload={
+                "schema_version": 1,
+                "tool_name": tool_name,
+                "arguments": safe_arguments,
+                "tool_tier": tool_tier,
+                "policy_rule_id": policy_rule_id,
+            },
+            expires_at=now + timedelta(seconds=APPROVAL_TIMEOUT),
+        )
+        return self._decision_service.request_with_run_state(
+            command,
+            run_state,
+            auth=self._policy_auth(invocation_id),
+        )
+
+    async def wait_for_tool_decision(
+        self,
+        decision_request_id: str,
+        *,
+        timeout_seconds: float = APPROVAL_TIMEOUT,
+        poll_interval_seconds: float = 0.1,
+    ) -> DecisionResolutionV1 | None:
+        """Poll durable authority; no process-local waiter is required."""
+
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable tool decisions")
+        service = self._decision_service
+
+        async def poll() -> DecisionResolutionV1 | None:
+            while True:
+                record = service.get(decision_request_id)
+                if record is None:
+                    return None
+                if record.request.status is DecisionStatus.RESOLVED:
+                    service.mark_run_state_resolved(decision_request_id)
+                    try:
+                        self._project_tool_decree(record)
+                    except Exception:
+                        logger.exception(
+                            "tool decision %s committed but Decree projection failed",
+                            decision_request_id,
+                        )
+                    return record.resolution
+                if record.request.status is not DecisionStatus.PENDING:
+                    service.mark_run_state_terminal(decision_request_id)
+                    return None
+                await asyncio.sleep(poll_interval_seconds)
+
+        try:
+            return await asyncio.wait_for(poll(), timeout=timeout_seconds)
+        except TimeoutError:
+            service.expire_due()
+            record = service.get(decision_request_id)
+            if record is not None and record.request.status in {
+                DecisionStatus.EXPIRED,
+                DecisionStatus.CANCELLED,
+            }:
+                service.mark_run_state_terminal(decision_request_id)
+            return None
+
+    async def handle_decision_resolved(self, event: EventEnvelope) -> None:
+        """Durably replay the one-way legacy Decree projection for tool decisions."""
+
+        if event.payload.get("kind") != DecisionKind.TOOL.value:
+            return
+        decision_request_id = event.payload.get("decision_request_id")
+        if not isinstance(decision_request_id, str) or self._decision_service is None:
+            raise ValueError("resolved tool event is missing durable decision identity")
+        record = self._decision_service.get(decision_request_id)
+        if record is None or record.resolution is None:
+            raise ValueError("resolved tool decision is unavailable")
+        self._project_tool_decree(record)
+
+    @staticmethod
+    def _policy_auth(invocation_id: str) -> AuthContext:
+        correlation = hashlib.sha256(invocation_id.encode("utf-8")).hexdigest()[:32]
+        return AuthContext(
+            principal=Principal(
+                id="system:policy-hook",
+                kind=PrincipalKind.SERVICE,
+                display_name="Policy Hook",
+                scopes=frozenset({"decision:request"}),
+            ),
+            source=AuthenticationSource.TRUSTED_LOCAL,
+            client_kind=ClientKind.SYSTEM,
+            correlation_id=f"tool:{correlation}",
+        )
+
+    @staticmethod
+    def _persist_message(message: dict) -> PersistedChatMessageV1:
+        safe_message = redact_sensitive_mapping(message)
+        return PersistedChatMessageV1.model_validate_json(canonical_json_bytes(safe_message))
+
+    def _project_tool_decree(self, record: DecisionRecordV1) -> Decree | None:
+        if record.request.kind is not DecisionKind.TOOL or record.resolution is None:
+            return None
+        resolution = record.resolution
+        action = cast(Literal["approve", "reject", "guide"], resolution.action)
+        comment = (
+            str(resolution.payload["guidance"])
+            if action == "guide" and "guidance" in resolution.payload
+            else resolution.reason
+        )
+        decree = Decree(
+            id=record.request.decision_request_id,
+            memorial_id=record.request.memorial_id,
+            action=action,
+            comment=comment,
+            actor=resolution.actor_principal_id,
+            created_at=resolution.resolved_at,
+            grant_scope=cast(
+                Literal["once", "edict", "always"] | None,
+                resolution.payload.get("grant_scope"),
+            ),
+            grant_reason=cast(str | None, resolution.payload.get("grant_reason")),
+        )
+        self._storage.save_decree_if_absent(decree)
+        return decree
 
     async def wait_for_approval(
         self,

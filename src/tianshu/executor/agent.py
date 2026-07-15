@@ -656,9 +656,12 @@ class Agent:
                 if self._hooks and not is_fast_path:
                     hook_result = await self._hooks.run(
                         HookType.BEFORE_TOOL_CALL,
+                        invocation_id=tc["id"],
                         tool_name=tc["name"],
                         tool_args=tc["args"],
+                        messages=list(new_messages),
                         iteration=state.iteration,
+                        usage=usage,
                         edict=edict,
                         memorial=memorial,
                     )

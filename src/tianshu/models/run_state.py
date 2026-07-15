@@ -56,8 +56,10 @@ class PersistedUsageSummaryV1(_StrictModel):
 class PersistedChatMessageV1(_StrictModel):
     role: Literal["system", "user", "assistant", "tool"]
     content: str | tuple[dict[str, JsonValue], ...]
-    name: str | None
-    tool_call_id: str | None
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: tuple[dict[str, JsonValue], ...] | None = None
+    reasoning_content: str | None = None
 
 
 class ToolProposalV1(_StrictModel):
@@ -101,6 +103,7 @@ class AgentContinuationV1(_StrictModel):
     iteration: int = Field(ge=0)
     usage: PersistedUsageSummaryV1
     checkpoint_ref: str | None
+    pending_decision_id: str | None = None
     resolved_decision_id: str | None
     side_effect_cursor: int = Field(ge=0)
 
@@ -121,6 +124,7 @@ class OuterLoopContinuationV1(_StrictModel):
     usage: PersistedUsageSummaryV1
     total_cost_cny: Decimal = Field(ge=0)
     checkpoint_ref: str | None
+    pending_decision_id: str | None = None
     resolved_decision_id: str | None
     side_effect_cursor: int = Field(ge=0)
 

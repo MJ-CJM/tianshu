@@ -22,6 +22,7 @@ from tianshu.models.decision import (
 )
 from tianshu.models.events import EventEnvelope
 from tianshu.models.principal import AuthContext
+from tianshu.models.run_state import AgentContinuationV1, RunPhase, RunStateV1
 from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.storage.decision_repo import (
     DecisionIdentityConflict,
@@ -29,6 +30,7 @@ from tianshu.storage.decision_repo import (
     DecisionStateConflict,
 )
 from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.storage.run_state_repo import RunStateRepository
 from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
@@ -37,6 +39,7 @@ _PRODUCER = "governance.decision_service.v1"
 
 class _DecisionStorage(Protocol):
     decision_repo: DecisionRepository
+    run_state_repo: RunStateRepository
 
     def unit_of_work(self) -> SqliteUnitOfWork: ...
 
@@ -112,6 +115,7 @@ class DecisionService:
     ) -> None:
         self._storage = storage
         self._repository = storage.decision_repo
+        self._run_states = storage.run_state_repo
         self._outbox = OutboxRepository()
         self._clock = clock or (lambda: datetime.now(UTC))
 
@@ -125,9 +129,183 @@ class DecisionService:
         auth: AuthContext,
     ) -> DecisionRequestV1:
         now = self._now()
+        request = self._new_request(command, auth=auth, now=now)
+        with self._storage.unit_of_work() as unit_of_work:
+            saved = self._add_request(
+                unit_of_work,
+                request,
+                command=command,
+                auth=auth,
+            )
+            unit_of_work.commit()
+            return saved
+
+    def request_with_run_state(
+        self,
+        command: RequestDecisionCommand,
+        run_state: RunStateV1,
+        *,
+        auth: AuthContext,
+    ) -> DecisionRequestV1:
+        """Atomically create one decision request and its waiting continuation."""
+
+        now = self._now()
+        if (
+            run_state.phase is not RunPhase.WAITING_DECISION
+            or run_state.edict_id != command.edict_id
+            or run_state.memorial_id != command.memorial_id
+        ):
+            raise DecisionValidationError("invalid_decision_run_state")
+        request = self._new_request(command, auth=auth, now=now)
+        with self._storage.unit_of_work() as unit_of_work:
+            saved = self._add_request(
+                unit_of_work,
+                request,
+                command=command,
+                auth=auth,
+            )
+            if saved.status is not DecisionStatus.PENDING:
+                unit_of_work.commit()
+                return saved
+            continuation = run_state.continuation.model_copy(
+                update={"pending_decision_id": saved.decision_request_id}
+            )
+            if isinstance(continuation, AgentContinuationV1) and continuation.pending_tool:
+                continuation = continuation.model_copy(
+                    update={
+                        "pending_tool": continuation.pending_tool.model_copy(
+                            update={"proposed_at": saved.created_at}
+                        )
+                    }
+                )
+            bound_state = run_state.model_copy(
+                update={
+                    "continuation": continuation,
+                    "created_at": saved.created_at,
+                    "updated_at": saved.created_at,
+                }
+            )
+            current = self._run_states.load(unit_of_work.connection, run_state.memorial_id)
+            if current is None:
+                self._run_states.create(unit_of_work.connection, bound_state)
+            elif current == bound_state:
+                pass
+            elif (
+                current.phase is RunPhase.EXECUTING
+                and current.continuation.pending_decision_id is None
+                and current.continuation.resolved_decision_id is not None
+            ):
+                next_state = bound_state.model_copy(
+                    update={
+                        "created_at": current.created_at,
+                        "updated_at": max(bound_state.updated_at, current.updated_at),
+                        "version": current.version,
+                    }
+                )
+                self._run_states.compare_and_swap(
+                    unit_of_work.connection,
+                    next_state,
+                    expected_version=current.version,
+                )
+            else:
+                raise DecisionConflict("decision_run_state_conflict")
+            unit_of_work.commit()
+            return saved
+
+    def mark_run_state_resolved(self, decision_request_id: str) -> RunStateV1:
+        """CAS a live tool suspension back to executing after generic resolution."""
+
+        return self._mark_tool_run_state_terminal(
+            decision_request_id,
+            allowed_statuses=frozenset({DecisionStatus.RESOLVED}),
+        )
+
+    def mark_run_state_terminal(self, decision_request_id: str) -> RunStateV1:
+        """Release a tool suspension after any durable terminal decision."""
+
+        return self._mark_tool_run_state_terminal(
+            decision_request_id,
+            allowed_statuses=frozenset(
+                {
+                    DecisionStatus.RESOLVED,
+                    DecisionStatus.EXPIRED,
+                    DecisionStatus.CANCELLED,
+                }
+            ),
+        )
+
+    def _mark_tool_run_state_terminal(
+        self,
+        decision_request_id: str,
+        *,
+        allowed_statuses: frozenset[DecisionStatus],
+    ) -> RunStateV1:
+        """CAS the continuation bound to one terminal tool decision."""
+
+        with self._storage.unit_of_work() as unit_of_work:
+            record = self._repository.get(unit_of_work.connection, decision_request_id)
+            if (
+                record is None
+                or record.request.kind is not DecisionKind.TOOL
+                or record.request.status not in allowed_statuses
+            ):
+                raise DecisionConflict("decision_run_state_conflict")
+            current = self._run_states.load(
+                unit_of_work.connection,
+                record.request.memorial_id,
+            )
+            if current is None:
+                raise DecisionConflict("decision_run_state_conflict")
+            if (
+                current.phase is RunPhase.EXECUTING
+                and current.continuation.pending_decision_id is None
+                and current.continuation.resolved_decision_id == decision_request_id
+            ):
+                unit_of_work.commit()
+                return current
+            if (
+                current.phase is not RunPhase.WAITING_DECISION
+                or current.continuation.pending_decision_id != decision_request_id
+            ):
+                raise DecisionConflict("decision_run_state_conflict")
+            continuation = current.continuation.model_copy(
+                update={
+                    "pending_decision_id": None,
+                    "resolved_decision_id": decision_request_id,
+                }
+            )
+            next_state = current.model_copy(
+                update={
+                    "phase": RunPhase.EXECUTING,
+                    "continuation": continuation,
+                    "updated_at": max(
+                        current.updated_at,
+                        (
+                            record.resolution.resolved_at
+                            if record.resolution is not None
+                            else record.request.updated_at
+                        ),
+                    ),
+                }
+            )
+            saved = self._run_states.compare_and_swap(
+                unit_of_work.connection,
+                next_state,
+                expected_version=current.version,
+            )
+            unit_of_work.commit()
+            return saved
+
+    def _new_request(
+        self,
+        command: RequestDecisionCommand,
+        *,
+        auth: AuthContext,
+        now: datetime,
+    ) -> DecisionRequestV1:
         if command.expires_at <= now:
             raise DecisionValidationError("invalid_decision_expiry")
-        request = DecisionRequestV1(
+        return DecisionRequestV1(
             decision_request_id=str(ULID()),
             kind=command.kind,
             edict_id=command.edict_id,
@@ -142,26 +320,30 @@ class DecisionService:
             created_at=now,
             updated_at=now,
         )
-        with self._storage.unit_of_work() as unit_of_work:
-            try:
-                saved = self._repository.add_or_get(unit_of_work.connection, request)
-            except DecisionIdentityConflict as exc:
-                _append_system_audit_unlocked(
-                    unit_of_work.connection,
-                    _audit_request(
-                        auth=auth,
-                        action="decision.request.denied",
-                        reason_code="decision_identity_conflict",
-                        decision_request_id=(
-                            exc.existing_request_id or request.decision_request_id
-                        ),
-                        metadata={"kind": command.kind.value},
-                    ),
-                )
-                unit_of_work.commit()
-                raise DecisionConflict("decision_identity_conflict") from None
+
+    def _add_request(
+        self,
+        unit_of_work: SqliteUnitOfWork,
+        request: DecisionRequestV1,
+        *,
+        command: RequestDecisionCommand,
+        auth: AuthContext,
+    ) -> DecisionRequestV1:
+        try:
+            return self._repository.add_or_get(unit_of_work.connection, request)
+        except DecisionIdentityConflict as exc:
+            _append_system_audit_unlocked(
+                unit_of_work.connection,
+                _audit_request(
+                    auth=auth,
+                    action="decision.request.denied",
+                    reason_code="decision_identity_conflict",
+                    decision_request_id=(exc.existing_request_id or request.decision_request_id),
+                    metadata={"kind": command.kind.value},
+                ),
+            )
             unit_of_work.commit()
-            return saved
+            raise DecisionConflict("decision_identity_conflict") from None
 
     def get(self, decision_request_id: str) -> DecisionRecordV1 | None:
         with self._storage.unit_of_work() as unit_of_work:
