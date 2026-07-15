@@ -178,7 +178,10 @@ async def test_card_dispatch_routes_to_approval_handler(bot):
         event_id="e",
         chat_id="c",
         sender_open_id="ou_test",
-        value={"memorial_id": "m1", "action": "approve"},
+        value={
+            "decision_request_id": "01J00000000000000000000000",
+            "action": "approve",
+        },
     )
     await bot._on_card(action)
     bot._approval_card.handle_button_click.assert_awaited_once_with(action)

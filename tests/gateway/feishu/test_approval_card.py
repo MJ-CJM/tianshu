@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,6 +17,10 @@ from tianshu.gateway.feishu.dispatcher import FeishuCardAction
 from tianshu.gateway.feishu.settings import FeishuSettings
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope
+from tianshu.models.principal import AuthenticationSource, ClientKind, PrincipalKind
+
+_DECISION_1 = "01J00000000000000000000000"
+_DECISION_2 = "01J00000000000000000000001"
 
 
 def _settings(home_channel: str = "") -> FeishuSettings:
@@ -40,6 +45,7 @@ def _settings(home_channel: str = "") -> FeishuSettings:
 def test_build_approval_card_is_markdown_with_bilingual_hints():
     """v2: 卡片改为纯 markdown（飞书 ws 不支持卡片回调）；提示同时含中英命令。"""
     card = build_approval_card(
+        decision_request_id=_DECISION_1,
         memorial_id="m1abc234",
         edict_id="e1234567890",
         tool_name="shell_exec",
@@ -55,7 +61,7 @@ def test_build_approval_card_is_markdown_with_bilingual_hints():
     for token in ("/approve", "/准", "/reject", "/驳", "edict", "always", "敕", "永"):
         assert token in md
     # 含 memorial 短 ID 引导（多 pending 时使用）
-    assert "m1abc234"[:8] in md
+    assert _DECISION_1[:8] in md
 
 
 def test_build_resolved_card():
@@ -68,7 +74,15 @@ def test_build_resolved_card():
 def handler(storage):
     bus = EventBus()
     approval = MagicMock()
-    approval.submit_tool_decision = AsyncMock()
+    approval.resolve_tool_decision = AsyncMock(
+        return_value=SimpleNamespace(
+            resolution=SimpleNamespace(
+                action="approve",
+                actor_principal_id="feishu:feishu-default:ou_test",
+                payload={"grant_scope": "once"},
+            )
+        )
+    )
     outbound = MagicMock()
     outbound.send_card = AsyncMock(return_value="msg_card_1")
     outbound.update_card = AsyncMock(return_value=True)
@@ -91,11 +105,16 @@ async def test_on_approval_required_sends_card(handler, storage):
         event_type="tool.approval_required",
         edict_id=edict.id,
         memorial_id="mem_1",
-        payload={"tool_name": "shell_exec", "reason": "block", "args_summary": {"cmd": "rm -rf /"}},
+        payload={
+            "decision_request_id": _DECISION_1,
+            "tool_name": "shell_exec",
+            "reason": "block",
+            "args_summary": {"cmd": "rm -rf /"},
+        },
     )
     await h._on_approval_required(event)
     outbound.send_card.assert_awaited_once()
-    pending = storage.pop_feishu_pending_card("mem_1")
+    pending = storage.pop_feishu_pending_card(_DECISION_1)
     assert pending and pending["chat_id"] == "oc_x"
     assert pending["message_id"] == "msg_card_1"
 
@@ -110,7 +129,7 @@ async def test_on_approval_required_falls_back_to_home(handler, storage):
         event_type="tool.approval_required",
         edict_id=edict.id,
         memorial_id="mem_2",
-        payload={"tool_name": "x", "reason": "y"},
+        payload={"decision_request_id": _DECISION_1, "tool_name": "x", "reason": "y"},
     )
     await h._on_approval_required(event)
     outbound.send_card.assert_awaited_once()
@@ -138,40 +157,52 @@ async def test_on_approval_required_skipped_when_no_chat(storage):
         event_type="tool.approval_required",
         edict_id=edict.id,
         memorial_id="m_skip",
-        payload={"tool_name": "x", "reason": "y"},
+        payload={"decision_request_id": _DECISION_1, "tool_name": "x", "reason": "y"},
     )
     await h._on_approval_required(event)
     outbound.send_card.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_handle_button_click_calls_submit(handler):
+async def test_handle_button_click_resolves_canonical_decision_with_webhook_auth(handler):
     h, _, _, approval = handler
     action = FeishuCardAction(
         event_id="evt",
         chat_id="oc_x",
         sender_open_id="ou_test",
-        value={"memorial_id": "m1", "action": "approve", "scope": "once"},
+        value={
+            "decision_request_id": _DECISION_1,
+            "action": "approve",
+            "scope": "once",
+            "actor": "forged",
+        },
     )
     await h.handle_button_click(action)
-    approval.submit_tool_decision.assert_awaited_once_with(
-        memorial_id="m1",
+    approval.resolve_tool_decision.assert_awaited_once_with(
+        _DECISION_1,
         action="approve",
         grant_scope="once",
-        actor="feishu:ou_test",
+        auth=approval.resolve_tool_decision.await_args.kwargs["auth"],
     )
+    auth = approval.resolve_tool_decision.await_args.kwargs["auth"]
+    assert auth.principal.id == "feishu:feishu-default:ou_test"
+    assert auth.principal.kind is PrincipalKind.WEBHOOK
+    assert auth.principal.scopes == frozenset({"decision:resolve"})
+    assert auth.source is AuthenticationSource.WEBHOOK
+    assert auth.client_kind is ClientKind.WEBHOOK
+    assert auth.correlation_id.startswith("approval-card:")
 
 
 @pytest.mark.asyncio
 async def test_handle_button_click_idempotent_when_already_resolved(handler):
     """已被 web 端响应（ApprovalManager 抛 ValueError）→ 静默忽略。"""
     h, _, _, approval = handler
-    approval.submit_tool_decision = AsyncMock(side_effect=ValueError("not pending"))
+    approval.resolve_tool_decision = AsyncMock(side_effect=ValueError("not pending"))
     action = FeishuCardAction(
         event_id="e",
         chat_id="c",
         sender_open_id="ou_test",
-        value={"memorial_id": "m1", "action": "approve", "scope": "once"},
+        value={"decision_request_id": _DECISION_1, "action": "approve", "scope": "once"},
     )
     # 不应抛异常
     await h.handle_button_click(action)
@@ -185,10 +216,10 @@ async def test_handle_button_click_malformed_value(handler):
         event_id="e",
         chat_id="c",
         sender_open_id="ou_test",
-        value={"action": "approve"},  # 缺 memorial_id
+        value={"action": "approve"},  # 缺 decision_request_id
     )
     await h.handle_button_click(action)
-    approval.submit_tool_decision.assert_not_awaited()
+    approval.resolve_tool_decision.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -196,7 +227,7 @@ async def test_on_decree_resolved_refreshes_card(handler, storage):
     """决策落下 → pending 卡片刷新为"已响应"。"""
     h, _, outbound, _ = handler
     storage.save_feishu_pending_card(
-        approval_id="m1",
+        approval_id=_DECISION_1,
         chat_id="oc_x",
         message_id="msg_X",
         kind="tool.approval_required",
@@ -204,7 +235,11 @@ async def test_on_decree_resolved_refreshes_card(handler, storage):
     event = EventEnvelope(
         event_type="decree.approved",
         memorial_id="m1",
-        payload={"tool_name": "shell_exec", "actor": "web"},
+        payload={
+            "decision_request_id": _DECISION_1,
+            "tool_name": "shell_exec",
+            "actor": "web",
+        },
     )
     await h._on_decree_resolved(event)
     outbound.update_card.assert_awaited_once()
@@ -223,3 +258,65 @@ async def test_on_decree_resolved_no_pending_skips(handler):
     )
     await h._on_decree_resolved(event)
     outbound.update_card.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_missing_decision_id_is_not_actionable_and_does_not_pop_other_card(handler, storage):
+    h, _, outbound, _ = handler
+    edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    storage.save_feishu_pending_card(
+        approval_id=_DECISION_2,
+        chat_id="oc_x",
+        message_id="msg-other",
+        kind="tool.approval_required",
+    )
+
+    await h._on_approval_required(
+        EventEnvelope(
+            event_type="tool.approval_required",
+            edict_id=edict.id,
+            memorial_id="same-memorial",
+            payload={"tool_name": "shell_exec"},
+        )
+    )
+    await h._on_decree_resolved(
+        EventEnvelope(
+            event_type="decree.approved",
+            memorial_id="same-memorial",
+            payload={"tool_name": "shell_exec"},
+        )
+    )
+
+    outbound.send_card.assert_not_awaited()
+    outbound.update_card.assert_not_awaited()
+    assert storage.pop_feishu_pending_card(_DECISION_2) is not None
+
+
+@pytest.mark.asyncio
+async def test_same_memorial_decisions_keep_independent_pending_cards(handler, storage):
+    h, _, outbound, _ = handler
+    edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    outbound.send_card.side_effect = ["msg-1", "msg-2"]
+
+    for decision_id in (_DECISION_1, _DECISION_2):
+        await h._on_approval_required(
+            EventEnvelope(
+                event_type="tool.approval_required",
+                edict_id=edict.id,
+                memorial_id="same-memorial",
+                payload={"decision_request_id": decision_id, "tool_name": "shell_exec"},
+            )
+        )
+
+    await h._on_decree_resolved(
+        EventEnvelope(
+            event_type="decree.approved",
+            memorial_id="same-memorial",
+            payload={"decision_request_id": _DECISION_1, "tool_name": "shell_exec"},
+        )
+    )
+
+    assert storage.pop_feishu_pending_card(_DECISION_1) is None
+    assert storage.pop_feishu_pending_card(_DECISION_2) is not None

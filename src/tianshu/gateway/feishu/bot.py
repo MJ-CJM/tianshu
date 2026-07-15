@@ -392,8 +392,8 @@ class FeishuBot:
     async def _on_card(self, action: FeishuCardAction) -> None:
         logger.info("[feishu/card] chat=%s value=%s", action.chat_id, action.value)
         value = action.value or {}
-        # 兼容 v1 审批按钮（含 memorial_id + action）
-        if "memorial_id" in value and "action" in value:
+        # 审批专属按钮（含 durable decision_request_id + action）
+        if "decision_request_id" in value and "action" in value:
             await self._approval_card.handle_button_click(action)
             return
         # v1.1 通用协议按钮

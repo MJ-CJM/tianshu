@@ -1,7 +1,7 @@
 """inline keyboard 按钮点击分发：ea: → 审批；cmd: → 合成命令重入 ModeRouter。
 
 镜像 feishu/card_action_dispatcher.py。callback_data 约定：
-  "ea:<action>:<scope>:<memorial_id>"  审批（交 ApprovalKeyboardHandler）
+  "ea:<action>:<scope>:<decision_request_id>"  审批（交 ApprovalKeyboardHandler）
   "cmd:list" / "cmd:budget" / "cmd:clear" / "cmd:help" / "cmd:select:<id8>"  合成命令
 所有分支结束都 answer_callback 消除 loading。
 """

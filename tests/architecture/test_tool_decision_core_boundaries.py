@@ -36,3 +36,18 @@ def test_current_http_and_text_adapters_do_not_use_legacy_tool_authority() -> No
         source = inspect.getsource(adapter)
         assert ".submit_tool_decision(" not in source
         assert "wait_for_approval(" not in source
+
+
+def test_channel_button_adapters_use_canonical_tool_authority() -> None:
+    from tianshu.gateway.feishu.approval_card import ApprovalCardHandler
+    from tianshu.gateway.telegram.approval_kb import ApprovalKeyboardHandler
+
+    for adapter in (
+        ApprovalCardHandler.handle_button_click,
+        ApprovalKeyboardHandler.handle_callback,
+    ):
+        source = inspect.getsource(adapter)
+        assert ".resolve_tool_decision(" in source
+        assert ".submit_tool_decision(" not in source
+        assert "actor=" not in source
+        assert "._pending" not in source
