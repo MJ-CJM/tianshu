@@ -15,6 +15,7 @@ from tianshu.config import TianshuSettings
 from tianshu.executor.git_backend import GitBackend
 from tianshu.executor.workspace_policy import validate_workspace_roots
 from tianshu.executor.workspace_service import WorkspaceService
+from tianshu.governance.decision_service import DecisionService
 from tianshu.kernel.hooks import HookRegistry
 from tianshu.storage import Storage
 
@@ -31,6 +32,7 @@ def wire_storage(app: FastAPI, settings: TianshuSettings) -> None:
     storage = Storage(settings.db_path)
     storage.init_db()
     app.state.storage = storage
+    app.state.decision_service = DecisionService(storage)
 
     app.state.workspace_service = WorkspaceService(
         storage,

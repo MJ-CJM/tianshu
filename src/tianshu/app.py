@@ -18,6 +18,7 @@ from tianshu.gateway.auth_api import auth_router
 from tianshu.gateway.config_api import config_router
 from tianshu.gateway.cost_api import cost_router
 from tianshu.gateway.credentials_api import credentials_router
+from tianshu.gateway.decisions_api import decisions_router
 from tianshu.gateway.edicts_api import edicts_router
 from tianshu.gateway.estop_api import estop_router
 from tianshu.gateway.evals_api import evals_router
@@ -190,6 +191,7 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     app.include_router(config_router, prefix="/api")
     app.include_router(cost_router, prefix="/api")
     app.include_router(credentials_router, prefix="/api")
+    app.include_router(decisions_router, prefix="/api")
     app.include_router(edicts_router, prefix="/api")
     app.include_router(estop_router, prefix="/api")
     app.include_router(evals_router, prefix="/api")
