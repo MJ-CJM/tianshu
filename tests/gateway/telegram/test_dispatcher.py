@@ -62,6 +62,36 @@ async def test_dedup_same_update_id(storage):
 
 
 @pytest.mark.asyncio
+async def test_message_dedup_is_isolated_by_instance_on_shared_storage(storage):
+    first, first_messages, _ = _mk_dispatcher(
+        storage,
+        make_settings(instance_id="telegram-first"),
+    )
+    second, second_messages, _ = _mk_dispatcher(
+        storage,
+        make_settings(instance_id="telegram-second"),
+    )
+    message = _msg(text="/help", update_id="shared-message-update")
+
+    await first.handle_message(message)
+    await first.handle_message(message)
+    await second.handle_message(message)
+    await second.handle_message(message)
+
+    assert [item.update_id for item in first_messages] == ["shared-message-update"]
+    assert [item.update_id for item in second_messages] == ["shared-message-update"]
+    assert storage.is_telegram_update_seen(
+        "shared-message-update",
+        instance_id="telegram-first",
+    )
+    assert storage.is_telegram_update_seen(
+        "shared-message-update",
+        instance_id="telegram-second",
+    )
+    assert not storage.is_telegram_update_seen("shared-message-update")
+
+
+@pytest.mark.asyncio
 async def test_allowlist_rejects(storage):
     d, msgs, _ = _mk_dispatcher(storage, make_settings(allowed_users=(123,)))
     await d.handle_message(_msg(text="/help", sender_id="999", update_id="a"))
@@ -106,3 +136,40 @@ async def test_callback_dispatch_and_dedup(storage):
     await d.handle_callback(cb)
     await d.handle_callback(cb)  # 同 update_id 去重
     assert len(cbs) == 1
+
+
+@pytest.mark.asyncio
+async def test_callback_dedup_is_isolated_by_instance_on_shared_storage(storage):
+    first, _, first_callbacks = _mk_dispatcher(
+        storage,
+        make_settings(instance_id="telegram-first"),
+    )
+    second, _, second_callbacks = _mk_dispatcher(
+        storage,
+        make_settings(instance_id="telegram-second"),
+    )
+    callback = TelegramCallback(
+        update_id="shared-callback-update",
+        callback_id="shared-callback",
+        chat_id="c1",
+        sender_id="1",
+        message_id="9",
+        data="ea:approve:once:M",
+    )
+
+    await first.handle_callback(callback)
+    await first.handle_callback(callback)
+    await second.handle_callback(callback)
+    await second.handle_callback(callback)
+
+    assert [item.update_id for item in first_callbacks] == ["shared-callback-update"]
+    assert [item.update_id for item in second_callbacks] == ["shared-callback-update"]
+    assert storage.is_telegram_update_seen(
+        "shared-callback-update",
+        instance_id="telegram-first",
+    )
+    assert storage.is_telegram_update_seen(
+        "shared-callback-update",
+        instance_id="telegram-second",
+    )
+    assert not storage.is_telegram_update_seen("shared-callback-update")

@@ -51,6 +51,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0009_durable_edict_ingress": (
         "70c0dd79302fd10401c7dcacfb675eb047f759650cbc9ceb657f54c5b27b1588"
     ),
+    # v10 将 Telegram 去重身份修正为 (instance_id, update_id)。
+    "0010_telegram_seen_instance_identity": (
+        "ae200078d7b60187fdb8c15a75082b9a9e655cb955c77b12f7512a77f5a36daa"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

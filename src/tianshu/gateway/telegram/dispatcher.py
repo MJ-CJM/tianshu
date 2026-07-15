@@ -86,10 +86,17 @@ class Dispatcher:
 
     async def handle_message(self, msg: TelegramMessage) -> None:
         # 去重（webhook 重试 / 偶发重投）
-        if msg.update_id and self._storage.is_telegram_update_seen(msg.update_id):
+        if msg.update_id and self._storage.is_telegram_update_seen(
+            msg.update_id,
+            instance_id=self._settings.instance_id,
+        ):
             return
         if msg.update_id:
-            self._storage.mark_telegram_update_seen(msg.update_id, self._settings.dedup_cache_size)
+            self._storage.mark_telegram_update_seen(
+                msg.update_id,
+                self._settings.dedup_cache_size,
+                instance_id=self._settings.instance_id,
+            )
 
         if not self._allowed(msg.sender_id):
             logger.info("[telegram/inbound] rejected non-allowlist sender=%s", msg.sender_id)
@@ -120,10 +127,17 @@ class Dispatcher:
     # --- 入站按钮点击 ---
 
     async def handle_callback(self, cb: TelegramCallback) -> None:
-        if cb.update_id and self._storage.is_telegram_update_seen(cb.update_id):
+        if cb.update_id and self._storage.is_telegram_update_seen(
+            cb.update_id,
+            instance_id=self._settings.instance_id,
+        ):
             return
         if cb.update_id:
-            self._storage.mark_telegram_update_seen(cb.update_id, self._settings.dedup_cache_size)
+            self._storage.mark_telegram_update_seen(
+                cb.update_id,
+                self._settings.dedup_cache_size,
+                instance_id=self._settings.instance_id,
+            )
         if not self._allowed(cb.sender_id):
             logger.info("[telegram/callback] rejected non-allowlist sender=%s", cb.sender_id)
             return

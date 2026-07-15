@@ -81,8 +81,8 @@ S2 Lean Security is passed at the boundary above. The next stage is **S3 Core Go
 
 
 def test_live_migration_versions_are_contiguous_through_v9() -> None:
-    assert tuple(migration.version for migration in MIGRATIONS) == tuple(range(1, 10))
-    assert (MIGRATIONS[-1].version, MIGRATIONS[-1].name) == (
+    assert tuple(migration.version for migration in MIGRATIONS[:9]) == tuple(range(1, 10))
+    assert (MIGRATIONS[8].version, MIGRATIONS[8].name) == (
         9,
         "0009_durable_edict_ingress",
     )

@@ -22,6 +22,19 @@ _SEED_PERSONAS_MIGRATION_NAME = "0006_seed_default_personas"
 _SYSTEM_AUDIT_MIGRATION_NAME = "0007_system_audit_events"
 _MCP_SECRET_MAPPING_MIGRATION_NAME = "0008_encrypt_mcp_secret_mappings"
 _DURABLE_EDICT_INGRESS_MIGRATION_NAME = "0009_durable_edict_ingress"
+_TELEGRAM_SEEN_IDENTITY_MIGRATION_NAME = "0010_telegram_seen_instance_identity"
+_COMPLETE_MIGRATION_LEDGER = [
+    (1, _BASELINE_NAME),
+    (2, _AUTH_MIGRATION_NAME),
+    (3, _GOVERNANCE_MIGRATION_NAME),
+    (4, _WORKSPACE_MIGRATION_NAME),
+    (5, _GOVERNED_APPLY_MIGRATION_NAME),
+    (6, _SEED_PERSONAS_MIGRATION_NAME),
+    (7, _SYSTEM_AUDIT_MIGRATION_NAME),
+    (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
+    (9, _DURABLE_EDICT_INGRESS_MIGRATION_NAME),
+    (10, _TELEGRAM_SEEN_IDENTITY_MIGRATION_NAME),
+]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
     "requested_governance_contracts",
@@ -270,6 +283,15 @@ def _build_canonical_preledger(
             DROP TABLE outbox_consumptions;
             DROP TABLE submission_idempotency;
             DROP TABLE outbox_events;
+
+            -- This fixture represents a schema from before the live v10 rebuild.
+            DROP TABLE telegram_seen_messages;
+            CREATE TABLE telegram_seen_messages (
+                update_id TEXT PRIMARY KEY,
+                instance_id TEXT NOT NULL DEFAULT 'telegram-default',
+                seen_at TIMESTAMP NOT NULL
+            );
+            CREATE INDEX idx_tg_seen_at ON telegram_seen_messages(seen_at);
 
             -- Historical adapters consume the canonical pre-v8 table shape.
             DROP TABLE mcp_server_overrides;
@@ -574,17 +596,7 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
         "system_audit_events_no_update",
         "system_audit_events_no_delete",
     } <= triggers
-    assert [(row["version"], row["name"]) for row in first_ledger] == [
-        (1, _BASELINE_NAME),
-        (2, _AUTH_MIGRATION_NAME),
-        (3, _GOVERNANCE_MIGRATION_NAME),
-        (4, _WORKSPACE_MIGRATION_NAME),
-        (5, _GOVERNED_APPLY_MIGRATION_NAME),
-        (6, _SEED_PERSONAS_MIGRATION_NAME),
-        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
-        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
-        (9, _DURABLE_EDICT_INGRESS_MIGRATION_NAME),
-    ]
+    assert [(row["version"], row["name"]) for row in first_ledger] == _COMPLETE_MIGRATION_LEDGER
     assert all(len(row["checksum"]) == 64 for row in first_ledger)
     storage.close()
 
@@ -604,17 +616,9 @@ def test_canonical_preledger_v042_upgrade_only_adds_ledger(tmp_path: Path) -> No
     storage.init_db()
 
     assert _snapshot(storage._conn) == before
-    assert [(row["version"], row["name"]) for row in _ledger_rows(storage._conn)] == [
-        (1, _BASELINE_NAME),
-        (2, _AUTH_MIGRATION_NAME),
-        (3, _GOVERNANCE_MIGRATION_NAME),
-        (4, _WORKSPACE_MIGRATION_NAME),
-        (5, _GOVERNED_APPLY_MIGRATION_NAME),
-        (6, _SEED_PERSONAS_MIGRATION_NAME),
-        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
-        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
-        (9, _DURABLE_EDICT_INGRESS_MIGRATION_NAME),
-    ]
+    assert [
+        (row["version"], row["name"]) for row in _ledger_rows(storage._conn)
+    ] == _COMPLETE_MIGRATION_LEDGER
     ledger = [tuple(row) for row in _ledger_rows(storage._conn)]
     storage.close()
 
@@ -638,17 +642,9 @@ def test_v4_shape_preledger_replays_v5_instead_of_adopt(tmp_path: Path) -> None:
 
     storage = Storage(str(path))
     storage.init_db()
-    assert [(row["version"], row["name"]) for row in _ledger_rows(storage._conn)] == [
-        (1, _BASELINE_NAME),
-        (2, _AUTH_MIGRATION_NAME),
-        (3, _GOVERNANCE_MIGRATION_NAME),
-        (4, _WORKSPACE_MIGRATION_NAME),
-        (5, _GOVERNED_APPLY_MIGRATION_NAME),
-        (6, _SEED_PERSONAS_MIGRATION_NAME),
-        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
-        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
-        (9, _DURABLE_EDICT_INGRESS_MIGRATION_NAME),
-    ]
+    assert [
+        (row["version"], row["name"]) for row in _ledger_rows(storage._conn)
+    ] == _COMPLETE_MIGRATION_LEDGER
     columns = {
         str(row[1])
         for row in storage._conn.execute("PRAGMA table_info(apply_decisions)").fetchall()
@@ -690,17 +686,9 @@ def test_canonical_preledger_accepts_semantically_equivalent_column_order(
 
     storage = Storage(str(path))
     storage.init_db()
-    assert [(row["version"], row["name"]) for row in _ledger_rows(storage._conn)] == [
-        (1, _BASELINE_NAME),
-        (2, _AUTH_MIGRATION_NAME),
-        (3, _GOVERNANCE_MIGRATION_NAME),
-        (4, _WORKSPACE_MIGRATION_NAME),
-        (5, _GOVERNED_APPLY_MIGRATION_NAME),
-        (6, _SEED_PERSONAS_MIGRATION_NAME),
-        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
-        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
-        (9, _DURABLE_EDICT_INGRESS_MIGRATION_NAME),
-    ]
+    assert [
+        (row["version"], row["name"]) for row in _ledger_rows(storage._conn)
+    ] == _COMPLETE_MIGRATION_LEDGER
     storage.close()
 
 
@@ -742,17 +730,9 @@ def test_historical_preledger_core_shape_upgrades_to_canonical_without_valid_row
         ).fetchone()
         is None
     )
-    assert [(row["version"], row["name"]) for row in _ledger_rows(storage._conn)] == [
-        (1, _BASELINE_NAME),
-        (2, _AUTH_MIGRATION_NAME),
-        (3, _GOVERNANCE_MIGRATION_NAME),
-        (4, _WORKSPACE_MIGRATION_NAME),
-        (5, _GOVERNED_APPLY_MIGRATION_NAME),
-        (6, _SEED_PERSONAS_MIGRATION_NAME),
-        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
-        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
-        (9, _DURABLE_EDICT_INGRESS_MIGRATION_NAME),
-    ]
+    assert [
+        (row["version"], row["name"]) for row in _ledger_rows(storage._conn)
+    ] == _COMPLETE_MIGRATION_LEDGER
     assert {
         table: _payload_rows(storage._conn, table, columns)
         for table, columns in _HISTORICAL_CORE_PAYLOAD_COLUMNS.items()
@@ -882,17 +862,9 @@ def test_combined_historical_core_session_and_supervision_adapters_reach_canonic
         ).fetchone()[0]
         == "memorial-z"
     )
-    assert [(row["version"], row["name"]) for row in _ledger_rows(storage._conn)] == [
-        (1, _BASELINE_NAME),
-        (2, _AUTH_MIGRATION_NAME),
-        (3, _GOVERNANCE_MIGRATION_NAME),
-        (4, _WORKSPACE_MIGRATION_NAME),
-        (5, _GOVERNED_APPLY_MIGRATION_NAME),
-        (6, _SEED_PERSONAS_MIGRATION_NAME),
-        (7, _SYSTEM_AUDIT_MIGRATION_NAME),
-        (8, _MCP_SECRET_MAPPING_MIGRATION_NAME),
-        (9, _DURABLE_EDICT_INGRESS_MIGRATION_NAME),
-    ]
+    assert [
+        (row["version"], row["name"]) for row in _ledger_rows(storage._conn)
+    ] == _COMPLETE_MIGRATION_LEDGER
     storage.close()
 
 

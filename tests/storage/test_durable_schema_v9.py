@@ -22,9 +22,9 @@ def storage() -> Storage:
         database.close()
 
 
-def test_live_migration_tail_is_v9_durable_edict_ingress() -> None:
-    assert tuple(migration.version for migration in MIGRATIONS) == tuple(range(1, 10))
-    assert (MIGRATIONS[-1].version, MIGRATIONS[-1].name) == (
+def test_live_migration_ninth_definition_remains_v9_durable_edict_ingress() -> None:
+    assert tuple(migration.version for migration in MIGRATIONS[:9]) == tuple(range(1, 10))
+    assert (MIGRATIONS[8].version, MIGRATIONS[8].name) == (
         9,
         "0009_durable_edict_ingress",
     )
@@ -89,7 +89,7 @@ def test_v8_to_v9_upgrade_preserves_existing_rows() -> None:
         )
         connection.commit()
 
-        assert apply_migrations(connection, MIGRATIONS) == (9,)
+        assert apply_migrations(connection, MIGRATIONS[:9]) == (9,)
 
         assert connection.execute(
             "SELECT goal FROM edicts WHERE id = 'legacy-edict'"

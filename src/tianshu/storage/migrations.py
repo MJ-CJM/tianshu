@@ -2374,6 +2374,59 @@ def _durable_edict_ingress_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V10: Telegram update identity is scoped by gateway instance ---
+
+_TELEGRAM_SEEN_INSTANCE_IDENTITY_STATEMENTS = (
+    """
+    CREATE TABLE _telegram_seen_messages_v10 (
+        instance_id TEXT NOT NULL DEFAULT 'telegram-default',
+        update_id TEXT NOT NULL,
+        seen_at TIMESTAMP NOT NULL,
+        PRIMARY KEY (instance_id, update_id)
+    )
+    """,
+    """
+    INSERT INTO _telegram_seen_messages_v10 (instance_id, update_id, seen_at)
+    SELECT instance_id, update_id, seen_at
+    FROM telegram_seen_messages
+    """,
+    "DROP TABLE telegram_seen_messages",
+    "ALTER TABLE _telegram_seen_messages_v10 RENAME TO telegram_seen_messages",
+    "CREATE INDEX idx_tg_seen_at ON telegram_seen_messages(seen_at)",
+)
+_TELEGRAM_SEEN_INSTANCE_IDENTITY_CHECKSUM = hashlib.sha256(
+    (
+        "0010_telegram_seen_instance_identity\n"
+        + "\n".join(
+            " ".join(statement.split()) for statement in _TELEGRAM_SEEN_INSTANCE_IDENTITY_STATEMENTS
+        )
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _telegram_seen_instance_identity_upgrade(conn: MigrationConnection) -> None:
+    source_rows = conn.execute(
+        """
+        SELECT instance_id, update_id, seen_at
+        FROM telegram_seen_messages
+        ORDER BY instance_id, update_id
+        """
+    ).fetchall()
+    conn.execute(_TELEGRAM_SEEN_INSTANCE_IDENTITY_STATEMENTS[0])
+    conn.execute(_TELEGRAM_SEEN_INSTANCE_IDENTITY_STATEMENTS[1])
+    copied_rows = conn.execute(
+        """
+        SELECT instance_id, update_id, seen_at
+        FROM _telegram_seen_messages_v10
+        ORDER BY instance_id, update_id
+        """
+    ).fetchall()
+    if copied_rows != source_rows:
+        raise SchemaCompatibilityError("telegram_seen_messages payload verification failed")
+    for statement in _TELEGRAM_SEEN_INSTANCE_IDENTITY_STATEMENTS[2:]:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -2428,6 +2481,12 @@ MIGRATIONS = (
         name="0009_durable_edict_ingress",
         checksum=_DURABLE_EDICT_INGRESS_CHECKSUM,
         upgrade=_durable_edict_ingress_upgrade,
+    ),
+    Migration(
+        version=10,
+        name="0010_telegram_seen_instance_identity",
+        checksum=_TELEGRAM_SEEN_INSTANCE_IDENTITY_CHECKSUM,
+        upgrade=_telegram_seen_instance_identity_upgrade,
     ),
 )
 
