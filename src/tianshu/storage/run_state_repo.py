@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Mapping, Sequence
-from datetime import datetime
 
 from pydantic import ValidationError
 
 from tianshu.models.canonical import canonical_json_bytes
 from tianshu.models.run_state import RunStateV1
-from tianshu.security.redact import redact_text
+from tianshu.security.sensitive_payload import contains_raw_sensitive_payload
 
 
 class RunStateRepositoryError(RuntimeError):
@@ -30,41 +28,8 @@ class RunStateSecretError(RunStateRepositoryError):
     """A raw credential was detected in a snapshot before persistence."""
 
 
-_SENSITIVE_KEY_PARTS = (
-    "api_key",
-    "apikey",
-    "authorization",
-    "auth_token",
-    "password",
-    "private_key",
-    "secret",
-    "token",
-)
-
-
-def _is_safe_secret_reference(value: str) -> bool:
-    return value.startswith("[REDACTED") or value.startswith(("settings:", "secret:"))
-
-
-def _contains_secret(value: object, key: str | None = None) -> bool:
-    if isinstance(value, str):
-        if "[REDACTED" in redact_text(value) and "[REDACTED" not in value:
-            return True
-        normalized_key = key.lower().replace("-", "_") if key is not None else ""
-        return (
-            any(part in normalized_key for part in _SENSITIVE_KEY_PARTS)
-            and bool(value)
-            and not _is_safe_secret_reference(value)
-        )
-    if isinstance(value, Mapping):
-        return any(_contains_secret(item, str(item_key)) for item_key, item in value.items())
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return any(_contains_secret(item) for item in value)
-    return False
-
-
 def _require_secret_free(state: RunStateV1) -> None:
-    if _contains_secret(state.model_dump(mode="python")):
+    if contains_raw_sensitive_payload(state.model_dump(mode="python")):
         raise RunStateSecretError("raw secret is not allowed in durable RunState")
 
 
@@ -157,21 +122,17 @@ class RunStateRepository:
     ) -> RunStateV1:
         if state.version != expected_version:
             raise ValueError("RunState input version must equal expected_version")
-        current = connection.execute(
-            """
-            SELECT edict_id, schema_version, updated_at
-            FROM run_states WHERE memorial_id = ?
-            """,
-            (state.memorial_id,),
-        ).fetchone()
+        current = self.load(connection, state.memorial_id)
         if current is None:
             raise RunStateConflict("RunState compare-and-swap conflict")
-        if str(current["edict_id"]) != state.edict_id:
+        if current.edict_id != state.edict_id:
             raise RunStateConflict("RunState edict_id is immutable")
         _require_memorial_binding(connection, state.memorial_id, state.edict_id)
-        if int(current["schema_version"]) != state.schema_version:
+        if current.schema_version != state.schema_version:
             raise RunStateConflict("RunState schema_version is immutable")
-        if state.updated_at < datetime.fromisoformat(str(current["updated_at"])):
+        if current.created_at != state.created_at:
+            raise RunStateConflict("RunState created_at is immutable")
+        if state.updated_at < current.updated_at:
             raise RunStateConflict("RunState updated_at must not move backwards")
         _require_secret_free(state)
         saved = state.model_copy(update={"version": expected_version + 1})
@@ -197,7 +158,10 @@ class RunStateRepository:
         )
         if cursor.rowcount != 1:
             raise RunStateConflict("RunState compare-and-swap conflict")
-        return saved
+        durable = self.load(connection, state.memorial_id)
+        if durable is None:  # pragma: no cover - successful CAS preserves the primary key
+            raise RunStateConflict("RunState disappeared after compare-and-swap")
+        return durable
 
 
 __all__ = [

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tianshu.models.canonical import JsonValue, canonical_sha256
 
 
-class RunPhase(str, Enum):
+class RunPhase(StrEnum):
     SUBMITTED = "submitted"
     PLANNING = "planning"
     EXECUTING = "executing"
@@ -33,6 +33,10 @@ def _non_blank(value: str) -> str:
     if not value.strip():
         raise ValueError("value must not be blank")
     return value
+
+
+def _non_blank_optional(value: str | None) -> str | None:
+    return _non_blank(value) if value is not None else None
 
 
 class _StrictModel(BaseModel):
@@ -62,12 +66,11 @@ class ToolProposalV1(_StrictModel):
     arguments: dict[str, JsonValue]
     arguments_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     tool_tier: str
-    policy_rule_id: str
+    policy_rule_id: str | None
     proposed_at: datetime
 
-    _validate_non_blank = field_validator(
-        "tool_call_id", "tool_name", "tool_tier", "policy_rule_id"
-    )(_non_blank)
+    _validate_non_blank = field_validator("tool_call_id", "tool_name", "tool_tier")(_non_blank)
+    _validate_optional_rule = field_validator("policy_rule_id")(_non_blank_optional)
     _normalize_proposed_at = field_validator("proposed_at")(_normalize_utc)
 
     @model_validator(mode="after")
@@ -81,13 +84,13 @@ class IterationSummaryV1(_StrictModel):
     iteration: int = Field(ge=0)
     level: Literal["L0", "L1", "L2", "L3"]
     output_artifact_ref: str | None
-    critic_verdict: str
+    critic_verdict: str | None
     critic_issue_class: str | None
     feedback: str | None
     usage: PersistedUsageSummaryV1
     completed_at: datetime
 
-    _validate_verdict = field_validator("critic_verdict")(_non_blank)
+    _validate_verdict = field_validator("critic_verdict")(_non_blank_optional)
     _normalize_completed_at = field_validator("completed_at")(_normalize_utc)
 
 

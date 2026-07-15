@@ -144,6 +144,8 @@ def test_decision_enums_and_models_are_strict_frozen_and_canonical() -> None:
         "expired",
         "cancelled",
     }
+    assert str(module.DecisionKind.TOOL) == "tool"
+    assert str(module.DecisionStatus.PENDING) == "pending"
 
     request = _decision_request()
     assert request.expires_at.tzinfo is UTC
@@ -263,8 +265,47 @@ def test_resolution_is_strict_frozen_non_blank_and_utc() -> None:
         )
 
 
+def test_decision_record_enforces_status_resolution_and_kind_payload_binding() -> None:
+    module = _decision_module()
+    resolved_at = datetime(2026, 7, 15, 1, 3, tzinfo=UTC)
+    resolved_request = _decision_request(
+        status=module.DecisionStatus.RESOLVED,
+        version=2,
+        updated_at=resolved_at,
+    )
+    resolution = module.DecisionResolutionV1(
+        decision_request_id="decision-1",
+        action="approve",
+        reason="reviewed",
+        payload={"schema_version": 1, "grant_scope": "once", "grant_reason": None},
+        actor_principal_id="user:reviewer",
+        actor_display_name="Reviewer",
+        resolved_at=resolved_at,
+    )
+    assert (
+        module.DecisionRecordV1(request=resolved_request, resolution=resolution).resolution
+        == resolution
+    )
+
+    with pytest.raises(ValidationError, match="resolved.*resolution"):
+        module.DecisionRecordV1(request=resolved_request, resolution=None)
+    with pytest.raises(ValidationError, match="non-resolved.*resolution"):
+        module.DecisionRecordV1(request=_decision_request(), resolution=resolution)
+    with pytest.raises(ValidationError, match="unsupported action"):
+        module.DecisionRecordV1(
+            request=resolved_request,
+            resolution=resolution.model_copy(
+                update={
+                    "action": "amend",
+                    "payload": {"schema_version": 1, "amendment": "wrong kind"},
+                }
+            ),
+        )
+
+
 def test_agent_and_outer_loop_run_state_round_trip_every_field() -> None:
     module = _run_state_module()
+    assert str(module.RunPhase.WAITING_DECISION) == "waiting_decision"
     agent = _agent_state()
     assert module.RunStateV1.model_validate_json(agent.model_dump_json()) == agent
 
@@ -329,6 +370,37 @@ def test_run_state_models_reject_extra_mutation_negative_counters_and_hash_drift
         module.PersistedUsageSummaryV1(**{**_usage(), "prompt_tokens": -1})
     with pytest.raises(ValidationError, match="unexpected"):
         module.PersistedUsageSummaryV1.model_validate({**_usage(), "unexpected": 1})
+
+
+def test_optional_policy_rule_and_critic_verdict_only_reject_blank_non_none_values() -> None:
+    module = _run_state_module()
+    state = _agent_state()
+    proposal = state.continuation.pending_tool
+    assert proposal is not None
+    assert (
+        module.ToolProposalV1.model_validate(
+            {**proposal.model_dump(mode="python"), "policy_rule_id": None}
+        ).policy_rule_id
+        is None
+    )
+    with pytest.raises(ValidationError, match="policy_rule_id"):
+        module.ToolProposalV1.model_validate(
+            {**proposal.model_dump(mode="python"), "policy_rule_id": "  "}
+        )
+
+    summary = {
+        "iteration": 1,
+        "level": "L1",
+        "output_artifact_ref": None,
+        "critic_verdict": None,
+        "critic_issue_class": None,
+        "feedback": None,
+        "usage": _usage(),
+        "completed_at": state.created_at,
+    }
+    assert module.IterationSummaryV1(**summary).critic_verdict is None
+    with pytest.raises(ValidationError, match="critic_verdict"):
+        module.IterationSummaryV1(**{**summary, "critic_verdict": "\t"})
 
 
 def test_run_state_discriminator_and_mirrored_cursor_checkpoint_must_match() -> None:

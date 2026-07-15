@@ -7,11 +7,17 @@ tools.policy_rules.bash_safety)/ 分级急停(estop)。
 from tianshu.security.clean_env import build_clean_env
 from tianshu.security.estop import EstopManager, EstopState
 from tianshu.security.redact import redact_mapping, redact_text
+from tianshu.security.sensitive_payload import (
+    contains_raw_sensitive_payload,
+    redact_sensitive_mapping,
+)
 
 __all__ = [
     "EstopManager",
     "EstopState",
     "build_clean_env",
+    "contains_raw_sensitive_payload",
     "redact_mapping",
+    "redact_sensitive_mapping",
     "redact_text",
 ]

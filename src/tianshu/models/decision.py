@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -11,14 +11,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tianshu.models.canonical import JsonValue, canonical_sha256
 
 
-class DecisionKind(str, Enum):
+class DecisionKind(StrEnum):
     TOOL = "tool"
     OUTER_LOOP = "outer_loop"
     PLAN_REVIEW = "plan_review"
     GOVERNED_APPLY = "governed_apply"
 
 
-class DecisionStatus(str, Enum):
+class DecisionStatus(StrEnum):
     PENDING = "pending"
     RESOLVED = "resolved"
     EXPIRED = "expired"
@@ -123,11 +123,19 @@ class DecisionRecordV1(_StrictModel):
 
     @model_validator(mode="after")
     def validate_resolution_identity(self) -> Self:
-        if (
-            self.resolution is not None
-            and self.resolution.decision_request_id != self.request.decision_request_id
-        ):
+        if self.request.status is DecisionStatus.RESOLVED and self.resolution is None:
+            raise ValueError("resolved decision requires a resolution")
+        if self.request.status is not DecisionStatus.RESOLVED and self.resolution is not None:
+            raise ValueError("non-resolved decision must not have a resolution")
+        if self.resolution is None:
+            return self
+        if self.resolution.decision_request_id != self.request.decision_request_id:
             raise ValueError("resolution decision_request_id does not match request")
+        validate_resolution_payload(
+            self.request.kind,
+            self.resolution.action,
+            self.resolution.payload,
+        )
         return self
 
 

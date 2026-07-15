@@ -195,6 +195,101 @@ def test_create_and_cas_preserve_memorial_edict_identity_and_timestamp_order() -
         storage.close()
 
 
+@pytest.mark.parametrize(
+    ("assignment", "message"),
+    (
+        ("schema_version = 2", "schema_version"),
+        ("continuation_kind = 'outer_loop'", "kind"),
+    ),
+)
+def test_cas_decodes_and_rejects_corrupt_current_row(assignment: str, message: str) -> None:
+    _, _, decode_error, _ = _contracts()
+    storage = _storage()
+    state = _state()
+    try:
+        with storage.unit_of_work() as uow:
+            storage.run_state_repo.create(uow.connection, state)
+            uow.commit()
+        storage._conn.execute("DROP TRIGGER IF EXISTS run_states_validate_update_v12")  # noqa: SLF001
+        storage._conn.execute("PRAGMA ignore_check_constraints=ON")  # noqa: SLF001
+        storage._conn.execute(  # noqa: SLF001 - corrupted historical row fixture
+            f"UPDATE run_states SET {assignment} WHERE memorial_id = 'memorial-1'"
+        )
+        storage._conn.commit()  # noqa: SLF001 - corrupted historical row fixture
+
+        changed = state.model_copy(
+            update={
+                "phase": RunPhase.EXECUTING,
+                "updated_at": state.updated_at + timedelta(seconds=1),
+            }
+        )
+        with pytest.raises(decode_error, match=message), storage.unit_of_work() as uow:
+            storage.run_state_repo.compare_and_swap(uow.connection, changed, expected_version=1)
+        assert (
+            storage._conn.execute(  # noqa: SLF001 - zero-write contract
+                "SELECT version FROM run_states WHERE memorial_id = 'memorial-1'"
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        storage.close()
+
+
+def test_cas_rejects_created_at_rebinding() -> None:
+    _, conflict_type, *_ = _contracts()
+    storage = _storage()
+    state = _state()
+    try:
+        with storage.unit_of_work() as uow:
+            storage.run_state_repo.create(uow.connection, state)
+            uow.commit()
+        rebound = state.model_copy(
+            update={
+                "created_at": state.created_at - timedelta(seconds=1),
+                "updated_at": state.updated_at + timedelta(seconds=1),
+            }
+        )
+        with pytest.raises(conflict_type, match="created_at"), storage.unit_of_work() as uow:
+            storage.run_state_repo.compare_and_swap(uow.connection, rebound, expected_version=1)
+    finally:
+        storage.close()
+
+
+def test_successful_cas_reloads_and_returns_durable_truth() -> None:
+    storage = _storage()
+    state = _state()
+    try:
+        with storage.unit_of_work() as uow:
+            storage.run_state_repo.create(uow.connection, state)
+            uow.commit()
+        storage._conn.execute(  # noqa: SLF001 - durable-reload proof
+            """
+            CREATE TRIGGER run_state_test_durable_truth
+            AFTER UPDATE OF version ON run_states
+            BEGIN
+                UPDATE run_states SET phase = 'paused' WHERE memorial_id = NEW.memorial_id;
+            END
+            """
+        )
+        storage._conn.commit()  # noqa: SLF001 - durable-reload proof
+        changed = state.model_copy(
+            update={
+                "phase": RunPhase.EXECUTING,
+                "updated_at": state.updated_at + timedelta(seconds=1),
+            }
+        )
+        with storage.unit_of_work() as uow:
+            saved = storage.run_state_repo.compare_and_swap(
+                uow.connection, changed, expected_version=1
+            )
+            durable = storage.run_state_repo.load(uow.connection, "memorial-1")
+            uow.commit()
+        assert saved == durable
+        assert saved.phase is RunPhase.PAUSED
+    finally:
+        storage.close()
+
+
 def test_load_rejects_unknown_schema_and_continuation_kind_mismatch() -> None:
     _, _, decode_error, _ = _contracts()
     storage = _storage()
@@ -202,6 +297,7 @@ def test_load_rejects_unknown_schema_and_continuation_kind_mismatch() -> None:
         with storage.unit_of_work() as uow:
             storage.run_state_repo.create(uow.connection, _state())
             uow.commit()
+        storage._conn.execute("DROP TRIGGER run_states_validate_update_v12")  # noqa: SLF001
         storage._conn.execute("PRAGMA ignore_check_constraints=ON")  # noqa: SLF001
         storage._conn.execute(  # noqa: SLF001 - corrupted row fixture
             "UPDATE run_states SET schema_version = 2 WHERE memorial_id = 'memorial-1'"
@@ -220,15 +316,101 @@ def test_load_rejects_unknown_schema_and_continuation_kind_mismatch() -> None:
         storage.close()
 
 
-def test_secret_sentinel_is_rejected_before_any_raw_state_is_written() -> None:
+_SENSITIVE_ARGUMENTS = (
+    {"credentials": "opaque-credential"},
+    {"headers": {"Authorization": "Bearer opaque-auth-token"}},
+    {"cookie": "session=opaque-cookie"},
+    {"db_url": "postgres://user:opaque-password@db.example/app"},
+    {"client_secret": "opaque-client-secret"},
+    {"refresh_token": "opaque-refresh-token"},
+    {"credentials": {"nested": [{"value": "opaque-nested-secret"}]}},
+    {"api_key": "[REDACTED] smuggled-raw-value"},
+)
+
+
+@pytest.mark.parametrize("operation", ("create", "cas"))
+@pytest.mark.parametrize("arguments", _SENSITIVE_ARGUMENTS)
+def test_sensitive_payloads_are_rejected_with_zero_create_or_cas_writes(
+    operation: str, arguments: dict[str, object]
+) -> None:
     *_, secret_error = _contracts()
     storage = _storage()
-    secret = "RUN_STATE_SECRET_SENTINEL"
+    try:
+        original = _state()
+        if operation == "cas":
+            with storage.unit_of_work() as uow:
+                storage.run_state_repo.create(uow.connection, original)
+                uow.commit()
+
+        with pytest.raises(secret_error, match="secret"), storage.unit_of_work() as uow:
+            candidate = _state(arguments)
+            if operation == "create":
+                storage.run_state_repo.create(uow.connection, candidate)
+            else:
+                storage.run_state_repo.compare_and_swap(
+                    uow.connection,
+                    candidate.model_copy(
+                        update={"updated_at": candidate.updated_at + timedelta(seconds=1)}
+                    ),
+                    expected_version=1,
+                )
+
+        with storage.unit_of_work() as uow:
+            durable = storage.run_state_repo.load(uow.connection, "memorial-1")
+        assert durable == (original if operation == "cas" else None)
+        dump = "".join(storage._conn.iterdump())  # noqa: SLF001 - zero-write contract
+        for value in _flatten_strings(arguments):
+            assert value not in dump
+    finally:
+        storage.close()
+
+
+def _flatten_strings(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, dict):
+        return tuple(item for nested in value.values() for item in _flatten_strings(nested))
+    if isinstance(value, list):
+        return tuple(item for nested in value for item in _flatten_strings(nested))
+    return ()
+
+
+def test_safe_secret_refs_redacted_markers_metrics_and_normal_keys_are_persistable() -> None:
+    storage = _storage()
+    arguments = {
+        "api_key": "OPENAI_API_KEY",
+        "refresh_token": "settings:eval_llm_api_key",
+        "client_secret": "[REDACTED]",
+        "token_count": 17,
+        "prompt_tokens": 23.5,
+        "tokenizer": "byte-pair",
+    }
+    state = _state(arguments)
+    try:
+        with storage.unit_of_work() as uow:
+            assert storage.run_state_repo.create(uow.connection, state) == state
+            uow.commit()
+        with storage.unit_of_work() as uow:
+            assert storage.run_state_repo.load(uow.connection, "memorial-1") == state
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize(
+    "smuggled",
+    (
+        "OPENAI_API_KEY trailing",
+        "settings:Eval_LLM_API_KEY",
+        "secret:legacy_ref",
+        "[REDACTED API KEY] trailing",
+    ),
+)
+def test_secret_reference_and_redacted_marker_must_match_the_full_value(smuggled: str) -> None:
+    *_, secret_error = _contracts()
+    storage = _storage()
     try:
         with pytest.raises(secret_error, match="secret"), storage.unit_of_work() as uow:
-            storage.run_state_repo.create(uow.connection, _state({"api_key": secret}))
+            storage.run_state_repo.create(uow.connection, _state({"api_key": smuggled}))
         assert storage._conn.execute("SELECT COUNT(*) FROM run_states").fetchone()[0] == 0  # noqa: SLF001
-        database_bytes = "".join(storage._conn.iterdump())  # noqa: SLF001 - sentinel contract
-        assert secret not in database_bytes
     finally:
         storage.close()

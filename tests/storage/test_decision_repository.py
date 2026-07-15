@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
@@ -187,6 +188,61 @@ def test_resolution_action_is_bound_to_request_kind_and_decode_is_strict() -> No
             ("decision-1",),
         )
         storage._conn.commit()  # noqa: SLF001 - corrupted row fixture
+        with storage.unit_of_work() as uow, pytest.raises(decode_error):
+            storage.decision_repo.get(uow.connection, "decision-1")
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize(
+    ("status", "action", "payload"),
+    (
+        (
+            "resolved",
+            "amend",
+            {"schema_version": 1, "amendment": "not valid for a tool decision"},
+        ),
+        (
+            "pending",
+            "approve",
+            {"schema_version": 1, "grant_scope": "once", "grant_reason": None},
+        ),
+    ),
+)
+def test_get_fails_closed_on_raw_resolution_state_or_action_corruption(
+    status: str,
+    action: str,
+    payload: dict[str, object],
+) -> None:
+    *_, decode_error = _contracts()
+    storage = _storage()
+    try:
+        with storage.unit_of_work() as uow:
+            storage.decision_repo.add_or_get(uow.connection, _request())
+            uow.commit()
+        storage._conn.execute(  # noqa: SLF001 - raw corrupted row fixture
+            "UPDATE decision_requests SET status = ? WHERE decision_request_id = ?",
+            (status, "decision-1"),
+        )
+        storage._conn.execute(  # noqa: SLF001 - raw corrupted row fixture
+            """
+            INSERT INTO decision_resolutions (
+                decision_request_id, action, reason, payload_json,
+                actor_principal_id, actor_display_name, resolved_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "decision-1",
+                action,
+                "raw corruption",
+                json.dumps(payload),
+                "user:reviewer",
+                "Reviewer",
+                "2026-07-15T01:01:00+00:00",
+            ),
+        )
+        storage._conn.commit()  # noqa: SLF001 - raw corrupted row fixture
+
         with storage.unit_of_work() as uow, pytest.raises(decode_error):
             storage.decision_repo.get(uow.connection, "decision-1")
     finally:

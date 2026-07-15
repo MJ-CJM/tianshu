@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 import unicodedata
 from collections.abc import Mapping
@@ -14,7 +13,7 @@ from tianshu.models import Edict, EventEnvelope, Memorial, TaskStatus
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
 from tianshu.models.governance_contract import RequestedGovernanceContractV1
 from tianshu.models.principal import AuthContext
-from tianshu.security.redact import redact_text
+from tianshu.security.sensitive_payload import redact_sensitive_mapping
 from tianshu.storage.edict_repo import _insert_edict
 from tianshu.storage.memorial_repo import _insert_memorial
 from tianshu.storage.outbox_repo import (
@@ -30,93 +29,6 @@ class _SubmissionStorage(Protocol):
     def get_edict(self, edict_id: str) -> Edict | None: ...
 
     def get_memorial(self, memorial_id: str) -> Memorial | None: ...
-
-
-_SENSITIVE_COMPACT_KEY_ALIASES = frozenset(
-    {
-        "authorization",
-        "authorizationheader",
-        "accesstoken",
-        "apikey",
-        "apisecret",
-        "authtoken",
-        "cookie",
-        "credential",
-        "credentials",
-        "databaseurl",
-        "dbpassword",
-        "dburl",
-        "masterkey",
-        "password",
-        "passwd",
-        "privatekey",
-        "proxyauthorization",
-        "refreshtoken",
-        "redisurl",
-        "secret",
-        "secretkey",
-        "setcookie",
-        "token",
-        "xapikey",
-        "xauthtoken",
-    }
-)
-_SENSITIVE_COMPACT_KEY_ANCHORS = frozenset(
-    {
-        "accesstoken",
-        "apikey",
-        "apisecret",
-        "authorization",
-        "authtoken",
-        "clientsecret",
-        "cookievalue",
-        "credential",
-        "databaseurl",
-        "dbpassword",
-        "dburl",
-        "masterkey",
-        "password",
-        "passwd",
-        "privatekey",
-        "refreshtoken",
-        "redisurl",
-        "secretkey",
-        "secretvalue",
-        "setcookie",
-        "tokenvalue",
-    }
-)
-_SENSITIVE_KEY_TOKEN_SEQUENCES = (
-    ("api", "key"),
-    ("database", "url"),
-    ("db", "url"),
-    ("master", "key"),
-    ("private", "key"),
-    ("redis", "url"),
-)
-_TOKEN_METRIC_COMPACT_KEY_ALIASES = frozenset(
-    {
-        "completiontokencount",
-        "completiontokens",
-        "inputtokencount",
-        "inputtokens",
-        "maxtokencount",
-        "maxtokens",
-        "outputtokencount",
-        "outputtokens",
-        "prompttokencount",
-        "prompttokens",
-        "tokenbudget",
-        "tokencount",
-        "totaltokencount",
-        "totaltokens",
-    }
-)
-_ENVIRONMENT_COMPACT_KEY_ALIASES = frozenset(
-    {"env", "environment", "environmentvalues", "environmentvariables", "envvars"}
-)
-_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
-_NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,75 +229,7 @@ def _event_payload(
 ) -> dict[str, JsonValue]:
     payload = dict(command.extra_payload)
     payload.update({"correlation_id": correlation_id, "goal": command.edict.goal})
-    return cast(dict[str, JsonValue], _redact_durable_mapping(payload))
-
-
-def _payload_key_tokens(key: str) -> tuple[str, ...]:
-    separated = _CAMEL_CASE_BOUNDARY.sub("_", key)
-    normalized = _NON_ALPHANUMERIC.sub("_", separated.casefold())
-    return tuple(token for token in normalized.split("_") if token)
-
-
-def _contains_key_token_sequence(
-    key_tokens: tuple[str, ...],
-    sequence: tuple[str, ...],
-) -> bool:
-    width = len(sequence)
-    return any(
-        key_tokens[index : index + width] == sequence
-        for index in range(len(key_tokens) - width + 1)
-    )
-
-
-def _is_json_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _is_sensitive_payload_key(
-    key_tokens: tuple[str, ...],
-    compact_key: str,
-    value: object,
-) -> bool:
-    if compact_key in _TOKEN_METRIC_COMPACT_KEY_ALIASES:
-        return not _is_json_number(value)
-    if any(anchor in compact_key for anchor in _SENSITIVE_COMPACT_KEY_ANCHORS):
-        return True
-    if any(token in _SENSITIVE_COMPACT_KEY_ALIASES for token in key_tokens):
-        return True
-    return any(
-        _contains_key_token_sequence(key_tokens, sequence)
-        for sequence in _SENSITIVE_KEY_TOKEN_SEQUENCES
-    )
-
-
-def _redact_durable_mapping(payload: Mapping[str, object]) -> dict[str, object]:
-    redacted: dict[str, object] = {}
-    for key, value in payload.items():
-        key_tokens = _payload_key_tokens(key)
-        compact_key = "".join(key_tokens)
-        if compact_key in _ENVIRONMENT_COMPACT_KEY_ALIASES:
-            redacted[key] = (
-                {str(environment_key): "[REDACTED]" for environment_key in value}
-                if isinstance(value, Mapping)
-                else "[REDACTED]"
-            )
-        elif _is_sensitive_payload_key(key_tokens, compact_key, value):
-            redacted[key] = "[REDACTED]"
-        else:
-            redacted[key] = _redact_durable_value(value)
-    return redacted
-
-
-def _redact_durable_value(value: object) -> object:
-    if isinstance(value, str):
-        return redact_text(value)
-    if isinstance(value, Mapping):
-        return _redact_durable_mapping({str(key): item for key, item in value.items()})
-    if isinstance(value, list):
-        return [_redact_durable_value(item) for item in value]
-    if isinstance(value, tuple):
-        return [_redact_durable_value(item) for item in value]
-    return value
+    return cast(dict[str, JsonValue], redact_sensitive_mapping(payload))
 
 
 def _serialize_replay_identity(result: SubmitEdictResult) -> str:
