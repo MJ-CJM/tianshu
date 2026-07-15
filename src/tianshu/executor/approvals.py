@@ -52,6 +52,7 @@ from tianshu.models.run_state import (
 )
 from tianshu.security.sensitive_payload import redact_sensitive_mapping
 from tianshu.storage import Storage
+from tianshu.storage.outbox_repo import OutboxRepository
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ class ApprovalManager:
         self._session_rule_store = session_rule_store
         self._edict_application = edict_application_service or EdictApplicationService(storage)
         self._decision_service = decision_service
+        self._outbox = OutboxRepository()
         self._clock = clock or (lambda: datetime.now(UTC))
         self._pending: dict[str, asyncio.Event] = {}
         self._results: dict[str, Decree] = {}
@@ -466,11 +468,28 @@ class ApprovalManager:
                 "decision_request_id": record.request.decision_request_id,
             },
         )
-        self._storage.append_event_envelope(completed)
-        report = await self._bus.dispatch(completed)
-        failure = next((result.error for result in report.results if not result.succeeded), None)
-        if failure is not None:
-            raise RuntimeError("plan completed projection failed") from failure
+        self._enqueue_plan_completed(completed)
+
+    def _enqueue_plan_completed(self, event: EventEnvelope) -> None:
+        """Persist stable plan-completion work for dispatcher-owned delivery."""
+
+        expected_payload = canonical_json_bytes(event.payload).decode("utf-8")
+        expected_aggregate = "edict" if event.edict_id is not None else "system"
+        with self._storage.unit_of_work() as unit_of_work:
+            existing = self._outbox.get(unit_of_work.connection, event.event_id)
+            if existing is None:
+                self._outbox.add(unit_of_work.connection, event)
+            elif (
+                existing.event_type != event.event_type
+                or existing.aggregate_type != expected_aggregate
+                or existing.edict_id != event.edict_id
+                or existing.memorial_id != event.memorial_id
+                or existing.producer != event.producer
+                or existing.payload_json != expected_payload
+                or existing.occurred_at != event.timestamp.isoformat()
+            ):
+                raise ValueError("outbox event identity conflicts with durable work")
+            unit_of_work.commit()
 
     async def wait_for_approval(
         self,

@@ -262,6 +262,9 @@ class DecisionService:
         requested: DecisionRequestV1,
         run_state: RunStateV1,
     ) -> None:
+        record = self._repository.get(unit_of_work.connection, saved.decision_request_id)
+        if record is None:
+            raise DecisionConflict("decision_run_state_conflict")
         current = self._run_states.load(unit_of_work.connection, saved.memorial_id)
         if current is None:
             raise DecisionConflict("decision_run_state_conflict")
@@ -297,7 +300,7 @@ class DecisionService:
         resumed = run_state.model_copy(
             update={
                 **normalized_state,
-                "phase": self._resume_phase(saved.kind),
+                "phase": self._terminal_phase(record),
                 "continuation": business_continuation.model_copy(
                     update={
                         "pending_decision_id": None,
@@ -358,8 +361,9 @@ class DecisionService:
             )
             if current is None:
                 raise DecisionConflict("decision_run_state_conflict")
+            terminal_phase = self._terminal_phase(record)
             if (
-                current.phase is self._resume_phase(record.request.kind)
+                current.phase is terminal_phase
                 and current.continuation.pending_decision_id is None
                 and current.continuation.resolved_decision_id == decision_request_id
             ):
@@ -378,7 +382,7 @@ class DecisionService:
             )
             next_state = current.model_copy(
                 update={
-                    "phase": self._resume_phase(record.request.kind),
+                    "phase": terminal_phase,
                     "continuation": continuation,
                     "updated_at": max(
                         current.updated_at,
@@ -399,8 +403,16 @@ class DecisionService:
             return saved
 
     @staticmethod
-    def _resume_phase(kind: DecisionKind) -> RunPhase:
-        return RunPhase.PLANNING if kind is DecisionKind.PLAN_REVIEW else RunPhase.EXECUTING
+    def _terminal_phase(record: DecisionRecordV1) -> RunPhase:
+        if record.request.kind is not DecisionKind.PLAN_REVIEW:
+            return RunPhase.EXECUTING
+        if (
+            record.request.status is DecisionStatus.RESOLVED
+            and record.resolution is not None
+            and record.resolution.action == "approve"
+        ):
+            return RunPhase.PLANNING
+        return RunPhase.FAILED
 
     def _new_request(
         self,

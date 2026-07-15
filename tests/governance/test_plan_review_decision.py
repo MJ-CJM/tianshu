@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier
 from unittest.mock import AsyncMock
@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 
+from tianshu.application.outbox import OutboxDispatcher
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.governance.decision_service import (
@@ -27,6 +28,7 @@ from tianshu.models.principal import AuthContext, Principal
 from tianshu.models.run_state import AgentContinuationV1, RunPhase
 from tianshu.planner.planner import Planner
 from tianshu.storage import Storage
+from tianshu.storage.outbox_repo import OutboxRepository
 
 _NOW = datetime(2026, 7, 15, 15, tzinfo=UTC)
 
@@ -266,16 +268,98 @@ async def test_plan_review_restart_resolution_precedes_approve_projection(tmp_pa
             unit_of_work.commit()
         assert state is not None and state.phase is RunPhase.PLANNING
         assert state.continuation.resolved_decision_id == requested.decision_request_id
+        replayed = _request(restarted_manager, edict, memorial)
+        assert replayed.status.value == "resolved"
         approved = next(
             event
             for event in restarted.get_events(edict.id)
             if event["event_type"] == "plan.approved"
         )
         assert approved["payload"]["actor"] == "user:plan-reviewer"
-        completed.assert_awaited_once()
-        assert completed.await_args.args[0].payload["plan"] == requested.payload["plan"]
+        completed.assert_not_awaited()
+        [work] = restarted._conn.execute(  # noqa: SLF001
+            "SELECT event_id, status FROM outbox_events WHERE event_type = 'plan.completed'"
+        ).fetchall()
+        assert work["event_id"] == f"{requested.decision_request_id}:plan.completed"
+        assert work["status"] == "pending"
     finally:
         restarted.close()
+
+
+async def test_plan_completed_retry_uses_one_durable_work_item_and_one_executor_effect(
+    storage,
+) -> None:
+    edict, memorial = _seed(storage, status=TaskStatus.NEEDS_REVIEW)
+    bus = EventBus()
+    executor_calls = 0
+    later_calls = 0
+
+    async def executor(event) -> None:
+        nonlocal executor_calls
+        assert event.event_type == "plan.completed"
+        executor_calls += 1
+
+    async def flaky_later_consumer(event) -> None:
+        nonlocal later_calls
+        assert event.event_type == "plan.completed"
+        later_calls += 1
+        if later_calls == 1:
+            raise RuntimeError("later projection failed")
+
+    bus.on("plan.completed", executor, consumer_name="executor.plan_completed.v1")
+    bus.on(
+        "plan.completed",
+        flaky_later_consumer,
+        consumer_name="test.flaky_plan_projection.v1",
+        priority=200,
+    )
+    manager, _ = _manager(storage, bus)
+    requested = _request(manager, edict, memorial)
+    manager.submit_plan_review_decision(edict.id, action="approve", auth=_auth())
+    resolved_event = make_event(
+        "decision.resolved",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
+        payload={
+            "decision_request_id": requested.decision_request_id,
+            "kind": DecisionKind.PLAN_REVIEW.value,
+            "action": "approve",
+        },
+    )
+
+    await manager.handle_decision_resolved(resolved_event)
+    await manager.handle_decision_resolved(resolved_event)
+
+    assert executor_calls == later_calls == 0
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM outbox_events WHERE event_type = 'plan.completed'"
+        ).fetchone()[0]
+        == 1
+    )
+    clock = [_NOW]
+    dispatcher = OutboxDispatcher(
+        OutboxRepository(storage.unit_of_work),
+        bus,
+        owner_id="plan-completed-retry",
+        clock=lambda: clock[0],
+        base_backoff_seconds=1,
+        max_backoff_seconds=1,
+    )
+
+    assert await dispatcher.drain_once() == 2
+    assert executor_calls == later_calls == 1
+    clock[0] += timedelta(seconds=2)
+    assert await dispatcher.drain_once() == 1
+    assert await dispatcher.drain_once() == 0
+    assert executor_calls == 1
+    assert later_calls == 2
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT status FROM outbox_events WHERE event_type = 'plan.completed'"
+        ).fetchone()[0]
+        == "published"
+    )
 
 
 async def test_plan_review_reject_projection_fails_memorial_without_execution(storage) -> None:
@@ -303,6 +387,12 @@ async def test_plan_review_reject_projection_fails_memorial_without_execution(st
     saved = storage.get_memorial(memorial.id)
     assert saved is not None and saved.status is TaskStatus.FAILED
     assert saved.error == "规划方案被驳回"
+    with storage.unit_of_work() as unit_of_work:
+        state = storage.run_state_repo.load(unit_of_work.connection, memorial.id)
+        unit_of_work.commit()
+    assert state is not None and state.phase is RunPhase.FAILED
+    replayed = _request(manager, edict, memorial)
+    assert replayed.status.value == "resolved"
     rejected = next(
         event for event in storage.get_events(edict.id) if event["event_type"] == "plan.rejected"
     )
@@ -345,11 +435,13 @@ async def test_expired_plan_review_releases_waiting_state_and_fails_closed(stora
     with storage.unit_of_work() as unit_of_work:
         state = storage.run_state_repo.load(unit_of_work.connection, memorial.id)
         unit_of_work.commit()
-    assert state is not None and state.phase is RunPhase.PLANNING
+    assert state is not None and state.phase is RunPhase.FAILED
     assert state.continuation.resolved_decision_id == requested.decision_request_id
     saved = storage.get_memorial(memorial.id)
     assert saved is not None and saved.status is TaskStatus.FAILED
     assert saved.error == "规划审批已超时"
+    replayed = _request(manager, edict, memorial)
+    assert replayed.status.value == "expired"
 
 
 def test_plan_review_amend_fails_before_resolution_or_outbox(storage) -> None:
