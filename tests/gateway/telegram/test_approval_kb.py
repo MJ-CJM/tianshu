@@ -34,6 +34,7 @@ def _record(*, action: str = "approve", actor: str = "telegram:tg-a:7", scope: s
 def handler(storage):
     approval = MagicMock()
     approval.resolve_tool_decision = AsyncMock(return_value=_record())
+    approval.get_tool_decision = MagicMock(return_value=_record())
     outbound = MagicMock()
     outbound.send_card = AsyncMock(return_value="msg-1")
     outbound.edit_message = AsyncMock(return_value=True)
@@ -87,6 +88,16 @@ async def test_approval_required_stores_decision_id_and_missing_id_is_not_action
     )
     assert storage.get_telegram_pending_button(_DECISION_1) is not None
 
+    await h._on_approval_required(
+        EventEnvelope(
+            event_type="tool.approval_required",
+            edict_id=edict.id,
+            memorial_id="same-memorial",
+            payload={"decision_request_id": _DECISION_1, "tool_name": "shell_exec"},
+        )
+    )
+    outbound.send_card.assert_awaited_once()
+
     outbound.send_card.reset_mock()
     await h._on_approval_required(
         EventEnvelope(
@@ -97,6 +108,32 @@ async def test_approval_required_stores_decision_id_and_missing_id_is_not_action
         )
     )
     outbound.send_card.assert_not_awaited()
+    assert storage.get_telegram_pending_button(_DECISION_1) is not None
+
+
+@pytest.mark.asyncio
+async def test_failed_button_delivery_releases_claim_for_retry(handler, storage):
+    h, outbound, _ = handler
+    edict = Edict(
+        title="t",
+        goal="g",
+        source="channel",
+        metadata={"chat_id": "c1", "instance_id": "tg-a"},
+    )
+    storage.save_edict(edict)
+    event = EventEnvelope(
+        event_type="tool.approval_required",
+        edict_id=edict.id,
+        memorial_id="memorial",
+        payload={"decision_request_id": _DECISION_1, "tool_name": "shell_exec"},
+    )
+    outbound.send_card.side_effect = [RuntimeError("delivery failed"), "msg-retry"]
+
+    with pytest.raises(RuntimeError, match="delivery failed"):
+        await h._on_approval_required(event)
+    await h._on_approval_required(event)
+
+    assert outbound.send_card.await_count == 2
     assert storage.get_telegram_pending_button(_DECISION_1) is not None
 
 
@@ -205,3 +242,52 @@ async def test_resolved_event_pops_only_matching_decision(handler, storage):
     assert storage.get_telegram_pending_button(_DECISION_1) is None
     assert storage.get_telegram_pending_button(_DECISION_2) is not None
     outbound.edit_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_callback_must_match_pending_instance_chat_and_message(handler, storage):
+    h, outbound, approval = handler
+    storage.save_telegram_pending_button(
+        approval_id=_DECISION_1,
+        chat_id="c-other",
+        message_id="m-other",
+        kind="tool.approval_required",
+        instance_id="tg-other",
+    )
+    cb = TelegramCallback(
+        update_id="u",
+        callback_id="q",
+        chat_id="c1",
+        sender_id="7",
+        message_id="m1",
+        data=f"ea:approve:once:{_DECISION_1}",
+    )
+
+    assert await h.handle_callback(cb) == "无效操作"
+    approval.resolve_tool_decision.assert_not_awaited()
+    outbound.edit_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_decree_refresh_uses_durable_winner_not_event_actor(handler, storage):
+    h, outbound, approval = handler
+    approval.get_tool_decision.return_value = _record(
+        action="approve", actor="feishu:feishu-a:ou_1"
+    )
+    storage.save_telegram_pending_button(
+        approval_id=_DECISION_1,
+        chat_id="c1",
+        message_id="m1",
+        kind="tool.approval_required",
+        instance_id="tg-a",
+    )
+
+    await h._on_decree_resolved(
+        EventEnvelope(
+            event_type="decree.approved",
+            memorial_id="memorial",
+            payload={"decision_request_id": _DECISION_1, "actor": "web:forged"},
+        )
+    )
+
+    assert "飞书" in outbound.edit_message.await_args.args[2]

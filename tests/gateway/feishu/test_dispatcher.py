@@ -64,13 +64,20 @@ def _msg_event(
     }
 
 
-def _card_event(*, event_id="evt", chat_id="oc_x", sender="ou_test", value=None) -> dict:
+def _card_event(
+    *,
+    event_id="evt",
+    chat_id="oc_x",
+    message_id="om_card",
+    sender="ou_test",
+    value=None,
+) -> dict:
     return {
         "header": {"event_type": "card.action.trigger", "event_id": event_id},
         "event": {
             "operator": {"open_id": sender},
             "action": {"value": value or {"action": "approve"}},
-            "context": {"open_chat_id": chat_id},
+            "context": {"open_chat_id": chat_id, "open_message_id": message_id},
         },
     }
 
@@ -170,6 +177,7 @@ async def test_card_event_dispatched(dispatcher):
     await asyncio.sleep(0.05)
     assert len(cards) == 1
     assert cards[0].value["action"] == "approve"
+    assert cards[0].message_id == "om_card"
 
 
 @pytest.mark.asyncio

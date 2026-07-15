@@ -279,11 +279,13 @@ def test_sdk_card_to_payload_with_full_event():
     event.event.operator.open_id = "ou_test"
     event.event.action.value = {"action": "approve"}
     event.event.context.open_chat_id = "oc_x"
+    event.event.context.open_message_id = "om_x"
     payload = WebSocketConnection._sdk_card_to_payload(event)
     assert payload["header"]["event_type"] == "card.action.trigger"
     assert payload["event"]["operator"]["open_id"] == "ou_test"
     assert payload["event"]["action"]["value"] == {"action": "approve"}
     assert payload["event"]["context"]["open_chat_id"] == "oc_x"
+    assert payload["event"]["context"]["open_message_id"] == "om_x"
 
 
 @pytest.mark.asyncio

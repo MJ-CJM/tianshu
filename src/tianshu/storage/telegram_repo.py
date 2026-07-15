@@ -150,26 +150,106 @@ class TelegramMixin:
         )
         self._conn.commit()
 
-    def pop_telegram_pending_button(self, approval_id: str) -> dict | None:
+    def claim_telegram_pending_button(
+        self,
+        *,
+        approval_id: str,
+        instance_id: str,
+        chat_id: str,
+        kind: str,
+    ) -> bool:
+        """Atomically reserve one outbound approval artifact before delivery."""
+
+        from datetime import UTC, datetime
+
+        with self._lock:
+            try:
+                cursor = self._conn.execute(
+                    "INSERT OR IGNORE INTO telegram_pending_buttons "
+                    "(approval_id, instance_id, chat_id, message_id, kind, created_at) "
+                    "VALUES (?, ?, ?, '', ?, ?)",
+                    (
+                        approval_id,
+                        instance_id,
+                        chat_id,
+                        kind,
+                        datetime.now(UTC).isoformat(),
+                    ),
+                )
+                claimed = cursor.rowcount == 1
+                self._conn.commit()
+            except BaseException:
+                self._conn.rollback()
+                raise
+        return claimed
+
+    def finalize_telegram_pending_button(
+        self,
+        *,
+        approval_id: str,
+        instance_id: str,
+        chat_id: str,
+        message_id: str,
+    ) -> bool:
+        cursor = self._conn.execute(
+            "UPDATE telegram_pending_buttons SET message_id = ? "
+            "WHERE approval_id = ? AND instance_id = ? AND chat_id = ? AND message_id = ''",
+            (message_id, approval_id, instance_id, chat_id),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def release_telegram_pending_button_claim(self, approval_id: str, instance_id: str) -> None:
+        self._conn.execute(
+            "DELETE FROM telegram_pending_buttons "
+            "WHERE approval_id = ? AND instance_id = ? AND message_id = ''",
+            (approval_id, instance_id),
+        )
+        self._conn.commit()
+
+    def pop_telegram_pending_button(
+        self,
+        approval_id: str,
+        *,
+        instance_id: str | None = None,
+    ) -> dict | None:
+        predicate = "approval_id = ? AND message_id <> ''"
+        params: tuple[str, ...] = (approval_id,)
+        if instance_id is not None:
+            predicate += " AND instance_id = ?"
+            params = (approval_id, instance_id)
         row = self._conn.execute(
-            "SELECT chat_id, message_id, kind FROM telegram_pending_buttons WHERE approval_id = ?",
-            (approval_id,),
+            f"SELECT chat_id, message_id, kind FROM telegram_pending_buttons WHERE {predicate}",
+            params,
         ).fetchone()
         if not row:
             return None
         self._conn.execute(
-            "DELETE FROM telegram_pending_buttons WHERE approval_id = ?",
-            (approval_id,),
+            f"DELETE FROM telegram_pending_buttons WHERE {predicate}",
+            params,
         )
         self._conn.commit()
         return {"chat_id": row[0], "message_id": row[1], "kind": row[2]}
 
-    def get_telegram_pending_button(self, approval_id: str) -> dict | None:
+    def get_telegram_pending_button(
+        self,
+        approval_id: str,
+        *,
+        instance_id: str | None = None,
+    ) -> dict | None:
         """只读查询（不删除）：callback 处理时先看 pending 是否还在。"""
-        row = self._conn.execute(
-            "SELECT chat_id, message_id, kind FROM telegram_pending_buttons WHERE approval_id = ?",
-            (approval_id,),
-        ).fetchone()
+        if instance_id is None:
+            row = self._conn.execute(
+                "SELECT chat_id, message_id, kind FROM telegram_pending_buttons "
+                "WHERE approval_id = ? AND message_id <> ''",
+                (approval_id,),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT chat_id, message_id, kind FROM telegram_pending_buttons "
+                "WHERE approval_id = ? AND instance_id = ? AND message_id <> ''",
+                (approval_id, instance_id),
+            ).fetchone()
         if not row:
             return None
         return {"chat_id": row[0], "message_id": row[1], "kind": row[2]}

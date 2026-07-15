@@ -189,21 +189,40 @@ class ApprovalCardHandler:
             args_summary=payload.get("args_summary"),
             reason=payload.get("reason", ""),
         )
-        message_id = await self._outbound.send_card(chat_id, card)
-        if message_id:
-            self._storage.save_feishu_pending_card(
-                approval_id=decision_request_id,
-                chat_id=chat_id,
-                message_id=message_id,
-                kind="tool.approval_required",
-                instance_id=self._instance_id,
-            )
+        claimed = self._storage.claim_feishu_pending_card(
+            approval_id=decision_request_id,
+            instance_id=self._instance_id,
+            chat_id=chat_id,
+            kind="tool.approval_required",
+        )
+        if not claimed:
+            return
+        try:
+            message_id = await self._outbound.send_card(chat_id, card)
+        except BaseException:
+            self._storage.release_feishu_pending_card_claim(decision_request_id, self._instance_id)
+            raise
+        if not message_id:
+            self._storage.release_feishu_pending_card_claim(decision_request_id, self._instance_id)
+            return
+        finalized = self._storage.finalize_feishu_pending_card(
+            approval_id=decision_request_id,
+            instance_id=self._instance_id,
+            chat_id=chat_id,
+            message_id=message_id,
+        )
+        if finalized:
             logger.info(
                 "[feishu/approval] card sent edict=%s decision=%s chat=%s msg=%s",
                 edict_id,
                 decision_request_id,
                 chat_id,
                 message_id,
+            )
+        else:
+            logger.error(
+                "[feishu/approval] lost pending-card claim decision=%s",
+                decision_request_id,
             )
 
     async def handle_button_click(self, action: FeishuCardAction) -> None:
@@ -229,6 +248,18 @@ class ApprovalCardHandler:
             or not is_allowed_user(sender, self._settings.allowed_users)
         ):
             logger.warning("[feishu/card] malformed value=%s", value)
+            return
+        pending = self._storage.get_feishu_pending_card(
+            decision_request_id,
+            instance_id=self._instance_id,
+        )
+        if (
+            pending is None
+            or pending["kind"] != "tool.approval_required"
+            or pending["chat_id"] != action.chat_id
+            or pending["message_id"] != action.message_id
+        ):
+            logger.warning("[feishu/card] decision is not bound to this instance/chat/message")
             return
         try:
             record = await self._approval.resolve_tool_decision(
@@ -261,11 +292,23 @@ class ApprovalCardHandler:
         decision_request_id = payload.get("decision_request_id")
         if not is_canonical_decision_request_id(decision_request_id):
             return
-        pending = self._storage.pop_feishu_pending_card(decision_request_id)
+        record = self._approval.get_tool_decision(decision_request_id)
+        if record is None or record.resolution is None:
+            return
+        action = record.resolution.action
+        expected_event = {
+            "approve": "decree.approved",
+            "reject": "decree.rejected",
+        }.get(action)
+        if expected_event != event.event_type:
+            return
+        pending = self._storage.pop_feishu_pending_card(
+            decision_request_id,
+            instance_id=self._instance_id,
+        )
         if not pending:
             return
-        action = "approve" if event.event_type == "decree.approved" else "reject"
-        actor = payload.get("actor") or ""
+        actor = record.resolution.actor_principal_id
         source = (
             "飞书"
             if actor.startswith("feishu:")
@@ -273,7 +316,7 @@ class ApprovalCardHandler:
             if actor.startswith("telegram:")
             else "web"
         )
-        tool_name = payload.get("tool_name", "")
+        tool_name = str(record.request.payload.get("tool_name") or "")
         new_card = build_resolved_card(tool_name=tool_name, source=source, action=action)
         await self._outbound.update_card(pending["message_id"], new_card)
         logger.info(

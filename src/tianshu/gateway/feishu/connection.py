@@ -433,6 +433,9 @@ class WebSocketConnection:
             "event": {
                 "operator": {"open_id": getattr(operator, "open_id", "") or ""},
                 "action": {"value": getattr(action, "value", {}) or {}},
-                "context": {"open_chat_id": getattr(context, "open_chat_id", "") or ""},
+                "context": {
+                    "open_chat_id": getattr(context, "open_chat_id", "") or "",
+                    "open_message_id": getattr(context, "open_message_id", "") or "",
+                },
             },
         }

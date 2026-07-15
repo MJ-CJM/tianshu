@@ -974,6 +974,16 @@ class ApprovalManager:
             for request in self._decision_service.list_pending(kind=DecisionKind.TOOL)
         ]
 
+    def get_tool_decision(self, decision_request_id: str) -> DecisionRecordV1 | None:
+        """Return durable TOOL truth for compatibility views, never authority."""
+
+        if self._decision_service is None:
+            return None
+        record = self._decision_service.get(decision_request_id)
+        if record is None or record.request.kind is not DecisionKind.TOOL:
+            return None
+        return record
+
     def pending_tool_decision_id_for_memorial(self, memorial_id: str) -> str:
         """Resolve the legacy memorial alias only when it is unambiguous."""
 

@@ -23,6 +23,17 @@ _DECISION_1 = "01J00000000000000000000000"
 _DECISION_2 = "01J00000000000000000000001"
 
 
+def _record(*, action: str = "approve", actor: str = "feishu:feishu-default:ou_test"):
+    return SimpleNamespace(
+        request=SimpleNamespace(kind="tool", payload={"tool_name": "shell_exec"}),
+        resolution=SimpleNamespace(
+            action=action,
+            actor_principal_id=actor,
+            payload={"grant_scope": "once"},
+        ),
+    )
+
+
 def _settings(home_channel: str = "") -> FeishuSettings:
     return FeishuSettings(
         app_id="x",
@@ -74,15 +85,8 @@ def test_build_resolved_card():
 def handler(storage):
     bus = EventBus()
     approval = MagicMock()
-    approval.resolve_tool_decision = AsyncMock(
-        return_value=SimpleNamespace(
-            resolution=SimpleNamespace(
-                action="approve",
-                actor_principal_id="feishu:feishu-default:ou_test",
-                payload={"grant_scope": "once"},
-            )
-        )
-    )
+    approval.resolve_tool_decision = AsyncMock(return_value=_record())
+    approval.get_tool_decision = MagicMock(return_value=_record())
     outbound = MagicMock()
     outbound.send_card = AsyncMock(return_value="msg_card_1")
     outbound.update_card = AsyncMock(return_value=True)
@@ -164,11 +168,18 @@ async def test_on_approval_required_skipped_when_no_chat(storage):
 
 
 @pytest.mark.asyncio
-async def test_handle_button_click_resolves_canonical_decision_with_webhook_auth(handler):
+async def test_handle_button_click_resolves_canonical_decision_with_webhook_auth(handler, storage):
     h, _, _, approval = handler
+    storage.save_feishu_pending_card(
+        approval_id=_DECISION_1,
+        chat_id="oc_x",
+        message_id="msg-card",
+        kind="tool.approval_required",
+    )
     action = FeishuCardAction(
         event_id="evt",
         chat_id="oc_x",
+        message_id="msg-card",
         sender_open_id="ou_test",
         value={
             "decision_request_id": _DECISION_1,
@@ -194,13 +205,20 @@ async def test_handle_button_click_resolves_canonical_decision_with_webhook_auth
 
 
 @pytest.mark.asyncio
-async def test_handle_button_click_idempotent_when_already_resolved(handler):
+async def test_handle_button_click_idempotent_when_already_resolved(handler, storage):
     """已被 web 端响应（ApprovalManager 抛 ValueError）→ 静默忽略。"""
     h, _, _, approval = handler
     approval.resolve_tool_decision = AsyncMock(side_effect=ValueError("not pending"))
+    storage.save_feishu_pending_card(
+        approval_id=_DECISION_1,
+        chat_id="c",
+        message_id="msg-card",
+        kind="tool.approval_required",
+    )
     action = FeishuCardAction(
         event_id="e",
         chat_id="c",
+        message_id="msg-card",
         sender_open_id="ou_test",
         value={"decision_request_id": _DECISION_1, "action": "approve", "scope": "once"},
     )
@@ -319,4 +337,104 @@ async def test_same_memorial_decisions_keep_independent_pending_cards(handler, s
     )
 
     assert storage.pop_feishu_pending_card(_DECISION_1) is None
+    assert storage.pop_feishu_pending_card(_DECISION_2) is not None
+
+
+@pytest.mark.asyncio
+async def test_replayed_approval_required_sends_one_card(handler, storage):
+    h, _, outbound, _ = handler
+    edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    event = EventEnvelope(
+        event_type="tool.approval_required",
+        edict_id=edict.id,
+        memorial_id="memorial",
+        payload={"decision_request_id": _DECISION_1, "tool_name": "shell_exec"},
+    )
+
+    await h._on_approval_required(event)
+    await h._on_approval_required(event)
+
+    outbound.send_card.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_failed_card_delivery_releases_claim_for_retry(handler, storage):
+    h, _, outbound, _ = handler
+    edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    event = EventEnvelope(
+        event_type="tool.approval_required",
+        edict_id=edict.id,
+        memorial_id="memorial",
+        payload={"decision_request_id": _DECISION_1, "tool_name": "shell_exec"},
+    )
+    outbound.send_card.side_effect = [RuntimeError("delivery failed"), "msg-retry"]
+
+    with pytest.raises(RuntimeError, match="delivery failed"):
+        await h._on_approval_required(event)
+    await h._on_approval_required(event)
+
+    assert outbound.send_card.await_count == 2
+    assert storage.get_feishu_pending_card(_DECISION_1) is not None
+
+
+@pytest.mark.asyncio
+async def test_button_must_match_pending_instance_chat_and_message(handler, storage):
+    h, _, _, approval = handler
+    storage.save_feishu_pending_card(
+        approval_id=_DECISION_1,
+        chat_id="oc_other",
+        message_id="msg-other",
+        kind="tool.approval_required",
+        instance_id="feishu-other",
+    )
+    action = FeishuCardAction(
+        event_id="evt",
+        chat_id="oc_x",
+        message_id="msg-forged",
+        sender_open_id="ou_test",
+        value={"decision_request_id": _DECISION_1, "action": "approve", "scope": "once"},
+    )
+
+    await h.handle_button_click(action)
+
+    approval.resolve_tool_decision.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_resolved_event_uses_durable_winner_and_current_instance(handler, storage):
+    h, _, outbound, approval = handler
+    approval.get_tool_decision.return_value = _record(
+        action="approve", actor="telegram:telegram-a:7"
+    )
+    storage.save_feishu_pending_card(
+        approval_id=_DECISION_1,
+        chat_id="oc_x",
+        message_id="msg-current",
+        kind="tool.approval_required",
+        instance_id="feishu-default",
+    )
+    storage.save_feishu_pending_card(
+        approval_id=_DECISION_2,
+        chat_id="oc_other",
+        message_id="msg-other",
+        kind="tool.approval_required",
+        instance_id="feishu-other",
+    )
+
+    await h._on_decree_resolved(
+        EventEnvelope(
+            event_type="decree.approved",
+            memorial_id="memorial",
+            payload={
+                "decision_request_id": _DECISION_1,
+                "tool_name": "forged",
+                "actor": "web:forged",
+            },
+        )
+    )
+
+    card = outbound.update_card.await_args.args[1]
+    assert "Telegram" in card["elements"][0]["content"]
     assert storage.pop_feishu_pending_card(_DECISION_2) is not None

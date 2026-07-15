@@ -41,6 +41,7 @@ class FeishuCardAction:
     chat_id: str
     sender_open_id: str
     value: dict
+    message_id: str = ""
 
 
 class Dispatcher:
@@ -141,12 +142,14 @@ class Dispatcher:
         if not sender_open_id or not is_allowed_user(sender_open_id, self._settings.allowed_users):
             return
         chat_id = (event.get("context") or {}).get("open_chat_id", "")
+        message_id = (event.get("context") or {}).get("open_message_id", "")
         await self._card_handler(
             FeishuCardAction(
                 event_id=event_id,
                 chat_id=chat_id,
                 sender_open_id=sender_open_id,
                 value=value,
+                message_id=message_id,
             )
         )
 
