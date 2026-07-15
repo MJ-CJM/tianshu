@@ -152,7 +152,9 @@ class ApprovalKeyboardHandler:
             return
         payload = event.payload or {}
         decision_request_id = payload.get("decision_request_id")
-        if not is_canonical_decision_request_id(decision_request_id):
+        if not isinstance(decision_request_id, str) or not is_canonical_decision_request_id(
+            decision_request_id
+        ):
             logger.warning("[telegram/approval] non-actionable event without canonical decision id")
             return
         card = build_approval_message(
@@ -197,6 +199,7 @@ class ApprovalKeyboardHandler:
                 chat_id,
                 message_id,
             )
+            await self._refresh_durable_decision(decision_request_id)
         else:
             logger.error(
                 "[telegram/approval] lost pending-button claim decision=%s",
@@ -219,7 +222,8 @@ class ApprovalKeyboardHandler:
             return "无效操作"
         _, action, scope, decision_request_id = parts
         if (
-            not is_canonical_decision_request_id(decision_request_id)
+            not isinstance(decision_request_id, str)
+            or not is_canonical_decision_request_id(decision_request_id)
             or action not in ("approve", "reject")
             or (action == "approve" and scope not in ("once", "edict", "always"))
             or (action == "reject" and scope)
@@ -297,8 +301,23 @@ class ApprovalKeyboardHandler:
         """另一通道（web/飞书）响应 → 刷新本侧审批消息为已响应。"""
         payload = event.payload or {}
         decision_request_id = payload.get("decision_request_id")
-        if not is_canonical_decision_request_id(decision_request_id):
+        if not isinstance(decision_request_id, str) or not is_canonical_decision_request_id(
+            decision_request_id
+        ):
             return
+        await self._refresh_durable_decision(
+            decision_request_id,
+            expected_event_type=event.event_type,
+        )
+
+    async def _refresh_durable_decision(
+        self,
+        decision_request_id: str,
+        *,
+        expected_event_type: str | None = None,
+    ) -> None:
+        """Project the durable winner after an artifact becomes addressable."""
+
         record = self._approval.get_tool_decision(decision_request_id)
         if record is None or record.resolution is None:
             return
@@ -307,7 +326,9 @@ class ApprovalKeyboardHandler:
             "approve": "decree.approved",
             "reject": "decree.rejected",
         }.get(action)
-        if expected_event != event.event_type:
+        if expected_event is None or (
+            expected_event_type is not None and expected_event != expected_event_type
+        ):
             return
         pending = self._storage.pop_telegram_pending_button(
             decision_request_id,

@@ -81,12 +81,30 @@ def test_build_resolved_card():
     assert "已批准" in c["header"]["title"]["content"]
 
 
+def test_pending_command_list_excludes_delivery_placeholder(storage):
+    assert storage.claim_feishu_pending_card(
+        approval_id=_DECISION_1,
+        instance_id="feishu-default",
+        chat_id="oc_x",
+        kind="tool.approval_required",
+    )
+    assert storage.list_feishu_pending_for_chat("oc_x") == []
+
+    assert storage.finalize_feishu_pending_card(
+        approval_id=_DECISION_1,
+        instance_id="feishu-default",
+        chat_id="oc_x",
+        message_id="msg-1",
+    )
+    assert storage.list_feishu_pending_for_chat("oc_x") == [_DECISION_1]
+
+
 @pytest.fixture
 def handler(storage):
     bus = EventBus()
     approval = MagicMock()
     approval.resolve_tool_decision = AsyncMock(return_value=_record())
-    approval.get_tool_decision = MagicMock(return_value=_record())
+    approval.get_tool_decision = MagicMock(return_value=None)
     outbound = MagicMock()
     outbound.send_card = AsyncMock(return_value="msg_card_1")
     outbound.update_card = AsyncMock(return_value=True)
@@ -243,7 +261,8 @@ async def test_handle_button_click_malformed_value(handler):
 @pytest.mark.asyncio
 async def test_on_decree_resolved_refreshes_card(handler, storage):
     """决策落下 → pending 卡片刷新为"已响应"。"""
-    h, _, outbound, _ = handler
+    h, _, outbound, approval = handler
+    approval.get_tool_decision.return_value = _record()
     storage.save_feishu_pending_card(
         approval_id=_DECISION_1,
         chat_id="oc_x",
@@ -313,7 +332,7 @@ async def test_missing_decision_id_is_not_actionable_and_does_not_pop_other_card
 
 @pytest.mark.asyncio
 async def test_same_memorial_decisions_keep_independent_pending_cards(handler, storage):
-    h, _, outbound, _ = handler
+    h, _, outbound, approval = handler
     edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
     storage.save_edict(edict)
     outbound.send_card.side_effect = ["msg-1", "msg-2"]
@@ -328,6 +347,7 @@ async def test_same_memorial_decisions_keep_independent_pending_cards(handler, s
             )
         )
 
+    approval.get_tool_decision.return_value = _record()
     await h._on_decree_resolved(
         EventEnvelope(
             event_type="decree.approved",
@@ -437,4 +457,79 @@ async def test_resolved_event_uses_durable_winner_and_current_instance(handler, 
 
     card = outbound.update_card.await_args.args[1]
     assert "Telegram" in card["elements"][0]["content"]
-    assert storage.pop_feishu_pending_card(_DECISION_2) is not None
+    assert storage.pop_feishu_pending_card(_DECISION_2, instance_id="feishu-other") is not None
+
+
+@pytest.mark.asyncio
+async def test_resolution_during_card_send_is_refreshed_after_finalize(handler, storage):
+    h, _, outbound, approval = handler
+    edict = Edict(title="t", goal="g", source="channel", metadata={"chat_id": "oc_x"})
+    storage.save_edict(edict)
+    resolved_event = EventEnvelope(
+        event_type="decree.approved",
+        memorial_id="memorial",
+        payload={"decision_request_id": _DECISION_1},
+    )
+
+    async def resolve_while_sending(*_args, **_kwargs):
+        approval.get_tool_decision.return_value = _record()
+        await h._on_decree_resolved(resolved_event)
+        return "msg-race"
+
+    outbound.send_card.side_effect = resolve_while_sending
+    await h._on_approval_required(
+        EventEnvelope(
+            event_type="tool.approval_required",
+            edict_id=edict.id,
+            memorial_id="memorial",
+            payload={"decision_request_id": _DECISION_1, "tool_name": "shell_exec"},
+        )
+    )
+
+    outbound.update_card.assert_awaited_once()
+    assert outbound.update_card.await_args.args[0] == "msg-race"
+    assert storage.get_feishu_pending_card(_DECISION_1) is None
+
+
+@pytest.mark.asyncio
+async def test_unbound_edict_can_deliver_once_per_configured_instance(storage):
+    approval = MagicMock()
+    approval.get_tool_decision = MagicMock(return_value=None)
+    outbound_a = MagicMock()
+    outbound_a.send_card = AsyncMock(return_value="msg-a")
+    outbound_a.update_card = AsyncMock(return_value=True)
+    outbound_b = MagicMock()
+    outbound_b.send_card = AsyncMock(return_value="msg-b")
+    outbound_b.update_card = AsyncMock(return_value=True)
+    handler_a = ApprovalCardHandler(
+        settings=_settings(home_channel="oc-a"),
+        storage=storage,
+        event_bus=EventBus(),
+        approval_manager=approval,
+        outbound=outbound_a,
+        instance_id="feishu-a",
+    )
+    handler_b = ApprovalCardHandler(
+        settings=_settings(home_channel="oc-b"),
+        storage=storage,
+        event_bus=EventBus(),
+        approval_manager=approval,
+        outbound=outbound_b,
+        instance_id="feishu-b",
+    )
+    edict = Edict(title="t", goal="g", source="api", metadata={})
+    storage.save_edict(edict)
+    event = EventEnvelope(
+        event_type="tool.approval_required",
+        edict_id=edict.id,
+        memorial_id="memorial",
+        payload={"decision_request_id": _DECISION_1, "tool_name": "shell_exec"},
+    )
+
+    await handler_a._on_approval_required(event)
+    await handler_b._on_approval_required(event)
+
+    outbound_a.send_card.assert_awaited_once()
+    outbound_b.send_card.assert_awaited_once()
+    assert storage.get_feishu_pending_card(_DECISION_1, instance_id="feishu-a") is not None
+    assert storage.get_feishu_pending_card(_DECISION_1, instance_id="feishu-b") is not None

@@ -131,6 +131,17 @@ class TelegramMixin:
 
     # --- Telegram pending buttons（审批 inline keyboard 反查）---
 
+    @staticmethod
+    def _telegram_pending_key(approval_id: str, instance_id: str) -> str:
+        """Scope actionable approval artifacts without changing the legacy schema."""
+
+        return f"{len(instance_id)}:{instance_id}:{approval_id}"
+
+    @classmethod
+    def _telegram_pending_id(cls, stored_id: str, instance_id: str) -> str:
+        prefix = cls._telegram_pending_key("", instance_id)
+        return stored_id[len(prefix) :] if stored_id.startswith(prefix) else stored_id
+
     def save_telegram_pending_button(
         self,
         *,
@@ -142,11 +153,16 @@ class TelegramMixin:
     ) -> None:
         from datetime import UTC, datetime
 
+        stored_id = (
+            self._telegram_pending_key(approval_id, instance_id)
+            if kind == "tool.approval_required"
+            else approval_id
+        )
         self._conn.execute(
             "INSERT OR REPLACE INTO telegram_pending_buttons "
             "(approval_id, instance_id, chat_id, message_id, kind, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (approval_id, instance_id, chat_id, message_id, kind, datetime.now(UTC).isoformat()),
+            (stored_id, instance_id, chat_id, message_id, kind, datetime.now(UTC).isoformat()),
         )
         self._conn.commit()
 
@@ -162,6 +178,7 @@ class TelegramMixin:
 
         from datetime import UTC, datetime
 
+        stored_id = self._telegram_pending_key(approval_id, instance_id)
         with self._lock:
             try:
                 cursor = self._conn.execute(
@@ -169,7 +186,7 @@ class TelegramMixin:
                     "(approval_id, instance_id, chat_id, message_id, kind, created_at) "
                     "VALUES (?, ?, ?, '', ?, ?)",
                     (
-                        approval_id,
+                        stored_id,
                         instance_id,
                         chat_id,
                         kind,
@@ -191,19 +208,21 @@ class TelegramMixin:
         chat_id: str,
         message_id: str,
     ) -> bool:
+        stored_id = self._telegram_pending_key(approval_id, instance_id)
         cursor = self._conn.execute(
             "UPDATE telegram_pending_buttons SET message_id = ? "
             "WHERE approval_id = ? AND instance_id = ? AND chat_id = ? AND message_id = ''",
-            (message_id, approval_id, instance_id, chat_id),
+            (message_id, stored_id, instance_id, chat_id),
         )
         self._conn.commit()
         return cursor.rowcount == 1
 
     def release_telegram_pending_button_claim(self, approval_id: str, instance_id: str) -> None:
+        stored_id = self._telegram_pending_key(approval_id, instance_id)
         self._conn.execute(
             "DELETE FROM telegram_pending_buttons "
             "WHERE approval_id = ? AND instance_id = ? AND message_id = ''",
-            (approval_id, instance_id),
+            (stored_id, instance_id),
         )
         self._conn.commit()
 
@@ -211,13 +230,11 @@ class TelegramMixin:
         self,
         approval_id: str,
         *,
-        instance_id: str | None = None,
+        instance_id: str = "telegram-default",
     ) -> dict | None:
-        predicate = "approval_id = ? AND message_id <> ''"
-        params: tuple[str, ...] = (approval_id,)
-        if instance_id is not None:
-            predicate += " AND instance_id = ?"
-            params = (approval_id, instance_id)
+        stored_id = self._telegram_pending_key(approval_id, instance_id)
+        predicate = "approval_id = ? AND instance_id = ? AND message_id <> ''"
+        params = (stored_id, instance_id)
         row = self._conn.execute(
             f"SELECT chat_id, message_id, kind FROM telegram_pending_buttons WHERE {predicate}",
             params,
@@ -235,21 +252,15 @@ class TelegramMixin:
         self,
         approval_id: str,
         *,
-        instance_id: str | None = None,
+        instance_id: str = "telegram-default",
     ) -> dict | None:
         """只读查询（不删除）：callback 处理时先看 pending 是否还在。"""
-        if instance_id is None:
-            row = self._conn.execute(
-                "SELECT chat_id, message_id, kind FROM telegram_pending_buttons "
-                "WHERE approval_id = ? AND message_id <> ''",
-                (approval_id,),
-            ).fetchone()
-        else:
-            row = self._conn.execute(
-                "SELECT chat_id, message_id, kind FROM telegram_pending_buttons "
-                "WHERE approval_id = ? AND instance_id = ? AND message_id <> ''",
-                (approval_id, instance_id),
-            ).fetchone()
+        stored_id = self._telegram_pending_key(approval_id, instance_id)
+        row = self._conn.execute(
+            "SELECT chat_id, message_id, kind FROM telegram_pending_buttons "
+            "WHERE approval_id = ? AND instance_id = ? AND message_id <> ''",
+            (stored_id, instance_id),
+        ).fetchone()
         if not row:
             return None
         return {"chat_id": row[0], "message_id": row[1], "kind": row[2]}
@@ -261,7 +272,8 @@ class TelegramMixin:
         rows = self._conn.execute(
             "SELECT approval_id FROM telegram_pending_buttons "
             "WHERE instance_id = ? AND chat_id = ? AND kind = 'tool.approval_required' "
+            "AND message_id <> '' "
             "ORDER BY created_at ASC",
             (instance_id, chat_id),
         ).fetchall()
-        return [r[0] for r in rows]
+        return [self._telegram_pending_id(row[0], instance_id) for row in rows]

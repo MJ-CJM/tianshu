@@ -178,7 +178,9 @@ class ApprovalCardHandler:
             return
         payload = event.payload or {}
         decision_request_id = payload.get("decision_request_id")
-        if not is_canonical_decision_request_id(decision_request_id):
+        if not isinstance(decision_request_id, str) or not is_canonical_decision_request_id(
+            decision_request_id
+        ):
             logger.warning("[feishu/approval] non-actionable event without canonical decision id")
             return
         card = build_approval_card(
@@ -219,6 +221,7 @@ class ApprovalCardHandler:
                 chat_id,
                 message_id,
             )
+            await self._refresh_durable_decision(decision_request_id)
         else:
             logger.error(
                 "[feishu/approval] lost pending-card claim decision=%s",
@@ -241,7 +244,8 @@ class ApprovalCardHandler:
         scope = value.get("scope")
         sender = action.sender_open_id
         if (
-            not is_canonical_decision_request_id(decision_request_id)
+            not isinstance(decision_request_id, str)
+            or not is_canonical_decision_request_id(decision_request_id)
             or act not in ("approve", "reject")
             or (act == "approve" and scope not in (None, "once", "edict", "always"))
             or not sender
@@ -290,8 +294,23 @@ class ApprovalCardHandler:
         """web 或飞书响应 → 刷新另一侧（或本侧）卡片为"已响应"状态。"""
         payload = event.payload or {}
         decision_request_id = payload.get("decision_request_id")
-        if not is_canonical_decision_request_id(decision_request_id):
+        if not isinstance(decision_request_id, str) or not is_canonical_decision_request_id(
+            decision_request_id
+        ):
             return
+        await self._refresh_durable_decision(
+            decision_request_id,
+            expected_event_type=event.event_type,
+        )
+
+    async def _refresh_durable_decision(
+        self,
+        decision_request_id: str,
+        *,
+        expected_event_type: str | None = None,
+    ) -> None:
+        """Project the durable winner after an artifact becomes addressable."""
+
         record = self._approval.get_tool_decision(decision_request_id)
         if record is None or record.resolution is None:
             return
@@ -300,7 +319,9 @@ class ApprovalCardHandler:
             "approve": "decree.approved",
             "reject": "decree.rejected",
         }.get(action)
-        if expected_event != event.event_type:
+        if expected_event is None or (
+            expected_event_type is not None and expected_event != expected_event_type
+        ):
             return
         pending = self._storage.pop_feishu_pending_card(
             decision_request_id,

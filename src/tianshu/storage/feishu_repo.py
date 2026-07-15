@@ -198,6 +198,17 @@ class FeishuMixin:
 
     # --- Feishu pending cards (Step 5 用) ---
 
+    @staticmethod
+    def _feishu_pending_key(approval_id: str, instance_id: str) -> str:
+        """Scope actionable approval artifacts without changing the legacy schema."""
+
+        return f"{len(instance_id)}:{instance_id}:{approval_id}"
+
+    @classmethod
+    def _feishu_pending_id(cls, stored_id: str, instance_id: str) -> str:
+        prefix = cls._feishu_pending_key("", instance_id)
+        return stored_id[len(prefix) :] if stored_id.startswith(prefix) else stored_id
+
     def save_feishu_pending_card(
         self,
         approval_id: str,
@@ -208,11 +219,16 @@ class FeishuMixin:
     ) -> None:
         from datetime import UTC, datetime
 
+        stored_id = (
+            self._feishu_pending_key(approval_id, instance_id)
+            if kind == "tool.approval_required"
+            else approval_id
+        )
         self._conn.execute(
             "INSERT OR REPLACE INTO feishu_pending_cards "
             "(approval_id, instance_id, chat_id, message_id, kind, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (approval_id, instance_id, chat_id, message_id, kind, datetime.now(UTC).isoformat()),
+            (stored_id, instance_id, chat_id, message_id, kind, datetime.now(UTC).isoformat()),
         )
         self._conn.commit()
 
@@ -228,6 +244,7 @@ class FeishuMixin:
 
         from datetime import UTC, datetime
 
+        stored_id = self._feishu_pending_key(approval_id, instance_id)
         with self._lock:
             try:
                 cursor = self._conn.execute(
@@ -235,7 +252,7 @@ class FeishuMixin:
                     "(approval_id, instance_id, chat_id, message_id, kind, created_at) "
                     "VALUES (?, ?, ?, '', ?, ?)",
                     (
-                        approval_id,
+                        stored_id,
                         instance_id,
                         chat_id,
                         kind,
@@ -257,19 +274,21 @@ class FeishuMixin:
         chat_id: str,
         message_id: str,
     ) -> bool:
+        stored_id = self._feishu_pending_key(approval_id, instance_id)
         cursor = self._conn.execute(
             "UPDATE feishu_pending_cards SET message_id = ? "
             "WHERE approval_id = ? AND instance_id = ? AND chat_id = ? AND message_id = ''",
-            (message_id, approval_id, instance_id, chat_id),
+            (message_id, stored_id, instance_id, chat_id),
         )
         self._conn.commit()
         return cursor.rowcount == 1
 
     def release_feishu_pending_card_claim(self, approval_id: str, instance_id: str) -> None:
+        stored_id = self._feishu_pending_key(approval_id, instance_id)
         self._conn.execute(
             "DELETE FROM feishu_pending_cards "
             "WHERE approval_id = ? AND instance_id = ? AND message_id = ''",
-            (approval_id, instance_id),
+            (stored_id, instance_id),
         )
         self._conn.commit()
 
@@ -277,20 +296,14 @@ class FeishuMixin:
         self,
         approval_id: str,
         *,
-        instance_id: str | None = None,
+        instance_id: str = "feishu-default",
     ) -> dict | None:
-        if instance_id is None:
-            row = self._conn.execute(
-                "SELECT instance_id, chat_id, message_id, kind FROM feishu_pending_cards "
-                "WHERE approval_id = ? AND message_id <> ''",
-                (approval_id,),
-            ).fetchone()
-        else:
-            row = self._conn.execute(
-                "SELECT instance_id, chat_id, message_id, kind FROM feishu_pending_cards "
-                "WHERE approval_id = ? AND instance_id = ? AND message_id <> ''",
-                (approval_id, instance_id),
-            ).fetchone()
+        stored_id = self._feishu_pending_key(approval_id, instance_id)
+        row = self._conn.execute(
+            "SELECT instance_id, chat_id, message_id, kind FROM feishu_pending_cards "
+            "WHERE approval_id = ? AND instance_id = ? AND message_id <> ''",
+            (stored_id, instance_id),
+        ).fetchone()
         if not row:
             return None
         return {"instance_id": row[0], "chat_id": row[1], "message_id": row[2], "kind": row[3]}
@@ -299,13 +312,11 @@ class FeishuMixin:
         self,
         approval_id: str,
         *,
-        instance_id: str | None = None,
+        instance_id: str = "feishu-default",
     ) -> dict | None:
-        predicate = "approval_id = ? AND message_id <> ''"
-        params: tuple[str, ...] = (approval_id,)
-        if instance_id is not None:
-            predicate += " AND instance_id = ?"
-            params = (approval_id, instance_id)
+        stored_id = self._feishu_pending_key(approval_id, instance_id)
+        predicate = "approval_id = ? AND instance_id = ? AND message_id <> ''"
+        params = (stored_id, instance_id)
         row = self._conn.execute(
             f"SELECT chat_id, message_id, kind FROM feishu_pending_cards WHERE {predicate}",
             params,
@@ -318,3 +329,15 @@ class FeishuMixin:
         )
         self._conn.commit()
         return {"chat_id": row[0], "message_id": row[1], "kind": row[2]}
+
+    def list_feishu_pending_for_chat(
+        self, chat_id: str, instance_id: str = "feishu-default"
+    ) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT approval_id FROM feishu_pending_cards "
+            "WHERE instance_id = ? AND chat_id = ? "
+            "AND kind = 'tool.approval_required' AND message_id <> '' "
+            "ORDER BY created_at ASC",
+            (instance_id, chat_id),
+        ).fetchall()
+        return [self._feishu_pending_id(row[0], instance_id) for row in rows]

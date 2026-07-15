@@ -78,8 +78,6 @@ def _record_returning(action: str, scope: str | None):
 @pytest.fixture
 def handler_setup():
     storage = MagicMock()
-    # 模拟 storage._conn.execute(...).fetchall()
-    storage._conn = MagicMock()
     approval = MagicMock()
 
     # 默认：实际 scope 等于 input scope（无降级）
@@ -93,7 +91,7 @@ def handler_setup():
 
 def _set_pending(storage: MagicMock, memorial_ids: list[str]) -> None:
     """让 _list_pending_for_chat 返回指定 memorial_id 列表。"""
-    storage._conn.execute.return_value.fetchall.return_value = [(mid,) for mid in memorial_ids]
+    storage.list_feishu_pending_for_chat.return_value = memorial_ids
 
 
 @pytest.mark.asyncio
