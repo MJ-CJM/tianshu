@@ -537,7 +537,7 @@ export default function EdictDetailPage() {
           style={{ marginBottom: 24, borderLeft: "3px solid var(--ts-color-warning)" }}
         >
           {pendingTools.map((p) => (
-            <PendingToolCallCard key={p.memorial_id} pending={p} />
+            <PendingToolCallCard key={p.decision_request_id} pending={p} />
           ))}
         </GlowCard>
       )}

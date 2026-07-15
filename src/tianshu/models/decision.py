@@ -146,6 +146,9 @@ class _VersionedPayload(_StrictModel):
 class _ToolApprovePayload(_VersionedPayload):
     grant_scope: Literal["once", "edict", "always"] | None = None
     grant_reason: str | None = None
+    requested_grant_scope: Literal["once", "edict", "always"] | None = None
+    grant_downgraded: bool = False
+    grant_downgrade_reason: str | None = None
 
 
 class _ToolGuidePayload(_VersionedPayload):

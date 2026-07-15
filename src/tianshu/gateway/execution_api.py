@@ -9,6 +9,7 @@ from tianshu.executor.executor import Executor
 from tianshu.executor.lanes import LaneManager
 from tianshu.executor.worker_pool import WorkerPool
 from tianshu.gateway.auth import get_auth_context
+from tianshu.governance.decision_service import DecisionConflict
 from tianshu.models import ApiResponse, Decree, DecreeCreateRequest, TaskStatus, ToolDecisionRequest
 from tianshu.scheduler.scheduler import Scheduler
 from tianshu.storage import Storage
@@ -89,12 +90,7 @@ async def create_decree(body: DecreeCreateRequest, request: Request):
 
 @execution_router.get("/approvals/pending_tool_calls", response_model=ApiResponse)
 async def list_pending_tool_calls(request: Request):
-    """Return in-memory pending tool-call approvals awaited by PolicyHook.
-
-    Used by 御书房 to render mid-execution approval cards. The state is sourced
-    from `ApprovalManager._pending` (authoritative) and enriched with the latest
-    `tool.approval_required` event payload for each memorial.
-    """
+    """Return restart-visible durable tool decisions awaited by PolicyHook."""
     approval_manager: ApprovalManager = request.app.state.approval_manager
     items = approval_manager.list_pending_tool_calls()
     return ApiResponse(success=True, data={"items": items})
@@ -111,19 +107,48 @@ async def list_pending_tool_calls(request: Request):
 async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
     """Approve or reject a pending tool-call without mutating memorial status."""
     approval_manager: ApprovalManager = request.app.state.approval_manager
-    actor = get_auth_context(request).principal.id
+    decision_request_id = body.decision_request_id
+    if decision_request_id is None:
+        try:
+            decision_request_id = approval_manager.pending_tool_decision_id_for_memorial(
+                body.memorial_id or ""
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
     try:
-        decree = await approval_manager.submit_tool_decision(
-            memorial_id=body.memorial_id,
+        record = await approval_manager.resolve_tool_decision(
+            decision_request_id,
             action=body.action,
             comment=body.comment,
             grant_scope=body.grant_scope,
             grant_reason=body.grant_reason,
-            actor=actor,
+            auth=get_auth_context(request),
         )
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return ApiResponse(success=True, data=decree.model_dump(mode="json"))
+        status = 404 if "not found" in str(e) else 400
+        raise HTTPException(status_code=status, detail=str(e)) from e
+    except DecisionConflict as e:
+        raise HTTPException(status_code=409, detail=e.code) from e
+    resolution = record.resolution
+    if resolution is None:
+        raise HTTPException(status_code=409, detail="tool decision is not resolved")
+    return ApiResponse(
+        success=True,
+        data={
+            "decision_request_id": record.request.decision_request_id,
+            "memorial_id": record.request.memorial_id,
+            "edict_id": record.request.edict_id,
+            "action": resolution.action,
+            "comment": resolution.payload.get("guidance") or resolution.reason,
+            "actor": resolution.actor_principal_id,
+            "grant_scope": resolution.payload.get("grant_scope"),
+            "grant_reason": resolution.payload.get("grant_reason"),
+            "requested_grant_scope": resolution.payload.get("requested_grant_scope"),
+            "grant_downgraded": resolution.payload.get("grant_downgraded", False),
+            "grant_downgrade_reason": resolution.payload.get("grant_downgrade_reason"),
+            "resolved_at": resolution.resolved_at.isoformat(),
+        },
+    )
 
 
 # --- DAG endpoints (Phase 3) ---

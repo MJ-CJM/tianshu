@@ -883,21 +883,15 @@ def test_authenticated_edict_submitter_and_idempotency_ignore_forged_body(
 
 
 @pytest.mark.parametrize("action", ["approve", "reject"])
-def test_authenticated_approval_actor_ignores_forged_body(
+def test_decree_ignores_forged_actor_and_tool_decision_rejects_it(
     storage: Storage,
     action: Literal["approve", "reject"],
 ) -> None:
     from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
     from tianshu.gateway.execution_api import execution_router
-    from tianshu.models import Decree
 
     settings = _secure_settings()
-    manager = SimpleNamespace(
-        submit_decree=AsyncMock(),
-        submit_tool_decision=AsyncMock(
-            return_value=Decree(memorial_id="m-1", action=action, actor="user:owner")
-        ),
-    )
+    manager = SimpleNamespace(submit_decree=AsyncMock())
     app = FastAPI()
     app.state.settings = settings
     app.state.auth_service = AuthService(storage, settings)
@@ -919,12 +913,16 @@ def test_authenticated_approval_actor_ignores_forged_body(
         tool = client.post(
             "/api/approvals/tool_decision",
             headers=headers,
-            json={"memorial_id": "m-1", "action": action, "actor": "forged"},
+            json={"decision_request_id": "decision-1", "action": action, "actor": "forged"},
+        )
+        anonymous_tool = client.post(
+            "/api/approvals/tool_decision",
+            json={"decision_request_id": "decision-1", "action": action},
         )
 
     submitted_decree = manager.submit_decree.await_args.args[0]
     assert decree.status_code == 201
     assert decree.json()["data"]["actor"] == "user:owner"
     assert submitted_decree.actor == "user:owner"
-    assert tool.status_code == 201
-    assert manager.submit_tool_decision.await_args.kwargs["actor"] == "user:owner"
+    assert tool.status_code == 422
+    assert anonymous_tool.status_code == 401

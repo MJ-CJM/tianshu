@@ -26,3 +26,13 @@ def test_wiring_injects_one_decision_service_and_registers_projection_consumer()
     assert "decision_service=app.state.decision_service" in source
     assert "approval_manager.tool_decree_projection.v1" in source
     assert 'event_bus.on(\n        "decision.resolved"' in source
+
+
+def test_current_http_and_text_adapters_do_not_use_legacy_tool_authority() -> None:
+    from tianshu.gateway import execution_api
+    from tianshu.gateway.core import approval
+
+    for adapter in (execution_api.submit_tool_decision, approval.ApprovalCommandHandler.handle):
+        source = inspect.getsource(adapter)
+        assert ".submit_tool_decision(" not in source
+        assert "wait_for_approval(" not in source

@@ -1,5 +1,6 @@
 """Restart, race, and replay coverage for the durable tool-decision core."""
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -14,6 +15,7 @@ from tianshu.models.decision import DecisionKind, ResolveDecisionCommand
 from tianshu.models.principal import AuthContext, Principal
 from tianshu.storage import Storage
 from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.tools.policy_store import InMemorySessionRuleStore
 
 _NOW = datetime(2026, 7, 15, 13, tzinfo=UTC)
 
@@ -69,13 +71,14 @@ def _suspend(
     *,
     invocation_id: str = "tool-call-restart-1",
     iteration: int = 2,
+    tool_name: str = "write_file",
 ):
     return manager.request_tool_decision(
         edict=edict,
         memorial=memorial,
         invocation_id=invocation_id,
-        tool_name="write_file",
-        tool_args={"path": "README.md"},
+        tool_name=tool_name,
+        tool_args={"path": "README.md", "command": "git status"},
         tool_tier="T1_WORKSPACE",
         policy_rule_id="approval_required",
         messages=[
@@ -89,8 +92,8 @@ def _suspend(
                         "id": invocation_id,
                         "type": "function",
                         "function": {
-                            "name": "write_file",
-                            "arguments": {"path": "README.md"},
+                            "name": tool_name,
+                            "arguments": {"path": "README.md", "command": "git status"},
                         },
                     }
                 ],
@@ -333,3 +336,113 @@ async def test_concurrent_next_tool_suspensions_reject_stale_writer(tmp_path: Pa
         assert state.continuation.pending_tool.tool_call_id == winner[1]
     finally:
         verify.close()
+
+
+def test_pending_tool_projection_survives_manager_restart(tmp_path: Path) -> None:
+    path = tmp_path / "pending-tool-projection.db"
+    edict, memorial = _create_database(path)
+    storage = Storage(str(path))
+    storage.init_db()
+    try:
+        manager, _ = _manager(storage)
+        requested = _suspend(manager, edict, memorial)
+
+        restarted, _ = _manager(storage)
+        restarted._pending.clear()  # noqa: SLF001 - proves process maps are irrelevant
+        restarted._pending_tool.clear()  # noqa: SLF001
+
+        assert restarted.list_pending_tool_calls() == [
+            {
+                "decision_request_id": requested.decision_request_id,
+                "memorial_id": memorial.id,
+                "edict_id": edict.id,
+                "tool_name": "write_file",
+                "rule_id": "approval_required",
+                "reason": None,
+                "tool_tier": "T1_WORKSPACE",
+                "args_summary": {"command": "git status", "path": "README.md"},
+                "created_at": requested.created_at.isoformat(),
+            }
+        ]
+    finally:
+        storage.close()
+
+
+async def test_canonical_resolver_is_idempotent_and_projects_one_session_rule(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "canonical-tool-resolver.db"
+    edict, memorial = _create_database(path)
+    storage = Storage(str(path))
+    storage.init_db()
+    rules = InMemorySessionRuleStore()
+    service = DecisionService(storage, clock=lambda: _NOW)
+    manager = ApprovalManager(
+        EventBus(),
+        storage,
+        session_rule_store=rules,
+        decision_service=service,
+        clock=lambda: _NOW,
+    )
+    try:
+        requested = _suspend(manager, edict, memorial)
+        winner, replay = await asyncio.gather(
+            manager.resolve_tool_decision(
+                requested.decision_request_id,
+                action="approve",
+                grant_scope="edict",
+                grant_reason="reviewed",
+                auth=_auth("user:web", "web-wins"),
+            ),
+            manager.resolve_tool_decision(
+                requested.decision_request_id,
+                action="reject",
+                comment="telegram loses",
+                auth=_auth("telegram:7", "telegram-loses"),
+            ),
+        )
+
+        assert replay == winner
+        assert winner.resolution is not None
+        assert winner.resolution.action == "approve"
+        assert winner.resolution.actor_principal_id == "user:web"
+        assert winner.resolution.payload["grant_scope"] == "edict"
+        assert len(storage.list_decrees_by_memorial(memorial.id)) == 1
+        created_rules = await rules.list_by_scope("edict", edict.id)
+        assert len(created_rules) == 1
+        assert created_rules[0].rule_id == f"{requested.decision_request_id}:session-rule"
+        assert created_rules[0].reason == "reviewed"
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM events WHERE id = ?",
+                (f"{requested.decision_request_id}:decree.approved",),
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        storage.close()
+
+
+async def test_dangerous_always_scope_is_downgraded_before_durable_resolution(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "dangerous-scope.db"
+    edict, memorial = _create_database(path)
+    storage = Storage(str(path))
+    storage.init_db()
+    try:
+        manager, service = _manager(storage)
+        requested = _suspend(manager, edict, memorial, tool_name="shell_exec")
+
+        record = await manager.resolve_tool_decision(
+            requested.decision_request_id,
+            action="approve",
+            grant_scope="always",
+            auth=_auth("user:reviewer", "dangerous-scope"),
+        )
+
+        assert record.resolution is not None
+        assert record.resolution.payload["grant_scope"] == "once"
+        assert service.get(requested.decision_request_id) == record
+    finally:
+        storage.close()

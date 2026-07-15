@@ -319,6 +319,7 @@ export interface DecreeCreateRequest {
 export type ToolGrantScope = "once" | "edict" | "always";
 
 export interface PendingToolCall {
+  decision_request_id: string;
   memorial_id: string;
   edict_id: string;
   tool_name: string;
@@ -331,12 +332,26 @@ export interface PendingToolCall {
 
 /** guide=驳回+指导(迭代 5):驳回本次工具但给纠正意见,agent 据此换方式续跑 */
 export interface ToolDecisionRequest {
-  memorial_id: string;
+  decision_request_id: string;
   action: "approve" | "reject" | "guide";
   comment?: string;
-  actor?: string;
   grant_scope?: ToolGrantScope;
   grant_reason?: string;
+}
+
+export interface ToolDecisionResult {
+  decision_request_id: string;
+  memorial_id: string;
+  edict_id: string;
+  action: "approve" | "reject" | "guide";
+  comment: string;
+  actor: string;
+  grant_scope: ToolGrantScope | null;
+  grant_reason: string | null;
+  requested_grant_scope: ToolGrantScope | null;
+  grant_downgraded: boolean;
+  grant_downgrade_reason: string | null;
+  resolved_at: string;
 }
 
 export interface WsMessage {

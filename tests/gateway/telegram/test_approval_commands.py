@@ -14,7 +14,14 @@ from tianshu.gateway.telegram.approval_commands import (
 
 def _handler(storage):
     approval = MagicMock()
-    approval.submit_tool_decision = AsyncMock(return_value=MagicMock(grant_scope="once"))
+
+    async def resolve(_decision_id, *, action, **_kwargs):
+        record = MagicMock()
+        record.resolution.action = action
+        record.resolution.payload = {"grant_scope": "once"}
+        return record
+
+    approval.resolve_tool_decision = AsyncMock(side_effect=resolve)
     return TelegramApprovalCommandHandler(storage=storage, approval_manager=approval), approval
 
 
@@ -24,7 +31,7 @@ async def test_no_pending(storage):
     cmd = parse_approval_command("/准")
     reply = await h.handle(chat_id="c1", sender_open_id="7", command=cmd)
     assert "无待审批" in reply
-    approval.submit_tool_decision.assert_not_called()
+    approval.resolve_tool_decision.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -38,11 +45,11 @@ async def test_single_pending_approve(storage):
     )
     cmd = parse_approval_command("/准")
     reply = await h.handle(chat_id="c1", sender_open_id="7", command=cmd)
-    approval.submit_tool_decision.assert_awaited_once()
-    kwargs = approval.submit_tool_decision.await_args.kwargs
-    assert kwargs["memorial_id"] == "MEMORIAL01"
+    approval.resolve_tool_decision.assert_awaited_once()
+    assert approval.resolve_tool_decision.await_args.args == ("MEMORIAL01",)
+    kwargs = approval.resolve_tool_decision.await_args.kwargs
     assert kwargs["action"] == "approve"
-    assert kwargs["actor"] == "telegram:7"
+    assert kwargs["auth"].principal.id == "telegram:7"
     assert "已批准" in reply
 
 
@@ -58,7 +65,7 @@ async def test_multi_pending_requires_prefix(storage):
     cmd = parse_approval_command("/准")
     reply = await h.handle(chat_id="c1", sender_open_id="7", command=cmd)
     assert "待审批" in reply  # 提示指定短 ID
-    approval.submit_tool_decision.assert_not_called()
+    approval.resolve_tool_decision.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -74,4 +81,4 @@ async def test_reject(storage):
 
 
 def kwargs_action(approval):
-    return approval.submit_tool_decision.await_args.kwargs["action"]
+    return approval.resolve_tool_decision.await_args.kwargs["action"]

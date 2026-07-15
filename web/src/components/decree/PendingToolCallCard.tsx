@@ -37,12 +37,11 @@ export default function PendingToolCallCard({ pending }: Props) {
   const handleApprove = () => {
     mutation.mutate(
       {
-        memorial_id: pending.memorial_id,
+        decision_request_id: pending.decision_request_id,
         action: "approve",
         comment: comment || undefined,
         grant_scope: scope,
         grant_reason: scope !== "once" ? `granted via approval queue (${scope})` : undefined,
-        actor: "user",
       },
       {
         onSuccess: () => {
@@ -65,10 +64,9 @@ export default function PendingToolCallCard({ pending }: Props) {
   const handleReject = () => {
     mutation.mutate(
       {
-        memorial_id: pending.memorial_id,
+        decision_request_id: pending.decision_request_id,
         action: "reject",
         comment: comment || "rejected by reviewer",
-        actor: "user",
       },
       {
         onSuccess: () => {
@@ -86,7 +84,7 @@ export default function PendingToolCallCard({ pending }: Props) {
       return;
     }
     mutation.mutate(
-      { memorial_id: pending.memorial_id, action: "guide", comment, actor: "user" },
+      { decision_request_id: pending.decision_request_id, action: "guide", comment },
       {
         onSuccess: () => {
           message.info(t("toast.toolGuided", { tool: pending.tool_name }));

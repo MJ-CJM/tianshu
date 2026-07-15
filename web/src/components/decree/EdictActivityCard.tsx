@@ -82,7 +82,7 @@ export default function EdictActivityCard({
       {hasPendingTool && (
         <div onClick={(e) => e.stopPropagation()}>
           {pendingToolCalls.map((p) => (
-            <PendingToolCallCard key={p.memorial_id} pending={p} />
+            <PendingToolCallCard key={p.decision_request_id} pending={p} />
           ))}
         </div>
       )}

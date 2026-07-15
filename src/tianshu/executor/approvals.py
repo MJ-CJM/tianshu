@@ -8,7 +8,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from tianshu.application.edicts import EdictApplicationService, SubmitEdictCommand
 from tianshu.application.ingress import (
@@ -16,7 +16,7 @@ from tianshu.application.ingress import (
     requested_contract_for_edict,
 )
 from tianshu.bus.event_bus import EventBus
-from tianshu.governance.decision_service import DecisionService
+from tianshu.governance.decision_service import DecisionConflict, DecisionService
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
 from tianshu.models.common import TaskStatus, UsageSummary
 from tianshu.models.decision import (
@@ -56,6 +56,9 @@ from tianshu.storage.outbox_repo import OutboxRepository
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from tianshu.tools.policy_store import SessionRuleStore
+
 APPROVAL_TIMEOUT = 300.0  # 5 minutes
 
 
@@ -66,7 +69,7 @@ class ApprovalManager:
         self,
         event_bus: EventBus,
         storage: Storage,
-        session_rule_store: object | None = None,
+        session_rule_store: SessionRuleStore | None = None,
         edict_application_service: EdictApplicationService | None = None,
         decision_service: DecisionService | None = None,
         clock: Callable[[], datetime] | None = None,
@@ -259,7 +262,7 @@ class ApprovalManager:
         if record.request.kind.value != kind:
             raise ValueError("resolved decision kind does not match durable authority")
         if kind == DecisionKind.TOOL.value:
-            self._project_tool_decree(record)
+            await self._project_tool_resolution(record)
             return
         self._decision_service.mark_run_state_resolved(decision_request_id)
         if kind == DecisionKind.PLAN_REVIEW.value:
@@ -331,6 +334,21 @@ class ApprovalManager:
             source=AuthenticationSource.TRUSTED_LOCAL,
             client_kind=ClientKind.SYSTEM,
             correlation_id=f"silijian:{correlation}",
+        )
+
+    @staticmethod
+    def _legacy_tool_adapter_auth(decision_request_id: str) -> AuthContext:
+        correlation = hashlib.sha256(decision_request_id.encode("utf-8")).hexdigest()[:32]
+        return AuthContext(
+            principal=Principal(
+                id="system:legacy-tool-adapter",
+                kind=PrincipalKind.SERVICE,
+                display_name="Legacy Tool Adapter",
+                scopes=frozenset({"decision:resolve"}),
+            ),
+            source=AuthenticationSource.TRUSTED_LOCAL,
+            client_kind=ClientKind.SYSTEM,
+            correlation_id=f"legacy-tool:{correlation}",
         )
 
     @staticmethod
@@ -419,6 +437,99 @@ class ApprovalManager:
         )
         self._storage.save_decree_if_absent(decree)
         return decree
+
+    async def _project_tool_resolution(self, record: DecisionRecordV1) -> None:
+        """Build replay-safe legacy Decree, event, rule, and local wake projections."""
+
+        decree = self._project_tool_decree(record)
+        if decree is None or record.resolution is None:
+            return
+        request = record.request
+        resolution = record.resolution
+        tool_name = str(request.payload.get("tool_name") or "")
+        event_type = {
+            "approve": "decree.approved",
+            "guide": "decree.guided",
+            "reject": "decree.rejected",
+        }[resolution.action]
+        projected = EventEnvelope(
+            event_id=f"{request.decision_request_id}:{event_type}",
+            event_type=event_type,
+            edict_id=request.edict_id,
+            memorial_id=request.memorial_id,
+            producer="approval_manager.tool_projection.v1",
+            timestamp=resolution.resolved_at,
+            payload={
+                "decision_request_id": request.decision_request_id,
+                "decree_id": decree.id,
+                "comment": decree.comment,
+                "mid_execution": True,
+                "tool_name": tool_name,
+                "grant_scope": decree.grant_scope,
+                "requested_grant_scope": resolution.payload.get("requested_grant_scope"),
+                "grant_downgraded": resolution.payload.get("grant_downgraded", False),
+                "grant_downgrade_reason": resolution.payload.get("grant_downgrade_reason"),
+                "actor": resolution.actor_principal_id,
+            },
+        )
+        if self._storage.append_event_envelope(projected):
+            await self._bus.emit(projected)
+        await self._project_tool_session_rule(record, decree)
+        self._results[request.memorial_id] = decree
+        event = self._pending.get(request.memorial_id)
+        if event is not None:
+            event.set()
+
+    async def _project_tool_session_rule(
+        self,
+        record: DecisionRecordV1,
+        decree: Decree,
+    ) -> None:
+        if (
+            self._session_rule_store is None
+            or record.resolution is None
+            or record.resolution.action != "approve"
+            or decree.grant_scope not in {"edict", "always"}
+        ):
+            return
+        from tianshu.tools.policy_store import SessionRule, compute_fingerprint
+
+        tool_name = str(record.request.payload.get("tool_name") or "")
+        arguments = record.request.payload.get("arguments")
+        safe_arguments = cast(dict, arguments) if isinstance(arguments, dict) else {}
+        granted_at = record.resolution.resolved_at
+        scope = cast(Literal["edict", "always"], decree.grant_scope)
+        rule = SessionRule(
+            rule_id=f"{record.request.decision_request_id}:session-rule",
+            tool_name=tool_name,
+            arg_fingerprint=compute_fingerprint(tool_name, safe_arguments),
+            scope=scope,
+            edict_id=(record.request.edict_id if scope == "edict" else None),
+            granted_at=granted_at,
+            granted_by_decree_id=decree.id,
+            source="approval",
+            reason=decree.grant_reason or f"granted by decision {decree.id}",
+            expires_at=(granted_at + timedelta(days=30) if scope == "always" else None),
+        )
+        await self._session_rule_store.create(rule)
+        self._storage.append_event_envelope(
+            EventEnvelope(
+                event_id=f"{record.request.decision_request_id}:policy.session_rule_created",
+                event_type="policy.session_rule_created",
+                edict_id=record.request.edict_id,
+                memorial_id=record.request.memorial_id,
+                producer="approval_manager.tool_projection.v1",
+                timestamp=granted_at,
+                payload={
+                    "decision_request_id": record.request.decision_request_id,
+                    "rule_id": rule.rule_id,
+                    "tool_name": tool_name,
+                    "scope": rule.scope,
+                    "arg_fingerprint": rule.arg_fingerprint,
+                    "decree_id": decree.id,
+                },
+            )
+        )
 
     async def _project_plan_review(self, record: DecisionRecordV1) -> None:
         if record.request.kind is not DecisionKind.PLAN_REVIEW or record.resolution is None:
@@ -835,47 +946,126 @@ class ApprovalManager:
         )
 
     def list_pending_tool_calls(self) -> list[dict]:
-        """List in-memory pending tool approvals enriched with metadata.
+        """Project restart-visible pending TOOL decisions from durable authority."""
 
-        Used by 御书房 (RoyalStudyPage) to render mid-execution tool approval
-        cards. Each entry is built from `_pending` + `_pending_tool` plus the most
-        recent `tool.approval_required` event for the memorial.
-        """
-        out: list[dict] = []
-        for memorial_id, tool_name in list(self._pending_tool.items()):
-            memorial = self._storage.get_memorial(memorial_id)
-            if not memorial:
-                continue
-            # Reverse scan events for the latest tool.approval_required
-            latest_payload: dict = {}
-            latest_created_at: str | None = None
-            try:
-                rows = self._storage.get_events(memorial.edict_id)
-            except Exception:
-                rows = []
-            for row in reversed(rows or []):
-                if row.get("memorial_id") != memorial_id:
-                    continue
-                if row.get("event_type") != "tool.approval_required":
-                    continue
-                payload = row.get("payload") or {}
-                if payload.get("tool_name") == tool_name:
-                    latest_payload = payload
-                    latest_created_at = row.get("created_at")
-                    break
-            out.append(
-                {
-                    "memorial_id": memorial_id,
-                    "edict_id": memorial.edict_id,
-                    "tool_name": tool_name,
-                    "rule_id": latest_payload.get("rule_id"),
-                    "reason": latest_payload.get("reason"),
-                    "tool_tier": latest_payload.get("tool_tier"),
-                    "args_summary": latest_payload.get("args_summary") or {},
-                    "created_at": latest_created_at,
-                }
+        if self._decision_service is None:
+            return []
+        return [
+            {
+                "decision_request_id": request.decision_request_id,
+                "memorial_id": request.memorial_id,
+                "edict_id": request.edict_id,
+                "tool_name": request.payload.get("tool_name"),
+                "rule_id": request.payload.get("policy_rule_id"),
+                "reason": None,
+                "tool_tier": request.payload.get("tool_tier"),
+                "args_summary": request.payload.get("arguments") or {},
+                "created_at": request.created_at.isoformat(),
+            }
+            for request in self._decision_service.list_pending(kind=DecisionKind.TOOL)
+        ]
+
+    def pending_tool_decision_id_for_memorial(self, memorial_id: str) -> str:
+        """Resolve the legacy memorial alias only when it is unambiguous."""
+
+        matches = [
+            item["decision_request_id"]
+            for item in self.list_pending_tool_calls()
+            if item["memorial_id"] == memorial_id
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"Expected exactly one pending tool decision for memorial '{memorial_id}'"
             )
-        return out
+        return cast(str, matches[0])
+
+    async def resolve_tool_decision(
+        self,
+        decision_request_id: str,
+        action: Literal["approve", "reject", "guide"],
+        *,
+        comment: str | None = None,
+        grant_scope: Literal["once", "edict", "always"] | None = None,
+        grant_reason: str | None = None,
+        auth: AuthContext,
+    ) -> DecisionRecordV1:
+        """Resolve durable TOOL authority, then emit deterministic compatibility views."""
+
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable tool decisions")
+        if action not in {"approve", "reject", "guide"}:
+            raise ValueError("unsupported tool decision action")
+        if action != "approve" and grant_scope is not None:
+            raise ValueError("grant_scope is only valid for approval")
+        if action == "guide" and (comment is None or not comment.strip()):
+            raise ValueError("guide requires non-blank comment")
+        if action == "approve" and grant_scope not in {None, "once", "edict", "always"}:
+            raise ValueError("unsupported grant_scope")
+
+        service = self._decision_service
+        existing = service.get(decision_request_id)
+        if existing is None:
+            raise ValueError(f"Tool decision '{decision_request_id}' not found")
+        if existing.request.kind is not DecisionKind.TOOL:
+            raise ValueError("decision is not a tool decision")
+        if existing.request.status is DecisionStatus.RESOLVED:
+            try:
+                await self._project_tool_resolution(existing)
+            except Exception:
+                logger.exception(
+                    "tool decision %s resolved but compatibility projection failed",
+                    decision_request_id,
+                )
+            return existing
+
+        requested_scope = grant_scope or "once"
+        effective_scope = requested_scope
+        downgrade_reason: str | None = None
+        if action == "approve" and effective_scope == "always":
+            from tianshu.tools.policy_store import assert_can_grant
+
+            try:
+                assert_can_grant(str(existing.request.payload.get("tool_name") or ""), "always")
+            except ValueError as exc:
+                effective_scope = "once"
+                downgrade_reason = str(exc)
+        payload: dict[str, JsonValue] = {"schema_version": 1}
+        if action == "approve":
+            payload.update(
+                grant_scope=effective_scope,
+                grant_reason=grant_reason,
+                requested_grant_scope=requested_scope,
+                grant_downgraded=downgrade_reason is not None,
+                grant_downgrade_reason=downgrade_reason,
+            )
+        elif action == "guide":
+            payload["guidance"] = cast(str, comment).strip()
+        try:
+            service.resolve(
+                decision_request_id,
+                ResolveDecisionCommand(
+                    action=action,
+                    reason=(comment or grant_reason or "tool decision").strip(),
+                    payload=payload,
+                    expected_version=existing.request.version,
+                ),
+                auth=auth,
+            )
+        except DecisionConflict:
+            winner = service.get(decision_request_id)
+            if winner is None or winner.resolution is None:
+                raise
+        record = service.get(decision_request_id)
+        if record is None or record.resolution is None:
+            raise RuntimeError("durable tool resolution is unavailable")
+        try:
+            await self._project_tool_resolution(record)
+        except Exception:
+            logger.exception(
+                "tool decision %s committed but compatibility projection failed",
+                decision_request_id,
+            )
+        return record
 
     async def submit_tool_decision(
         self,
@@ -887,100 +1077,25 @@ class ApprovalManager:
         grant_reason: str | None = None,
         actor: str = "human",
     ) -> Decree:
-        """Approve/reject a mid-execution tool call WITHOUT mutating memorial status.
+        """Deprecated memorial alias; delegates to durable authority.
 
-        Unlike `submit_decree`, this method targets pending tool approvals raised
-        by `PolicyHook._request_approval`. The memorial is still running — we must
-        only unblock `wait_for_approval`, emit a decree event, and optionally
-        persist a session rule via `grant_scope`.
+        ``actor`` is intentionally ignored: compatibility callers do not get to
+        manufacture authority. 3C3B will replace those callers with AuthContext.
         """
-        if memorial_id not in self._pending:
-            raise ValueError(
-                f"No pending tool approval for memorial '{memorial_id}'",
-            )
 
-        memorial = self._storage.get_memorial(memorial_id)
-        if not memorial:
-            raise ValueError(f"Memorial '{memorial_id}' not found")
-
-        # 安全降级：bash 类工具禁止 always scope（policy_store.assert_can_grant 硬约束）。
-        # 前置检测，把 grant_scope 改为 once，并通过事件 payload 透出 downgraded 标记，
-        # 让前端能给出"已降级为本次"的提示，避免用户误以为永久放行了。
-        tool_name = self._pending_tool.get(memorial_id) or ""
-        original_grant_scope = grant_scope
-        downgrade_reason: str | None = None
-        if action == "approve" and grant_scope == "always":
-            try:
-                from tianshu.tools.policy_store import assert_can_grant
-
-                assert_can_grant(tool_name, "always")
-            except ValueError as e:
-                downgrade_reason = str(e)
-                grant_scope = "once"
-                logger.info(
-                    "submit_tool_decision: downgrading grant_scope always→once for %r — %s",
-                    tool_name,
-                    e,
-                )
-
-        decree = Decree(
-            memorial_id=memorial_id,
-            action=action,
+        del actor
+        decision_request_id = self.pending_tool_decision_id_for_memorial(memorial_id)
+        record = await self.resolve_tool_decision(
+            decision_request_id,
+            action,
             comment=comment,
-            actor=actor,
             grant_scope=grant_scope,
             grant_reason=grant_reason,
+            auth=self._legacy_tool_adapter_auth(decision_request_id),
         )
-        self._storage.save_decree(decree)
-
-        event_type = (
-            "decree.approved"
-            if action == "approve"
-            else "decree.guided"
-            if action == "guide"
-            else "decree.rejected"
-        )
-        await self._bus.emit(
-            make_event(
-                event_type,
-                edict_id=memorial.edict_id,
-                memorial_id=memorial.id,
-                producer="approval_manager",
-                payload={
-                    "decree_id": decree.id,
-                    "comment": decree.comment,
-                    "mid_execution": True,
-                    "tool_name": tool_name,
-                    "grant_scope": grant_scope,
-                    "requested_grant_scope": original_grant_scope,
-                    "grant_downgraded": downgrade_reason is not None,
-                    "grant_downgrade_reason": downgrade_reason,
-                    "actor": actor,
-                },
-            )
-        )
-
-        # session rule escalation — only on approve + edict/always scope
-        if (
-            action == "approve"
-            and grant_scope
-            and grant_scope != "once"
-            and self._session_rule_store is not None
-        ):
-            try:
-                await self._write_session_rule_from_decree(memorial, decree)
-            except Exception:
-                logger.exception(
-                    "submit_tool_decision: failed to write session rule for decree %s",
-                    decree.id,
-                )
-
-        # wake up the waiting tool call
-        self._results[memorial_id] = decree
-        evt = self._pending.get(memorial_id)
-        if evt:
-            evt.set()
-
+        decree = self._project_tool_decree(record)
+        if decree is None:
+            raise RuntimeError("tool decree projection is unavailable")
         return decree
 
     async def submit_decree(self, decree: Decree) -> None:
@@ -1134,6 +1249,9 @@ class ApprovalManager:
             make_session_rule,
         )
 
+        store = self._session_rule_store
+        if store is None:
+            return
         tool_name = self._pending_tool.get(decree.memorial_id) or ""
         if not tool_name:
             logger.warning(
@@ -1143,9 +1261,10 @@ class ApprovalManager:
             )
             return
 
+        scope = cast(Literal["edict", "always"], decree.grant_scope)
         # bash + always 被硬约束禁止
         try:
-            assert_can_grant(tool_name, decree.grant_scope or "once")
+            assert_can_grant(tool_name, scope)
         except ValueError as e:
             logger.warning("decree %s: %s — downgrading to once", decree.id, e)
             return
@@ -1156,14 +1275,14 @@ class ApprovalManager:
         rule = make_session_rule(
             tool_name=tool_name,
             arg_fingerprint=fingerprint,
-            scope=decree.grant_scope,  # "edict" | "always"
+            scope=scope,
             source="approval",
             reason=decree.grant_reason or f"granted by decree {decree.id}",
-            edict_id=memorial.edict_id if decree.grant_scope == "edict" else None,
+            edict_id=memorial.edict_id if scope == "edict" else None,
             granted_by_decree_id=decree.id,
         )
         try:
-            await self._session_rule_store.create(rule)  # type: ignore[union-attr]
+            await store.create(rule)
         except Exception:
             logger.exception("failed to create session rule from decree %s", decree.id)
             return

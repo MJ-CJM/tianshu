@@ -205,12 +205,24 @@ class ToolDecisionRequest(BaseModel):
     Unlike DecreeCreateRequest, this request does NOT mutate memorial status.
     """
 
-    memorial_id: str = Field(min_length=1)
+    model_config = ConfigDict(extra="forbid")
+
+    decision_request_id: str | None = Field(default=None, min_length=1, max_length=128)
+    memorial_id: str | None = Field(default=None, min_length=1, max_length=128)
     action: Literal["approve", "reject", "guide"]  # guide=驳回+指导(迭代 5)
-    comment: str | None = None
-    actor: str = "human"
+    comment: str | None = Field(default=None, max_length=2000)
     grant_scope: Literal["once", "edict", "always"] | None = None
-    grant_reason: str | None = None
+    grant_reason: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if (self.decision_request_id is None) == (self.memorial_id is None):
+            raise ValueError("provide exactly one decision_request_id or memorial_id")
+        if self.action == "guide" and not (self.comment and self.comment.strip()):
+            raise ValueError("guide requires a non-blank comment")
+        if self.action != "approve" and self.grant_scope is not None:
+            raise ValueError("grant_scope is only valid for approval")
+        return self
 
 
 class LLMConfig(BaseModel):

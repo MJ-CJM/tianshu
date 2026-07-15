@@ -6,6 +6,7 @@ import type {
   DecreeCreateRequest,
   PendingToolCall,
   ToolDecisionRequest,
+  ToolDecisionResult,
 } from "./types";
 
 export async function createDecree(
@@ -37,8 +38,8 @@ export async function fetchPendingToolCalls(): Promise<PendingToolCall[]> {
 
 export async function submitToolDecision(
   body: ToolDecisionRequest,
-): Promise<ApiResponse<Decree>> {
-  const { data } = await apiClient.post<ApiResponse<Decree>>(
+): Promise<ApiResponse<ToolDecisionResult>> {
+  const { data } = await apiClient.post<ApiResponse<ToolDecisionResult>>(
     "/approvals/tool_decision",
     body,
   );
