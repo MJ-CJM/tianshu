@@ -124,10 +124,12 @@ class ApprovalCommandHandler:
         approval_manager: ApprovalManager,
         list_pending: Callable[[str], list[str]],
         actor_prefix: str,
+        instance_id: str,
     ) -> None:
         self._approval = approval_manager
         self._list_pending = list_pending
         self._actor_prefix = actor_prefix
+        self._instance_id = instance_id
 
     def _pending_decision_ids(self, chat_id: str) -> list[str]:
         references = set(self._list_pending(chat_id))
@@ -151,9 +153,12 @@ class ApprovalCommandHandler:
         sender_open_id: str,
         decision_request_id: str,
     ) -> AuthContext:
-        identity = f"{self._actor_prefix}:{sender_open_id}"
+        identity = f"{self._actor_prefix}:{self._instance_id}:{sender_open_id}"
         digest = hashlib.sha256(
-            f"{self._actor_prefix}\0{chat_id}\0{sender_open_id}\0{decision_request_id}".encode()
+            (
+                f"{self._actor_prefix}\0{self._instance_id}\0{chat_id}\0"
+                f"{sender_open_id}\0{decision_request_id}"
+            ).encode()
         ).hexdigest()[:32]
         return AuthContext(
             principal=Principal(

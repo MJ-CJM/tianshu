@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -10,9 +11,10 @@ from tianshu.gateway.telegram.approval_commands import (
     TelegramApprovalCommandHandler,
     parse_approval_command,
 )
+from tianshu.models.principal import AuthenticationSource, ClientKind, PrincipalKind
 
 
-def _handler(storage):
+def _handler(storage, instance_id: str = "telegram-default"):
     approval = MagicMock()
 
     async def resolve(_decision_id, *, action, **_kwargs):
@@ -22,7 +24,14 @@ def _handler(storage):
         return record
 
     approval.resolve_tool_decision = AsyncMock(side_effect=resolve)
-    return TelegramApprovalCommandHandler(storage=storage, approval_manager=approval), approval
+    return (
+        TelegramApprovalCommandHandler(
+            storage=storage,
+            approval_manager=approval,
+            instance_id=instance_id,
+        ),
+        approval,
+    )
 
 
 @pytest.mark.asyncio
@@ -49,7 +58,7 @@ async def test_single_pending_approve(storage):
     assert approval.resolve_tool_decision.await_args.args == ("MEMORIAL01",)
     kwargs = approval.resolve_tool_decision.await_args.kwargs
     assert kwargs["action"] == "approve"
-    assert kwargs["auth"].principal.id == "telegram:7"
+    assert kwargs["auth"].principal.id == "telegram:telegram-default:7"
     assert "已批准" in reply
 
 
@@ -82,3 +91,38 @@ async def test_reject(storage):
 
 def kwargs_action(approval):
     return approval.resolve_tool_decision.await_args.kwargs["action"]
+
+
+@pytest.mark.asyncio
+async def test_configured_telegram_instance_namespaces_webhook_identity():
+    storage = MagicMock()
+    storage.list_telegram_pending_for_chat.return_value = ["01DECISIONAAAA11111111111111"]
+    first, first_approval = _handler(storage, "telegram-primary")
+    second, second_approval = _handler(storage, "telegram-secondary")
+    command = parse_approval_command("/准")
+
+    await first.handle(chat_id="shared-chat", sender_open_id="7", command=command)
+    await second.handle(chat_id="shared-chat", sender_open_id="7", command=command)
+
+    first_auth = first_approval.resolve_tool_decision.await_args.kwargs["auth"]
+    second_auth = second_approval.resolve_tool_decision.await_args.kwargs["auth"]
+    assert first_auth.principal.id == "telegram:telegram-primary:7"
+    assert second_auth.principal.id == "telegram:telegram-secondary:7"
+    assert first_auth.principal.id != second_auth.principal.id
+    assert first_auth.principal.kind is PrincipalKind.WEBHOOK
+    assert first_auth.principal.scopes == frozenset({"decision:resolve"})
+    assert first_auth.source is AuthenticationSource.WEBHOOK
+    assert first_auth.client_kind is ClientKind.WEBHOOK
+    expected_digest = hashlib.sha256(
+        "\0".join(
+            (
+                "telegram",
+                "telegram-primary",
+                "shared-chat",
+                "7",
+                "01DECISIONAAAA11111111111111",
+            )
+        ).encode()
+    ).hexdigest()[:32]
+    assert first_auth.correlation_id == f"approval-command:{expected_digest}"
+    assert first_auth.correlation_id != second_auth.correlation_id

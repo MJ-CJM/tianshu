@@ -721,6 +721,8 @@
   "toast": {
     "toolApproved": "已放行 {tool}",
     "toolApprovedWithRule": "已放行并写入 session rule ({scope})",
+    "toolAlreadyDecided": "已由其他通道裁决：{action}（{scope}）",
+    "toolScopeDowngraded": "已放行 {tool}；请求的 {requestedScope} 已按安全策略降级为 {scope}",
     "toolRejected": "已拒绝 {tool}",
     "actionFailed": "操作失败",
     "planApproved": "规划方案已批准，开始执行",

@@ -19,7 +19,12 @@ import {
 } from "@ant-design/icons";
 import { useSubmitToolDecision } from "../../hooks/useApprovals";
 import { useT } from "../../i18n";
-import type { PendingToolCall, ToolGrantScope } from "../../api/types";
+import type {
+  ApiResponse,
+  PendingToolCall,
+  ToolDecisionResult,
+  ToolGrantScope,
+} from "../../api/types";
 
 interface Props {
   pending: PendingToolCall;
@@ -34,6 +39,60 @@ export default function PendingToolCallCard({ pending }: Props) {
   const [open, setOpen] = useState(false);
   const t = useT();
 
+  const showResult = (
+    response: ApiResponse<ToolDecisionResult>,
+    requestedAction: "approve" | "reject" | "guide",
+    requestedScope?: ToolGrantScope,
+  ) => {
+    const result = response.data;
+    if (!result) {
+      message.error(t("toast.actionFailed"));
+      return;
+    }
+    const effectiveScope = result.grant_scope ?? "none";
+    if (result.action !== requestedAction) {
+      message.warning(
+        t("toast.toolAlreadyDecided", {
+          action: result.action,
+          scope: effectiveScope,
+        }),
+      );
+    } else if (
+      requestedAction === "approve" &&
+      requestedScope !== undefined &&
+      result.grant_scope !== requestedScope
+    ) {
+      if (result.grant_downgraded) {
+        message.warning(
+          t("toast.toolScopeDowngraded", {
+            tool: pending.tool_name,
+            requestedScope,
+            scope: effectiveScope,
+          }),
+        );
+      } else {
+        message.warning(
+          t("toast.toolAlreadyDecided", {
+            action: result.action,
+            scope: effectiveScope,
+          }),
+        );
+      }
+    } else if (result.action === "approve") {
+      message.success(
+        result.grant_scope === "once"
+          ? t("toast.toolApproved", { tool: pending.tool_name })
+          : t("toast.toolApprovedWithRule", { scope: effectiveScope }),
+      );
+    } else if (result.action === "reject") {
+      message.warning(t("toast.toolRejected", { tool: pending.tool_name }));
+    } else {
+      message.info(t("toast.toolGuided", { tool: pending.tool_name }));
+    }
+    setOpen(false);
+    setComment("");
+  };
+
   const handleApprove = () => {
     mutation.mutate(
       {
@@ -44,15 +103,7 @@ export default function PendingToolCallCard({ pending }: Props) {
         grant_reason: scope !== "once" ? `granted via approval queue (${scope})` : undefined,
       },
       {
-        onSuccess: () => {
-          message.success(
-            scope === "once"
-              ? t("toast.toolApproved", { tool: pending.tool_name })
-              : t("toast.toolApprovedWithRule", { scope }),
-          );
-          setOpen(false);
-          setComment("");
-        },
+        onSuccess: (response) => showResult(response, "approve", scope),
         onError: (err: unknown) => {
           const msg = err instanceof Error ? err.message : t("toast.actionFailed");
           message.error(msg);
@@ -69,11 +120,7 @@ export default function PendingToolCallCard({ pending }: Props) {
         comment: comment || "rejected by reviewer",
       },
       {
-        onSuccess: () => {
-          message.warning(t("toast.toolRejected", { tool: pending.tool_name }));
-          setOpen(false);
-          setComment("");
-        },
+        onSuccess: (response) => showResult(response, "reject"),
       },
     );
   };
@@ -86,11 +133,7 @@ export default function PendingToolCallCard({ pending }: Props) {
     mutation.mutate(
       { decision_request_id: pending.decision_request_id, action: "guide", comment },
       {
-        onSuccess: () => {
-          message.info(t("toast.toolGuided", { tool: pending.tool_name }));
-          setOpen(false);
-          setComment("");
-        },
+        onSuccess: (response) => showResult(response, "guide"),
         onError: (err: unknown) => {
           message.error(err instanceof Error ? err.message : t("toast.actionFailed"));
         },

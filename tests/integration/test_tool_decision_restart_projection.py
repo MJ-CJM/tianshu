@@ -12,6 +12,7 @@ from tianshu.executor.approvals import ApprovalManager
 from tianshu.governance.decision_service import DecisionConflict, DecisionService
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.decision import DecisionKind, ResolveDecisionCommand
+from tianshu.models.events import EventEnvelope
 from tianshu.models.principal import AuthContext, Principal
 from tianshu.storage import Storage
 from tianshu.storage.outbox_repo import OutboxRepository
@@ -219,6 +220,128 @@ async def test_projection_failure_replays_from_durable_decision_event(
         [decree] = storage.list_decrees_by_memorial(memorial.id)
         assert decree.id == requested.decision_request_id
         assert decree.action == "approve"
+    finally:
+        storage.close()
+
+
+async def test_outbox_tool_projection_releases_exact_run_state_after_restart(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "tool-outbox-run-state.db"
+    edict, memorial = _create_database(path)
+    first = Storage(str(path))
+    first.init_db()
+    first_manager, _ = _manager(first)
+    requested = _suspend(first_manager, edict, memorial)
+    first.close()
+
+    restarted = Storage(str(path))
+    restarted.init_db()
+    bus = EventBus()
+    manager, service = _manager(restarted, event_bus=bus)
+    manager._pending.clear()  # noqa: SLF001 - restart has no process waiter
+    manager._results.clear()  # noqa: SLF001 - restart has no process result
+    manager._pending_tool.clear()  # noqa: SLF001 - restart has no process tool map
+    bus.on(
+        "decision.resolved",
+        manager.handle_decision_resolved,
+        consumer_name="approval_manager.tool_decree_projection.v1",
+    )
+    service.resolve(
+        requested.decision_request_id,
+        _resolution(),
+        auth=_auth("user:web", "http-after-restart"),
+    )
+    dispatcher = OutboxDispatcher(
+        OutboxRepository(restarted.unit_of_work),
+        bus,
+        owner_id="tool-run-state-restart",
+        clock=lambda: _NOW,
+    )
+    try:
+        with restarted.unit_of_work() as unit_of_work:
+            waiting = restarted.run_state_repo.load(unit_of_work.connection, memorial.id)
+            unit_of_work.commit()
+        assert waiting is not None and waiting.phase.value == "waiting_decision"
+        assert waiting.continuation.pending_decision_id == requested.decision_request_id
+
+        assert await dispatcher.drain_once() == 1
+
+        with restarted.unit_of_work() as unit_of_work:
+            resumed = restarted.run_state_repo.load(unit_of_work.connection, memorial.id)
+            unit_of_work.commit()
+        assert resumed is not None and resumed.phase.value == "executing"
+        assert resumed.continuation.pending_decision_id is None
+        assert resumed.continuation.resolved_decision_id == requested.decision_request_id
+        [decree] = restarted.list_decrees_by_memorial(memorial.id)
+        assert decree.id == requested.decision_request_id
+
+        replay = EventEnvelope(
+            event_type="decision.resolved",
+            edict_id=edict.id,
+            memorial_id=memorial.id,
+            payload={
+                "decision_request_id": requested.decision_request_id,
+                "kind": DecisionKind.TOOL.value,
+            },
+        )
+        await manager.handle_decision_resolved(replay)
+        with restarted.unit_of_work() as unit_of_work:
+            replayed = restarted.run_state_repo.load(unit_of_work.connection, memorial.id)
+            unit_of_work.commit()
+        assert replayed == resumed
+    finally:
+        restarted.close()
+
+
+async def test_stale_tool_resolution_event_cannot_release_new_pending_decision(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "tool-stale-outbox-event.db"
+    edict, memorial = _create_database(path)
+    storage = Storage(str(path))
+    storage.init_db()
+    try:
+        manager, service = _manager(storage)
+        first = _suspend(manager, edict, memorial, invocation_id="tool-call-old")
+        service.resolve(
+            first.decision_request_id,
+            _resolution(),
+            auth=_auth("user:web", "first-http-resolution"),
+        )
+        assert (
+            await manager.wait_for_tool_decision(
+                first.decision_request_id,
+                timeout_seconds=0.1,
+                poll_interval_seconds=0,
+            )
+            is not None
+        )
+        second = _suspend(
+            manager,
+            edict,
+            memorial,
+            invocation_id="tool-call-current",
+            iteration=3,
+        )
+        stale = EventEnvelope(
+            event_type="decision.resolved",
+            edict_id=edict.id,
+            memorial_id=memorial.id,
+            payload={
+                "decision_request_id": first.decision_request_id,
+                "kind": DecisionKind.TOOL.value,
+            },
+        )
+
+        await manager.handle_decision_resolved(stale)
+
+        with storage.unit_of_work() as unit_of_work:
+            waiting = storage.run_state_repo.load(unit_of_work.connection, memorial.id)
+            unit_of_work.commit()
+        assert waiting is not None and waiting.phase.value == "waiting_decision"
+        assert waiting.continuation.pending_decision_id == second.decision_request_id
+        assert waiting.continuation.resolved_decision_id is None
     finally:
         storage.close()
 
@@ -443,6 +566,11 @@ async def test_dangerous_always_scope_is_downgraded_before_durable_resolution(
 
         assert record.resolution is not None
         assert record.resolution.payload["grant_scope"] == "once"
+        assert record.resolution.payload["requested_grant_scope"] == "always"
+        assert record.resolution.payload["grant_downgraded"] is True
+        assert record.resolution.payload["grant_downgrade_reason"] == (
+            "Cannot grant 'always' scope to bash-family tool 'shell_exec'"
+        )
         assert service.get(requested.decision_request_id) == record
     finally:
         storage.close()

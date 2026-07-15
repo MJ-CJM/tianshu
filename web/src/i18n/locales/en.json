@@ -721,6 +721,8 @@
   "toast": {
     "toolApproved": "Allowed {tool}",
     "toolApprovedWithRule": "Allowed and saved session rule ({scope})",
+    "toolAlreadyDecided": "Already decided by another channel: {action} ({scope})",
+    "toolScopeDowngraded": "Allowed {tool}; requested {requestedScope} was downgraded to {scope}",
     "toolRejected": "Rejected {tool}",
     "actionFailed": "Action failed",
     "planApproved": "Plan allowed, starting execution",

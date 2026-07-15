@@ -9,7 +9,7 @@ from typing import Protocol
 
 from ulid import ULID
 
-from tianshu.models.canonical import canonical_sha256
+from tianshu.models.canonical import JsonValue, canonical_sha256
 from tianshu.models.decision import (
     DecisionKind,
     DecisionRecordV1,
@@ -519,6 +519,7 @@ class DecisionService:
                     actual_version=record.request.version,
                 )
                 raise DecisionValidationError("invalid_decision_resolution") from None
+            command = self._normalize_tool_resolution(record.request, command)
             conflict_reason = self._resolution_conflict(record, command, now)
             if conflict_reason is not None:
                 code = _conflict_code(conflict_reason)
@@ -587,6 +588,36 @@ class DecisionService:
             )
             unit_of_work.commit()
             return resolution
+
+    @staticmethod
+    def _normalize_tool_resolution(
+        request: DecisionRequestV1,
+        command: ResolveDecisionCommand,
+    ) -> ResolveDecisionCommand:
+        """Derive TOOL approval scope metadata from durable tool identity."""
+
+        if request.kind is not DecisionKind.TOOL or command.action != "approve":
+            return command
+        requested_scope = command.payload.get("grant_scope") or "once"
+        effective_scope = requested_scope
+        downgrade_reason: str | None = None
+        if effective_scope == "always":
+            from tianshu.tools.policy_store import assert_can_grant
+
+            try:
+                assert_can_grant(str(request.payload.get("tool_name") or ""), "always")
+            except ValueError as exc:
+                effective_scope = "once"
+                downgrade_reason = str(exc)
+        payload: dict[str, JsonValue] = {
+            "schema_version": 1,
+            "grant_scope": effective_scope,
+            "grant_reason": command.payload.get("grant_reason"),
+            "requested_grant_scope": requested_scope,
+            "grant_downgraded": downgrade_reason is not None,
+            "grant_downgrade_reason": downgrade_reason,
+        }
+        return command.model_copy(update={"payload": payload})
 
     def deny_invalid_resolution(
         self,

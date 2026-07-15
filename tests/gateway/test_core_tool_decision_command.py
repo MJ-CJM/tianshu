@@ -28,6 +28,7 @@ async def test_text_command_expands_legacy_memorial_binding_to_decision_ids() ->
         approval_manager=approval,
         list_pending=lambda _chat: ["memorial-shared"],
         actor_prefix="feishu",
+        instance_id="feishu-primary",
     )
 
     disambiguation = await handler.handle(
@@ -46,6 +47,6 @@ async def test_text_command_expands_legacy_memorial_binding_to_decision_ids() ->
     kwargs = approval.resolve_tool_decision.await_args.kwargs
     assert approval.resolve_tool_decision.await_args.args == ("01DECISIONAAAA11111111111111",)
     assert isinstance(kwargs["auth"], AuthContext)
-    assert kwargs["auth"].principal.id == "feishu:ou_1"
+    assert kwargs["auth"].principal.id == "feishu:feishu-primary:ou_1"
     assert kwargs["auth"].source.value == "webhook"
     assert "actor" not in kwargs

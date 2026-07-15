@@ -262,6 +262,15 @@ class ApprovalManager:
         if record.request.kind.value != kind:
             raise ValueError("resolved decision kind does not match durable authority")
         if kind == DecisionKind.TOOL.value:
+            try:
+                self._decision_service.mark_run_state_resolved(decision_request_id)
+            except DecisionConflict as exc:
+                if exc.code != "decision_run_state_conflict":
+                    raise
+                logger.info(
+                    "tool decision %s no longer owns the pending RunState",
+                    decision_request_id,
+                )
             await self._project_tool_resolution(record)
             return
         self._decision_service.mark_run_state_resolved(decision_request_id)
@@ -1019,24 +1028,11 @@ class ApprovalManager:
             return existing
 
         requested_scope = grant_scope or "once"
-        effective_scope = requested_scope
-        downgrade_reason: str | None = None
-        if action == "approve" and effective_scope == "always":
-            from tianshu.tools.policy_store import assert_can_grant
-
-            try:
-                assert_can_grant(str(existing.request.payload.get("tool_name") or ""), "always")
-            except ValueError as exc:
-                effective_scope = "once"
-                downgrade_reason = str(exc)
         payload: dict[str, JsonValue] = {"schema_version": 1}
         if action == "approve":
             payload.update(
-                grant_scope=effective_scope,
+                grant_scope=requested_scope,
                 grant_reason=grant_reason,
-                requested_grant_scope=requested_scope,
-                grant_downgraded=downgrade_reason is not None,
-                grant_downgrade_reason=downgrade_reason,
             )
         elif action == "guide":
             payload["guidance"] = cast(str, comment).strip()

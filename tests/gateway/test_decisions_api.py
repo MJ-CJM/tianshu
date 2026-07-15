@@ -10,12 +10,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from tianshu.application.outbox import OutboxDispatcher
+from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
+from tianshu.executor.approvals import ApprovalManager
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.governance.decision_service import DecisionService
 from tianshu.models.decision import DecisionKind, RequestDecisionCommand
 from tianshu.models.principal import AuthContext, Principal
 from tianshu.storage import Storage
+from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.tools.policy_store import InMemorySessionRuleStore
 
 _TOKEN = "decision-api-bootstrap-token"
 _HEADERS = {"Authorization": f"Bearer {_TOKEN}"}
@@ -370,3 +375,90 @@ def test_resolution_json_parser_failures_are_safe_audited_422_without_authority_
         ).fetchone()[0]
         == 0
     )
+
+
+@pytest.mark.parametrize("tool_name", ("shell_exec", "bash"))
+async def test_generic_tool_resolution_normalizes_dangerous_scope_before_outbox_projection(
+    decision_api,
+    tool_name: str,
+) -> None:
+    storage, service, _, app = decision_api
+    requested = service.request(
+        _request_command(request_key=f"tool-call:dangerous-api:{tool_name}").model_copy(
+            update={
+                "payload": {
+                    "tool_name": tool_name,
+                    "arguments": {"command": "git status"},
+                }
+            }
+        ),
+        auth=_requester(),
+    )
+    bus = EventBus()
+    rules = InMemorySessionRuleStore()
+    manager = ApprovalManager(
+        bus,
+        storage,
+        session_rule_store=rules,
+        decision_service=service,
+        clock=lambda: _NOW,
+    )
+    bus.on(
+        "decision.resolved",
+        manager.handle_decision_resolved,
+        consumer_name="approval_manager.tool_decree_projection.v1",
+    )
+
+    with _client(app) as client:
+        response = client.post(
+            f"/api/decisions/{requested.decision_request_id}/resolve",
+            headers=_HEADERS,
+            json=_resolve_body(
+                payload={
+                    "schema_version": 1,
+                    "grant_scope": "always",
+                    "grant_reason": "reviewed in Web",
+                    "requested_grant_scope": "once",
+                    "grant_downgraded": False,
+                    "grant_downgrade_reason": "forged client metadata",
+                }
+            ),
+        )
+
+    assert response.status_code == 200
+    resolution = response.json()["data"]
+    assert resolution["payload"] == {
+        "schema_version": 1,
+        "grant_scope": "once",
+        "grant_reason": "reviewed in Web",
+        "requested_grant_scope": "always",
+        "grant_downgraded": True,
+        "grant_downgrade_reason": (
+            f"Cannot grant 'always' scope to bash-family tool '{tool_name}'"
+        ),
+    }
+    record = service.get(requested.decision_request_id)
+    assert record is not None and record.resolution is not None
+    assert record.resolution.model_dump(mode="json") == resolution
+
+    dispatcher = OutboxDispatcher(
+        OutboxRepository(storage.unit_of_work),
+        bus,
+        owner_id="dangerous-tool-api-projection",
+        clock=lambda: _NOW,
+    )
+    assert await dispatcher.drain_once() == 1
+
+    [decree] = storage.list_decrees_by_memorial("memorial-1")
+    assert decree.action == "approve"
+    assert decree.actor == "user:owner"
+    [projection] = [
+        event for event in storage.get_events("edict-1") if event["event_type"] == "decree.approved"
+    ]
+    assert projection["payload"]["grant_scope"] == "once"
+    assert projection["payload"]["requested_grant_scope"] == "always"
+    assert projection["payload"]["grant_downgraded"] is True
+    assert projection["payload"]["grant_downgrade_reason"] == (
+        f"Cannot grant 'always' scope to bash-family tool '{tool_name}'"
+    )
+    assert await rules.list_by_scope("always") == []
