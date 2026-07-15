@@ -154,12 +154,30 @@ class DecisionService:
     ) -> DecisionRequestV1:
         """Atomically create one decision request and its waiting continuation."""
 
+        continuation = run_state.continuation
+        plan_payload = command.payload.get("plan")
         continuation_matches_kind = (
-            command.kind is DecisionKind.TOOL
-            and isinstance(run_state.continuation, AgentContinuationV1)
-        ) or (
-            command.kind is DecisionKind.OUTER_LOOP
-            and isinstance(run_state.continuation, OuterLoopContinuationV1)
+            (
+                command.kind is DecisionKind.TOOL
+                and isinstance(continuation, AgentContinuationV1)
+                and continuation.pending_tool is not None
+                and continuation.plan_ref is None
+            )
+            or (
+                command.kind is DecisionKind.OUTER_LOOP
+                and isinstance(continuation, OuterLoopContinuationV1)
+            )
+            or (
+                command.kind is DecisionKind.PLAN_REVIEW
+                and isinstance(continuation, AgentContinuationV1)
+                and continuation.pending_tool is None
+                and continuation.plan_ref is not None
+                and continuation.plan_hash is not None
+                and command.payload.get("plan_ref") == continuation.plan_ref
+                and command.payload.get("plan_hash") == continuation.plan_hash
+                and isinstance(plan_payload, dict)
+                and canonical_sha256(plan_payload) == continuation.plan_hash
+            )
         )
         if (
             run_state.phase is not RunPhase.WAITING_DECISION
@@ -202,7 +220,18 @@ class DecisionService:
             current = self._run_states.load(unit_of_work.connection, run_state.memorial_id)
             if current is None:
                 self._run_states.create(unit_of_work.connection, bound_state)
-            elif current == bound_state:
+            elif current == bound_state or (
+                current.phase is RunPhase.WAITING_DECISION
+                and current.continuation.pending_decision_id == saved.decision_request_id
+                and current
+                == bound_state.model_copy(
+                    update={
+                        "created_at": current.created_at,
+                        "updated_at": current.updated_at,
+                        "version": current.version,
+                    }
+                )
+            ):
                 pass
             elif (
                 current.phase is RunPhase.EXECUTING
@@ -265,10 +294,10 @@ class DecisionService:
                 ),
             }
         )
-        executing = run_state.model_copy(
+        resumed = run_state.model_copy(
             update={
                 **normalized_state,
-                "phase": RunPhase.EXECUTING,
+                "phase": self._resume_phase(saved.kind),
                 "continuation": business_continuation.model_copy(
                     update={
                         "pending_decision_id": None,
@@ -277,21 +306,21 @@ class DecisionService:
                 ),
             }
         )
-        if saved.payload_hash != requested.payload_hash or current not in (waiting, executing):
+        if saved.payload_hash != requested.payload_hash or current not in (waiting, resumed):
             raise DecisionConflict("decision_run_state_conflict")
 
     def mark_run_state_resolved(self, decision_request_id: str) -> RunStateV1:
-        """CAS a live tool suspension back to executing after generic resolution."""
+        """CAS a live suspension to its durable resume phase after resolution."""
 
-        return self._mark_tool_run_state_terminal(
+        return self._mark_run_state_terminal(
             decision_request_id,
             allowed_statuses=frozenset({DecisionStatus.RESOLVED}),
         )
 
     def mark_run_state_terminal(self, decision_request_id: str) -> RunStateV1:
-        """Release a tool suspension after any durable terminal decision."""
+        """Release a suspension after any durable terminal decision."""
 
-        return self._mark_tool_run_state_terminal(
+        return self._mark_run_state_terminal(
             decision_request_id,
             allowed_statuses=frozenset(
                 {
@@ -302,19 +331,24 @@ class DecisionService:
             ),
         )
 
-    def _mark_tool_run_state_terminal(
+    def _mark_run_state_terminal(
         self,
         decision_request_id: str,
         *,
         allowed_statuses: frozenset[DecisionStatus],
     ) -> RunStateV1:
-        """CAS the continuation bound to one terminal tool decision."""
+        """CAS the continuation bound to one terminal durable decision."""
 
         with self._storage.unit_of_work() as unit_of_work:
             record = self._repository.get(unit_of_work.connection, decision_request_id)
             if (
                 record is None
-                or record.request.kind is not DecisionKind.TOOL
+                or record.request.kind
+                not in {
+                    DecisionKind.TOOL,
+                    DecisionKind.OUTER_LOOP,
+                    DecisionKind.PLAN_REVIEW,
+                }
                 or record.request.status not in allowed_statuses
             ):
                 raise DecisionConflict("decision_run_state_conflict")
@@ -325,7 +359,7 @@ class DecisionService:
             if current is None:
                 raise DecisionConflict("decision_run_state_conflict")
             if (
-                current.phase is RunPhase.EXECUTING
+                current.phase is self._resume_phase(record.request.kind)
                 and current.continuation.pending_decision_id is None
                 and current.continuation.resolved_decision_id == decision_request_id
             ):
@@ -344,7 +378,7 @@ class DecisionService:
             )
             next_state = current.model_copy(
                 update={
-                    "phase": RunPhase.EXECUTING,
+                    "phase": self._resume_phase(record.request.kind),
                     "continuation": continuation,
                     "updated_at": max(
                         current.updated_at,
@@ -363,6 +397,10 @@ class DecisionService:
             )
             unit_of_work.commit()
             return saved
+
+    @staticmethod
+    def _resume_phase(kind: DecisionKind) -> RunPhase:
+        return RunPhase.PLANNING if kind is DecisionKind.PLAN_REVIEW else RunPhase.EXECUTING
 
     def _new_request(
         self,

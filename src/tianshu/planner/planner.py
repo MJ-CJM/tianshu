@@ -36,6 +36,7 @@ class Planner:
         persona_loader: object | None = None,
         prompt_builder: object | None = None,
         tool_registry: object | None = None,
+        approval_manager: object | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
@@ -44,6 +45,7 @@ class Planner:
         self._persona_loader = persona_loader
         self._prompt_builder = prompt_builder
         self._tool_registry = tool_registry
+        self._approval_manager = approval_manager
 
     async def plan(self, edict: Edict) -> Plan:
         """Generate a plan via LLM, or return a single-task passthrough plan."""
@@ -237,21 +239,41 @@ class Planner:
         memorial_id = event.memorial_id
 
         if edict.plan_review and len(plan.tasks) > 0:
-            # 需要审批 → 发 plan.pending_review，不触发执行
-            if memorial_id:
-                from tianshu.models.common import TaskStatus as _TS
+            # 通用裁决先落库；pending_review 只是兼容展示投影。
+            if memorial_id is None or self._approval_manager is None:
+                raise RuntimeError("durable plan review requires a memorial and ApprovalManager")
+            memorial = self._storage.get_memorial(memorial_id)
+            if memorial is None:
+                raise RuntimeError("durable plan review memorial is unavailable")
+            from tianshu.models.common import TaskStatus as _TS
 
-                memorial = self._storage.get_memorial(memorial_id)
-                if memorial:
-                    memorial.status = _TS.NEEDS_REVIEW
-                    self._storage.update_memorial(memorial)
+            request_decision = getattr(
+                self._approval_manager,
+                "request_plan_review_decision",
+                None,
+            )
+            if not callable(request_decision):
+                raise RuntimeError("invalid ApprovalManager for durable plan review")
+            requested = request_decision(
+                edict=edict,
+                memorial=memorial,
+                plan=plan,
+                revision=1,
+            )
+            memorial.status = _TS.NEEDS_REVIEW
+            self._storage.update_memorial(memorial)
             await self._bus.emit(
                 make_event(
                     "plan.pending_review",
                     edict_id=edict.id,
                     memorial_id=memorial_id,
                     producer="planner",
-                    payload=payload,
+                    payload={
+                        **payload,
+                        "decision_request_id": requested.decision_request_id,
+                        "revision": requested.payload["revision"],
+                        "plan_hash": requested.payload["plan_hash"],
+                    },
                 )
             )
         else:

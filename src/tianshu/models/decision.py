@@ -162,12 +162,6 @@ class _OuterModifyAcceptancePayload(_VersionedPayload):
     acceptance: dict[str, JsonValue]
 
 
-class _PlanAmendPayload(_VersionedPayload):
-    amendment: str
-
-    _validate_amendment = field_validator("amendment")(_non_blank)
-
-
 _ACTION_PAYLOAD_MODELS: dict[tuple[DecisionKind, str], type[_VersionedPayload]] = {
     (DecisionKind.TOOL, "approve"): _ToolApprovePayload,
     (DecisionKind.TOOL, "reject"): _VersionedPayload,
@@ -178,7 +172,6 @@ _ACTION_PAYLOAD_MODELS: dict[tuple[DecisionKind, str], type[_VersionedPayload]] 
     (DecisionKind.OUTER_LOOP, "modify_acceptance"): _OuterModifyAcceptancePayload,
     (DecisionKind.PLAN_REVIEW, "approve"): _VersionedPayload,
     (DecisionKind.PLAN_REVIEW, "reject"): _VersionedPayload,
-    (DecisionKind.PLAN_REVIEW, "amend"): _PlanAmendPayload,
     (DecisionKind.GOVERNED_APPLY, "approve"): _VersionedPayload,
     (DecisionKind.GOVERNED_APPLY, "reject"): _VersionedPayload,
 }

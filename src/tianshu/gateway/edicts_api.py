@@ -14,7 +14,6 @@ from tianshu.application.edicts import (
     SubmitEdictCommand,
     validate_idempotency_key,
 )
-from tianshu.bus.event_bus import EventBus
 from tianshu.executor.capabilities import (
     MandatoryCapabilityMismatch,
     get_executor_manifest,
@@ -26,6 +25,7 @@ from tianshu.executor.workspace_policy import workspace_policy_mismatches
 from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.gateway._helpers import _build_history
 from tianshu.gateway.auth import get_auth_context
+from tianshu.governance.decision_service import DecisionServiceError
 from tianshu.models import (
     ApiResponse,
     Edict,
@@ -36,7 +36,6 @@ from tianshu.models import (
     FollowUpRequest,
     Memorial,
     TaskStatus,
-    make_event,
 )
 from tianshu.models.api import ParseEdictRequest
 from tianshu.models.edict import EdictRuntime, PolicyProfilePayload, title_from_goal
@@ -681,93 +680,55 @@ def get_latest_memorials_batch(body: LatestMemorialsRequest, request: Request):
 
 
 @edicts_router.post("/{edict_id}/plan/approve", response_model=ApiResponse)
-async def approve_plan(edict_id: str, request: Request):
-    """Approve a pending plan and trigger execution."""
+def approve_plan(edict_id: str, request: Request):
+    """Resolve a pending durable plan review; projection triggers execution later."""
     storage: Storage = request.app.state.storage
-    event_bus: EventBus = request.app.state.event_bus
-    actor = get_auth_context(request).principal.id
     edict = storage.get_edict(edict_id)
     if not edict:
         raise HTTPException(404, "Edict not found")
-
-    events = storage.get_events(edict_id)
-    plan_event = None
-    for e in reversed(events):
-        if e["event_type"] == "plan.pending_review":
-            plan_event = e
-            break
-    if not plan_event:
-        raise HTTPException(400, "No pending plan to approve")
-
-    plan_payload = plan_event.get("payload", {})
-    memorial_id = plan_event.get("memorial_id")
-
-    # Restore memorial status
-    if memorial_id:
-        memorial = storage.get_memorial(memorial_id)
-        if memorial and memorial.status == TaskStatus.NEEDS_REVIEW:
-            memorial.status = TaskStatus.PLANNING
-            storage.update_memorial(memorial)
-
-    # Record approval event
-    storage.append_event(
-        edict_id,
-        memorial_id,
-        "plan.approved",
-        {
-            "actor": actor,
-            "plan": plan_payload.get("plan", {}),
+    try:
+        resolution = request.app.state.approval_manager.submit_plan_review_decision(
+            edict_id,
+            action="approve",
+            auth=get_auth_context(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, "No pending plan to approve") from exc
+    except DecisionServiceError as exc:
+        raise HTTPException(409, "Plan review is no longer active") from exc
+    return ApiResponse(
+        success=True,
+        data={
+            "status": "approved",
+            "decision_request_id": resolution.decision_request_id,
         },
     )
-
-    # Fire-and-forget: 不阻塞 API 响应
-    event_bus.fire(
-        make_event(
-            "plan.completed",
-            edict_id=edict_id,
-            memorial_id=memorial_id,
-            producer="planner",
-            payload=plan_payload,
-        )
-    )
-    return ApiResponse(success=True, data={"status": "approved"})
 
 
 @edicts_router.post("/{edict_id}/plan/reject", response_model=ApiResponse)
 def reject_plan(edict_id: str, request: Request):
-    """Reject a pending plan."""
+    """Resolve a pending durable plan review as rejected."""
     storage: Storage = request.app.state.storage
-    actor = get_auth_context(request).principal.id
     edict = storage.get_edict(edict_id)
     if not edict:
         raise HTTPException(404, "Edict not found")
-
-    events = storage.get_events(edict_id)
-    plan_event = None
-    for e in reversed(events):
-        if e["event_type"] == "plan.pending_review":
-            plan_event = e
-            break
-    if not plan_event:
-        raise HTTPException(400, "No pending plan to reject")
-
-    memorial_id = plan_event.get("memorial_id")
-    if memorial_id:
-        memorial = storage.get_memorial(memorial_id)
-        if memorial:
-            memorial.status = TaskStatus.FAILED
-            memorial.error = "规划方案被驳回"
-            storage.update_memorial(memorial)
-
-    storage.append_event(
-        edict_id,
-        memorial_id,
-        "plan.rejected",
-        {
-            "actor": actor,
+    try:
+        resolution = request.app.state.approval_manager.submit_plan_review_decision(
+            edict_id,
+            action="reject",
+            auth=get_auth_context(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, "No pending plan to reject") from exc
+    except DecisionServiceError as exc:
+        raise HTTPException(409, "Plan review is no longer active") from exc
+    return ApiResponse(
+        success=True,
+        data={
+            "status": "rejected",
+            "decision_request_id": resolution.decision_request_id,
         },
     )
-    return ApiResponse(success=True, data={"status": "rejected"})
 
 
 @edicts_router.post("/{edict_id}/follow-up", response_model=ApiResponse, status_code=202)
@@ -895,7 +856,14 @@ async def submit_outer_loop_decision_api(
         feedback=body.feedback,
         new_acceptance=new_acceptance,
     )
-    triggered = am.submit_outer_loop_decision(edict_id, decision)
+    try:
+        triggered = am.submit_outer_loop_decision(
+            edict_id,
+            decision,
+            auth=get_auth_context(request),
+        )
+    except DecisionServiceError as exc:
+        raise HTTPException(409, "Outer-loop decision is no longer active") from exc
     if not triggered:
         raise HTTPException(
             status_code=404,

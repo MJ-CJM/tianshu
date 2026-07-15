@@ -9,6 +9,7 @@ from decimal import Decimal
 
 import pytest
 
+from tianshu.models.canonical import canonical_sha256
 from tianshu.models.decision import (
     DecisionKind,
     DecisionStatus,
@@ -114,7 +115,8 @@ def _waiting_state(continuation_kind: str) -> RunStateV1:
         actual_model=None,
         upstream_provider=None,
     )
-    if continuation_kind == "agent":
+    if continuation_kind in {"agent", "plan"}:
+        plan = {"tasks": []}
         continuation = AgentContinuationV1(
             messages=(),
             pending_tool=None,
@@ -123,6 +125,8 @@ def _waiting_state(continuation_kind: str) -> RunStateV1:
             checkpoint_ref=None,
             resolved_decision_id=None,
             side_effect_cursor=0,
+            plan_ref="plan:edict-1:1" if continuation_kind == "plan" else None,
+            plan_hash=canonical_sha256(plan) if continuation_kind == "plan" else None,
         )
     else:
         continuation = OuterLoopContinuationV1(
@@ -222,6 +226,38 @@ def test_request_with_run_state_accepts_outer_loop_continuation(
     assert saved is not None
     assert saved.continuation.kind == "outer_loop"
     assert saved.continuation.pending_decision_id == request.decision_request_id
+
+
+def test_plan_review_run_state_must_match_canonical_request_payload(
+    decision_storage: Storage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tianshu.governance.decision_service import DecisionValidationError
+
+    service = _service(decision_storage, [_NOW])
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("plan binding validation must precede the UoW")
+
+    monkeypatch.setattr(decision_storage, "unit_of_work", forbidden)
+    with pytest.raises(DecisionValidationError) as error:
+        service.request_with_run_state(
+            _request_command(
+                kind=DecisionKind.PLAN_REVIEW,
+                request_key="plan-review:1",
+                payload={
+                    "schema_version": 1,
+                    "plan_ref": "plan:edict-1:1",
+                    "plan_hash": "0" * 64,
+                    "plan": {"tasks": []},
+                },
+            ),
+            _waiting_state("plan"),
+            auth=_auth(),
+        )
+
+    assert error.value.code == "invalid_decision_run_state"
 
 
 def test_request_uses_auth_identity_deduplicates_and_audits_payload_conflict(

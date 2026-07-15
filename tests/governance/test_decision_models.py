@@ -222,7 +222,6 @@ def test_action_payloads_are_kind_bound_versioned_and_extra_forbidden() -> None:
         ),
         ("plan_review", "approve", {"schema_version": 1}),
         ("plan_review", "reject", {"schema_version": 1}),
-        ("plan_review", "amend", {"schema_version": 1, "amendment": "split step two"}),
         ("governed_apply", "approve", {"schema_version": 1}),
         ("governed_apply", "reject", {"schema_version": 1}),
     )
@@ -236,6 +235,7 @@ def test_action_payloads_are_kind_bound_versioned_and_extra_forbidden() -> None:
         ("tool", "approve", {"schema_version": 1, "unexpected": True}),
         ("tool", "guide", {"schema_version": 1}),
         ("outer_loop", "amend", {"schema_version": 1, "amendment": "wrong kind"}),
+        ("plan_review", "amend", {"schema_version": 1, "amendment": "unsupported"}),
         ("plan_review", "amend", {"schema_version": 2, "amendment": "wrong version"}),
         ("governed_apply", "guide", {"schema_version": 1}),
     )

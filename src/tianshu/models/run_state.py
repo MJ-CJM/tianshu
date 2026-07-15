@@ -106,6 +106,16 @@ class AgentContinuationV1(_StrictModel):
     pending_decision_id: str | None = None
     resolved_decision_id: str | None
     side_effect_cursor: int = Field(ge=0)
+    plan_ref: str | None = None
+    plan_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_plan_binding(self) -> Self:
+        if (self.plan_ref is None) != (self.plan_hash is None):
+            raise ValueError("plan_ref and plan_hash must be provided together")
+        if self.plan_ref is not None:
+            _non_blank(self.plan_ref)
+        return self
 
 
 class OuterLoopContinuationV1(_StrictModel):

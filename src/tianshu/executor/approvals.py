@@ -7,6 +7,7 @@ import hashlib
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Literal, cast
 
 from tianshu.application.edicts import EdictApplicationService, SubmitEdictCommand
@@ -31,6 +32,7 @@ from tianshu.models.decree import Decree
 from tianshu.models.edict import Edict, title_from_goal
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.memorial import Memorial
+from tianshu.models.plan import Plan
 from tianshu.models.principal import (
     AuthContext,
     AuthenticationSource,
@@ -40,6 +42,8 @@ from tianshu.models.principal import (
 )
 from tianshu.models.run_state import (
     AgentContinuationV1,
+    IterationSummaryV1,
+    OuterLoopContinuationV1,
     PersistedChatMessageV1,
     PersistedUsageSummaryV1,
     RunPhase,
@@ -76,10 +80,6 @@ class ApprovalManager:
         self._results: dict[str, Decree] = {}
         # Spec Section 4: 记录 wait_for_approval 时的 tool_name，方便 _handle_approve 生成 session rule
         self._pending_tool: dict[str, str] = {}
-        # 长任务 outer loop L3 审批（独立队列，与 tool-call 审批并存）
-        self._outer_loop_pending: dict[str, asyncio.Event] = {}
-        self._outer_loop_results: dict[str, object] = {}  # HumanDecision
-        self._outer_loop_payload: dict[str, dict] = {}  # 等审批时附带的展示数据（for UI）
 
     async def on_before_tool_call(self, **context: object) -> object:
         """Deprecated pre-Step-2 entry point.
@@ -239,17 +239,67 @@ class ApprovalManager:
         return None
 
     async def handle_decision_resolved(self, event: EventEnvelope) -> None:
-        """Durably replay the one-way legacy Decree projection for tool decisions."""
+        """Replay one-way compatibility projections after generic resolution."""
 
-        if event.payload.get("kind") != DecisionKind.TOOL.value:
+        kind = event.payload.get("kind")
+        if kind not in {
+            DecisionKind.TOOL.value,
+            DecisionKind.OUTER_LOOP.value,
+            DecisionKind.PLAN_REVIEW.value,
+        }:
             return
         decision_request_id = event.payload.get("decision_request_id")
         if not isinstance(decision_request_id, str) or self._decision_service is None:
-            raise ValueError("resolved tool event is missing durable decision identity")
+            raise ValueError("resolved decision event is missing durable identity")
         record = self._decision_service.get(decision_request_id)
         if record is None or record.resolution is None:
-            raise ValueError("resolved tool decision is unavailable")
-        self._project_tool_decree(record)
+            raise ValueError("resolved decision is unavailable")
+        if record.request.kind.value != kind:
+            raise ValueError("resolved decision kind does not match durable authority")
+        if kind == DecisionKind.TOOL.value:
+            self._project_tool_decree(record)
+            return
+        self._decision_service.mark_run_state_resolved(decision_request_id)
+        if kind == DecisionKind.PLAN_REVIEW.value:
+            await self._project_plan_review(record)
+
+    async def handle_decision_expired(self, event: EventEnvelope) -> None:
+        """Release durable suspensions and fail closed plan reviews after expiry."""
+
+        kind = event.payload.get("kind")
+        if kind not in {
+            DecisionKind.TOOL.value,
+            DecisionKind.OUTER_LOOP.value,
+            DecisionKind.PLAN_REVIEW.value,
+        }:
+            return
+        decision_request_id = event.payload.get("decision_request_id")
+        if not isinstance(decision_request_id, str) or self._decision_service is None:
+            raise ValueError("expired decision event is missing durable identity")
+        record = self._decision_service.get(decision_request_id)
+        if record is None or record.request.kind.value != kind:
+            raise ValueError("expired decision kind does not match durable authority")
+        state = self._decision_service.mark_run_state_terminal(decision_request_id)
+        if kind != DecisionKind.PLAN_REVIEW.value:
+            return
+        memorial = self._storage.get_memorial(state.memorial_id)
+        if memorial is None:
+            raise ValueError("expired plan review is unavailable")
+        if memorial.status in {TaskStatus.NEEDS_REVIEW, TaskStatus.PLANNING}:
+            memorial.status = TaskStatus.FAILED
+            memorial.error = "规划审批已超时"
+            self._storage.update_memorial(memorial)
+        self._storage.append_event_envelope(
+            EventEnvelope(
+                event_id=f"{decision_request_id}:plan.review_expired",
+                event_type="plan.review_expired",
+                edict_id=record.request.edict_id,
+                memorial_id=record.request.memorial_id,
+                producer="approval_manager.plan_review_projection.v1",
+                timestamp=record.request.updated_at,
+                payload={"decision_request_id": decision_request_id},
+            )
+        )
 
     @staticmethod
     def _policy_auth(invocation_id: str) -> AuthContext:
@@ -279,6 +329,62 @@ class ApprovalManager:
             source=AuthenticationSource.TRUSTED_LOCAL,
             client_kind=ClientKind.SYSTEM,
             correlation_id=f"silijian:{correlation}",
+        )
+
+    @staticmethod
+    def _outer_loop_auth(edict_id: str) -> AuthContext:
+        correlation = hashlib.sha256(edict_id.encode("utf-8")).hexdigest()[:32]
+        return AuthContext(
+            principal=Principal(
+                id="system:outer-loop",
+                kind=PrincipalKind.SERVICE,
+                display_name="Outer Loop",
+                scopes=frozenset({"decision:request"}),
+            ),
+            source=AuthenticationSource.TRUSTED_LOCAL,
+            client_kind=ClientKind.SYSTEM,
+            correlation_id=f"outer-loop:{correlation}",
+        )
+
+    @staticmethod
+    def _plan_review_auth(plan_ref: str) -> AuthContext:
+        correlation = hashlib.sha256(plan_ref.encode("utf-8")).hexdigest()[:32]
+        return AuthContext(
+            principal=Principal(
+                id="system:planner",
+                kind=PrincipalKind.SERVICE,
+                display_name="Planner",
+                scopes=frozenset({"decision:request"}),
+            ),
+            source=AuthenticationSource.TRUSTED_LOCAL,
+            client_kind=ClientKind.SYSTEM,
+            correlation_id=f"plan-review:{correlation}",
+        )
+
+    @staticmethod
+    def _redacted_text(value: str | None) -> str | None:
+        if value is None:
+            return None
+        safe = cast(str, redact_sensitive_mapping({"value": value})["value"])
+        return "[REDACTED]" if "[REDACTED" in safe else safe
+
+    @staticmethod
+    def _outer_loop_human_decision(resolution: DecisionResolutionV1) -> object:
+        from tianshu.executor.orchestrator.human_decision import HumanDecision
+        from tianshu.models.acceptance import AcceptanceCriteria
+
+        acceptance = resolution.payload.get("acceptance")
+        return HumanDecision(
+            action=cast(
+                Literal["continue", "accept_as_is", "abort", "modify_acceptance"],
+                resolution.action,
+            ),
+            feedback=cast(str | None, resolution.payload.get("feedback")),
+            new_acceptance=(
+                AcceptanceCriteria.model_validate(acceptance)
+                if isinstance(acceptance, dict)
+                else None
+            ),
         )
 
     @staticmethod
@@ -312,6 +418,60 @@ class ApprovalManager:
         self._storage.save_decree_if_absent(decree)
         return decree
 
+    async def _project_plan_review(self, record: DecisionRecordV1) -> None:
+        if record.request.kind is not DecisionKind.PLAN_REVIEW or record.resolution is None:
+            return
+        resolution = record.resolution
+        if resolution.action not in {"approve", "reject"}:
+            raise ValueError("unsupported plan review projection")
+        memorial = self._storage.get_memorial(record.request.memorial_id)
+        if memorial is None:
+            raise ValueError("plan review memorial is unavailable")
+        plan = record.request.payload.get("plan")
+        if not isinstance(plan, dict):
+            raise ValueError("plan review payload is unavailable")
+        event_type = "plan.approved" if resolution.action == "approve" else "plan.rejected"
+        projected = EventEnvelope(
+            event_id=f"{record.request.decision_request_id}:{event_type}",
+            event_type=event_type,
+            edict_id=record.request.edict_id,
+            memorial_id=record.request.memorial_id,
+            producer="approval_manager.plan_review_projection.v1",
+            timestamp=resolution.resolved_at,
+            payload={
+                "actor": resolution.actor_principal_id,
+                "decision_request_id": record.request.decision_request_id,
+                "plan": plan,
+            },
+        )
+        self._storage.append_event_envelope(projected)
+        if resolution.action == "reject":
+            if memorial.status in {TaskStatus.NEEDS_REVIEW, TaskStatus.PLANNING}:
+                memorial.status = TaskStatus.FAILED
+                memorial.error = "规划方案被驳回"
+                self._storage.update_memorial(memorial)
+            return
+        if memorial.status is TaskStatus.NEEDS_REVIEW:
+            memorial.status = TaskStatus.PLANNING
+            self._storage.update_memorial(memorial)
+        completed = EventEnvelope(
+            event_id=f"{record.request.decision_request_id}:plan.completed",
+            event_type="plan.completed",
+            edict_id=record.request.edict_id,
+            memorial_id=record.request.memorial_id,
+            producer="approval_manager.plan_review_projection.v1",
+            timestamp=resolution.resolved_at,
+            payload={
+                "plan": plan,
+                "decision_request_id": record.request.decision_request_id,
+            },
+        )
+        self._storage.append_event_envelope(completed)
+        report = await self._bus.dispatch(completed)
+        failure = next((result.error for result in report.results if not result.succeeded), None)
+        if failure is not None:
+            raise RuntimeError("plan completed projection failed") from failure
+
     async def wait_for_approval(
         self,
         memorial_id: str,
@@ -343,59 +503,317 @@ class ApprovalManager:
 
     # --- 长任务 outer loop L3 审批接口（独立于 tool-call 审批）---
 
+    def request_outer_loop_decision(
+        self,
+        *,
+        edict: Edict,
+        memorial: Memorial,
+        state: object,
+        checkpoint_ref: str | None,
+        side_effect_cursor: int,
+        timeout_seconds: float = 86400.0,
+    ) -> DecisionRequestV1:
+        """Persist one reconstruction-grade L3 suspension atomically."""
+
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable outer-loop decisions")
+        from tianshu.executor.orchestrator.state import OuterLoopState
+
+        if (
+            not isinstance(state, OuterLoopState)
+            or state.edict_id != edict.id
+            or state.current_level != "L3"
+        ):
+            raise ValueError("invalid outer-loop state")
+        now = self._clock().astimezone(UTC)
+        history: list[IterationSummaryV1] = []
+        for record in state.history:
+            record_usage = (
+                record.critic_result.usage
+                if record.critic_result is not None and record.critic_result.usage is not None
+                else UsageSummary()
+            )
+            usage = PersistedUsageSummaryV1.model_validate(
+                record_usage.model_copy(update={"cost_cny": record.cost_cny}).model_dump(
+                    mode="python"
+                )
+            )
+            history.append(
+                IterationSummaryV1(
+                    iteration=record.iteration,
+                    level=record.level,
+                    output_artifact_ref=None,
+                    critic_verdict=(
+                        record.critic_result.verdict if record.critic_result is not None else None
+                    ),
+                    critic_issue_class=self._redacted_text(
+                        record.critic_result.issue_class
+                        if record.critic_result is not None
+                        else None
+                    ),
+                    feedback=self._redacted_text(
+                        record.critic_result.feedback if record.critic_result is not None else None
+                    ),
+                    usage=usage,
+                    completed_at=record.finished_at,
+                )
+            )
+        last = state.history[-1] if state.history else None
+        continuation = OuterLoopContinuationV1(
+            level=state.current_level,
+            iteration=state.iteration,
+            best_output=self._redacted_text(last.actor_output if last is not None else None),
+            feedback=self._redacted_text(
+                last.critic_result.feedback
+                if last is not None and last.critic_result is not None
+                else None
+            ),
+            steer=self._redacted_text(state.steer_note),
+            history=tuple(history),
+            same_issue_streak=state.same_issue_streak,
+            last_critic_issue_class=self._redacted_text(state.last_critic_issue_class),
+            l1_rounds_used=state.l1_rounds_used,
+            l2_rounds_used=state.l2_rounds_used,
+            consultation_advice=self._redacted_text(state.consultation_advice),
+            usage=PersistedUsageSummaryV1.model_validate(memorial.usage.model_dump(mode="python")),
+            total_cost_cny=Decimal(str(state.total_cost_cny)),
+            checkpoint_ref=checkpoint_ref,
+            resolved_decision_id=None,
+            side_effect_cursor=side_effect_cursor,
+        )
+        run_state = RunStateV1(
+            memorial_id=memorial.id,
+            edict_id=edict.id,
+            phase=RunPhase.WAITING_DECISION,
+            continuation=continuation,
+            checkpoint_ref=checkpoint_ref,
+            side_effect_cursor=side_effect_cursor,
+            version=1,
+            created_at=now,
+            updated_at=now,
+        )
+        payload = {
+            "schema_version": 1,
+            **continuation.model_dump(
+                mode="json",
+                exclude={"pending_decision_id", "resolved_decision_id"},
+            ),
+        }
+        command = RequestDecisionCommand(
+            kind=DecisionKind.OUTER_LOOP,
+            edict_id=edict.id,
+            memorial_id=memorial.id,
+            request_key=f"outer-loop:{state.current_level}:{state.iteration}",
+            payload=cast(dict[str, JsonValue], payload),
+            expires_at=now + timedelta(seconds=timeout_seconds),
+        )
+        return self._decision_service.request_with_run_state(
+            command,
+            run_state,
+            auth=self._outer_loop_auth(edict.id),
+        )
+
     async def wait_for_outer_loop_decision(
         self,
-        edict_id: str,
-        payload: dict | None = None,
+        decision_request_id: str,
         timeout_seconds: float = 86400.0,
+        poll_interval_seconds: float = 0.1,
     ) -> object | None:
-        """阻塞直到某 edict 的 outer-loop L3 审批被提交，或超时。
+        """Poll durable outer-loop authority and return its compatibility decision."""
 
-        payload：当前最佳产出 / critic feedback / 迭代轮数等，存供 UI 列表查询。
-        返回 HumanDecision pydantic 对象；超时返 None（caller 按 on_approval_timeout 处理）。
-        """
-        evt = asyncio.Event()
-        self._outer_loop_pending[edict_id] = evt
-        if payload is not None:
-            self._outer_loop_payload[edict_id] = payload
-        logger.info(
-            "Waiting for outer-loop approval on edict %s (timeout=%ds)",
-            edict_id,
-            int(timeout_seconds),
-        )
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable outer-loop decisions")
+        service = self._decision_service
+
+        async def poll() -> DecisionRecordV1 | None:
+            while True:
+                record = service.get(decision_request_id)
+                if record is None or record.request.kind is not DecisionKind.OUTER_LOOP:
+                    return None
+                if record.request.status is not DecisionStatus.PENDING:
+                    return record
+                await asyncio.sleep(poll_interval_seconds)
+
         try:
-            await asyncio.wait_for(evt.wait(), timeout=timeout_seconds)
-            return self._outer_loop_results.pop(edict_id, None)
+            record = await asyncio.wait_for(poll(), timeout=timeout_seconds)
         except TimeoutError:
-            logger.warning("Outer-loop approval timeout for edict %s", edict_id)
+            service.expire_due()
+            record = service.get(decision_request_id)
+        if record is None or record.request.status is DecisionStatus.PENDING:
             return None
-        finally:
-            self._outer_loop_pending.pop(edict_id, None)
-            self._outer_loop_payload.pop(edict_id, None)
+        if record.request.status is not DecisionStatus.RESOLVED or record.resolution is None:
+            service.mark_run_state_terminal(decision_request_id)
+            return None
+        service.mark_run_state_resolved(decision_request_id)
+        return self._outer_loop_human_decision(record.resolution)
 
-    def submit_outer_loop_decision(self, edict_id: str, decision: object) -> bool:
-        """前端 POST 决策时调；返 True 表示真触发了等待中的 wait_for_outer_loop_decision。"""
-        if edict_id not in self._outer_loop_pending:
-            logger.warning(
-                "submit_outer_loop_decision: no edict '%s' is awaiting decision",
-                edict_id,
-            )
+    def submit_outer_loop_decision(
+        self,
+        edict_id: str,
+        decision: object,
+        *,
+        auth: AuthContext,
+    ) -> bool:
+        """Resolve the latest durable outer-loop request for one Edict."""
+
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable outer-loop decisions")
+        request = next(
+            (
+                item
+                for item in reversed(
+                    self._decision_service.list_pending(kind=DecisionKind.OUTER_LOOP)
+                )
+                if item.edict_id == edict_id
+            ),
+            None,
+        )
+        if request is None:
             return False
-        self._outer_loop_results[edict_id] = decision
-        self._outer_loop_pending[edict_id].set()
+        from tianshu.executor.orchestrator.human_decision import HumanDecision
+
+        parsed = (
+            decision
+            if isinstance(decision, HumanDecision)
+            else HumanDecision.model_validate(decision)
+        )
+        payload: dict[str, JsonValue] = {"schema_version": 1}
+        if parsed.action == "continue":
+            payload["feedback"] = parsed.feedback
+        elif parsed.action == "modify_acceptance":
+            if parsed.new_acceptance is None:
+                return False
+            payload["acceptance"] = cast(
+                dict[str, JsonValue], parsed.new_acceptance.model_dump(mode="json")
+            )
+        self._decision_service.resolve(
+            request.decision_request_id,
+            ResolveDecisionCommand(
+                action=parsed.action,
+                reason="outer-loop decision",
+                payload=payload,
+                expected_version=request.version,
+            ),
+            auth=auth,
+        )
         return True
 
     def list_pending_outer_loop(self) -> list[dict]:
-        """列出所有等审批的 outer-loop edict 及附带 payload。前端御书房用。"""
-        out: list[dict] = []
-        for edict_id, payload in self._outer_loop_payload.items():
-            out.append(
-                {
-                    "edict_id": edict_id,
-                    **payload,
-                }
-            )
-        return out
+        """List restart-visible outer-loop requests for compatibility UIs."""
+
+        if self._decision_service is None:
+            return []
+        return [
+            {
+                "decision_request_id": request.decision_request_id,
+                "edict_id": request.edict_id,
+                **request.payload,
+            }
+            for request in self._decision_service.list_pending(kind=DecisionKind.OUTER_LOOP)
+        ]
+
+    def request_plan_review_decision(
+        self,
+        *,
+        edict: Edict,
+        memorial: Memorial,
+        plan: Plan,
+        revision: int,
+        timeout_seconds: float = 86400.0,
+    ) -> DecisionRequestV1:
+        """Persist a canonical plan and its explicit non-tool waiting continuation."""
+
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable plan review")
+        if memorial.edict_id != edict.id or revision < 1:
+            raise ValueError("invalid plan review identity")
+        now = self._clock().astimezone(UTC)
+        safe_plan = cast(
+            dict[str, JsonValue],
+            redact_sensitive_mapping(plan.model_dump(mode="json")),
+        )
+        plan_hash = canonical_sha256(safe_plan)
+        plan_ref = f"plan:{edict.id}:{revision}"
+        continuation = AgentContinuationV1(
+            messages=(),
+            pending_tool=None,
+            iteration=0,
+            usage=PersistedUsageSummaryV1.model_validate(memorial.usage.model_dump(mode="python")),
+            checkpoint_ref=plan_ref,
+            resolved_decision_id=None,
+            side_effect_cursor=0,
+            plan_ref=plan_ref,
+            plan_hash=plan_hash,
+        )
+        run_state = RunStateV1(
+            memorial_id=memorial.id,
+            edict_id=edict.id,
+            phase=RunPhase.WAITING_DECISION,
+            continuation=continuation,
+            checkpoint_ref=plan_ref,
+            side_effect_cursor=0,
+            version=1,
+            created_at=now,
+            updated_at=now,
+        )
+        command = RequestDecisionCommand(
+            kind=DecisionKind.PLAN_REVIEW,
+            edict_id=edict.id,
+            memorial_id=memorial.id,
+            request_key=f"plan-review:{revision}",
+            payload={
+                "schema_version": 1,
+                "revision": revision,
+                "plan_ref": plan_ref,
+                "plan_hash": plan_hash,
+                "plan": safe_plan,
+            },
+            expires_at=now + timedelta(seconds=timeout_seconds),
+        )
+        return self._decision_service.request_with_run_state(
+            command,
+            run_state,
+            auth=self._plan_review_auth(plan_ref),
+        )
+
+    def list_pending_plan_reviews(self) -> list[DecisionRequestV1]:
+        if self._decision_service is None:
+            return []
+        return self._decision_service.list_pending(kind=DecisionKind.PLAN_REVIEW)
+
+    def submit_plan_review_decision(
+        self,
+        edict_id: str,
+        *,
+        action: Literal["approve", "reject"],
+        auth: AuthContext,
+    ) -> DecisionResolutionV1:
+        """Resolve the latest pending plan review through authenticated authority."""
+
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable plan review")
+        if action not in {"approve", "reject"}:
+            raise ValueError("unsupported plan review action")
+        request = next(
+            (
+                item
+                for item in reversed(self.list_pending_plan_reviews())
+                if item.edict_id == edict_id
+            ),
+            None,
+        )
+        if request is None:
+            raise ValueError("no pending plan review")
+        return self._decision_service.resolve(
+            request.decision_request_id,
+            ResolveDecisionCommand(
+                action=action,
+                reason="plan review",
+                payload={"schema_version": 1},
+                expected_version=request.version,
+            ),
+            auth=auth,
+        )
 
     def list_pending_tool_calls(self) -> list[dict]:
         """List in-memory pending tool approvals enriched with metadata.

@@ -1093,7 +1093,7 @@ async def _escalate_to_human(
     ctx: OrchestratorContext,
     memorial: Memorial,
 ) -> HumanDecision:
-    """发推送 + 等审批 —— duck-typed notifier + approvals 接口。"""
+    """Persist reconstruction state, notify, then await durable authority."""
     last = state.history[-1] if state.history else None
     payload = {
         "edict_id": edict.id,
@@ -1103,27 +1103,6 @@ async def _escalate_to_human(
         "critic_feedback": last.critic_result.feedback if last and last.critic_result else None,
         "history_length": len(state.history),
     }
-    await emit_audit(
-        ctx.bus,
-        ctx.storage,
-        edict.id,
-        memorial.id,
-        "outer_loop.approval.requested",
-        payload,
-    )
-
-    # 推送通知（如可用）
-    if ctx.notifier is not None:
-        try:
-            await ctx.notifier.notify(
-                channel="default",
-                title=f"长任务待审批 — Edict {edict.id[:8]}",
-                body=f"已迭代 {state.iteration} 轮仍未通过 critic，请审阅。",
-            )
-        except Exception:
-            logger.exception("notifier 推送失败，继续等审批")
-
-    # 等审批
     if ctx.approvals is None:
         # 无 approvals → 视为超时 → best_effort or abort（看 on_approval_timeout）
         on_timeout = edict.acceptance.on_approval_timeout if edict.acceptance else "best_effort"
@@ -1134,15 +1113,70 @@ async def _escalate_to_human(
         if edict.acceptance and edict.acceptance.deadline_seconds
         else 86400  # 默认 24h
     )
+    decision_request_id: str | None = None
     try:
-        # 优先用 ApprovalManager 的 outer-loop 接口（真审批等待）；
-        # 测试 mock 仍可走 .wait() 老接口
-        if hasattr(ctx.approvals, "wait_for_outer_loop_decision"):
-            raw = await ctx.approvals.wait_for_outer_loop_decision(
-                edict_id=edict.id,
-                payload=payload,
+        _save_checkpoint(ctx, state)
+        request_method = getattr(ctx.approvals, "request_outer_loop_decision", None)
+        if callable(request_method):
+            request = request_method(
+                edict=edict,
+                memorial=memorial,
+                state=state,
+                checkpoint_ref=f"outer-loop:{edict.id}",
+                side_effect_cursor=0,
                 timeout_seconds=float(timeout),
             )
+            candidate = getattr(request, "decision_request_id", None)
+            if isinstance(candidate, str) and candidate.strip():
+                decision_request_id = candidate
+    except Exception:
+        logger.exception("durable outer-loop decision request failed; aborting fail-closed")
+        return HumanDecision(action="abort")
+
+    try:
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "outer_loop.approval.requested",
+            {
+                **payload,
+                **(
+                    {"decision_request_id": decision_request_id}
+                    if decision_request_id is not None
+                    else {}
+                ),
+            },
+        )
+    except Exception:
+        logger.exception("outer-loop approval request audit projection failed")
+
+    if ctx.notifier is not None:
+        try:
+            await ctx.notifier.notify(
+                channel="default",
+                title=f"长任务待审批 — Edict {edict.id[:8]}",
+                body=f"已迭代 {state.iteration} 轮仍未通过 critic，请审阅。",
+            )
+        except Exception:
+            logger.exception("notifier 推送失败，继续等审批")
+
+    try:
+        # 测试 doubles 和尚未迁移的外部实现仍可走旧 wait 入口；生产 ApprovalManager
+        # 始终使用上面已持久化的 decision_request_id。
+        if hasattr(ctx.approvals, "wait_for_outer_loop_decision"):
+            if decision_request_id is not None:
+                raw = await ctx.approvals.wait_for_outer_loop_decision(
+                    decision_request_id,
+                    timeout_seconds=float(timeout),
+                )
+            else:
+                raw = await ctx.approvals.wait_for_outer_loop_decision(
+                    edict_id=edict.id,
+                    payload=payload,
+                    timeout_seconds=float(timeout),
+                )
         else:
             raw = await ctx.approvals.wait(
                 edict_id=edict.id,
@@ -1161,14 +1195,17 @@ async def _escalate_to_human(
         on_timeout = edict.acceptance.on_approval_timeout if edict.acceptance else "best_effort"
         return HumanDecision(action="accept_as_is" if on_timeout == "best_effort" else "abort")
 
-    await emit_audit(
-        ctx.bus,
-        ctx.storage,
-        edict.id,
-        memorial.id,
-        "outer_loop.approval.received",
-        {"action": decision.action},
-    )
+    try:
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "outer_loop.approval.received",
+            {"action": decision.action},
+        )
+    except Exception:
+        logger.exception("outer-loop approval received audit projection failed")
     return decision
 
 

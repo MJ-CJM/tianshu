@@ -135,6 +135,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         persona_loader=persona_loader,
         prompt_builder=prompt_builder,
         tool_registry=tools,
+        approval_manager=app.state.approval_manager,
     )
     app.state.planner = planner
 

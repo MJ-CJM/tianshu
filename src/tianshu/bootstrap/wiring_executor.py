@@ -99,7 +99,13 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
     event_bus.on(
         "decision.resolved",
         approval_manager.handle_decision_resolved,
+        # Keep the stable consumer identity so upgrades do not replay old tool projections.
         consumer_name="approval_manager.tool_decree_projection.v1",
+    )
+    event_bus.on(
+        "decision.expired",
+        approval_manager.handle_decision_expired,
+        consumer_name="approval_manager.decision_expiry_projection.v1",
     )
     app.state.approval_manager = approval_manager
 
