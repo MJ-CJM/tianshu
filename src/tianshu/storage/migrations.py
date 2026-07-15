@@ -2524,6 +2524,242 @@ def _decisions_run_state_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V12: additive validation and no-replace guards for v11 durable rows ---
+
+_RUN_STATE_CONTINUATION_SHAPE = """
+CASE
+    WHEN json_valid({json}) THEN
+        CASE WHEN json_type({json}) = 'object' THEN
+            COALESCE(CASE {kind}
+            WHEN 'agent' THEN
+                json_extract({json}, '$.kind') = 'agent'
+                AND COALESCE(json_type({json}, '$.messages'), 'missing') = 'array'
+                AND COALESCE(json_type({json}, '$.pending_tool'), 'missing')
+                    IN ('null', 'object')
+                AND COALESCE(json_type({json}, '$.iteration'), 'missing') = 'integer'
+                AND COALESCE(json_type({json}, '$.usage'), 'missing') = 'object'
+                AND COALESCE(json_type({json}, '$.checkpoint_ref'), 'missing')
+                    IN ('null', 'text')
+                AND COALESCE(json_type({json}, '$.resolved_decision_id'), 'missing')
+                    IN ('null', 'text')
+                AND COALESCE(json_type({json}, '$.side_effect_cursor'), 'missing') = 'integer'
+            WHEN 'outer_loop' THEN
+                json_extract({json}, '$.kind') = 'outer_loop'
+                AND json_extract({json}, '$.level') IN ('L0', 'L1', 'L2', 'L3')
+                AND COALESCE(json_type({json}, '$.iteration'), 'missing') = 'integer'
+                AND COALESCE(json_type({json}, '$.best_output'), 'missing')
+                    IN ('null', 'text')
+                AND COALESCE(json_type({json}, '$.feedback'), 'missing')
+                    IN ('null', 'text')
+                AND COALESCE(json_type({json}, '$.steer'), 'missing') IN ('null', 'text')
+                AND COALESCE(json_type({json}, '$.history'), 'missing') = 'array'
+                AND COALESCE(json_type({json}, '$.same_issue_streak'), 'missing') = 'integer'
+                AND COALESCE(json_type({json}, '$.last_critic_issue_class'), 'missing')
+                    IN ('null', 'text')
+                AND COALESCE(json_type({json}, '$.l1_rounds_used'), 'missing') = 'integer'
+                AND COALESCE(json_type({json}, '$.l2_rounds_used'), 'missing') = 'integer'
+                AND COALESCE(json_type({json}, '$.consultation_advice'), 'missing')
+                    IN ('null', 'text')
+                AND COALESCE(json_type({json}, '$.usage'), 'missing') = 'object'
+                AND COALESCE(json_type({json}, '$.total_cost_cny'), 'missing')
+                    IN ('integer', 'real', 'text')
+                AND COALESCE(json_type({json}, '$.checkpoint_ref'), 'missing')
+                    IN ('null', 'text')
+                AND COALESCE(json_type({json}, '$.resolved_decision_id'), 'missing')
+                    IN ('null', 'text')
+                AND COALESCE(json_type({json}, '$.side_effect_cursor'), 'missing') = 'integer'
+            ELSE 0
+            END, 0)
+            AND json_extract({json}, '$.checkpoint_ref') IS {checkpoint}
+            AND COALESCE(
+                json_extract({json}, '$.side_effect_cursor') = {cursor},
+                0
+            )
+        ELSE 0 END
+    ELSE 0
+END
+"""
+
+_DECISION_RUN_STATE_GUARD_VALIDATIONS = (
+    (
+        "decision request payload",
+        """
+        SELECT decision_request_id
+        FROM decision_requests
+        WHERE CASE
+            WHEN json_valid(payload_json) THEN json_type(payload_json) != 'object'
+            ELSE 1
+        END
+        LIMIT 1
+        """,
+    ),
+    (
+        "decision resolution payload",
+        """
+        SELECT decision_request_id
+        FROM decision_resolutions
+        WHERE CASE
+            WHEN json_valid(payload_json) THEN json_type(payload_json) != 'object'
+            ELSE 1
+        END
+        LIMIT 1
+        """,
+    ),
+    (
+        "run state continuation",
+        """
+        SELECT memorial_id
+        FROM run_states
+        WHERE NOT (
+        """
+        + _RUN_STATE_CONTINUATION_SHAPE.format(
+            json="continuation_json",
+            kind="continuation_kind",
+            checkpoint="checkpoint_ref",
+            cursor="side_effect_cursor",
+        )
+        + """
+        )
+        LIMIT 1
+        """,
+    ),
+)
+
+_DECISION_RUN_STATE_GUARD_STATEMENTS = (
+    """
+    CREATE TRIGGER decision_requests_validate_payload_insert_v12
+    BEFORE INSERT ON decision_requests
+    WHEN NOT (
+        CASE
+            WHEN json_valid(NEW.payload_json) THEN json_type(NEW.payload_json) = 'object'
+            ELSE 0
+        END
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'decision request payload must be a JSON object');
+    END
+    """,
+    """
+    CREATE TRIGGER decision_requests_validate_payload_update_v12
+    BEFORE UPDATE OF payload_json ON decision_requests
+    WHEN NOT (
+        CASE
+            WHEN json_valid(NEW.payload_json) THEN json_type(NEW.payload_json) = 'object'
+            ELSE 0
+        END
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'decision request payload must be a JSON object');
+    END
+    """,
+    """
+    CREATE TRIGGER decision_resolutions_validate_payload_insert_v12
+    BEFORE INSERT ON decision_resolutions
+    WHEN NOT (
+        CASE
+            WHEN json_valid(NEW.payload_json) THEN json_type(NEW.payload_json) = 'object'
+            ELSE 0
+        END
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'decision resolution payload must be a JSON object');
+    END
+    """,
+    """
+    CREATE TRIGGER run_states_validate_insert_v12
+    BEFORE INSERT ON run_states
+    WHEN NOT (
+    """
+    + _RUN_STATE_CONTINUATION_SHAPE.format(
+        json="NEW.continuation_json",
+        kind="NEW.continuation_kind",
+        checkpoint="NEW.checkpoint_ref",
+        cursor="NEW.side_effect_cursor",
+    )
+    + """
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'run state continuation has invalid top-level shape');
+    END
+    """,
+    """
+    CREATE TRIGGER run_states_validate_update_v12
+    BEFORE UPDATE ON run_states
+    WHEN NOT (
+    """
+    + _RUN_STATE_CONTINUATION_SHAPE.format(
+        json="NEW.continuation_json",
+        kind="NEW.continuation_kind",
+        checkpoint="NEW.checkpoint_ref",
+        cursor="NEW.side_effect_cursor",
+    )
+    + """
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'run state continuation has invalid top-level shape');
+    END
+    """,
+    """
+    CREATE TRIGGER decision_requests_no_replace
+    BEFORE INSERT ON decision_requests
+    WHEN EXISTS (
+        SELECT 1 FROM decision_requests
+        WHERE decision_request_id = NEW.decision_request_id
+           OR (
+               memorial_id = NEW.memorial_id
+               AND kind = NEW.kind
+               AND request_key = NEW.request_key
+           )
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'decision requests are immutable by replacement');
+    END
+    """,
+    """
+    CREATE TRIGGER decision_resolutions_no_replace
+    BEFORE INSERT ON decision_resolutions
+    WHEN EXISTS (
+        SELECT 1 FROM decision_resolutions
+        WHERE decision_request_id = NEW.decision_request_id
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'decision resolutions are immutable by replacement');
+    END
+    """,
+    """
+    CREATE TRIGGER run_states_no_replace
+    BEFORE INSERT ON run_states
+    WHEN EXISTS (
+        SELECT 1 FROM run_states
+        WHERE memorial_id = NEW.memorial_id
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'run states are immutable by replacement');
+    END
+    """,
+)
+_DECISION_RUN_STATE_GUARD_CHECKSUM = hashlib.sha256(
+    (
+        "0012_decision_run_state_guards\n"
+        + "\n".join(
+            " ".join(statement.split()) for _, statement in _DECISION_RUN_STATE_GUARD_VALIDATIONS
+        )
+        + "\n"
+        + "\n".join(
+            " ".join(statement.split()) for statement in _DECISION_RUN_STATE_GUARD_STATEMENTS
+        )
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _decision_run_state_guards_upgrade(conn: MigrationConnection) -> None:
+    for label, query in _DECISION_RUN_STATE_GUARD_VALIDATIONS:
+        if conn.execute(query).fetchone() is not None:
+            raise SchemaCompatibilityError(f"invalid existing {label}")
+    for statement in _DECISION_RUN_STATE_GUARD_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -2590,6 +2826,12 @@ MIGRATIONS = (
         name="0011_decisions_run_state",
         checksum=_DECISIONS_RUN_STATE_CHECKSUM,
         upgrade=_decisions_run_state_upgrade,
+    ),
+    Migration(
+        version=12,
+        name="0012_decision_run_state_guards",
+        checksum=_DECISION_RUN_STATE_GUARD_CHECKSUM,
+        upgrade=_decision_run_state_guards_upgrade,
     ),
 )
 

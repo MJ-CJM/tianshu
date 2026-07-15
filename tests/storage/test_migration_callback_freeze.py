@@ -59,6 +59,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0011_decisions_run_state": (
         "bda8e1761d17d27051e5c7b52dbfa224398e86c794666007f61f8e2a097d5e7c"
     ),
+    # v12 adds validation and no-replace guards without changing frozen v11.
+    "0012_decision_run_state_guards": (
+        "5f554ac8d24fe9ea3f060c81365100ae4ecb40d55340421cb18882268155b9c8"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {
