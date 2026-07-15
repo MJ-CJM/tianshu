@@ -9,12 +9,15 @@ from tianshu.security.redact import redact_text
 
 _SENSITIVE_COMPACT_KEY_ALIASES = frozenset(
     {
+        "accesskey",
         "authorization",
         "authorizationheader",
         "accesstoken",
         "apikey",
         "apisecret",
         "authtoken",
+        "bearer",
+        "bottoken",
         "cookie",
         "credential",
         "credentials",
@@ -30,8 +33,10 @@ _SENSITIVE_COMPACT_KEY_ALIASES = frozenset(
         "redisurl",
         "secret",
         "secretkey",
+        "sessionkey",
         "setcookie",
         "token",
+        "webhooksecret",
         "xapikey",
         "xauthtoken",
     }
@@ -62,12 +67,17 @@ _SENSITIVE_COMPACT_KEY_ANCHORS = frozenset(
     }
 )
 _SENSITIVE_KEY_TOKEN_SEQUENCES = (
+    ("access", "key"),
     ("api", "key"),
+    ("bearer", "token"),
+    ("bot", "token"),
     ("database", "url"),
     ("db", "url"),
     ("master", "key"),
     ("private", "key"),
     ("redis", "url"),
+    ("session", "key"),
+    ("webhook", "secret"),
 )
 _TOKEN_METRIC_COMPACT_KEY_ALIASES = frozenset(
     {
@@ -106,8 +116,8 @@ _SAFE_REDACTED_VALUES = frozenset(
         "Bearer [REDACTED]",
     }
 )
-_ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
-_SETTINGS_REF = re.compile(r"^settings:[a-z_][a-z0-9_]*$")
+SECRET_REFERENCE_PATTERN = r"^[A-Z_][A-Z0-9_]*$|^settings:[a-z_][a-z0-9_]*$"
+_SECRET_REFERENCE = re.compile(SECRET_REFERENCE_PATTERN)
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
 
@@ -141,6 +151,10 @@ def is_sensitive_payload_key(key: str, value: object) -> bool:
     compact_key = "".join(key_tokens)
     if compact_key in _TOKEN_METRIC_COMPACT_KEY_ALIASES:
         return not _is_json_number(value)
+    if compact_key in _SENSITIVE_COMPACT_KEY_ALIASES:
+        return True
+    if compact_key.endswith("token"):
+        return True
     if any(anchor in compact_key for anchor in _SENSITIVE_COMPACT_KEY_ANCHORS):
         return True
     if any(token in _SENSITIVE_COMPACT_KEY_ALIASES for token in key_tokens):
@@ -154,7 +168,7 @@ def is_sensitive_payload_key(key: str, value: object) -> bool:
 def is_safe_secret_reference(value: str) -> bool:
     """Accept only a complete environment-name or governed settings reference."""
 
-    return _ENV_NAME.fullmatch(value) is not None or _SETTINGS_REF.fullmatch(value) is not None
+    return _SECRET_REFERENCE.fullmatch(value) is not None
 
 
 def is_safe_redacted_value(value: str) -> bool:
@@ -228,6 +242,7 @@ def _redact_sensitive_value(value: object) -> object:
 
 
 __all__ = [
+    "SECRET_REFERENCE_PATTERN",
     "contains_raw_sensitive_payload",
     "is_environment_payload_key",
     "is_safe_redacted_value",

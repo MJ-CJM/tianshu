@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from tianshu.executor.capabilities import (
     native_manifest,
@@ -110,6 +111,25 @@ def _secret_policy() -> EnvironmentPolicy:
         allow_names=("VISIBLE_VALUE",),
         secret_refs=(EnvironmentSecretRef(env_name=_SECRET_ENV_NAME, ref=_SECRET_REF),),
     )
+
+
+@pytest.mark.parametrize("ref", ("GATEWAY_TEST_SECRET_REF", "settings:eval_llm_api_key"))
+def test_environment_secret_ref_accepts_only_authorized_reference_shapes(ref: str) -> None:
+    assert EnvironmentSecretRef(env_name=_SECRET_ENV_NAME, ref=ref).ref == ref
+
+
+@pytest.mark.parametrize(
+    "ref",
+    (
+        "gateway_test_secret_ref",
+        "Gateway_TEST_SECRET_REF",
+        "settings:Eval_LLM_API_KEY",
+        "settings:eval-llm-api-key",
+    ),
+)
+def test_environment_secret_ref_rejects_non_authority_reference_shapes(ref: str) -> None:
+    with pytest.raises(ValidationError, match="ref"):
+        EnvironmentSecretRef(env_name=_SECRET_ENV_NAME, ref=ref)
 
 
 def test_stream_redactor_does_not_hold_complete_non_secret_protocol_frames() -> None:

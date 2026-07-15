@@ -327,6 +327,31 @@ _SENSITIVE_ARGUMENTS = (
     {"api_key": "[REDACTED] smuggled-raw-value"},
 )
 
+_SENSITIVE_ALIAS_KEYS = (
+    "bearer",
+    "bearer_token",
+    "bearerToken",
+    "bearertoken",
+    "access_key",
+    "accessKey",
+    "accesskey",
+    "session_key",
+    "sessionKey",
+    "sessionkey",
+    "bot_token",
+    "botToken",
+    "bottoken",
+    "webhook_secret",
+    "webhookSecret",
+    "webhooksecret",
+    "session_token",
+    "sessionToken",
+    "sessiontoken",
+    "id_token",
+    "idToken",
+    "idtoken",
+)
+
 
 @pytest.mark.parametrize("operation", ("create", "cas"))
 @pytest.mark.parametrize("arguments", _SENSITIVE_ARGUMENTS)
@@ -361,6 +386,44 @@ def test_sensitive_payloads_are_rejected_with_zero_create_or_cas_writes(
         dump = "".join(storage._conn.iterdump())  # noqa: SLF001 - zero-write contract
         for value in _flatten_strings(arguments):
             assert value not in dump
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize("operation", ("create", "cas"))
+@pytest.mark.parametrize("alias_key", _SENSITIVE_ALIAS_KEYS)
+def test_sensitive_alias_variants_are_rejected_with_zero_create_or_cas_writes(
+    operation: str,
+    alias_key: str,
+) -> None:
+    *_, secret_error = _contracts()
+    storage = _storage()
+    original = _state()
+    raw_value = f"opaque-{alias_key}-value"
+    try:
+        if operation == "cas":
+            with storage.unit_of_work() as uow:
+                storage.run_state_repo.create(uow.connection, original)
+                uow.commit()
+
+        with pytest.raises(secret_error, match="secret"), storage.unit_of_work() as uow:
+            candidate = _state({alias_key: raw_value})
+            if operation == "create":
+                storage.run_state_repo.create(uow.connection, candidate)
+            else:
+                storage.run_state_repo.compare_and_swap(
+                    uow.connection,
+                    candidate.model_copy(
+                        update={"updated_at": candidate.updated_at + timedelta(seconds=1)}
+                    ),
+                    expected_version=1,
+                )
+
+        with storage.unit_of_work() as uow:
+            assert storage.run_state_repo.load(uow.connection, "memorial-1") == (
+                original if operation == "cas" else None
+            )
+        assert raw_value not in "".join(storage._conn.iterdump())  # noqa: SLF001
     finally:
         storage.close()
 
@@ -400,6 +463,7 @@ def test_safe_secret_refs_redacted_markers_metrics_and_normal_keys_are_persistab
     "smuggled",
     (
         "OPENAI_API_KEY trailing",
+        "gateway_test_secret_ref",
         "settings:Eval_LLM_API_KEY",
         "secret:legacy_ref",
         "[REDACTED API KEY] trailing",

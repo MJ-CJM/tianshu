@@ -302,6 +302,51 @@ def test_outbox_redacts_compact_camel_and_snake_credential_aliases(storage: Stor
     assert all(payload[key] == "[REDACTED]" for key in qualified_credentials)
 
 
+def test_outbox_redacts_run_state_sensitive_alias_variants_with_shared_rules(
+    storage: Storage,
+) -> None:
+    aliases = (
+        "bearer",
+        "bearer_token",
+        "bearerToken",
+        "bearertoken",
+        "access_key",
+        "accessKey",
+        "accesskey",
+        "session_key",
+        "sessionKey",
+        "sessionkey",
+        "bot_token",
+        "botToken",
+        "bottoken",
+        "webhook_secret",
+        "webhookSecret",
+        "webhooksecret",
+        "session_token",
+        "sessionToken",
+        "sessiontoken",
+        "id_token",
+        "idToken",
+        "idtoken",
+    )
+    sensitive_values = {alias: f"opaque-{alias}-value" for alias in aliases}
+    result = _service(storage).submit(
+        _command(extra_payload=sensitive_values),
+        auth=_auth(),
+        producer="test",
+        correlation_id="correlation-shared-sensitive-aliases",
+    )
+
+    payload = json.loads(
+        storage._conn.execute(  # noqa: SLF001 - persisted redaction proof
+            "SELECT payload_json FROM outbox_events WHERE event_id = ?",
+            (result.event_id,),
+        ).fetchone()[0]
+    )
+    assert all(payload[alias] == "[REDACTED]" for alias in aliases)
+    assert all(value not in json.dumps(payload) for value in sensitive_values.values())
+
+
 def test_outbox_preserves_non_secret_token_metrics(storage: Storage) -> None:
     result = _service(storage).submit(
         _command(

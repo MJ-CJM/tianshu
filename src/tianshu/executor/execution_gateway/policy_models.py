@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tianshu.models.principal import Principal
 from tianshu.security.clean_env import SAFE_ENV_VARS
 from tianshu.security.redact import redact_text
+from tianshu.security.sensitive_payload import SECRET_REFERENCE_PATTERN
 
 
 class _StrictModel(BaseModel):
@@ -196,7 +197,7 @@ def _tool_arguments_digest(
 
 class EnvironmentSecretRef(_StrictModel):
     env_name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
-    ref: str = Field(pattern=r"^(?:[A-Za-z_][A-Za-z0-9_]*|settings:[a-z_][a-z0-9_]*)$")
+    ref: str = Field(pattern=SECRET_REFERENCE_PATTERN)
 
 
 class EnvironmentValue(_StrictModel):
