@@ -38,6 +38,7 @@ def wire_storage(app: FastAPI, settings: TianshuSettings) -> None:
         storage,
         GitBackend(),
         workspace_roots.staging,
+        app.state.decision_service,
     )
 
     # --- EventBus ---
@@ -50,6 +51,11 @@ def wire_storage(app: FastAPI, settings: TianshuSettings) -> None:
         priority=0,
     )
     app.state.event_bus = event_bus
+    event_bus.on(
+        "decision.resolved",
+        app.state.workspace_service.handle_decision_resolved,
+        consumer_name="workspace_service.governed_apply_projection.v1",
+    )
 
     # --- HookRegistry ---
     hook_registry = HookRegistry()

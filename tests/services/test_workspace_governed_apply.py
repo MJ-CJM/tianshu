@@ -32,7 +32,7 @@ from tianshu.models.governance_contract import (
     RecoveryPolicyV1,
     WorkspacePolicyV1,
 )
-from tianshu.models.principal import Principal, PrincipalKind
+from tianshu.models.principal import AuthContext, Principal, PrincipalKind
 from tianshu.models.workspace import WorkspaceLeaseState
 
 _GIT = shutil.which("git")
@@ -166,21 +166,31 @@ async def _prepared(
     )
 
 
-def _principal(identifier: str = "reviewer") -> Principal:
-    return Principal(
-        id=identifier,
-        kind=PrincipalKind.HUMAN,
-        display_name="Workspace Reviewer",
-        scopes=frozenset({"workspace:apply", "tasks:read"}),
+def _principal(identifier: str = "reviewer") -> AuthContext:
+    return AuthContext(
+        principal=Principal(
+            id=identifier,
+            kind=PrincipalKind.HUMAN,
+            display_name="Workspace Reviewer",
+            scopes=frozenset({"workspace:apply", "tasks:read"}),
+        ),
+        source="trusted-local",
+        client_kind="system",
+        correlation_id=f"workspace-test:{identifier}",
     )
 
 
-def _unscoped_principal() -> Principal:
-    return Principal(
-        id="reviewer",
-        kind=PrincipalKind.HUMAN,
-        display_name="Workspace Reviewer",
-        scopes=frozenset({"tasks:read"}),
+def _unscoped_principal() -> AuthContext:
+    return AuthContext(
+        principal=Principal(
+            id="reviewer",
+            kind=PrincipalKind.HUMAN,
+            display_name="Workspace Reviewer",
+            scopes=frozenset({"tasks:read"}),
+        ),
+        source="trusted-local",
+        client_kind="system",
+        correlation_id="workspace-test:unscoped",
     )
 
 
@@ -235,7 +245,7 @@ def _filesystem_snapshot(root: Path) -> tuple[tuple[str, int, bytes], ...]:
 
 @pytest.mark.skipif(_GIT is None, reason="git is required")
 @pytest.mark.asyncio
-async def test_decision_binds_persisted_authority_and_never_persists_token(
+async def test_decision_binds_persisted_generic_authority_and_uses_canonical_compat_token(
     storage, tmp_path: Path
 ) -> None:
     prepared = await _prepared(storage, tmp_path)
@@ -263,16 +273,16 @@ async def test_decision_binds_persisted_authority_and_never_persists_token(
     assert decision.source_index_tree == status.restore_point.source_index_tree
     assert decision.source_status_hash == status.restore_point.source_status_hash
     assert decision.staging_git_dir_identity == status.lease.staging_git_dir_identity
-    assert len(token) >= 43
+    assert token == decision.id == decision.decision_request_id
     assert decision.token_hash == hashlib.sha256(token.encode()).hexdigest()
-    assert token not in repr(decision)
+    assert token in repr(decision)
     with storage._lock:  # noqa: SLF001 - prove the one-time secret is absent at rest
         dump = " ".join(
             str(value)
             for row in storage._conn.iterdump()  # noqa: SLF001
             for value in (row,)
         )
-    assert token not in dump
+    assert token in dump
     await prepared.service.shutdown()
 
 
@@ -437,18 +447,25 @@ async def test_source_drift_fails_before_materialization(storage, tmp_path: Path
 @pytest.mark.skipif(_GIT is None, reason="git is required")
 @pytest.mark.asyncio
 async def test_expired_authority_closes_staging_and_cannot_be_reissued(
-    storage, tmp_path: Path
+    storage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     prepared = await _prepared(storage, tmp_path)
     (prepared.staging / "modify.txt").write_bytes(b"approved\n")
     await prepared.service.capture_change_set(prepared.lease_id, run_id=prepared.run_id)
+    current_time = datetime(2026, 7, 16, 12, tzinfo=UTC)
+    monkeypatch.setattr(prepared.service, "_now", lambda: current_time)
+    monkeypatch.setattr(
+        prepared.service._decision_service,  # noqa: SLF001 - shared deterministic clock
+        "_clock",
+        lambda: current_time,
+    )
     expired, expired_token = await prepared.service.issue_apply_decision(
         prepared.run_id,
         _principal(),
         "already expired",
         timedelta(microseconds=1),
     )
-    await asyncio.sleep(0.01)
+    current_time = expired.expires_at
     with pytest.raises(WorkspaceApplyError) as expiry:
         await prepared.service.apply(prepared.run_id, expired.id, expired_token, _principal())
     assert expiry.value.code == "decision_expired"
@@ -475,6 +492,11 @@ async def test_authority_expiring_during_validation_cannot_be_claimed(
     await prepared.service.capture_change_set(prepared.lease_id, run_id=prepared.run_id)
     current_time = datetime(2026, 7, 12, 12, tzinfo=UTC)
     monkeypatch.setattr(prepared.service, "_now", lambda: current_time)
+    monkeypatch.setattr(
+        prepared.service._decision_service,  # noqa: SLF001 - shared deterministic clock
+        "_clock",
+        lambda: current_time,
+    )
     decision, token = await prepared.service.issue_apply_decision(
         prepared.run_id, _principal(), "approved", timedelta(minutes=5)
     )
@@ -723,6 +745,118 @@ async def test_service_rejects_missing_workspace_apply_scope(storage, tmp_path: 
     assert apply_caught.value.code == "scope_denied"
     assert storage.get_apply_decision(decision.id).state == "pending"
     await prepared.service.shutdown()
+
+
+@pytest.mark.skipif(_GIT is None, reason="git is required")
+@pytest.mark.asyncio
+async def test_legacy_token_without_generic_link_fails_before_git_or_receipt(
+    storage,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = await _prepared(storage, tmp_path)
+    (prepared.staging / "modify.txt").write_bytes(b"approved\n")
+    decision, token = await prepared.service.issue_apply_decision(
+        prepared.run_id,
+        _principal(),
+        "approved",
+        timedelta(minutes=5),
+    )
+    persisted = storage.get_apply_decision(decision.id)
+    assert persisted is not None
+    legacy = persisted.model_copy(update={"decision_request_id": None})
+    monkeypatch.setattr(storage, "get_apply_decision", lambda _decision_id: legacy)
+    monkeypatch.setattr(
+        prepared.service._git,  # noqa: SLF001
+        "inspect_repository",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("Git inspected")),
+    )
+    source_before = (prepared.source / "modify.txt").read_bytes()
+
+    with pytest.raises(WorkspaceApplyError) as caught:
+        await prepared.service.apply(
+            prepared.run_id,
+            decision.id,
+            token,
+            _principal(),
+        )
+
+    assert caught.value.code == "binding_mismatch"
+    assert (prepared.source / "modify.txt").read_bytes() == source_before
+    assert persisted.state == "pending"
+    assert storage.get_apply_receipt_for_decision(decision.id) is None
+
+
+@pytest.mark.skipif(_GIT is None, reason="git is required")
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mismatch",
+    ("payload", "decision_hash", "lease", "actor"),
+)
+async def test_linked_generic_mismatch_fails_before_git_source_or_receipt(
+    storage,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mismatch: str,
+) -> None:
+    prepared = await _prepared(storage, tmp_path)
+    (prepared.staging / "modify.txt").write_bytes(b"approved\n")
+    decision, token = await prepared.service.issue_apply_decision(
+        prepared.run_id,
+        _principal(),
+        "approved",
+        timedelta(minutes=5),
+    )
+    persisted = storage.get_apply_decision(decision.id)
+    assert persisted is not None
+    record = prepared.service._decision_service.get(decision.id)  # noqa: SLF001
+    assert record is not None and record.resolution is not None
+    if mismatch in {"payload", "lease"}:
+        payload = dict(record.request.payload)
+        payload["reason" if mismatch == "payload" else "lease_id"] = "tampered"
+        mismatched = record.model_copy(
+            update={"request": record.request.model_copy(update={"payload": payload})}
+        )
+        monkeypatch.setattr(
+            prepared.service._decision_service,  # noqa: SLF001
+            "get",
+            lambda _decision_id: mismatched,
+        )
+    elif mismatch == "decision_hash":
+        altered = persisted.model_copy(update={"decision_hash": "0" * 64})
+        monkeypatch.setattr(storage, "get_apply_decision", lambda _decision_id: altered)
+    else:
+        mismatched = record.model_copy(
+            update={
+                "resolution": record.resolution.model_copy(
+                    update={"actor_principal_id": "user:tampered"}
+                )
+            }
+        )
+        monkeypatch.setattr(
+            prepared.service._decision_service,  # noqa: SLF001
+            "get",
+            lambda _decision_id: mismatched,
+        )
+    monkeypatch.setattr(
+        prepared.service._git,  # noqa: SLF001
+        "inspect_repository",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("Git inspected")),
+    )
+    source_before = (prepared.source / "modify.txt").read_bytes()
+
+    with pytest.raises(WorkspaceApplyError) as caught:
+        await prepared.service.apply(
+            prepared.run_id,
+            decision.id,
+            token,
+            _principal(),
+        )
+
+    assert caught.value.code == "binding_mismatch"
+    assert (prepared.source / "modify.txt").read_bytes() == source_before
+    assert persisted.state == "pending"
+    assert storage.get_apply_receipt_for_decision(decision.id) is None
 
 
 @pytest.mark.skipif(_GIT is None, reason="git is required")

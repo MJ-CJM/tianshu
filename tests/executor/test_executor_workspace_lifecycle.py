@@ -39,7 +39,7 @@ from tianshu.models.governance_contract import (
     WorkspacePolicyV1,
 )
 from tianshu.models.plan import Plan, PlanTask
-from tianshu.models.principal import Principal, PrincipalKind
+from tianshu.models.principal import AuthContext, Principal, PrincipalKind
 from tianshu.models.workspace import WorkspaceLeaseState
 
 _GIT = shutil.which("git") or "git"
@@ -95,12 +95,17 @@ def _manifest():
     return _promoted_manifest(native_manifest())
 
 
-def _reviewer() -> Principal:
-    return Principal(
-        id="workspace-reviewer",
-        kind=PrincipalKind.HUMAN,
-        display_name="Workspace Reviewer",
-        scopes=frozenset({"workspace:apply"}),
+def _reviewer() -> AuthContext:
+    return AuthContext(
+        principal=Principal(
+            id="workspace-reviewer",
+            kind=PrincipalKind.HUMAN,
+            display_name="Workspace Reviewer",
+            scopes=frozenset({"workspace:apply"}),
+        ),
+        source="trusted-local",
+        client_kind="system",
+        correlation_id="executor-workspace-reviewer",
     )
 
 

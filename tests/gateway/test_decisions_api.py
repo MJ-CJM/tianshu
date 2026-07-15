@@ -200,6 +200,55 @@ def test_resolve_rejects_body_identity_and_derives_actor_from_auth_context(decis
     assert sentinel not in outbox["payload_json"]
 
 
+def test_governed_apply_resolution_with_api_only_scope_is_403_and_audited(
+    decision_api,
+) -> None:
+    storage, service, _, app = decision_api
+    requested = service.request(
+        RequestDecisionCommand(
+            kind=DecisionKind.GOVERNED_APPLY,
+            edict_id="edict-1",
+            memorial_id="memorial-1",
+            request_key="workspace-apply:lease-api-scope",
+            payload={"schema_version": 1, "run_id": "memorial-1"},
+            expires_at=_NOW + timedelta(minutes=10),
+        ),
+        auth=_requester(),
+    )
+    api_only = app.state.auth_service.issue_pat(
+        Principal(
+            id="service:api-only-reviewer",
+            kind="service",
+            display_name="API-only reviewer",
+            scopes=frozenset({"api"}),
+        ),
+        label="api-only-reviewer",
+        scopes=frozenset({"api"}),
+    )
+
+    with _client(app) as client:
+        response = client.post(
+            f"/api/decisions/{requested.decision_request_id}/resolve",
+            headers={"Authorization": f"Bearer {api_only.raw_token}"},
+            json={
+                "action": "approve",
+                "reason": "reviewed",
+                "payload": {"schema_version": 1},
+                "expected_version": 1,
+            },
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "workspace_apply_scope_required"
+    record = service.get(requested.decision_request_id)
+    assert record is not None and record.resolution is None
+    [denial] = [
+        event for event in storage.list_system_audit() if event.action == "decision.resolve.denied"
+    ]
+    assert denial.reason_code == "workspace_apply_scope_required"
+    assert denial.correlation_id == response.headers["x-correlation-id"]
+
+
 def test_not_found_conflict_and_validation_use_stable_disclosure_safe_mapping(decision_api) -> None:
     _, service, clock, app = decision_api
     requested = service.request(_request_command(), auth=_requester())

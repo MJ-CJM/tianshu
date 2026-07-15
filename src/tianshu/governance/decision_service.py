@@ -69,6 +69,10 @@ class DecisionValidationError(DecisionServiceError):
     """A command violates the fixed decision contract."""
 
 
+class DecisionAuthorizationError(DecisionServiceError):
+    """The authenticated principal lacks authority for this decision kind."""
+
+
 def _utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise DecisionValidationError("invalid_decision_timestamp")
@@ -501,6 +505,21 @@ class DecisionService:
                     actual_version=None,
                 )
                 raise DecisionNotFound("decision_not_found")
+            if (
+                record.request.kind is DecisionKind.GOVERNED_APPLY
+                and "workspace:apply" not in auth.principal.scopes
+            ):
+                self._deny_resolution(
+                    unit_of_work,
+                    auth=auth,
+                    decision_request_id=decision_request_id,
+                    reason_code="workspace_apply_scope_required",
+                    kind=record.request.kind,
+                    status=record.request.status.value,
+                    expected_version=command.expected_version,
+                    actual_version=record.request.version,
+                )
+                raise DecisionAuthorizationError("workspace_apply_scope_required")
             try:
                 validate_resolution_payload(
                     record.request.kind,
@@ -730,6 +749,7 @@ class DecisionService:
 
 
 __all__ = [
+    "DecisionAuthorizationError",
     "DecisionConflict",
     "DecisionNotFound",
     "DecisionService",

@@ -319,9 +319,9 @@ def test_trusted_local_four_routes_use_auth_context_principal_and_safe_views() -
     assert decision.text.count(_RAW_TOKEN) == 1
     assert applied.json()["data"]["receipt"]["id"] == "receipt-1"
     assert _RAW_TOKEN not in applied.text
-    assert service.calls[2][2].id == "local:owner"
+    assert service.calls[2][2].principal.id == "local:owner"
     assert service.calls[2][4] == timedelta(seconds=120)
-    assert service.calls[3][4].id == "local:owner"
+    assert service.calls[3][4].principal.id == "local:owner"
     serialized = "\n".join(response.text for response in (status, changes, applied))
     for forbidden in (
         "/private/source-root",

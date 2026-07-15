@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from tianshu.executor.workspace_service import WorkspaceApplyError
 from tianshu.gateway.auth import get_auth_context
 from tianshu.models import ApiResponse
-from tianshu.models.principal import Principal
+from tianshu.models.principal import AuthContext
 
 workspace_router = APIRouter(prefix="/workspace-runs", tags=["workspace"])
 
@@ -24,7 +24,7 @@ class WorkspaceApplySurface(Protocol):
     async def issue_apply_decision(
         self,
         run_id: str,
-        principal: Principal,
+        auth: AuthContext,
         reason: str,
         ttl: timedelta,
     ) -> tuple[object, str]: ...
@@ -34,7 +34,7 @@ class WorkspaceApplySurface(Protocol):
         run_id: str,
         decision_id: str,
         token: str,
-        principal: Principal,
+        auth: AuthContext,
     ) -> object: ...
 
 
@@ -65,9 +65,9 @@ def _service(request: Request) -> WorkspaceApplySurface:
     return request.app.state.workspace_service
 
 
-def _principal(request: Request, *, require_apply_scope: bool = False) -> Principal:
-    principal = get_auth_context(request).principal
-    if require_apply_scope and "workspace:apply" not in principal.scopes:
+def _context(request: Request, *, require_apply_scope: bool = False) -> AuthContext:
+    context = get_auth_context(request)
+    if require_apply_scope and "workspace:apply" not in context.principal.scopes:
         raise HTTPException(
             403,
             {
@@ -75,7 +75,7 @@ def _principal(request: Request, *, require_apply_scope: bool = False) -> Princi
                 "message": "workspace:apply scope required",
             },
         )
-    return principal
+    return context
 
 
 def _raise_safe_workspace_error(error: Exception) -> NoReturn:
@@ -293,7 +293,7 @@ def _status_view(record: object) -> dict[str, Any]:
 
 @workspace_router.get("/{run_id}/status", response_model=ApiResponse)
 async def get_workspace_status(run_id: str, request: Request) -> ApiResponse:
-    _principal(request)
+    _context(request)
     try:
         status = await _service(request).get_run_status(run_id)
     except Exception as error:
@@ -303,7 +303,7 @@ async def get_workspace_status(run_id: str, request: Request) -> ApiResponse:
 
 @workspace_router.get("/{run_id}/changes", response_model=ApiResponse)
 async def get_workspace_changes(run_id: str, request: Request) -> ApiResponse:
-    _principal(request)
+    _context(request)
     try:
         changes = await _service(request).get_run_changes(run_id)
     except Exception as error:
@@ -316,12 +316,12 @@ async def issue_workspace_apply_decision(
     run_id: str,
     request: Request,
 ) -> ApiResponse:
-    principal = _principal(request, require_apply_scope=True)
+    context = _context(request, require_apply_scope=True)
     reason, ttl_seconds = await _parse_apply_decision_request(request)
     try:
         decision, token = await _service(request).issue_apply_decision(
             run_id,
-            principal,
+            context,
             reason,
             timedelta(seconds=ttl_seconds),
         )
@@ -338,14 +338,14 @@ async def apply_workspace_changes(
     run_id: str,
     request: Request,
 ) -> ApiResponse:
-    principal = _principal(request, require_apply_scope=True)
+    context = _context(request, require_apply_scope=True)
     decision_id, token = await _parse_apply_request(request)
     try:
         receipt = await _service(request).apply(
             run_id,
             decision_id,
             token,
-            principal,
+            context,
         )
     except Exception as error:
         _raise_safe_workspace_error(error)

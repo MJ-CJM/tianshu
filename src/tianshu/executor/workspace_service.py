@@ -14,7 +14,6 @@ import hashlib
 import hmac
 import json
 import os
-import secrets
 import shutil
 import stat
 import tempfile
@@ -40,7 +39,15 @@ from tianshu.executor.workspace_apply import (
     WorkspaceMaterializationError,
     WorkspacePreimageDrift,
 )
-from tianshu.models.principal import Principal
+from tianshu.models.canonical import JsonValue
+from tianshu.models.decision import (
+    DecisionKind,
+    DecisionStatus,
+    RequestDecisionCommand,
+    ResolveDecisionCommand,
+)
+from tianshu.models.events import EventEnvelope
+from tianshu.models.principal import AuthContext, Principal
 from tianshu.models.workspace import (
     ApplyDecision,
     ApplyReceipt,
@@ -56,6 +63,12 @@ from tianshu.storage.workspace_repo import WorkspaceStateConflict
 
 if TYPE_CHECKING:
     from tianshu.storage import Storage
+
+from tianshu.governance.decision_service import (
+    DecisionConflict,
+    DecisionService,
+    DecisionServiceError,
+)
 
 try:  # Unix process locks are part of the governed local-workspace boundary.
     import fcntl
@@ -126,6 +139,7 @@ class WorkspaceService:
         storage: Storage,
         git_backend: GitBackend,
         staging_root: Path,
+        decision_service: DecisionService | None = None,
     ) -> None:
         raw_root = Path(staging_root).expanduser()
         if raw_root.is_symlink():
@@ -136,12 +150,14 @@ class WorkspaceService:
             raise WorkspaceSourceError("staging root must be a directory")
         resolved_root.chmod(0o700)
         self._storage = storage
+        self._decision_service = decision_service or DecisionService(storage)
         self._git = git_backend
         self._staging_root = resolved_root
         self._lifecycle_lock = asyncio.Lock()
         self._lease_locks: dict[str, asyncio.Lock] = {}
         self._source_apply_locks: dict[str, asyncio.Lock] = {}
         self._apply_failure_injector: Callable[[str], None] | None = None
+        self._governed_apply_failure_injector: Callable[[str], None] | None = None
         self._apply_lock_root = (
             Path(tempfile.gettempdir()).resolve() / f"tianshu-governed-apply-{os.getuid()}"
         )
@@ -769,10 +785,11 @@ class WorkspaceService:
     async def issue_apply_decision(
         self,
         run_id: str,
-        principal: Principal,
+        auth: AuthContext,
         reason: str,
         ttl: timedelta,
     ) -> tuple[ApplyDecision, str]:
+        principal = auth.principal
         self._require_apply_scope(principal)
         self._require_apply_capability(run_id)
         if ttl <= timedelta(0) or ttl > timedelta(hours=24):
@@ -836,12 +853,8 @@ class WorkspaceService:
             or lease.staging_git_dir_identity is None
         ):
             raise WorkspaceApplyError("binding_mismatch", "workspace authority is incomplete")
-        now = self._now()
-        token = secrets.token_urlsafe(32)
-        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        payload: dict[str, object] = {
-            "schema_version": "1",
-            "id": uuid4().hex,
+        payload: dict[str, JsonValue] = {
+            "schema_version": 1,
             "run_id": run_id,
             "lease_id": lease.id,
             "restore_point_id": restore.id,
@@ -858,26 +871,106 @@ class WorkspaceService:
             "source_status_hash": restore.source_status_hash,
             "staging_root": lease.staging_root,
             "staging_git_dir_identity": lease.staging_git_dir_identity,
-            "principal_digest": self._principal_digest(principal),
             "apply_scope": "workspace",
             "reason": reason,
-            "token_hash": token_hash,
-            "expires_at": (now + ttl).isoformat(),
-            "created_at": now.isoformat(),
         }
+        try:
+            request = self._decision_service.request(
+                RequestDecisionCommand(
+                    kind=DecisionKind.GOVERNED_APPLY,
+                    edict_id=self._memorial_edict_id(run_id),
+                    memorial_id=run_id,
+                    request_key=f"workspace-apply:{lease.id}",
+                    payload=payload,
+                    expires_at=self._now() + ttl,
+                ),
+                auth=auth,
+            )
+        except DecisionServiceError as exc:
+            code = (
+                "decision_expired" if exc.code == "invalid_decision_expiry" else "binding_mismatch"
+            )
+            raise WorkspaceApplyError(
+                code, "apply decision request conflicts with durable authority"
+            ) from exc
+        self._inject_governed_apply_failure("after_request")
+        record = self._decision_service.get(request.decision_request_id)
+        if record is None:
+            raise WorkspaceApplyError("binding_mismatch", "apply decision request disappeared")
+        if record.request.status is DecisionStatus.PENDING:
+            try:
+                self._decision_service.resolve(
+                    request.decision_request_id,
+                    ResolveDecisionCommand(
+                        action="approve",
+                        reason=reason,
+                        payload={"schema_version": 1},
+                        expected_version=request.version,
+                    ),
+                    auth=auth,
+                )
+            except DecisionConflict:
+                pass
+            except DecisionServiceError as exc:
+                code = (
+                    "scope_denied"
+                    if exc.code == "workspace_apply_scope_required"
+                    else "binding_mismatch"
+                )
+                raise WorkspaceApplyError(
+                    code, "apply decision could not be resolved safely"
+                ) from exc
+        self._inject_governed_apply_failure("after_resolve_before_projection")
+        decision = self.project_governed_apply_decision(request.decision_request_id)
+        if decision is None:
+            record = self._decision_service.get(request.decision_request_id)
+            if record is not None and record.request.status is DecisionStatus.EXPIRED:
+                raise WorkspaceApplyError("decision_expired", "apply decision expired")
+            raise WorkspaceApplyError("decision_not_pending", "apply authority was not approved")
+        return decision, request.decision_request_id
+
+    async def handle_decision_resolved(self, event: EventEnvelope) -> None:
+        """Project one durable governed-apply approval; never execute file effects."""
+
+        if event.event_type != "decision.resolved":
+            return
+        decision_id = event.payload.get("decision_request_id")
+        if event.payload.get("kind") != DecisionKind.GOVERNED_APPLY.value or not isinstance(
+            decision_id, str
+        ):
+            return
+        self.project_governed_apply_decision(decision_id)
+
+    def project_governed_apply_decision(self, decision_request_id: str) -> ApplyDecision | None:
+        record = self._decision_service.get(decision_request_id)
+        if (
+            record is None
+            or record.request.kind is not DecisionKind.GOVERNED_APPLY
+            or record.request.status is not DecisionStatus.RESOLVED
+            or record.resolution is None
+            or record.resolution.action != "approve"
+        ):
+            return None
+        payload = dict(record.request.payload)
         candidate = ApplyDecision.model_validate(
             {
                 **payload,
+                "schema_version": "1",
+                "id": record.request.decision_request_id,
+                "decision_request_id": record.request.decision_request_id,
+                "token_hash": hashlib.sha256(
+                    record.request.decision_request_id.encode("utf-8")
+                ).hexdigest(),
+                "principal_digest": self._actor_digest(record.resolution.actor_principal_id),
                 "decision_hash": "0" * 64,
+                "expires_at": record.request.expires_at,
+                "created_at": record.request.created_at,
                 "state": "pending",
                 "state_version": 1,
             }
         )
         decision_hash = self._canonical_digest(
-            candidate.model_dump(
-                mode="json",
-                exclude={"decision_hash", "state", "state_version"},
-            )
+            candidate.model_dump(mode="json", exclude={"decision_hash", "state", "state_version"})
         )
         decision = candidate.model_copy(update={"decision_hash": decision_hash})
         try:
@@ -890,19 +983,25 @@ class WorkspaceService:
             raise WorkspaceApplyError(
                 "binding_mismatch", "apply decision could not be persisted"
             ) from exc
-        return decision, token
+        persisted = self._storage.get_apply_decision(decision.id)
+        if persisted is None:
+            raise WorkspaceApplyError("binding_mismatch", "apply projection disappeared")
+        return persisted
 
     async def apply(
         self,
         run_id: str,
         decision_id: str,
         token: str,
-        principal: Principal,
+        auth: AuthContext,
     ) -> ApplyReceipt:
+        principal = auth.principal
         self._require_apply_scope(principal)
         decision = self._storage.get_apply_decision(decision_id)
         if decision is None:
             raise WorkspaceApplyError("decision_not_found", "apply decision does not exist")
+        self._authenticate_generic_decision(decision, run_id, token, principal)
+        self._authenticate_decision(decision, run_id, token, principal)
         source_key = self._canonical_digest(
             {
                 "repository": decision.source_repository_id,
@@ -924,7 +1023,7 @@ class WorkspaceService:
         self,
         run_id: str,
         decision_id: str,
-        principal: Principal,
+        auth: AuthContext,
         reason: str,
     ) -> ApplyReceipt:
         """Deny pending authority without accepting or exposing its token."""
@@ -945,7 +1044,7 @@ class WorkspaceService:
                 return await self._deny_apply_decision_locked(
                     run_id,
                     decision_id,
-                    principal,
+                    auth.principal,
                     reason,
                 )
 
@@ -1045,7 +1144,7 @@ class WorkspaceService:
         self,
         run_id: str,
         decision_id: str,
-        principal: Principal,
+        auth: AuthContext,
     ) -> ApplyDecision:
         """Revoke pending authority and idempotently close its staging lease."""
 
@@ -1062,7 +1161,7 @@ class WorkspaceService:
                 decision = self._storage.get_apply_decision(decision_id)
                 if decision is None:
                     raise WorkspaceApplyError("decision_not_found", "apply decision does not exist")
-                self._authenticate_decision_principal(decision, run_id, principal)
+                self._authenticate_decision_principal(decision, run_id, auth.principal)
                 self._require_apply_capability(run_id)
                 if decision.state != "pending":
                     raise WorkspaceApplyError(
@@ -1104,6 +1203,7 @@ class WorkspaceService:
         if decision is None:
             raise WorkspaceApplyError("decision_not_found", "apply decision does not exist")
         self._authenticate_decision(decision, run_id, token, principal)
+        self._authenticate_generic_decision(decision, run_id, token, principal)
         self._require_apply_capability(run_id)
         if decision.state != "pending":
             raise WorkspaceApplyError("decision_not_pending", "apply decision is already terminal")
@@ -1821,6 +1921,68 @@ class WorkspaceService:
         if not hmac.compare_digest(decision.token_hash, token_hash):
             raise WorkspaceApplyError("token_invalid", "apply token is invalid")
 
+    def _authenticate_generic_decision(
+        self,
+        decision: ApplyDecision,
+        run_id: str,
+        token: str,
+        principal: Principal,
+    ) -> None:
+        self._require_apply_scope(principal)
+        if decision.decision_request_id is None:
+            raise WorkspaceApplyError("binding_mismatch", "apply decision lacks durable authority")
+        record = self._decision_service.get(decision.decision_request_id)
+        if (
+            record is None
+            or record.request.kind is not DecisionKind.GOVERNED_APPLY
+            or record.request.status is not DecisionStatus.RESOLVED
+            or record.resolution is None
+            or record.resolution.action != "approve"
+            or record.resolution.actor_principal_id != principal.id
+            or record.request.decision_request_id != decision.id
+            or record.request.memorial_id != run_id
+            or record.request.expires_at != decision.expires_at
+            or record.request.created_at != decision.created_at
+            or record.request.payload != self._governed_apply_payload(decision)
+        ):
+            raise WorkspaceApplyError("binding_mismatch", "generic apply authority changed")
+        if token != record.request.decision_request_id:
+            raise WorkspaceApplyError("token_invalid", "apply token is invalid")
+
+    @staticmethod
+    def _governed_apply_payload(decision: ApplyDecision) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "run_id": decision.run_id,
+            "lease_id": decision.lease_id,
+            "restore_point_id": decision.restore_point_id,
+            "restore_point_hash": decision.restore_point_hash,
+            "change_set_id": decision.change_set_id,
+            "change_set_hash": decision.change_set_hash,
+            "source_repository_id": decision.source_repository_id,
+            "source_root": decision.source_root,
+            "source_git_dir_identity": decision.source_git_dir_identity,
+            "base_revision": decision.base_revision,
+            "source_head_revision": decision.source_head_revision,
+            "source_head_ref": decision.source_head_ref,
+            "source_index_tree": decision.source_index_tree,
+            "source_status_hash": decision.source_status_hash,
+            "staging_root": decision.staging_root,
+            "staging_git_dir_identity": decision.staging_git_dir_identity,
+            "apply_scope": decision.apply_scope,
+            "reason": decision.reason,
+        }
+
+    def _memorial_edict_id(self, memorial_id: str) -> str:
+        memorial = self._storage.get_memorial(memorial_id)
+        if memorial is None:
+            raise WorkspaceApplyError("run_not_found", "workspace run does not exist")
+        return memorial.edict_id
+
+    def _inject_governed_apply_failure(self, stage: str) -> None:
+        if self._governed_apply_failure_injector is not None:
+            self._governed_apply_failure_injector(stage)
+
     def _authenticate_decision_principal(
         self,
         decision: ApplyDecision,
@@ -1830,7 +1992,7 @@ class WorkspaceService:
         self._require_apply_scope(principal)
         if decision.run_id != run_id:
             raise WorkspaceApplyError("binding_mismatch", "apply decision belongs to another run")
-        principal_digest = self._principal_digest(principal)
+        principal_digest = self._actor_digest(principal.id)
         if not hmac.compare_digest(decision.principal_digest, principal_digest):
             raise WorkspaceApplyError(
                 "principal_mismatch", "apply decision belongs to another principal"
@@ -1858,15 +2020,8 @@ class WorkspaceService:
             )
 
     @staticmethod
-    def _principal_digest(principal: Principal) -> str:
-        return WorkspaceService._canonical_digest(
-            {
-                "id": principal.id,
-                "kind": principal.kind.value,
-                "display_name": principal.display_name,
-                "scopes": sorted(principal.scopes),
-            }
-        )
+    def _actor_digest(principal_id: str) -> str:
+        return hashlib.sha256(principal_id.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _canonical_digest(payload: dict[str, object]) -> str:

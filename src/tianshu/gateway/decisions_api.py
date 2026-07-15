@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from tianshu.gateway.auth import get_auth_context
 from tianshu.governance.decision_service import (
+    DecisionAuthorizationError,
     DecisionConflict,
     DecisionNotFound,
     DecisionServiceError,
@@ -60,6 +61,7 @@ _MESSAGES = {
     "decision_conflict": "decision request conflicts with durable authority",
     "invalid_decision_kind": "invalid decision kind",
     "invalid_decision_resolution": "invalid decision resolution",
+    "workspace_apply_scope_required": "workspace:apply scope required",
 }
 
 
@@ -82,6 +84,8 @@ def _raise(context: AuthContext, status_code: int, code: str) -> NoReturn:
 
 def _raise_service_error(context: AuthContext, error: DecisionServiceError) -> NoReturn:
     code = error.code if error.code in _MESSAGES else "decision_conflict"
+    if isinstance(error, DecisionAuthorizationError):
+        _raise(context, 403, "workspace_apply_scope_required")
     if isinstance(error, DecisionNotFound):
         _raise(context, 404, "decision_not_found")
     if isinstance(error, DecisionValidationError):
