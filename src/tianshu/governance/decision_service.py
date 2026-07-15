@@ -208,6 +208,16 @@ class DecisionService:
                     command.payload,
                 )
             except ValueError:
+                self._deny_resolution(
+                    unit_of_work,
+                    auth=auth,
+                    decision_request_id=decision_request_id,
+                    reason_code="invalid_decision_resolution",
+                    kind=record.request.kind,
+                    status=record.request.status.value,
+                    expected_version=command.expected_version,
+                    actual_version=record.request.version,
+                )
                 raise DecisionValidationError("invalid_decision_resolution") from None
             conflict_reason = self._resolution_conflict(record, command, now)
             if conflict_reason is not None:
@@ -278,6 +288,27 @@ class DecisionService:
             unit_of_work.commit()
             return resolution
 
+    def deny_invalid_resolution(
+        self,
+        decision_request_id: str,
+        *,
+        auth: AuthContext,
+    ) -> None:
+        """Audit a resolution body rejected before a valid command exists."""
+
+        with self._storage.unit_of_work() as unit_of_work:
+            record = self._repository.get(unit_of_work.connection, decision_request_id)
+            self._deny_resolution(
+                unit_of_work,
+                auth=auth,
+                decision_request_id=decision_request_id,
+                reason_code="invalid_decision_resolution",
+                kind=record.request.kind if record is not None else None,
+                status=(record.request.status.value if record is not None else "missing"),
+                expected_version=None,
+                actual_version=(record.request.version if record is not None else None),
+            )
+
     def expire_due(
         self,
         *,
@@ -344,15 +375,14 @@ class DecisionService:
         reason_code: str,
         kind: DecisionKind | None,
         status: str,
-        expected_version: int,
+        expected_version: int | None,
         actual_version: int | None,
     ) -> None:
-        metadata: dict[str, str | int | bool | None] = {
-            "status": status,
-            "expected_version": expected_version,
-        }
+        metadata: dict[str, str | int | bool | None] = {"status": status}
         if kind is not None:
             metadata["kind"] = kind.value
+        if expected_version is not None:
+            metadata["expected_version"] = expected_version
         if actual_version is not None:
             metadata["actual_version"] = actual_version
         _append_system_audit_unlocked(

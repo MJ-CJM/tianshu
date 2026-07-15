@@ -273,6 +273,17 @@ def test_malformed_kind_action_payload_is_rejected_before_authority_changes(
         ).fetchone()[0]
         == 0
     )
+    [denial] = [
+        event
+        for event in decision_storage.list_system_audit()
+        if event.action == "decision.resolve.denied"
+    ]
+    assert denial.reason_code == "invalid_decision_resolution"
+    assert (
+        denial.subject_digest == hashlib.sha256(requested.decision_request_id.encode()).hexdigest()
+    )
+    assert denial.actor_digest == hashlib.sha256(b"user:reviewer").hexdigest()
+    assert denial.correlation_id == "decision-correlation"
 
 
 def test_expire_due_emits_exactly_one_event_per_cas_winner(

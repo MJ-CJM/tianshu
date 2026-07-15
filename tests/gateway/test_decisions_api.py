@@ -250,3 +250,57 @@ def test_not_found_conflict_and_validation_use_stable_disclosure_safe_mapping(de
         assert secret not in response.text
         assert "127.0.0.1" not in response.text
         assert "bootstrap" not in response.text
+
+
+def test_unparsed_resolution_denials_are_audited_via_service_without_body_disclosure(
+    decision_api,
+) -> None:
+    storage, service, _, app = decision_api
+    requested = service.request(
+        _request_command(request_key="tool-call:malformed-api"),
+        auth=_requester(),
+    )
+    sentinel = "MALFORMED_BODY_SECRET_MUST_NOT_REACH_AUDIT"
+
+    with _client(app) as client:
+        bad_json = client.post(
+            f"/api/decisions/{requested.decision_request_id}/resolve",
+            headers={**_HEADERS, "content-type": "application/json"},
+            content="{",
+        )
+        blank_reason = client.post(
+            f"/api/decisions/{requested.decision_request_id}/resolve",
+            headers=_HEADERS,
+            json=_resolve_body(reason="  "),
+        )
+        forged_actor = client.post(
+            f"/api/decisions/{requested.decision_request_id}/resolve",
+            headers=_HEADERS,
+            json={**_resolve_body(), "requested_by": sentinel, "source_ip": sentinel},
+        )
+
+    denied_responses = (bad_json, blank_reason, forged_actor)
+    assert [response.status_code for response in denied_responses] == [422, 422, 422]
+    denials = [
+        event for event in storage.list_system_audit() if event.action == "decision.resolve.denied"
+    ]
+    assert len(denials) == 3
+    assert {event.reason_code for event in denials} == {"invalid_decision_resolution"}
+    assert {event.correlation_id for event in denials} == {
+        response.headers["x-correlation-id"] for response in denied_responses
+    }
+    assert {event.actor_digest for event in denials} == {hashlib.sha256(b"user:owner").hexdigest()}
+    assert {event.subject_digest for event in denials} == {
+        hashlib.sha256(requested.decision_request_id.encode()).hexdigest()
+    }
+    assert sentinel not in repr(denials)
+    record = service.get(requested.decision_request_id)
+    assert record is not None
+    assert record.request.status.value == "pending"
+    assert record.resolution is None
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM outbox_events"
+        ).fetchone()[0]
+        == 0
+    )

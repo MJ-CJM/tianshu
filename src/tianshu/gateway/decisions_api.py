@@ -44,6 +44,13 @@ class _DecisionSurface(Protocol):
         auth: AuthContext,
     ) -> DecisionResolutionV1: ...
 
+    def deny_invalid_resolution(
+        self,
+        decision_request_id: str,
+        *,
+        auth: AuthContext,
+    ) -> None: ...
+
 
 _MESSAGES = {
     "decision_not_found": "decision request not found",
@@ -95,11 +102,19 @@ def _parse_kind(context: AuthContext, raw_kind: str | None) -> DecisionKind | No
         _raise(context, 422, "invalid_decision_kind")
 
 
-async def _parse_resolution(request: Request, context: AuthContext) -> ResolveDecisionCommand:
+async def _parse_resolution(
+    request: Request,
+    context: AuthContext,
+    decision_request_id: str,
+) -> ResolveDecisionCommand:
     try:
         payload = await request.json()
         return ResolveDecisionCommand.model_validate(payload)
     except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, TypeError):
+        _service(request).deny_invalid_resolution(
+            decision_request_id,
+            auth=context,
+        )
         _raise(context, 422, "invalid_decision_resolution")
 
 
@@ -132,7 +147,7 @@ def get_decision(request: Request, decision_request_id: str) -> dict[str, object
 @decisions_router.post("/{decision_request_id}/resolve")
 async def resolve_decision(request: Request, decision_request_id: str) -> dict[str, object]:
     context = get_auth_context(request)
-    command = await _parse_resolution(request, context)
+    command = await _parse_resolution(request, context, decision_request_id)
     try:
         resolution = _service(request).resolve(
             decision_request_id,
