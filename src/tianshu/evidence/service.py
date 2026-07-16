@@ -257,6 +257,16 @@ class ArtifactStore:
             return False
         return True
 
+    def verify_ref(self, artifact: ArtifactRefV1) -> bool:
+        try:
+            durable = self._repository.get(artifact.digest)
+            if durable is None or durable != artifact:
+                return False
+            self._read_verified(durable)
+        except (ArtifactRepositoryError, ArtifactStoreError, OSError, ValueError):
+            return False
+        return True
+
     def verify_ref_current(self, artifact: ArtifactRefV1) -> bool:
         try:
             self._read_verified(artifact)
@@ -691,20 +701,47 @@ class EvidenceService:
             ]
         )
 
-    def _require_complete(self, snapshot: EvidenceSnapshotV1) -> None:
-        missing = self._missing(
-            snapshot.requirements,
-            snapshot.artifacts,
-            snapshot.checks,
-            snapshot.decisions,
-            snapshot.effects,
+    @staticmethod
+    def _required_evidence(requirements: EvidenceRequirementsV1) -> tuple[str, ...]:
+        return tuple(
+            [f"check:{value}" for value in requirements.check_names]
+            + [f"decision:{value}" for value in requirements.decision_request_ids]
+            + [f"effect:{value}" for value in requirements.effect_intent_ids]
+            + [f"artifact:{value}" for value in requirements.artifact_digests]
         )
-        missing.extend(snapshot.auditor.missing_evidence)
+
+    @classmethod
+    def _semantic_reasons(cls, snapshot: EvidenceSnapshotV1) -> tuple[str, ...]:
+        missing = tuple(
+            sorted(
+                set(
+                    cls._missing(
+                        snapshot.requirements,
+                        snapshot.artifacts,
+                        snapshot.checks,
+                        snapshot.decisions,
+                        snapshot.effects,
+                    )
+                )
+            )
+        )
+        reasons = [f"missing_required:{item}" for item in missing]
+        if snapshot.auditor.required_evidence != cls._required_evidence(snapshot.requirements):
+            reasons.append("auditor_required_evidence_mismatch")
+        if snapshot.auditor.missing_evidence != missing:
+            reasons.append("auditor_missing_evidence_mismatch")
+        expected_verdict = "fail" if missing else "pass"
+        if snapshot.auditor.verdict != expected_verdict:
+            reasons.append("auditor_verdict_mismatch")
+        return tuple(reasons)
+
+    def _require_complete(self, snapshot: EvidenceSnapshotV1) -> None:
+        missing = [
+            reason.removeprefix("missing_required:") for reason in self._semantic_reasons(snapshot)
+        ]
         for artifact in snapshot.artifacts:
             if not self._artifacts.verify_ref_current(artifact):
                 missing.append(f"artifact:{artifact.digest}")
-        if snapshot.auditor.verdict != "pass":
-            missing.append("auditor:conclusion")
         if missing:
             raise EvidenceIncompleteError(tuple(missing))
 
@@ -797,8 +834,9 @@ class EvidenceService:
         reasons: list[str] = []
         if closed_bundle_content_hash(bundle) != bundle.content_hash:
             reasons.append("content_hash_mismatch")
+        reasons.extend(self._semantic_reasons(bundle.snapshot))
         for artifact in bundle.snapshot.artifacts:
-            if not self._artifacts.verify(artifact.digest):
+            if not self._artifacts.verify_ref(artifact):
                 reasons.append(f"artifact_invalid:{artifact.digest}")
         return EvidenceVerificationV1(
             bundle_id=bundle.bundle_id,
