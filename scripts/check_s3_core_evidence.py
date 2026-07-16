@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the machine-readable S3 Core Governance Gate evidence block."""
+"""Validate retained S3 Core Governance Gate evidence against repository facts."""
 
 from __future__ import annotations
 
@@ -18,6 +18,9 @@ from tianshu.executor.git_backend import GitBackend, GitBackendError, GitLocatio
 _SCHEMA_VERSION = "s3-core-gate-v1"
 _BLOCK_START = "<!-- s3-core-evidence:v1 -->\n```json\n"
 _BLOCK_END = "\n```\n<!-- /s3-core-evidence:v1 -->"
+_LOG_HEADER = "S3_CORE_GATE_LOG_V1"
+_OUTPUT_MARKER = "--- output ---\n"
+_EXIT_MARKER = "--- exit ---\n"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _COUNT_KEYS = ("passed", "failed", "skipped", "deselected")
@@ -34,11 +37,16 @@ _REQUIRED_COMMANDS = {
         "tests/integration/test_replan_evidence.py tests/evidence "
         "tests/notifier/test_internal_delivery_recovery.py -q"
     ),
+    "notifier_all": "env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/notifier -q",
     "ruff_check": ".venv/bin/ruff check src tests",
     "ruff_format_check": ".venv/bin/ruff format --check src tests",
     "mypy": ".venv/bin/mypy",
     "import_linter": ".venv/bin/lint-imports",
     "full_non_slow": ('env -u VIRTUAL_ENV .venv/bin/python -m pytest -m "not slow" -q'),
+}
+_EVIDENCE_DIRECTORY = "docs/cc-fable-v1/reports/s3-core-evidence"
+_REQUIRED_LOGS = {
+    command_id: f"{_EVIDENCE_DIRECTORY}/{command_id}.log" for command_id in _REQUIRED_COMMANDS
 }
 _REQUIRED_FAULTS = {
     "idempotent_submission": "tests/integration/test_edict_idempotency.py",
@@ -52,15 +60,37 @@ _REQUIRED_FAULTS = {
     "evidence_bundle_integrity": "tests/evidence",
     "internal_delivery_recovery": "tests/notifier/test_internal_delivery_recovery.py",
 }
-_DEFAULT_ALLOWED_DIRTY = (
+_GOVERNANCE_DOCS = (
     "docs/cc-fable-v1/reports/s3-core-governance-report.md",
     "docs/launch/capability-matrix.md",
     "docs/cc-fable-v1/PROGRESS.md",
 )
+_DEFAULT_ALLOWED_DIRTY = (*_GOVERNANCE_DOCS, *_REQUIRED_LOGS.values())
+_NEGATIVE_BOUNDARY = re.compile(
+    r"(?:does\s+not\s+claim|not\s+claim(?:ed)?|not\s+guaranteed|"
+    r"not\s+supported|unsupported|not\s+in\s+(?:this|the)\s+Gate|"
+    r"out\s+of\s+scope|remain(?:s)?\s+deferred|deferred|"
+    r"不保证|不承诺|不支持|未支持|不属于|不在.{0,12}保证|延期|暂缓|不得)",
+    re.IGNORECASE,
+)
+_FORBIDDEN_TOPICS = {
+    "full OTel": re.compile(r"(?:full|complete)\s+OTel|完整\s*OTel", re.IGNORECASE),
+    "external notification delivery": re.compile(
+        r"external.{0,32}(?:notification|channel|message).{0,32}delivery|"
+        r"external[- ]channel.{0,16}delivery|external.{0,16}delivery|"
+        r"外部.{0,16}(?:通知|消息).{0,16}送达",
+        re.IGNORECASE,
+    ),
+    "multi-replica governance": re.compile(
+        r"multi[- ]replica.{0,32}(?:governance|coordination|semantics)|"
+        r"多副本.{0,16}(?:治理|协调|语义)",
+        re.IGNORECASE,
+    ),
+}
 
 
 class GateEvidenceError(ValueError):
-    """The report cannot support the S3 Core Gate claim."""
+    """The report cannot support the bounded S3 Core Gate claim."""
 
 
 @dataclass(frozen=True)
@@ -70,7 +100,17 @@ class GateContext:
     accepted_source_commits: tuple[str, ...]
     dirty_paths: tuple[str, ...]
     allowed_dirty_paths: tuple[str, ...]
+    evidence_paths: tuple[str, ...]
     source_hashes: Mapping[str, str]
+    log_bytes: Mapping[str, bytes]
+
+
+@dataclass(frozen=True)
+class _LogResult:
+    source_commit: str
+    command: str
+    exit_code: int
+    counts: Mapping[str, int]
 
 
 def _mapping(value: object, field: str) -> Mapping[str, Any]:
@@ -91,6 +131,15 @@ def _required(record: Mapping[str, Any], field: str, owner: str) -> Any:
     return record[field]
 
 
+def _exact_keys(record: Mapping[str, Any], expected: set[str], owner: str) -> None:
+    missing = sorted(expected - record.keys())
+    extra = sorted(record.keys() - expected)
+    if missing:
+        raise GateEvidenceError(f"{owner}.{missing[0]} is required")
+    if extra:
+        raise GateEvidenceError(f"{owner}.{extra[0]} is not allowed")
+
+
 def _sha256(value: object, field: str) -> str:
     if not isinstance(value, str) or not _SHA256.fullmatch(value) or value == "0" * 64:
         raise GateEvidenceError(f"{field} must be a non-zero SHA-256")
@@ -103,44 +152,26 @@ def _non_negative_int(value: object, field: str) -> int:
     return value
 
 
-def _positive_int(value: object, field: str) -> int:
-    result = _non_negative_int(value, field)
-    if result == 0:
-        raise GateEvidenceError(f"{field} must be positive")
-    return result
-
-
-def _validate_source(
-    record: Mapping[str, Any],
-    owner: str,
-    context: GateContext,
-    *,
-    expected_path: str | None = None,
-) -> None:
-    path = _required(record, "source_path", owner) if expected_path is None else expected_path
-    if not isinstance(path, str) or not path:
-        raise GateEvidenceError(f"{owner}.source_path must be non-empty")
-    if expected_path is None and record.get("source_path") != path:
-        raise GateEvidenceError(f"{owner}.source_path is invalid")
-    actual = context.source_hashes.get(path)
-    claimed = _sha256(_required(record, "source_sha256", owner), f"{owner}.source_sha256")
-    if actual is None or claimed != actual:
-        raise GateEvidenceError(f"{owner}.source_sha256 does not match {path}")
+def _canonical_json(evidence: Mapping[str, object]) -> str:
+    return json.dumps(evidence, indent=2, sort_keys=True, ensure_ascii=False)
 
 
 def parse_report(content: str) -> dict[str, object]:
-    """Extract the single canonical JSON evidence block from a Markdown report."""
+    """Extract one evidence block and reject noncanonical JSON bytes."""
 
     if content.count(_BLOCK_START) != 1 or content.count(_BLOCK_END) != 1:
         raise GateEvidenceError("report must contain exactly one S3 evidence block")
     start = content.index(_BLOCK_START) + len(_BLOCK_START)
     end = content.index(_BLOCK_END, start)
+    payload = content[start:end]
     try:
-        evidence = json.loads(content[start:end])
+        evidence = json.loads(payload)
     except json.JSONDecodeError as exc:
         raise GateEvidenceError("S3 evidence block is not valid JSON") from exc
     if not isinstance(evidence, dict):
         raise GateEvidenceError("S3 evidence block must be a JSON object")
+    if payload != _canonical_json(evidence):
+        raise GateEvidenceError("S3 evidence block must use canonical JSON")
     return evidence
 
 
@@ -148,18 +179,152 @@ def render_report(markdown_body: str, evidence: Mapping[str, object]) -> str:
     """Render a stable Markdown report with canonical, reviewable JSON evidence."""
 
     body = markdown_body.rstrip()
-    payload = json.dumps(evidence, indent=2, sort_keys=True, ensure_ascii=False)
-    return f"{body}\n\n{_BLOCK_START}{payload}{_BLOCK_END}\n"
+    return f"{body}\n\n{_BLOCK_START}{_canonical_json(evidence)}{_BLOCK_END}\n"
+
+
+def render_log(*, source_commit: str, command: str, output: bytes, exit_code: int) -> bytes:
+    """Render a retained raw command log with source, command, and exit bindings."""
+
+    if not _COMMIT.fullmatch(source_commit):
+        raise GateEvidenceError("log source_commit must be a full Git commit")
+    if "\n" in command or "\r" in command:
+        raise GateEvidenceError("log command must occupy one line")
+    if not output.endswith(b"\n"):
+        output += b"\n"
+    prefix = (
+        f"{_LOG_HEADER}\nsource_commit={source_commit}\ncommand={command}\n{_OUTPUT_MARKER}"
+    ).encode()
+    suffix = f"{_EXIT_MARKER}exit_code={exit_code}\n".encode()
+    return prefix + output + suffix
+
+
+def _pytest_counts(output: str, owner: str) -> Mapping[str, int]:
+    summary = None
+    for line in reversed(output.splitlines()):
+        normalized = line.strip().strip("=").strip()
+        if re.search(r"\b\d+\s+passed\b", normalized) and re.search(
+            r"\bin\s+\d+(?:\.\d+)?s(?:\s+\([^)]+\))?$", normalized
+        ):
+            summary = normalized
+            break
+    if summary is None:
+        raise GateEvidenceError(f"{owner} log has no terminal pytest success summary")
+    pairs = {
+        key: int(value)
+        for value, key in re.findall(r"(\d+)\s+(passed|failed|skipped|deselected)\b", summary)
+    }
+    return {key: pairs.get(key, 0) for key in _COUNT_KEYS}
+
+
+def _command_counts(command_id: str, output: str) -> Mapping[str, int]:
+    owner = f"{command_id} retained"
+    if command_id in {"focused_fault_matrix", "notifier_all", "full_non_slow"}:
+        return _pytest_counts(output, owner)
+    if command_id == "ruff_check":
+        if "All checks passed!" not in output:
+            raise GateEvidenceError(f"{owner} log has no Ruff success summary")
+        passed, failed = 1, 0
+    elif command_id == "ruff_format_check":
+        match = re.search(r"\b(\d+) files? already formatted\b", output)
+        if match is None:
+            raise GateEvidenceError(f"{owner} log has no Ruff format success summary")
+        passed, failed = int(match.group(1)), 0
+    elif command_id == "mypy":
+        match = re.search(r"Success: no issues found in (\d+) source files?", output)
+        if match is None:
+            raise GateEvidenceError(f"{owner} log has no mypy success summary")
+        passed, failed = int(match.group(1)), 0
+    elif command_id == "import_linter":
+        match = re.search(r"Contracts:\s*(\d+) kept,\s*(\d+) broken\.", output)
+        if match is None:
+            raise GateEvidenceError(f"{owner} log has no import-linter success summary")
+        passed, failed = int(match.group(1)), int(match.group(2))
+    else:  # pragma: no cover - caller is bounded by _REQUIRED_COMMANDS
+        raise GateEvidenceError(f"unknown retained command: {command_id}")
+    return {"passed": passed, "failed": failed, "skipped": 0, "deselected": 0}
+
+
+def _parse_log(command_id: str, payload: bytes) -> _LogResult:
+    try:
+        content = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise GateEvidenceError(f"{command_id} retained log must be UTF-8") from exc
+    prefix, marker, tail = content.partition(_OUTPUT_MARKER)
+    if not marker:
+        raise GateEvidenceError(f"{command_id} retained log is missing output marker")
+    output, exit_marker, exit_record = tail.rpartition(_EXIT_MARKER)
+    if not exit_marker or not exit_record.endswith("\n"):
+        raise GateEvidenceError(f"{command_id} retained log is missing exit evidence")
+    prefix_lines = prefix.splitlines()
+    if len(prefix_lines) != 3 or prefix_lines[0] != _LOG_HEADER:
+        raise GateEvidenceError(f"{command_id} retained log header is invalid")
+    if not prefix_lines[1].startswith("source_commit=") or not prefix_lines[2].startswith(
+        "command="
+    ):
+        raise GateEvidenceError(f"{command_id} retained log bindings are invalid")
+    source_commit = prefix_lines[1].removeprefix("source_commit=")
+    command = prefix_lines[2].removeprefix("command=")
+    exit_match = re.fullmatch(r"exit_code=(-?\d+)\n", exit_record)
+    if exit_match is None:
+        raise GateEvidenceError(f"{command_id} retained log exit evidence is invalid")
+    return _LogResult(
+        source_commit=source_commit,
+        command=command,
+        exit_code=int(exit_match.group(1)),
+        counts=_command_counts(command_id, output),
+    )
+
+
+def validate_documents(documents: Mapping[str, str]) -> None:
+    """Reject unbounded positive S3 claims in every supplied governance document."""
+
+    for path, content in documents.items():
+        segments: list[tuple[int, str]] = []
+        for paragraph in re.finditer(r"\S(?:.*?\S)?(?=\n\s*\n|\Z)", content, re.DOTALL):
+            paragraph_text = paragraph.group()
+            paragraph_offset = paragraph.start()
+            if any(line.lstrip().startswith("|") for line in paragraph_text.splitlines()):
+                cursor = paragraph_offset
+                for line in paragraph_text.splitlines(keepends=True):
+                    segments.append((cursor, line))
+                    cursor += len(line)
+                continue
+            for sentence in re.finditer(
+                r"\S.*?(?:[.!?。！？](?=\s|\Z)|\Z)", paragraph_text, re.DOTALL
+            ):
+                segments.append((paragraph_offset + sentence.start(), sentence.group()))
+        for offset, segment in segments:
+            line_number = content.count("\n", 0, offset) + 1
+            for clause in re.split(r"[;；]", segment):
+                for topic, pattern in _FORBIDDEN_TOPICS.items():
+                    if pattern.search(clause) and not _NEGATIVE_BOUNDARY.search(clause):
+                        raise GateEvidenceError(
+                            f"{path}:{line_number} makes forbidden positive {topic} claim"
+                        )
+
+
+def _validate_source(record: Mapping[str, Any], owner: str, context: GateContext) -> None:
+    path = _required(record, "test_path", owner)
+    if not isinstance(path, str) or not path:
+        raise GateEvidenceError(f"{owner}.test_path must be non-empty")
+    actual = context.source_hashes.get(path)
+    claimed = _sha256(_required(record, "source_sha256", owner), f"{owner}.source_sha256")
+    if actual is None or claimed != actual:
+        raise GateEvidenceError(f"{owner}.source_sha256 does not match {path}")
 
 
 def validate_evidence(evidence: Mapping[str, object], context: GateContext) -> None:
-    """Fail closed unless the report proves the bounded S3 Core claim."""
+    """Fail closed unless retained logs and source hashes prove the bounded claim."""
 
+    _exact_keys(
+        evidence,
+        {"schema_version", "status", "source_commit", "scope", "commands", "faults"},
+        "evidence",
+    )
     if evidence.get("schema_version") != _SCHEMA_VERSION:
         raise GateEvidenceError(f"schema_version must be {_SCHEMA_VERSION}")
     if evidence.get("status") != "passed":
         raise GateEvidenceError("status must be passed")
-
     source_commit = evidence.get("source_commit")
     if not isinstance(source_commit, str) or not _COMMIT.fullmatch(source_commit):
         raise GateEvidenceError("source_commit must be a full Git commit")
@@ -177,6 +342,7 @@ def validate_evidence(evidence: Mapping[str, object], context: GateContext) -> N
         "notification_delivery": "internal_only",
         "replication": "none",
     }
+    _exact_keys(scope, set(expected_scope), "scope")
     for field, expected in expected_scope.items():
         if scope.get(field) != expected:
             raise GateEvidenceError(f"scope.{field} must be {expected}")
@@ -185,37 +351,62 @@ def validate_evidence(evidence: Mapping[str, object], context: GateContext) -> N
     for index, raw_command in enumerate(_sequence(evidence.get("commands"), "commands")):
         owner = f"commands[{index}]"
         command = _mapping(raw_command, owner)
+        _exact_keys(
+            command,
+            {"id", "command", "log_path", "log_sha256", "exit_code", "counts"},
+            owner,
+        )
         command_id = _required(command, "id", owner)
-        if not isinstance(command_id, str) or not command_id:
-            raise GateEvidenceError(f"{owner}.id must be non-empty")
+        if not isinstance(command_id, str) or command_id not in _REQUIRED_COMMANDS:
+            raise GateEvidenceError(f"{owner}.id is not a required command")
         if command_id in commands_by_id:
             raise GateEvidenceError(f"duplicate command id: {command_id}")
-        command_text = _required(command, "command", owner)
-        if not isinstance(command_text, str) or not command_text.strip():
-            raise GateEvidenceError(f"{owner}.command must be non-empty")
-        counts = _mapping(_required(command, "counts", owner), f"{owner}.counts")
-        for key in _COUNT_KEYS:
-            _non_negative_int(_required(counts, key, f"{owner}.counts"), f"{owner}.counts.{key}")
-        if sum(counts[key] for key in _COUNT_KEYS) == 0 or counts["passed"] == 0:
-            raise GateEvidenceError(f"{owner}.counts must record executed passing checks")
-        _sha256(_required(command, "output_sha256", owner), f"{owner}.output_sha256")
-        if command.get("exit_code") != 0 or counts["failed"] != 0:
-            raise GateEvidenceError(f"{owner} did not pass")
+        expected_command = _REQUIRED_COMMANDS[command_id]
+        if command.get("command") != expected_command:
+            raise GateEvidenceError(f"{command_id}.command does not match the Gate contract")
+        expected_log_path = _REQUIRED_LOGS[command_id]
+        if command.get("log_path") != expected_log_path:
+            raise GateEvidenceError(f"{command_id}.log_path must be {expected_log_path}")
+        if expected_log_path not in context.evidence_paths:
+            raise GateEvidenceError(f"{command_id}.log_path is not retained for this source commit")
+        payload = context.log_bytes.get(expected_log_path)
+        if payload is None:
+            raise GateEvidenceError(f"{command_id}.log_path is missing")
+        actual_hash = hashlib.sha256(payload).hexdigest()
+        claimed_hash = _sha256(command.get("log_sha256"), f"{command_id}.log_sha256")
+        if claimed_hash != actual_hash:
+            raise GateEvidenceError(f"{command_id}.log_sha256 does not match retained bytes")
+        derived = _parse_log(command_id, payload)
+        if derived.source_commit != source_commit:
+            raise GateEvidenceError(f"{command_id} retained source_commit does not match report")
+        if derived.command != expected_command:
+            raise GateEvidenceError(f"{command_id} retained command does not match Gate contract")
+        counts = _mapping(command.get("counts"), f"{owner}.counts")
+        _exact_keys(counts, set(_COUNT_KEYS), f"{owner}.counts")
+        normalized_counts = {
+            key: _non_negative_int(counts.get(key), f"{owner}.counts.{key}") for key in _COUNT_KEYS
+        }
+        if normalized_counts != dict(derived.counts):
+            raise GateEvidenceError(f"{command_id}.counts do not match retained log")
+        exit_code = command.get("exit_code")
+        if exit_code != derived.exit_code:
+            raise GateEvidenceError(f"{command_id}.exit_code does not match retained log")
+        if derived.exit_code != 0 or derived.counts["failed"] != 0:
+            raise GateEvidenceError(f"{command_id} retained command did not pass")
+        if derived.counts["passed"] == 0:
+            raise GateEvidenceError(f"{command_id} retained command ran no passing checks")
         commands_by_id[command_id] = command
     missing_commands = sorted(_REQUIRED_COMMANDS.keys() - commands_by_id.keys())
     if missing_commands:
         raise GateEvidenceError(f"missing required command: {', '.join(missing_commands)}")
-    for command_id, expected_command in _REQUIRED_COMMANDS.items():
-        if commands_by_id[command_id]["command"] != expected_command:
-            raise GateEvidenceError(f"{command_id}.command does not match the Gate contract")
-    focused_counts = _mapping(commands_by_id["focused_fault_matrix"]["counts"], "focused counts")
-    if focused_counts["skipped"] != 0:
+    if commands_by_id["focused_fault_matrix"]["counts"]["skipped"] != 0:
         raise GateEvidenceError("focused_fault_matrix skipped required faults")
 
     faults_by_id: dict[str, Mapping[str, Any]] = {}
     for index, raw_fault in enumerate(_sequence(evidence.get("faults"), "faults")):
         owner = f"faults[{index}]"
         fault = _mapping(raw_fault, owner)
+        _exact_keys(fault, {"id", "test_path", "source_sha256"}, owner)
         fault_id = _required(fault, "id", owner)
         if not isinstance(fault_id, str) or fault_id not in _REQUIRED_FAULTS:
             raise GateEvidenceError(f"{owner}.id is not a required fault")
@@ -224,53 +415,11 @@ def validate_evidence(evidence: Mapping[str, object], context: GateContext) -> N
         expected_path = _REQUIRED_FAULTS[fault_id]
         if fault.get("test_path") != expected_path:
             raise GateEvidenceError(f"{fault_id}.test_path must be {expected_path}")
-        if fault.get("status") != "passed":
-            raise GateEvidenceError(f"{fault_id} was skipped or failed")
-        source_record = {
-            "source_path": expected_path,
-            "source_sha256": _required(fault, "source_sha256", owner),
-        }
-        _validate_source(source_record, fault_id, context)
+        _validate_source(fault, fault_id, context)
         faults_by_id[fault_id] = fault
-    missing_faults = sorted(_REQUIRED_FAULTS - faults_by_id.keys())
+    missing_faults = sorted(_REQUIRED_FAULTS.keys() - faults_by_id.keys())
     if missing_faults:
         raise GateEvidenceError(f"missing required fault: {', '.join(missing_faults)}")
-
-    bundle = _mapping(evidence.get("bundle_validation"), "bundle_validation")
-    schema_path = "docs/reference/evidence-bundle-v1.schema.json"
-    if bundle.get("status") != "passed" or bundle.get("schema_path") != schema_path:
-        raise GateEvidenceError("bundle_validation is not passed against the published schema")
-    schema_hash = _sha256(
-        _required(bundle, "schema_sha256", "bundle_validation"),
-        "bundle_validation.schema_sha256",
-    )
-    if context.source_hashes.get(schema_path) != schema_hash:
-        raise GateEvidenceError("bundle_validation.schema_sha256 does not match the schema")
-    _positive_int(bundle.get("valid_bundle_count"), "bundle_validation.valid_bundle_count")
-    _positive_int(bundle.get("invalid_bundle_cases"), "bundle_validation.invalid_bundle_cases")
-    if bundle.get("artifact_hashes_verified") is not True:
-        raise GateEvidenceError("bundle_validation artifact hashes were not verified")
-
-    managed_effects = _mapping(evidence.get("managed_effects"), "managed_effects")
-    if (
-        managed_effects.get("status") != "passed"
-        or _positive_int(managed_effects.get("effective_count"), "managed_effects.effective_count")
-        < 1
-        or managed_effects.get("duplicate_effective_count") != 0
-    ):
-        raise GateEvidenceError("managed_effects contains duplicate effective work")
-    _validate_source(managed_effects, "managed_effects", context)
-
-    fencing = _mapping(evidence.get("fencing"), "fencing")
-    if fencing.get("status") != "passed" or fencing.get("stale_success_count") != 0:
-        raise GateEvidenceError("fencing records a stale-authority success")
-    _validate_source(fencing, "fencing", context)
-
-    decision = _mapping(evidence.get("decision_recovery"), "decision_recovery")
-    if decision.get("status") != "passed":
-        raise GateEvidenceError("decision_recovery must be passed")
-    _positive_int(decision.get("recovered_count"), "decision_recovery.recovered_count")
-    _validate_source(decision, "decision_recovery", context)
 
 
 def _hash_path(path: Path) -> str:
@@ -309,6 +458,8 @@ def _repository_context(
     location = GitLocation(repo_root)
     head = backend.resolve_commit(location, "HEAD")
     accepted = [head]
+    dirty_paths = backend.worktree_status_paths(location)
+    evidence_paths = set(dirty_paths)
     try:
         parent = backend.resolve_parent_commit(location)
     except GitBackendError:
@@ -317,13 +468,20 @@ def _repository_context(
         changed = set(backend.changed_paths_between(location, parent, head))
         if changed <= set(allowed_dirty):
             accepted.append(parent)
+            evidence_paths.update(changed)
     source_paths = set(_REQUIRED_FAULTS.values())
-    source_paths.add("docs/reference/evidence-bundle-v1.schema.json")
+    log_bytes: dict[str, bytes] = {}
+    for log_path in _REQUIRED_LOGS.values():
+        candidate = repo_root / log_path
+        if candidate.is_file():
+            log_bytes[log_path] = candidate.read_bytes()
     return GateContext(
         accepted_source_commits=tuple(accepted),
-        dirty_paths=backend.worktree_status_paths(location),
+        dirty_paths=dirty_paths,
         allowed_dirty_paths=allowed_dirty,
+        evidence_paths=tuple(sorted(evidence_paths)),
         source_hashes={path: _hash_path(repo_root / path) for path in sorted(source_paths)},
+        log_bytes=log_bytes,
     )
 
 
@@ -334,7 +492,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     repo_root = Path(__file__).resolve().parents[1]
     report_path = args.report if args.report.is_absolute() else repo_root / args.report
     try:
-        evidence = parse_report(report_path.read_text(encoding="utf-8"))
+        report_content = report_path.read_text(encoding="utf-8")
+        evidence = parse_report(report_content)
+        documents = {
+            path: (
+                report_content
+                if (repo_root / path).resolve() == report_path.resolve()
+                else (repo_root / path).read_text(encoding="utf-8")
+            )
+            for path in _GOVERNANCE_DOCS
+        }
+        validate_documents(documents)
         context = _repository_context(
             repo_root, report_path.resolve(), evidence.get("source_commit")
         )

@@ -9,12 +9,15 @@ from scripts.check_s3_core_evidence import (
     GateContext,
     GateEvidenceError,
     parse_report,
+    render_log,
     render_report,
+    validate_documents,
     validate_evidence,
 )
 
 _COMMIT = "a" * 40
 _HASH = hashlib.sha256(b"verified evidence").hexdigest()
+_EVIDENCE_DIRECTORY = "docs/cc-fable-v1/reports/s3-core-evidence"
 _REQUIRED_COMMANDS = {
     "focused_fault_matrix": (
         "env -u VIRTUAL_ENV .venv/bin/python -m pytest "
@@ -28,11 +31,33 @@ _REQUIRED_COMMANDS = {
         "tests/integration/test_replan_evidence.py tests/evidence "
         "tests/notifier/test_internal_delivery_recovery.py -q"
     ),
+    "notifier_all": "env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/notifier -q",
     "ruff_check": ".venv/bin/ruff check src tests",
     "ruff_format_check": ".venv/bin/ruff format --check src tests",
     "mypy": ".venv/bin/mypy",
     "import_linter": ".venv/bin/lint-imports",
     "full_non_slow": ('env -u VIRTUAL_ENV .venv/bin/python -m pytest -m "not slow" -q'),
+}
+_LOG_PATHS = {
+    command_id: f"{_EVIDENCE_DIRECTORY}/{command_id}.log" for command_id in _REQUIRED_COMMANDS
+}
+_OUTPUTS = {
+    "focused_fault_matrix": b"133 passed, 4 warnings in 6.08s\n",
+    "notifier_all": b"14 passed, 4 warnings in 0.67s\n",
+    "ruff_check": b"All checks passed!\n",
+    "ruff_format_check": b"824 files already formatted\n",
+    "mypy": b"Success: no issues found in 125 source files\n",
+    "import_linter": b"Contracts: 2 kept, 0 broken.\n",
+    "full_non_slow": b"3759 passed, 2 skipped, 24 deselected, 7 warnings in 619.25s (0:10:19)\n",
+}
+_COUNTS = {
+    "focused_fault_matrix": {"passed": 133, "failed": 0, "skipped": 0, "deselected": 0},
+    "notifier_all": {"passed": 14, "failed": 0, "skipped": 0, "deselected": 0},
+    "ruff_check": {"passed": 1, "failed": 0, "skipped": 0, "deselected": 0},
+    "ruff_format_check": {"passed": 824, "failed": 0, "skipped": 0, "deselected": 0},
+    "mypy": {"passed": 125, "failed": 0, "skipped": 0, "deselected": 0},
+    "import_linter": {"passed": 2, "failed": 0, "skipped": 0, "deselected": 0},
+    "full_non_slow": {"passed": 3759, "failed": 0, "skipped": 2, "deselected": 24},
 }
 _REQUIRED_FAULTS = {
     "idempotent_submission": "tests/integration/test_edict_idempotency.py",
@@ -48,9 +73,26 @@ _REQUIRED_FAULTS = {
 }
 
 
-def _context(*, dirty_paths: tuple[str, ...] = ()) -> GateContext:
+def _logs() -> dict[str, bytes]:
+    return {
+        _LOG_PATHS[command_id]: render_log(
+            source_commit=_COMMIT,
+            command=command,
+            output=_OUTPUTS[command_id],
+            exit_code=0,
+        )
+        for command_id, command in _REQUIRED_COMMANDS.items()
+    }
+
+
+def _context(
+    *,
+    dirty_paths: tuple[str, ...] = (),
+    evidence_paths: tuple[str, ...] | None = None,
+    logs: dict[str, bytes] | None = None,
+) -> GateContext:
+    retained = _logs() if logs is None else logs
     hashes = {path: _HASH for path in _REQUIRED_FAULTS.values()}
-    hashes["docs/reference/evidence-bundle-v1.schema.json"] = _HASH
     return GateContext(
         accepted_source_commits=(_COMMIT,),
         dirty_paths=dirty_paths,
@@ -58,24 +100,24 @@ def _context(*, dirty_paths: tuple[str, ...] = ()) -> GateContext:
             "docs/cc-fable-v1/reports/s3-core-governance-report.md",
             "docs/launch/capability-matrix.md",
             "docs/cc-fable-v1/PROGRESS.md",
+            *_LOG_PATHS.values(),
         ),
+        evidence_paths=tuple(_LOG_PATHS.values()) if evidence_paths is None else evidence_paths,
         source_hashes=hashes,
+        log_bytes=retained,
     )
 
 
 def _valid_evidence() -> dict[str, object]:
+    logs = _logs()
     commands = [
         {
             "id": command_id,
             "command": command,
+            "log_path": _LOG_PATHS[command_id],
+            "log_sha256": hashlib.sha256(logs[_LOG_PATHS[command_id]]).hexdigest(),
             "exit_code": 0,
-            "counts": {
-                "passed": 1,
-                "failed": 0,
-                "skipped": 0,
-                "deselected": 0,
-            },
-            "output_sha256": _HASH,
+            "counts": copy.deepcopy(_COUNTS[command_id]),
         }
         for command_id, command in _REQUIRED_COMMANDS.items()
     ]
@@ -91,42 +133,16 @@ def _valid_evidence() -> dict[str, object]:
         },
         "commands": commands,
         "faults": [
-            {
-                "id": fault_id,
-                "test_path": test_path,
-                "status": "passed",
-                "source_sha256": _HASH,
-            }
+            {"id": fault_id, "test_path": test_path, "source_sha256": _HASH}
             for fault_id, test_path in _REQUIRED_FAULTS.items()
         ],
-        "bundle_validation": {
-            "status": "passed",
-            "schema_path": "docs/reference/evidence-bundle-v1.schema.json",
-            "schema_sha256": _HASH,
-            "valid_bundle_count": 1,
-            "invalid_bundle_cases": 1,
-            "artifact_hashes_verified": True,
-        },
-        "managed_effects": {
-            "status": "passed",
-            "effective_count": 1,
-            "duplicate_effective_count": 0,
-            "source_path": "tests/integration/test_side_effect_idempotency.py",
-            "source_sha256": _HASH,
-        },
-        "fencing": {
-            "status": "passed",
-            "stale_success_count": 0,
-            "source_path": "tests/integration/test_claim_lease_recovery.py",
-            "source_sha256": _HASH,
-        },
-        "decision_recovery": {
-            "status": "passed",
-            "recovered_count": 1,
-            "source_path": "tests/integration/test_decision_service_restart_race.py",
-            "source_sha256": _HASH,
-        },
     }
+
+
+def _command(evidence: dict[str, object], command_id: str) -> dict[str, object]:
+    commands = evidence["commands"]
+    assert isinstance(commands, list)
+    return next(command for command in commands if command["id"] == command_id)
 
 
 def test_required_fault_sources_exist() -> None:
@@ -135,17 +151,16 @@ def test_required_fault_sources_exist() -> None:
     assert all((repository / path).exists() for path in _REQUIRED_FAULTS.values())
 
 
-def test_valid_report_round_trips_deterministically() -> None:
+def test_valid_report_round_trips_and_derives_every_command() -> None:
     evidence = _valid_evidence()
-
     rendered = render_report("# S3 Core Governance Gate\n", evidence)
 
     assert render_report("# S3 Core Governance Gate\n", parse_report(rendered)) == rendered
     validate_evidence(parse_report(rendered), _context())
 
 
-@pytest.mark.parametrize("field", ["command", "counts", "output_sha256"])
-def test_rejects_missing_command_count_or_hash(field: str) -> None:
+@pytest.mark.parametrize("field", ["command", "counts", "log_path", "log_sha256", "exit_code"])
+def test_rejects_missing_command_evidence_field(field: str) -> None:
     evidence = _valid_evidence()
     del evidence["commands"][0][field]  # type: ignore[index]
 
@@ -153,79 +168,166 @@ def test_rejects_missing_command_count_or_hash(field: str) -> None:
         validate_evidence(evidence, _context())
 
 
-def test_rejects_missing_required_command() -> None:
+def test_rejects_missing_or_extra_required_command() -> None:
     evidence = _valid_evidence()
     evidence["commands"] = evidence["commands"][1:]  # type: ignore[index]
 
     with pytest.raises(GateEvidenceError, match="focused_fault_matrix"):
         validate_evidence(evidence, _context())
 
-
-def test_rejects_command_that_does_not_match_gate_contract() -> None:
     evidence = _valid_evidence()
-    evidence["commands"][0]["command"] = "pytest a smaller subset"  # type: ignore[index]
+    evidence["commands"].append(copy.deepcopy(evidence["commands"][0]))  # type: ignore[union-attr,index]
+    evidence["commands"][-1]["id"] = "invented"  # type: ignore[index]
+    with pytest.raises(GateEvidenceError, match="required command"):
+        validate_evidence(evidence, _context())
 
+
+def test_notifier_command_is_required() -> None:
+    evidence = _valid_evidence()
+    evidence["commands"] = [
+        command
+        for command in evidence["commands"]
+        if command["id"] != "notifier_all"  # type: ignore[union-attr]
+    ]
+
+    with pytest.raises(GateEvidenceError, match="notifier_all"):
+        validate_evidence(evidence, _context())
+
+
+def test_rejects_report_or_retained_command_that_does_not_match_contract() -> None:
+    evidence = _valid_evidence()
+    _command(evidence, "focused_fault_matrix")["command"] = "pytest a smaller subset"
     with pytest.raises(GateEvidenceError, match="Gate contract"):
         validate_evidence(evidence, _context())
 
-
-def test_rejects_wrong_source_commit() -> None:
     evidence = _valid_evidence()
-    evidence["source_commit"] = "b" * 40
+    logs = _logs()
+    path = _LOG_PATHS["focused_fault_matrix"]
+    logs[path] = render_log(
+        source_commit=_COMMIT,
+        command="pytest a smaller subset",
+        output=_OUTPUTS["focused_fault_matrix"],
+        exit_code=0,
+    )
+    _command(evidence, "focused_fault_matrix")["log_sha256"] = hashlib.sha256(
+        logs[path]
+    ).hexdigest()
+    with pytest.raises(GateEvidenceError, match="retained command"):
+        validate_evidence(evidence, _context(logs=logs))
 
-    with pytest.raises(GateEvidenceError, match="source_commit"):
+
+def test_rejects_missing_unretained_or_tampered_log() -> None:
+    evidence = _valid_evidence()
+    path = _LOG_PATHS["focused_fault_matrix"]
+    logs = _logs()
+    del logs[path]
+    with pytest.raises(GateEvidenceError, match="missing"):
+        validate_evidence(evidence, _context(logs=logs))
+
+    with pytest.raises(GateEvidenceError, match="not retained"):
+        validate_evidence(
+            evidence,
+            _context(evidence_paths=tuple(value for value in _LOG_PATHS.values() if value != path)),
+        )
+
+    logs = _logs()
+    logs[path] += b"tampered\n"
+    with pytest.raises(GateEvidenceError, match="log_sha256"):
+        validate_evidence(evidence, _context(logs=logs))
+
+
+def test_rejects_forged_log_hash_count_and_exit() -> None:
+    evidence = _valid_evidence()
+    command = _command(evidence, "focused_fault_matrix")
+    command["log_sha256"] = hashlib.sha256(b"forged").hexdigest()
+    with pytest.raises(GateEvidenceError, match="log_sha256"):
+        validate_evidence(evidence, _context())
+
+    evidence = _valid_evidence()
+    _command(evidence, "focused_fault_matrix")["counts"]["passed"] = 999  # type: ignore[index]
+    with pytest.raises(GateEvidenceError, match="counts"):
+        validate_evidence(evidence, _context())
+
+    evidence = _valid_evidence()
+    _command(evidence, "focused_fault_matrix")["exit_code"] = 1
+    with pytest.raises(GateEvidenceError, match="exit_code"):
         validate_evidence(evidence, _context())
 
 
-def test_rejects_dirty_unknown_file() -> None:
+def test_rejects_nonzero_retained_exit_even_when_report_matches() -> None:
+    evidence = _valid_evidence()
+    logs = _logs()
+    path = _LOG_PATHS["focused_fault_matrix"]
+    logs[path] = render_log(
+        source_commit=_COMMIT,
+        command=_REQUIRED_COMMANDS["focused_fault_matrix"],
+        output=_OUTPUTS["focused_fault_matrix"],
+        exit_code=1,
+    )
+    command = _command(evidence, "focused_fault_matrix")
+    command["log_sha256"] = hashlib.sha256(logs[path]).hexdigest()
+    command["exit_code"] = 1
+
+    with pytest.raises(GateEvidenceError, match="did not pass"):
+        validate_evidence(evidence, _context(logs=logs))
+
+
+def test_rejects_retained_log_bound_to_other_source_commit() -> None:
+    evidence = _valid_evidence()
+    logs = _logs()
+    path = _LOG_PATHS["focused_fault_matrix"]
+    logs[path] = render_log(
+        source_commit="b" * 40,
+        command=_REQUIRED_COMMANDS["focused_fault_matrix"],
+        output=_OUTPUTS["focused_fault_matrix"],
+        exit_code=0,
+    )
+    _command(evidence, "focused_fault_matrix")["log_sha256"] = hashlib.sha256(
+        logs[path]
+    ).hexdigest()
+
+    with pytest.raises(GateEvidenceError, match="retained source_commit"):
+        validate_evidence(evidence, _context(logs=logs))
+
+
+def test_rejects_wrong_source_commit_or_dirty_unknown_file() -> None:
+    evidence = _valid_evidence()
+    evidence["source_commit"] = "b" * 40
+    with pytest.raises(GateEvidenceError, match="source_commit"):
+        validate_evidence(evidence, _context())
+
     with pytest.raises(GateEvidenceError, match="src/unknown.py"):
         validate_evidence(_valid_evidence(), _context(dirty_paths=("src/unknown.py",)))
 
 
-def test_allows_only_report_dirty_paths() -> None:
+def test_allows_only_declared_evidence_dirty_paths() -> None:
     validate_evidence(
         _valid_evidence(),
         _context(dirty_paths=("docs/launch/capability-matrix.md",)),
     )
 
 
-def test_rejects_skipped_required_fault() -> None:
+def test_fault_conclusions_are_only_exact_source_bindings() -> None:
     evidence = _valid_evidence()
-    evidence["faults"][0]["status"] = "skipped"  # type: ignore[index]
+    evidence["faults"][0]["status"] = "passed"  # type: ignore[index]
+    with pytest.raises(GateEvidenceError, match="status is not allowed"):
+        validate_evidence(evidence, _context())
 
+    evidence = _valid_evidence()
+    evidence["managed_effects"] = {"status": "passed", "duplicate_effective_count": 0}
+    with pytest.raises(GateEvidenceError, match="managed_effects is not allowed"):
+        validate_evidence(evidence, _context())
+
+
+def test_rejects_missing_fault_or_source_hash_mismatch() -> None:
+    evidence = _valid_evidence()
+    evidence["faults"] = evidence["faults"][1:]  # type: ignore[index]
     with pytest.raises(GateEvidenceError, match="idempotent_submission"):
         validate_evidence(evidence, _context())
 
-
-def test_rejects_broken_bundle() -> None:
     evidence = _valid_evidence()
-    evidence["bundle_validation"]["artifact_hashes_verified"] = False  # type: ignore[index]
-
-    with pytest.raises(GateEvidenceError, match="bundle_validation"):
-        validate_evidence(evidence, _context())
-
-
-def test_rejects_duplicate_effective_managed_effect() -> None:
-    evidence = _valid_evidence()
-    evidence["managed_effects"]["duplicate_effective_count"] = 1  # type: ignore[index]
-
-    with pytest.raises(GateEvidenceError, match="managed_effects"):
-        validate_evidence(evidence, _context())
-
-
-def test_rejects_stale_fencing_success() -> None:
-    evidence = _valid_evidence()
-    evidence["fencing"]["stale_success_count"] = 1  # type: ignore[index]
-
-    with pytest.raises(GateEvidenceError, match="fencing"):
-        validate_evidence(evidence, _context())
-
-
-def test_rejects_missing_decision_recovery() -> None:
-    evidence = _valid_evidence()
-    del evidence["decision_recovery"]
-
-    with pytest.raises(GateEvidenceError, match="decision_recovery"):
+    evidence["faults"][0]["source_sha256"] = hashlib.sha256(b"other").hexdigest()  # type: ignore[index]
+    with pytest.raises(GateEvidenceError, match="source_sha256"):
         validate_evidence(evidence, _context())
 
 
@@ -237,7 +339,7 @@ def test_rejects_missing_decision_recovery() -> None:
         ("replication", "multi_replica"),
     ],
 )
-def test_rejects_forbidden_claims(field: str, claim: str) -> None:
+def test_rejects_forbidden_machine_scope(field: str, claim: str) -> None:
     evidence = copy.deepcopy(_valid_evidence())
     evidence["scope"][field] = claim  # type: ignore[index]
 
@@ -245,9 +347,56 @@ def test_rejects_forbidden_claims(field: str, claim: str) -> None:
         validate_evidence(evidence, _context())
 
 
-def test_rejects_fault_source_hash_mismatch() -> None:
-    evidence = _valid_evidence()
-    evidence["faults"][0]["source_sha256"] = hashlib.sha256(b"other").hexdigest()  # type: ignore[index]
+def test_rejects_noncanonical_json_block() -> None:
+    rendered = render_report("# S3 Core Governance Gate\n", _valid_evidence())
+    noncanonical = rendered.replace("{\n  ", "{", 1)
 
-    with pytest.raises(GateEvidenceError, match="source_sha256"):
-        validate_evidence(evidence, _context())
+    with pytest.raises(GateEvidenceError, match="canonical"):
+        parse_report(noncanonical)
+
+
+@pytest.mark.parametrize(
+    ("path", "claim"),
+    [
+        ("report.md", "S3 provides complete OTel coverage."),
+        ("capability-matrix.md", "S3 guarantees external notification delivery."),
+        ("PROGRESS.md", "S3 supports multi-replica governance."),
+        ("PROGRESS.md", "S3 支持多副本治理。"),
+    ],
+)
+def test_rejects_positive_claim_anywhere_in_governance_docs(path: str, claim: str) -> None:
+    with pytest.raises(GateEvidenceError, match=path):
+        validate_documents({path: claim})
+
+
+def test_allows_explicitly_deferred_or_unsupported_claim_boundaries() -> None:
+    validate_documents(
+        {
+            "report.md": "Complete OTel remains deferred.",
+            "capability-matrix.md": "External notification delivery is not guaranteed.",
+            "PROGRESS.md": "Multi-replica governance is not claimed; 多副本治理不承诺。",
+        }
+    )
+
+
+def test_negative_claim_for_one_topic_does_not_mask_positive_other_topic() -> None:
+    with pytest.raises(GateEvidenceError, match="full OTel"):
+        validate_documents(
+            {
+                "report.md": (
+                    "S3 provides complete OTel coverage; "
+                    "external notification delivery remains deferred."
+                )
+            }
+        )
+
+
+def test_current_governance_documents_have_no_positive_scope_expansion() -> None:
+    repository = Path(__file__).parents[2]
+    paths = (
+        "docs/cc-fable-v1/reports/s3-core-governance-report.md",
+        "docs/launch/capability-matrix.md",
+        "docs/cc-fable-v1/PROGRESS.md",
+    )
+
+    validate_documents({path: (repository / path).read_text(encoding="utf-8") for path in paths})
