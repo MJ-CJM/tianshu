@@ -77,8 +77,14 @@ async def lifespan(app: FastAPI):
     # --- Backward compat ---
     app.state.running_tasks = app.state.executor.running_tasks
 
-    # --- Start scheduler ---
-    await app.state.scheduler.start()
+    # Durable attempt recovery must prove its DB scan before timers can produce
+    # more work. Outbox starts last after every consumer is registered.
+    await app.state.run_reconciler.start()
+    try:
+        await app.state.scheduler.start()
+    except BaseException:
+        await app.state.run_reconciler.stop()
+        raise
 
     # --- MCP server session manager(stateless 模式仍需运行;挂载见 create_app)---
     # 放独立后台 task:anyio TaskGroup 的 cancel scope 必须在同一 task 进出,
@@ -124,11 +130,15 @@ async def lifespan(app: FastAPI):
         outbox_lifecycle = getattr(app.state, "outbox_lifecycle", None)
         if outbox_lifecycle is not None:
             await outbox_lifecycle.stop()
+        await app.state.scheduler.stop()
+        await app.state.run_reconciler.stop()
         raise
     yield
 
-    # Do not close consumers or shared Storage while a durable drain is live.
+    # Stop durable delivery and timer production before draining claimed work.
     await app.state.outbox_lifecycle.stop()
+    await app.state.scheduler.stop()
+    await app.state.run_reconciler.stop()
 
     # --- MCP server session manager 停止 ---
     if _mcp_stop is not None and _mcp_task is not None:
@@ -144,7 +154,6 @@ async def lifespan(app: FastAPI):
         skills_watcher.stop()
     if hasattr(app.state, "_digest_task") and not app.state._digest_task.done():
         app.state._digest_task.cancel()
-    await app.state.scheduler.stop()
     await app.state.executor.shutdown()
     await app.state.worker_pool.shutdown()
     try:

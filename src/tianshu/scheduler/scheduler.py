@@ -99,6 +99,10 @@ class Scheduler:
         self,
         event_bus: EventBus,
         storage: Storage,
+        *,
+        scheduled_run_preparer: Any | None = None,
+        run_reconciler: Any | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
@@ -109,6 +113,9 @@ class Scheduler:
         self._cron_task: asyncio.Task | None = None
         self._system_jobs: list[dict] = []
         self._system_cron_tasks: list[asyncio.Task] = []
+        self._scheduled_run_preparer = scheduled_run_preparer
+        self._run_reconciler = run_reconciler
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def register_system_jobs(
         self,
@@ -189,6 +196,9 @@ class Scheduler:
 
     async def _restore_jobs(self) -> None:
         """Restore persisted jobs from DB on startup."""
+        if self._scheduled_run_preparer is not None:
+            await self._restore_managed_jobs()
+            return
         rows = self._storage.list_active_scheduler_jobs()
         restored = 0
         for row in rows:
@@ -346,6 +356,12 @@ class Scheduler:
 
     async def _recover_orphan(self, memorial) -> None:
         """回收单个孤儿 memorial：可续跑的长任务发 edict.resume，否则判失败。"""
+        if self._scheduled_run_preparer is not None:
+            logger.warning(
+                "Observed stale memorial %s; durable attempt reconciler owns recovery",
+                memorial.id,
+            )
+            return
         last = memorial.last_heartbeat_at or memorial.started_at or memorial.created_at
         idle = (datetime.now(UTC) - last).total_seconds() if last else 0.0
         edict = self._storage.get_edict(memorial.edict_id)
@@ -468,8 +484,16 @@ class Scheduler:
         memorial_id: str | None = None,
         *,
         job_id: str | None = None,
+        scheduled_at: datetime | None = None,
     ) -> str:
         """Schedule an edict based on its schedule config. Returns job_id."""
+        if self._scheduled_run_preparer is not None:
+            return await self._schedule_managed(
+                edict,
+                memorial_id=memorial_id,
+                job_id=job_id,
+                scheduled_at=scheduled_at,
+            )
         replay_safe = job_id is not None
         job_id = job_id or str(ULID())
         if replay_safe:
@@ -628,6 +652,131 @@ class Scheduler:
                     )
 
         return job_id
+
+    async def _schedule_managed(
+        self,
+        edict: Edict,
+        *,
+        memorial_id: str | None,
+        job_id: str | None,
+        scheduled_at: datetime | None,
+    ) -> str:
+        """Persist a timer cursor, then let the preparer create executable truth."""
+        job_id = job_id or str(ULID())
+        schedule = edict.schedule
+        now = (scheduled_at or self._clock()).astimezone(UTC)
+        schedule_type = schedule.type
+        cron_expr = schedule.cron
+        interval_seconds = schedule.interval_seconds
+        if schedule_type == "once":
+            cursor = schedule.at.astimezone(UTC) if schedule.at is not None else now
+        elif schedule_type == "cron" and cron_expr:
+            cursor = _next_cron_utc(cron_expr, schedule.timezone)
+        elif schedule_type == "interval" and interval_seconds and interval_seconds > 0:
+            cursor = now + timedelta(seconds=interval_seconds)
+        else:
+            schedule_type = "immediate"
+            cursor = now
+            cron_expr = None
+            interval_seconds = None
+        inserted = self._storage.save_scheduler_job_if_absent(
+            job_id,
+            edict.id,
+            schedule_type,
+            cron_expr=cron_expr,
+            next_run=cursor,
+            interval_seconds=interval_seconds,
+        )
+        persisted = self._storage.get_scheduler_job(job_id)
+        if persisted is None or persisted["edict_id"] != edict.id:
+            raise RuntimeError("durable scheduler replay conflicts with job identity")
+        if not inserted:
+            if persisted["schedule_type"] != schedule_type or persisted["next_run"] is None:
+                raise RuntimeError("durable scheduler replay conflicts with timer envelope")
+            cursor = datetime.fromisoformat(str(persisted["next_run"])).astimezone(UTC)
+        job = _Job(
+            job_id,
+            edict.id,
+            schedule_type,
+            next_run=cursor,
+            initial_memorial_id=memorial_id,
+        )
+        self._jobs[job_id] = job
+        if schedule_type == "immediate":
+            await self._prepare_managed_fire(job_id, cursor, memorial_id)
+            return job_id
+        if inserted or job.task is None:
+            job.task = asyncio.create_task(
+                self._managed_job_loop(job_id, initial_memorial_id=memorial_id),
+                name=f"scheduled-fire-{job_id}",
+            )
+        return job_id
+
+    async def _prepare_managed_fire(
+        self,
+        job_id: str,
+        scheduled_at: datetime,
+        initial_memorial_id: str | None,
+    ) -> None:
+        prepared = self._scheduled_run_preparer.prepare(
+            job_id=job_id,
+            scheduled_at=scheduled_at,
+            initial_memorial_id=initial_memorial_id,
+        )
+        job = self._jobs.get(job_id)
+        if job is not None:
+            job.next_run = prepared.next_run
+            job.initial_memorial_id = None
+        if prepared.attempt_id is not None and self._run_reconciler is not None:
+            await self._run_reconciler.reconcile_once()
+
+    async def _managed_job_loop(
+        self,
+        job_id: str,
+        *,
+        initial_memorial_id: str | None,
+    ) -> None:
+        try:
+            while self._running:
+                row = self._storage.get_scheduler_job(job_id)
+                if row is None or row["status"] != "active" or row["next_run"] is None:
+                    return
+                scheduled_at = datetime.fromisoformat(str(row["next_run"])).astimezone(UTC)
+                delay = (scheduled_at - self._clock()).total_seconds()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                await self._prepare_managed_fire(
+                    job_id,
+                    scheduled_at,
+                    initial_memorial_id,
+                )
+                initial_memorial_id = None
+        except asyncio.CancelledError:
+            logger.info("Managed schedule loop cancelled for job %s", job_id)
+
+    async def _restore_managed_jobs(self) -> None:
+        for row in self._storage.list_active_scheduler_jobs():
+            if row.get("next_run") is None:
+                continue
+            initial_memorial_id = self._restore_initial_memorial_id(
+                row["edict_id"],
+                row["job_id"],
+            )
+            job = _Job(
+                row["job_id"],
+                row["edict_id"],
+                row["schedule_type"],
+                next_run=datetime.fromisoformat(row["next_run"]),
+                initial_memorial_id=initial_memorial_id,
+            )
+            job.task = asyncio.create_task(
+                self._managed_job_loop(
+                    job.job_id,
+                    initial_memorial_id=initial_memorial_id,
+                ),
+                name=f"scheduled-fire-{job.job_id}",
+            )
+            self._jobs[job.job_id] = job
 
     async def _reattach_initial_memorial(
         self,
@@ -796,7 +945,12 @@ class Scheduler:
         self._storage.update_scheduler_job_next_run(job_id, next_run)
         return True
 
-    async def run_now(self, job_id: str) -> bool:
+    async def run_now(
+        self,
+        job_id: str,
+        *,
+        idempotency_key: str | None = None,
+    ) -> bool:
         """Immediately fire a job's edict once, without altering its schedule."""
         row = self._storage.get_scheduler_job(job_id)
         edict_id = (
@@ -809,6 +963,15 @@ class Scheduler:
         edict = self._storage.get_edict(edict_id)
         if not edict or edict.status.value != "open":
             return False
+        if self._scheduled_run_preparer is not None:
+            prepared = self._scheduled_run_preparer.prepare_manual(
+                job_id=job_id,
+                idempotency_key=idempotency_key or str(ULID()),
+                scheduled_at=self._clock(),
+            )
+            if prepared.attempt_id is not None and self._run_reconciler is not None:
+                await self._run_reconciler.reconcile_once()
+            return True
         await self._emit_scheduled(edict)
         return True
 
@@ -846,6 +1009,7 @@ class Scheduler:
             edict,
             memorial_id=event.memorial_id,
             job_id=submission_job_id(event.event_id),
+            scheduled_at=event.timestamp,
         )
 
     def _skip_for_concurrency(self, edict: Edict) -> bool:

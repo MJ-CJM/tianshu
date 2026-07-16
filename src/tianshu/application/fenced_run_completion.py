@@ -54,9 +54,9 @@ class FencedRunCompletion:
         completed_at = command.outcome.completed_at
         event_id = _event_id(command)
         event_type = (
-            "run.completed"
+            "execution.completed"
             if command.outcome.disposition is AttemptDisposition.SUCCEEDED
-            else "run.failed"
+            else "execution.failed"
         )
         try:
             with self._unit_of_work_factory() as unit_of_work:

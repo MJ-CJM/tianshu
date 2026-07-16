@@ -111,7 +111,7 @@ def test_current_fence_commits_memorial_outbox_and_attempt_atomically(tmp_path: 
             "SELECT event_type, memorial_id, status FROM outbox_events WHERE event_id=?",
             (event_id,),
         ).fetchone()
-        assert tuple(event) == ("run.completed", "root-1", "pending")
+        assert tuple(event) == ("execution.completed", "root-1", "pending")
     finally:
         storage.close()
 

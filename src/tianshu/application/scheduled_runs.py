@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import croniter
 from pydantic import BaseModel, ConfigDict
 
-from tianshu.models import EdictSchedule, Memorial, TaskStatus
+from tianshu.models import EdictRuntime, EdictSchedule, Memorial, TaskStatus
 from tianshu.models.canonical import canonical_sha256
 from tianshu.storage.attempt_ledger import AttemptLeaseRepository
 from tianshu.storage.memorial_repo import insert_memorial
@@ -90,15 +90,17 @@ class ScheduledRunPreparer:
                 if job is None:
                     raise ScheduledFireConflict("scheduler job does not exist")
                 edict = connection.execute(
-                    "SELECT goal, schedule_json FROM edicts WHERE id = ?",
+                    "SELECT goal, schedule_json, runtime_json FROM edicts WHERE id = ?",
                     (job["edict_id"],),
                 ).fetchone()
                 if edict is None:
                     raise ScheduledFireConflict("scheduler edict does not exist")
                 try:
                     schedule = EdictSchedule.model_validate(json.loads(edict["schedule_json"]))
+                    runtime = EdictRuntime.model_validate(json.loads(edict["runtime_json"]))
                 except (TypeError, ValueError, json.JSONDecodeError) as exc:
                     raise ScheduledFireConflict("scheduler envelope is invalid") from exc
+                max_attempts = runtime.retry_limit + 1
                 if schedule.type != job["schedule_type"]:
                     raise ScheduledFireConflict("scheduler envelope conflicts with durable job")
                 next_run = self._next_cursor(
@@ -119,6 +121,7 @@ class ScheduledRunPreparer:
                         next_run=next_run,
                         initial_memorial_id=initial_memorial_id,
                         status=str(existing["status"]),
+                        max_attempts=max_attempts,
                     )
                     result = self._resolve_replay(
                         connection,
@@ -133,6 +136,7 @@ class ScheduledRunPreparer:
                         initial_memorial_id=initial_memorial_id,
                         schedule=schedule,
                         expected_fingerprint=replay_fingerprint,
+                        expected_max_attempts=max_attempts,
                     )
                     unit_of_work.commit()
                     return result
@@ -188,6 +192,7 @@ class ScheduledRunPreparer:
                     next_run=next_run,
                     initial_memorial_id=initial_memorial_id,
                     status=status,
+                    max_attempts=max_attempts,
                 )
                 if not skip:
                     memorial_id = self._prepare_memorial(
@@ -204,6 +209,7 @@ class ScheduledRunPreparer:
                         connection,
                         memorial_id=memorial_id,
                         available_at=scheduled_at,
+                        max_attempts=max_attempts,
                         attempt_id=attempt_id,
                     )
                     prepared_attempt_id = attempt.attempt_id
@@ -245,6 +251,122 @@ class ScheduledRunPreparer:
                 )
         except sqlite3.IntegrityError as exc:
             raise ScheduledFireConflict("scheduled fire identity conflict") from exc
+
+    def prepare_manual(
+        self,
+        *,
+        job_id: str,
+        idempotency_key: str,
+        scheduled_at: datetime,
+    ) -> PreparedFire:
+        """Prepare an explicit run-now fire without moving the timer cursor."""
+        if not job_id.strip() or not idempotency_key.strip():
+            raise ValueError("manual fire identity must be non-blank")
+        scheduled_at = _utc(scheduled_at)
+        seed = f"{job_id}\0run-now\0{idempotency_key}"
+
+        def identity(prefix: str) -> str:
+            return f"{prefix}-{hashlib.sha256(seed.encode()).hexdigest()}"
+
+        fire_id = identity("fire")
+        schedule_run_id = identity("schedule-run")
+        memorial_id = identity("memorial")
+        attempt_id = identity("attempt")
+        try:
+            with self._unit_of_work_factory() as unit_of_work:
+                connection = unit_of_work.connection
+                job = load_scheduler_job(connection, job_id)
+                if job is None or job["status"] not in {"active", "paused"}:
+                    raise ScheduledFireConflict("manual scheduler job is unavailable")
+                edict = connection.execute(
+                    "SELECT goal, runtime_json FROM edicts WHERE id=?",
+                    (job["edict_id"],),
+                ).fetchone()
+                if edict is None:
+                    raise ScheduledFireConflict("manual scheduler edict is unavailable")
+                runtime = EdictRuntime.model_validate(json.loads(edict["runtime_json"]))
+                max_attempts = runtime.retry_limit + 1
+                fingerprint = f"manual-fire-envelope-sha256:{canonical_sha256({'schema_version': 1, 'job_id': job_id, 'edict_id': str(job['edict_id']), 'idempotency_key': idempotency_key, 'scheduled_at': scheduled_at.isoformat(), 'max_attempts': max_attempts})}"
+                next_run = (
+                    _utc(datetime.fromisoformat(str(job["next_run"])))
+                    if job["next_run"] is not None
+                    else None
+                )
+                existing = connection.execute(
+                    "SELECT * FROM schedule_run WHERE id=?",
+                    (schedule_run_id,),
+                ).fetchone()
+                if existing is not None:
+                    attempt = connection.execute(
+                        "SELECT max_attempts FROM execution_attempts "
+                        "WHERE attempt_id=? AND memorial_id=?",
+                        (attempt_id, memorial_id),
+                    ).fetchone()
+                    if (
+                        existing["source"] != job_id
+                        or existing["kind"] != "run_now"
+                        or existing["edict_id"] != job["edict_id"]
+                        or existing["error"] != fingerprint
+                        or _utc(datetime.fromisoformat(str(existing["started_at"]))) != scheduled_at
+                        or attempt is None
+                        or attempt["max_attempts"] != max_attempts
+                    ):
+                        raise ScheduledFireConflict("stored manual fire conflicts with envelope")
+                    unit_of_work.commit()
+                    return PreparedFire(
+                        fire_id=fire_id,
+                        job_id=job_id,
+                        edict_id=str(job["edict_id"]),
+                        scheduled_at=scheduled_at,
+                        next_run=next_run,
+                        status="prepared",
+                        memorial_id=memorial_id,
+                        attempt_id=attempt_id,
+                        schedule_run_id=schedule_run_id,
+                        deduplicated=True,
+                    )
+                insert_memorial(
+                    connection,
+                    Memorial(
+                        id=memorial_id,
+                        edict_id=str(job["edict_id"]),
+                        instruction=str(edict["goal"]),
+                        status=TaskStatus.SUBMITTED,
+                        created_at=scheduled_at,
+                    ),
+                )
+                self._attempt_repository.enqueue_initial(
+                    connection,
+                    memorial_id=memorial_id,
+                    available_at=scheduled_at,
+                    max_attempts=max_attempts,
+                    attempt_id=attempt_id,
+                )
+                insert_schedule_run(
+                    connection,
+                    run_id=schedule_run_id,
+                    source=job_id,
+                    kind="run_now",
+                    status="prepared",
+                    edict_id=str(job["edict_id"]),
+                    started_at=scheduled_at,
+                    envelope_fingerprint=fingerprint,
+                )
+                unit_of_work.commit()
+                return PreparedFire(
+                    fire_id=fire_id,
+                    job_id=job_id,
+                    edict_id=str(job["edict_id"]),
+                    scheduled_at=scheduled_at,
+                    next_run=next_run,
+                    status="prepared",
+                    memorial_id=memorial_id,
+                    attempt_id=attempt_id,
+                    schedule_run_id=schedule_run_id,
+                    deduplicated=False,
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ScheduledFireConflict("manual fire identity conflict") from exc
 
     def _next_cursor(
         self,
@@ -304,6 +426,7 @@ class ScheduledRunPreparer:
         initial_memorial_id: str | None,
         schedule: EdictSchedule,
         expected_fingerprint: str,
+        expected_max_attempts: int,
     ) -> PreparedFire:
         if (
             row["source"] != job_id
@@ -325,11 +448,11 @@ class ScheduledRunPreparer:
                 schedule=schedule,
             )
             attempt = connection.execute(
-                "SELECT attempt_id FROM execution_attempts "
+                "SELECT attempt_id, max_attempts FROM execution_attempts "
                 "WHERE attempt_id = ? AND memorial_id = ? AND attempt_no = 1",
                 (expected_attempt_id, memorial_id),
             ).fetchone()
-            if attempt is None:
+            if attempt is None or attempt["max_attempts"] != expected_max_attempts:
                 raise ScheduledFireConflict("stored fire conflicts with durable envelope")
             attempt_id = str(attempt["attempt_id"])
         return PreparedFire(
@@ -465,6 +588,7 @@ class ScheduledRunPreparer:
         next_run: datetime | None,
         initial_memorial_id: str | None,
         status: str,
+        max_attempts: int,
     ) -> str:
         digest = canonical_sha256(
             {
@@ -481,6 +605,7 @@ class ScheduledRunPreparer:
                 "next_run": next_run.isoformat() if next_run is not None else None,
                 "initial_memorial_id": initial_memorial_id,
                 "status": status,
+                "max_attempts": max_attempts,
             }
         )
         return f"fire-envelope-sha256:{digest}"

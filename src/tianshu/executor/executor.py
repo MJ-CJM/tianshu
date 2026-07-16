@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections.abc import Mapping
 from contextlib import nullcontext
@@ -10,6 +11,8 @@ from copy import copy
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tianshu.application.run_dispatcher import AttemptAuthority
+from tianshu.application.run_execution import ManagedExecutionProjection
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
 from tianshu.dag import validate_dag_structure
@@ -37,6 +40,7 @@ from tianshu.executor.workspace_runtime import (
 )
 from tianshu.executor.workspace_service import WorkspaceError, WorkspaceService
 from tianshu.kernel.hooks import HookRegistry, HookType
+from tianshu.models.canonical import RedactedError
 from tianshu.models.common import TaskStatus
 from tianshu.models.dag import DAGExecution, DAGNodeStatus
 from tianshu.models.edict import Edict
@@ -136,6 +140,46 @@ class Executor:
     def running_tasks(self) -> set[asyncio.Task]:
         return self._running_tasks
 
+    async def execute_attempt(
+        self,
+        authority: AttemptAuthority,
+        plan: Plan,
+    ) -> ManagedExecutionProjection:
+        """Execute one claimed root while deferring terminal truth to fencing."""
+        memorial = self._storage.get_memorial(authority.memorial_id)
+        if memorial is None or memorial.dag_node_id is not None:
+            raise RuntimeError("managed execution root is unavailable")
+        edict = self._storage.get_edict(memorial.edict_id)
+        if edict is None:
+            raise RuntimeError("managed execution edict is unavailable")
+        if edict.acceptance is not None and self._orchestrator_ctx is not None:
+            await self._execute_outer_loop(edict, memorial, _defer_terminal=True)
+        elif plan and len(plan.tasks) > 1 and self._dag_scheduler:
+            await self._execute_dag(edict, plan, memorial=memorial, _defer_terminal=True)
+        else:
+            await self.execute_edict(
+                edict,
+                plan,
+                memorial=memorial,
+                _defer_terminal=True,
+            )
+        error = None
+        if memorial.status is not TaskStatus.COMPLETED:
+            error = RedactedError(
+                code="execution_failed",
+                message="Managed execution failed",
+                retryable=False,
+                details_hash=(
+                    hashlib.sha256((memorial.error or "execution_failed").encode()).hexdigest()
+                ),
+            )
+        return ManagedExecutionProjection(
+            status=memorial.status,
+            summary=memorial.summary,
+            result=memorial.result,
+            error=error,
+        )
+
     async def handle_plan_completed(self, event: EventEnvelope) -> None:
         """EventBus handler for plan.completed."""
         edict_id = event.edict_id
@@ -219,6 +263,8 @@ class Executor:
         edict: Edict,
         plan: Plan,
         memorial: Memorial | None = None,
+        *,
+        _defer_terminal: bool = False,
     ) -> None:
         """Create DAG from plan and run via DAGScheduler."""
         max_concurrency = edict.runtime.max_concurrency
@@ -239,7 +285,13 @@ class Executor:
         try:
             validate_dag_structure(execution.nodes)
         except ValueError as exc:
-            await self._reject_invalid_dag(edict, execution, root_memorial, exc)
+            await self._reject_invalid_dag(
+                edict,
+                execution,
+                root_memorial,
+                exc,
+                _defer_terminal=_defer_terminal,
+            )
             return
 
         try:
@@ -248,15 +300,22 @@ class Executor:
                 root_memorial,
                 execution_mode="dag",
                 dag_id=execution.id,
+                defer_root_terminal=_defer_terminal,
             )
         except MandatoryCapabilityMismatch as exc:
-            await self._reject_capability_mismatch(edict, root_memorial, exc)
+            await self._reject_capability_mismatch(
+                edict, root_memorial, exc, defer_root_terminal=_defer_terminal
+            )
             return
         except UnsupportedExecutorMode as exc:
-            await self._reject_executor_mode(edict, root_memorial, exc)
+            await self._reject_executor_mode(
+                edict, root_memorial, exc, defer_root_terminal=_defer_terminal
+            )
             return
         except (WorkspaceContractError, WorkspaceError) as exc:
-            await self._reject_workspace_runtime(edict, root_memorial, exc)
+            await self._reject_workspace_runtime(
+                edict, root_memorial, exc, defer_root_terminal=_defer_terminal
+            )
             return
 
         await self._run_prepared_dag(
@@ -266,6 +325,7 @@ class Executor:
             prepared_executor,
             bound_workspace,
             save_execution=True,
+            _defer_terminal=_defer_terminal,
         )
 
     async def _reject_invalid_dag(
@@ -274,6 +334,8 @@ class Executor:
         execution: DAGExecution,
         root_memorial: Memorial,
         exc: ValueError,
+        *,
+        _defer_terminal: bool = False,
     ) -> None:
         """Persist and publish one failed terminal before any runtime is prepared."""
         error = f"DAG validation failed: {exc}"
@@ -283,26 +345,28 @@ class Executor:
         root_memorial.completed_at = completed_at
         execution.status = "failed"
         execution.completed_at = completed_at
-        self._storage.update_memorial(root_memorial)
+        if not _defer_terminal:
+            self._storage.update_memorial(root_memorial)
         self._storage.save_failed_dag_execution(execution)
-        await self._bus.emit(
-            make_event(
-                "execution.failed",
-                edict_id=edict.id,
-                memorial_id=root_memorial.id,
-                producer="executor",
-                payload={
-                    "dag_id": execution.id,
-                    "status": root_memorial.status.value,
-                    "error": error,
-                    "failure_reason": resolve_failure_reason(
-                        root_memorial.status.value,
-                        error,
-                        root_memorial.failure_reason,
-                    ),
-                },
+        if not _defer_terminal:
+            await self._bus.emit(
+                make_event(
+                    "execution.failed",
+                    edict_id=edict.id,
+                    memorial_id=root_memorial.id,
+                    producer="executor",
+                    payload={
+                        "dag_id": execution.id,
+                        "status": root_memorial.status.value,
+                        "error": error,
+                        "failure_reason": resolve_failure_reason(
+                            root_memorial.status.value,
+                            error,
+                            root_memorial.failure_reason,
+                        ),
+                    },
+                )
             )
-        )
 
     async def _run_prepared_dag(
         self,
@@ -313,6 +377,7 @@ class Executor:
         bound_workspace: BoundWorkspace | None,
         *,
         save_execution: bool,
+        _defer_terminal: bool = False,
     ) -> None:
         """Run one governed DAG attempt under its root workspace lease."""
         cancelled_error: asyncio.CancelledError | None = None
@@ -392,7 +457,7 @@ class Executor:
                 finally:
                     # finalize 失败也不能让根 memorial 卡在非终态（修一个竞态换来一个
                     # 更糟的挂起）。
-                    if persist_terminal:
+                    if persist_terminal and not _defer_terminal:
                         try:
                             self._storage.update_memorial(terminal_root)
                         except Exception:
@@ -403,25 +468,26 @@ class Executor:
             TaskStatus.COMPLETED: "execution.completed",
             TaskStatus.CANCELLED: "execution.cancelled",
         }.get(terminal_memorial.status, "execution.failed")
-        await self._bus.emit(
-            make_event(
-                event_type,
-                edict_id=edict.id,
-                memorial_id=root_memorial.id,
-                producer="executor",
-                payload={
-                    "dag_id": execution.id,
-                    "status": terminal_memorial.status.value,
-                    "error": terminal_memorial.error,
-                    "failure_reason": resolve_failure_reason(
-                        terminal_memorial.status.value,
-                        terminal_memorial.error,
-                        terminal_memorial.failure_reason,
-                    ),
-                    **terminal_evidence.event_payload(),
-                },
+        if not _defer_terminal:
+            await self._bus.emit(
+                make_event(
+                    event_type,
+                    edict_id=edict.id,
+                    memorial_id=root_memorial.id,
+                    producer="executor",
+                    payload={
+                        "dag_id": execution.id,
+                        "status": terminal_memorial.status.value,
+                        "error": terminal_memorial.error,
+                        "failure_reason": resolve_failure_reason(
+                            terminal_memorial.status.value,
+                            terminal_memorial.error,
+                            terminal_memorial.failure_reason,
+                        ),
+                        **terminal_evidence.event_payload(),
+                    },
+                )
             )
-        )
         if cancelled_error is not None:
             raise cancelled_error
 
@@ -539,6 +605,7 @@ class Executor:
         *,
         execution_mode: ExecutionMode,
         dag_id: str | None = None,
+        defer_root_terminal: bool = False,
     ) -> tuple[PreparedExecutor, BoundWorkspace | None]:
         try:
             return await self._prepare_runtime_executor(
@@ -548,7 +615,12 @@ class Executor:
             )
         except asyncio.CancelledError:
             await shield_workspace_lifecycle(
-                self._cancel_before_running(edict, memorial, dag_id=dag_id)
+                self._cancel_before_running(
+                    edict,
+                    memorial,
+                    dag_id=dag_id,
+                    defer_root_terminal=defer_root_terminal,
+                )
             )
             raise
 
@@ -558,11 +630,13 @@ class Executor:
         memorial: Memorial,
         *,
         dag_id: str | None,
+        defer_root_terminal: bool = False,
     ) -> None:
         memorial.status = TaskStatus.CANCELLED
         memorial.error = "Task was cancelled before execution started"
         memorial.completed_at = datetime.now(UTC)
-        self._storage.update_memorial(memorial)
+        if not defer_root_terminal:
+            self._storage.update_memorial(memorial)
         lease = self._storage.get_workspace_lease_by_run(memorial.id)
         change_set = (
             self._storage.get_latest_canonical_change_set_for_lease(lease.id)
@@ -587,15 +661,16 @@ class Executor:
         if dag_id is not None:
             payload["dag_id"] = dag_id
         try:
-            await self._bus.emit(
-                make_event(
-                    "execution.cancelled",
-                    edict_id=edict.id,
-                    memorial_id=memorial.id,
-                    producer="executor",
-                    payload=payload,
+            if not defer_root_terminal:
+                await self._bus.emit(
+                    make_event(
+                        "execution.cancelled",
+                        edict_id=edict.id,
+                        memorial_id=memorial.id,
+                        producer="executor",
+                        payload=payload,
+                    )
                 )
-            )
         except Exception:
             logger.exception(
                 "Failed to emit pre-running cancellation for memorial %s",
@@ -607,10 +682,14 @@ class Executor:
         edict: Edict,
         memorial: Memorial,
         exc: UnsupportedExecutorMode,
+        *,
+        defer_root_terminal: bool = False,
     ) -> None:
         memorial.status = TaskStatus.FAILED
         memorial.error = str(exc)
         memorial.completed_at = datetime.now(UTC)
+        if defer_root_terminal:
+            return
         self._storage.update_memorial(memorial)
         await self._bus.emit(
             make_event(
@@ -631,10 +710,14 @@ class Executor:
         edict: Edict,
         memorial: Memorial,
         exc: MandatoryCapabilityMismatch,
+        *,
+        defer_root_terminal: bool = False,
     ) -> None:
         memorial.status = TaskStatus.FAILED
         memorial.error = str(exc)
         memorial.completed_at = datetime.now(UTC)
+        if defer_root_terminal:
+            return
         self._storage.update_memorial(memorial)
         await self._bus.emit(
             make_event(
@@ -727,6 +810,8 @@ class Executor:
         self,
         edict: Edict,
         memorial: Memorial | None,
+        *,
+        _defer_terminal: bool = False,
     ) -> None:
         """通过 orchestrator 跑长任务 outer loop。"""
         from tianshu.executor.orchestrator import run as orch_run
@@ -743,15 +828,22 @@ class Executor:
                 edict,
                 memorial,
                 execution_mode="outer_loop",
+                defer_root_terminal=_defer_terminal,
             )
         except MandatoryCapabilityMismatch as exc:
-            await self._reject_capability_mismatch(edict, memorial, exc)
+            await self._reject_capability_mismatch(
+                edict, memorial, exc, defer_root_terminal=_defer_terminal
+            )
             return
         except UnsupportedExecutorMode as exc:
-            await self._reject_executor_mode(edict, memorial, exc)
+            await self._reject_executor_mode(
+                edict, memorial, exc, defer_root_terminal=_defer_terminal
+            )
             return
         except (WorkspaceContractError, WorkspaceError) as exc:
-            await self._reject_workspace_runtime(edict, memorial, exc)
+            await self._reject_workspace_runtime(
+                edict, memorial, exc, defer_root_terminal=_defer_terminal
+            )
             return
 
         cancelled_error: asyncio.CancelledError | None = None
@@ -798,33 +890,35 @@ class Executor:
                 finally:
                     # 同 execute_edict：终态可见 ⟹ 变更集已可读；finalize 失败也不能
                     # 让 memorial 卡在非终态。
-                    try:
-                        self._storage.update_memorial(memorial)
-                    except Exception:
-                        logger.exception("Failed to update memorial %s", memorial.id)
+                    if not _defer_terminal:
+                        try:
+                            self._storage.update_memorial(memorial)
+                        except Exception:
+                            logger.exception("Failed to update memorial %s", memorial.id)
 
         event_type = {
             TaskStatus.COMPLETED: "execution.completed",
             TaskStatus.CANCELLED: "execution.cancelled",
         }.get(memorial.status, "execution.failed")
-        await self._bus.emit(
-            make_event(
-                event_type,
-                edict_id=edict.id,
-                memorial_id=memorial.id,
-                producer="executor",
-                payload={
-                    "status": memorial.status.value,
-                    "error": memorial.error,
-                    "failure_reason": resolve_failure_reason(
-                        memorial.status.value,
-                        memorial.error,
-                        memorial.failure_reason,
-                    ),
-                    **terminal_evidence.event_payload(),
-                },
+        if not _defer_terminal:
+            await self._bus.emit(
+                make_event(
+                    event_type,
+                    edict_id=edict.id,
+                    memorial_id=memorial.id,
+                    producer="executor",
+                    payload={
+                        "status": memorial.status.value,
+                        "error": memorial.error,
+                        "failure_reason": resolve_failure_reason(
+                            memorial.status.value,
+                            memorial.error,
+                            memorial.failure_reason,
+                        ),
+                        **terminal_evidence.event_payload(),
+                    },
+                )
             )
-        )
         if cancelled_error is not None:
             raise cancelled_error
 
@@ -835,6 +929,8 @@ class Executor:
         memorial: Memorial | None = None,
         history: list[dict] | None = None,
         user_content: str | None = None,
+        *,
+        _defer_terminal: bool = False,
     ) -> None:
         """Run the agent for an edict, managing memorial lifecycle.
 
@@ -864,7 +960,11 @@ class Executor:
                 memorial.id,
                 edict.execution_profile,
             )
-            await self._execute_outer_loop(edict, memorial)
+            await self._execute_outer_loop(
+                edict,
+                memorial,
+                _defer_terminal=_defer_terminal,
+            )
             return
 
         try:
@@ -872,15 +972,22 @@ class Executor:
                 edict,
                 memorial,
                 execution_mode="single",
+                defer_root_terminal=_defer_terminal,
             )
         except MandatoryCapabilityMismatch as exc:
-            await self._reject_capability_mismatch(edict, memorial, exc)
+            await self._reject_capability_mismatch(
+                edict, memorial, exc, defer_root_terminal=_defer_terminal
+            )
             return
         except UnsupportedExecutorMode as exc:
-            await self._reject_executor_mode(edict, memorial, exc)
+            await self._reject_executor_mode(
+                edict, memorial, exc, defer_root_terminal=_defer_terminal
+            )
             return
         except (WorkspaceContractError, WorkspaceError) as exc:
-            await self._reject_workspace_runtime(edict, memorial, exc)
+            await self._reject_workspace_runtime(
+                edict, memorial, exc, defer_root_terminal=_defer_terminal
+            )
             return
 
         # Set persona_id: plan assignment > edict assignment > default
@@ -1045,10 +1152,11 @@ class Executor:
             # 立刻取 /workspace-runs/{run}/changes，先落终态会让这个再正常不过的序列
             # 撞上 changes_unavailable。放 finally 是因为 finalize 失败也绝不能让
             # memorial 卡在非终态。
-            try:
-                self._storage.update_memorial(memorial)
-            except Exception:
-                logger.exception("Failed to update memorial %s", memorial.id)
+            if not _defer_terminal:
+                try:
+                    self._storage.update_memorial(memorial)
+                except Exception:
+                    logger.exception("Failed to update memorial %s", memorial.id)
         if terminal_cancellation is not None and cancelled_error is None:
             cancelled_error = terminal_cancellation
         terminal_payload: dict[str, object] = {
@@ -1063,7 +1171,8 @@ class Executor:
         }
 
         if (
-            memorial.status == TaskStatus.FAILED
+            not _defer_terminal
+            and memorial.status == TaskStatus.FAILED
             and edict.runtime.retry_limit > 0
             and memorial.attempt < edict.runtime.retry_limit
         ):
@@ -1077,18 +1186,19 @@ class Executor:
             )
             self._storage.save_memorial(retry_memorial)
 
-        try:
-            await self._bus.emit(
-                make_event(
-                    event_type,
-                    edict_id=edict.id,
-                    memorial_id=memorial.id,
-                    producer="executor",
-                    payload=terminal_payload,
+        if not _defer_terminal:
+            try:
+                await self._bus.emit(
+                    make_event(
+                        event_type,
+                        edict_id=edict.id,
+                        memorial_id=memorial.id,
+                        producer="executor",
+                        payload=terminal_payload,
+                    )
                 )
-            )
-        except Exception:
-            logger.exception("Failed to emit %s for memorial %s", event_type, memorial.id)
+            except Exception:
+                logger.exception("Failed to emit %s for memorial %s", event_type, memorial.id)
 
         if retry_memorial is not None:
             logger.info(
@@ -1147,10 +1257,14 @@ class Executor:
         edict: Edict,
         memorial: Memorial,
         exc: Exception,
+        *,
+        defer_root_terminal: bool = False,
     ) -> None:
         memorial.status = TaskStatus.FAILED
         memorial.error = str(exc)
         memorial.completed_at = datetime.now(UTC)
+        if defer_root_terminal:
+            return
         self._storage.update_memorial(memorial)
         await self._bus.emit(
             make_event(

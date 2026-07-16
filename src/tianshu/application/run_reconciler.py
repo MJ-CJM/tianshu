@@ -39,6 +39,7 @@ class RunReconciler:
         dispatcher: RunDispatcher,
         *,
         clock: Callable[[], datetime] | None = None,
+        before_scan: Callable[[], int] | None = None,
         scan_limit: int = 50,
         poll_interval_seconds: float = 1,
     ) -> None:
@@ -54,6 +55,7 @@ class RunReconciler:
         self._repository = repository
         self._dispatcher = dispatcher
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._before_scan = before_scan
         self._scan_limit = scan_limit
         self._poll_interval_seconds = float(poll_interval_seconds)
         self._state = RunReconcilerState.STOPPED
@@ -135,6 +137,8 @@ class RunReconciler:
     async def reconcile_once(self) -> int:
         if self._stop_requested:
             return 0
+        if self._before_scan is not None:
+            self._before_scan()
         memorial_ids = self._repository.list_dispatchable_memorial_ids(
             now=self._clock(),
             limit=self._scan_limit,

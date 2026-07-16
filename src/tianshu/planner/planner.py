@@ -6,9 +6,12 @@ import json
 import logging
 import re
 
+from tianshu.application.run_dispatcher import AttemptAuthority
+from tianshu.application.run_execution import ManagedPlanningResult
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
 from tianshu.llm import LLMClient
+from tianshu.models.common import TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.plan import Plan, PlanTask
@@ -276,6 +279,7 @@ class Planner:
                     },
                 )
             )
+
         else:
             # 无需审批 → 直接 plan.completed，触发执行
             await self._bus.emit(
@@ -287,6 +291,59 @@ class Planner:
                     payload=payload,
                 )
             )
+
+    async def plan_attempt(self, authority: AttemptAuthority) -> ManagedPlanningResult:
+        """Plan inside a dispatcher-owned attempt, without an event hand-off."""
+        memorial = self._storage.get_memorial(authority.memorial_id)
+        if memorial is None or memorial.dag_node_id is not None:
+            raise RuntimeError("managed planning root is unavailable")
+        edict = self._storage.get_edict(memorial.edict_id)
+        if edict is None:
+            raise RuntimeError("managed planning edict is unavailable")
+
+        with self._storage.unit_of_work() as unit_of_work:
+            run_state = self._storage.run_state_repo.load(
+                unit_of_work.connection,
+                memorial.id,
+            )
+            decision_record = None
+            if (
+                run_state is not None
+                and run_state.phase.value in {"planning", "executing"}
+                and run_state.continuation.resolved_decision_id is not None
+            ):
+                decision_record = self._storage.decision_repo.get(
+                    unit_of_work.connection,
+                    run_state.continuation.resolved_decision_id,
+                )
+            unit_of_work.commit()
+        if decision_record is not None:
+            persisted_plan = decision_record.request.payload.get("plan")
+            if not isinstance(persisted_plan, dict):
+                raise RuntimeError("resolved plan review has no durable plan")
+            return ManagedPlanningResult(plan=Plan.model_validate(persisted_plan))
+
+        if memorial.status in {TaskStatus.SUBMITTED, TaskStatus.SCHEDULED}:
+            memorial.status = TaskStatus.PLANNING
+            self._storage.update_memorial(memorial)
+        plan = await self.plan(edict)
+        if not edict.plan_review or not plan.tasks:
+            return ManagedPlanningResult(plan=plan)
+        if self._approval_manager is None:
+            raise RuntimeError("durable plan review requires ApprovalManager")
+        requested = self._approval_manager.request_plan_review_decision(
+            edict=edict,
+            memorial=memorial,
+            plan=plan,
+            revision=1,
+        )
+        memorial.status = TaskStatus.NEEDS_REVIEW
+        self._storage.update_memorial(memorial)
+        return ManagedPlanningResult(
+            plan=plan,
+            suspended=True,
+            decision_request_id=requested.decision_request_id,
+        )
 
     def _passthrough_plan(self, edict: Edict, persona_id: str = DEFAULT_EXECUTOR_ID) -> Plan:
         """Single-task plan that passes the entire goal to the executor."""

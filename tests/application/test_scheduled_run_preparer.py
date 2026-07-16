@@ -13,7 +13,7 @@ from tianshu.application.scheduled_runs import (
     ScheduledFireConflict,
     ScheduledRunPreparer,
 )
-from tianshu.models import Edict, EdictSchedule, Memorial, TaskStatus
+from tianshu.models import Edict, EdictRuntime, EdictSchedule, Memorial, TaskStatus
 from tianshu.models.events import EventEnvelope
 from tianshu.storage import Storage
 from tianshu.storage.outbox_repo import OutboxRepository
@@ -153,6 +153,80 @@ def test_periodic_fire_identity_is_stable_and_interval_cursor_uses_scheduled_tim
                 "SELECT COUNT(*) FROM schedule_run WHERE source='job-1'"
             ).fetchone()[0]
             == 2
+        )
+    finally:
+        storage.close()
+
+
+def test_attempt_budget_comes_from_edict_retry_limit(tmp_path: Path) -> None:
+    storage = Storage(str(tmp_path / "attempt-budget.db"))
+    storage.init_db()
+    storage.save_edict(
+        Edict(
+            id="edict-1",
+            goal="scheduled work",
+            schedule=EdictSchedule(type="once", at=_NOW),
+            runtime=EdictRuntime(retry_limit=4),
+        )
+    )
+    root = Memorial(id="submitted-root", edict_id="edict-1", instruction="scheduled work")
+    storage.save_memorial(root)
+    job_id = _bind_submission(storage, memorial_id=root.id)
+    storage.save_scheduler_job(job_id, "edict-1", "once", next_run=_NOW)
+    try:
+        fire = _preparer(storage).prepare(
+            job_id=job_id,
+            scheduled_at=_NOW,
+            initial_memorial_id=root.id,
+        )
+        row = storage._conn.execute(  # noqa: SLF001
+            "SELECT max_attempts FROM execution_attempts WHERE attempt_id=?",
+            (fire.attempt_id,),
+        ).fetchone()
+        assert row[0] == 5
+    finally:
+        storage.close()
+
+
+def test_manual_fire_is_idempotent_and_does_not_advance_periodic_cursor(
+    tmp_path: Path,
+) -> None:
+    storage = _open(
+        tmp_path / "manual.db",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            concurrency_policy="allow",
+        ),
+    )
+    next_run = _NOW + timedelta(minutes=5)
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=next_run,
+    )
+    try:
+        first = _preparer(storage).prepare_manual(
+            job_id="job-1",
+            idempotency_key="button-click-1",
+            scheduled_at=_NOW,
+        )
+        replay = _preparer(storage).prepare_manual(
+            job_id="job-1",
+            idempotency_key="button-click-1",
+            scheduled_at=_NOW,
+        )
+
+        assert replay == first.model_copy(update={"deduplicated": True})
+        assert storage.get_scheduler_job("job-1")["next_run"] == next_run.isoformat()
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM execution_attempts WHERE memorial_id=?",
+                (first.memorial_id,),
+            ).fetchone()[0]
+            == 1
         )
     finally:
         storage.close()

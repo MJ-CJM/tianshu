@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.bus.event_bus import EventBus
 from tianshu.models import Edict
 from tianshu.models.events import make_event
@@ -44,3 +45,25 @@ class TestPlanner:
         call_event = handler.call_args[0][0]
         assert call_event.event_type == "plan.completed"
         assert "plan" in call_event.payload
+
+    async def test_plan_attempt_returns_plan_without_event_bus_chaining(
+        self, planner, event_bus, storage
+    ):
+        edict = Edict(id="edict-managed", goal="managed planning")
+        storage.save_edict(edict)
+        from tianshu.models import Memorial
+
+        memorial = Memorial(id="root-managed", edict_id=edict.id, instruction=edict.goal)
+        storage.save_memorial(memorial)
+        authority = AttemptAuthority(
+            attempt_id="attempt-managed",
+            memorial_id=memorial.id,
+            owner_id="worker",
+            fencing_token=1,
+        )
+
+        result = await planner.plan_attempt(authority)
+
+        assert result.suspended is False
+        assert result.plan.tasks[0].description == edict.goal
+        assert storage.get_memorial(memorial.id).status.value == "planning"

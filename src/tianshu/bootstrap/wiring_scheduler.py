@@ -30,10 +30,18 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI
 
+from tianshu.application.fenced_run_completion import FencedRunCompletion
+from tianshu.application.plan_review_lifecycle import PlanReviewAttemptCoordinator
+from tianshu.application.run_dispatcher import RunDispatcher
+from tianshu.application.run_execution import ProductionAttemptCompleter, ProductionRunRunner
+from tianshu.application.run_reconciler import RunReconciler
+from tianshu.application.scheduled_runs import ScheduledRunPreparer
 from tianshu.auditor.auditor import Auditor
 from tianshu.bootstrap.universe_hooks import _update_universe_fitness
 from tianshu.config import TianshuSettings
@@ -139,10 +147,43 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
     )
     app.state.planner = planner
 
+    # --- Durable managed execution ---
+    production_runner = ProductionRunRunner(planner, executor)
+    fenced_completion = FencedRunCompletion(storage.unit_of_work, storage.attempt_repo)
+    production_completer = ProductionAttemptCompleter(
+        fenced_completion,
+        storage.attempt_repo,
+        production_runner,
+    )
+    run_dispatcher = RunDispatcher(
+        storage.attempt_repo,
+        production_runner,
+        owner_id=f"run-{uuid4().hex}",
+        completer=production_completer,
+    )
+    plan_review_coordinator = PlanReviewAttemptCoordinator(storage)
+    run_reconciler = RunReconciler(
+        storage.attempt_repo,
+        run_dispatcher,
+        before_scan=plan_review_coordinator.reconcile_once,
+    )
+    scheduled_run_preparer = ScheduledRunPreparer(
+        storage.unit_of_work,
+        storage.attempt_repo,
+    )
+    app.state.production_run_runner = production_runner
+    app.state.fenced_run_completion = fenced_completion
+    app.state.run_dispatcher = run_dispatcher
+    app.state.plan_review_attempt_coordinator = plan_review_coordinator
+    app.state.run_reconciler = run_reconciler
+    app.state.scheduled_run_preparer = scheduled_run_preparer
+
     # --- Scheduler ---
     scheduler = Scheduler(
         event_bus=event_bus,
         storage=storage,
+        scheduled_run_preparer=scheduled_run_preparer,
+        run_reconciler=run_reconciler,
     )
     app.state.scheduler = scheduler
 
@@ -164,23 +205,41 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         scheduler.handle_submitted,
         consumer_name="scheduler.edict_submitted.v1",
     )
-    event_bus.on(
-        "edict.scheduled",
-        planner.handle_scheduled,
-        consumer_name="planner.edict_scheduled.v1",
-        priority=50,
-    )
-    event_bus.on(
-        "plan.completed",
-        executor.handle_plan_completed,
-        consumer_name="executor.plan_completed.v1",
-        priority=100,
-    )
-    event_bus.on(
-        "edict.resume",
-        executor.handle_resume,
-        consumer_name="executor.edict_resume.v1",
-    )
+
+    async def _adopt_legacy_execution_event(event: EventEnvelope) -> None:
+        """Turn pre-4B pending chain events into durable attempt work."""
+        if event.memorial_id is None:
+            return
+        with storage.unit_of_work() as unit_of_work:
+            connection = unit_of_work.connection
+            root = connection.execute(
+                "SELECT dag_node_id, status FROM memorials WHERE id=? AND edict_id=?",
+                (event.memorial_id, event.edict_id),
+            ).fetchone()
+            if root is None or root["dag_node_id"] is not None:
+                unit_of_work.commit()
+                return
+            existing = connection.execute(
+                "SELECT 1 FROM execution_attempts WHERE memorial_id=? LIMIT 1",
+                (event.memorial_id,),
+            ).fetchone()
+            if existing is None and root["status"] not in {"completed", "failed", "cancelled"}:
+                digest = hashlib.sha256(event.event_id.encode()).hexdigest()
+                storage.attempt_repo.enqueue_initial(
+                    connection,
+                    memorial_id=event.memorial_id,
+                    available_at=event.timestamp,
+                    attempt_id=f"legacy-attempt-{digest}",
+                )
+            unit_of_work.commit()
+        await run_reconciler.reconcile_once()
+
+    for legacy_event_type in ("edict.scheduled", "plan.completed", "edict.resume"):
+        event_bus.on(
+            legacy_event_type,
+            _adopt_legacy_execution_event,
+            consumer_name=f"managed.legacy_{legacy_event_type.replace('.', '_')}.v1",
+        )
     event_bus.on(
         "execution.completed",
         auditor.handle_execution_completed,
