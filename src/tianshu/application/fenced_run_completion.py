@@ -6,10 +6,12 @@ import hashlib
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from tianshu.application.run_dispatcher import AttemptAuthority
-from tianshu.models import TaskStatus
+from tianshu.models import TaskStatus, UsageSummary, resolve_failure_reason
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
+from tianshu.models.canonical import RedactedError, canonical_json_bytes
 from tianshu.models.events import EventEnvelope
 from tianshu.models.run_state import RunPhase, RunStateV1
 from tianshu.storage.attempt_ledger import (
@@ -29,7 +31,11 @@ class FencedRunCompletionCommand:
     memorial_status: TaskStatus
     summary: str | None = None
     result: str | None = None
+    final_output: str | None = None
+    usage: UsageSummary | None = None
+    reasoning_content: str | None = None
     error: str | None = None
+    failure_reason: str | None = None
     run_state: RunStateV1 | None = None
     expected_run_state_version: int | None = None
 
@@ -83,14 +89,30 @@ class FencedRunCompletion:
                 cursor = connection.execute(
                     """
                     UPDATE memorials
-                    SET status = ?, summary = ?, result = ?, error = ?, completed_at = ?
+                    SET status = ?, summary = COALESCE(?, summary),
+                        result = COALESCE(?, result),
+                        final_output = COALESCE(?, final_output),
+                        usage_json = COALESCE(?, usage_json),
+                        reasoning_content = COALESCE(?, reasoning_content),
+                        error = ?, failure_reason = ?, completed_at = ?
                     WHERE id = ? AND edict_id = ? AND dag_node_id IS NULL
+                      AND status IN (
+                          'submitted','scheduled','planning','running','auditing','needs_review'
+                      )
                     """,
                     (
                         command.memorial_status.value,
                         command.summary,
                         command.result,
+                        command.final_output,
+                        command.usage.model_dump_json() if command.usage is not None else None,
+                        command.reasoning_content,
                         command.error,
+                        resolve_failure_reason(
+                            command.memorial_status.value,
+                            command.error,
+                            command.failure_reason,
+                        ),
                         completed_at.isoformat(),
                         authority.memorial_id,
                         memorial["edict_id"],
@@ -122,6 +144,20 @@ class FencedRunCompletion:
                             "attempt_id": authority.attempt_id,
                             "fencing_token": authority.fencing_token,
                             "status": command.memorial_status.value,
+                            "summary": command.summary,
+                            "result": command.result,
+                            "final_output": command.final_output,
+                            "usage": (
+                                command.usage.model_dump(mode="json")
+                                if command.usage is not None
+                                else None
+                            ),
+                            "error": command.error,
+                            "failure_reason": resolve_failure_reason(
+                                command.memorial_status.value,
+                                command.error,
+                                command.failure_reason,
+                            ),
                         },
                     ),
                 )
@@ -136,9 +172,73 @@ class FencedRunCompletion:
                 ):
                     raise AttemptFenceLost("attempt authority is no longer current")
                 unit_of_work.commit()
-                return event_id
         except sqlite3.IntegrityError as exc:
             raise AttemptConflict("fenced completion projection conflict") from exc
+        return event_id
+
+    def cancel_root(
+        self,
+        memorial_id: str,
+        *,
+        reason: str,
+        completed_at: datetime | None = None,
+    ) -> bool:
+        """Cancel a root and revoke every live attempt authority in one transaction."""
+        if not memorial_id.strip() or not reason.strip():
+            raise ValueError("cancellation identity and reason must be non-blank")
+        now = (completed_at or datetime.now(UTC)).astimezone(UTC)
+        failure = RedactedError(
+            code="execution_cancelled",
+            message="Execution was cancelled",
+            retryable=False,
+            details_hash=None,
+        )
+        with self._unit_of_work_factory() as unit_of_work:
+            connection = unit_of_work.connection
+            memorial = connection.execute(
+                "SELECT edict_id, status, dag_node_id FROM memorials WHERE id=?",
+                (memorial_id,),
+            ).fetchone()
+            if memorial is None or memorial["dag_node_id"] is not None:
+                raise ValueError("cancellation root is unavailable")
+            connection.execute(
+                """
+                UPDATE execution_attempts
+                SET status='failed', owner_id=NULL, lease_expires_at=NULL,
+                    heartbeat_at=NULL, failure_json=?, version=version + 1, updated_at=?
+                WHERE memorial_id=? AND status IN ('claimable','claimed','suspended')
+                """,
+                (canonical_json_bytes(failure).decode("utf-8"), now.isoformat(), memorial_id),
+            )
+            cursor = connection.execute(
+                """
+                UPDATE memorials
+                SET status='cancelled', error=?, failure_reason='execution_cancelled',
+                    completed_at=?
+                WHERE id=? AND status NOT IN ('completed','failed','cancelled')
+                """,
+                ("Execution was cancelled", now.isoformat(), memorial_id),
+            )
+            if cursor.rowcount == 1:
+                self._outbox_repository.add(
+                    connection,
+                    EventEnvelope(
+                        event_id=f"{memorial_id}:execution.cancelled",
+                        event_type="execution.cancelled",
+                        edict_id=str(memorial["edict_id"]),
+                        memorial_id=memorial_id,
+                        timestamp=now,
+                        producer="fenced-run-cancellation",
+                        payload={
+                            "status": "cancelled",
+                            "error": "Execution was cancelled",
+                            "failure_reason": "execution_cancelled",
+                            "reason": reason,
+                        },
+                    ),
+                )
+            unit_of_work.commit()
+        return cursor.rowcount == 1
 
     @staticmethod
     def _validate_command(command: FencedRunCompletionCommand) -> None:
@@ -159,6 +259,8 @@ class FencedRunCompletion:
                 raise ValueError("RunState does not belong to the attempt Memorial")
             if command.run_state.phase is not expected[1]:
                 raise ValueError("RunState terminal phase conflicts with attempt outcome")
+        if command.usage is not None and not isinstance(command.usage, UsageSummary):
+            raise TypeError("usage must be UsageSummary")
 
     def _observe_boundary(self, boundary: str) -> None:
         if self._boundary_hook is not None:

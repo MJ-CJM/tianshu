@@ -11,7 +11,9 @@ from tianshu.application.run_execution import ManagedPlanningResult
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
 from tianshu.llm import LLMClient
+from tianshu.models.canonical import canonical_sha256
 from tianshu.models.common import TaskStatus
+from tianshu.models.decision import DecisionKind
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.plan import Plan, PlanTask
@@ -319,8 +321,17 @@ class Planner:
             unit_of_work.commit()
         if decision_record is not None:
             persisted_plan = decision_record.request.payload.get("plan")
-            if not isinstance(persisted_plan, dict):
-                raise RuntimeError("resolved plan review has no durable plan")
+            continuation = run_state.continuation
+            if (
+                decision_record.request.kind is not DecisionKind.PLAN_REVIEW
+                or decision_record.request.memorial_id != memorial.id
+                or decision_record.request.edict_id != edict.id
+                or not isinstance(persisted_plan, dict)
+                or decision_record.request.payload.get("plan_ref") != continuation.plan_ref
+                or decision_record.request.payload.get("plan_hash") != continuation.plan_hash
+                or canonical_sha256(persisted_plan) != continuation.plan_hash
+            ):
+                raise RuntimeError("resolved plan review has an invalid canonical binding")
             return ManagedPlanningResult(plan=Plan.model_validate(persisted_plan))
 
         if memorial.status in {TaskStatus.SUBMITTED, TaskStatus.SCHEDULED}:

@@ -15,7 +15,7 @@ from tianshu.application.run_dispatcher import (
     AttemptAuthority,
     AttemptRunResult,
 )
-from tianshu.models import Plan, TaskStatus
+from tianshu.models import Plan, TaskStatus, UsageSummary
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.canonical import RedactedError
 
@@ -32,6 +32,10 @@ class ManagedExecutionProjection:
     status: TaskStatus
     summary: str | None = None
     result: str | None = None
+    final_output: str | None = None
+    usage: UsageSummary | None = None
+    reasoning_content: str | None = None
+    failure_reason: str | None = None
     error: RedactedError | None = None
 
 
@@ -150,7 +154,11 @@ class ProductionAttemptCompleter:
                 memorial_status=status,
                 summary=projection.summary,
                 result=projection.result,
+                final_output=projection.final_output,
+                usage=projection.usage,
+                reasoning_content=projection.reasoning_content,
                 error=failure.message if failure is not None else None,
+                failure_reason=projection.failure_reason or (failure.code if failure else None),
             )
         )
         return True

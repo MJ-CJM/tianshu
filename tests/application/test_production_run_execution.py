@@ -15,7 +15,7 @@ from tianshu.application.run_execution import (
 from tianshu.executor.executor import Executor
 from tianshu.gateway.core.edict_bridge import EdictBridge
 from tianshu.gateway.edicts_api import follow_up_edict
-from tianshu.models import Plan, PlanTask, TaskStatus
+from tianshu.models import Plan, PlanTask, TaskStatus, UsageSummary
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 
 _NOW = datetime(2026, 7, 16, 10, tzinfo=UTC)
@@ -72,6 +72,21 @@ async def test_runner_directly_awaits_planner_then_executor() -> None:
     assert planner.calls == [_AUTHORITY]
     assert executor.calls == [(_AUTHORITY, _PLAN)]
     assert runner.take_projection(_AUTHORITY) == executor.projection
+
+
+async def test_runner_carries_full_memorial_terminal_evidence() -> None:
+    projection = ManagedExecutionProjection(
+        status=TaskStatus.COMPLETED,
+        summary="done",
+        result="result",
+        final_output="final",
+        usage=UsageSummary(total_tokens=9),
+        reasoning_content="reasoning",
+    )
+    runner = ProductionRunRunner(_Planner(ManagedPlanningResult(plan=_PLAN)), _Executor(projection))
+
+    assert (await runner(_AUTHORITY)).disposition is AttemptDisposition.SUCCEEDED
+    assert runner.take_projection(_AUTHORITY) == projection
 
 
 async def test_plan_review_suspends_without_entering_executor() -> None:

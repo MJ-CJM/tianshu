@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+
+import pytest
 
 from tianshu.application.plan_review_lifecycle import PlanReviewAttemptCoordinator
 from tianshu.application.run_dispatcher import AttemptAuthority
@@ -32,10 +35,10 @@ def _auth() -> AuthContext:
     )
 
 
-def _suspended_review(storage):
-    edict = Edict(id="edict-1", goal="work", plan_review=True)
+def _review(storage, *, suffix: str = "", suspend: bool = True):
+    edict = Edict(id=f"edict-1{suffix}", goal="work", plan_review=True)
     root = Memorial(
-        id="root-1",
+        id=f"root-1{suffix}",
         edict_id=edict.id,
         instruction=edict.goal,
         status=TaskStatus.PLANNING,
@@ -58,25 +61,31 @@ def _suspended_review(storage):
             unit_of_work.connection,
             memorial_id=root.id,
             available_at=_NOW,
-            attempt_id="attempt-1",
+            attempt_id=f"attempt-1{suffix}",
         )
         unit_of_work.commit()
     claimed = storage.attempt_repo.claim(
         memorial_id=root.id,
-        owner_id="worker-1",
+        owner_id=f"worker-1{suffix}",
         now=_NOW,
         lease_seconds=30,
     )
     assert claimed is not None
-    assert storage.attempt_repo.complete(
-        attempt_id=claimed.attempt_id,
-        owner_id="worker-1",
-        fencing_token=claimed.fencing_token,
-        outcome=AttemptOutcomeV1(
-            disposition=AttemptDisposition.SUSPENDED,
-            completed_at=_NOW,
-        ),
-    )
+    if suspend:
+        assert storage.attempt_repo.complete(
+            attempt_id=claimed.attempt_id,
+            owner_id=f"worker-1{suffix}",
+            fencing_token=claimed.fencing_token,
+            outcome=AttemptOutcomeV1(
+                disposition=AttemptDisposition.SUSPENDED,
+                completed_at=_NOW,
+            ),
+        )
+    return service, request, claimed
+
+
+def _suspended_review(storage, *, suffix: str = ""):
+    service, request, _claimed = _review(storage, suffix=suffix)
     return service, request
 
 
@@ -104,6 +113,169 @@ def test_approved_review_resumes_exact_suspended_attempt_once(storage) -> None:
     assert state is not None
     assert state.continuation.pending_decision_id is None
     assert state.continuation.resolved_decision_id == request.decision_request_id
+
+
+def test_resolution_before_suspension_converges_after_attempt_suspends(storage) -> None:
+    service, request, claimed = _review(storage, suspend=False)
+    service.resolve(
+        request.decision_request_id,
+        ResolveDecisionCommand(
+            action="approve",
+            reason="good",
+            payload={"schema_version": 1},
+            expected_version=1,
+        ),
+        auth=_auth(),
+    )
+    assert storage.attempt_repo.complete(
+        attempt_id=claimed.attempt_id,
+        owner_id="worker-1",
+        fencing_token=claimed.fencing_token,
+        outcome=AttemptOutcomeV1(
+            disposition=AttemptDisposition.SUSPENDED,
+            completed_at=_NOW,
+        ),
+    )
+
+    coordinator = PlanReviewAttemptCoordinator(storage, clock=lambda: _NOW)
+    assert coordinator.reconcile_once() == 1
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT status FROM execution_attempts WHERE attempt_id='attempt-1'"
+        ).fetchone()[0]
+        == "claimable"
+    )
+
+
+def test_expired_review_terminalizes_suspended_attempt(storage) -> None:
+    _service, request = _suspended_review(storage)
+    expiry_service = DecisionService(storage, clock=lambda: request.expires_at)
+    assert expiry_service.expire_due() == 1
+
+    assert (
+        PlanReviewAttemptCoordinator(storage, clock=lambda: request.expires_at).reconcile_once()
+        == 1
+    )
+    assert storage.get_memorial("root-1").failure_reason == "plan_review_rejected"
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT status FROM execution_attempts WHERE attempt_id='attempt-1'"
+        ).fetchone()[0]
+        == "failed"
+    )
+
+
+def test_wrong_decision_root_and_edict_binding_fails_closed(storage) -> None:
+    _service, _request = _suspended_review(storage)
+    _other_service, other_request = _suspended_review(storage, suffix="-other")
+    row = storage._conn.execute(  # noqa: SLF001
+        "SELECT continuation_json FROM run_states WHERE memorial_id='root-1'"
+    ).fetchone()
+    continuation = json.loads(row[0])
+    continuation["pending_decision_id"] = other_request.decision_request_id
+    storage._conn.execute(  # noqa: SLF001
+        "UPDATE run_states SET continuation_json=? WHERE memorial_id='root-1'",
+        (json.dumps(continuation),),
+    )
+    storage._conn.commit()  # noqa: SLF001
+
+    assert PlanReviewAttemptCoordinator(storage, clock=lambda: _NOW).reconcile_once() == 1
+    assert storage.get_memorial("root-1").failure_reason == "plan_review_binding_invalid"
+
+
+def test_missing_decision_binding_fails_closed(storage) -> None:
+    _service, _request = _suspended_review(storage)
+    row = storage._conn.execute(  # noqa: SLF001
+        "SELECT continuation_json FROM run_states WHERE memorial_id='root-1'"
+    ).fetchone()
+    continuation = json.loads(row[0])
+    continuation["pending_decision_id"] = "decision:missing"
+    storage._conn.execute(  # noqa: SLF001
+        "UPDATE run_states SET continuation_json=? WHERE memorial_id='root-1'",
+        (json.dumps(continuation),),
+    )
+    storage._conn.commit()  # noqa: SLF001
+
+    assert PlanReviewAttemptCoordinator(storage, clock=lambda: _NOW).reconcile_once() == 1
+    assert storage.get_memorial("root-1").failure_reason == "plan_review_binding_invalid"
+
+
+@pytest.mark.parametrize(
+    ("action", "expected_attempt", "expected_memorial"),
+    [
+        ("approve", "claimable", TaskStatus.PLANNING),
+        ("reject", "failed", TaskStatus.FAILED),
+    ],
+)
+def test_already_projected_decision_converges_suspended_attempt(
+    storage,
+    action: str,
+    expected_attempt: str,
+    expected_memorial: TaskStatus,
+) -> None:
+    service, request = _suspended_review(storage)
+    service.resolve(
+        request.decision_request_id,
+        ResolveDecisionCommand(
+            action=action,
+            reason="reviewed",
+            payload={"schema_version": 1},
+            expected_version=1,
+        ),
+        auth=_auth(),
+    )
+    if action == "approve":
+        service.mark_run_state_resolved(request.decision_request_id)
+    else:
+        service.mark_run_state_terminal(request.decision_request_id)
+
+    coordinator = PlanReviewAttemptCoordinator(storage, clock=lambda: _NOW)
+    assert coordinator.reconcile_once() == 1
+    assert coordinator.reconcile_once() == 0
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT status FROM execution_attempts WHERE attempt_id='attempt-1'"
+        ).fetchone()[0]
+        == expected_attempt
+    )
+    assert storage.get_memorial("root-1").status is expected_memorial
+
+
+def test_canonical_plan_binding_mismatch_fails_closed_and_is_auditable(storage) -> None:
+    service, request = _suspended_review(storage)
+    row = storage._conn.execute(  # noqa: SLF001
+        "SELECT continuation_json FROM run_states WHERE memorial_id='root-1'"
+    ).fetchone()
+    continuation = json.loads(row[0])
+    continuation["plan_hash"] = "0" * 64
+    storage._conn.execute(  # noqa: SLF001
+        "UPDATE run_states SET continuation_json=? WHERE memorial_id='root-1'",
+        (json.dumps(continuation),),
+    )
+    storage._conn.commit()  # noqa: SLF001
+    service.resolve(
+        request.decision_request_id,
+        ResolveDecisionCommand(
+            action="approve",
+            reason="reviewed",
+            payload={"schema_version": 1},
+            expected_version=1,
+        ),
+        auth=_auth(),
+    )
+
+    assert PlanReviewAttemptCoordinator(storage, clock=lambda: _NOW).reconcile_once() == 1
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT status FROM execution_attempts WHERE attempt_id='attempt-1'"
+        ).fetchone()[0]
+        == "failed"
+    )
+    event = storage._conn.execute(  # noqa: SLF001
+        "SELECT payload_json FROM outbox_events "
+        "WHERE event_type='execution.failed' AND memorial_id='root-1'"
+    ).fetchone()
+    assert json.loads(event[0])["failure_reason"] == "plan_review_binding_invalid"
 
 
 def test_rejected_review_terminalizes_root_attempt_and_outbox(storage) -> None:

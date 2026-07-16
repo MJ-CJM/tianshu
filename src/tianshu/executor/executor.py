@@ -185,6 +185,14 @@ class Executor:
             status=memorial.status,
             summary=memorial.summary,
             result=memorial.result,
+            final_output=memorial.final_output,
+            usage=memorial.usage,
+            reasoning_content=memorial.reasoning_content,
+            failure_reason=resolve_failure_reason(
+                memorial.status.value,
+                memorial.error,
+                memorial.failure_reason,
+            ),
             error=error,
         )
 

@@ -13,8 +13,9 @@ from tianshu.application.fenced_run_completion import (
     FencedRunCompletionCommand,
 )
 from tianshu.application.run_dispatcher import AttemptAuthority
-from tianshu.models import Edict, Memorial, TaskStatus
+from tianshu.models import ArtifactRef, Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
+from tianshu.models.canonical import RedactedError
 from tianshu.models.run_state import (
     AgentContinuationV1,
     PersistedUsageSummaryV1,
@@ -112,6 +113,137 @@ def test_current_fence_commits_memorial_outbox_and_attempt_atomically(tmp_path: 
             (event_id,),
         ).fetchone()
         assert tuple(event) == ("execution.completed", "root-1", "pending")
+    finally:
+        storage.close()
+
+
+def test_completion_preserves_full_terminal_evidence_and_existing_references(
+    tmp_path: Path,
+) -> None:
+    storage, authority = _claimed(tmp_path / "terminal-evidence.db")
+    root = storage.get_memorial("root-1")
+    assert root is not None
+    root.artifacts = [ArtifactRef(name="report", path="reports/final.md")]
+    storage.update_memorial(root)
+    command = replace(
+        _command(authority),
+        final_output="deliverable",
+        usage=UsageSummary(
+            prompt_tokens=2,
+            completion_tokens=3,
+            total_tokens=5,
+            cache_read_tokens=1,
+            cost_cny=0.5,
+            actual_model="model-1",
+            upstream_provider="provider-1",
+        ),
+        reasoning_content="private reasoning reference",
+        failure_reason=None,
+    )
+    try:
+        event_id = FencedRunCompletion(storage.unit_of_work, storage.attempt_repo).complete(command)
+
+        memorial = storage.get_memorial("root-1")
+        assert memorial is not None
+        assert memorial.final_output == "deliverable"
+        assert memorial.usage == command.usage
+        assert memorial.reasoning_content == "private reasoning reference"
+        assert memorial.artifacts == root.artifacts
+        event = storage._conn.execute(  # noqa: SLF001
+            "SELECT payload_json FROM outbox_events WHERE event_id=?",
+            (event_id,),
+        ).fetchone()
+        payload = __import__("json").loads(event[0])
+        assert payload["final_output"] == "deliverable"
+        assert payload["usage"]["total_tokens"] == 5
+        assert "reasoning_content" not in payload
+    finally:
+        storage.close()
+
+
+def test_terminal_root_cannot_be_overwritten_by_stale_success(tmp_path: Path) -> None:
+    storage, authority = _claimed(tmp_path / "cancelled-root.db")
+    cancelled = storage.get_memorial("root-1")
+    assert cancelled is not None
+    cancelled.status = TaskStatus.CANCELLED
+    cancelled.error = "cancelled by operator"
+    cancelled.completed_at = _NOW
+    storage.update_memorial(cancelled)
+    before = _snapshot(storage)
+    try:
+        from tianshu.storage.attempt_ledger import AttemptConflict
+
+        with pytest.raises(AttemptConflict, match="root Memorial"):
+            FencedRunCompletion(storage.unit_of_work, storage.attempt_repo).complete(
+                _command(authority)
+            )
+        assert _snapshot(storage) == before
+    finally:
+        storage.close()
+
+
+def test_cancellation_revokes_current_authority_with_root_projection(tmp_path: Path) -> None:
+    storage, authority = _claimed(tmp_path / "cancel-authority.db")
+    completion = FencedRunCompletion(storage.unit_of_work, storage.attempt_repo)
+    try:
+        assert completion.cancel_root(
+            "root-1",
+            reason="operator request",
+            completed_at=_NOW,
+        )
+        memorial = storage.get_memorial("root-1")
+        assert memorial is not None
+        assert memorial.status is TaskStatus.CANCELLED
+        assert memorial.failure_reason == "execution_cancelled"
+        attempt = storage._conn.execute(  # noqa: SLF001
+            "SELECT status, owner_id, lease_expires_at FROM execution_attempts WHERE attempt_id=?",
+            (authority.attempt_id,),
+        ).fetchone()
+        assert tuple(attempt) == ("failed", None, None)
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM outbox_events "
+                "WHERE event_type='execution.cancelled' AND memorial_id='root-1'"
+            ).fetchone()[0]
+            == 1
+        )
+        with pytest.raises(AttemptFenceLost):
+            completion.complete(_command(authority))
+    finally:
+        storage.close()
+
+
+def test_failed_completion_emits_redacted_error_and_failure_reason(tmp_path: Path) -> None:
+    storage, authority = _claimed(tmp_path / "failed-evidence.db")
+    failure = RedactedError(
+        code="provider_unavailable",
+        message="Provider temporarily unavailable",
+        retryable=False,
+        details_hash="a" * 64,
+    )
+    command = FencedRunCompletionCommand(
+        authority=authority,
+        outcome=AttemptOutcomeV1(
+            disposition=AttemptDisposition.FAILED,
+            completed_at=_NOW,
+            failure=failure,
+        ),
+        memorial_status=TaskStatus.FAILED,
+        error=failure.message,
+        failure_reason="provider_error",
+    )
+    try:
+        event_id = FencedRunCompletion(storage.unit_of_work, storage.attempt_repo).complete(command)
+        payload = __import__("json").loads(
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT payload_json FROM outbox_events WHERE event_id=?",
+                (event_id,),
+            ).fetchone()[0]
+        )
+        assert payload["error"] == failure.message
+        assert payload["failure_reason"] == "provider_error"
+        memorial = storage.get_memorial("root-1")
+        assert memorial is not None and memorial.failure_reason == "provider_error"
     finally:
         storage.close()
 

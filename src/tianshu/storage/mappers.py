@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from tianshu.models import (
+    ArtifactRef,
     AuditResult,
     DAGExecution,
     DAGNode,
@@ -18,6 +19,7 @@ from tianshu.models import (
     EdictStatus,
     Memorial,
     TaskStatus,
+    TimelineItem,
     UsageSummary,
     resolve_failure_reason,
 )
@@ -298,6 +300,26 @@ def _row_to_memorial(
             audit,
         )
 
+    artifacts = []
+    if "artifacts_json" in keys and row["artifacts_json"]:
+        artifacts = _load_json_field(
+            row["artifacts_json"],
+            lambda raw: [ArtifactRef.model_validate(item) for item in json.loads(raw)],
+            "artifacts_json",
+            row["id"],
+            artifacts,
+        )
+
+    timeline = []
+    if "timeline_json" in keys and row["timeline_json"]:
+        timeline = _load_json_field(
+            row["timeline_json"],
+            lambda raw: [TimelineItem.model_validate(item) for item in json.loads(raw)],
+            "timeline_json",
+            row["id"],
+            timeline,
+        )
+
     return Memorial(
         id=row["id"],
         edict_id=row["edict_id"],
@@ -319,6 +341,8 @@ def _row_to_memorial(
         parent_memorial_id=row["parent_memorial_id"] if "parent_memorial_id" in keys else None,
         review_status=row["review_status"] if "review_status" in keys else "not_required",
         audit=audit,
+        artifacts=artifacts,
+        timeline=timeline,
         dag_node_id=row["dag_node_id"] if "dag_node_id" in keys else None,
         persona_id=row["persona_id"] if "persona_id" in keys else None,
         runtime_override=_parse_runtime_override(row, keys),
