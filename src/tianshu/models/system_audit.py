@@ -37,6 +37,15 @@ SYSTEM_AUDIT_METADATA_KEYS: dict[str, frozenset[str]] = {
     "secrets.master_key.rotated": frozenset(),
     "decision.request.denied": frozenset({"kind"}),
     "decision.resolve.denied": frozenset({"actual_version", "expected_version", "kind", "status"}),
+    "notification.delivery.retry_scheduled": frozenset(
+        {"attempt_count", "deadline_expired", "max_attempts"}
+    ),
+    "notification.delivery.dead_lettered": frozenset(
+        {"attempt_count", "deadline_expired", "max_attempts"}
+    ),
+    "notification.delivery.delivered": frozenset(
+        {"attempt_count", "deadline_expired", "max_attempts"}
+    ),
 }
 
 
@@ -91,6 +100,14 @@ def _validate_metadata_value(key: str, value: SystemAuditMetadataValue) -> None:
     if key in {"family_size", "frozen_tool_count", "scope_count"}:
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError(f"{key} must be a non-negative integer")
+        return
+    if key in {"attempt_count", "max_attempts"}:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{key} must be a non-negative integer")
+        return
+    if key == "deadline_expired" and not isinstance(value, bool):
+        raise ValueError("deadline_expired must be a boolean")
+    if key == "deadline_expired":
         return
     if key in {"kill_all", "network_kill"} and not isinstance(value, bool):
         raise ValueError(f"{key} must be a boolean")

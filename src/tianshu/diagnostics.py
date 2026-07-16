@@ -668,6 +668,11 @@ class ReadinessInputs:
     scheduler_ready: Callable[[], bool]
     worker_ready: Callable[[], bool]
     outbox_ready: Callable[[], bool]
+    dispatcher_ready: Callable[[], bool]
+    decision_ready: Callable[[], bool]
+    attempt_ready: Callable[[], bool]
+    artifact_ready: Callable[[], bool]
+    delivery_ready: Callable[[], bool]
     resources_ok: Callable[[], bool]
     # provider：真实可用性判定（复用 provider_config_check，不是 profile 字符串回显）
     provider_ready: Callable[[], bool]
@@ -723,6 +728,11 @@ def assess_readiness(inputs: ReadinessInputs) -> ReadinessReport:
         ("scheduler", inputs.scheduler_ready),
         ("worker", inputs.worker_ready),
         ("outbox", inputs.outbox_ready),
+        ("dispatcher", inputs.dispatcher_ready),
+        ("decision", inputs.decision_ready),
+        ("attempt", inputs.attempt_ready),
+        ("artifact", inputs.artifact_ready),
+        ("delivery", inputs.delivery_ready),
         ("resources", inputs.resources_ok),
         ("workspace", inputs.workspace_ready),
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 
 import pytest
@@ -128,6 +129,31 @@ async def test_outbox_unexpected_exit_flips_readiness_but_not_liveness(client):
         "required": True,
         "evidence": {"ok": False},
     }
+    assert (await c.get("/health/live")).status_code == 200
+
+
+async def test_internal_delivery_unexpected_exit_flips_readiness_but_not_liveness(client):
+    c, app = client
+    task = app.state.internal_delivery_task
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0)
+
+    ready = await c.get("/health/ready")
+    assert ready.status_code == 503
+    checks = {check["id"]: check for check in ready.json()["checks"]}
+    assert set(checks) >= {
+        "database",
+        "migrations",
+        "outbox",
+        "dispatcher",
+        "decision",
+        "attempt",
+        "artifact",
+        "delivery",
+    }
+    assert checks["delivery"]["status"] == "fail"
     assert (await c.get("/health/live")).status_code == 200
 
 

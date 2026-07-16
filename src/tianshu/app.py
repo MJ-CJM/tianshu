@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -83,6 +84,11 @@ async def lifespan(app: FastAPI):
         lifecycle = getattr(app.state, "outbox_lifecycle", None)
         if lifecycle is not None:
             await lifecycle.stop()
+
+    async def _stop_internal_delivery_if_created() -> None:
+        worker = getattr(app.state, "internal_delivery_worker", None)
+        if worker is not None:
+            await worker.stop()
 
     async def _cleanup_started() -> None:
         for stop in reversed(startup_stops):
@@ -198,6 +204,30 @@ async def lifespan(app: FastAPI):
                 instance_id=f"{settings.host}:{settings.port}",
             )
 
+        # Durable only up to the internal notification handler. Provider/channel
+        # acceptance remains best-effort and is intentionally outside this Gate.
+        from tianshu.notifier.delivery_outbox import (
+            InternalDeliveryOutbox,
+            InternalDeliveryWorker,
+        )
+
+        internal_delivery_outbox = InternalDeliveryOutbox(app.state.storage.unit_of_work)
+        app.state.notifier.set_delivery_outbox(internal_delivery_outbox)
+        internal_delivery_worker = InternalDeliveryWorker(
+            internal_delivery_outbox,
+            app.state.notifier.deliver_internal,
+            owner_id=f"internal-delivery-{uuid4().hex}",
+            lease_seconds=settings.outbox_lease_seconds,
+            base_backoff_seconds=settings.durable_retry_base_seconds,
+            max_backoff_seconds=settings.durable_retry_max_seconds,
+            poll_interval_seconds=settings.outbox_poll_interval_seconds,
+        )
+        app.state.internal_delivery_outbox = internal_delivery_outbox
+        app.state.internal_delivery_worker = internal_delivery_worker
+        startup_stops.append(_stop_internal_delivery_if_created)
+        await internal_delivery_worker.start()
+        app.state.internal_delivery_task = internal_delivery_worker.task
+
         # Outbox starts last after every consumer is registered.
         startup_stops.append(_stop_outbox_if_created)
         await bootstrap.wire_outbox(app, settings)
@@ -210,6 +240,7 @@ async def lifespan(app: FastAPI):
 
     # Stop durable delivery and timer production before draining claimed work.
     await app.state.outbox_lifecycle.stop()
+    await app.state.internal_delivery_worker.stop()
     await app.state.scheduler.stop()
     await app.state.run_reconciler.stop()
 
@@ -338,6 +369,25 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
 
         database_ok, migrations_ok = await asyncio.to_thread(_probe_database)
 
+        def _probe_durable_tables() -> dict[str, bool]:
+            tables = {
+                "outbox": "outbox_events",
+                "decision": "decision_requests",
+                "attempt": "execution_attempts",
+                "artifact": "artifact_records",
+            }
+            results: dict[str, bool] = {}
+            for name, table in tables.items():
+                try:
+                    with state.storage._lock:
+                        state.storage._conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()
+                    results[name] = True
+                except Exception:  # noqa: BLE001 - fail-closed readiness probe
+                    results[name] = False
+            return results
+
+        durable_tables = await asyncio.to_thread(_probe_durable_tables)
+
         def _resources_ok() -> bool:
             from tianshu.resources import catalog
 
@@ -382,7 +432,15 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
                 migrations_current=lambda: migrations_ok,
                 scheduler_ready=lambda: state.scheduler.is_ready,
                 worker_ready=lambda: state.worker_pool.is_ready,
-                outbox_ready=lambda: state.outbox_lifecycle.is_ready,
+                outbox_ready=lambda: durable_tables["outbox"] and state.outbox_lifecycle.is_ready,
+                dispatcher_ready=lambda: state.outbox_lifecycle.is_ready,
+                decision_ready=lambda: durable_tables["decision"],
+                attempt_ready=lambda: durable_tables["attempt"],
+                artifact_ready=lambda: durable_tables["artifact"] and state.artifact_store.is_ready,
+                delivery_ready=lambda: (
+                    state.internal_delivery_outbox.probe()
+                    and state.internal_delivery_worker.is_ready
+                ),
                 resources_ok=_resources_ok,
                 provider_ready=_provider_ready,
                 provider_profile=lambda: state.settings.startup_profile,

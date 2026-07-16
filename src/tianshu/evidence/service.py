@@ -129,6 +129,11 @@ class ArtifactStore:
     def root_fingerprint(self) -> str:
         return self._root_fingerprint
 
+    @property
+    def is_ready(self) -> bool:
+        """Whether the configured artifact root remains an accessible directory."""
+        return self._root.is_dir() and os.access(self._root, os.R_OK | os.W_OK)
+
     def _path(self, digest: str, *, create_parent: bool = False) -> Path:
         if _DIGEST.fullmatch(digest) is None:
             raise ValueError("artifact digest must be 64 lowercase hexadecimal characters")
