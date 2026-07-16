@@ -42,45 +42,32 @@ from tianshu.web import mount_web
 logger = logging.getLogger(__name__)
 
 
+def _async_stop(callback: Callable[[], None]) -> Callable[[], Awaitable[None]]:
+    async def stop() -> None:
+        callback()
+
+    return stop
+
+
+def _task_stop(task: asyncio.Task) -> Callable[[], Awaitable[None]]:
+    async def stop() -> None:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    return stop
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings: TianshuSettings = app.state.settings
     setup_logging(log_dir=settings.log_dir, console_level=settings.log_level)
 
-    bootstrap.wire_storage(app, settings)
-    app.state.auth_service = AuthService(app.state.storage, settings)
-    tools = await bootstrap.wire_tools(app, settings)
-    skills, metrics_store = bootstrap.wire_skills(app, settings)
-    bootstrap.wire_persona(app, settings, tools)
-    prompt_builder = bootstrap.wire_memory_palace(app, settings, skills, metrics_store)
-    bootstrap.wire_llm_config(app, settings)
-    bootstrap.wire_skill_tools(app, settings, tools, skills, metrics_store)
-    bootstrap.wire_provider_and_agent(app, settings, tools, skills, metrics_store, prompt_builder)
-    bootstrap.wire_worker_lane(app, settings)
-    bootstrap.wire_auditor(app, settings)
-    bootstrap.wire_channels(app, settings)
-    bootstrap.wire_executor(app, settings)
-    bootstrap.wire_cost_manager(app, settings)
-    await bootstrap.wire_channel_bots(app, settings)
-    bootstrap.wire_policy(app, settings)
-    bootstrap.wire_memory_manager(app, settings)
-    bootstrap.wire_consultation(app, settings)
-    bootstrap.wire_persona_quality(app, settings)
-    bootstrap.wire_scheduling(app, settings)
-    bootstrap.wire_plugins(app, settings)
-    bootstrap.wire_hook_registrations(app, settings)
-    bootstrap.wire_profile(app, settings)
-    bootstrap.wire_skill_curator(app, settings)
-    bootstrap.wire_universe(app, settings)
-    bootstrap.wire_digest(app, settings)
-    skills_watcher = bootstrap.wire_skills_watcher(app, settings)
-
-    # --- Backward compat ---
-    app.state.running_tasks = app.state.executor.running_tasks
-
     _mcp_stop: asyncio.Event | None = None
     _mcp_task: asyncio.Task | None = None
     startup_stops: list[Callable[[], Awaitable[None]]] = []
+    skills_watcher = None
+    tracing_shutdown: Callable[[], None] | None = None
 
     async def _stop_mcp_server() -> None:
         if _mcp_stop is None or _mcp_task is None:
@@ -104,6 +91,58 @@ async def lifespan(app: FastAPI):
                 logger.exception("background component startup cleanup failed")
 
     try:
+        bootstrap.wire_storage(app, settings)
+        startup_stops.append(_async_stop(app.state.storage.close))
+        startup_stops.append(app.state.workspace_service.shutdown)
+        app.state.auth_service = AuthService(app.state.storage, settings)
+
+        tools = await bootstrap.wire_tools(app, settings)
+        startup_stops.append(app.state.mcp_manager.shutdown)
+        startup_stops.append(_task_stop(app.state._mcp_start_task))
+        skills, metrics_store = bootstrap.wire_skills(app, settings)
+        bootstrap.wire_persona(app, settings, tools)
+        prompt_builder = bootstrap.wire_memory_palace(app, settings, skills, metrics_store)
+        startup_stops.append(_async_stop(app.state.drawer_store.close))
+        bootstrap.wire_llm_config(app, settings)
+        bootstrap.wire_skill_tools(app, settings, tools, skills, metrics_store)
+        bootstrap.wire_provider_and_agent(
+            app,
+            settings,
+            tools,
+            skills,
+            metrics_store,
+            prompt_builder,
+        )
+        startup_stops.append(_async_stop(app.state.agent.request_shutdown))
+        bootstrap.wire_worker_lane(app, settings)
+        startup_stops.append(app.state.worker_pool.shutdown)
+        bootstrap.wire_auditor(app, settings)
+        bootstrap.wire_channels(app, settings)
+        bootstrap.wire_executor(app, settings)
+        startup_stops.append(app.state.executor.shutdown)
+        bootstrap.wire_cost_manager(app, settings)
+        await bootstrap.wire_channel_bots(app, settings)
+        startup_stops.append(app.state.bot_manager.stop_all)
+        bootstrap.wire_policy(app, settings)
+        bootstrap.wire_memory_manager(app, settings)
+        bootstrap.wire_consultation(app, settings)
+        bootstrap.wire_persona_quality(app, settings)
+        bootstrap.wire_scheduling(app, settings)
+        bootstrap.wire_plugins(app, settings)
+        bootstrap.wire_hook_registrations(app, settings)
+        bootstrap.wire_profile(app, settings)
+        bootstrap.wire_skill_curator(app, settings)
+        skills_watcher = bootstrap.wire_skills_watcher(app, settings)
+        if skills_watcher is not None:
+            startup_stops.append(_async_stop(skills_watcher.stop))
+        bootstrap.wire_universe(app, settings)
+        startup_stops.append(app.state.code_sandbox.shutdown)
+        bootstrap.wire_digest(app, settings)
+        startup_stops.append(_task_stop(app.state._digest_task))
+
+        # --- Backward compat ---
+        app.state.running_tasks = app.state.executor.running_tasks
+
         # Register stop before start so partial startup is also cleaned up.
         startup_stops.append(app.state.run_reconciler.stop)
         await app.state.run_reconciler.start()
@@ -141,7 +180,9 @@ async def lifespan(app: FastAPI):
         # --- OTel GenAI 埋点(迭代 3):默认关;设 TIANSHU_OTEL_ENDPOINT 才导出 ---
         from tianshu import observability
 
-        observability.init_tracing(settings)
+        tracing_shutdown = observability.init_tracing(settings)
+        if tracing_shutdown is not None:
+            startup_stops.append(_async_stop(tracing_shutdown))
 
         # --- opt-in 遥测(迭代 3,ADR-0003):默认关;首启明示,一行 env 永久关 ---
         from tianshu import telemetry
@@ -162,6 +203,7 @@ async def lifespan(app: FastAPI):
         logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     except BaseException:
         await _cleanup_started()
+        app.state._startup_cleanup_complete = True
         raise
     yield
 
@@ -177,6 +219,8 @@ async def lifespan(app: FastAPI):
             await _mcp_task
         except Exception:
             logger.exception("[mcp-server] session manager shutdown error")
+    if tracing_shutdown is not None:
+        tracing_shutdown()
 
     # --- Graceful shutdown ---
     app.state.agent.request_shutdown()
@@ -184,6 +228,7 @@ async def lifespan(app: FastAPI):
         skills_watcher.stop()
     if hasattr(app.state, "_digest_task") and not app.state._digest_task.done():
         app.state._digest_task.cancel()
+        await asyncio.gather(app.state._digest_task, return_exceptions=True)
     await app.state.executor.shutdown()
     await app.state.worker_pool.shutdown()
     try:

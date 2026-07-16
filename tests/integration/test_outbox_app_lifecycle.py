@@ -30,6 +30,8 @@ def _settings(tmp_path, **overrides) -> TianshuSettings:
 
 
 async def _cleanup_failed_start(app) -> None:  # type: ignore[no-untyped-def]
+    if getattr(app.state, "_startup_cleanup_complete", False):
+        return
     lifecycle = getattr(app.state, "outbox_lifecycle", None)
     if lifecycle is not None and not app.state.outbox_dispatcher.is_stopped:
         await lifecycle.stop()
@@ -206,6 +208,71 @@ async def test_failure_after_outbox_start_confirms_worker_stopped_before_propaga
         assert not app.state.outbox_lifecycle.is_ready
     finally:
         await _cleanup_failed_start(app)
+
+
+async def test_failure_after_bot_and_watcher_start_cleans_reverse_then_closes_storage(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from tianshu import bootstrap
+
+    app = create_app(_settings(tmp_path))
+    order: list[str] = []
+
+    async def start_bots(started_app, _settings) -> None:  # type: ignore[no-untyped-def]
+        async def stop_bots() -> None:
+            order.append("bots")
+
+        started_app.state.bot_manager = SimpleNamespace(stop_all=stop_bots)
+
+    class Watcher:
+        def stop(self) -> None:
+            order.append("watcher")
+
+    def fail_after_watcher(_app, _settings) -> None:  # type: ignore[no-untyped-def]
+        raise RuntimeError("injected post-watcher startup failure")
+
+    monkeypatch.setattr(bootstrap, "wire_channel_bots", start_bots)
+    monkeypatch.setattr(bootstrap, "wire_skills_watcher", lambda *_args: Watcher())
+    monkeypatch.setattr(bootstrap, "wire_universe", fail_after_watcher)
+
+    context = lifespan(app)
+    with pytest.raises(RuntimeError, match="post-watcher startup failure"):
+        await context.__aenter__()
+    assert order == ["watcher", "bots"]
+    assert app.state.storage._conn is None  # noqa: SLF001
+
+
+async def test_tracing_shutdown_is_registered_before_later_startup_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from tianshu import bootstrap, observability, telemetry
+
+    app = create_app(_settings(tmp_path, telemetry="on"))
+    if hasattr(app.state, "tianshu_mcp_server"):
+        del app.state.tianshu_mcp_server
+    monkeypatch.setattr(bootstrap, "wire_skills_watcher", lambda *_args: None)
+    order: list[str] = []
+
+    def init_tracing(_settings):  # type: ignore[no-untyped-def]
+        def shutdown() -> None:
+            order.append("tracing")
+
+        return shutdown
+
+    async def fail_telemetry(*_args, **_kwargs) -> None:  # type: ignore[no-untyped-def]
+        raise RuntimeError("injected telemetry startup failure")
+
+    monkeypatch.setattr(observability, "init_tracing", init_tracing)
+    monkeypatch.setattr(telemetry, "emit_startup", fail_telemetry)
+
+    context = lifespan(app)
+    with pytest.raises(RuntimeError, match="telemetry startup failure"):
+        await context.__aenter__()
+    assert order == ["tracing"]
 
 
 async def test_outbox_stops_before_scheduler_executor_channels_and_storage(
