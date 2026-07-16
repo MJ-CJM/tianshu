@@ -42,6 +42,9 @@ class TianshuSettings(BaseSettings):
     agent_max_iterations: int = 20
     agent_timeout_seconds: int = 300
     db_path: str = "~/.tianshu/tianshu.db"
+    artifact_dir: str = "~/.tianshu/artifacts"
+    artifact_max_bytes: int = 100 * 1024 * 1024
+    artifact_quota_bytes: int = 5 * 1024 * 1024 * 1024
     host: str = "127.0.0.1"
     port: int = 8000
     security_mode: Literal["trusted-local", "secure-remote"] = "trusted-local"
@@ -161,6 +164,8 @@ class TianshuSettings(BaseSettings):
         return _split_csv(self.trusted_proxy_cidrs)
 
     @field_validator(
+        "artifact_max_bytes",
+        "artifact_quota_bytes",
         "outbox_poll_interval_seconds",
         "outbox_lease_seconds",
         "durable_retry_base_seconds",
@@ -169,10 +174,21 @@ class TianshuSettings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def reject_boolean_outbox_settings(cls, value: object) -> object:
+    def reject_boolean_bounded_settings(cls, value: object) -> object:
         if isinstance(value, bool):
-            raise ValueError("outbox numeric settings cannot be boolean")
+            raise ValueError("bounded numeric settings cannot be boolean")
         return value
+
+    @model_validator(mode="after")
+    def validate_artifact_store(self) -> Self:
+        if type(self.artifact_max_bytes) is not int or self.artifact_max_bytes <= 0:
+            raise ValueError("artifact_max_bytes must be a positive integer")
+        if (
+            type(self.artifact_quota_bytes) is not int
+            or self.artifact_quota_bytes < self.artifact_max_bytes
+        ):
+            raise ValueError("artifact_quota_bytes must be at least artifact_max_bytes")
+        return self
 
     @model_validator(mode="after")
     def validate_outbox_worker(self) -> Self:

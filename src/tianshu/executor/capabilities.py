@@ -307,10 +307,10 @@ def native_manifest() -> ExecutorCapabilityManifestV1:
                 "evidence": (
                     "tests/executor/test_executor_workspace_lifecycle.py::"
                     "test_native_run_to_governed_apply_uses_production_manifest"
-                    "[native-success]",
+                    "[native-rollback]",
                     "tests/executor/test_executor_workspace_lifecycle.py::"
                     "test_native_run_to_governed_apply_uses_production_manifest"
-                    "[native-rollback]",
+                    "[native-success]",
                 )
             }
         )
@@ -360,10 +360,10 @@ def _keqing_manifest(
     capability_evidence = (
         "tests/executor/test_executor_workspace_lifecycle.py::"
         "test_lease_backed_keqing_run_to_governed_apply_uses_production_manifest"
-        f"[{adapter_id}-success]",
+        f"[{adapter_id}-rollback]",
         "tests/executor/test_executor_workspace_lifecycle.py::"
         "test_lease_backed_keqing_run_to_governed_apply_uses_production_manifest"
-        f"[{adapter_id}-rollback]",
+        f"[{adapter_id}-success]",
     )
     capabilities = tuple(
         declaration.model_copy(update={"evidence": capability_evidence})

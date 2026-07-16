@@ -28,6 +28,7 @@ _DECISION_RUN_STATE_GUARDS_MIGRATION_NAME = "0012_decision_run_state_guards"
 _GOVERNED_APPLY_DECISION_BINDING_MIGRATION_NAME = "0013_governed_apply_decision_binding"
 _EXECUTION_ATTEMPT_LEDGER_MIGRATION_NAME = "0014_execution_attempt_ledger"
 _SIDE_EFFECT_JOURNAL_MIGRATION_NAME = "0015_side_effect_journal"
+_ARTIFACTS_EVIDENCE_MIGRATION_NAME = "0016_artifacts_evidence"
 _COMPLETE_MIGRATION_LEDGER = [
     (1, _BASELINE_NAME),
     (2, _AUTH_MIGRATION_NAME),
@@ -44,6 +45,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (13, _GOVERNED_APPLY_DECISION_BINDING_MIGRATION_NAME),
     (14, _EXECUTION_ATTEMPT_LEDGER_MIGRATION_NAME),
     (15, _SIDE_EFFECT_JOURNAL_MIGRATION_NAME),
+    (16, _ARTIFACTS_EVIDENCE_MIGRATION_NAME),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -66,6 +68,8 @@ _POST_BASELINE_TABLES = {
     "run_states",
     "execution_attempts",
     "side_effect_journal",
+    "artifact_records",
+    "evidence_bundles",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -93,6 +97,7 @@ _POST_BASELINE_INDEXES = {
     "uq_side_effect_journal_provider_key",
     "idx_side_effect_journal_attempt",
     "idx_side_effect_journal_uncertain",
+    "idx_evidence_bundles_edict",
 }
 _V042_OWNED_TABLE_MANIFEST = (
     48,

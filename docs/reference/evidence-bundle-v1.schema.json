@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/evidence-bundle-v1.schema.json",
+  "title": "Tianshu Closed Evidence Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "edict_id",
+    "memorial_id",
+    "status",
+    "snapshot",
+    "version",
+    "created_at",
+    "closed_at",
+    "content_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "bundle_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "edict_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "memorial_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "status": {"const": "closed"},
+    "snapshot": {"$ref": "#/$defs/snapshot"},
+    "version": {"type": "integer", "minimum": 2},
+    "created_at": {"type": "string", "format": "date-time"},
+    "closed_at": {"type": "string", "format": "date-time"},
+    "content_hash": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_state_version",
+        "requested_contract",
+        "requested_contract_hash",
+        "effective_contract",
+        "effective_contract_hash",
+        "executor_manifest",
+        "executor_manifest_hash",
+        "plan_revision",
+        "artifacts",
+        "checks",
+        "decisions",
+        "effects",
+        "cost",
+        "environment",
+        "auditor",
+        "requirements",
+        "reproduction_command"
+      ],
+      "properties": {
+        "run_state_version": {"type": "integer", "minimum": 1},
+        "requested_contract": {"type": "object"},
+        "requested_contract_hash": {"$ref": "#/$defs/digest"},
+        "effective_contract": {"type": "object"},
+        "effective_contract_hash": {"$ref": "#/$defs/digest"},
+        "executor_manifest": {"type": "object"},
+        "executor_manifest_hash": {"$ref": "#/$defs/digest"},
+        "plan_revision": {"type": "object"},
+        "artifacts": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/artifact"}
+        },
+        "checks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/check"}
+        },
+        "decisions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/decision"}
+        },
+        "effects": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/effect"}
+        },
+        "cost": {"$ref": "#/$defs/cost"},
+        "environment": {"$ref": "#/$defs/environment"},
+        "auditor": {"$ref": "#/$defs/auditor"},
+        "requirements": {"$ref": "#/$defs/requirements"},
+        "reproduction_command": {"$ref": "#/$defs/reproduction_command"}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "digest",
+        "size_bytes",
+        "media_type",
+        "redaction",
+        "uri",
+        "root_fingerprint"
+      ],
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "digest": {"$ref": "#/$defs/digest"},
+        "size_bytes": {"type": "integer", "minimum": 0},
+        "media_type": {"type": "string", "minLength": 1, "maxLength": 255},
+        "redaction": {"type": "string", "minLength": 1, "maxLength": 128},
+        "uri": {"type": "string", "pattern": "^artifact://sha256/[0-9a-f]{64}$"},
+        "root_fingerprint": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_id",
+        "name",
+        "status",
+        "command_fingerprint",
+        "exit_code",
+        "output_artifact_digest",
+        "started_at",
+        "completed_at"
+      ],
+      "properties": {
+        "check_id": {"type": "string"},
+        "name": {"type": "string", "minLength": 1},
+        "status": {"enum": ["passed", "failed", "unavailable", "skipped"]},
+        "command_fingerprint": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "exit_code": {"type": ["integer", "null"]},
+        "output_artifact_digest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision_request_id",
+        "kind",
+        "action",
+        "actor_principal_id",
+        "reason",
+        "payload_hash",
+        "resolved_at"
+      ],
+      "properties": {
+        "decision_request_id": {"type": "string"},
+        "kind": {"enum": ["tool", "outer_loop", "plan_review", "governed_apply"]},
+        "action": {"type": "string"},
+        "actor_principal_id": {"type": "string"},
+        "reason": {"type": "string", "maxLength": 4096},
+        "payload_hash": {"$ref": "#/$defs/digest"},
+        "resolved_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent_id",
+        "effect_id",
+        "status",
+        "semantics",
+        "request_hash",
+        "result_hash",
+        "reason_code"
+      ],
+      "properties": {
+        "intent_id": {"$ref": "#/$defs/digest"},
+        "effect_id": {"type": "string"},
+        "status": {"enum": ["intended", "receipted", "uncertain"]},
+        "semantics": {
+          "enum": [
+            "provider_idempotent",
+            "receipt_lookup",
+            "workspace_only",
+            "untracked_external",
+            "opaque_cli"
+          ]
+        },
+        "request_hash": {"$ref": "#/$defs/digest"},
+        "result_hash": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "reason_code": {"type": ["string", "null"]}
+      }
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency",
+        "requested_budget",
+        "effective_budget",
+        "actual_cost",
+        "prompt_tokens",
+        "completion_tokens",
+        "cache_read_tokens"
+      ],
+      "properties": {
+        "currency": {"const": "CNY"},
+        "requested_budget": {"type": ["string", "number", "null"]},
+        "effective_budget": {"type": ["string", "number", "null"]},
+        "actual_cost": {"type": ["string", "number"]},
+        "prompt_tokens": {"type": "integer", "minimum": 0},
+        "completion_tokens": {"type": "integer", "minimum": 0},
+        "cache_read_tokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tianshu_version",
+        "python_version",
+        "platform",
+        "architecture",
+        "dependency_lock_hash",
+        "workspace_base_revision",
+        "environment_fingerprint"
+      ],
+      "properties": {
+        "tianshu_version": {"type": "string"},
+        "python_version": {"type": "string"},
+        "platform": {"type": "string"},
+        "architecture": {"type": "string"},
+        "dependency_lock_hash": {"$ref": "#/$defs/digest"},
+        "workspace_base_revision": {"type": ["string", "null"]},
+        "environment_fingerprint": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "auditor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auditor_id",
+        "verdict",
+        "reason",
+        "required_evidence",
+        "missing_evidence",
+        "evaluated_at"
+      ],
+      "properties": {
+        "auditor_id": {"type": "string"},
+        "verdict": {"enum": ["pass", "fail"]},
+        "reason": {"type": "string", "maxLength": 4096},
+        "required_evidence": {"type": "array", "items": {"type": "string"}},
+        "missing_evidence": {"type": "array", "items": {"type": "string"}},
+        "evaluated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_names",
+        "decision_request_ids",
+        "effect_intent_ids",
+        "artifact_digests"
+      ],
+      "properties": {
+        "check_names": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "decision_request_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "effect_intent_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "artifact_digests": {"type": "array", "items": {"$ref": "#/$defs/digest"}, "uniqueItems": true}
+      }
+    },
+    "reproduction_command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "argv", "cwd_ref", "environment_keys", "expected_result_hash"],
+      "properties": {
+        "label": {"type": "string", "minLength": 1, "maxLength": 256},
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "cwd_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+        "environment_keys": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$"}
+        },
+        "expected_result_hash": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]}
+      }
+    }
+  }
+}

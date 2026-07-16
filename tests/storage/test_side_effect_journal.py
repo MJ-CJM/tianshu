@@ -99,11 +99,13 @@ def _receipt(
     )
 
 
-def test_v15_is_append_only_live_tail_with_reviewable_journal_objects() -> None:
-    assert MIGRATIONS[-2].version == 14
-    assert MIGRATIONS[-2].name == "0014_execution_attempt_ledger"
-    assert MIGRATIONS[-1].version == 15
-    assert MIGRATIONS[-1].name == "0015_side_effect_journal"
+def test_v15_remains_frozen_below_live_v16_tail() -> None:
+    assert MIGRATIONS[-3].version == 14
+    assert MIGRATIONS[-3].name == "0014_execution_attempt_ledger"
+    assert MIGRATIONS[-2].version == 15
+    assert MIGRATIONS[-2].name == "0015_side_effect_journal"
+    assert MIGRATIONS[-1].version == 16
+    assert MIGRATIONS[-1].name == "0016_artifacts_evidence"
 
     storage = Storage(":memory:")
     storage.init_db()

@@ -3081,6 +3081,136 @@ def _side_effect_journal_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V16: content-addressed artifacts and immutable Evidence Bundle v1 ---
+
+_ARTIFACTS_EVIDENCE_STATEMENTS = (
+    """
+    CREATE TABLE artifact_records (
+        digest TEXT PRIMARY KEY CHECK (
+            length(digest) = 64 AND digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        schema_version TEXT NOT NULL CHECK (schema_version = '1.0'),
+        size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+        media_type TEXT NOT NULL CHECK (
+            length(trim(media_type)) BETWEEN 1 AND 255
+        ),
+        redaction TEXT NOT NULL CHECK (
+            length(trim(redaction)) BETWEEN 1 AND 128
+        ),
+        uri TEXT NOT NULL UNIQUE CHECK (
+            uri = 'artifact://sha256/' || digest
+        ),
+        root_fingerprint TEXT NOT NULL CHECK (
+            length(root_fingerprint) = 64
+            AND root_fingerprint NOT GLOB '*[^0-9a-f]*'
+        ),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0)
+    )
+    """,
+    """
+    CREATE TABLE evidence_bundles (
+        bundle_id TEXT PRIMARY KEY CHECK (length(trim(bundle_id)) > 0),
+        schema_version TEXT NOT NULL CHECK (schema_version = '1.0'),
+        edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE RESTRICT,
+        memorial_id TEXT NOT NULL UNIQUE REFERENCES memorials(id) ON DELETE RESTRICT,
+        status TEXT NOT NULL CHECK (status IN ('open','closed')),
+        body_json TEXT NOT NULL CHECK (
+            json_valid(body_json) AND json_type(body_json) = 'object'
+            AND length(body_json) <= 4194304
+        ),
+        content_hash TEXT CHECK (
+            content_hash IS NULL OR (
+                length(content_hash) = 64
+                AND content_hash NOT GLOB '*[^0-9a-f]*'
+            )
+        ),
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        closed_at TEXT,
+        CHECK (
+            (status = 'open' AND content_hash IS NULL AND closed_at IS NULL)
+            OR
+            (status = 'closed' AND content_hash IS NOT NULL AND closed_at IS NOT NULL)
+        )
+    )
+    """,
+    """
+    CREATE INDEX idx_evidence_bundles_edict
+    ON evidence_bundles(edict_id, created_at, bundle_id)
+    """,
+    """
+    CREATE TRIGGER artifact_records_no_update
+    BEFORE UPDATE ON artifact_records
+    BEGIN
+        SELECT RAISE(ABORT, 'artifact metadata is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER artifact_records_no_delete
+    BEFORE DELETE ON artifact_records
+    BEGIN
+        SELECT RAISE(ABORT, 'artifact metadata is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER evidence_bundles_closed_no_update
+    BEFORE UPDATE ON evidence_bundles
+    WHEN OLD.status = 'closed'
+    BEGIN
+        SELECT RAISE(ABORT, 'closed evidence bundle is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER evidence_bundles_closed_no_delete
+    BEFORE DELETE ON evidence_bundles
+    WHEN OLD.status = 'closed'
+    BEGIN
+        SELECT RAISE(ABORT, 'closed evidence bundle is immutable');
+    END
+    """,
+)
+_ARTIFACTS_EVIDENCE_CHECKSUM = hashlib.sha256(
+    (
+        "0016_artifacts_evidence\n"
+        + "\n".join(" ".join(statement.split()) for statement in _ARTIFACTS_EVIDENCE_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+_ARTIFACTS_EVIDENCE_OBJECT_NAMES = (
+    "artifact_records",
+    "evidence_bundles",
+    "idx_evidence_bundles_edict",
+    "artifact_records_no_update",
+    "artifact_records_no_delete",
+    "evidence_bundles_closed_no_update",
+    "evidence_bundles_closed_no_delete",
+)
+
+
+def _artifacts_evidence_upgrade(conn: MigrationConnection) -> None:
+    placeholders = ",".join("?" for _ in _ARTIFACTS_EVIDENCE_OBJECT_NAMES)
+    rows = conn.execute(
+        f"SELECT name, sql FROM sqlite_master WHERE name IN ({placeholders})",
+        _ARTIFACTS_EVIDENCE_OBJECT_NAMES,
+    ).fetchall()
+    if rows:
+        actual = {str(row[0]): " ".join(str(row[1]).split()) for row in rows}
+        expected = {
+            name: " ".join(statement.split())
+            for name, statement in zip(
+                _ARTIFACTS_EVIDENCE_OBJECT_NAMES,
+                _ARTIFACTS_EVIDENCE_STATEMENTS,
+                strict=True,
+            )
+        }
+        if actual != expected:
+            raise SchemaCompatibilityError(
+                "existing artifact/evidence schema does not match migration v16"
+            )
+        return
+    for statement in _ARTIFACTS_EVIDENCE_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -3171,6 +3301,12 @@ MIGRATIONS = (
         name="0015_side_effect_journal",
         checksum=_SIDE_EFFECT_JOURNAL_CHECKSUM,
         upgrade=_side_effect_journal_upgrade,
+    ),
+    Migration(
+        version=16,
+        name="0016_artifacts_evidence",
+        checksum=_ARTIFACTS_EVIDENCE_CHECKSUM,
+        upgrade=_artifacts_evidence_upgrade,
     ),
 )
 

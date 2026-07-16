@@ -8,6 +8,7 @@ evals（迭代 2）。
 """
 
 from tianshu.storage._base import _StorageBase
+from tianshu.storage.artifact_repo import ArtifactRepository, EvidenceRepository
 from tianshu.storage.attempt_ledger import AttemptLeaseRepository
 from tianshu.storage.auth_repo import AuthMixin
 from tianshu.storage.channel_repo import ChannelMixin
@@ -69,7 +70,9 @@ class Storage(
     def __init__(self, db_path: str) -> None:
         super().__init__(db_path)
         self.attempt_repo = AttemptLeaseRepository(self.unit_of_work)
+        self.artifact_repo = ArtifactRepository(self.unit_of_work)
         self.decision_repo = DecisionRepository()
+        self.evidence_repo = EvidenceRepository(self.unit_of_work)
         self.run_state_repo = RunStateRepository()
         self.side_effect_journal = SideEffectJournal(self.unit_of_work, self.attempt_repo)
 

@@ -75,6 +75,8 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0015_side_effect_journal": (
         "db69496a047a2af8a248b04db84052aa38f48cd9e407bb430384ded15fd52b1b"
     ),
+    # v16 adds immutable evidence metadata after the live v15 tail.
+    "0016_artifacts_evidence": ("b999d1ca8e809321c91eaab5ab6a966a4902bde1a213def9afe0453119ece233"),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

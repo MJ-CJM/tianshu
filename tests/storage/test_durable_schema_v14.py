@@ -58,8 +58,8 @@ def _insert_attempt(
     )
 
 
-def test_v14_remains_frozen_below_live_v15_tail() -> None:
-    assert tuple(item.version for item in MIGRATIONS) == tuple(range(1, 16))
+def test_v14_remains_frozen_below_live_v16_tail() -> None:
+    assert tuple(item.version for item in MIGRATIONS) == tuple(range(1, 17))
     assert (MIGRATIONS[13].version, MIGRATIONS[13].name) == (
         14,
         "0014_execution_attempt_ledger",
