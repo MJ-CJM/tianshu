@@ -128,6 +128,23 @@ async def test_fallible_startup_finishes_before_outbox_is_created(
     monkeypatch.setattr(bootstrap, "wire_skills_watcher", lambda _app, _settings: None)
     outbox_created = False
     original_wire_outbox = bootstrap.wire_outbox
+    stop_order: list[str] = []
+    from tianshu.application.run_reconciler import RunReconciler
+    from tianshu.scheduler.scheduler import Scheduler
+
+    original_scheduler_stop = Scheduler.stop
+    original_reconciler_stop = RunReconciler.stop
+
+    async def scheduler_stop(self) -> None:  # type: ignore[no-untyped-def]
+        stop_order.append("scheduler")
+        await original_scheduler_stop(self)
+
+    async def reconciler_stop(self) -> None:  # type: ignore[no-untyped-def]
+        stop_order.append("reconciler")
+        await original_reconciler_stop(self)
+
+    monkeypatch.setattr(Scheduler, "stop", scheduler_stop)
+    monkeypatch.setattr(RunReconciler, "stop", reconciler_stop)
 
     async def record_outbox_creation(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         nonlocal outbox_created
@@ -154,6 +171,9 @@ async def test_fallible_startup_finishes_before_outbox_is_created(
             await context.__aenter__()
         assert not outbox_created
         assert not hasattr(app.state, "outbox_lifecycle")
+        assert stop_order == ["scheduler", "reconciler"]
+        assert not app.state.scheduler.is_ready
+        assert not app.state.run_reconciler.is_ready
     finally:
         await _cleanup_failed_start(app)
 

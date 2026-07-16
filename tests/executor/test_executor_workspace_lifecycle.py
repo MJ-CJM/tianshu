@@ -28,7 +28,6 @@ from tianshu.executor.workspace_context import (
     require_bound_workspace,
     resolve_workspace_root,
 )
-from tianshu.executor.workspace_runtime import WorkspaceContractError
 from tianshu.executor.workspace_service import WorkspaceApplyError, WorkspaceService
 from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
@@ -932,7 +931,7 @@ async def test_workspace_materialization_failure_rejects_before_running(
     await service.shutdown()
 
 
-@pytest.mark.parametrize("execution_path", ["single", "outer", "dag", "retry"])
+@pytest.mark.parametrize("execution_path", ["single", "outer", "dag"])
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
 async def test_pre_running_cancellation_persists_terminal_and_closes_lease(
     storage,
@@ -960,7 +959,7 @@ async def test_pre_running_cancellation_persists_terminal_and_closes_lease(
         executor.set_orchestrator_context(
             SimpleNamespace(agent=object(), workspace_root=source, execution_context=None)
         )
-    elif execution_path in {"dag", "retry"}:
+    elif execution_path == "dag":
 
         class Scheduler:
             async def run(
@@ -981,11 +980,6 @@ async def test_pre_running_cancellation_persists_terminal_and_closes_lease(
                 storage.update_dag_execution_status(execution.id, "failed")
 
         executor.set_dag_scheduler(Scheduler())
-
-    if execution_path == "retry":
-        await executor._execute_dag(edict, plan, memorial=root)  # noqa: SLF001
-        execution = storage.get_dag_by_edict(edict.id)
-        assert execution is not None
 
     lease_created = asyncio.Event()
     original_create = service.create_lease
@@ -1017,8 +1011,6 @@ async def test_pre_running_cancellation_persists_terminal_and_closes_lease(
         coroutine = executor._execute_outer_loop(edict, root)  # noqa: SLF001
     elif execution_path == "dag":
         coroutine = executor._execute_dag(edict, plan, memorial=root)  # noqa: SLF001
-    else:
-        coroutine = executor.retry_dag(execution.id)
     task = asyncio.create_task(coroutine)
     await lease_created.wait()
     task.cancel()
@@ -1034,10 +1026,56 @@ async def test_pre_running_cancellation_persists_terminal_and_closes_lease(
     lease = storage.get_workspace_lease_by_run(cancelled.id)
     assert lease is not None and lease.state is WorkspaceLeaseState.CLOSED
     assert get_bound_workspace() is None
-    if execution_path == "retry":
-        unchanged = storage.get_dag_execution(execution.id)
-        assert unchanged is not None and unchanged.root_memorial_id == root.id
-        assert unchanged.status == "failed"
+    await service.shutdown()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
+async def test_dag_retry_without_managed_ingress_fails_before_new_lease_or_task(
+    storage,
+    config_manager,
+    tmp_path: Path,
+) -> None:
+    source = _repository(tmp_path / "source")
+    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    executor = _executor(
+        storage=storage,
+        config_manager=config_manager,
+        hooks=HookRegistry(),
+        service=service,
+        source=source,
+        agent=AsyncMock(),
+    )
+
+    class FailedScheduler:
+        async def run(self, _edict, execution, *, prepared_executor, persist_root_terminal=True):
+            root = storage.get_memorial(execution.root_memorial_id)
+            root.status = TaskStatus.FAILED
+            root.error = "initial failure"
+            root.completed_at = datetime.now(UTC)
+            storage.update_memorial(root)
+            storage.update_dag_node_status(execution.id, "one", "failed", error=root.error)
+            storage.update_dag_execution_status(execution.id, "failed")
+
+    executor.set_dag_scheduler(FailedScheduler())
+    edict = _governed_edict()
+    storage.save_edict(edict)
+    root = Memorial(edict_id=edict.id, instruction=edict.goal)
+    storage.save_memorial(root)
+    await executor._execute_dag(  # noqa: SLF001
+        edict,
+        Plan(tasks=[PlanTask(task_id="one", description="one")]),
+        memorial=root,
+    )
+    execution = storage.get_dag_by_edict(edict.id)
+    assert execution is not None
+    memorial_ids = {item.id for item in storage.list_memorials_by_edict(edict.id)}
+
+    with pytest.raises(RuntimeError, match="managed run ingress is not configured"):
+        await executor.retry_dag(execution.id)
+
+    assert {item.id for item in storage.list_memorials_by_edict(edict.id)} == memorial_ids
+    assert storage.get_workspace_lease_by_run(root.id) is not None
+    assert not executor.running_tasks
     await service.shutdown()
 
 
@@ -1412,14 +1450,12 @@ async def test_dag_scheduler_failure_persists_matching_root_and_execution_termin
         assert cancelled_events[0].payload["workspace_change_count"] == 1
 
 
-@pytest.mark.parametrize("failure", ["prepare", "claim_lost"])
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
-async def test_dag_retry_startup_failure_persists_consistent_terminal_root(
+async def test_dag_retry_claim_loss_persists_consistent_terminal_root(
     storage,
     config_manager,
     tmp_path: Path,
     monkeypatch,
-    failure: str,
 ) -> None:
     source = _repository(tmp_path / "source")
     service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
@@ -1461,18 +1497,16 @@ async def test_dag_retry_startup_failure_persists_consistent_terminal_root(
     execution = storage.get_dag_by_edict(edict.id)
     assert execution is not None
 
-    if failure == "prepare":
-        monkeypatch.setattr(
-            executor._workspace_runtime,  # noqa: SLF001
-            "prepare",
-            AsyncMock(side_effect=WorkspaceContractError("retry prepare failed")),
-        )
-    else:
-        monkeypatch.setattr(
-            storage,
-            "claim_dag_retry",
-            lambda *_args, **_kwargs: None,
-        )
+    class Ingress:
+        async def adopt_existing(self, **_kwargs):
+            raise AssertionError("claim loss must happen before managed adoption")
+
+    executor.set_managed_run_ingress(Ingress())
+    monkeypatch.setattr(
+        storage,
+        "claim_dag_retry",
+        lambda *_args, **_kwargs: None,
+    )
 
     with pytest.raises(ValueError, match="Cannot retry"):
         await executor.retry_dag(execution.id)
@@ -1490,19 +1524,14 @@ async def test_dag_retry_startup_failure_persists_consistent_terminal_root(
     assert reloaded is not None and reloaded.status == "failed"
     assert reloaded.nodes[0].status.value == "failed"
     assert reloaded.root_memorial_id == first_root.id
-    if failure == "prepare":
-        assert storage.get_workspace_lease_by_run(retry_root.id) is None
-    else:
-        retry_lease = storage.get_workspace_lease_by_run(retry_root.id)
-        assert retry_lease is not None
-        assert retry_lease.state is WorkspaceLeaseState.CLOSED
+    assert storage.get_workspace_lease_by_run(retry_root.id) is None
     assert get_bound_workspace() is None
     assert not executor.running_tasks
     await service.shutdown()
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
-async def test_dag_retry_uses_new_lineage_root_and_finalizes_each_attempt(
+async def test_dag_retry_adopts_new_lineage_root_without_direct_workspace_execution(
     storage,
     config_manager,
     tmp_path: Path,
@@ -1544,6 +1573,13 @@ async def test_dag_retry_uses_new_lineage_root_and_finalizes_each_attempt(
         terminal_contexts.append(get_bound_workspace())
 
     executor.set_dag_scheduler(Scheduler())
+    adopted: list[str] = []
+
+    class Ingress:
+        async def adopt_existing(self, *, memorial_id: str, **_kwargs):
+            adopted.append(memorial_id)
+
+    executor.set_managed_run_ingress(Ingress())
     executor._bus.on(  # noqa: SLF001
         "execution.failed",
         on_terminal,
@@ -1574,19 +1610,16 @@ async def test_dag_retry_uses_new_lineage_root_and_finalizes_each_attempt(
     assert retry_root is not None
     assert retry_root.parent_memorial_id == first_root.id
     assert retry_root.attempt == first_root.attempt + 1
-    assert retry_root.status is TaskStatus.COMPLETED
-    assert run_roots == [first_root.id, retry_root.id]
-    assert terminal_contexts == [None, None]
+    assert retry_root.status is TaskStatus.SUBMITTED
+    assert adopted == [retry_root.id]
+    assert run_roots == [first_root.id]
+    assert terminal_contexts == [None]
 
     first_lease = storage.get_workspace_lease_by_run(first_root.id)
     retry_lease = storage.get_workspace_lease_by_run(retry_root.id)
     assert first_lease is not None and first_lease.state is WorkspaceLeaseState.CLOSED
-    assert retry_lease is not None and retry_lease.state is WorkspaceLeaseState.ACTIVE
-    assert retry_lease.lineage_root_run_id == first_root.id
-    assert retry_lease.parent_run_id == first_root.id
-    assert retry_lease.attempt == first_lease.attempt + 1
+    assert retry_lease is None
     assert storage.get_latest_canonical_change_set_for_lease(first_lease.id) is not None
-    assert storage.get_latest_canonical_change_set_for_lease(retry_lease.id) is not None
     assert (source / "tracked.txt").read_text() == "base\n"
     await service.shutdown()
 

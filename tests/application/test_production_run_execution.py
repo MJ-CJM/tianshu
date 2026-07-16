@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import inspect
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.application.run_execution import (
@@ -12,11 +14,14 @@ from tianshu.application.run_execution import (
     ProductionAttemptCompleter,
     ProductionRunRunner,
 )
+from tianshu.bootstrap.wiring_scheduler import _require_restart_safe_legacy_plan
 from tianshu.executor.executor import Executor
 from tianshu.gateway.core.edict_bridge import EdictBridge
 from tianshu.gateway.edicts_api import follow_up_edict
 from tianshu.models import Plan, PlanTask, TaskStatus, UsageSummary
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
+from tianshu.models.canonical import RedactedError
+from tianshu.models.events import EventEnvelope
 
 _NOW = datetime(2026, 7, 16, 10, tzinfo=UTC)
 _AUTHORITY = AttemptAuthority(
@@ -87,6 +92,26 @@ async def test_runner_carries_full_memorial_terminal_evidence() -> None:
 
     assert (await runner(_AUTHORITY)).disposition is AttemptDisposition.SUCCEEDED
     assert runner.take_projection(_AUTHORITY) == projection
+
+
+async def test_retryable_projection_is_classified_for_managed_retry() -> None:
+    failure = RedactedError(
+        code="provider_unavailable",
+        message="Provider temporarily unavailable",
+        retryable=True,
+        details_hash=None,
+    )
+    runner = ProductionRunRunner(
+        _Planner(ManagedPlanningResult(plan=_PLAN)),
+        _Executor(ManagedExecutionProjection(status=TaskStatus.FAILED, error=failure)),
+        clock=lambda: _NOW,
+    )
+
+    result = await runner(_AUTHORITY)
+
+    assert result.disposition is AttemptDisposition.RETRY
+    assert result.failure == failure
+    assert result.retry_at == _NOW + timedelta(seconds=1)
 
 
 async def test_plan_review_suspends_without_entering_executor() -> None:
@@ -169,3 +194,20 @@ def test_production_adapters_contain_no_root_task_creation() -> None:
         follow_up_edict,
     ):
         assert "create_task" not in inspect.getsource(adapter), adapter.__qualname__
+
+
+def test_legacy_plan_without_durable_binding_is_retained_fail_closed(storage) -> None:
+    event = EventEnvelope(
+        event_id="legacy-plan-1",
+        event_type="plan.completed",
+        edict_id="edict-1",
+        memorial_id="root-1",
+        timestamp=_NOW,
+        producer="legacy",
+        payload={"plan": _PLAN.model_dump(mode="json")},
+    )
+    with (
+        storage.unit_of_work() as unit_of_work,
+        pytest.raises(RuntimeError, match="retained.*binding is missing"),
+    ):
+        _require_restart_safe_legacy_plan(storage, unit_of_work.connection, event)

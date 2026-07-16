@@ -86,6 +86,34 @@ async def test_false_injected_completion_is_an_explicit_fence_loss() -> None:
     assert observed and observed[0][0] == authority
 
 
+@pytest.mark.asyncio
+async def test_every_dispatch_exit_clears_authority_projection_buffer() -> None:
+    repository = _ProbeRepository()
+
+    async def runner(authority: AttemptAuthority) -> AttemptRunResult:
+        del authority
+        return AttemptRunResult(disposition=AttemptDisposition.SUCCEEDED)
+
+    cleaned: list[AttemptAuthority] = []
+    authority = AttemptAuthority(
+        attempt_id="attempt-1",
+        memorial_id="memorial-1",
+        owner_id="worker",
+        fencing_token=1,
+    )
+    dispatcher = RunDispatcher(
+        repository,
+        runner,
+        owner_id="worker",
+        completer=lambda _authority, _outcome: False,
+        exit_cleanup=cleaned.append,
+    )
+
+    with pytest.raises(AttemptFenceLost):
+        await dispatcher._execute(authority)  # noqa: SLF001
+    assert cleaned == [authority]
+
+
 def test_heartbeat_interval_must_be_below_lease_deadline() -> None:
     repository = _ProbeRepository()
     with pytest.raises(ValueError, match="below lease_seconds"):

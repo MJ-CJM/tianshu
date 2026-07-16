@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from tianshu.application.fenced_run_completion import (
@@ -61,9 +62,16 @@ class _AttemptCompleter(Protocol):
 class ProductionRunRunner:
     """Await the two business stages inside the dispatcher's supervised task."""
 
-    def __init__(self, planner: _ManagedPlanner, executor: _ManagedExecutor) -> None:
+    def __init__(
+        self,
+        planner: _ManagedPlanner,
+        executor: _ManagedExecutor,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._planner = planner
         self._executor = executor
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._projections: dict[tuple[str, str, int], ManagedExecutionProjection] = {}
 
     async def __call__(self, authority: AttemptAuthority) -> AttemptRunResult:
@@ -81,10 +89,7 @@ class ProductionRunRunner:
                     error=failure,
                 ),
             )
-            return AttemptRunResult(
-                AttemptDisposition.FAILED,
-                failure=failure,
-            )
+            return self._failure_result(failure)
         self.store_projection(authority, projection)
         if projection.status is TaskStatus.COMPLETED:
             return AttemptRunResult(AttemptDisposition.SUCCEEDED)
@@ -94,6 +99,15 @@ class ProductionRunRunner:
             retryable=False,
             details_hash=None,
         )
+        return self._failure_result(failure)
+
+    def _failure_result(self, failure: RedactedError) -> AttemptRunResult:
+        if failure.retryable:
+            return AttemptRunResult(
+                AttemptDisposition.RETRY,
+                failure=failure,
+                retry_at=self._clock().astimezone(UTC) + timedelta(seconds=1),
+            )
         return AttemptRunResult(AttemptDisposition.FAILED, failure=failure)
 
     def store_projection(
@@ -108,6 +122,9 @@ class ProductionRunRunner:
         authority: AttemptAuthority,
     ) -> ManagedExecutionProjection | None:
         return self._projections.pop(_authority_key(authority), None)
+
+    def discard_projection(self, authority: AttemptAuthority) -> None:
+        self._projections.pop(_authority_key(authority), None)
 
 
 class ProductionAttemptCompleter:
@@ -130,7 +147,6 @@ class ProductionAttemptCompleter:
     ) -> bool:
         if outcome.disposition in {
             AttemptDisposition.SUSPENDED,
-            AttemptDisposition.RETRY,
         }:
             return self._attempt_repository.complete(
                 attempt_id=authority.attempt_id,
@@ -138,6 +154,8 @@ class ProductionAttemptCompleter:
                 fencing_token=authority.fencing_token,
                 outcome=outcome,
             )
+        if outcome.disposition is AttemptDisposition.RETRY:
+            return self._fenced_completion.retry_or_dead_letter(authority, outcome)
         projection = self._runner.take_projection(authority)
         if projection is None:
             return False
@@ -170,10 +188,11 @@ def _authority_key(authority: AttemptAuthority) -> tuple[str, str, int]:
 
 def _redacted_failure(exc: Exception) -> RedactedError:
     digest = hashlib.sha256(type(exc).__name__.encode()).hexdigest()
+    retryable = isinstance(exc, (ConnectionError, TimeoutError))
     return RedactedError(
-        code="managed_execution_error",
+        code="managed_execution_retryable" if retryable else "managed_execution_error",
         message="Managed execution failed",
-        retryable=False,
+        retryable=retryable,
         details_hash=digest,
     )
 

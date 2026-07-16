@@ -10,6 +10,7 @@ from contextlib import nullcontext
 from copy import copy
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.application.run_execution import ManagedExecutionProjection
@@ -91,7 +92,7 @@ class Executor:
         self._universe_manager = None  # set via set_universe_manager()
         self._running_tasks: set[asyncio.Task] = set()
         self._orchestrator_ctx = None  # set via set_orchestrator_context()
-        self._managed_run_ingress = None
+        self._managed_run_ingress: Any | None = None
         # 迭代 3.5「客卿」:外部 CLI 执行器(runtime.executor=keqing:<agent> 时路由)
         from tianshu.executor.keqing import KeqingExecutor
 
@@ -137,11 +138,11 @@ class Executor:
         """注入 orchestrator 依赖（agent/storage/bus/llms/...）。"""
         self._orchestrator_ctx = orch_ctx
 
-    def set_managed_run_ingress(self, ingress: object) -> None:
+    def set_managed_run_ingress(self, ingress: Any) -> None:
         self._managed_run_ingress = ingress
 
     @property
-    def managed_run_ingress(self) -> object | None:
+    def managed_run_ingress(self) -> Any | None:
         return self._managed_run_ingress
 
     @property
@@ -1318,6 +1319,9 @@ class Executor:
         previous_root = self._storage.get_memorial(execution.root_memorial_id)
         if previous_root is None:
             raise ValueError("Cannot retry: governed root memorial is missing")
+        ingress = self._managed_run_ingress
+        if ingress is None:
+            raise RuntimeError("managed run ingress is not configured")
 
         target_ids = (
             [node.node_id for node in execution.nodes if node.status is DAGNodeStatus.FAILED]
@@ -1379,9 +1383,6 @@ class Executor:
                 node.started_at = None
                 node.completed_at = None
 
-        ingress = self._managed_run_ingress
-        if ingress is None:
-            raise RuntimeError("managed run ingress is not configured")
         await ingress.adopt_existing(
             memorial_id=retry_root.id,
             idempotency_key=f"dag-retry:{execution.id}:{retry_root.id}",

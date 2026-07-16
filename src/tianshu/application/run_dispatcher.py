@@ -85,6 +85,7 @@ class _HeartbeatLost(RuntimeError):
 
 AttemptRunner = Callable[[AttemptAuthority], Coroutine[Any, Any, AttemptRunResult]]
 AttemptCompleter = Callable[[AttemptAuthority, AttemptOutcomeV1], bool]
+AttemptExitCleanup = Callable[[AttemptAuthority], None]
 
 
 class RunDispatcher:
@@ -97,6 +98,7 @@ class RunDispatcher:
         *,
         owner_id: str,
         completer: AttemptCompleter | None = None,
+        exit_cleanup: AttemptExitCleanup | None = None,
         clock: Callable[[], datetime] | None = None,
         lease_seconds: int = 30,
         heartbeat_interval_seconds: float = 10,
@@ -119,6 +121,7 @@ class RunDispatcher:
         self._repository = repository
         self._runner = runner
         self._completer = completer or self._complete_with_repository
+        self._exit_cleanup = exit_cleanup
         self._owner_id = owner_id
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lease_seconds = lease_seconds
@@ -240,6 +243,8 @@ class RunDispatcher:
                 await heartbeat_task
             with suppress(asyncio.CancelledError):
                 await runner_task
+            if self._exit_cleanup is not None:
+                self._exit_cleanup(authority)
 
     def _complete_with_repository(
         self,
@@ -307,6 +312,7 @@ def _positive_finite(value: float, field: str) -> float:
 __all__ = [
     "AttemptAuthority",
     "AttemptCompleter",
+    "AttemptExitCleanup",
     "AttemptRunResult",
     "AttemptRunner",
     "RunDispatcher",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -77,61 +78,90 @@ async def lifespan(app: FastAPI):
     # --- Backward compat ---
     app.state.running_tasks = app.state.executor.running_tasks
 
-    # Durable attempt recovery must prove its DB scan before timers can produce
-    # more work. Outbox starts last after every consumer is registered.
-    await app.state.run_reconciler.start()
-    try:
-        await app.state.scheduler.start()
-    except BaseException:
-        await app.state.run_reconciler.stop()
-        raise
-
-    # --- MCP server session manager(stateless 模式仍需运行;挂载见 create_app)---
-    # 放独立后台 task:anyio TaskGroup 的 cancel scope 必须在同一 task 进出,
-    # 而 lifespan 的 startup/teardown 可能被测试框架驱动在不同 task 上。
     _mcp_stop: asyncio.Event | None = None
     _mcp_task: asyncio.Task | None = None
-    mcp_server = getattr(app.state, "tianshu_mcp_server", None)
-    if mcp_server is not None:
-        _mcp_stop = asyncio.Event()
-        _mcp_ready: asyncio.Event = asyncio.Event()
+    startup_stops: list[Callable[[], Awaitable[None]]] = []
 
-        async def _run_mcp_session_manager() -> None:
-            async with mcp_server.session_manager.run():
-                _mcp_ready.set()
-                assert _mcp_stop is not None
-                await _mcp_stop.wait()
+    async def _stop_mcp_server() -> None:
+        if _mcp_stop is None or _mcp_task is None:
+            return
+        _mcp_stop.set()
+        try:
+            await _mcp_task
+        except Exception:
+            logger.exception("[mcp-server] session manager shutdown error")
 
-        _mcp_task = asyncio.create_task(_run_mcp_session_manager())
-        await _mcp_ready.wait()
+    async def _stop_outbox_if_created() -> None:
+        lifecycle = getattr(app.state, "outbox_lifecycle", None)
+        if lifecycle is not None:
+            await lifecycle.stop()
 
-    # --- OTel GenAI 埋点(迭代 3):默认关;设 TIANSHU_OTEL_ENDPOINT 才导出 ---
-    from tianshu import observability
+    async def _cleanup_started() -> None:
+        for stop in reversed(startup_stops):
+            try:
+                await stop()
+            except BaseException:
+                logger.exception("background component startup cleanup failed")
 
-    observability.init_tracing(settings)
-
-    # --- opt-in 遥测(迭代 3,ADR-0003):默认关;首启明示,一行 env 永久关 ---
-    from tianshu import telemetry
-
-    if telemetry.is_enabled(settings.telemetry):
-        logger.info(
-            "[telemetry] 已启用(opt-in):仅上报版本+启动事件,不含任务内容。"
-            "设 TIANSHU_TELEMETRY=off 永久关闭。"
-        )
-        await telemetry.emit_startup(settings, instance_id=f"{settings.host}:{settings.port}")
-
-    # Start durable dispatch last: all consumers, scheduler recovery, MCP, tracing,
-    # and telemetry startup have completed. Any failure before yield must confirm
-    # this worker stopped before the startup exception is allowed to escape.
     try:
+        # Register stop before start so partial startup is also cleaned up.
+        startup_stops.append(app.state.run_reconciler.stop)
+        await app.state.run_reconciler.start()
+        startup_stops.append(app.state.scheduler.stop)
+        await app.state.scheduler.start()
+
+        # --- MCP server session manager(stateless 模式仍需运行;挂载见 create_app)---
+        mcp_server = getattr(app.state, "tianshu_mcp_server", None)
+        if mcp_server is not None:
+            _mcp_stop = asyncio.Event()
+            _mcp_ready: asyncio.Event = asyncio.Event()
+
+            async def _run_mcp_session_manager() -> None:
+                async with mcp_server.session_manager.run():
+                    _mcp_ready.set()
+                    assert _mcp_stop is not None
+                    await _mcp_stop.wait()
+
+            startup_stops.append(_stop_mcp_server)
+            _mcp_task = asyncio.create_task(_run_mcp_session_manager())
+            ready_waiter = asyncio.create_task(_mcp_ready.wait())
+            try:
+                done, _ = await asyncio.wait(
+                    {_mcp_task, ready_waiter},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if _mcp_task in done:
+                    await _mcp_task
+                    raise RuntimeError("MCP session manager exited during startup")
+                await ready_waiter
+            finally:
+                if not ready_waiter.done():
+                    ready_waiter.cancel()
+
+        # --- OTel GenAI 埋点(迭代 3):默认关;设 TIANSHU_OTEL_ENDPOINT 才导出 ---
+        from tianshu import observability
+
+        observability.init_tracing(settings)
+
+        # --- opt-in 遥测(迭代 3,ADR-0003):默认关;首启明示,一行 env 永久关 ---
+        from tianshu import telemetry
+
+        if telemetry.is_enabled(settings.telemetry):
+            logger.info(
+                "[telemetry] 已启用(opt-in):仅上报版本+启动事件,不含任务内容。"
+                "设 TIANSHU_TELEMETRY=off 永久关闭。"
+            )
+            await telemetry.emit_startup(
+                settings,
+                instance_id=f"{settings.host}:{settings.port}",
+            )
+
+        # Outbox starts last after every consumer is registered.
+        startup_stops.append(_stop_outbox_if_created)
         await bootstrap.wire_outbox(app, settings)
         logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     except BaseException:
-        outbox_lifecycle = getattr(app.state, "outbox_lifecycle", None)
-        if outbox_lifecycle is not None:
-            await outbox_lifecycle.stop()
-        await app.state.scheduler.stop()
-        await app.state.run_reconciler.stop()
+        await _cleanup_started()
         raise
     yield
 

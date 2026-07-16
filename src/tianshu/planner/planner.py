@@ -17,6 +17,7 @@ from tianshu.models.decision import DecisionKind
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.plan import Plan, PlanTask
+from tianshu.models.run_state import AgentContinuationV1
 from tianshu.persona.model import DEFAULT_EXECUTOR_ID
 from tianshu.planner.prompts import (
     PLANNING_USER_TEMPLATE,
@@ -309,19 +310,22 @@ class Planner:
                 memorial.id,
             )
             decision_record = None
+            resolved_continuation: AgentContinuationV1 | None = None
             if (
                 run_state is not None
                 and run_state.phase.value in {"planning", "executing"}
+                and isinstance(run_state.continuation, AgentContinuationV1)
                 and run_state.continuation.resolved_decision_id is not None
             ):
+                resolved_continuation = run_state.continuation
                 decision_record = self._storage.decision_repo.get(
                     unit_of_work.connection,
                     run_state.continuation.resolved_decision_id,
                 )
             unit_of_work.commit()
-        if decision_record is not None:
+        if decision_record is not None and resolved_continuation is not None:
             persisted_plan = decision_record.request.payload.get("plan")
-            continuation = run_state.continuation
+            continuation = resolved_continuation
             if (
                 decision_record.request.kind is not DecisionKind.PLAN_REVIEW
                 or decision_record.request.memorial_id != memorial.id

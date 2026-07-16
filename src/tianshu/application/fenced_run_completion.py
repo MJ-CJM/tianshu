@@ -240,6 +240,90 @@ class FencedRunCompletion:
             unit_of_work.commit()
         return cursor.rowcount == 1
 
+    def retry_or_dead_letter(
+        self,
+        authority: AttemptAuthority,
+        outcome: AttemptOutcomeV1,
+    ) -> bool:
+        """Create the next attempt or atomically fence the exhausted root terminal."""
+        if outcome.disposition is not AttemptDisposition.RETRY or outcome.failure is None:
+            raise ValueError("managed retry requires a retry outcome with redacted failure")
+        completed_at = outcome.completed_at
+        with self._unit_of_work_factory() as unit_of_work:
+            connection = unit_of_work.connection
+            self._attempt_repository.require_current(
+                connection,
+                attempt_id=authority.attempt_id,
+                owner_id=authority.owner_id,
+                fencing_token=authority.fencing_token,
+                now=completed_at,
+            )
+            memorial = connection.execute(
+                """
+                SELECT memorials.edict_id, memorials.dag_node_id
+                FROM execution_attempts
+                JOIN memorials ON memorials.id=execution_attempts.memorial_id
+                WHERE execution_attempts.attempt_id=?
+                  AND execution_attempts.memorial_id=?
+                """,
+                (authority.attempt_id, authority.memorial_id),
+            ).fetchone()
+            if memorial is None or memorial["dag_node_id"] is not None:
+                raise AttemptConflict("attempt authority does not bind a root Memorial")
+            if not self._attempt_repository.complete_current(
+                connection,
+                attempt_id=authority.attempt_id,
+                owner_id=authority.owner_id,
+                fencing_token=authority.fencing_token,
+                outcome=outcome,
+            ):
+                raise AttemptFenceLost("attempt authority is no longer current")
+            status = connection.execute(
+                "SELECT status FROM execution_attempts WHERE attempt_id=?",
+                (authority.attempt_id,),
+            ).fetchone()[0]
+            if status == "dead_letter":
+                failure_reason = "attempt_budget_exhausted"
+                cursor = connection.execute(
+                    """
+                    UPDATE memorials
+                    SET status='failed', error=?, failure_reason=?, completed_at=?
+                    WHERE id=? AND edict_id=? AND dag_node_id IS NULL
+                      AND status IN (
+                          'submitted','scheduled','planning','running','auditing','needs_review'
+                      )
+                    """,
+                    (
+                        outcome.failure.message,
+                        failure_reason,
+                        completed_at.isoformat(),
+                        authority.memorial_id,
+                        memorial["edict_id"],
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise AttemptConflict("dead-letter root projection conflict")
+                self._outbox_repository.add(
+                    connection,
+                    EventEnvelope(
+                        event_id=f"{authority.attempt_id}:execution.failed:dead-letter",
+                        event_type="execution.failed",
+                        edict_id=str(memorial["edict_id"]),
+                        memorial_id=authority.memorial_id,
+                        timestamp=completed_at,
+                        producer="run-dispatcher",
+                        payload={
+                            "attempt_id": authority.attempt_id,
+                            "fencing_token": authority.fencing_token,
+                            "status": "failed",
+                            "error": outcome.failure.message,
+                            "failure_reason": failure_reason,
+                        },
+                    ),
+                )
+            unit_of_work.commit()
+        return True
+
     @staticmethod
     def _validate_command(command: FencedRunCompletionCommand) -> None:
         if not isinstance(command, FencedRunCompletionCommand):

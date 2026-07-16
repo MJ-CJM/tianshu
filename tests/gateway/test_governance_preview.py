@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from tianshu.app import create_app
+from tianshu.application.managed_run_ingress import ManagedRunIngress
 from tianshu.config import TianshuSettings
 from tianshu.gateway.edicts_api import _runtime_from_request, edicts_router
 from tianshu.models import Edict, Memorial, TaskStatus
@@ -484,10 +484,14 @@ def test_executor_only_follow_up_preserves_unspecified_grants(config_manager, st
             parent_memorial_id=parent.id,
         )
     )
-    executor = SimpleNamespace(execute_edict=AsyncMock(), running_tasks=set())
     app = _app(config_manager)
     app.state.storage = storage
-    app.state.executor = executor
+
+    class Reconciler:
+        async def reconcile_once(self) -> int:
+            return 0
+
+    app.state.managed_run_ingress = ManagedRunIngress(storage, Reconciler())
 
     with TestClient(app) as client:
         response = client.post(
@@ -496,6 +500,7 @@ def test_executor_only_follow_up_preserves_unspecified_grants(config_manager, st
                 "instruction": "delegate this one",
                 "runtime_override": {"executor": "keqing:codex"},
             },
+            headers={"Idempotency-Key": "governance-preview-follow-up"},
         )
 
     assert response.status_code == 202, response.text

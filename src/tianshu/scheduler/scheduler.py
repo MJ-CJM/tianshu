@@ -718,7 +718,10 @@ class Scheduler:
         scheduled_at: datetime,
         initial_memorial_id: str | None,
     ) -> None:
-        prepared = self._scheduled_run_preparer.prepare(
+        preparer = self._scheduled_run_preparer
+        if preparer is None:
+            raise RuntimeError("managed scheduled-run preparer is not configured")
+        prepared = preparer.prepare(
             job_id=job_id,
             scheduled_at=scheduled_at,
             initial_memorial_id=initial_memorial_id,
@@ -881,7 +884,7 @@ class Scheduler:
             persisted_cursor = row.get("next_run")
             if persisted_cursor is None:
                 return False
-            next_run = datetime.fromisoformat(str(persisted_cursor)).astimezone(UTC)
+            managed_next_run = datetime.fromisoformat(str(persisted_cursor)).astimezone(UTC)
             self._storage.set_scheduler_job_status(job_id, "active")
             task = asyncio.create_task(
                 self._managed_job_loop(
@@ -895,7 +898,7 @@ class Scheduler:
                 edict.id,
                 str(row["schedule_type"]),
                 task=task,
-                next_run=next_run,
+                next_run=managed_next_run,
                 initial_memorial_id=initial_memorial_id,
             )
             return True

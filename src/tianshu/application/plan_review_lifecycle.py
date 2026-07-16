@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from tianshu.models.canonical import RedactedError, canonical_json_bytes, canonical_sha256
 from tianshu.models.decision import DecisionKind, DecisionRecordV1, DecisionStatus
 from tianshu.models.events import EventEnvelope
-from tianshu.models.run_state import RunPhase, RunStateV1
+from tianshu.models.run_state import AgentContinuationV1, RunPhase, RunStateV1
 from tianshu.storage import Storage
 from tianshu.storage.outbox_repo import OutboxRepository
 
@@ -160,6 +160,8 @@ class PlanReviewAttemptCoordinator:
         ):
             return "identity"
         continuation = state.continuation
+        if not isinstance(continuation, AgentContinuationV1):
+            return "continuation"
         plan = request.payload.get("plan")
         plan_ref = request.payload.get("plan_ref")
         plan_hash = request.payload.get("plan_hash")
@@ -196,7 +198,7 @@ class PlanReviewAttemptCoordinator:
         return None
 
     @staticmethod
-    def _resume(connection, *, row, now: datetime, available_at: datetime) -> None:  # type: ignore[no-untyped-def]
+    def _resume(connection, *, row, now: datetime, available_at: datetime) -> None:
         cursor = connection.execute(
             """
             UPDATE execution_attempts
@@ -225,7 +227,7 @@ class PlanReviewAttemptCoordinator:
         now: datetime,
         code: str,
         message: str,
-    ) -> None:  # type: ignore[no-untyped-def]
+    ) -> None:
         failure = RedactedError(
             code=code,
             message=message,

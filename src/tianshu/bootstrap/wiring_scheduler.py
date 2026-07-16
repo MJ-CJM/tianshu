@@ -56,6 +56,28 @@ from tianshu.scheduler.scheduler import Scheduler
 from tianshu.tools.schedule_edict import register_schedule_edict
 
 
+def _require_restart_safe_legacy_plan(storage, connection, event: EventEnvelope) -> None:
+    if event.event_type != "plan.completed":
+        return
+    decision_id = event.payload.get("decision_request_id")
+    if not isinstance(decision_id, str) or event.memorial_id is None:
+        raise RuntimeError(
+            "legacy plan.completed retained: restart-safe canonical plan binding is missing"
+        )
+    state = storage.run_state_repo.load(connection, event.memorial_id)
+    record = storage.decision_repo.get(connection, decision_id)
+    binding_error = PlanReviewAttemptCoordinator._binding_error(  # noqa: SLF001
+        state=state,
+        record=record,
+        memorial_id=event.memorial_id,
+        decision_id=decision_id,
+    )
+    if binding_error is not None:
+        raise RuntimeError(
+            "legacy plan.completed retained: canonical plan binding conflicts with durable state"
+        )
+
+
 def wire_auditor(app: FastAPI, settings: TianshuSettings) -> None:
     """创建 Auditor。"""
     event_bus = app.state.event_bus
@@ -161,6 +183,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         production_runner,
         owner_id=f"run-{uuid4().hex}",
         completer=production_completer,
+        exit_cleanup=production_runner.discard_projection,
     )
     plan_review_coordinator = PlanReviewAttemptCoordinator(storage)
     run_reconciler = RunReconciler(
@@ -216,6 +239,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
             return
         with storage.unit_of_work() as unit_of_work:
             connection = unit_of_work.connection
+            _require_restart_safe_legacy_plan(storage, connection, event)
             root = connection.execute(
                 "SELECT dag_node_id, status FROM memorials WHERE id=? AND edict_id=?",
                 (event.memorial_id, event.edict_id),

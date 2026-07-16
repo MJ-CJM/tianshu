@@ -300,7 +300,7 @@ def _row_to_memorial(
             audit,
         )
 
-    artifacts = []
+    artifacts: list[ArtifactRef] = []
     if "artifacts_json" in keys and row["artifacts_json"]:
         artifacts = _load_json_field(
             row["artifacts_json"],
@@ -310,7 +310,7 @@ def _row_to_memorial(
             artifacts,
         )
 
-    timeline = []
+    timeline: list[TimelineItem] = []
     if "timeline_json" in keys and row["timeline_json"]:
         timeline = _load_json_field(
             row["timeline_json"],

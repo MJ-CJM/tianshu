@@ -55,6 +55,31 @@ def _claimed(path: Path) -> tuple[Storage, AttemptAuthority]:
     )
 
 
+def _claimed_with_budget(path: Path, *, max_attempts: int) -> tuple[Storage, AttemptAuthority]:
+    storage = Storage(str(path))
+    storage.init_db()
+    storage.save_edict(Edict(id="edict-1", goal="work"))
+    storage.save_memorial(Memorial(id="root-1", edict_id="edict-1"))
+    with storage.unit_of_work() as unit_of_work:
+        storage.attempt_repo.enqueue_initial(
+            unit_of_work.connection,
+            memorial_id="root-1",
+            available_at=_NOW,
+            max_attempts=max_attempts,
+        )
+        unit_of_work.commit()
+    claimed = storage.attempt_repo.claim(
+        memorial_id="root-1", owner_id="worker-1", now=_NOW, lease_seconds=30
+    )
+    assert claimed is not None
+    return storage, AttemptAuthority(
+        attempt_id=claimed.attempt_id,
+        memorial_id=claimed.memorial_id,
+        owner_id="worker-1",
+        fencing_token=claimed.fencing_token,
+    )
+
+
 def _command(
     authority: AttemptAuthority,
     *,
@@ -209,6 +234,101 @@ def test_cancellation_revokes_current_authority_with_root_projection(tmp_path: P
         )
         with pytest.raises(AttemptFenceLost):
             completion.complete(_command(authority))
+    finally:
+        storage.close()
+
+
+def test_pre_running_cancellation_terminalizes_claimable_attempt_atomically(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(str(tmp_path / "cancel-before-claim.db"))
+    storage.init_db()
+    storage.save_edict(Edict(id="edict-1", goal="work"))
+    storage.save_memorial(Memorial(id="root-1", edict_id="edict-1"))
+    with storage.unit_of_work() as unit_of_work:
+        storage.attempt_repo.enqueue_initial(
+            unit_of_work.connection,
+            memorial_id="root-1",
+            available_at=_NOW,
+        )
+        unit_of_work.commit()
+    try:
+        assert FencedRunCompletion(storage.unit_of_work, storage.attempt_repo).cancel_root(
+            "root-1", reason="operator request", completed_at=_NOW
+        )
+        assert storage.get_memorial("root-1").status is TaskStatus.CANCELLED
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT status FROM execution_attempts WHERE memorial_id='root-1'"
+            ).fetchone()[0]
+            == "failed"
+        )
+        assert (
+            storage.attempt_repo.claim(
+                memorial_id="root-1",
+                owner_id="worker-1",
+                now=_NOW,
+                lease_seconds=30,
+            )
+            is None
+        )
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize(
+    ("max_attempts", "expected_statuses", "expected_root", "failed_events"),
+    [
+        (2, ("failed", "claimable"), TaskStatus.SUBMITTED, 0),
+        (1, ("dead_letter",), TaskStatus.FAILED, 1),
+    ],
+)
+def test_retry_creates_next_attempt_or_one_fenced_dead_letter_terminal(
+    tmp_path: Path,
+    max_attempts: int,
+    expected_statuses: tuple[str, ...],
+    expected_root: TaskStatus,
+    failed_events: int,
+) -> None:
+    storage, authority = _claimed_with_budget(
+        tmp_path / f"retry-{max_attempts}.db",
+        max_attempts=max_attempts,
+    )
+    failure = RedactedError(
+        code="provider_unavailable",
+        message="Provider temporarily unavailable",
+        retryable=True,
+        details_hash=None,
+    )
+    outcome = AttemptOutcomeV1(
+        disposition=AttemptDisposition.RETRY,
+        completed_at=_NOW,
+        failure=failure,
+        retry_at=_NOW + timedelta(seconds=1),
+    )
+    try:
+        assert FencedRunCompletion(storage.unit_of_work, storage.attempt_repo).retry_or_dead_letter(
+            authority, outcome
+        )
+        statuses = storage._conn.execute(  # noqa: SLF001
+            "SELECT status FROM execution_attempts ORDER BY attempt_no"
+        ).fetchall()
+        assert tuple(row[0] for row in statuses) == expected_statuses
+        memorial = storage.get_memorial("root-1")
+        assert memorial is not None and memorial.status is expected_root
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM outbox_events "
+                "WHERE event_type='execution.failed' AND memorial_id='root-1'"
+            ).fetchone()[0]
+            == failed_events
+        )
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM memorials WHERE edict_id='edict-1'"
+            ).fetchone()[0]
+            == 1
+        )
     finally:
         storage.close()
 
