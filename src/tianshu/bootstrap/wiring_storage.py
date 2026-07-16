@@ -31,41 +31,45 @@ def wire_storage(app: FastAPI, settings: TianshuSettings) -> None:
 
     # --- Storage ---
     storage = Storage(settings.db_path)
-    storage.init_db()
-    app.state.storage = storage
-    app.state.decision_service = DecisionService(storage)
-    app.state.artifact_store = ArtifactStore(
-        settings.artifact_dir,
-        storage.artifact_repo,
-        storage.unit_of_work,
-        max_object_bytes=settings.artifact_max_bytes,
-        max_total_bytes=settings.artifact_quota_bytes,
-    )
-    app.state.evidence_service = EvidenceService(storage, app.state.artifact_store)
+    try:
+        storage.init_db()
+        app.state.storage = storage
+        app.state.decision_service = DecisionService(storage)
+        app.state.artifact_store = ArtifactStore(
+            settings.artifact_dir,
+            storage.artifact_repo,
+            storage.unit_of_work,
+            max_object_bytes=settings.artifact_max_bytes,
+            max_total_bytes=settings.artifact_quota_bytes,
+        )
+        app.state.evidence_service = EvidenceService(storage, app.state.artifact_store)
 
-    app.state.workspace_service = WorkspaceService(
-        storage,
-        GitBackend(),
-        workspace_roots.staging,
-        app.state.decision_service,
-    )
+        app.state.workspace_service = WorkspaceService(
+            storage,
+            GitBackend(),
+            workspace_roots.staging,
+            app.state.decision_service,
+        )
 
-    # --- EventBus ---
-    event_bus = EventBus()
-    event_history = EventHistoryConsumer(storage)
-    event_bus.on(
-        "*",
-        event_history,
-        consumer_name=event_history.consumer_name,
-        priority=0,
-    )
-    app.state.event_bus = event_bus
-    event_bus.on(
-        "decision.resolved",
-        app.state.workspace_service.handle_decision_resolved,
-        consumer_name="workspace_service.governed_apply_projection.v1",
-    )
+        # --- EventBus ---
+        event_bus = EventBus()
+        event_history = EventHistoryConsumer(storage)
+        event_bus.on(
+            "*",
+            event_history,
+            consumer_name=event_history.consumer_name,
+            priority=0,
+        )
+        app.state.event_bus = event_bus
+        event_bus.on(
+            "decision.resolved",
+            app.state.workspace_service.handle_decision_resolved,
+            consumer_name="workspace_service.governed_apply_projection.v1",
+        )
 
-    # --- HookRegistry ---
-    hook_registry = HookRegistry()
-    app.state.hook_registry = hook_registry
+        # --- HookRegistry ---
+        hook_registry = HookRegistry()
+        app.state.hook_registry = hook_registry
+    except BaseException:
+        storage.close()
+        raise
