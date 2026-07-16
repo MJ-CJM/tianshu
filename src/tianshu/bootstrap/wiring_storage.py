@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from tianshu.application.event_history import EventHistoryConsumer
 from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
+from tianshu.evidence.service import ArtifactStore, EvidenceService
 from tianshu.executor.git_backend import GitBackend
 from tianshu.executor.workspace_policy import validate_workspace_roots
 from tianshu.executor.workspace_service import WorkspaceService
@@ -33,6 +34,14 @@ def wire_storage(app: FastAPI, settings: TianshuSettings) -> None:
     storage.init_db()
     app.state.storage = storage
     app.state.decision_service = DecisionService(storage)
+    app.state.artifact_store = ArtifactStore(
+        settings.artifact_dir,
+        storage.artifact_repo,
+        storage.unit_of_work,
+        max_object_bytes=settings.artifact_max_bytes,
+        max_total_bytes=settings.artifact_quota_bytes,
+    )
+    app.state.evidence_service = EvidenceService(storage, app.state.artifact_store)
 
     app.state.workspace_service = WorkspaceService(
         storage,

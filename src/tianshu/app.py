@@ -23,6 +23,7 @@ from tianshu.gateway.decisions_api import decisions_router
 from tianshu.gateway.edicts_api import edicts_router
 from tianshu.gateway.estop_api import estop_router
 from tianshu.gateway.evals_api import evals_router
+from tianshu.gateway.evidence_api import evidence_router
 from tianshu.gateway.execution_api import execution_router
 from tianshu.gateway.hongluisi_api import hongluisi_router
 from tianshu.gateway.keqing_api import keqing_router
@@ -277,6 +278,7 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     app.include_router(credentials_router, prefix="/api")
     app.include_router(decisions_router, prefix="/api")
     app.include_router(edicts_router, prefix="/api")
+    app.include_router(evidence_router, prefix="/api")
     app.include_router(estop_router, prefix="/api")
     app.include_router(evals_router, prefix="/api")
     app.include_router(execution_router, prefix="/api")
