@@ -9,6 +9,13 @@ persist intent before invocation and receipt before attempt acknowledgement. A s
 without supported semantics is not invoked: it becomes `uncertain`, creates one generic durable
 `Decision`, and suspends the fenced attempt.
 
+The final production-recovery remediation was completed from base `65d6533`. A live reclaimed
+origin attempt or repository-proven retry descendant may now reconcile the same stable intent
+under a strictly higher fence. The intent's originating attempt/owner/fence remain immutable;
+the receipt records the current reconciliation authority separately. Receipt-lookup tools have
+an explicit provider lookup adapter, and managed side effects fail closed before their handler
+when the registry has no managed executor.
+
 The production outer-loop human-Decision entry point is L3-only. At L3 the pending Decision,
 waiting `RunState`, suspended attempt, and `decision.requested` outbox row commit in one UoW;
 the claimed coroutine then unwinds as `SUSPENDED` instead of polling. L0–L3 coverage is limited
@@ -35,6 +42,13 @@ Review remediation from `2dbb2bc`:
 | `c0f8b8b` | pre-invocation exact authority/root replay rejection and bounded metadata contracts |
 | `84d9ce4` | production runner→registry managed-effect wiring, stable provider key, receipt ordering, opaque fail-closed suspension |
 | `7c198a7` | production L3 atomic Decision/RunState/attempt/outbox suspension, unwind, restart/fence/fault matrix |
+
+Final production-recovery remediation from `65d6533`:
+
+| Commit | Review boundary |
+| --- | --- |
+| `4d59f02` | immutable origin plus live higher-fence reconciliation authority, provider lookup adapter, and missing-adapter fail-closed registry path |
+| `65d317a` | real production C1/C2 restart proofs and foreign/unrelated/stale/mismatched zero-provider rejection matrix |
 
 No commit was pushed, merged, or tagged.
 
@@ -73,14 +87,15 @@ matrix: `61 passed`. It proves:
 - approve advances the side-effect cursor and resumes the same attempt row; reject cancels it;
 - exact resolution replay is a no-op.
 
-Production-path remediation added direct `ProductionRunRunner`→`ToolRegistry` coverage. It
-proves that `submit_edict` is the explicitly adapted provider-idempotent operation, that the
-handler receives the stable journal key, and that a crash after provider return cannot produce
-runner success before a receipt exists. Generic side-effect tools under managed authority are
-treated as opaque and suspend with zero handler calls. Explicit managed effects outside attempt
-authority fail closed. A two-root replay attack conflicts before lookup/invocation, records zero
-provider calls, and leaves the original journal row unchanged. Request/receipt metadata is a
-narrow allowlist with secret, byte, text, key-count, item-count, and nesting-depth limits.
+The earlier runner/registry substitute tests remain useful focused checks but are not counted as
+the production proof. The final proof uses the actual `ProductionRunRunner`, `Planner`,
+`Executor`, native `Agent`, and `ToolRegistry`: the provider applies the effect once, the process
+dies before receipt persistence, `Storage` closes and reopens, a fresh runtime claims a retry
+descendant, provider lookup returns the receipt without a second effect, and fenced completion
+succeeds. The rejection matrix proves foreign root, same-root lineage gap, stale fence, and
+mismatched canonical request all conflict with zero provider lookup/invocation and no journal
+mutation. Request/receipt metadata remains a narrow allowlist with secret, byte, text, key-count,
+item-count, and nesting-depth limits.
 
 ### Durable continuation recovery
 
@@ -158,3 +173,48 @@ The failing behavior/assertion lines for these six cases are unchanged by this r
   compatibility guarantee.
 
 No Task 4C correctness concern remains in the focused and migration matrices.
+
+## Final production-recovery evidence
+
+### RED to GREEN
+
+- C1 RED: after the provider effect and before receipt persistence, a reopened runtime with a
+  valid retry descendant failed at `side-effect replay identity conflict` before provider lookup.
+  GREEN: both a reclaimed origin attempt and a retry descendant with a strictly higher current
+  fence reconcile successfully while the origin columns remain unchanged and the receipt columns
+  identify the current authority.
+- I1 RED: the real production C1 test could not install a provider receipt lookup on
+  `ToolRegistry`; the required API did not exist. GREEN: the actual
+  `ProductionRunRunner -> Planner -> Executor -> native Agent -> ToolRegistry` test closes and
+  reopens storage, uses a fresh runtime, observes two lookups (initial miss and recovery hit), one
+  effective provider call, one receipt, and fenced success. The actual L3 path reaches durable
+  suspension through `Executor._execute_outer_loop`, then resolves through
+  `ContinuationRecoveryService`, `RunReconciler`, and `RunDispatcher`; both `max_attempts=1` and
+  `max_attempts=3` reconstruct and complete under a fresh fence while stale completion is rejected.
+- I2 RED: authority plus `side_effect=True`, undeclared semantics, and no managed adapter returned
+  `SUCCEEDED` and invoked the handler. GREEN: it returns a failed projection with handler count
+  zero. Read-only registry execution remains on its existing path.
+- Compatibility RED caught during the combined matrix: exact replay of an already durable
+  `UNCERTAIN` intent was rejected after its attempt suspended. GREEN limits live lineage checks to
+  provider reconciliation or a different caller, preserving exact-origin terminal evidence replay
+  without permitting any provider call.
+
+### Final gates
+
+| Gate | Result |
+| --- | --- |
+| Actual production C1 plus C2 (`max_attempts=1,3`) | `3 passed` |
+| Effects, registry, and production-recovery combination | `21 passed` |
+| Task 4C/4B2B focused model/storage/governance/application/executor/tool/scheduler matrix | `252 passed` |
+| All application/storage/executor/scheduler suites | `753 passed, 1 skipped` |
+| All migration-named freeze/ledger/preservation/upgrade suites | `129 passed` |
+| Ruff | all checks passed |
+| Ruff format check | 796 files already formatted |
+| mypy | success, 122 source files |
+| import-linter | 2 contracts kept; 447 files / 1515 dependencies |
+| `git diff --check` | passed |
+| forbidden-file check from `65d6533` | no `uv.lock` or migration history diff |
+
+The repository-wide non-slow observation and its exact six unchanged base failures remain the
+separate baseline record above; none is in the final remediation diff. No substitute executor,
+direct side-effect service, or direct L3 helper is counted as the final production proof.
