@@ -419,6 +419,12 @@ async def test_actual_l3_close_reopen_resolution_and_reconciler_redispatch(
         suspended = await runner(stale)
 
     assert suspended.disposition is AttemptDisposition.SUSPENDED
+    with storage.unit_of_work() as unit_of_work:
+        waiting = storage.run_state_repo.load(unit_of_work.connection, stale.memorial_id)
+        unit_of_work.commit()
+    assert waiting is not None
+    assert waiting.continuation.plan_continuation is not None
+    assert len(waiting.continuation.plan_continuation.plan_revisions) == 1
     pending = storage._conn.execute(  # noqa: SLF001
         "SELECT decision_request_id FROM decision_requests WHERE status='pending'"
     ).fetchone()

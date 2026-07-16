@@ -18,9 +18,14 @@ from tianshu.executor.workspace_service import (
     WorkspaceService,
     WorkspaceSourceError,
 )
+from tianshu.governance.decision_service import DecisionService
 from tianshu.models.workspace import WorkspaceLeaseState
 
 _GIT = shutil.which("git", path=os.defpath)
+
+
+def _workspace_service(storage, git_backend, staging_root) -> WorkspaceService:
+    return WorkspaceService(storage, git_backend, staging_root, DecisionService(storage))
 
 
 def _git(repo: Path, *args: str) -> bytes:
@@ -88,7 +93,7 @@ async def test_git_lease_uses_detached_worktree_and_preserves_source(
 ) -> None:
     repo = _repository(tmp_path / "source")
     before = _source_snapshot(repo)
-    service = WorkspaceService(
+    service = _workspace_service(
         storage=storage,
         git_backend=GitBackend(),
         staging_root=tmp_path / "leases",
@@ -119,7 +124,7 @@ async def test_each_run_gets_a_distinct_lease_and_same_run_replay_is_idempotent(
     storage, tmp_path: Path
 ) -> None:
     repo = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
 
     first = await service.create_lease(_request(repo, "run-1"))
     replay = await service.create_lease(_request(repo, "run-1"))
@@ -142,7 +147,7 @@ async def test_same_run_replay_binds_base_and_rejects_source_symlink_replacement
     (repo / "tracked.txt").write_text("second\n")
     _git(repo, "add", "tracked.txt")
     _git(repo, "commit", "-qm", "second")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     original = _request(repo).model_copy(update={"base_revision": first_base})
     await service.create_lease(original)
 
@@ -164,7 +169,7 @@ async def test_same_run_replay_rejects_source_ref_drift_at_same_commit(
     storage, tmp_path: Path
 ) -> None:
     repo = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     request = _request(repo)
     await service.create_lease(request)
     _git(repo, "branch", "same-commit")
@@ -181,7 +186,7 @@ async def test_source_git_admin_swap_fails_capture_replay_and_close_closed(
     storage, tmp_path: Path
 ) -> None:
     repo = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     request = _request(repo)
     lease = await service.create_lease(request)
     git_dir = repo / ".git"
@@ -209,7 +214,7 @@ async def test_governed_git_rejects_dirty_source_symlink_and_missing_base(
     storage, tmp_path: Path
 ) -> None:
     repo = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     (repo / "untracked.txt").write_text("dirty")
     with pytest.raises(WorkspaceSourceError, match="clean"):
         await service.create_lease(_request(repo))
@@ -230,7 +235,7 @@ async def test_governed_git_rejects_dirty_source_symlink_and_missing_base(
 async def test_scratch_lease_is_none_apply_mode_and_has_no_restore_point(
     storage, tmp_path: Path
 ) -> None:
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     request = WorkspaceLeaseRequest(
         run_id="scratch-run",
         lineage_root_run_id="scratch-run",
@@ -253,7 +258,7 @@ async def test_cleanup_failure_is_retryable_and_does_not_forget_active_lease(
 ) -> None:
     repo = _repository(tmp_path / "source")
     backend = GitBackend()
-    service = WorkspaceService(storage, backend, tmp_path / "leases")
+    service = _workspace_service(storage, backend, tmp_path / "leases")
     lease = await service.create_lease(_request(repo))
     real_remove = backend.remove_worktree
     attempts = 0
@@ -295,7 +300,7 @@ async def test_close_cancellation_after_remove_records_closed_state(
 ) -> None:
     repo = _repository(tmp_path / "source")
     backend = GitBackend()
-    service = WorkspaceService(storage, backend, tmp_path / "leases")
+    service = _workspace_service(storage, backend, tmp_path / "leases")
     lease = await service.create_lease(_request(repo))
     entered = threading.Event()
     release = threading.Event()
@@ -338,7 +343,7 @@ async def test_close_prunes_git_metadata_when_worktree_path_was_deleted(
 ) -> None:
     repo = _repository(tmp_path / "source")
     backend = GitBackend()
-    service = WorkspaceService(storage, backend, tmp_path / "leases")
+    service = _workspace_service(storage, backend, tmp_path / "leases")
     lease = await service.create_lease(_request(repo))
     staging = Path(lease.staging_root)
     shutil.rmtree(staging)
@@ -378,7 +383,7 @@ async def test_close_rejects_symlink_replacement_without_removing_another_lease(
     storage, tmp_path: Path
 ) -> None:
     repo = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     first = await service.create_lease(_request(repo, "run-1"))
     second = await service.create_lease(_request(repo, "run-2"))
     first_root = Path(first.staging_root)
@@ -406,7 +411,7 @@ async def test_startup_failure_after_worktree_creation_is_cleaned_and_recorded(
 ) -> None:
     repo = _repository(tmp_path / "source")
     backend = GitBackend()
-    service = WorkspaceService(storage, backend, tmp_path / "leases")
+    service = _workspace_service(storage, backend, tmp_path / "leases")
     real_create = backend.create_detached_worktree
 
     def fail_after_create(location: GitLocation, destination: Path, *, start_ref: str) -> None:
@@ -432,7 +437,7 @@ async def test_pre_authority_startup_cleanup_failure_is_readable_and_fails_close
 ) -> None:
     repo = _repository(tmp_path / "source")
     backend = GitBackend()
-    service = WorkspaceService(storage, backend, tmp_path / "leases")
+    service = _workspace_service(storage, backend, tmp_path / "leases")
     real_inspect = backend.inspect_repository
 
     def fail_staging_inspection(location: GitLocation):
@@ -472,7 +477,7 @@ async def test_shutdown_cancels_inflight_start_and_waits_for_cleanup(
 ) -> None:
     repo = _repository(tmp_path / "source")
     backend = GitBackend()
-    service = WorkspaceService(storage, backend, tmp_path / "leases")
+    service = _workspace_service(storage, backend, tmp_path / "leases")
     entered = threading.Event()
     release = threading.Event()
     real_create = backend.create_detached_worktree
@@ -504,7 +509,7 @@ async def test_shutdown_cancels_same_run_replay_and_never_returns_stale_active_l
 ) -> None:
     repo = _repository(tmp_path / "source")
     backend = GitBackend()
-    service = WorkspaceService(storage, backend, tmp_path / "leases")
+    service = _workspace_service(storage, backend, tmp_path / "leases")
     request = _request(repo)
     lease = await service.create_lease(request)
     entered = threading.Event()
@@ -536,7 +541,7 @@ async def test_shutdown_cancels_same_run_replay_and_never_returns_stale_active_l
 @pytest.mark.asyncio
 async def test_retry_requires_existing_contiguous_parent_lineage(storage, tmp_path: Path) -> None:
     repo = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     orphan = WorkspaceLeaseRequest(
         run_id="run-2",
         lineage_root_run_id="run-1",

@@ -52,6 +52,7 @@ from tianshu.models.run_state import (
     RunPhase,
     RunStateV1,
     ToolProposalV1,
+    agent_plan_continuation,
 )
 from tianshu.security.sensitive_payload import redact_sensitive_mapping
 from tianshu.storage import Storage
@@ -797,6 +798,15 @@ class ApprovalManager:
                 }
             )
             current = self._storage.run_state_repo.load(connection, memorial.id)
+            if current is not None:
+                plan_continuation = agent_plan_continuation(current.continuation)
+                if plan_continuation is not None:
+                    bound_continuation = bound_continuation.model_copy(
+                        update={"plan_continuation": plan_continuation}
+                    )
+                    bound_state = bound_state.model_copy(
+                        update={"continuation": bound_continuation}
+                    )
             if current is None:
                 self._storage.run_state_repo.create(connection, bound_state)
             elif (
@@ -816,6 +826,11 @@ class ApprovalManager:
                 current.phase is RunPhase.EXECUTING
                 and current.continuation.pending_decision_id is None
                 and current.continuation.resolved_decision_id is not None
+            ) or (
+                current.phase is RunPhase.PLANNING
+                and isinstance(current.continuation, AgentContinuationV1)
+                and current.continuation.pending_decision_id is None
+                and current.continuation.resolved_decision_id is None
             ):
                 candidate = bound_state.model_copy(
                     update={

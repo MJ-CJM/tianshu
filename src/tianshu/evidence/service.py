@@ -41,7 +41,7 @@ from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     RequestedGovernanceContractV1,
 )
-from tianshu.models.run_state import AgentContinuationV1, RunPhase
+from tianshu.models.run_state import RunPhase, agent_plan_continuation
 from tianshu.security.redact import redact_text
 from tianshu.security.sensitive_payload import contains_raw_sensitive_payload
 from tianshu.storage.artifact_repo import (
@@ -321,8 +321,9 @@ class EvidenceService:
 
     @staticmethod
     def _lock_hash() -> str:
-        path = Path(__file__).parents[3] / "uv.lock"
-        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "0" * 64
+        # The dependency lock is not a packaged runtime resource. Keep source and
+        # wheel evidence identical by recording the established unavailable value.
+        return "0" * 64
 
     def _environment(
         self,
@@ -521,9 +522,9 @@ class EvidenceService:
         state = self._storage.run_state_repo.load(connection, memorial_id)
         if state is None:
             raise EvidenceIncompleteError(("run_state",))
-        if not isinstance(state.continuation, AgentContinuationV1):
+        continuation = agent_plan_continuation(state.continuation)
+        if continuation is None:
             raise EvidenceIncompleteError(("plan_revision",))
-        continuation = state.continuation
         if not continuation.plan_revisions or continuation.plan_snapshot is None:
             raise EvidenceIncompleteError(("plan_revision",))
         plan_revision = continuation.plan_revisions[-1]

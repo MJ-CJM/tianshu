@@ -8,7 +8,12 @@ import sqlite3
 from pydantic import ValidationError
 
 from tianshu.models.canonical import canonical_json_bytes
-from tianshu.models.run_state import AgentContinuationV1, RunPhase, RunStateV1
+from tianshu.models.run_state import (
+    AgentContinuationV1,
+    RunPhase,
+    RunStateV1,
+    agent_plan_continuation,
+)
 from tianshu.security.sensitive_payload import contains_raw_sensitive_payload
 from tianshu.storage.correlation import correlation_for_memorial
 
@@ -35,8 +40,8 @@ def _require_secret_free(state: RunStateV1) -> None:
 
 
 def _require_valid_plan_lineage(state: RunStateV1) -> None:
-    continuation = state.continuation
-    if not isinstance(continuation, AgentContinuationV1):
+    continuation = agent_plan_continuation(state.continuation)
+    if continuation is None:
         return
     try:
         AgentContinuationV1.model_validate(continuation.model_dump(mode="python"))
@@ -45,18 +50,10 @@ def _require_valid_plan_lineage(state: RunStateV1) -> None:
 
 
 def _require_immutable_plan_lineage(current: RunStateV1, candidate: RunStateV1) -> None:
-    current_continuation = current.continuation
-    candidate_continuation = candidate.continuation
-    current_lineage = (
-        current_continuation.plan_revisions
-        if isinstance(current_continuation, AgentContinuationV1)
-        else ()
-    )
-    candidate_lineage = (
-        candidate_continuation.plan_revisions
-        if isinstance(candidate_continuation, AgentContinuationV1)
-        else ()
-    )
+    current_plan = agent_plan_continuation(current.continuation)
+    candidate_plan = agent_plan_continuation(candidate.continuation)
+    current_lineage = current_plan.plan_revisions if current_plan is not None else ()
+    candidate_lineage = candidate_plan.plan_revisions if candidate_plan is not None else ()
     if (
         len(candidate_lineage) < len(current_lineage)
         or len(candidate_lineage) > len(current_lineage) + 1
@@ -69,14 +66,14 @@ def _require_immutable_scheduled_event_binding(
     current: RunStateV1,
     candidate: RunStateV1,
 ) -> None:
-    current_continuation = current.continuation
-    candidate_continuation = candidate.continuation
+    current_continuation = agent_plan_continuation(current.continuation)
+    candidate_continuation = agent_plan_continuation(candidate.continuation)
     current_binding = (
         (
             current_continuation.scheduled_event_id,
             current_continuation.scheduled_event_hash,
         )
-        if isinstance(current_continuation, AgentContinuationV1)
+        if current_continuation is not None
         else (None, None)
     )
     candidate_binding = (
@@ -84,7 +81,7 @@ def _require_immutable_scheduled_event_binding(
             candidate_continuation.scheduled_event_id,
             candidate_continuation.scheduled_event_hash,
         )
-        if isinstance(candidate_continuation, AgentContinuationV1)
+        if candidate_continuation is not None
         else (None, None)
     )
     if candidate_binding != current_binding:

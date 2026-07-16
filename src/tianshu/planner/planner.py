@@ -29,6 +29,7 @@ from tianshu.models.run_state import (
     PersistedUsageSummaryV1,
     RunPhase,
     RunStateV1,
+    agent_plan_continuation,
 )
 from tianshu.persona.model import DEFAULT_EXECUTOR_ID
 from tianshu.planner.prompts import (
@@ -477,14 +478,14 @@ class Planner:
             decision_record: DecisionRecordV1 | None = None
             durable_plan: Plan | None = None
             plan_continuation: AgentContinuationV1 | None = None
+            if run_state is not None:
+                plan_continuation = agent_plan_continuation(run_state.continuation)
             if (
-                run_state is not None
-                and isinstance(run_state.continuation, AgentContinuationV1)
-                and run_state.continuation.plan_revisions
-                and run_state.continuation.plan_snapshot is not None
+                plan_continuation is not None
+                and plan_continuation.plan_revisions
+                and plan_continuation.plan_snapshot is not None
             ):
-                plan_continuation = run_state.continuation
-                durable_plan = Plan.model_validate(run_state.continuation.plan_snapshot)
+                durable_plan = Plan.model_validate(plan_continuation.plan_snapshot)
                 decision_id = (
                     plan_continuation.resolved_decision_id or plan_continuation.pending_decision_id
                 )

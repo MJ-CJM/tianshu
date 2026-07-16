@@ -311,6 +311,7 @@ class TestFollowUp:
         resp = await client.post(
             "/api/edicts/nonexistent/follow-up",
             json={"instruction": "more"},
+            headers={"Idempotency-Key": "follow-up-nonexistent"},
         )
         assert resp.status_code == 404
 

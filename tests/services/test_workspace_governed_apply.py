@@ -26,6 +26,7 @@ from tianshu.executor.workspace_service import (
     WorkspaceLeaseRequest,
     WorkspaceService,
 )
+from tianshu.governance.decision_service import DecisionService
 from tianshu.models import Edict, Memorial, TaskStatus
 from tianshu.models.governance_contract import (
     LegacyEdictGovernanceMapper,
@@ -36,6 +37,10 @@ from tianshu.models.principal import AuthContext, Principal, PrincipalKind
 from tianshu.models.workspace import WorkspaceLeaseState
 
 _GIT = shutil.which("git")
+
+
+def _workspace_service(storage, backend, staging_root) -> WorkspaceService:
+    return WorkspaceService(storage, backend, staging_root, DecisionService(storage))
 
 
 def _git(repo: Path, *args: str) -> bytes:
@@ -143,7 +148,7 @@ async def _prepared(
         effective_governance_contract=_effective(base, enforce_apply=enforce_apply),
     )
     storage.save_memorial(memorial)
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     lease = await service.create_lease(
         WorkspaceLeaseRequest(
             run_id=memorial.id,
@@ -699,8 +704,8 @@ async def test_non_utf8_path_is_applied_as_exact_filesystem_bytes(storage, tmp_p
 async def test_process_lock_serializes_independent_service_instances(
     storage, tmp_path: Path
 ) -> None:
-    first = WorkspaceService(storage, GitBackend(), tmp_path / "leases-a")
-    second = WorkspaceService(storage, GitBackend(), tmp_path / "leases-b")
+    first = _workspace_service(storage, GitBackend(), tmp_path / "leases-a")
+    second = _workspace_service(storage, GitBackend(), tmp_path / "leases-b")
     acquired = asyncio.Event()
 
     async def acquire_second() -> None:
@@ -728,7 +733,7 @@ async def test_close_lease_waits_for_source_lock_and_preserves_pending_authority
     decision, _token = await prepared.service.issue_apply_decision(
         prepared.run_id, _principal(), "approved", timedelta(minutes=5)
     )
-    second = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    second = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     source_key = prepared.service._canonical_digest(  # noqa: SLF001
         {"repository": decision.source_repository_id, "root": decision.source_root}
     )

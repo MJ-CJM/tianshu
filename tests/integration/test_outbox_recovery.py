@@ -67,6 +67,9 @@ async def test_committed_submission_is_dispatched_after_process_restart(tmp_path
     second_storage = Storage(str(database_path))
     second_storage.init_db()
     repository = OutboxRepository(second_storage.unit_of_work)
+    pending = repository.get(second_storage._conn, result.event_id)  # noqa: SLF001
+    assert pending is not None
+    dispatch_at = datetime.fromisoformat(pending.available_at)
     event_bus = EventBus()
     delivered: list[EventEnvelope] = []
 
@@ -78,7 +81,7 @@ async def test_committed_submission_is_dispatched_after_process_restart(tmp_path
         repository,
         event_bus,
         owner_id="restarted-worker",
-        clock=lambda: _NOW + timedelta(days=1),
+        clock=lambda: dispatch_at,
     )
     try:
         assert await dispatcher.drain_once() == 1

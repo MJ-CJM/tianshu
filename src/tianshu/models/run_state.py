@@ -160,12 +160,23 @@ class OuterLoopContinuationV1(_StrictModel):
     pending_decision_id: str | None = None
     resolved_decision_id: str | None
     side_effect_cursor: int = Field(ge=0)
+    plan_continuation: AgentContinuationV1 | None = None
 
 
 ContinuationV1 = Annotated[
     AgentContinuationV1 | OuterLoopContinuationV1,
     Field(discriminator="kind"),
 ]
+
+
+def agent_plan_continuation(
+    continuation: AgentContinuationV1 | OuterLoopContinuationV1,
+) -> AgentContinuationV1 | None:
+    """Return the immutable planning lineage carried across outer-loop suspension."""
+
+    if isinstance(continuation, AgentContinuationV1):
+        return continuation
+    return continuation.plan_continuation
 
 
 class RunStateV1(_StrictModel):
@@ -204,4 +215,5 @@ __all__ = [
     "RunPhase",
     "RunStateV1",
     "ToolProposalV1",
+    "agent_plan_continuation",
 ]

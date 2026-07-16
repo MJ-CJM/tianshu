@@ -25,6 +25,7 @@ from tianshu.executor.worker import Worker
 from tianshu.executor.worker_pool import WorkerPool
 from tianshu.executor.workspace_context import BoundWorkspace, bind_workspace
 from tianshu.executor.workspace_service import WorkspaceService
+from tianshu.governance.decision_service import DecisionService
 from tianshu.kernel.hooks import HookRegistry
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.dag import DAGExecution, DAGNode, DAGNodeStatus
@@ -35,6 +36,10 @@ from tianshu.models.governance_contract import (
 from tianshu.models.plan import Plan, PlanTask
 from tianshu.models.workspace import WorkspaceLease, WorkspaceLeaseState
 from tianshu.storage import Storage
+
+
+def _workspace_service(storage, backend, staging_root) -> WorkspaceService:
+    return WorkspaceService(storage, backend, staging_root, DecisionService(storage))
 
 
 def _persist_dag(
@@ -343,7 +348,7 @@ async def test_invalid_dag_fails_before_workspace_or_execution_with_one_terminal
     source = tmp_path / "source"
     source.mkdir()
     staging_root = tmp_path / "leases"
-    service = WorkspaceService(storage, GitBackend(), staging_root)
+    service = _workspace_service(storage, GitBackend(), staging_root)
     bus = EventBus()
     agent = AsyncMock()
     pool = WorkerPool(max_concurrency=1)

@@ -17,8 +17,13 @@ from tianshu.executor.workspace_service import (
     WorkspaceLeaseRequest,
     WorkspaceService,
 )
+from tianshu.governance.decision_service import DecisionService
 
 _GIT = shutil.which("git", path=os.defpath)
+
+
+def _workspace_service(storage, backend, staging_root) -> WorkspaceService:
+    return WorkspaceService(storage, backend, staging_root, DecisionService(storage))
 
 
 def _git(repo: Path, *args: str) -> bytes:
@@ -62,7 +67,7 @@ def _loose_objects(repo: Path) -> set[str]:
 
 async def _lease(storage, tmp_path: Path):
     repo = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     lease = await service.create_lease(
         WorkspaceLeaseRequest(
             run_id="run-1",

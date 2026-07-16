@@ -139,7 +139,7 @@ class WorkspaceService:
         storage: Storage,
         git_backend: GitBackend,
         staging_root: Path,
-        decision_service: DecisionService | None = None,
+        decision_service: DecisionService,
     ) -> None:
         raw_root = Path(staging_root).expanduser()
         if raw_root.is_symlink():
@@ -150,7 +150,7 @@ class WorkspaceService:
             raise WorkspaceSourceError("staging root must be a directory")
         resolved_root.chmod(0o700)
         self._storage = storage
-        self._decision_service = decision_service or DecisionService(storage)
+        self._decision_service = decision_service
         self._git = git_backend
         self._staging_root = resolved_root
         self._lifecycle_lock = asyncio.Lock()

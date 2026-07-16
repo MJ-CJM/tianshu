@@ -29,6 +29,7 @@ from tianshu.executor.workspace_context import (
     resolve_workspace_root,
 )
 from tianshu.executor.workspace_service import WorkspaceApplyError, WorkspaceService
+from tianshu.governance.decision_service import DecisionService
 from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.acceptance import AcceptanceCriteria
@@ -42,6 +43,10 @@ from tianshu.models.principal import AuthContext, Principal, PrincipalKind
 from tianshu.models.workspace import WorkspaceLeaseState
 
 _GIT = shutil.which("git") or "git"
+
+
+def _workspace_service(storage, backend, staging_root) -> WorkspaceService:
+    return WorkspaceService(storage, backend, staging_root, DecisionService(storage))
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -174,7 +179,7 @@ async def test_single_run_restores_before_hooks_and_captures_staging_changes(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     hooks = HookRegistry()
     observed: list[str] = []
 
@@ -261,7 +266,7 @@ async def test_terminal_memorial_is_visible_only_after_changes_are_readable(
     这里在终态写库的**那一刻**同步去读变更集，不轮询（轮询会把竞态盖回去）。
     """
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
 
     async def execute(_edict, *, memorial: Memorial, **_kwargs):
         bound = require_bound_workspace(run_id=memorial.id)
@@ -327,7 +332,7 @@ async def test_native_run_to_governed_apply_uses_production_manifest(
     apply_case: str,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
 
     async def execute(_edict, *, memorial: Memorial, **_kwargs):
         bound = require_bound_workspace(run_id=memorial.id)
@@ -393,7 +398,7 @@ async def test_terminal_event_observes_captured_workspace_after_context_reset(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     hooks = HookRegistry()
 
     async def execute(_edict, *, memorial: Memorial, **_kwargs):
@@ -469,7 +474,7 @@ async def test_non_preview_terminal_outcomes_capture_then_close(
     expected_change_count: int,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     capture_states: list[WorkspaceLeaseState] = []
     original_capture = service.capture_change_set
 
@@ -527,7 +532,7 @@ async def test_hook_denial_and_timeout_close_empty_workspace(
 
     for case in ("denied", "timeout"):
         source = _repository(tmp_path / f"source-{case}")
-        service = WorkspaceService(storage, GitBackend(), tmp_path / f"leases-{case}")
+        service = _workspace_service(storage, GitBackend(), tmp_path / f"leases-{case}")
         hooks = HookRegistry()
         agent = AsyncMock()
         if case == "denied":
@@ -575,7 +580,7 @@ async def test_task_cancellation_cleans_workspace_and_propagates(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     started = asyncio.Event()
     end_started = asyncio.Event()
     release_end = asyncio.Event()
@@ -652,7 +657,7 @@ async def test_workspace_finalization_errors_are_evidence_not_result_overrides(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
 
     async def execute(_edict, *, memorial: Memorial, **_kwargs):
         require_bound_workspace(run_id=memorial.id)
@@ -706,7 +711,7 @@ async def test_outer_loop_binds_staging_before_orchestrator_context(
     monkeypatch,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     agent = AsyncMock()
     executor = _executor(
         storage=storage,
@@ -762,7 +767,7 @@ async def test_auto_retry_starts_after_reset_with_distinct_contiguous_lease(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     calls = 0
 
     async def execute(_edict, *, memorial: Memorial, **_kwargs):
@@ -827,7 +832,7 @@ async def test_post_lease_startup_failure_cleans_before_running(
     failure: str,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     agent = AsyncMock()
     executor = _executor(
         storage=storage,
@@ -875,7 +880,7 @@ async def test_workspace_materialization_failure_rejects_before_running(
     failure: str,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     agent = AsyncMock()
     executor = _executor(
         storage=storage,
@@ -940,7 +945,7 @@ async def test_pre_running_cancellation_persists_terminal_and_closes_lease(
     execution_path: str,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     executor = _executor(
         storage=storage,
         config_manager=config_manager,
@@ -1036,7 +1041,7 @@ async def test_dag_retry_without_managed_ingress_fails_before_new_lease_or_task(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     executor = _executor(
         storage=storage,
         config_manager=config_manager,
@@ -1091,7 +1096,7 @@ async def test_outer_loop_failure_and_cancellation_capture_then_close(
     outcome: str,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     executor = _executor(
         storage=storage,
         config_manager=config_manager,
@@ -1194,7 +1199,7 @@ async def test_lease_backed_keqing_run_to_governed_apply_uses_production_manifes
     apply_case,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     executor = _executor(
         storage=storage,
         config_manager=config_manager,
@@ -1291,7 +1296,7 @@ async def test_dag_root_finalizes_workspace_before_single_terminal_event(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     executor = _executor(
         storage=storage,
         config_manager=config_manager,
@@ -1373,7 +1378,7 @@ async def test_dag_scheduler_failure_persists_matching_root_and_execution_termin
     outcome: str,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     executor = _executor(
         storage=storage,
         config_manager=config_manager,
@@ -1460,7 +1465,7 @@ async def test_dag_retry_delegates_claim_authority_without_local_writes(
     monkeypatch,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     executor = _executor(
         storage=storage,
         config_manager=config_manager,
@@ -1546,7 +1551,7 @@ async def test_dag_retry_delegates_without_direct_workspace_execution(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     executor = _executor(
         storage=storage,
         config_manager=config_manager,
@@ -1654,7 +1659,7 @@ async def test_dag_terminal_memorial_is_visible_only_after_changes_are_readable(
     from tianshu.executor.worker_pool import WorkerPool
 
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
 
     async def execute(_edict, *, memorial: Memorial, **_kwargs):
         bound = require_bound_workspace(run_id=memorial.id)

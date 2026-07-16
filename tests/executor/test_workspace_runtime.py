@@ -15,6 +15,7 @@ from tianshu.executor.capabilities import (
 from tianshu.executor.git_backend import GitBackend
 from tianshu.executor.workspace_runtime import WorkspaceContractError, WorkspaceRuntime
 from tianshu.executor.workspace_service import WorkspaceService
+from tianshu.governance.decision_service import DecisionService
 from tianshu.models import Edict, Memorial, TaskStatus
 from tianshu.models.governance_contract import (
     LegacyEdictGovernanceMapper,
@@ -24,6 +25,10 @@ from tianshu.models.governance_contract import (
 from tianshu.models.workspace import WorkspaceLeaseState
 
 _GIT = shutil.which("git") or "git"
+
+
+def _workspace_service(storage, backend, staging_root) -> WorkspaceService:
+    return WorkspaceService(storage, backend, staging_root, DecisionService(storage))
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -104,7 +109,7 @@ async def test_governed_prepare_resolves_head_and_binds_active_lease(
     storage, tmp_path: Path
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     runtime = WorkspaceRuntime(
         storage=storage,
         service=service,
@@ -125,7 +130,7 @@ async def test_governed_prepare_resolves_head_and_binds_active_lease(
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
 async def test_follow_up_derives_contiguous_workspace_lineage(storage, tmp_path: Path) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     runtime = WorkspaceRuntime(
         storage=storage,
         service=service,
@@ -195,7 +200,7 @@ async def test_invalid_workspace_matrix_fails_before_lease_creation(
     workspace: WorkspacePolicyV1,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     runtime = WorkspaceRuntime(
         storage=storage,
         service=service,
@@ -212,7 +217,7 @@ async def test_invalid_workspace_matrix_fails_before_lease_creation(
 
 async def test_unknown_source_id_is_rejected(storage, tmp_path: Path) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     runtime = WorkspaceRuntime(
         storage=storage,
         service=service,
@@ -290,7 +295,7 @@ async def test_ephemeral_scratch_is_leased_and_rejects_stale_resolution(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     runtime = WorkspaceRuntime(
         storage=storage,
         service=service,
@@ -335,7 +340,7 @@ async def test_terminal_cleanup_is_shielded_before_cancellation_propagates(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     runtime = WorkspaceRuntime(
         storage=storage,
         service=service,
@@ -386,7 +391,7 @@ async def test_git_capture_and_cleanup_finish_before_cancellation_propagates(
     tmp_path: Path,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     runtime = WorkspaceRuntime(
         storage=storage,
         service=service,
@@ -427,7 +432,7 @@ async def test_invalid_memorial_lineage_fails_closed(
     case: str,
 ) -> None:
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     runtime = WorkspaceRuntime(
         storage=storage,
         service=service,
@@ -502,7 +507,7 @@ async def test_binding_failure_closes_newly_active_lease(
     from tianshu.executor.workspace_context import WorkspaceBindingError
 
     source = _repository(tmp_path / "source")
-    service = WorkspaceService(storage, GitBackend(), tmp_path / "leases")
+    service = _workspace_service(storage, GitBackend(), tmp_path / "leases")
     runtime = WorkspaceRuntime(
         storage=storage,
         service=service,

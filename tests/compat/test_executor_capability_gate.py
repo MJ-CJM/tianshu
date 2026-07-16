@@ -201,7 +201,7 @@ async def test_dag_rejects_contained_executor_before_scheduler_runs(
     executor,
     storage,
 ) -> None:
-    scheduler = SimpleNamespace(run=AsyncMock())
+    scheduler = SimpleNamespace(run=AsyncMock(return_value=None))
     executor.set_dag_scheduler(scheduler)
     edict = _edict_with_capabilities(adapter_id="keqing:codex")
     storage.save_edict(edict)
@@ -242,7 +242,7 @@ async def test_dag_retry_reuses_governed_prepared_executor(
     executor,
     storage,
 ) -> None:
-    scheduler = SimpleNamespace(run=AsyncMock())
+    scheduler = SimpleNamespace(run=AsyncMock(return_value=None))
     executor.set_dag_scheduler(scheduler)
     edict = _edict_with_capabilities()
     storage.save_edict(edict)
@@ -256,13 +256,30 @@ async def test_dag_retry_reuses_governed_prepared_executor(
     storage.update_memorial(root)
     storage.update_dag_node_status(execution.id, "one", "failed", error="retry")
     storage.update_dag_execution_status(execution.id, "failed")
-    scheduler.run.reset_mock()
-
-    assert await executor.retry_dag(execution.id) == ["one"]
-    while executor.running_tasks:
-        await asyncio.gather(*list(executor.running_tasks))
-
     prepared = scheduler.run.await_args.kwargs["prepared_executor"]
+    scheduler.run.reset_mock()
+    delegated: list[tuple[str, str, list[str] | None]] = []
+
+    class Ingress:
+        async def retry_dag(
+            self,
+            *,
+            dag_id: str,
+            idempotency_key: str,
+            from_node_ids: list[str] | None,
+        ) -> SimpleNamespace:
+            delegated.append((dag_id, idempotency_key, from_node_ids))
+            return SimpleNamespace(reset_node_ids=("one",))
+
+    executor.set_managed_run_ingress(Ingress())
+
+    assert await executor.retry_dag(
+        execution.id,
+        idempotency_key="capability-gate-retry",
+    ) == ["one"]
+
+    assert delegated == [(execution.id, "capability-gate-retry", None)]
+    scheduler.run.assert_not_awaited()
     assert isinstance(prepared, PreparedExecutor)
     assert prepared.effective.executor.adapter_id == "native"
 
