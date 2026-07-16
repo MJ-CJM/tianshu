@@ -194,6 +194,66 @@ def _unscoped_principal() -> AuthContext:
     )
 
 
+async def _persist_legacy_apply_decision(
+    prepared: _Prepared,
+    storage,
+    auth: AuthContext,
+):
+    decision, token = await prepared.service.issue_apply_decision(
+        prepared.run_id,
+        auth,
+        "approved",
+        timedelta(minutes=5),
+    )
+    principal = auth.principal
+    legacy = decision.model_copy(
+        update={
+            "decision_request_id": None,
+            "principal_digest": prepared.service._canonical_digest(  # noqa: SLF001
+                {
+                    "id": principal.id,
+                    "kind": principal.kind.value,
+                    "display_name": principal.display_name,
+                    "scopes": sorted(principal.scopes),
+                }
+            ),
+            "decision_hash": "0" * 64,
+        }
+    )
+    legacy = legacy.model_copy(
+        update={
+            "decision_hash": prepared.service._canonical_digest(  # noqa: SLF001
+                legacy.model_dump(
+                    mode="json",
+                    exclude={"decision_hash", "state", "state_version"},
+                )
+            )
+        }
+    )
+    with storage._lock, storage._conn:  # noqa: SLF001 - persisted legacy fixture
+        trigger_sql = storage._conn.execute(  # noqa: SLF001
+            "SELECT sql FROM sqlite_master "
+            "WHERE type='trigger' AND name='immutable_apply_decisions_update'"
+        ).fetchone()[0]
+        storage._conn.execute(  # noqa: SLF001
+            "DROP TRIGGER immutable_apply_decisions_update"
+        )
+        storage._conn.execute(  # noqa: SLF001
+            """
+            UPDATE apply_decisions
+            SET decision_request_id = NULL,
+                principal_digest = ?,
+                decision_hash = ?
+            WHERE id = ?
+            """,
+            (legacy.principal_digest, legacy.decision_hash, legacy.id),
+        )
+        storage._conn.execute(trigger_sql)  # noqa: SLF001
+    persisted = storage.get_apply_decision(legacy.id)
+    assert persisted == legacy
+    return persisted, token
+
+
 def _source_authority(prepared: _Prepared) -> tuple[bytes, bytes, bytes, bytes]:
     return (
         _git(prepared.source, "rev-parse", "HEAD"),
@@ -756,20 +816,25 @@ async def test_legacy_token_without_generic_link_fails_before_git_or_receipt(
 ) -> None:
     prepared = await _prepared(storage, tmp_path)
     (prepared.staging / "modify.txt").write_bytes(b"approved\n")
-    decision, token = await prepared.service.issue_apply_decision(
-        prepared.run_id,
+    decision, token = await _persist_legacy_apply_decision(
+        prepared,
+        storage,
         _principal(),
-        "approved",
-        timedelta(minutes=5),
     )
-    persisted = storage.get_apply_decision(decision.id)
-    assert persisted is not None
-    legacy = persisted.model_copy(update={"decision_request_id": None})
-    monkeypatch.setattr(storage, "get_apply_decision", lambda _decision_id: legacy)
     monkeypatch.setattr(
         prepared.service._git,  # noqa: SLF001
         "inspect_repository",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("Git inspected")),
+    )
+    monkeypatch.setattr(
+        storage,
+        "claim_apply_decision",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("decision claimed")),
+    )
+    monkeypatch.setattr(
+        storage,
+        "save_apply_receipt",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("receipt saved")),
     )
     source_before = (prepared.source / "modify.txt").read_bytes()
 
@@ -783,8 +848,62 @@ async def test_legacy_token_without_generic_link_fails_before_git_or_receipt(
 
     assert caught.value.code == "binding_mismatch"
     assert (prepared.source / "modify.txt").read_bytes() == source_before
-    assert persisted.state == "pending"
+    assert storage.get_apply_decision(decision.id).state == "pending"
     assert storage.get_apply_receipt_for_decision(decision.id) is None
+
+
+@pytest.mark.skipif(_GIT is None, reason="git is required")
+@pytest.mark.asyncio
+@pytest.mark.parametrize("termination", ("deny", "revoke"))
+async def test_legacy_authority_owner_can_terminate_and_clean_staging(
+    storage,
+    tmp_path: Path,
+    termination: str,
+) -> None:
+    prepared = await _prepared(storage, tmp_path)
+    (prepared.staging / "modify.txt").write_bytes(b"approved\n")
+    decision, _token = await _persist_legacy_apply_decision(
+        prepared,
+        storage,
+        _principal(),
+    )
+
+    with pytest.raises(WorkspaceApplyError) as wrong_principal:
+        if termination == "deny":
+            await prepared.service.deny_apply_decision(
+                prepared.run_id,
+                decision.id,
+                _principal("another-reviewer"),
+                "wrong principal must not terminate legacy authority",
+            )
+        else:
+            await prepared.service.revoke_apply_decision(
+                prepared.run_id,
+                decision.id,
+                _principal("another-reviewer"),
+            )
+
+    assert wrong_principal.value.code == "principal_mismatch"
+    assert storage.get_apply_decision(decision.id).state == "pending"
+    if termination == "deny":
+        result = await prepared.service.deny_apply_decision(
+            prepared.run_id,
+            decision.id,
+            _principal(),
+            "original principal denied legacy authority",
+        )
+        assert result.outcome == "denied"
+    else:
+        result = await prepared.service.revoke_apply_decision(
+            prepared.run_id,
+            decision.id,
+            _principal(),
+        )
+        assert result.state == "revoked"
+
+    status = await prepared.service.get_run_status(prepared.run_id)
+    assert status.lease.state is WorkspaceLeaseState.CLOSED
+    assert not prepared.staging.exists()
 
 
 @pytest.mark.skipif(_GIT is None, reason="git is required")

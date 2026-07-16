@@ -1058,7 +1058,12 @@ class WorkspaceService:
         decision = self._storage.get_apply_decision(decision_id)
         if decision is None:
             raise WorkspaceApplyError("decision_not_found", "apply decision does not exist")
-        self._authenticate_decision_principal(decision, run_id, principal)
+        self._authenticate_decision_principal(
+            decision,
+            run_id,
+            principal,
+            purpose="terminate",
+        )
         self._require_apply_capability(run_id)
         if decision.state != "pending":
             raise WorkspaceApplyError("decision_not_pending", "apply decision is already terminal")
@@ -1161,7 +1166,12 @@ class WorkspaceService:
                 decision = self._storage.get_apply_decision(decision_id)
                 if decision is None:
                     raise WorkspaceApplyError("decision_not_found", "apply decision does not exist")
-                self._authenticate_decision_principal(decision, run_id, auth.principal)
+                self._authenticate_decision_principal(
+                    decision,
+                    run_id,
+                    auth.principal,
+                    purpose="terminate",
+                )
                 self._require_apply_capability(run_id)
                 if decision.state != "pending":
                     raise WorkspaceApplyError(
@@ -1988,11 +1998,17 @@ class WorkspaceService:
         decision: ApplyDecision,
         run_id: str,
         principal: Principal,
+        *,
+        purpose: Literal["apply", "terminate"] = "apply",
     ) -> None:
+        principal_digest = (
+            self._legacy_principal_digest(principal)
+            if purpose == "terminate" and decision.decision_request_id is None
+            else self._actor_digest(principal.id)
+        )
         self._require_apply_scope(principal)
         if decision.run_id != run_id:
             raise WorkspaceApplyError("binding_mismatch", "apply decision belongs to another run")
-        principal_digest = self._actor_digest(principal.id)
         if not hmac.compare_digest(decision.principal_digest, principal_digest):
             raise WorkspaceApplyError(
                 "principal_mismatch", "apply decision belongs to another principal"
@@ -2022,6 +2038,17 @@ class WorkspaceService:
     @staticmethod
     def _actor_digest(principal_id: str) -> str:
         return hashlib.sha256(principal_id.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _legacy_principal_digest(principal: Principal) -> str:
+        return WorkspaceService._canonical_digest(
+            {
+                "id": principal.id,
+                "kind": principal.kind.value,
+                "display_name": principal.display_name,
+                "scopes": sorted(principal.scopes),
+            }
+        )
 
     @staticmethod
     def _canonical_digest(payload: dict[str, object]) -> str:
