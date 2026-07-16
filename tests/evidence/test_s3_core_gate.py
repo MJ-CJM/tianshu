@@ -356,25 +356,52 @@ def test_rejects_noncanonical_json_block() -> None:
 
 
 @pytest.mark.parametrize(
-    ("path", "claim"),
+    "path",
+    ["report.md", "capability-matrix.md", "PROGRESS.md"],
+)
+@pytest.mark.parametrize(
+    ("claim", "topic"),
     [
-        ("report.md", "S3 provides complete OTel coverage."),
-        ("capability-matrix.md", "S3 guarantees external notification delivery."),
-        ("PROGRESS.md", "S3 supports multi-replica governance."),
-        ("PROGRESS.md", "S3 支持多副本治理。"),
+        (
+            "Complete OTel coverage is no longer deferred and is fully supported.",
+            "full OTel",
+        ),
+        ("S3 guarantees delivery to external notification channels.", "external"),
+        ("S3 supports full-OTel coverage.", "full OTel"),
+        ("S3 provides governance semantics across multiple replicas.", "multi-replica"),
+        ("Full OpenTelemetry coverage is not unsupported.", "full OTel"),
+        ("External channel delivery is guaranteed by S3.", "external"),
+        ("Governance semantics are supported across multiple replicas.", "multi-replica"),
+        ("S3 已完整支持 OpenTelemetry 覆盖。", "full OTel"),
+        ("S3 保证外部通知渠道送达。", "external"),
+        ("S3 支持跨多个副本的治理语义。", "multi-replica"),
+        ("完整 OTel 覆盖不再延期，现已完全支持。", "full OTel"),
+        ("完整 OpenTelemetry 覆盖并非不受支持。", "full OTel"),
+        ("S3 支持全量 OTel 覆盖。", "full OTel"),
     ],
 )
-def test_rejects_positive_claim_anywhere_in_governance_docs(path: str, claim: str) -> None:
-    with pytest.raises(GateEvidenceError, match=path):
+def test_rejects_positive_claim_anywhere_in_governance_docs(
+    path: str, claim: str, topic: str
+) -> None:
+    with pytest.raises(GateEvidenceError, match=rf"{path}.*{topic}"):
         validate_documents({path: claim})
 
 
 def test_allows_explicitly_deferred_or_unsupported_claim_boundaries() -> None:
     validate_documents(
         {
-            "report.md": "Complete OTel remains deferred.",
-            "capability-matrix.md": "External notification delivery is not guaranteed.",
-            "PROGRESS.md": "Multi-replica governance is not claimed; 多副本治理不承诺。",
+            "report.md": (
+                "Complete OTel remains deferred. Full OpenTelemetry coverage is not supported "
+                "by this Gate. 完整 OpenTelemetry 覆盖仍属延期。"
+            ),
+            "capability-matrix.md": (
+                "External notification-channel delivery is unsupported by S3. "
+                "S3 不保证外部通知渠道送达。"
+            ),
+            "PROGRESS.md": (
+                "Governance semantics across multiple replicas are not claimed. "
+                "S3 不承诺跨多个副本的治理语义。"
+            ),
         }
     )
 

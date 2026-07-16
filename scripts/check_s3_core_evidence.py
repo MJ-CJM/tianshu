@@ -66,24 +66,36 @@ _GOVERNANCE_DOCS = (
     "docs/cc-fable-v1/PROGRESS.md",
 )
 _DEFAULT_ALLOWED_DIRTY = (*_GOVERNANCE_DOCS, *_REQUIRED_LOGS.values())
-_NEGATIVE_BOUNDARY = re.compile(
-    r"(?:does\s+not\s+claim|not\s+claim(?:ed)?|not\s+guaranteed|"
-    r"not\s+supported|unsupported|not\s+in\s+(?:this|the)\s+Gate|"
-    r"out\s+of\s+scope|remain(?:s)?\s+deferred|deferred|"
-    r"不保证|不承诺|不支持|未支持|不属于|不在.{0,12}保证|延期|暂缓|不得)",
+_ALLOWED_NEGATIVE_BOUNDARY = re.compile(
+    r"(?:does\s+not\s+claim|"
+    r"(?:is|are|remain|remains)\s+(?:explicitly\s+)?(?:deferred|unsupported|"
+    r"not\s+supported|not\s+guaranteed|not\s+claimed|out\s+of\s+scope)|"
+    r"(?:is|are)\s+not\s+in\s+(?:this|the)\s+Gate|"
+    r"\|\s*\*{0,2}(?:Deferred|Not\s+claimed|Unsupported)\b|"
+    r"不保证|不承诺|尚不支持|未支持|仍属延期|保持延期|"
+    r"不属于|不在.{0,20}保证内)",
+    re.IGNORECASE,
+)
+_NEGATION_REVERSAL = re.compile(
+    r"(?:\bno\s+longer\s+deferred\b|\bnot\s+unsupported\b|"
+    r"不再延期|并非不受支持)",
     re.IGNORECASE,
 )
 _FORBIDDEN_TOPICS = {
-    "full OTel": re.compile(r"(?:full|complete)\s+OTel|完整\s*OTel", re.IGNORECASE),
+    "full OTel": re.compile(
+        r"(?:full|complete)[-\s]+(?:OTel|OpenTelemetry)|"
+        r"(?:完整|全量).{0,12}(?:OTel|OpenTelemetry)|"
+        r"(?:OTel|OpenTelemetry).{0,12}(?:完整|全量)",
+        re.IGNORECASE | re.DOTALL,
+    ),
     "external notification delivery": re.compile(
-        r"external.{0,32}(?:notification|channel|message).{0,32}delivery|"
-        r"external[- ]channel.{0,16}delivery|external.{0,16}delivery|"
-        r"外部.{0,16}(?:通知|消息).{0,16}送达",
-        re.IGNORECASE,
+        r"(?=[\s\S]*\bexternal\b)(?=[\s\S]*\b(?:notification|channel|message)s?\b)"
+        r"(?=[\s\S]*\bdeliver(?:y|ed)\b)|"
+        r"(?=[\s\S]*外部)(?=[\s\S]*(?:通知|消息|渠道))(?=[\s\S]*(?:送达|交付))",
+        re.IGNORECASE | re.DOTALL,
     ),
     "multi-replica governance": re.compile(
-        r"multi[- ]replica.{0,32}(?:governance|coordination|semantics)|"
-        r"多副本.{0,16}(?:治理|协调|语义)",
+        r"\bmulti[- ]replica\b|\bmultiple\s+replicas\b|多副本|多个副本",
         re.IGNORECASE,
     ),
 }
@@ -295,9 +307,13 @@ def validate_documents(documents: Mapping[str, str]) -> None:
                 segments.append((paragraph_offset + sentence.start(), sentence.group()))
         for offset, segment in segments:
             line_number = content.count("\n", 0, offset) + 1
-            for clause in re.split(r"[;；]", segment):
+            claim_text = re.sub(r"\]\([^)]+\)", "]", segment)
+            for clause in re.split(r"[;；]", claim_text):
                 for topic, pattern in _FORBIDDEN_TOPICS.items():
-                    if pattern.search(clause) and not _NEGATIVE_BOUNDARY.search(clause):
+                    if pattern.search(clause) and (
+                        _NEGATION_REVERSAL.search(clause)
+                        or not _ALLOWED_NEGATIVE_BOUNDARY.search(clause)
+                    ):
                         raise GateEvidenceError(
                             f"{path}:{line_number} makes forbidden positive {topic} claim"
                         )
