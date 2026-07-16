@@ -7,6 +7,57 @@ from datetime import UTC, datetime
 from ulid import ULID
 
 
+def load_scheduler_job(connection: sqlite3.Connection, job_id: str) -> sqlite3.Row | None:
+    """Load one scheduler cursor on a caller-owned transaction."""
+    return connection.execute(
+        "SELECT * FROM scheduler_jobs WHERE job_id = ?",
+        (job_id,),
+    ).fetchone()
+
+
+def insert_schedule_run(
+    connection: sqlite3.Connection,
+    *,
+    run_id: str,
+    source: str,
+    kind: str,
+    status: str,
+    edict_id: str,
+    started_at: datetime,
+) -> None:
+    """Insert one deterministic schedule-run row in the caller's transaction."""
+    connection.execute(
+        "INSERT INTO schedule_run (id, source, kind, status, edict_id, started_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, source, kind, status, edict_id, started_at.isoformat()),
+    )
+
+
+def compare_and_set_scheduler_cursor(
+    connection: sqlite3.Connection,
+    *,
+    job_id: str,
+    expected_next_run: datetime,
+    next_run: datetime | None,
+    status: str,
+) -> bool:
+    """Advance exactly one active scheduler cursor."""
+    cursor = connection.execute(
+        """
+        UPDATE scheduler_jobs
+        SET next_run = ?, status = ?
+        WHERE job_id = ? AND status = 'active' AND next_run = ?
+        """,
+        (
+            next_run.isoformat() if next_run is not None else None,
+            status,
+            job_id,
+            expected_next_run.isoformat(),
+        ),
+    )
+    return cursor.rowcount == 1
+
+
 class SchedulerMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock

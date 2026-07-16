@@ -16,6 +16,7 @@ from tianshu.models.attempt import (
     AttemptOutcomeV1,
 )
 from tianshu.models.canonical import RedactedError
+from tianshu.storage.attempt_ledger import AttemptFenceLost
 
 
 class RunShutdownTimeout(TimeoutError):
@@ -83,6 +84,7 @@ class _HeartbeatLost(RuntimeError):
 
 
 AttemptRunner = Callable[[AttemptAuthority], Coroutine[Any, Any, AttemptRunResult]]
+AttemptCompleter = Callable[[AttemptAuthority, AttemptOutcomeV1], bool]
 
 
 class RunDispatcher:
@@ -94,6 +96,7 @@ class RunDispatcher:
         runner: AttemptRunner,
         *,
         owner_id: str,
+        completer: AttemptCompleter | None = None,
         clock: Callable[[], datetime] | None = None,
         lease_seconds: int = 30,
         heartbeat_interval_seconds: float = 10,
@@ -115,6 +118,7 @@ class RunDispatcher:
         )
         self._repository = repository
         self._runner = runner
+        self._completer = completer or self._complete_with_repository
         self._owner_id = owner_id
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lease_seconds = lease_seconds
@@ -227,12 +231,8 @@ class RunDispatcher:
             with suppress(asyncio.CancelledError):
                 await heartbeat_task
             outcome = result.to_outcome(completed_at=self._clock())
-            self._repository.complete(
-                attempt_id=authority.attempt_id,
-                owner_id=authority.owner_id,
-                fencing_token=authority.fencing_token,
-                outcome=outcome,
-            )
+            if not self._completer(authority, outcome):
+                raise AttemptFenceLost("attempt completion lost its fence")
         finally:
             heartbeat_task.cancel()
             runner_task.cancel()
@@ -240,6 +240,18 @@ class RunDispatcher:
                 await heartbeat_task
             with suppress(asyncio.CancelledError):
                 await runner_task
+
+    def _complete_with_repository(
+        self,
+        authority: AttemptAuthority,
+        outcome: AttemptOutcomeV1,
+    ) -> bool:
+        return self._repository.complete(
+            attempt_id=authority.attempt_id,
+            owner_id=authority.owner_id,
+            fencing_token=authority.fencing_token,
+            outcome=outcome,
+        )
 
     async def _heartbeat(self, authority: AttemptAuthority) -> None:
         while True:
@@ -294,6 +306,7 @@ def _positive_finite(value: float, field: str) -> float:
 
 __all__ = [
     "AttemptAuthority",
+    "AttemptCompleter",
     "AttemptRunResult",
     "AttemptRunner",
     "RunDispatcher",

@@ -18,6 +18,7 @@ from tianshu.application.run_reconciler import RunReconciler
 from tianshu.models import Edict, Memorial
 from tianshu.models.attempt import AttemptDisposition
 from tianshu.storage import Storage
+from tianshu.storage.attempt_ledger import AttemptFenceLost
 
 _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
 
@@ -50,6 +51,39 @@ class _ProbeRepository:
 async def _unused_runner(authority: AttemptAuthority) -> AttemptRunResult:
     del authority
     raise AssertionError("empty probe must not run")
+
+
+@pytest.mark.asyncio
+async def test_false_injected_completion_is_an_explicit_fence_loss() -> None:
+    repository = _ProbeRepository()
+
+    async def runner(authority: AttemptAuthority) -> AttemptRunResult:
+        del authority
+        return AttemptRunResult(disposition=AttemptDisposition.SUCCEEDED)
+
+    observed: list[tuple[AttemptAuthority, object]] = []
+
+    def completer(authority: AttemptAuthority, outcome: object) -> bool:
+        observed.append((authority, outcome))
+        return False
+
+    authority = AttemptAuthority(
+        attempt_id="attempt-1",
+        memorial_id="memorial-1",
+        owner_id="worker",
+        fencing_token=1,
+    )
+    dispatcher = RunDispatcher(
+        repository,
+        runner,
+        owner_id="worker",
+        clock=lambda: _NOW,
+        completer=completer,
+    )
+
+    with pytest.raises(AttemptFenceLost, match="completion"):
+        await dispatcher._execute(authority)  # noqa: SLF001
+    assert observed and observed[0][0] == authority
 
 
 def test_heartbeat_interval_must_be_below_lease_deadline() -> None:

@@ -146,8 +146,11 @@ class AttemptLeaseRepository:
         memorial_id: str,
         available_at: datetime,
         max_attempts: int = 3,
+        attempt_id: str | None = None,
     ) -> AttemptLeaseV1:
         _non_blank(memorial_id, field="memorial_id")
+        if attempt_id is not None:
+            _non_blank(attempt_id, field="attempt_id")
         available_at = _utc(available_at)
         if type(max_attempts) is not int or max_attempts <= 0:
             raise ValueError("max_attempts must be a positive integer")
@@ -164,11 +167,15 @@ class AttemptLeaseRepository:
         ).fetchone()
         if existing_row is not None:
             existing = _decode_attempt(existing_row)
-            if existing.available_at != available_at or existing.max_attempts != max_attempts:
+            if (
+                existing.available_at != available_at
+                or existing.max_attempts != max_attempts
+                or (attempt_id is not None and existing.attempt_id != attempt_id)
+            ):
                 raise AttemptConflict("initial attempt replay does not match durable envelope")
             return existing
         created_at = min(datetime.now(UTC), available_at)
-        attempt_id = str(ULID())
+        attempt_id = attempt_id or str(ULID())
         try:
             connection.execute(
                 """
@@ -450,8 +457,9 @@ class AttemptLeaseRepository:
             unit_of_work.commit()
             return updated
 
-    def complete(
+    def complete_current(
         self,
+        connection: sqlite3.Connection,
         *,
         attempt_id: str,
         owner_id: str,
@@ -465,71 +473,85 @@ class AttemptLeaseRepository:
         if not isinstance(outcome, AttemptOutcomeV1):
             raise TypeError("outcome must be AttemptOutcomeV1")
         completed_at = _utc(outcome.completed_at)
+        current = _select_attempt(connection, attempt_id)
+        if (
+            current is None
+            or current.status is not AttemptStatus.CLAIMED
+            or current.owner_id != owner_id
+            or current.fencing_token != fencing_token
+            or current.heartbeat_at is None
+            or current.lease_expires_at is None
+            or completed_at < current.heartbeat_at
+            or completed_at >= current.lease_expires_at
+        ):
+            return False
+        retry = outcome.disposition is AttemptDisposition.RETRY
+        exhausted = retry and current.attempt_no >= current.max_attempts
+        if exhausted:
+            status = AttemptStatus.DEAD_LETTER
+        elif retry or outcome.disposition is AttemptDisposition.FAILED:
+            status = AttemptStatus.FAILED
+        elif outcome.disposition is AttemptDisposition.SUCCEEDED:
+            status = AttemptStatus.SUCCEEDED
+        else:
+            status = AttemptStatus.SUSPENDED
+        failure_json = (
+            canonical_json_bytes(outcome.failure).decode("utf-8")
+            if outcome.failure is not None
+            else None
+        )
+        cursor = connection.execute(
+            """
+            UPDATE execution_attempts
+            SET status=?, owner_id=NULL, lease_expires_at=NULL,
+                failure_json=?, version=version + 1, updated_at=?
+            WHERE attempt_id=? AND status='claimed' AND owner_id=?
+              AND fencing_token=? AND version=?
+              AND heartbeat_at <= ? AND lease_expires_at > ?
+            """,
+            (
+                status.value,
+                failure_json,
+                completed_at.isoformat(),
+                attempt_id,
+                owner_id,
+                fencing_token,
+                current.version,
+                completed_at.isoformat(),
+                completed_at.isoformat(),
+            ),
+        )
+        if cursor.rowcount != 1:
+            return False
+        if retry and not exhausted:
+            assert outcome.retry_at is not None
+            _insert_retry_attempt(
+                connection,
+                previous=current,
+                available_at=outcome.retry_at,
+                created_at=completed_at,
+            )
+        return True
+
+    def complete(
+        self,
+        *,
+        attempt_id: str,
+        owner_id: str,
+        fencing_token: int,
+        outcome: AttemptOutcomeV1,
+    ) -> bool:
         try:
             with self._unit_of_work_factory() as unit_of_work:
-                connection = unit_of_work.connection
-                current = _select_attempt(connection, attempt_id)
-                if (
-                    current is None
-                    or current.status is not AttemptStatus.CLAIMED
-                    or current.owner_id != owner_id
-                    or current.fencing_token != fencing_token
-                    or current.heartbeat_at is None
-                    or current.lease_expires_at is None
-                    or completed_at < current.heartbeat_at
-                    or completed_at >= current.lease_expires_at
-                ):
-                    unit_of_work.commit()
-                    return False
-                retry = outcome.disposition is AttemptDisposition.RETRY
-                exhausted = retry and current.attempt_no >= current.max_attempts
-                if exhausted:
-                    status = AttemptStatus.DEAD_LETTER
-                elif retry or outcome.disposition is AttemptDisposition.FAILED:
-                    status = AttemptStatus.FAILED
-                elif outcome.disposition is AttemptDisposition.SUCCEEDED:
-                    status = AttemptStatus.SUCCEEDED
-                else:
-                    status = AttemptStatus.SUSPENDED
-                failure_json = (
-                    canonical_json_bytes(outcome.failure).decode("utf-8")
-                    if outcome.failure is not None
-                    else None
+                completed = self.complete_current(
+                    unit_of_work.connection,
+                    attempt_id=attempt_id,
+                    owner_id=owner_id,
+                    fencing_token=fencing_token,
+                    outcome=outcome,
                 )
-                cursor = connection.execute(
-                    """
-                    UPDATE execution_attempts
-                    SET status=?, owner_id=NULL, lease_expires_at=NULL,
-                        failure_json=?, version=version + 1, updated_at=?
-                    WHERE attempt_id=? AND status='claimed' AND owner_id=?
-                      AND fencing_token=? AND version=?
-                      AND heartbeat_at <= ? AND lease_expires_at > ?
-                    """,
-                    (
-                        status.value,
-                        failure_json,
-                        completed_at.isoformat(),
-                        attempt_id,
-                        owner_id,
-                        fencing_token,
-                        current.version,
-                        completed_at.isoformat(),
-                        completed_at.isoformat(),
-                    ),
-                )
-                if cursor.rowcount != 1:
-                    unit_of_work.commit()
-                    return False
-                if retry and not exhausted:
-                    assert outcome.retry_at is not None
-                    _insert_retry_attempt(
-                        connection,
-                        previous=current,
-                        available_at=outcome.retry_at,
-                        created_at=completed_at,
-                    )
                 unit_of_work.commit()
-                return True
+                return completed
         except sqlite3.IntegrityError as exc:
             raise AttemptConflict("attempt retry transition conflict") from exc
 

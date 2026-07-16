@@ -62,6 +62,11 @@ def _insert_memorial(conn: sqlite3.Connection, memorial: Memorial) -> None:
         )
 
 
+def insert_memorial(conn: sqlite3.Connection, memorial: Memorial) -> None:
+    """Insert one Memorial on a caller-owned transaction."""
+    _insert_memorial(conn, memorial)
+
+
 class MemorialMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
