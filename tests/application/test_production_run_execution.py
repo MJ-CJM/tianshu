@@ -15,13 +15,16 @@ from tianshu.application.run_execution import (
     ProductionRunRunner,
 )
 from tianshu.bootstrap.wiring_scheduler import _require_restart_safe_legacy_plan
+from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.gateway.core.edict_bridge import EdictBridge
-from tianshu.gateway.edicts_api import follow_up_edict
+from tianshu.gateway.edicts_api import follow_up_edict, update_edict_status
+from tianshu.gateway.execution_api import retry_dag
 from tianshu.models import Plan, PlanTask, TaskStatus, UsageSummary
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.canonical import RedactedError
 from tianshu.models.events import EventEnvelope
+from tianshu.scheduler.scheduler import Scheduler
 
 _NOW = datetime(2026, 7, 16, 10, tzinfo=UTC)
 _AUTHORITY = AttemptAuthority(
@@ -194,6 +197,42 @@ def test_production_adapters_contain_no_root_task_creation() -> None:
         follow_up_edict,
     ):
         assert "create_task" not in inspect.getsource(adapter), adapter.__qualname__
+
+
+def test_production_cancellation_adapters_delegate_to_one_fenced_service() -> None:
+    for adapter in (
+        update_edict_status,
+        Executor.cancel_dag,
+        Scheduler.cancel,
+        ApprovalManager._handle_cancel,  # noqa: SLF001
+    ):
+        source = inspect.getsource(adapter)
+        assert "cancel_root" in source, adapter.__qualname__
+
+
+def test_dag_retry_api_requires_and_delegates_stable_idempotency_key() -> None:
+    api_source = inspect.getsource(retry_dag)
+    executor_source = inspect.getsource(Executor.retry_dag)
+    assert "Idempotency-Key" in api_source
+    assert "idempotency_key=" in api_source
+    assert "managed_run_ingress.retry_dag" in executor_source
+
+
+def test_follow_up_adapters_leave_replay_busy_and_parent_order_to_ingress() -> None:
+    http_source = inspect.getsource(follow_up_edict)
+    bridge_source = inspect.getsource(EdictBridge.continue_or_create)
+    follow_up_source = inspect.getsource(EdictBridge._follow_up)  # noqa: SLF001
+    assert "has_active" not in http_source
+    assert "has_active" not in bridge_source
+    assert "parent_memorial_id=" not in http_source
+    assert "parent_memorial_id=" not in follow_up_source
+
+
+def test_legacy_executor_adapters_delegate_whole_event_to_ingress() -> None:
+    for adapter in (Executor.handle_plan_completed, Executor.handle_resume):
+        source = inspect.getsource(adapter)
+        assert "adopt_legacy(event)" in source
+        assert "adopt_existing" not in source
 
 
 def test_legacy_plan_without_durable_binding_is_retained_fail_closed(storage) -> None:

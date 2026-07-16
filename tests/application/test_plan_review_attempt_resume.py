@@ -16,6 +16,7 @@ from tianshu.models import Edict, Memorial, Plan, PlanTask, TaskStatus
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.decision import ResolveDecisionCommand
 from tianshu.models.principal import AuthContext, Principal
+from tianshu.models.run_state import RunPhase
 from tianshu.planner.planner import Planner
 
 _NOW = datetime(2026, 7, 16, 12, tzinfo=UTC)
@@ -181,6 +182,36 @@ def test_wrong_decision_root_and_edict_binding_fails_closed(storage) -> None:
 
     assert PlanReviewAttemptCoordinator(storage, clock=lambda: _NOW).reconcile_once() == 1
     assert storage.get_memorial("root-1").failure_reason == "plan_review_binding_invalid"
+
+
+def test_cross_edict_self_consistent_forged_binding_fails_closed(storage) -> None:
+    service, request = _suspended_review(storage)
+    storage.save_edict(Edict(id="edict-forged", goal="forged"))
+    service.resolve(
+        request.decision_request_id,
+        ResolveDecisionCommand(
+            action="approve",
+            reason="good",
+            payload={"schema_version": 1},
+            expected_version=1,
+        ),
+        auth=_auth(),
+    )
+    storage._conn.execute(  # noqa: SLF001
+        "UPDATE run_states SET edict_id='edict-forged' WHERE memorial_id='root-1'"
+    )
+    storage._conn.execute(  # noqa: SLF001
+        "UPDATE decision_requests SET edict_id='edict-forged' WHERE decision_request_id=?",
+        (request.decision_request_id,),
+    )
+    storage._conn.commit()  # noqa: SLF001
+
+    assert PlanReviewAttemptCoordinator(storage, clock=lambda: _NOW).reconcile_once() == 1
+    assert storage.get_memorial("root-1").failure_reason == "plan_review_binding_invalid"
+    state = storage.run_state_repo.load(storage._conn, "root-1")  # noqa: SLF001
+    assert state is not None
+    assert state.phase is RunPhase.FAILED
+    assert state.version == 2
 
 
 def test_missing_decision_binding_fails_closed(storage) -> None:

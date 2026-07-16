@@ -43,7 +43,7 @@ from tianshu.executor.workspace_service import WorkspaceError, WorkspaceService
 from tianshu.kernel.hooks import HookRegistry, HookType
 from tianshu.models.canonical import RedactedError
 from tianshu.models.common import TaskStatus
-from tianshu.models.dag import DAGExecution, DAGNodeStatus
+from tianshu.models.dag import DAGExecution
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.failure import resolve_failure_reason
@@ -93,6 +93,12 @@ class Executor:
         self._running_tasks: set[asyncio.Task] = set()
         self._orchestrator_ctx = None  # set via set_orchestrator_context()
         self._managed_run_ingress: Any | None = None
+        from tianshu.application.fenced_run_completion import FencedRunCompletion
+
+        self._fenced_completion: Any = FencedRunCompletion(
+            storage.unit_of_work,
+            storage.attempt_repo,
+        )
         # 迭代 3.5「客卿」:外部 CLI 执行器(runtime.executor=keqing:<agent> 时路由)
         from tianshu.executor.keqing import KeqingExecutor
 
@@ -140,6 +146,9 @@ class Executor:
 
     def set_managed_run_ingress(self, ingress: Any) -> None:
         self._managed_run_ingress = ingress
+
+    def set_fenced_completion(self, completion: Any) -> None:
+        self._fenced_completion = completion
 
     @property
     def managed_run_ingress(self) -> Any | None:
@@ -207,20 +216,10 @@ class Executor:
             logger.error("Executor: edict %s not found", edict_id)
             return
 
-        memorial_id = event.memorial_id
-        memorial = self._storage.get_memorial(memorial_id) if memorial_id else None
-        if memorial is None:
-            raise RuntimeError("managed plan.completed requires an existing root Memorial")
-        if "plan" in event.payload and "decision_request_id" not in event.payload:
-            raise RuntimeError("legacy plan.completed has no restart-safe canonical plan binding")
         ingress = self._managed_run_ingress
         if ingress is None:
             raise RuntimeError("managed run ingress is not configured")
-        await ingress.adopt_existing(
-            memorial_id=memorial.id,
-            idempotency_key=f"legacy:{event.event_id}",
-            available_at=event.timestamp,
-        )
+        await ingress.adopt_legacy(event)
 
     async def handle_resume(self, event: EventEnvelope) -> None:
         """EventBus handler for edict.resume —— 续跑被 sweeper 判为孤儿的长任务（Multica 借鉴 #1）。
@@ -232,8 +231,7 @@ class Executor:
         if not edict_id:
             return
         edict = self._storage.get_edict(edict_id)
-        memorial = self._storage.get_memorial(event.memorial_id) if event.memorial_id else None
-        if not edict or not memorial:
+        if not edict or not event.memorial_id:
             logger.error("Resume: edict/memorial not found for %s", edict_id)
             return
         if edict.acceptance is None or self._orchestrator_ctx is None:
@@ -245,11 +243,7 @@ class Executor:
         ingress = self._managed_run_ingress
         if ingress is None:
             raise RuntimeError("managed run ingress is not configured")
-        await ingress.adopt_existing(
-            memorial_id=memorial.id,
-            idempotency_key=f"resume:{event.event_id}",
-            available_at=event.timestamp,
-        )
+        await ingress.adopt_legacy(event)
 
     async def _execute_dag(
         self,
@@ -1282,6 +1276,12 @@ class Executor:
         worker_pool = self._dag_scheduler._pool if self._dag_scheduler else None
         if not worker_pool:
             raise ValueError("No worker pool available")
+        if not execution.root_memorial_id:
+            raise ValueError("DAG execution has no governed root Memorial")
+        self._fenced_completion.cancel_root(
+            execution.root_memorial_id,
+            reason=f"DAG {dag_id} cancellation",
+        )
 
         canceller = CascadeCanceller(self._storage, worker_pool)
         cancelled = await canceller.cancel(execution)
@@ -1300,96 +1300,19 @@ class Executor:
     async def retry_dag(
         self,
         dag_id: str,
+        *,
+        idempotency_key: str,
         from_node_ids: list[str] | None = None,
     ) -> list[str]:
-        """Retry failed nodes in a DAG execution."""
-        execution = self._storage.get_dag_execution(dag_id)
-        if not execution:
-            raise ValueError(f"DAG execution '{dag_id}' not found")
-        if execution.status not in ("failed", "cancelled"):
-            raise ValueError(
-                f"DAG execution must be failed/cancelled to retry, got {execution.status}"
-            )
-
-        edict = self._storage.get_edict(execution.edict_id)
-        if not edict or not self._dag_scheduler:
-            raise ValueError("Cannot retry: missing edict or DAG scheduler")
-        if not execution.root_memorial_id:
-            raise ValueError("Cannot retry: DAG has no governed root memorial")
-        previous_root = self._storage.get_memorial(execution.root_memorial_id)
-        if previous_root is None:
-            raise ValueError("Cannot retry: governed root memorial is missing")
         ingress = self._managed_run_ingress
         if ingress is None:
             raise RuntimeError("managed run ingress is not configured")
-
-        target_ids = (
-            [node.node_id for node in execution.nodes if node.status is DAGNodeStatus.FAILED]
-            if from_node_ids is None
-            else from_node_ids
+        result = await self.managed_run_ingress.retry_dag(
+            dag_id=dag_id,
+            idempotency_key=idempotency_key,
+            from_node_ids=from_node_ids,
         )
-        if not target_ids:
-            return []
-        known_node_ids = {node.node_id for node in execution.nodes}
-        missing_node_ids = sorted(set(target_ids) - known_node_ids)
-        if missing_node_ids:
-            raise ValueError("Cannot retry: unknown DAG nodes " + ", ".join(missing_node_ids))
-
-        retry_root = Memorial(
-            edict_id=edict.id,
-            instruction=previous_root.instruction or edict.goal,
-            status=TaskStatus.SUBMITTED,
-            attempt=previous_root.attempt + 1,
-            parent_memorial_id=previous_root.id,
-            runtime_override=previous_root.runtime_override,
-            acceptance_override=previous_root.acceptance_override,
-        )
-        self._storage.save_memorial(retry_root)
-        try:
-            reset_ids = self._storage.claim_dag_retry(
-                execution.id,
-                expected_root_memorial_id=previous_root.id,
-                root_memorial_id=retry_root.id,
-                from_node_ids=from_node_ids,
-            )
-        except Exception as exc:
-            retry_root.status = TaskStatus.FAILED
-            retry_root.error = f"DAG retry claim failed: {exc}"
-            retry_root.completed_at = datetime.now(UTC)
-            self._storage.update_memorial(retry_root)
-            raise ValueError(f"Cannot retry: {exc}") from exc
-
-        if reset_ids is None:
-            retry_root.status = TaskStatus.FAILED
-            retry_root.error = "DAG retry lost the atomic claim"
-            retry_root.completed_at = datetime.now(UTC)
-            self._storage.update_memorial(retry_root)
-            raise ValueError("Cannot retry: DAG root or status changed concurrently")
-        if not reset_ids:
-            retry_root.status = TaskStatus.FAILED
-            retry_root.error = "DAG retry has no retryable nodes"
-            retry_root.completed_at = datetime.now(UTC)
-            self._storage.update_memorial(retry_root)
-            return []
-
-        execution.root_memorial_id = retry_root.id
-        execution.status = "pending"
-        execution.completed_at = None
-        reset_id_set = set(reset_ids)
-        for node in execution.nodes:
-            if node.node_id in reset_id_set:
-                node.status = DAGNodeStatus.PENDING
-                node.error = None
-                node.started_at = None
-                node.completed_at = None
-
-        await ingress.adopt_existing(
-            memorial_id=retry_root.id,
-            idempotency_key=f"dag-retry:{execution.id}:{retry_root.id}",
-            available_at=datetime.now(UTC),
-        )
-
-        return reset_ids
+        return list(result.reset_node_ids)
 
     async def shutdown(self) -> None:
         for task in list(self._running_tasks):

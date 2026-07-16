@@ -102,6 +102,7 @@ class Scheduler:
         *,
         scheduled_run_preparer: Any | None = None,
         run_reconciler: Any | None = None,
+        run_cancellation: Any | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._bus = event_bus
@@ -114,6 +115,14 @@ class Scheduler:
         self._system_jobs: list[dict] = []
         self._system_cron_tasks: list[asyncio.Task] = []
         self._scheduled_run_preparer = scheduled_run_preparer
+        if run_cancellation is None:
+            from tianshu.application.fenced_run_completion import FencedRunCompletion
+
+            run_cancellation = FencedRunCompletion(
+                storage.unit_of_work,
+                storage.attempt_repo,
+            )
+        self._run_cancellation = run_cancellation
         self._run_reconciler = run_reconciler
         self._clock = clock or (lambda: datetime.now(UTC))
 
@@ -854,9 +863,10 @@ class Scheduler:
         if initial_memorial_id is not None:
             memorial = self._storage.get_memorial(initial_memorial_id)
             if memorial and memorial.status == TaskStatus.SUBMITTED:
-                memorial.status = TaskStatus.CANCELLED
-                memorial.completed_at = datetime.now(UTC)
-                self._storage.update_memorial(memorial)
+                self._run_cancellation.cancel_root(
+                    memorial.id,
+                    reason=f"scheduler job {job_id} cancellation",
+                )
 
     async def pause(self, job_id: str) -> bool:
         """Pause an active job: cancel its timer but keep it for resume."""

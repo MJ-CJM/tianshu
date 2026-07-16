@@ -745,10 +745,6 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
     if edict.status != EdictStatus.OPEN:
         raise HTTPException(status_code=400, detail="敕令已结案，无法继续")
 
-    prev_memorials = storage.list_memorials_by_edict(edict_id)
-    has_active = any(m.status in (TaskStatus.SUBMITTED, TaskStatus.RUNNING) for m in prev_memorials)
-    if has_active:
-        raise HTTPException(status_code=409, detail="尚有奏折正在执行，请等待完成后再下达指令")
     runtime_override_dict: dict | None = None
     if body.runtime_override is not None:
         _validate_network_runtime(body.runtime_override)
@@ -759,27 +755,29 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
         }
         runtime_override_dict = rt_data or None
 
-    from tianshu.application.managed_run_ingress import ManagedRunCommand
+    from tianshu.application.managed_run_ingress import ManagedRunBusy, ManagedRunCommand
 
-    result = await request.app.state.managed_run_ingress.start(
-        ManagedRunCommand(
-            edict_id=edict_id,
-            idempotency_key=f"api:{idempotency_key}",
-            instruction=body.instruction,
-            parent_memorial_id=next(
-                (item.id for item in reversed(prev_memorials) if item.dag_node_id is None),
-                None,
-            ),
-            runtime_override=runtime_override_dict,
-            acceptance_override=body.acceptance_override,
-            event_type="followup.submitted",
-            event_payload={
-                "instruction": body.instruction,
-                "has_runtime_override": runtime_override_dict is not None,
-                "has_acceptance_override": body.acceptance_override is not None,
-            },
+    try:
+        result = await request.app.state.managed_run_ingress.start(
+            ManagedRunCommand(
+                edict_id=edict_id,
+                idempotency_key=f"api:{idempotency_key}",
+                instruction=body.instruction,
+                runtime_override=runtime_override_dict,
+                acceptance_override=body.acceptance_override,
+                event_type="followup.submitted",
+                event_payload={
+                    "instruction": body.instruction,
+                    "has_runtime_override": runtime_override_dict is not None,
+                    "has_acceptance_override": body.acceptance_override is not None,
+                },
+            )
         )
-    )
+    except ManagedRunBusy as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="尚有奏折正在执行，请等待完成后再下达指令",
+        ) from exc
 
     return ApiResponse(success=True, data=result.memorial.model_dump(mode="json"))
 
@@ -792,6 +790,16 @@ def update_edict_status(edict_id: str, body: EdictStatusUpdateRequest, request: 
         raise HTTPException(status_code=404, detail=f"Edict '{edict_id}' not found")
     storage.update_edict_status(edict_id, body.status.value)
     if body.status.value == "cancelled":
+        for memorial in storage.list_memorials_by_edict(edict_id):
+            if memorial.dag_node_id is None and memorial.status not in {
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            }:
+                request.app.state.fenced_run_completion.cancel_root(
+                    memorial.id,
+                    reason="edict status cancellation",
+                )
         storage.update_edict_lifecycle_phase(edict_id, "complete")
     storage.append_event(edict_id, None, "edict.closed", {"status": body.status.value})
     edict.status = body.status

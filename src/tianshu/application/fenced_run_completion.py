@@ -122,13 +122,18 @@ class FencedRunCompletion:
                     raise AttemptConflict("root Memorial projection conflict")
                 self._observe_boundary("after_memorial")
 
-                if command.run_state is not None:
-                    assert command.expected_run_state_version is not None
-                    self._run_state_repository.compare_and_swap(
-                        connection,
-                        command.run_state,
-                        expected_version=command.expected_run_state_version,
-                    )
+                terminal_phase = (
+                    RunPhase.COMPLETED
+                    if command.outcome.disposition is AttemptDisposition.SUCCEEDED
+                    else RunPhase.FAILED
+                )
+                if self._cas_existing_run_state(
+                    connection,
+                    memorial_id=authority.memorial_id,
+                    edict_id=str(memorial["edict_id"]),
+                    phase=terminal_phase,
+                    updated_at=completed_at,
+                ):
                     self._observe_boundary("after_run_state")
 
                 self._outbox_repository.add(
@@ -210,16 +215,32 @@ class FencedRunCompletion:
                 """,
                 (canonical_json_bytes(failure).decode("utf-8"), now.isoformat(), memorial_id),
             )
+            self._observe_boundary("after_attempt")
             cursor = connection.execute(
                 """
                 UPDATE memorials
                 SET status='cancelled', error=?, failure_reason='execution_cancelled',
                     completed_at=?
-                WHERE id=? AND status NOT IN ('completed','failed','cancelled')
+                WHERE id=? AND edict_id=? AND dag_node_id IS NULL
+                  AND status NOT IN ('completed','failed','cancelled')
                 """,
-                ("Execution was cancelled", now.isoformat(), memorial_id),
+                (
+                    "Execution was cancelled",
+                    now.isoformat(),
+                    memorial_id,
+                    memorial["edict_id"],
+                ),
             )
             if cursor.rowcount == 1:
+                self._observe_boundary("after_memorial")
+                if self._cas_existing_run_state(
+                    connection,
+                    memorial_id=memorial_id,
+                    edict_id=str(memorial["edict_id"]),
+                    phase=RunPhase.FAILED,
+                    updated_at=now,
+                ):
+                    self._observe_boundary("after_run_state")
                 self._outbox_repository.add(
                     connection,
                     EventEnvelope(
@@ -237,6 +258,7 @@ class FencedRunCompletion:
                         },
                     ),
                 )
+                self._observe_boundary("after_outbox")
             unit_of_work.commit()
         return cursor.rowcount == 1
 
@@ -303,6 +325,13 @@ class FencedRunCompletion:
                 )
                 if cursor.rowcount != 1:
                     raise AttemptConflict("dead-letter root projection conflict")
+                self._cas_existing_run_state(
+                    connection,
+                    memorial_id=authority.memorial_id,
+                    edict_id=str(memorial["edict_id"]),
+                    phase=RunPhase.FAILED,
+                    updated_at=completed_at,
+                )
                 self._outbox_repository.add(
                     connection,
                     EventEnvelope(
@@ -322,6 +351,37 @@ class FencedRunCompletion:
                     ),
                 )
             unit_of_work.commit()
+        return True
+
+    def _cas_existing_run_state(
+        self,
+        connection,
+        *,
+        memorial_id: str,
+        edict_id: str,
+        phase: RunPhase,
+        updated_at: datetime,
+    ) -> bool:
+        current = self._run_state_repository.load(connection, memorial_id)
+        if current is None:
+            return False
+        if current.edict_id != edict_id:
+            raise AttemptConflict("RunState does not bind the root Memorial Edict")
+        continuation = current.continuation
+        if continuation.pending_decision_id is not None:
+            continuation = continuation.model_copy(update={"pending_decision_id": None})
+        terminal = current.model_copy(
+            update={
+                "phase": phase,
+                "continuation": continuation,
+                "updated_at": max(updated_at, current.updated_at),
+            }
+        )
+        self._run_state_repository.compare_and_swap(
+            connection,
+            terminal,
+            expected_version=current.version,
+        )
         return True
 
     @staticmethod

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from tianshu.application.edicts import validate_idempotency_key
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.executor.lanes import LaneManager
@@ -185,6 +186,13 @@ async def cancel_dag(dag_id: str, request: Request):
 @execution_router.post("/dag/{dag_id}/retry", response_model=ApiResponse)
 async def retry_dag(dag_id: str, request: Request):
     executor: Executor = request.app.state.executor
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if idempotency_key is None:
+        raise HTTPException(422, {"code": "idempotency_key_required"})
+    try:
+        validate_idempotency_key(idempotency_key)
+    except ValueError as exc:
+        raise HTTPException(422, {"code": "invalid_idempotency_key"}) from exc
     body = (
         await request.json()
         if request.headers.get("content-type", "").startswith("application/json")
@@ -192,7 +200,11 @@ async def retry_dag(dag_id: str, request: Request):
     )
     from_node_ids = body.get("from_node_ids")
     try:
-        reset_ids = await executor.retry_dag(dag_id, from_node_ids=from_node_ids)
+        reset_ids = await executor.retry_dag(
+            dag_id,
+            idempotency_key=idempotency_key,
+            from_node_ids=from_node_ids,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return ApiResponse(success=True, data={"dag_id": dag_id, "reset_node_ids": reset_ids})

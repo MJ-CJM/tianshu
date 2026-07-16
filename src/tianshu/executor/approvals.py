@@ -83,8 +83,17 @@ class ApprovalManager:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._pending: dict[str, asyncio.Event] = {}
         self._results: dict[str, Decree] = {}
+        from tianshu.application.fenced_run_completion import FencedRunCompletion
+
+        self._fenced_completion: object = FencedRunCompletion(
+            storage.unit_of_work,
+            storage.attempt_repo,
+        )
         # Spec Section 4: 记录 wait_for_approval 时的 tool_name，方便 _handle_approve 生成 session rule
         self._pending_tool: dict[str, str] = {}
+
+    def set_fenced_completion(self, completion: object) -> None:
+        self._fenced_completion = completion
 
     async def on_before_tool_call(self, **context: object) -> object:
         """Deprecated pre-Step-2 entry point.
@@ -1230,9 +1239,11 @@ class ApprovalManager:
 
     async def _handle_cancel(self, memorial: Memorial, decree: Decree) -> None:
         memorial.review_status = "rejected"
-        memorial.status = TaskStatus.CANCELLED
-        memorial.completed_at = datetime.now(UTC)
-        self._storage.update_memorial(memorial)
+        self._fenced_completion.cancel_root(  # type: ignore[attr-defined]
+            memorial.id,
+            reason=f"decree {decree.id} cancellation",
+            completed_at=self._clock().astimezone(UTC),
+        )
         await self._bus.emit(
             make_event(
                 "decree.cancelled",

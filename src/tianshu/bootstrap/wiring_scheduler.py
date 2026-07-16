@@ -30,7 +30,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from uuid import uuid4
 
@@ -66,11 +65,16 @@ def _require_restart_safe_legacy_plan(storage, connection, event: EventEnvelope)
         )
     state = storage.run_state_repo.load(connection, event.memorial_id)
     record = storage.decision_repo.get(connection, decision_id)
+    root = connection.execute(
+        "SELECT edict_id FROM memorials WHERE id=?",
+        (event.memorial_id,),
+    ).fetchone()
     binding_error = PlanReviewAttemptCoordinator._binding_error(  # noqa: SLF001
         state=state,
         record=record,
         memorial_id=event.memorial_id,
         decision_id=decision_id,
+        memorial_edict_id=str(root["edict_id"]) if root is not None else None,
     )
     if binding_error is not None:
         raise RuntimeError(
@@ -173,6 +177,8 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
     # --- Durable managed execution ---
     production_runner = ProductionRunRunner(planner, executor)
     fenced_completion = FencedRunCompletion(storage.unit_of_work, storage.attempt_repo)
+    executor.set_fenced_completion(fenced_completion)
+    app.state.approval_manager.set_fenced_completion(fenced_completion)
     production_completer = ProductionAttemptCompleter(
         fenced_completion,
         storage.attempt_repo,
@@ -211,6 +217,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         storage=storage,
         scheduled_run_preparer=scheduled_run_preparer,
         run_reconciler=run_reconciler,
+        run_cancellation=fenced_completion,
     )
     app.state.scheduler = scheduler
 
@@ -235,32 +242,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
 
     async def _adopt_legacy_execution_event(event: EventEnvelope) -> None:
         """Turn pre-4B pending chain events into durable attempt work."""
-        if event.memorial_id is None:
-            return
-        with storage.unit_of_work() as unit_of_work:
-            connection = unit_of_work.connection
-            _require_restart_safe_legacy_plan(storage, connection, event)
-            root = connection.execute(
-                "SELECT dag_node_id, status FROM memorials WHERE id=? AND edict_id=?",
-                (event.memorial_id, event.edict_id),
-            ).fetchone()
-            if root is None or root["dag_node_id"] is not None:
-                unit_of_work.commit()
-                return
-            existing = connection.execute(
-                "SELECT 1 FROM execution_attempts WHERE memorial_id=? LIMIT 1",
-                (event.memorial_id,),
-            ).fetchone()
-            if existing is None and root["status"] not in {"completed", "failed", "cancelled"}:
-                digest = hashlib.sha256(event.event_id.encode()).hexdigest()
-                storage.attempt_repo.enqueue_initial(
-                    connection,
-                    memorial_id=event.memorial_id,
-                    available_at=event.timestamp,
-                    attempt_id=f"legacy-attempt-{digest}",
-                )
-            unit_of_work.commit()
-        await run_reconciler.reconcile_once()
+        await managed_run_ingress.adopt_legacy(event)
 
     for legacy_event_type in ("edict.scheduled", "plan.completed", "edict.resume"):
         event_bus.on(

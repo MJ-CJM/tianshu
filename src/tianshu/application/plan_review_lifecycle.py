@@ -52,11 +52,20 @@ class PlanReviewAttemptCoordinator:
                     if decision_id is not None
                     else None
                 )
+                memorial = connection.execute(
+                    "SELECT edict_id, dag_node_id FROM memorials WHERE id=?",
+                    (row["memorial_id"],),
+                ).fetchone()
                 binding_error = self._binding_error(
                     state=state,
                     record=record,
                     memorial_id=str(row["memorial_id"]),
                     decision_id=decision_id,
+                    memorial_edict_id=(
+                        str(memorial["edict_id"])
+                        if memorial is not None and memorial["dag_node_id"] is None
+                        else None
+                    ),
                 )
                 if binding_error is not None:
                     self._terminalize(
@@ -148,6 +157,7 @@ class PlanReviewAttemptCoordinator:
         record: DecisionRecordV1 | None,
         memorial_id: str,
         decision_id: str | None,
+        memorial_edict_id: str | None,
     ) -> str | None:
         if state is None or record is None or decision_id is None:
             return "missing"
@@ -157,6 +167,8 @@ class PlanReviewAttemptCoordinator:
             or request.kind is not DecisionKind.PLAN_REVIEW
             or request.memorial_id != memorial_id
             or request.edict_id != state.edict_id
+            or memorial_edict_id is None
+            or request.edict_id != memorial_edict_id
         ):
             return "identity"
         continuation = state.continuation
@@ -251,7 +263,46 @@ class PlanReviewAttemptCoordinator:
         )
         if cursor.rowcount != 1:
             raise RuntimeError("plan review attempt changed during terminalization")
-        edict_id = state.edict_id if state is not None else "unknown"
+        memorial = connection.execute(
+            "SELECT edict_id FROM memorials WHERE id=? AND dag_node_id IS NULL",
+            (row["memorial_id"],),
+        ).fetchone()
+        edict_id = str(memorial["edict_id"]) if memorial is not None else "unknown"
+        state = self._storage.run_state_repo.load(connection, str(row["memorial_id"]))
+        if state is not None:
+            continuation = state.continuation
+            if continuation.pending_decision_id is not None:
+                continuation = continuation.model_copy(update={"pending_decision_id": None})
+            terminal = state.model_copy(
+                update={
+                    "phase": RunPhase.FAILED,
+                    "continuation": continuation,
+                    "updated_at": max(now, state.updated_at),
+                }
+            )
+            if state.edict_id == edict_id:
+                self._storage.run_state_repo.compare_and_swap(
+                    connection,
+                    terminal,
+                    expected_version=state.version,
+                )
+            else:
+                terminalized = connection.execute(
+                    """
+                    UPDATE run_states
+                    SET phase='failed', continuation_json=?, version=version + 1,
+                        updated_at=?
+                    WHERE memorial_id=? AND version=?
+                    """,
+                    (
+                        canonical_json_bytes(terminal.continuation).decode("utf-8"),
+                        terminal.updated_at.isoformat(),
+                        row["memorial_id"],
+                        state.version,
+                    ),
+                )
+                if terminalized.rowcount != 1:
+                    raise RuntimeError("plan review RunState changed during terminalization")
         connection.execute(
             """
             UPDATE memorials

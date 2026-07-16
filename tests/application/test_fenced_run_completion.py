@@ -97,6 +97,44 @@ def _command(
     )
 
 
+def _run_state(*, phase: RunPhase = RunPhase.EXECUTING) -> RunStateV1:
+    created_at = _NOW - timedelta(seconds=1)
+    return RunStateV1(
+        memorial_id="root-1",
+        edict_id="edict-1",
+        phase=phase,
+        continuation=AgentContinuationV1(
+            messages=(),
+            pending_tool=None,
+            iteration=0,
+            usage=PersistedUsageSummaryV1(
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                cache_read_tokens=0,
+                cost_cny=0,
+                actual_model=None,
+                upstream_provider=None,
+            ),
+            checkpoint_ref=None,
+            pending_decision_id=None,
+            resolved_decision_id=None,
+            side_effect_cursor=0,
+        ),
+        checkpoint_ref=None,
+        side_effect_cursor=0,
+        version=1,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+
+
+def _save_run_state(storage: Storage) -> None:
+    with storage.unit_of_work() as unit_of_work:
+        storage.run_state_repo.create(unit_of_work.connection, _run_state())
+        unit_of_work.commit()
+
+
 def _snapshot(storage: Storage) -> tuple[object, ...]:
     memorial = storage.get_memorial("root-1")
     assert memorial is not None
@@ -209,6 +247,7 @@ def test_terminal_root_cannot_be_overwritten_by_stale_success(tmp_path: Path) ->
 
 def test_cancellation_revokes_current_authority_with_root_projection(tmp_path: Path) -> None:
     storage, authority = _claimed(tmp_path / "cancel-authority.db")
+    _save_run_state(storage)
     completion = FencedRunCompletion(storage.unit_of_work, storage.attempt_repo)
     try:
         assert completion.cancel_root(
@@ -234,6 +273,53 @@ def test_cancellation_revokes_current_authority_with_root_projection(tmp_path: P
         )
         with pytest.raises(AttemptFenceLost):
             completion.complete(_command(authority))
+        state = storage.run_state_repo.load(storage._conn, "root-1")  # noqa: SLF001
+        assert state is not None
+        assert state.phase is RunPhase.FAILED
+        assert state.version == 2
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    ["after_attempt", "after_memorial", "after_run_state", "after_outbox"],
+)
+def test_cancellation_failure_rolls_back_attempt_root_run_state_and_outbox(
+    tmp_path: Path,
+    boundary: str,
+) -> None:
+    storage, authority = _claimed(tmp_path / f"cancel-rollback-{boundary}.db")
+    _save_run_state(storage)
+    before = (
+        _snapshot(storage),
+        storage.run_state_repo.load(storage._conn, "root-1"),  # noqa: SLF001
+    )
+
+    def fail_at(observed: str) -> None:
+        if observed == boundary:
+            raise RuntimeError("injected cancellation failure")
+
+    try:
+        with pytest.raises(RuntimeError, match="injected cancellation failure"):
+            FencedRunCompletion(
+                storage.unit_of_work,
+                storage.attempt_repo,
+                boundary_hook=fail_at,
+            ).cancel_root("root-1", reason="operator request", completed_at=_NOW)
+        assert _snapshot(storage) == before[0]
+        assert storage.run_state_repo.load(storage._conn, "root-1") == before[1]  # noqa: SLF001
+        with pytest.raises(AttemptFenceLost):
+            FencedRunCompletion(storage.unit_of_work, storage.attempt_repo).complete(
+                _command(
+                    AttemptAuthority(
+                        attempt_id=authority.attempt_id,
+                        memorial_id=authority.memorial_id,
+                        owner_id="wrong-owner",
+                        fencing_token=authority.fencing_token,
+                    )
+                )
+            )
     finally:
         storage.close()
 
@@ -414,6 +500,23 @@ def test_current_fence_projects_optional_run_state_in_same_transaction(tmp_path:
         with storage.unit_of_work() as unit_of_work:
             durable = storage.run_state_repo.load(unit_of_work.connection, "root-1")
             unit_of_work.commit()
+        assert durable is not None
+        assert durable.phase is RunPhase.COMPLETED
+        assert durable.version == 2
+    finally:
+        storage.close()
+
+
+def test_completion_loads_and_cas_terminal_run_state_without_caller_snapshot(
+    tmp_path: Path,
+) -> None:
+    storage, authority = _claimed(tmp_path / "automatic-run-state.db")
+    _save_run_state(storage)
+    try:
+        FencedRunCompletion(storage.unit_of_work, storage.attempt_repo).complete(
+            _command(authority)
+        )
+        durable = storage.run_state_repo.load(storage._conn, "root-1")  # noqa: SLF001
         assert durable is not None
         assert durable.phase is RunPhase.COMPLETED
         assert durable.version == 2

@@ -130,21 +130,25 @@ class EdictBridge:
         if current_edict_id:
             edict = self._storage.get_edict(current_edict_id)
             if edict and edict.status not in CLOSED_STATES:
-                memorials = self._storage.list_memorials_by_edict(edict.id)
-                has_active = any(
-                    m.status in (TaskStatus.SUBMITTED, TaskStatus.RUNNING) for m in memorials
-                )
-                if has_active:
-                    raise EdictBusyError(f"敕令 #{edict.id[:8]} 仍在处理中，请等待完成后再继续")
                 if source_message_id is None or not source_message_id.strip():
                     raise ValueError("channel follow-up requires a stable source_message_id")
-                memorial_id = await self._follow_up(
-                    edict,
-                    text,
-                    sender_open_id,
-                    memorials,
-                    idempotency_key=(f"{self._channel}:{self._instance_id}:{source_message_id}"),
-                )
+                try:
+                    memorial_id = await self._follow_up(
+                        edict,
+                        text,
+                        sender_open_id,
+                        idempotency_key=(
+                            f"{self._channel}:{self._instance_id}:{source_message_id}"
+                        ),
+                    )
+                except RuntimeError as exc:
+                    from tianshu.application.managed_run_ingress import ManagedRunBusy
+
+                    if not isinstance(exc, ManagedRunBusy):
+                        raise
+                    raise EdictBusyError(
+                        f"敕令 #{edict.id[:8]} 仍在处理中，请等待完成后再继续"
+                    ) from exc
                 return EdictBridgeResult(edict_id=edict.id, memorial_id=memorial_id)
             # X1：已结案 → 自动新建（无感）
             logger.info(
@@ -299,12 +303,10 @@ class EdictBridge:
         edict: Edict,
         text: str,
         sender_open_id: str,
-        prev_memorials: list[Memorial],
         *,
         idempotency_key: str,
     ) -> str:
         """对应 gateway.api.follow_up_edict 的核心逻辑（无 HTTP 层）。返回 memorial_id。"""
-        del prev_memorials
         from tianshu.application.managed_run_ingress import ManagedRunCommand
 
         ingress = self._executor.managed_run_ingress
@@ -315,14 +317,6 @@ class EdictBridge:
                 edict_id=edict.id,
                 idempotency_key=idempotency_key,
                 instruction=text,
-                parent_memorial_id=next(
-                    (
-                        item.id
-                        for item in reversed(self._storage.list_memorials_by_edict(edict.id))
-                        if item.dag_node_id is None
-                    ),
-                    None,
-                ),
                 event_type="followup.submitted",
                 event_payload={
                     "instruction": text,
