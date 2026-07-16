@@ -8,7 +8,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from tianshu.models.canonical import JsonValue, canonical_sha256
+from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
 from tianshu.security.sensitive_payload import contains_raw_sensitive_payload
 
 
@@ -32,6 +32,11 @@ _SUPPORTED_PROVIDER_SEMANTICS = frozenset(
         SideEffectSemantics.RECEIPT_LOOKUP,
     }
 )
+_MAX_METADATA_DEPTH = 4
+_MAX_METADATA_BYTES = 16384
+_MAX_METADATA_KEYS = 32
+_MAX_METADATA_ITEMS = 64
+_MAX_METADATA_TEXT_LENGTH = 4096
 
 
 def _normalize_utc(value: datetime) -> datetime:
@@ -53,7 +58,32 @@ def _optional_non_blank(value: str | None) -> str | None:
 def _require_safe_metadata(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
     if contains_raw_sensitive_payload(value):
         raise ValueError("raw secret is not allowed in side-effect metadata")
+    if len(canonical_json_bytes(value)) > _MAX_METADATA_BYTES:
+        raise ValueError("side-effect metadata is too large")
+    _validate_metadata_shape(value, depth=0)
     return value
+
+
+def _validate_metadata_shape(value: JsonValue, *, depth: int) -> None:
+    if depth > _MAX_METADATA_DEPTH:
+        raise ValueError("side-effect metadata exceeds maximum depth")
+    if isinstance(value, str):
+        if len(value) > _MAX_METADATA_TEXT_LENGTH:
+            raise ValueError("side-effect metadata text is too large")
+        return
+    if isinstance(value, list):
+        if len(value) > _MAX_METADATA_ITEMS:
+            raise ValueError("side-effect metadata list is too large")
+        for item in value:
+            _validate_metadata_shape(item, depth=depth + 1)
+        return
+    if isinstance(value, dict):
+        if len(value) > _MAX_METADATA_KEYS:
+            raise ValueError("side-effect metadata has too many keys")
+        for key, item in value.items():
+            if len(key) > _MAX_METADATA_TEXT_LENGTH:
+                raise ValueError("side-effect metadata key is too large")
+            _validate_metadata_shape(item, depth=depth + 1)
 
 
 def _identity_payload(

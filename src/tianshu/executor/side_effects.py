@@ -147,6 +147,7 @@ class ManagedSideEffectService:
         authority: AttemptAuthority,
         requested: SideEffectIntentV1,
     ) -> SideEffectIntentV1:
+        self._require_authority_matches_requested(authority, requested)
         with self._storage.unit_of_work() as unit_of_work:
             existing = self._storage.side_effect_journal.load_by_position_current(
                 unit_of_work.connection,
@@ -154,7 +155,6 @@ class ManagedSideEffectService:
                 sequence_no=requested.sequence_no,
             )
             if existing is None:
-                self._require_authority_matches_requested(authority, requested)
                 durable = self._storage.side_effect_journal.begin_intent_current(
                     unit_of_work.connection,
                     requested,
@@ -405,11 +405,15 @@ class ManagedSideEffectService:
             and existing.effect_id == requested.effect_id
             and existing.edict_id == requested.edict_id
             and existing.memorial_id == requested.memorial_id
+            and existing.attempt_id == requested.attempt_id
+            and existing.owner_id == requested.owner_id
+            and existing.fencing_token == requested.fencing_token
             and existing.sequence_no == requested.sequence_no
             and existing.boundary == requested.boundary
             and existing.operation == requested.operation
             and existing.semantics is requested.semantics
             and existing.request_hash == requested.request_hash
+            and existing.intent_hash == requested.intent_hash
             and existing.provider_idempotency_key == requested.provider_idempotency_key
         )
 

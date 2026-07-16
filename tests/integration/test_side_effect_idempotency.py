@@ -168,6 +168,33 @@ def _seed(storage: Storage) -> tuple[AttemptAuthority, RunStateV1]:
     )
 
 
+def _seed_other_root(storage: Storage) -> AttemptAuthority:
+    storage.save_edict(Edict(id="edict-2", goal="attack"))
+    storage.save_memorial(
+        Memorial(id="memorial-2", edict_id="edict-2", status=TaskStatus.RUNNING)
+    )
+    with storage.unit_of_work() as unit_of_work:
+        storage.attempt_repo.enqueue_initial(
+            unit_of_work.connection,
+            memorial_id="memorial-2",
+            available_at=_NOW,
+        )
+        unit_of_work.commit()
+    claimed = storage.attempt_repo.claim(
+        memorial_id="memorial-2",
+        owner_id="worker-2",
+        now=_NOW + timedelta(seconds=1),
+        lease_seconds=60,
+    )
+    assert claimed is not None and claimed.owner_id is not None
+    return AttemptAuthority(
+        attempt_id=claimed.attempt_id,
+        memorial_id=claimed.memorial_id,
+        owner_id=claimed.owner_id,
+        fencing_token=claimed.fencing_token,
+    )
+
+
 def _intent(
     authority: AttemptAuthority,
     semantics: SideEffectSemantics,
@@ -233,6 +260,43 @@ async def test_crash_after_intent_before_provider_leaves_replayable_intent(
         ).execute(authority, intent, provider)
         assert result.receipt is not None
         assert provider.effective_count == 1
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+async def test_existing_intent_rejects_cross_root_authority_before_provider_call(
+    tmp_path: Path,
+) -> None:
+    storage = _open(tmp_path / "cross-root.db")
+    original_authority, _ = _seed(storage)
+    attacking_authority = _seed_other_root(storage)
+    provider = _Provider(SideEffectSemantics.PROVIDER_IDEMPOTENT, lookup_enabled=False)
+    intent = _intent(original_authority, provider.semantics)
+
+    def stop_after_intent(boundary: str) -> None:
+        if boundary == "after_intent":
+            raise RuntimeError("intent persisted")
+
+    try:
+        with pytest.raises(RuntimeError, match="intent persisted"):
+            await ManagedSideEffectService(
+                storage,
+                DecisionService(storage, clock=_Clock()),
+                clock=_Clock(),
+                boundary_hook=stop_after_intent,
+            ).execute(original_authority, intent, provider)
+        before = storage.side_effect_journal.load_intent(intent.intent_id)
+
+        with pytest.raises(RuntimeError, match="authority conflict"):
+            await ManagedSideEffectService(
+                storage,
+                DecisionService(storage, clock=_Clock()),
+                clock=_Clock(),
+            ).execute(attacking_authority, intent, provider)
+
+        assert provider.invocation_keys == []
+        assert storage.side_effect_journal.load_intent(intent.intent_id) == before
     finally:
         storage.close()
 

@@ -105,6 +105,20 @@ def test_intent_rejects_raw_credentials(metadata: dict[str, object]) -> None:
         _intent(request_metadata=metadata)
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"body": "x" * 4097},
+        {f"part-{index}": "x" * 4096 for index in range(5)},
+        {f"key-{index}": index for index in range(33)},
+        {"level-1": {"level-2": {"level-3": {"level-4": {"level-5": True}}}}},
+    ],
+)
+def test_intent_rejects_unbounded_metadata(metadata: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match="metadata"):
+        _intent(request_metadata=metadata)
+
+
 def test_intent_rejects_hash_identity_and_capability_mismatch() -> None:
     intent = _intent()
     with pytest.raises(ValidationError, match="request_hash"):
@@ -151,3 +165,8 @@ def test_receipt_is_strict_bound_hashed_redacted_and_utc() -> None:
         _receipt(intent, recorded_at=_NOW)
     with pytest.raises(ValidationError):
         SideEffectReceiptV1.model_validate(receipt.model_dump() | {"provider_payload": {}})
+
+
+def test_receipt_rejects_unbounded_metadata() -> None:
+    with pytest.raises(ValidationError, match="metadata"):
+        _receipt(_intent(), result_metadata={"body": "x" * 4097})
