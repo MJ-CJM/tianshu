@@ -178,6 +178,7 @@ class RunDispatcher:
     async def stop(self) -> None:
         """Stop new claims, drain briefly, then cancel remaining supervised work."""
         self._stop_requested = True
+        self._reap_completed_tasks()
         active = {task for task in self._tasks.values() if not task.done()}
         if not active:
             return
@@ -194,9 +195,10 @@ class RunDispatcher:
                 pending,
                 timeout=max(deadline - loop.time(), 0),
             )
+        self._reap_completed_tasks()
+        pending = {task for task in pending if not task.done()}
         if pending:
             raise RunShutdownTimeout("supervised run did not stop before shutdown deadline")
-        await asyncio.sleep(0)
 
     async def _execute(self, authority: AttemptAuthority) -> None:
         runner_task: asyncio.Task[AttemptRunResult] = asyncio.create_task(
@@ -265,6 +267,20 @@ class RunDispatcher:
             self._idle_event.set()
         if not task.cancelled():
             task.exception()
+
+    def _reap_completed_tasks(self) -> None:
+        for attempt_id, task in tuple(self._tasks.items()):
+            if not task.done():
+                continue
+            if self._tasks.get(attempt_id) is task:
+                self._tasks.pop(attempt_id, None)
+            for memorial_id, memorial_task in tuple(self._memorial_tasks.items()):
+                if memorial_task is task:
+                    self._memorial_tasks.pop(memorial_id, None)
+            if not task.cancelled():
+                task.exception()
+        if not self._tasks:
+            self._idle_event.set()
 
 
 def _positive_finite(value: float, field: str) -> float:

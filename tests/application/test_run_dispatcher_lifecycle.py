@@ -16,6 +16,7 @@ from tianshu.application.run_dispatcher import (
 )
 from tianshu.application.run_reconciler import RunReconciler
 from tianshu.models import Edict, Memorial
+from tianshu.models.attempt import AttemptDisposition
 from tianshu.storage import Storage
 
 _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
@@ -163,6 +164,110 @@ async def test_shutdown_is_bounded_cancels_remainder_and_leaves_lease(tmp_path: 
         release.set()
         if not dispatcher.is_stopped:
             await dispatcher.stop()
+        storage.close()
+
+
+@pytest.mark.asyncio
+async def test_stop_reaps_fast_runner_done_before_tracking_callback(tmp_path: Path) -> None:
+    storage = _open_seeded(tmp_path / "done-before-callback.db")
+
+    async def quick_runner(authority: AttemptAuthority) -> AttemptRunResult:
+        del authority
+        return AttemptRunResult(disposition=AttemptDisposition.SUCCEEDED)
+
+    dispatcher = RunDispatcher(
+        storage.attempt_repo,
+        quick_runner,
+        owner_id="worker",
+        clock=lambda: _NOW,
+    )
+    callback_deferred = asyncio.Event()
+    captured: list[tuple[str, str, asyncio.Task[None]]] = []
+    original_observer = dispatcher._observe_task  # noqa: SLF001
+
+    def defer_observer(
+        attempt_id: str,
+        memorial_id: str,
+        task: asyncio.Task[None],
+    ) -> None:
+        captured.append((attempt_id, memorial_id, task))
+        callback_deferred.set()
+
+    try:
+        assert await dispatcher.dispatch("memorial-1")
+        dispatcher._observe_task = defer_observer  # type: ignore[method-assign]  # noqa: SLF001
+        await callback_deferred.wait()
+        assert len(captured) == 1
+        attempt_id, memorial_id, completed = captured[0]
+        assert completed.done()
+        assert dispatcher._tasks == {attempt_id: completed}  # noqa: SLF001
+        assert dispatcher._memorial_tasks == {memorial_id: completed}  # noqa: SLF001
+        assert not dispatcher._idle_event.is_set()  # noqa: SLF001
+        dispatcher._observe_task = original_observer  # type: ignore[method-assign]  # noqa: SLF001
+
+        await dispatcher.stop()
+
+        assert dispatcher.is_stopped
+        assert dispatcher.active_count == 0
+        assert dispatcher._tasks == {}  # noqa: SLF001
+        assert dispatcher._memorial_tasks == {}  # noqa: SLF001
+        assert dispatcher._idle_event.is_set()  # noqa: SLF001
+        async with asyncio.timeout(0.01):
+            await dispatcher.wait_until_idle()
+    finally:
+        dispatcher._observe_task = original_observer  # type: ignore[method-assign]  # noqa: SLF001
+        await dispatcher.stop()
+        storage.close()
+
+
+@pytest.mark.asyncio
+async def test_stop_observes_done_runner_exception_when_callback_is_deferred(
+    tmp_path: Path,
+) -> None:
+    storage = _open_seeded(tmp_path / "done-exception.db")
+
+    async def failing_runner(authority: AttemptAuthority) -> AttemptRunResult:
+        del authority
+        raise RuntimeError("runner failed")
+
+    dispatcher = RunDispatcher(
+        storage.attempt_repo,
+        failing_runner,
+        owner_id="worker",
+        clock=lambda: _NOW,
+    )
+    callback_deferred = asyncio.Event()
+    captured: list[asyncio.Task[None]] = []
+    original_observer = dispatcher._observe_task  # noqa: SLF001
+
+    def defer_observer(
+        attempt_id: str,
+        memorial_id: str,
+        task: asyncio.Task[None],
+    ) -> None:
+        del attempt_id, memorial_id
+        captured.append(task)
+        callback_deferred.set()
+
+    try:
+        assert await dispatcher.dispatch("memorial-1")
+        dispatcher._observe_task = defer_observer  # type: ignore[method-assign]  # noqa: SLF001
+        await callback_deferred.wait()
+        assert len(captured) == 1
+        completed = captured[0]
+        assert completed.done()
+        assert completed._log_traceback  # type: ignore[attr-defined]  # noqa: SLF001
+        dispatcher._observe_task = original_observer  # type: ignore[method-assign]  # noqa: SLF001
+
+        await dispatcher.stop()
+
+        assert not completed._log_traceback  # type: ignore[attr-defined]  # noqa: SLF001
+        assert dispatcher.is_stopped
+        assert dispatcher._tasks == {}  # noqa: SLF001
+        assert dispatcher._memorial_tasks == {}  # noqa: SLF001
+    finally:
+        dispatcher._observe_task = original_observer  # type: ignore[method-assign]  # noqa: SLF001
+        await dispatcher.stop()
         storage.close()
 
 
