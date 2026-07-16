@@ -10,6 +10,7 @@ import pytest
 
 from tianshu.bootstrap.wiring_scheduler import wire_scheduling
 from tianshu.models import DAGExecution, DAGNode, DAGNodeStatus, Edict, Memorial, TaskStatus
+from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.events import EventEnvelope
 
 _NOW = datetime(2026, 7, 16, 13, tzinfo=UTC)
@@ -144,6 +145,54 @@ async def test_legacy_consumer_delegates_event_owned_adoption_to_ingress(storage
     source = inspect.getsource(wire_scheduling)
     assert "attempt_repo.enqueue_initial" not in source
     assert "managed_run_ingress.adopt_legacy" in source
+
+
+async def test_terminal_legacy_replay_requires_exact_canonical_envelope(storage) -> None:
+    _ManagedRunCommand, ManagedRunIngress = _boundary_types()
+    storage.save_edict(Edict(id="edict-1", goal="work"))
+    storage.save_memorial(Memorial(id="root-1", edict_id="edict-1"))
+    ingress = ManagedRunIngress(storage, _Reconciler(), clock=lambda: _NOW)
+    event = EventEnvelope(
+        event_id="legacy-scheduled-1",
+        event_type="edict.scheduled",
+        edict_id="edict-1",
+        memorial_id="root-1",
+        timestamp=_NOW,
+        producer="legacy",
+        payload={"goal": "work"},
+    )
+    first = await ingress.adopt_legacy(event)
+    claimed = storage.attempt_repo.claim(
+        memorial_id="root-1",
+        owner_id="worker-1",
+        now=_NOW,
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    assert storage.attempt_repo.complete(
+        attempt_id=claimed.attempt_id,
+        owner_id="worker-1",
+        fencing_token=claimed.fencing_token,
+        outcome=AttemptOutcomeV1(
+            disposition=AttemptDisposition.SUCCEEDED,
+            completed_at=_NOW,
+        ),
+    )
+    root = storage.get_memorial("root-1")
+    assert root is not None
+    root.status = TaskStatus.COMPLETED
+    root.completed_at = _NOW
+    storage.update_memorial(root)
+
+    replay = await ingress.adopt_legacy(event)
+
+    assert replay.attempt_id == first.attempt_id
+    assert replay.memorial.status is TaskStatus.COMPLETED
+    assert replay.deduplicated is True
+    with pytest.raises(RuntimeError, match="conflict"):
+        await ingress.adopt_legacy(event.model_copy(update={"event_id": "legacy-scheduled-2"}))
+    with pytest.raises(RuntimeError, match="conflict"):
+        await ingress.adopt_legacy(event.model_copy(update={"payload": {"goal": "forged"}}))
 
 
 async def test_follow_up_exact_replay_precedes_busy_check_and_parent_selection(storage) -> None:

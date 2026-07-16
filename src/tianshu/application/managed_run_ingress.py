@@ -207,7 +207,7 @@ class ManagedRunIngress:
             raise ValueError("unsupported legacy managed event")
         if not event.event_id.strip() or event.memorial_id is None or event.edict_id is None:
             raise ValueError("legacy managed event identity is incomplete")
-        digest = hashlib.sha256(event.event_id.encode()).hexdigest()
+        digest = canonical_sha256(event)
         requested_attempt_id = f"legacy-attempt-{digest}"
         with self._storage.unit_of_work() as unit_of_work:
             connection = unit_of_work.connection
@@ -223,10 +223,6 @@ class ManagedRunIngress:
             ).fetchone()
             if root is None or root["dag_node_id"] is not None:
                 raise RuntimeError("legacy managed root is unavailable")
-            if root["status"] in {"completed", "failed", "cancelled"}:
-                raise RuntimeError("legacy managed root is already terminal")
-            if event.event_type == "plan.completed":
-                self._require_restart_safe_legacy_plan(connection, event)
             existing = connection.execute(
                 """
                 SELECT attempt_id FROM execution_attempts
@@ -235,14 +231,19 @@ class ManagedRunIngress:
                 (event.memorial_id,),
             ).fetchone()
             runtime = EdictRuntime.model_validate(json.loads(str(root["runtime_json"])))
+            if existing is not None and existing["attempt_id"] != requested_attempt_id:
+                raise RuntimeError("legacy managed event conflicts with prior adoption")
+            if existing is None:
+                if root["status"] in {"completed", "failed", "cancelled"}:
+                    raise RuntimeError("legacy managed root is already terminal")
+                if event.event_type == "plan.completed":
+                    self._require_restart_safe_legacy_plan(connection, event)
             attempt = self._storage.attempt_repo.enqueue_initial(
                 connection,
                 memorial_id=event.memorial_id,
                 available_at=event.timestamp.astimezone(UTC),
                 max_attempts=runtime.retry_limit + 1,
-                attempt_id=(
-                    requested_attempt_id if existing is None else str(existing["attempt_id"])
-                ),
+                attempt_id=requested_attempt_id,
             )
             unit_of_work.commit()
         durable = self._storage.get_memorial(event.memorial_id)
