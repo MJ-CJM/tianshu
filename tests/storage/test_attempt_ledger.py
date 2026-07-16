@@ -20,7 +20,11 @@ from tianshu.models.attempt import (
 )
 from tianshu.models.canonical import RedactedError
 from tianshu.storage import Storage
-from tianshu.storage.attempt_ledger import AttemptConflict, AttemptDecodeError
+from tianshu.storage.attempt_ledger import (
+    AttemptConflict,
+    AttemptDecodeError,
+    AttemptFenceLost,
+)
 
 _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
 
@@ -574,5 +578,125 @@ def test_failure_persistence_is_redacted_and_never_serializes_extra_details(tmp_
         ).fetchone()[0]
         assert json.loads(raw) == error.model_dump(mode="json")
         assert "secret" not in raw
+    finally:
+        storage.close()
+
+
+def test_list_dispatchable_memorials_is_due_read_only_and_deterministic(tmp_path: Path) -> None:
+    storage = _open(tmp_path / "dispatchable.db")
+    storage.save_edict(Edict(id="edict-1", goal="test"))
+    memorial_ids = (
+        "expired",
+        "due-a",
+        "due-b",
+        "future",
+        "unexpired",
+        "suspended",
+        "terminal",
+    )
+    for memorial_id in memorial_ids:
+        storage.save_memorial(Memorial(id=memorial_id, edict_id="edict-1", attempt=1))
+    with storage.unit_of_work() as uow:
+        available = {
+            "expired": _NOW - timedelta(seconds=4),
+            "due-a": _NOW - timedelta(seconds=3),
+            "due-b": _NOW - timedelta(seconds=2),
+            "future": _NOW + timedelta(seconds=1),
+            "unexpired": _NOW - timedelta(seconds=5),
+            "suspended": _NOW - timedelta(seconds=6),
+            "terminal": _NOW - timedelta(seconds=7),
+        }
+        for memorial_id in memorial_ids:
+            storage.attempt_repo.enqueue_initial(
+                uow.connection,
+                memorial_id=memorial_id,
+                available_at=available[memorial_id],
+            )
+        uow.connection.execute(
+            """
+            UPDATE execution_attempts
+            SET status='claimed', owner_id='old-worker', fencing_token=1,
+                heartbeat_at=?, lease_expires_at=?
+            WHERE memorial_id='expired'
+            """,
+            (
+                (_NOW - timedelta(seconds=31)).isoformat(),
+                (_NOW - timedelta(seconds=1)).isoformat(),
+            ),
+        )
+        uow.connection.execute(
+            """
+            UPDATE execution_attempts
+            SET status='claimed', owner_id='live-worker', fencing_token=1,
+                heartbeat_at=?, lease_expires_at=?
+            WHERE memorial_id='unexpired'
+            """,
+            (_NOW.isoformat(), (_NOW + timedelta(seconds=30)).isoformat()),
+        )
+        uow.connection.execute(
+            "UPDATE execution_attempts SET status='suspended' WHERE memorial_id='suspended'"
+        )
+        uow.connection.execute(
+            "UPDATE execution_attempts SET status='succeeded' WHERE memorial_id='terminal'"
+        )
+        uow.commit()
+
+    try:
+        before = storage._conn.total_changes  # noqa: SLF001
+        assert storage.attempt_repo.list_dispatchable_memorial_ids(now=_NOW, limit=2) == (
+            "expired",
+            "due-a",
+        )
+        assert storage.attempt_repo.list_dispatchable_memorial_ids(now=_NOW, limit=10) == (
+            "expired",
+            "due-a",
+            "due-b",
+        )
+        assert storage._conn.total_changes == before  # noqa: SLF001
+    finally:
+        storage.close()
+
+
+def test_require_current_fails_closed_for_stale_expired_and_rollback_authority(
+    tmp_path: Path,
+) -> None:
+    storage = _open(tmp_path / "require-current.db")
+    _seed(storage)
+    with storage.unit_of_work() as uow:
+        storage.attempt_repo.enqueue_initial(
+            uow.connection,
+            memorial_id="memorial-1",
+            available_at=_NOW,
+        )
+        uow.commit()
+    claimed = _claim(storage)
+    try:
+        with storage.unit_of_work() as uow:
+            storage.attempt_repo.require_current(
+                uow.connection,
+                attempt_id=claimed.attempt_id,
+                owner_id="worker-1",
+                fencing_token=claimed.fencing_token,
+                now=_NOW,
+            )
+            for values in (
+                {"attempt_id": "missing"},
+                {"owner_id": "stale-worker"},
+                {"fencing_token": claimed.fencing_token + 1},
+                {"now": _NOW - timedelta(microseconds=1)},
+                {"now": claimed.lease_expires_at},
+            ):
+                arguments = {
+                    "attempt_id": claimed.attempt_id,
+                    "owner_id": "worker-1",
+                    "fencing_token": claimed.fencing_token,
+                    "now": _NOW,
+                }
+                arguments.update(values)
+                with pytest.raises(AttemptFenceLost, match="no longer current") as error:
+                    storage.attempt_repo.require_current(uow.connection, **arguments)  # type: ignore[arg-type]
+                assert claimed.attempt_id not in str(error.value)
+                assert "worker-1" not in str(error.value)
+            uow.commit()
     finally:
         storage.close()

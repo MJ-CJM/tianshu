@@ -28,6 +28,10 @@ class AttemptConflict(AttemptRepositoryError):
     """The requested attempt transition conflicts with durable state."""
 
 
+class AttemptFenceLost(AttemptConflict):
+    """The supplied execution authority is no longer current."""
+
+
 class AttemptDecodeError(AttemptRepositoryError):
     """A persisted attempt does not satisfy the strict v1 contract."""
 
@@ -188,6 +192,73 @@ class AttemptLeaseRepository:
         if created is None:  # pragma: no cover - successful insert preserves the primary key
             raise AttemptConflict("initial attempt disappeared")
         return created
+
+    def list_dispatchable_memorial_ids(
+        self,
+        *,
+        now: datetime,
+        limit: int,
+    ) -> tuple[str, ...]:
+        now = _utc(now)
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        with self._unit_of_work_factory() as unit_of_work:
+            rows = unit_of_work.connection.execute(
+                """
+                SELECT memorial_id
+                FROM execution_attempts
+                WHERE (status = 'claimable' AND available_at <= ?)
+                   OR (status = 'claimed' AND lease_expires_at <= ?)
+                ORDER BY available_at, created_at, attempt_id
+                LIMIT ?
+                """,
+                (now.isoformat(), now.isoformat(), limit),
+            ).fetchall()
+            unit_of_work.commit()
+        return tuple(str(row["memorial_id"]) for row in rows)
+
+    def require_current(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        attempt_id: str,
+        owner_id: str,
+        fencing_token: int,
+        now: datetime,
+    ) -> None:
+        _non_blank(attempt_id, field="attempt_id")
+        _non_blank(owner_id, field="owner_id")
+        if type(fencing_token) is not int or fencing_token <= 0:
+            raise ValueError("fencing_token must be a positive integer")
+        now = _utc(now)
+        row = connection.execute(
+            """
+            SELECT status, owner_id, fencing_token, heartbeat_at, lease_expires_at
+            FROM execution_attempts
+            WHERE attempt_id = ?
+            """,
+            (attempt_id,),
+        ).fetchone()
+        try:
+            heartbeat_at = (
+                datetime.fromisoformat(str(row["heartbeat_at"])) if row is not None else None
+            )
+            lease_expires_at = (
+                datetime.fromisoformat(str(row["lease_expires_at"])) if row is not None else None
+            )
+        except (TypeError, ValueError) as exc:
+            raise AttemptFenceLost("attempt authority is no longer current") from exc
+        if (
+            row is None
+            or row["status"] != AttemptStatus.CLAIMED.value
+            or row["owner_id"] != owner_id
+            or row["fencing_token"] != fencing_token
+            or heartbeat_at is None
+            or lease_expires_at is None
+            or now < heartbeat_at
+            or now >= lease_expires_at
+        ):
+            raise AttemptFenceLost("attempt authority is no longer current")
 
     def claim(
         self,
@@ -453,6 +524,7 @@ class AttemptLeaseRepository:
 __all__ = [
     "AttemptConflict",
     "AttemptDecodeError",
+    "AttemptFenceLost",
     "AttemptLeaseRepository",
     "AttemptRepositoryError",
 ]

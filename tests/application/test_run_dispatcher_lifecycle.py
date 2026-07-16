@@ -1,0 +1,189 @@
+"""Lifecycle truth and bounded shutdown for durable run dispatch."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+from tianshu.application.run_dispatcher import (
+    AttemptAuthority,
+    AttemptRunResult,
+    RunDispatcher,
+    RunShutdownTimeout,
+)
+from tianshu.application.run_reconciler import RunReconciler
+from tianshu.models import Edict, Memorial
+from tianshu.storage import Storage
+
+_NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
+
+
+class _ProbeRepository:
+    def __init__(self, *, fail_after: int | None = None) -> None:
+        self.calls = 0
+        self.fail_after = fail_after
+
+    def list_dispatchable_memorial_ids(self, **kwargs: object) -> tuple[str, ...]:
+        del kwargs
+        self.calls += 1
+        if self.fail_after is not None and self.calls >= self.fail_after:
+            raise RuntimeError("raw sqlite failure")
+        return ()
+
+    def claim(self, **kwargs: object) -> None:
+        del kwargs
+        raise AssertionError("empty probe must not claim")
+
+    def heartbeat(self, **kwargs: object) -> bool:
+        del kwargs
+        raise AssertionError("empty probe must not heartbeat")
+
+    def complete(self, **kwargs: object) -> bool:
+        del kwargs
+        raise AssertionError("empty probe must not complete")
+
+
+async def _unused_runner(authority: AttemptAuthority) -> AttemptRunResult:
+    del authority
+    raise AssertionError("empty probe must not run")
+
+
+def test_heartbeat_interval_must_be_below_lease_deadline() -> None:
+    repository = _ProbeRepository()
+    with pytest.raises(ValueError, match="below lease_seconds"):
+        RunDispatcher(
+            repository,
+            _unused_runner,
+            owner_id="worker",
+            lease_seconds=10,
+            heartbeat_interval_seconds=10,
+        )
+
+
+@pytest.mark.asyncio
+async def test_readiness_requires_successful_probe_and_live_supervised_loop() -> None:
+    repository = _ProbeRepository()
+    dispatcher = RunDispatcher(repository, _unused_runner, owner_id="worker")
+    reconciler = RunReconciler(
+        repository,
+        dispatcher,
+        poll_interval_seconds=0.01,
+    )
+    assert not reconciler.is_ready
+    await reconciler.start()
+    assert reconciler.is_ready
+    assert reconciler.task is not None and not reconciler.task.done()
+    await reconciler.stop()
+    assert not reconciler.is_ready
+    calls_after_stop = repository.calls
+    await asyncio.sleep(0.03)
+    assert repository.calls == calls_after_stop
+
+
+@pytest.mark.asyncio
+async def test_fatal_scan_exit_clears_readiness_and_records_stable_code() -> None:
+    repository = _ProbeRepository(fail_after=2)
+    dispatcher = RunDispatcher(repository, _unused_runner, owner_id="worker")
+    reconciler = RunReconciler(
+        repository,
+        dispatcher,
+        poll_interval_seconds=0.01,
+    )
+    await reconciler.start()
+    assert reconciler.is_ready
+    assert reconciler.task is not None
+    with pytest.raises(RuntimeError, match="raw sqlite failure"):
+        await reconciler.task
+    assert not reconciler.is_ready
+    assert reconciler.failure_code == "scan_failed"
+    await reconciler.stop()
+
+
+def _open_seeded(path: Path) -> Storage:
+    storage = Storage(str(path))
+    storage.init_db()
+    storage.save_edict(Edict(id="edict-1", goal="test"))
+    storage.save_memorial(Memorial(id="memorial-1", edict_id="edict-1", attempt=1))
+    with storage.unit_of_work() as uow:
+        storage.attempt_repo.enqueue_initial(
+            uow.connection,
+            memorial_id="memorial-1",
+            available_at=_NOW,
+        )
+        uow.commit()
+    return storage
+
+
+@pytest.mark.asyncio
+async def test_shutdown_is_bounded_cancels_remainder_and_leaves_lease(tmp_path: Path) -> None:
+    storage = _open_seeded(tmp_path / "bounded.db")
+    runner_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stubborn_runner(authority: AttemptAuthority) -> AttemptRunResult:
+        del authority
+        runner_started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            await release.wait()
+            raise
+
+    dispatcher = RunDispatcher(
+        storage.attempt_repo,
+        stubborn_runner,
+        owner_id="worker",
+        clock=lambda: _NOW,
+        heartbeat_interval_seconds=29,
+        shutdown_timeout_seconds=0.04,
+    )
+    try:
+        assert await dispatcher.dispatch("memorial-1")
+        await runner_started.wait()
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        with pytest.raises(RunShutdownTimeout, match="did not stop"):
+            await dispatcher.stop()
+        assert loop.time() - started < 0.2
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT status FROM execution_attempts"
+            ).fetchone()[0]
+            == "claimed"
+        )
+        release.set()
+        async with asyncio.timeout(1):
+            await dispatcher.wait_until_idle()
+        await dispatcher.stop()
+        assert dispatcher.is_stopped
+    finally:
+        release.set()
+        if not dispatcher.is_stopped:
+            await dispatcher.stop()
+        storage.close()
+
+
+@pytest.mark.asyncio
+async def test_startup_probe_failure_never_becomes_ready() -> None:
+    repository = _ProbeRepository(fail_after=1)
+    dispatcher = RunDispatcher(repository, _unused_runner, owner_id="worker")
+    reconciler = RunReconciler(repository, dispatcher)
+    with pytest.raises(RuntimeError, match="raw sqlite failure"):
+        await reconciler.start()
+    assert not reconciler.is_ready
+    assert reconciler.failure_code == "startup_probe_failed"
+    await reconciler.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_before_start_is_idempotent_and_never_probes() -> None:
+    repository = _ProbeRepository()
+    dispatcher = RunDispatcher(repository, _unused_runner, owner_id="worker")
+    reconciler = RunReconciler(repository, dispatcher)
+    await reconciler.stop()
+    await reconciler.stop()
+    assert repository.calls == 0
+    assert not reconciler.is_ready
