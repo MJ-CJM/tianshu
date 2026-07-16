@@ -16,6 +16,9 @@ import {
 } from "../../utils/edictPhase";
 import { useT } from "../../i18n";
 import type { Memorial, PendingToolCall } from "../../api/types";
+import { toApiProblem } from "../../api/client";
+import PageDataState from "../states/PageDataState";
+import { problemPageStatus } from "../states/problemPageStatus";
 
 interface PendingViewProps {
   /** 只在「待处置」Tab 激活时开启富化查询（memorial 批量拉取），避免隐藏 Tab 仍轮询 */
@@ -30,13 +33,16 @@ export default function PendingView({ active }: PendingViewProps) {
     ...Object.entries(phaseLabels).map(([value, label]) => ({ value, label })),
   ];
 
-  const { data, isLoading, refetch } = useOpenEdicts(100, active);
+  const edictsQuery = useOpenEdicts(100, active);
+  const { data, isLoading, refetch } = edictsQuery;
   const edicts = data?.data ?? [];
   const edictIds = useMemo(() => edicts.map((e) => e.id), [edicts]);
 
-  const { data: memorialsResp } = useEdictLatestMemorials(edictIds, active);
+  const memorialsQuery = useEdictLatestMemorials(edictIds, active);
+  const memorialsResp = memorialsQuery.data;
   const latestMemorials = memorialsResp?.data ?? {};
-  const { data: pendingToolCalls = [] } = usePendingToolCalls(active);
+  const pendingToolsQuery = usePendingToolCalls(active);
+  const pendingToolCalls = pendingToolsQuery.data ?? [];
 
   const pendingByEdict = useMemo(() => {
     const map = new Map<string, PendingToolCall[]>();
@@ -96,6 +102,28 @@ export default function PendingView({ active }: PendingViewProps) {
         return PHASE_SORT_ORDER[a.phase] - PHASE_SORT_ORDER[b.phase];
       });
   }, [edicts, latestMemorials, pendingByEdict, searchText, phaseFilter]);
+
+  const queryError =
+    edictsQuery.error ?? memorialsQuery.error ?? pendingToolsQuery.error;
+  if (queryError) {
+    const problem = toApiProblem(queryError);
+    const retry = () => {
+      void edictsQuery.refetch();
+      void memorialsQuery.refetch();
+      void pendingToolsQuery.refetch();
+    };
+    return (
+      <PageDataState
+        status={problemPageStatus(problem)}
+        data={null}
+        problem={problem}
+        isEmpty={(values: typeof items) => values.length === 0}
+        onRetry={retry}
+      >
+        {() => null}
+      </PageDataState>
+    );
+  }
 
   return (
     <>

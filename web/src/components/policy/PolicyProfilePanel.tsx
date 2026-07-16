@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Collapse,
   Form,
@@ -12,6 +12,10 @@ import {
 import { SafetyOutlined } from "@ant-design/icons";
 import { fetchPolicyTemplates } from "../../api/policy";
 import type { PolicyTemplate } from "../../api/policy";
+import { toApiProblem } from "../../api/client";
+import type { ApiProblem } from "../../contracts/api";
+import PageDataState from "../states/PageDataState";
+import { problemPageStatus } from "../states/problemPageStatus";
 import { useT } from "../../i18n";
 
 const { Text } = Typography;
@@ -45,13 +49,20 @@ export default function PolicyProfilePanel({
 }: PolicyProfilePanelProps) {
   const t = useT();
   const [templates, setTemplates] = useState<PolicyTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [templatesProblem, setTemplatesProblem] = useState<ApiProblem | null>(null);
   const [local, setLocal] = useState<PolicyProfileValue>(value ?? DEFAULT_VALUE);
 
-  useEffect(() => {
-    fetchPolicyTemplates()
+  const loadTemplates = useCallback(() => {
+    setTemplatesLoading(true);
+    setTemplatesProblem(null);
+    void fetchPolicyTemplates()
       .then(setTemplates)
-      .catch(() => setTemplates([]));
+      .catch((error: unknown) => setTemplatesProblem(toApiProblem(error)))
+      .finally(() => setTemplatesLoading(false));
   }, []);
+
+  useEffect(loadTemplates, [loadTemplates]);
 
   useEffect(() => {
     if (value) {
@@ -90,6 +101,32 @@ export default function PolicyProfilePanel({
       auto_approve_max_tier: tpl.auto_approve_max_tier,
     });
   };
+
+  if (templatesLoading) {
+    return (
+      <PageDataState
+        status="loading"
+        data={null}
+        isEmpty={(items: PolicyTemplate[]) => items.length === 0}
+      >
+        {() => null}
+      </PageDataState>
+    );
+  }
+
+  if (templatesProblem) {
+    return (
+      <PageDataState
+        status={problemPageStatus(templatesProblem)}
+        data={null}
+        problem={templatesProblem}
+        isEmpty={(items: PolicyTemplate[]) => items.length === 0}
+        onRetry={loadTemplates}
+      >
+        {() => null}
+      </PageDataState>
+    );
+  }
 
   return (
     <Collapse

@@ -4,9 +4,13 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { Card, Tag, Collapse, Typography, Space, Empty, Spin } from "antd";
 import { ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined } from "@ant-design/icons";
 import { getOuterLoopIterations } from "../../api/edicts";
+import { toApiProblem } from "../../api/client";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import type { OuterLoopIteration } from "../../api/types";
+import type { ApiProblem } from "../../contracts/api";
 import { useT } from "../../i18n";
+import PageDataState from "../states/PageDataState";
+import { problemPageStatus } from "../states/problemPageStatus";
 
 interface ParsedChecksResult {
   all_passed: boolean;
@@ -57,18 +61,22 @@ export default function OuterLoopTimeline({ edictId }: Props) {
   const t = useT();
   const [rows, setRows] = useState<OuterLoopIteration[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [problem, setProblem] = useState<ApiProblem | null>(null);
   const { lastMessage } = useWebSocket();
 
   const fetchRows = useCallback(() => {
     let cancelled = false;
+    setLoading(true);
+    setProblem(null);
     getOuterLoopIterations(edictId)
       .then((res) => {
         if (cancelled) return;
         setRows(res.data ?? []);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (cancelled) return;
-        setRows([]);
+        setRows(null);
+        setProblem(toApiProblem(error));
       })
       .finally(() => {
         if (cancelled) return;
@@ -106,6 +114,22 @@ export default function OuterLoopTimeline({ edictId }: Props) {
     return (
       <Card size="small" title={t("comp.outerLoop.title")} style={{ marginTop: 16 }}>
         <Spin />
+      </Card>
+    );
+  }
+
+  if (problem) {
+    return (
+      <Card size="small" title={t("comp.outerLoop.title")} style={{ marginTop: 16 }}>
+        <PageDataState
+          status={problemPageStatus(problem)}
+          data={null}
+          problem={problem}
+          isEmpty={(items: OuterLoopIteration[]) => items.length === 0}
+          onRetry={fetchRows}
+        >
+          {() => null}
+        </PageDataState>
       </Card>
     );
   }

@@ -44,6 +44,7 @@
     "permissionDescription": "当前身份缺少所需权限。",
     "unavailableTitle": "服务暂不可用",
     "unavailableDescription": "服务正在恢复，请稍后重试。",
+    "chunkDescription": "页面资源加载失败，请重试。",
     "correlation": "关联标识",
     "retry": "重试"
   },

@@ -44,6 +44,7 @@
     "permissionDescription": "The current identity lacks the required permission.",
     "unavailableTitle": "Service unavailable",
     "unavailableDescription": "The service is recovering. Try again later.",
+    "chunkDescription": "The page resources failed to load. Try again.",
     "correlation": "Correlation ID",
     "retry": "Retry"
   },

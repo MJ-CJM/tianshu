@@ -27,6 +27,7 @@ import {
   type PersonaSummary,
 } from "../../api/tongzheng";
 import { useT, type TFunction } from "../../i18n";
+import { isApiProblem } from "../../api/client";
 
 type ChannelType = "feishu" | "telegram";
 
@@ -90,10 +91,13 @@ function isDefaultInstance(id: string): boolean {
 }
 
 function notifyError(t: TFunction, err: unknown) {
-  const e = err as { response?: { data?: { detail?: string } }; message?: string };
   notification.error({
     message: t("tongzheng.toast.saveFailed"),
-    description: e?.response?.data?.detail ?? e?.message ?? String(err),
+    description: isApiProblem(err)
+      ? err.message
+      : err instanceof Error
+        ? err.message
+        : String(err),
   });
 }
 

@@ -19,6 +19,9 @@ import PageContainer from "../components/common/PageContainer";
 import MonoText from "../components/common/MonoText";
 import { formatTime } from "../utils/format";
 import { useT } from "../i18n";
+import { toApiProblem } from "../api/client";
+import PageDataState from "../components/states/PageDataState";
+import { problemPageStatus } from "../components/states/problemPageStatus";
 
 function DeltaTag({ delta }: { delta: number | null }) {
   const t = useT();
@@ -30,11 +33,28 @@ function DeltaTag({ delta }: { delta: number | null }) {
 
 function RunDetail({ runId }: { runId: string }) {
   const t = useT();
-  const { data, isLoading } = useQuery({
+  const runQuery = useQuery({
     queryKey: ["evals", "run", runId],
     queryFn: () => getEvalRun(runId),
   });
+  const { data, isLoading } = runQuery;
   const run = data?.data;
+  if (runQuery.error) {
+    const problem = toApiProblem(runQuery.error);
+    return (
+      <div style={{ marginTop: 16 }}>
+        <PageDataState
+          status={problemPageStatus(problem)}
+          data={null}
+          problem={problem}
+          isEmpty={(items: EvalGoalResult[]) => items.length === 0}
+          onRetry={() => void runQuery.refetch()}
+        >
+          {() => null}
+        </PageDataState>
+      </div>
+    );
+  }
   if (isLoading || !run) return <Card loading style={{ marginTop: 16 }} />;
 
   const fitness = run.fitness ?? {};
@@ -177,18 +197,43 @@ export default function EvalsPage() {
   const t = useT();
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
-  const { data: runsData, isLoading } = useQuery({
+  const runsQuery = useQuery({
     queryKey: ["evals", "runs"],
     queryFn: () => listEvalRuns(50),
   });
-  const { data: setsData } = useQuery({
+  const setsQuery = useQuery({
     queryKey: ["evals", "sets"],
     queryFn: () => listEvalSets(),
   });
+  const runsData = runsQuery.data;
+  const setsData = setsQuery.data;
+  const isLoading = runsQuery.isLoading;
 
   const runs = runsData?.data ?? [];
   const sets = setsData?.data ?? [];
   const effectiveRunId = selectedRunId ?? runs[0]?.id ?? null;
+
+  const queryError = runsQuery.error ?? setsQuery.error;
+  if (queryError) {
+    const problem = toApiProblem(queryError);
+    const retry = () => {
+      void runsQuery.refetch();
+      void setsQuery.refetch();
+    };
+    return (
+      <PageContainer title={t("evals.title")}>
+        <PageDataState
+          status={problemPageStatus(problem)}
+          data={null}
+          problem={problem}
+          isEmpty={(items: EvalRunBrief[]) => items.length === 0}
+          onRetry={retry}
+        >
+          {() => null}
+        </PageDataState>
+      </PageContainer>
+    );
+  }
 
   const runColumns: ColumnsType<EvalRunBrief> = [
     {

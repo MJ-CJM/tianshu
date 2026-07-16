@@ -5,7 +5,10 @@ import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, Ed
 import { useEdictDetail } from "../hooks/useEdictDetail";
 import { followUpEdict, updateEdictStatus, updateEdict, approvePlan, rejectPlan, pauseEdict, resumeEdict } from "../api/edicts";
 import { submitUniverseFeedback } from "../api/universe";
+import { isApiProblem, toApiProblem } from "../api/client";
 import PageContainer from "../components/common/PageContainer";
+import PageDataState from "../components/states/PageDataState";
+import { problemPageStatus } from "../components/states/problemPageStatus";
 import GlowCard from "../components/common/GlowCard";
 import MonoText from "../components/common/MonoText";
 import SemanticTag from "../components/common/SemanticTag";
@@ -36,7 +39,7 @@ export default function EdictDetailPage() {
   const { edictId } = useParams<{ edictId: string }>();
   const navigate = useNavigate();
   const { token } = theme.useToken();
-  const { edict, memorials, events, isLoading, refetch } = useEdictDetail(edictId ?? "");
+  const { edict, memorials, events, isLoading, error, refetch } = useEdictDetail(edictId ?? "");
   const t = useT();
   const edictStatusLabels = useEdictStatusLabels();
   const [instruction, setInstruction] = useState("");
@@ -204,7 +207,7 @@ export default function EdictDetailPage() {
       refetch();
       message.success(t("toast.edictPaused"));
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const detail = isApiProblem(err) ? err.message : null;
       message.error(detail ? `${t("toast.pauseFailed")}：${detail}` : t("toast.pauseFailed"));
     }
   };
@@ -216,7 +219,7 @@ export default function EdictDetailPage() {
       refetch();
       message.success(t("toast.edictResumed"));
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      const detail = isApiProblem(err) ? err.message : null;
       message.error(detail ? `${t("toast.resumeFailed")}：${detail}` : t("toast.resumeFailed"));
     }
   };
@@ -260,6 +263,23 @@ export default function EdictDetailPage() {
       >
         <Spin size="large" />
       </div>
+    );
+  }
+
+  if (error) {
+    const problem = toApiProblem(error);
+    return (
+      <PageContainer title={t("page.edictDetail.title")}>
+        <PageDataState
+          status={problemPageStatus(problem)}
+          data={null}
+          problem={problem}
+          isEmpty={(items: typeof memorials) => items.length === 0}
+          onRetry={refetch}
+        >
+          {() => null}
+        </PageDataState>
+      </PageContainer>
     );
   }
 
