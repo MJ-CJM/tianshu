@@ -179,3 +179,74 @@ The four warnings are pre-existing third-party deprecations from Lark/websockets
 
 None within the second-review Task 4B2B boundary. Task 4C effect receipts and
 provider idempotency remain intentionally out of scope.
+
+## Final review fixes
+
+### Status
+
+`DONE`
+
+The final I1 and I4/I7 review findings are closed. Exact legacy event replay is
+validated before terminal-root rejection, and cross-Edict corruption recovery
+now converges the RunState to the root Memorial's canonical Edict through a
+strict repository CAS. No migration, `uv.lock`, or Task 4C change was made.
+
+### Finding and commit map
+
+| Finding | Final fix | Focused evidence | Commit |
+|---|---|---|---|
+| I1 | Legacy adoption derives attempt identity from the canonical event envelope, validates attempt 1 before terminal-root rejection, and conflicts on either event-ID or payload mutation. | terminal exact replay plus altered-ID and altered-payload attacks in `test_managed_run_ingress.py` | `1d1fcbd` |
+| I4/I7 | A dedicated RunState repository recovery CAS aligns a forged terminal identity to the root Memorial Edict while enforcing strict bindings, monotonic timestamps, secret rejection, and live version fencing. The attempt records only a SHA-256 of the detected forged identity. | cross-Edict identity convergence plus injected RunState-CAS and post-outbox-insert rollback attacks in `test_plan_review_attempt_resume.py` | `add8a92` |
+
+### RED to GREEN evidence
+
+- I1 RED: the terminal legacy replay attack failed at the premature
+  `legacy managed root is already terminal` rejection: `1 failed, 4 warnings in
+  6.05s`.
+- I1 GREEN: the same attack passed `1 passed, 4 warnings in 2.42s`; the full
+  managed-ingress file then passed `10 passed, 4 warnings in 3.77s`.
+- I4/I7 RED: the forged identity remained `edict-forged` and the injected
+  repository CAS was never called: `2 failed, 1 passed, 4 warnings in 2.34s`.
+  The already-enclosed post-outbox-insert rollback case was the passing member.
+- I4/I7 GREEN: identity convergence and both rollback attacks passed `3 passed,
+  4 warnings in 2.29s`; the full plan-review file then passed `13 passed, 4
+  warnings in 2.42s`.
+
+### Formal verification
+
+```text
+env -u VIRTUAL_ENV .venv/bin/python -m pytest \
+  tests/application/test_managed_run_ingress.py \
+  tests/application/test_plan_review_attempt_resume.py -q
+23 passed, 4 warnings in 9.37s
+
+env -u VIRTUAL_ENV .venv/bin/python -m pytest \
+  tests/application tests/storage -q
+545 passed, 4 warnings in 15.03s
+
+.venv/bin/ruff check src tests
+All checks passed!
+
+.venv/bin/ruff format --check src tests
+784 files already formatted
+
+.venv/bin/mypy
+Success: no issues found in 120 source files
+
+.venv/bin/lint-imports
+Analyzed 441 files, 1460 dependencies; 2 contracts kept, 0 broken
+
+git diff --check f79939d..HEAD
+PASS
+
+git diff --quiet f79939d -- uv.lock src/tianshu/storage/migrations.py
+PASS
+```
+
+The four warnings are the same pre-existing Lark/websockets deprecations noted
+in the earlier remediation gates.
+
+### Remaining concerns
+
+None within the final Task 4B2B review brief. Task 4C effect receipts and
+provider idempotency remain intentionally out of scope.
