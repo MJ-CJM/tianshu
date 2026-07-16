@@ -823,6 +823,32 @@ def test_git_backend_named_repository_and_worktree_lifecycle(tmp_path: Path) -> 
     assert not worktree.exists()
 
 
+def test_git_backend_exposes_bounded_repository_state_paths(tmp_path: Path) -> None:
+    backend = GitBackend()
+    identity = GitIdentity("Gate Test", "gate@example.invalid")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    location = GitLocation(repo)
+    backend.init_repository(location)
+    (repo / "tracked.txt").write_text("v1\n", encoding="utf-8")
+    backend.stage_all(location)
+    first = backend.commit(location, "initial", identity=identity)
+
+    (repo / "tracked.txt").write_text("v2\n", encoding="utf-8")
+    (repo / "new path.txt").write_text("new\n", encoding="utf-8")
+
+    assert backend.worktree_status_paths(location) == ("new path.txt", "tracked.txt")
+
+    backend.stage_all(location)
+    second = backend.commit(location, "second", identity=identity)
+
+    assert backend.resolve_parent_commit(location) == first
+    assert backend.changed_paths_between(location, first, second) == (
+        "new path.txt",
+        "tracked.txt",
+    )
+
+
 def test_git_backend_preserves_independent_git_dir_snapshot_semantics(tmp_path: Path) -> None:
     backend = GitBackend()
     identity = GitIdentity("Tianshu Shadow", "shadow@tianshu.local")

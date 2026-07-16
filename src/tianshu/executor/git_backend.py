@@ -281,6 +281,95 @@ class GitBackend:
         value = result.stdout.strip()
         return _validate_sha(value)
 
+    def resolve_parent_commit(self, location: GitLocation, revision: str = "HEAD") -> str:
+        """Resolve the first parent of one validated revision."""
+
+        revision = _validate_ref(revision)
+        result = self._invoke(
+            "resolve_parent_commit",
+            location,
+            ("rev-parse", "--verify", f"{revision}^{{commit}}^"),
+        )
+        self._require_complete_output("resolve_parent_commit", result)
+        return _validate_sha(result.stdout.strip())
+
+    def worktree_status_paths(self, location: GitLocation) -> tuple[str, ...]:
+        """Return the bounded set of tracked or untracked dirty paths."""
+
+        with self._isolated_git_state(location) as isolated_env:
+            result = self._invoke(
+                "worktree_status_paths",
+                location,
+                ("status", "--porcelain=v1", "-z", "--untracked-files=all"),
+                env_overrides=isolated_env,
+                max_output_bytes=min(self._materialization_limit_bytes, 20_000_000),
+            )
+        self._require_complete_output("worktree_status_paths", result)
+        tokens = result.stdout_bytes.split(b"\0")
+        paths: set[str] = set()
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if not token:
+                index += 1
+                continue
+            if len(token) < 4 or token[2:3] != b" ":
+                raise GitBackendError("worktree_status_paths", "malformed status record")
+            status = token[:2]
+            paths.add(os.fsdecode(token[3:]))
+            if b"R" in status or b"C" in status:
+                index += 1
+                if index >= len(tokens) or not tokens[index]:
+                    raise GitBackendError("worktree_status_paths", "malformed rename record")
+                paths.add(os.fsdecode(tokens[index]))
+            index += 1
+        return tuple(sorted(paths))
+
+    def changed_paths_between(
+        self,
+        location: GitLocation,
+        base_commit: str,
+        target_commit: str,
+    ) -> tuple[str, ...]:
+        """Return both sides of every path changed between exact commits."""
+
+        base_commit = _validate_sha(base_commit)
+        target_commit = _validate_sha(target_commit)
+        result = self._invoke(
+            "changed_paths_between",
+            location,
+            (
+                "diff",
+                "--name-status",
+                "-z",
+                "--no-ext-diff",
+                "--no-textconv",
+                base_commit,
+                target_commit,
+                "--",
+            ),
+            max_output_bytes=min(self._materialization_limit_bytes, 20_000_000),
+        )
+        self._require_complete_output("changed_paths_between", result)
+        tokens = result.stdout_bytes.split(b"\0")
+        paths: set[str] = set()
+        index = 0
+        while index < len(tokens):
+            status = tokens[index]
+            if not status:
+                index += 1
+                continue
+            index += 1
+            path_count = 2 if status.startswith((b"R", b"C")) else 1
+            if index + path_count > len(tokens):
+                raise GitBackendError("changed_paths_between", "malformed diff record")
+            for _ in range(path_count):
+                if not tokens[index]:
+                    raise GitBackendError("changed_paths_between", "malformed diff path")
+                paths.add(os.fsdecode(tokens[index]))
+                index += 1
+        return tuple(sorted(paths))
+
     def inspect_repository(self, location: GitLocation) -> GitRepositorySnapshot:
         top = self._invoke("inspect_repository.root", location, ("rev-parse", "--show-toplevel"))
         self._require_complete_output("inspect_repository.root", top)
