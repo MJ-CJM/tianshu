@@ -26,6 +26,7 @@ _TELEGRAM_SEEN_IDENTITY_MIGRATION_NAME = "0010_telegram_seen_instance_identity"
 _DECISIONS_RUN_STATE_MIGRATION_NAME = "0011_decisions_run_state"
 _DECISION_RUN_STATE_GUARDS_MIGRATION_NAME = "0012_decision_run_state_guards"
 _GOVERNED_APPLY_DECISION_BINDING_MIGRATION_NAME = "0013_governed_apply_decision_binding"
+_EXECUTION_ATTEMPT_LEDGER_MIGRATION_NAME = "0014_execution_attempt_ledger"
 _COMPLETE_MIGRATION_LEDGER = [
     (1, _BASELINE_NAME),
     (2, _AUTH_MIGRATION_NAME),
@@ -40,6 +41,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (11, _DECISIONS_RUN_STATE_MIGRATION_NAME),
     (12, _DECISION_RUN_STATE_GUARDS_MIGRATION_NAME),
     (13, _GOVERNED_APPLY_DECISION_BINDING_MIGRATION_NAME),
+    (14, _EXECUTION_ATTEMPT_LEDGER_MIGRATION_NAME),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -60,6 +62,7 @@ _POST_BASELINE_TABLES = {
     "decision_requests",
     "decision_resolutions",
     "run_states",
+    "execution_attempts",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -81,6 +84,9 @@ _POST_BASELINE_INDEXES = {
     "idx_decisions_pending",
     "idx_decisions_memorial",
     "idx_run_states_edict",
+    "idx_execution_attempts_active_memorial",
+    "idx_execution_attempts_claim",
+    "idx_execution_attempts_memorial",
 }
 _V042_OWNED_TABLE_MANIFEST = (
     48,
@@ -293,6 +299,7 @@ def _build_canonical_preledger(
     if prior_mcp_schema:
         conn.executescript(
             """
+            DROP TABLE execution_attempts;
             DROP TABLE run_states;
             DROP TABLE decision_resolutions;
             DROP TABLE decision_requests;

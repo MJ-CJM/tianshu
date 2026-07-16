@@ -2812,6 +2812,112 @@ def _governed_apply_decision_binding_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V14: fenced durable execution-attempt ledger ---
+
+_EXECUTION_ATTEMPT_LEDGER_STATEMENTS = (
+    """
+    CREATE TABLE execution_attempts (
+        attempt_id TEXT PRIMARY KEY CHECK (length(trim(attempt_id)) > 0),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        memorial_id TEXT NOT NULL REFERENCES memorials(id) ON DELETE CASCADE,
+        attempt_no INTEGER NOT NULL CHECK (attempt_no > 0),
+        status TEXT NOT NULL CHECK (status IN (
+            'claimable','claimed','suspended','succeeded','failed','dead_letter'
+        )),
+        owner_id TEXT,
+        fencing_token INTEGER NOT NULL DEFAULT 0 CHECK (fencing_token >= 0),
+        lease_expires_at TEXT,
+        heartbeat_at TEXT,
+        available_at TEXT NOT NULL CHECK (length(trim(available_at)) > 0),
+        max_attempts INTEGER NOT NULL CHECK (
+            max_attempts > 0 AND attempt_no <= max_attempts
+        ),
+        failure_json TEXT CHECK (
+            failure_json IS NULL OR (
+                json_valid(failure_json) AND json_type(failure_json) = 'object'
+            )
+        ),
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        updated_at TEXT NOT NULL CHECK (length(trim(updated_at)) > 0),
+        UNIQUE (memorial_id, attempt_no),
+        CHECK (
+            (
+                status = 'claimed'
+                AND owner_id IS NOT NULL AND length(trim(owner_id)) > 0
+                AND lease_expires_at IS NOT NULL
+                AND heartbeat_at IS NOT NULL
+                AND lease_expires_at > heartbeat_at
+                AND fencing_token > 0
+            ) OR (
+                status <> 'claimed'
+                AND owner_id IS NULL
+                AND lease_expires_at IS NULL
+            )
+        ),
+        CHECK (
+            (status IN ('failed','dead_letter') AND failure_json IS NOT NULL)
+            OR
+            (status NOT IN ('failed','dead_letter') AND failure_json IS NULL)
+        )
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX idx_execution_attempts_active_memorial
+    ON execution_attempts(memorial_id)
+    WHERE status IN ('claimable','claimed','suspended')
+    """,
+    """
+    CREATE INDEX idx_execution_attempts_claim
+    ON execution_attempts(status, available_at, lease_expires_at, created_at, attempt_id)
+    """,
+    """
+    CREATE INDEX idx_execution_attempts_memorial
+    ON execution_attempts(memorial_id, attempt_no)
+    """,
+    """
+    CREATE TRIGGER execution_attempts_no_replace
+    BEFORE INSERT ON execution_attempts
+    WHEN EXISTS (
+        SELECT 1 FROM execution_attempts
+        WHERE attempt_id = NEW.attempt_id
+           OR (memorial_id = NEW.memorial_id AND attempt_no = NEW.attempt_no)
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'execution attempts are immutable by replacement');
+    END
+    """,
+    """
+    CREATE TRIGGER execution_attempts_identity_immutable
+    BEFORE UPDATE OF attempt_id, schema_version, memorial_id, attempt_no,
+                     max_attempts, created_at
+    ON execution_attempts
+    WHEN OLD.attempt_id IS NOT NEW.attempt_id
+      OR OLD.schema_version IS NOT NEW.schema_version
+      OR OLD.memorial_id IS NOT NEW.memorial_id
+      OR OLD.attempt_no IS NOT NEW.attempt_no
+      OR OLD.max_attempts IS NOT NEW.max_attempts
+      OR OLD.created_at IS NOT NEW.created_at
+    BEGIN
+        SELECT RAISE(ABORT, 'execution attempt identity is immutable');
+    END
+    """,
+)
+_EXECUTION_ATTEMPT_LEDGER_CHECKSUM = hashlib.sha256(
+    (
+        "0014_execution_attempt_ledger\n"
+        + "\n".join(
+            " ".join(statement.split()) for statement in _EXECUTION_ATTEMPT_LEDGER_STATEMENTS
+        )
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _execution_attempt_ledger_upgrade(conn: MigrationConnection) -> None:
+    for statement in _EXECUTION_ATTEMPT_LEDGER_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -2890,6 +2996,12 @@ MIGRATIONS = (
         name="0013_governed_apply_decision_binding",
         checksum=_GOVERNED_APPLY_DECISION_BINDING_CHECKSUM,
         upgrade=_governed_apply_decision_binding_upgrade,
+    ),
+    Migration(
+        version=14,
+        name="0014_execution_attempt_ledger",
+        checksum=_EXECUTION_ATTEMPT_LEDGER_CHECKSUM,
+        upgrade=_execution_attempt_ledger_upgrade,
     ),
 )
 

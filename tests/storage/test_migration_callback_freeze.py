@@ -67,6 +67,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0013_governed_apply_decision_binding": (
         "2608a3bcc6f66c6a68fb745f4aa058fc65b130153b71a25aa870bcb280ce6f9c"
     ),
+    # v14 adds the fenced execution-attempt ledger without rewriting v1-v13.
+    "0014_execution_attempt_ledger": (
+        "55bc5dcb3a5d04df526dfcf92e59b9e41f97c878b345e00acf7f4dfdc33cfee2"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

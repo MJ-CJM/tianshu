@@ -261,13 +261,13 @@ def _insert_generic_decision(
         )
 
 
-def test_live_migration_tail_is_v13_without_drifting_v1_to_v12() -> None:
-    assert tuple(item.version for item in MIGRATIONS) == tuple(range(1, 14))
-    assert (MIGRATIONS[-1].version, MIGRATIONS[-1].name) == (
+def test_frozen_migration_prefix_reaches_v13_without_drifting_v1_to_v12() -> None:
+    assert tuple(item.version for item in MIGRATIONS[:13]) == tuple(range(1, 14))
+    assert (MIGRATIONS[12].version, MIGRATIONS[12].name) == (
         13,
         "0013_governed_apply_decision_binding",
     )
-    assert MIGRATIONS[-1].checksum == (
+    assert MIGRATIONS[12].checksum == (
         "e3d72d6b4558437d0a2fd7d3a6fba8c1e4261f56c4ef4168b1f9eb3049da412e"
     )
 
@@ -342,7 +342,7 @@ def test_v13_preserves_legacy_states_and_receipt_without_fabricating_authority()
         before_receipt = connection.execute("SELECT * FROM apply_receipts").fetchone()
         connection.commit()
 
-        assert apply_migrations(connection, MIGRATIONS) == (13,)
+        assert apply_migrations(connection, MIGRATIONS[:13]) == (13,)
 
         assert (
             connection.execute(
