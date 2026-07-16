@@ -14,6 +14,13 @@ import { ThemeContext } from "../hooks/useTheme";
 import zhClassic from "../i18n/locales/zh-classic.json";
 import zhModern from "../i18n/locales/zh-modern.json";
 
+const health = vi.hoisted(() => ({
+  value: {
+    data: { status: "ready", profile: "live" },
+    isError: false,
+  },
+}));
+
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({
     mode: "trusted-local",
@@ -24,8 +31,8 @@ vi.mock("../auth/AuthContext", () => ({
 vi.mock("../hooks/useApprovals", () => ({
   useNeedsReview: () => ({ data: { data: [], metadata: { total: 0 } } }),
 }));
-vi.mock("../components/common/HealthDot", () => ({
-  default: () => <span>通政</span>,
+vi.mock("../hooks/useHealth", () => ({
+  useHealth: () => health.value,
 }));
 
 import AppHeader from "../components/layout/AppHeader";
@@ -36,25 +43,34 @@ const API_CONTRACT_PATH = resolve(process.cwd(), "src/contracts/api.ts");
 const BRAND_SHA256 = "3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799";
 const TAGLINE = "成功只有一个——按照自己的方式，去度过人生。";
 const HEADER_STATUS_LABELS = ["彩蛋", "通用", "English", "实时", "通政"];
-const DEPARTMENT_GROUPS = ["敕令", "政要", "百官", "外朝"];
-const DEPARTMENTS = [
-  "御书房",
-  "文书房",
-  "内阁",
-  "廷议",
-  "都察院",
-  "权印司",
-  "百官阁",
-  "文渊阁",
-  "位面",
-  "考成",
-  "藏兵阁",
-  "鸿胪寺",
-  "通政司",
-  "户部账房",
+const DEPARTMENT_STRUCTURE = [
+  { group: "敕令", departments: ["御书房", "文书房"] },
+  { group: "政要", departments: ["内阁", "廷议", "都察院", "权印司"] },
+  { group: "百官", departments: ["百官阁", "文渊阁", "位面", "考成"] },
+  { group: "外朝", departments: ["藏兵阁", "鸿胪寺", "通政司", "户部账房"] },
 ];
 
-afterEach(cleanup);
+function renderedDepartmentStructure(container: HTMLElement) {
+  const menu = container.querySelector(".ant-menu-root");
+  const groups = Array.from(menu?.children ?? []).filter((node) =>
+    node.classList.contains("ant-menu-item-group"),
+  );
+
+  return groups.map((group) => ({
+    group: group.querySelector(".ant-menu-item-group-title")?.textContent?.trim() ?? "",
+    departments: Array.from(group.querySelectorAll(".ant-menu-title-content")).map(
+      (item) => item.textContent?.trim() ?? "",
+    ),
+  }));
+}
+
+afterEach(() => {
+  cleanup();
+  health.value = {
+    data: { status: "ready", profile: "live" },
+    isError: false,
+  };
+});
 
 describe("S4 desktop brand shell contract", () => {
   it("freezes the shared page-data and API problem types", () => {
@@ -90,7 +106,18 @@ describe("S4 desktop brand shell contract", () => {
     }
   });
 
-  it("freezes four groups, fourteen departments, light mode, and sidebar collapse", async () => {
+  it("renders the localized degraded state from the real health indicator", () => {
+    health.value = {
+      data: { status: "degraded", profile: "live" },
+      isError: false,
+    };
+
+    render(<AppHeader isWsConnected />);
+
+    expect(screen.getByText("通政(降)")).toBeInTheDocument();
+  });
+
+  it("freezes the exact ordered groups and departments outside the Control item", async () => {
     const user = userEvent.setup();
     const toggleTheme = vi.fn();
     const { container } = render(
@@ -101,12 +128,10 @@ describe("S4 desktop brand shell contract", () => {
       </MemoryRouter>,
     );
 
-    for (const group of DEPARTMENT_GROUPS) {
-      expect(screen.getByText(group)).toBeInTheDocument();
-    }
-    for (const department of DEPARTMENTS) {
-      expect(screen.getByText(department)).toBeInTheDocument();
-    }
+    const renderedStructure = renderedDepartmentStructure(container);
+    expect(renderedStructure).toEqual(DEPARTMENT_STRUCTURE);
+    expect(renderedStructure).toHaveLength(4);
+    expect(renderedStructure.flatMap(({ departments }) => departments)).toHaveLength(14);
 
     await user.click(screen.getByRole("button", { name: /浅色模式/ }));
     expect(toggleTheme).toHaveBeenCalledOnce();
