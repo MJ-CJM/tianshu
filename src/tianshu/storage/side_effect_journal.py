@@ -206,21 +206,15 @@ class SideEffectJournal:
         attempts = {str(row["attempt_id"]): row for row in rows}
         origin_row = attempts.get(origin.attempt_id)
         current_row = attempts.get(attempt_id)
-        reclaimed_origin_row = (
-            attempt_id == origin.attempt_id
-            and current_row is not None
-            and int(current_row["fencing_token"]) == fencing_token
-            and fencing_token > origin.fencing_token
-        )
+        ledger_origin_fence = int(origin_row["fencing_token"]) if origin_row is not None else None
         if (
             origin_row is None
             or current_row is None
             or origin_row["memorial_id"] != origin.memorial_id
             or current_row["memorial_id"] != origin.memorial_id
-            or (
-                int(origin_row["fencing_token"]) != origin.fencing_token
-                and not reclaimed_origin_row
-            )
+            or ledger_origin_fence is None
+            or ledger_origin_fence < origin.fencing_token
+            or ledger_origin_fence > fencing_token
         ):
             raise SideEffectConflict("side-effect reconciliation root or origin conflict")
 

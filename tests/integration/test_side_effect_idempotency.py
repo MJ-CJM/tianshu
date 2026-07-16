@@ -484,6 +484,100 @@ async def test_receipt_reconciliation_allows_reclaimed_origin_with_higher_fence(
 
 
 @pytest.mark.asyncio
+async def test_receipt_reconciliation_composes_reclaim_then_retry_descendant(
+    tmp_path: Path,
+) -> None:
+    storage = _open(tmp_path / "lookup-reclaim-then-retry.db")
+    original, _ = _seed(storage)
+    provider = _Provider(SideEffectSemantics.RECEIPT_LOOKUP, lookup_enabled=True)
+    intent = _intent(original, provider.semantics)
+
+    def crash(boundary: str) -> None:
+        if boundary == "after_provider":
+            raise RuntimeError("provider returned before receipt")
+
+    try:
+        with pytest.raises(RuntimeError, match="before receipt"):
+            await ManagedSideEffectService(
+                storage,
+                DecisionService(storage, clock=_Clock()),
+                clock=_Clock(),
+                boundary_hook=crash,
+            ).execute(original, intent, provider)
+        assert provider.effective_count == 1
+        assert storage.attempt_repo.complete(
+            attempt_id=original.attempt_id,
+            owner_id=original.owner_id,
+            fencing_token=original.fencing_token,
+            outcome=AttemptOutcomeV1(
+                disposition=AttemptDisposition.SUSPENDED,
+                completed_at=_NOW + timedelta(seconds=11),
+            ),
+        )
+        with storage.unit_of_work() as unit_of_work:
+            row = unit_of_work.connection.execute(
+                "SELECT version FROM execution_attempts WHERE attempt_id=?",
+                (original.attempt_id,),
+            ).fetchone()
+            assert row is not None
+            assert storage.attempt_repo.resume_suspended_current(
+                unit_of_work.connection,
+                attempt_id=original.attempt_id,
+                memorial_id=original.memorial_id,
+                expected_version=int(row[0]),
+                available_at=_NOW + timedelta(seconds=12),
+            )
+            unit_of_work.commit()
+        reclaimed = storage.attempt_repo.claim(
+            memorial_id=original.memorial_id,
+            owner_id="worker-reclaimed",
+            now=_NOW + timedelta(seconds=12),
+            lease_seconds=60,
+        )
+        assert reclaimed is not None
+        assert reclaimed.attempt_id == original.attempt_id
+        assert reclaimed.fencing_token == original.fencing_token + 1
+
+        retried = storage.attempt_repo.claim(
+            memorial_id=original.memorial_id,
+            owner_id="worker-retry",
+            now=_NOW + timedelta(seconds=73),
+            lease_seconds=60,
+        )
+        assert retried is not None and retried.owner_id is not None
+        authority = AttemptAuthority(
+            attempt_id=retried.attempt_id,
+            memorial_id=retried.memorial_id,
+            owner_id=retried.owner_id,
+            fencing_token=retried.fencing_token,
+        )
+        assert authority.attempt_id != original.attempt_id
+        assert retried.attempt_no == reclaimed.attempt_no + 1
+        assert authority.fencing_token == original.fencing_token + 2
+
+        result = await ManagedSideEffectService(
+            storage,
+            DecisionService(storage, clock=_Clock(_NOW + timedelta(seconds=74))),
+            clock=_Clock(_NOW + timedelta(seconds=74)),
+        ).execute(authority, _intent(authority, provider.semantics), provider)
+
+        assert result.receipt is not None and result.reconciled
+        assert provider.effective_count == 1
+        assert provider.invocation_keys == [intent.intent_id]
+        assert provider.lookup_keys == [intent.intent_id, intent.intent_id]
+        durable = storage.side_effect_journal.load_intent(intent.intent_id)
+        assert durable is not None
+        assert durable.attempt_id == original.attempt_id
+        assert durable.owner_id == original.owner_id
+        assert durable.fencing_token == original.fencing_token
+        assert result.receipt.attempt_id == authority.attempt_id
+        assert result.receipt.owner_id == authority.owner_id
+        assert result.receipt.fencing_token == authority.fencing_token
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
 async def test_reconciliation_rejects_stale_and_mismatched_callers_before_provider(
     tmp_path: Path,
 ) -> None:
