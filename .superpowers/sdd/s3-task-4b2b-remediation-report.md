@@ -99,3 +99,83 @@ fixed before the configured gate was rerun.
 None within the Task 4B2B remediation boundary. Task 4C side-effect
 intents/receipts and provider idempotency remain the explicitly frozen next-task
 boundary, not a defect in this remediation.
+
+## Second review fixes
+
+### Status
+
+`DONE`
+
+The second-review Critical 1 / Important 7 findings are closed. Production
+cancellation, follow-up, legacy adoption, DAG retry, terminal projection,
+executor retry classification, failed-startup cleanup, and plan-review
+convergence now share the required managed authority boundaries. No migration,
+`uv.lock`, or Task 4C effect-receipt change was made.
+
+### Finding and commit map
+
+| Finding | Second-review fix | Focused evidence | Commit |
+|---|---|---|---|
+| C1 | All production root/DAG/Edict cancellation adapters call the shared fenced cancellation service; attempt revocation, root terminalization, RunState CAS, and outbox write are one existing-connection UoW. | cancellation delegation plus claimed/claimable/suspended, stale-race, and deterministic outbox attacks in `test_fenced_run_completion.py` and gateway/scheduler tests | `9a656d0` |
+| I1 | Bootstrap and executor legacy callbacks delegate the complete durable event to `ManagedRunIngress.adopt_legacy`; no adapter creates attempts or defaults retry budgets. | legacy adoption ingress/adapter attacks in `test_managed_run_ingress.py` and `test_production_run_execution.py` | `9a656d0` |
+| I2 | DAG retry requires a stable caller key and atomically creates/replays root, DAG reset claim, attempt, and outbox in one UoW. Every injected transaction boundary rolls back to zero writes. | four transaction-boundary faults, exact replay, conflict, delegation, and no-local-write attacks in `test_managed_run_ingress.py`, `test_production_run_execution.py`, and `test_executor_workspace_lifecycle.py` | `9a656d0`, `d87b214` |
+| I3 | Exact replay is checked before active-root and parent selection inside ingress; HTTP and channel adapters no longer make those authority decisions. | duplicate-follow-up-after-new-active-root and stable channel-message-ID/busy-owner attacks | `9a656d0`, `d87b214` |
+| I4 | Completion, exhaustion/dead-letter, cancellation, and plan-review convergence all require existing RunState and use version/state CAS before terminal root/outbox projection. | missing/stale RunState and all terminal-path attacks in `test_fenced_run_completion.py` and `test_plan_review_attempt_resume.py` | `9a656d0` |
+| I5 | The real executor preserves provider timeout, connection, and transient failure classification in `ManagedExecutionProjection`; retry exhaustion alone produces the fenced failed root/outbox. | real `Executor` timeout through `ProductionRunRunner`/`ProductionAttemptCompleter`: first retry nonterminal, exhaustion one failed outbox | `1e6c02f` |
+| I6 | The cleanup stack exists before the first background start, registers each successful start immediately, unwinds in strict reverse order, closes Storage last, and registers the tracing provider shutdown returned by `init_tracing`. | bot/watcher reverse cleanup, tracing-before-telemetry-failure, partial outbox, MCP, scheduler/reconciler, normal shutdown order, and bounded-outbox-stop tests | `8ba92f3` |
+| I7 | Plan-review convergence reads the root Memorial in the same UoW and requires one Edict identity across Memorial, RunState, and DecisionRequest before any terminal projection. | cross-Edict root Memorial attack in `test_plan_review_attempt_resume.py` | `9a656d0` |
+
+### RED to GREEN evidence
+
+- Core authority attacks started with `12 failed`: legacy adoption, three initial
+  DAG retry transaction boundaries, replay ordering, six cancellation/RunState
+  terminal cases, and cross-Edict root binding. The fourth `after_outbox`
+  transaction fault was added before GREEN. The selected core attacks then
+  passed `13 passed`; the full three core application files passed `41 passed`.
+- Adapter attacks started with `4 failed` for cancellation delegation, stable
+  retry identity, channel follow-up ordering, and legacy callback ownership;
+  the same selection passed `4 passed` after the production adapters were
+  narrowed to ingress delegation.
+- Real executor retry classification and lifecycle cleanup started with
+  `3 failed` (I5: 1, I6: 2). The complete production execution file passed
+  `13 passed`; the complete app lifecycle file passed `20 passed`.
+- The first broad regression found five stale tests after the intentional
+  ingress contract replacement: `858 passed, 5 failed, 1 skipped`. All five
+  reproduced in isolation. Their tests were migrated without restoring local
+  authority: stable channel IDs use real async ingress busy ownership, and
+  executor retry tests assert stable key delegation plus zero local writes.
+  The isolated set then passed `5 passed`; the three affected files passed
+  `55 passed`.
+
+### Formal verification
+
+```text
+env -u VIRTUAL_ENV .venv/bin/python -m pytest \
+  tests/application/test_managed_run_ingress.py \
+  tests/application/test_plan_review_attempt_resume.py \
+  tests/application/test_fenced_run_completion.py \
+  tests/application/test_production_run_execution.py \
+  tests/integration/test_outbox_app_lifecycle.py \
+  tests/gateway tests/executor tests/test_scheduler.py -q
+863 passed, 1 skipped, 4 warnings in 255.48s
+
+.venv/bin/ruff check <20 changed Python paths>             PASS
+.venv/bin/ruff format --check <20 changed Python paths>    PASS
+.venv/bin/mypy                                            PASS
+  Success: no issues found in 120 source files
+.venv/bin/lint-imports                                    PASS
+  441 files, 1460 dependencies, 2 contracts kept
+git diff --check 59488d5..HEAD                             PASS
+git diff --quiet 59488d5..HEAD -- \
+  uv.lock src/tianshu/storage/migrations.py                PASS
+```
+
+The brief's literal `tests/scheduler` path does not exist in this checkout and
+returns `file or directory not found`; the repository scheduler suite is
+`tests/test_scheduler.py`, which is included in the passing broad command.
+The four warnings are pre-existing third-party deprecations from Lark/websockets.
+
+### Remaining concerns
+
+None within the second-review Task 4B2B boundary. Task 4C effect receipts and
+provider idempotency remain intentionally out of scope.
