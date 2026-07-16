@@ -179,6 +179,61 @@ class RunStateRepository:
             raise RunStateConflict("RunState disappeared after compare-and-swap")
         return durable
 
+    def recover_terminal_identity(
+        self,
+        connection: sqlite3.Connection,
+        state: RunStateV1,
+        *,
+        expected_version: int,
+    ) -> RunStateV1:
+        """CAS a corrupted RunState to the root's canonical failed identity."""
+        if state.phase is not RunPhase.FAILED:
+            raise ValueError("RunState identity recovery requires a failed state")
+        if state.version != expected_version:
+            raise ValueError("RunState input version must equal expected_version")
+        _require_decision_binding(state)
+        current = self.load(connection, state.memorial_id)
+        if current is None or current.version != expected_version:
+            raise RunStateConflict("RunState recovery compare-and-swap conflict")
+        if current.edict_id == state.edict_id:
+            raise RunStateConflict("RunState recovery requires an identity mismatch")
+        _require_memorial_binding(connection, state.memorial_id, state.edict_id)
+        if current.schema_version != state.schema_version:
+            raise RunStateConflict("RunState schema_version is immutable")
+        if current.created_at != state.created_at:
+            raise RunStateConflict("RunState created_at is immutable")
+        if state.updated_at < current.updated_at:
+            raise RunStateConflict("RunState updated_at must not move backwards")
+        _require_secret_free(state)
+        saved = state.model_copy(update={"version": expected_version + 1})
+        cursor = connection.execute(
+            """
+            UPDATE run_states
+            SET edict_id = ?, phase = ?, continuation_kind = ?,
+                continuation_json = ?, checkpoint_ref = ?, side_effect_cursor = ?,
+                version = ?, updated_at = ?
+            WHERE memorial_id = ? AND version = ?
+            """,
+            (
+                saved.edict_id,
+                saved.phase.value,
+                saved.continuation.kind,
+                canonical_json_bytes(saved.continuation).decode("utf-8"),
+                saved.checkpoint_ref,
+                saved.side_effect_cursor,
+                saved.version,
+                saved.updated_at.isoformat(),
+                saved.memorial_id,
+                expected_version,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise RunStateConflict("RunState recovery compare-and-swap conflict")
+        durable = self.load(connection, state.memorial_id)
+        if durable is None:  # pragma: no cover - successful CAS preserves the primary key
+            raise RunStateConflict("RunState disappeared after recovery")
+        return durable
+
 
 __all__ = [
     "RunStateConflict",

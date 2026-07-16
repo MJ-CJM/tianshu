@@ -14,6 +14,7 @@ from tianshu.executor.approvals import ApprovalManager
 from tianshu.governance.decision_service import DecisionService
 from tianshu.models import Edict, Memorial, Plan, PlanTask, TaskStatus
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
+from tianshu.models.canonical import canonical_sha256
 from tianshu.models.decision import ResolveDecisionCommand
 from tianshu.models.principal import AuthContext, Principal
 from tianshu.models.run_state import RunPhase
@@ -88,6 +89,55 @@ def _review(storage, *, suffix: str = "", suspend: bool = True):
 def _suspended_review(storage, *, suffix: str = ""):
     service, request, _claimed = _review(storage, suffix=suffix)
     return service, request
+
+
+def _forge_cross_edict_binding(storage, service, request) -> None:
+    storage.save_edict(Edict(id="edict-forged", goal="forged"))
+    service.resolve(
+        request.decision_request_id,
+        ResolveDecisionCommand(
+            action="approve",
+            reason="good",
+            payload={"schema_version": 1},
+            expected_version=1,
+        ),
+        auth=_auth(),
+    )
+    storage._conn.execute(  # noqa: SLF001
+        "UPDATE run_states SET edict_id='edict-forged' WHERE memorial_id='root-1'"
+    )
+    storage._conn.execute(  # noqa: SLF001
+        "UPDATE decision_requests SET edict_id='edict-forged' WHERE decision_request_id=?",
+        (request.decision_request_id,),
+    )
+    storage._conn.commit()  # noqa: SLF001
+
+
+def _terminalization_snapshot(storage) -> tuple[object, ...]:
+    return (
+        tuple(
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT status, failure_json, version FROM execution_attempts "
+                "WHERE attempt_id='attempt-1'"
+            ).fetchone()
+        ),
+        tuple(
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT status, error, failure_reason, completed_at FROM memorials "
+                "WHERE id='root-1'"
+            ).fetchone()
+        ),
+        tuple(
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT edict_id, phase, continuation_json, version, updated_at "
+                "FROM run_states WHERE memorial_id='root-1'"
+            ).fetchone()
+        ),
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM outbox_events "
+            "WHERE event_type='execution.failed' AND memorial_id='root-1'"
+        ).fetchone()[0],
+    )
 
 
 def test_approved_review_resumes_exact_suspended_attempt_once(storage) -> None:
@@ -186,32 +236,66 @@ def test_wrong_decision_root_and_edict_binding_fails_closed(storage) -> None:
 
 def test_cross_edict_self_consistent_forged_binding_fails_closed(storage) -> None:
     service, request = _suspended_review(storage)
-    storage.save_edict(Edict(id="edict-forged", goal="forged"))
-    service.resolve(
-        request.decision_request_id,
-        ResolveDecisionCommand(
-            action="approve",
-            reason="good",
-            payload={"schema_version": 1},
-            expected_version=1,
-        ),
-        auth=_auth(),
-    )
-    storage._conn.execute(  # noqa: SLF001
-        "UPDATE run_states SET edict_id='edict-forged' WHERE memorial_id='root-1'"
-    )
-    storage._conn.execute(  # noqa: SLF001
-        "UPDATE decision_requests SET edict_id='edict-forged' WHERE decision_request_id=?",
-        (request.decision_request_id,),
-    )
-    storage._conn.commit()  # noqa: SLF001
+    _forge_cross_edict_binding(storage, service, request)
 
     assert PlanReviewAttemptCoordinator(storage, clock=lambda: _NOW).reconcile_once() == 1
-    assert storage.get_memorial("root-1").failure_reason == "plan_review_binding_invalid"
+    root = storage.get_memorial("root-1")
+    assert root is not None
+    assert root.failure_reason == "plan_review_binding_invalid"
     state = storage.run_state_repo.load(storage._conn, "root-1")  # noqa: SLF001
     assert state is not None
     assert state.phase is RunPhase.FAILED
     assert state.version == 2
+    outbox = storage._conn.execute(  # noqa: SLF001
+        "SELECT edict_id FROM outbox_events "
+        "WHERE event_type='execution.failed' AND memorial_id='root-1'"
+    ).fetchone()
+    assert outbox is not None
+    assert root.edict_id == state.edict_id == outbox["edict_id"] == "edict-1"
+    failure_json = storage._conn.execute(  # noqa: SLF001
+        "SELECT failure_json FROM execution_attempts WHERE attempt_id='attempt-1'"
+    ).fetchone()[0]
+    assert json.loads(failure_json)["details_hash"] == canonical_sha256(
+        {"detected_run_state_edict_id": "edict-forged"}
+    )
+    assert "edict-forged" not in failure_json
+
+
+@pytest.mark.parametrize("fault", ("cas", "outbox"))
+def test_forged_binding_terminalization_failure_rolls_back_all_projections(
+    storage,
+    monkeypatch,
+    fault: str,
+) -> None:
+    service, request = _suspended_review(storage)
+    _forge_cross_edict_binding(storage, service, request)
+    coordinator = PlanReviewAttemptCoordinator(storage, clock=lambda: _NOW)
+    before = _terminalization_snapshot(storage)
+
+    if fault == "cas":
+
+        def fail_recovery(*_args, **_kwargs) -> None:
+            raise RuntimeError("injected RunState CAS failure")
+
+        monkeypatch.setattr(
+            storage.run_state_repo,
+            "recover_terminal_identity",
+            fail_recovery,
+            raising=False,
+        )
+    else:
+        original_add = coordinator._outbox.add  # noqa: SLF001
+
+        def add_then_fail(*args, **kwargs) -> None:
+            original_add(*args, **kwargs)
+            raise RuntimeError("injected outbox failure")
+
+        monkeypatch.setattr(coordinator._outbox, "add", add_then_fail)  # noqa: SLF001
+
+    with pytest.raises(RuntimeError, match="injected"):
+        coordinator.reconcile_once()
+
+    assert _terminalization_snapshot(storage) == before
 
 
 def test_missing_decision_binding_fails_closed(storage) -> None:
