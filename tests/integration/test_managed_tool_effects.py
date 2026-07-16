@@ -200,13 +200,19 @@ async def test_provider_crash_cannot_return_success_before_receipt(storage) -> N
 
     assert result.disposition is AttemptDisposition.FAILED
     assert invocations == 1
-    assert storage._conn.execute(  # noqa: SLF001
-        "SELECT COUNT(*) FROM side_effect_journal WHERE status='receipted'"
-    ).fetchone()[0] == 0
-    assert storage._conn.execute(  # noqa: SLF001
-        "SELECT status FROM execution_attempts WHERE attempt_id=?",
-        (authority.attempt_id,),
-    ).fetchone()[0] == "claimed"
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM side_effect_journal WHERE status='receipted'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT status FROM execution_attempts WHERE attempt_id=?",
+            (authority.attempt_id,),
+        ).fetchone()[0]
+        == "claimed"
+    )
 
 
 async def test_runner_opaque_tool_suspends_once_without_invocation(storage) -> None:
@@ -238,13 +244,19 @@ async def test_runner_opaque_tool_suspends_once_without_invocation(storage) -> N
 
     assert result.disposition is AttemptDisposition.SUSPENDED
     assert invocations == 0
-    assert storage._conn.execute(  # noqa: SLF001
-        "SELECT COUNT(*) FROM decision_requests WHERE status='pending'"
-    ).fetchone()[0] == 1
-    assert storage._conn.execute(  # noqa: SLF001
-        "SELECT status FROM execution_attempts WHERE attempt_id=?",
-        (authority.attempt_id,),
-    ).fetchone()[0] == "suspended"
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM decision_requests WHERE status='pending'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT status FROM execution_attempts WHERE attempt_id=?",
+            (authority.attempt_id,),
+        ).fetchone()[0]
+        == "suspended"
+    )
 
     completer = ProductionAttemptCompleter(
         FencedRunCompletion(storage.unit_of_work, storage.attempt_repo),
@@ -258,9 +270,12 @@ async def test_runner_opaque_tool_suspends_once_without_invocation(storage) -> N
             completed_at=_NOW + timedelta(seconds=2),
         ),
     )
-    assert storage._conn.execute(  # noqa: SLF001
-        "SELECT COUNT(*) FROM decision_requests"
-    ).fetchone()[0] == 1
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM decision_requests"
+        ).fetchone()[0]
+        == 1
+    )
 
 
 async def test_managed_effect_fails_closed_without_attempt_authority(storage) -> None:

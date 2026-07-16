@@ -30,7 +30,7 @@ from tianshu.models.run_state import (
 from tianshu.storage import Storage
 
 _NOW = datetime(2026, 7, 16, 10, tzinfo=UTC)
-_LEVELS = ("L0", "L1", "L2", "L3")
+_RECONSTRUCTION_COMPAT_LEVELS = ("L0", "L1", "L2", "L3")
 
 
 def _open(path: Path) -> Storage:
@@ -182,8 +182,8 @@ def _resolved_event(request, *, action: str) -> EventEnvelope:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("level", _LEVELS)
-async def test_restart_resolve_resume_reconstructs_l0_through_l3_once(
+@pytest.mark.parametrize("level", _RECONSTRUCTION_COMPAT_LEVELS)
+async def test_generic_recovery_reconstructs_compatible_l0_through_l3_snapshots_once(
     tmp_path: Path,
     level: str,
 ) -> None:

@@ -1596,6 +1596,10 @@ Commit after GREEN: `feat: journal governed side effects`
 
 ### 7.1 RED · Persist safe points rather than await stacks
 
+Production-policy note: the outer-loop human-Decision entry point is L3-only. References to
+L0/L1/L2/L3 restart coverage in this increment describe serialized safe-point/reconstruction
+compatibility, not production human-decision suspension at L0–L2.
+
 - [ ] For a dangerous tool call, assert messages and the exact tool proposal are persisted before requesting a decision or side effect. Kill after persistence, restart, resolve, and assert the already-approved proposal executes without another LLM call.
 - [ ] Inject restart at L0, L1, L2, L3, paused, waiting-decision, and post-decision/pre-resume-enqueue safe points.
 - [ ] Assert outer-loop restoration includes history summaries, best output, critic feedback, steer, level counters, total usage/cost, checkpoint reference, decision ID, and side-effect cursor.
@@ -2099,7 +2103,7 @@ G2 is complete only when all of the following are true:
 - DecisionRequest/Resolution and versioned RunState survive real process restart; actor identity comes only from AuthContext; CAS/expiry/late semantics are deterministic.
 - Attempts use claim/lease/heartbeat/fencing/DLQ; stale owners cannot commit.
 - Supported managed boundaries pass intent/effect/receipt/cursor fault tests. Untracked and opaque outcomes remain honestly limited.
-- L0/L1/L2/L3, pause, pending tool, decision resolution, and side-effect cursor continuations resume from serialized state without relying on a lost Python await stack.
+- Serialized L0/L1/L2/L3-compatible safe points, pause, pending tool, decision resolution, and side-effect cursors reconstruct without relying on a lost Python await stack; production outer-loop human-Decision suspension is claimed only for L3.
 - Planner revisions record reason, before/after diff, estimates, actuals, failure class, and acceptance evidence without adding a dynamic DAG runtime.
 - Evidence Bundle v1 schema validation, canonical hash, independent audit, artifact digest verification, immutable close, export, and governed replay all pass.
 - System audit is append-only at the application/trigger boundary, mutation events carry actor/IP/time/reason/correlation, traces correlate the full chain without sensitive payloads, and tracer shutdown flushes.

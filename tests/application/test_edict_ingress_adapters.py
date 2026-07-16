@@ -2,17 +2,24 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from tianshu.application.edicts import SubmitEdictResult
+from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.approvals import ApprovalManager
+from tianshu.executor.managed_tools import (
+    ManagedToolEffectExecutor,
+    bind_managed_attempt_authority,
+)
 from tianshu.gateway.core.edict_bridge import EdictBridge
 from tianshu.gateway.feishu.dispatcher import FeishuMessage
 from tianshu.gateway.telegram.dispatcher import TelegramMessage
+from tianshu.governance.decision_service import DecisionService
 from tianshu.models import Decree, Edict, Memorial, TaskStatus
 from tianshu.models.principal import AuthContext
 from tianshu.tools.registry import ToolRegistry
@@ -136,18 +143,56 @@ async def test_submit_tool_uses_one_tool_call_identity(storage) -> None:
         event_bus=EventBus(),
         edict_application_service=service,
     )
-
-    result = await registry.execute(
-        "submit_edict",
-        {"goal": "tool submission"},
-        invocation_id="tool-call-1",
+    root_edict = Edict(id="root-edict", goal="invoke submit tool")
+    root_memorial = Memorial(
+        id="root-memorial",
+        edict_id=root_edict.id,
+        status=TaskStatus.RUNNING,
     )
+    storage.save_edict(root_edict)
+    storage.save_memorial(root_memorial)
+    now = datetime.now(UTC)
+    with storage.unit_of_work() as unit_of_work:
+        storage.attempt_repo.enqueue_initial(
+            unit_of_work.connection,
+            memorial_id=root_memorial.id,
+            available_at=now,
+        )
+        unit_of_work.commit()
+    claimed = storage.attempt_repo.claim(
+        memorial_id=root_memorial.id,
+        owner_id="tool-test-worker",
+        now=now,
+        lease_seconds=60,
+    )
+    assert claimed is not None and claimed.owner_id is not None
+    authority = AttemptAuthority(
+        attempt_id=claimed.attempt_id,
+        memorial_id=claimed.memorial_id,
+        owner_id=claimed.owner_id,
+        fencing_token=claimed.fencing_token,
+    )
+    registry.set_managed_effect_executor(
+        ManagedToolEffectExecutor(storage, DecisionService(storage))
+    )
+
+    with bind_managed_attempt_authority(authority):
+        result = await registry.execute(
+            "submit_edict",
+            {"goal": "tool submission"},
+            invocation_id="tool-call-1",
+        )
 
     assert result.is_error is False
     assert len(service.calls) == 1
     command, _auth, _producer, correlation_id = service.calls[0]
-    assert command.idempotency_key == "tool:tool-call-1"
-    assert correlation_id == "tool:tool-call-1"
+    durable = storage._conn.execute(  # noqa: SLF001
+        "SELECT provider_idempotency_key, status FROM side_effect_journal"
+    ).fetchone()
+    assert durable is not None and durable[1] == "receipted"
+    expected_identity = f"tool:{durable[0]}"
+    assert command.idempotency_key == expected_identity
+    assert correlation_id == expected_identity
 
 
 @pytest.mark.asyncio

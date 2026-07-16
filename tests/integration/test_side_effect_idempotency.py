@@ -170,9 +170,7 @@ def _seed(storage: Storage) -> tuple[AttemptAuthority, RunStateV1]:
 
 def _seed_other_root(storage: Storage) -> AttemptAuthority:
     storage.save_edict(Edict(id="edict-2", goal="attack"))
-    storage.save_memorial(
-        Memorial(id="memorial-2", edict_id="edict-2", status=TaskStatus.RUNNING)
-    )
+    storage.save_memorial(Memorial(id="memorial-2", edict_id="edict-2", status=TaskStatus.RUNNING))
     with storage.unit_of_work() as unit_of_work:
         storage.attempt_repo.enqueue_initial(
             unit_of_work.connection,

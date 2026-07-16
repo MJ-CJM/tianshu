@@ -211,9 +211,7 @@ class ToolRegistry:
                 ),
             )
         if defn.managed_effect_semantics is not None:
-            return error_result(
-                f"Tool '{name}' rejected: managed attempt authority is unavailable"
-            )
+            return error_result(f"Tool '{name}' rejected: managed attempt authority is unavailable")
         return await self._invoke_bound(
             name,
             args,

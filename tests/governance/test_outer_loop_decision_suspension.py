@@ -393,12 +393,18 @@ async def test_managed_escalation_suspends_before_unwind_without_live_poll(
         (authority.attempt_id,),
     ).fetchone()
     assert row is not None and tuple(row) == ("suspended", authority.fencing_token)
-    assert storage._conn.execute(  # noqa: SLF001
-        "SELECT COUNT(*) FROM decision_requests WHERE status='pending'"
-    ).fetchone()[0] == 1
-    assert storage._conn.execute(  # noqa: SLF001
-        "SELECT COUNT(*) FROM outbox_events WHERE event_type='decision.requested'"
-    ).fetchone()[0] == 1
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM decision_requests WHERE status='pending'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM outbox_events WHERE event_type='decision.requested'"
+        ).fetchone()[0]
+        == 1
+    )
     with storage.unit_of_work() as unit_of_work:
         run_state = storage.run_state_repo.load(unit_of_work.connection, memorial.id)
         unit_of_work.commit()
@@ -520,10 +526,12 @@ async def test_real_l3_suspension_survives_restart_and_resumes_once(
             fencing_token=authority.fencing_token,
             outcome=outcome,
         )
-        assert restarted._conn.execute(  # noqa: SLF001
-            "SELECT COUNT(*) FROM outbox_events "
-            "WHERE event_type='execution.resume.requested'"
-        ).fetchone()[0] == 1
+        assert (
+            restarted._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM outbox_events WHERE event_type='execution.resume.requested'"
+            ).fetchone()[0]
+            == 1
+        )
     finally:
         restarted.close()
 
