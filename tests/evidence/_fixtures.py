@@ -9,7 +9,7 @@ from tianshu.executor.capabilities import (
     probe_host_capabilities,
     resolve_governance_contract,
 )
-from tianshu.models import AuditResult, Edict, Memorial, TaskStatus
+from tianshu.models import AuditResult, Edict, EventEnvelope, Memorial, TaskStatus
 from tianshu.models.governance_contract import (
     AcceptancePolicyV1,
     ObjectiveV1,
@@ -23,6 +23,7 @@ from tianshu.models.run_state import (
     RunStateV1,
 )
 from tianshu.storage import Storage
+from tianshu.storage.outbox_repo import OutboxRepository
 
 NOW = datetime(2026, 7, 17, 8, 9, 10, tzinfo=UTC)
 
@@ -32,6 +33,7 @@ def seed_closed_run(
     *,
     acceptance: AcceptancePolicyV1 | None = None,
     side_effect_cursor: int = 0,
+    correlation_id: str | None = None,
 ) -> tuple[Edict, Memorial]:
     requested = RequestedGovernanceContractV1(
         objective=ObjectiveV1(goal="produce independently verifiable evidence"),
@@ -55,6 +57,22 @@ def seed_closed_run(
     )
     storage.save_edict(edict)
     storage.save_memorial(memorial)
+
+    if correlation_id is not None:
+        with storage.unit_of_work() as unit_of_work:
+            OutboxRepository().add(
+                unit_of_work.connection,
+                EventEnvelope(
+                    event_id="event-evidence",
+                    event_type="edict.submitted",
+                    edict_id=edict.id,
+                    memorial_id=memorial.id,
+                    producer="evidence-test",
+                    payload={"correlation_id": correlation_id},
+                    timestamp=NOW,
+                ),
+            )
+            unit_of_work.commit()
 
     plan = {"tasks": [{"task_id": "verify", "description": "verify evidence"}]}
     revision = build_plan_revision(

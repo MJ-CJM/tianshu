@@ -14,7 +14,7 @@ def test_v16_appends_artifact_and_evidence_objects_without_drifting_prefix() -> 
     frozen = [(item.version, item.name, item.checksum) for item in MIGRATIONS[:15]]
 
     assert apply_migrations(connection, MIGRATIONS[:15]) == tuple(range(1, 16))
-    assert apply_migrations(connection, MIGRATIONS) == (16,)
+    assert apply_migrations(connection, MIGRATIONS[:16]) == (16,)
     assert [(item.version, item.name, item.checksum) for item in MIGRATIONS[:15]] == frozen
     assert MIGRATIONS[15].name == "0016_artifacts_evidence"
 
@@ -27,7 +27,7 @@ def test_v16_appends_artifact_and_evidence_objects_without_drifting_prefix() -> 
 def test_v16_database_guards_closed_snapshot_and_artifact_metadata() -> None:
     connection = sqlite3.connect(":memory:")
     connection.execute("PRAGMA foreign_keys=ON")
-    apply_migrations(connection, MIGRATIONS)
+    apply_migrations(connection, MIGRATIONS[:16])
     connection.execute(
         "INSERT INTO edicts (id, goal, created_at) VALUES ('e', 'g', '2026-07-17T00:00:00+00:00')"
     )
@@ -54,11 +54,11 @@ def test_v16_database_guards_closed_snapshot_and_artifact_metadata() -> None:
 def test_v16_adopts_only_a_complete_exact_preledger_shape() -> None:
     connection = sqlite3.connect(":memory:")
     connection.execute("PRAGMA foreign_keys=ON")
-    apply_migrations(connection, MIGRATIONS)
+    apply_migrations(connection, MIGRATIONS[:16])
     connection.execute("DELETE FROM schema_migrations WHERE version=16")
     connection.commit()
 
-    assert apply_migrations(connection, MIGRATIONS) == (16,)
+    assert apply_migrations(connection, MIGRATIONS[:16]) == (16,)
 
     incompatible = sqlite3.connect(":memory:")
     incompatible.execute("PRAGMA foreign_keys=ON")
@@ -67,4 +67,4 @@ def test_v16_adopts_only_a_complete_exact_preledger_shape() -> None:
     incompatible.commit()
 
     with pytest.raises(MigrationExecutionError, match="migration 16"):
-        apply_migrations(incompatible, MIGRATIONS)
+        apply_migrations(incompatible, MIGRATIONS[:16])

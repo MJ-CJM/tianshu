@@ -480,6 +480,7 @@ def _event_from_record(record: OutboxRecord) -> EventEnvelope:
     if not isinstance(payload, dict):
         raise TypeError("payload_json must contain an object")
     _validate_json_value(payload)
+    payload.setdefault("correlation_id", record.correlation_id)
     return EventEnvelope(
         event_id=event_id,
         event_type=event_type,

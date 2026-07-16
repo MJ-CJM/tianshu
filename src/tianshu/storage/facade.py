@@ -13,6 +13,7 @@ from tianshu.storage.attempt_ledger import AttemptLeaseRepository
 from tianshu.storage.auth_repo import AuthMixin
 from tianshu.storage.channel_repo import ChannelMixin
 from tianshu.storage.config_repo import ConfigMixin
+from tianshu.storage.correlation import correlation_for_memorial
 from tianshu.storage.cost_repo import CostMixin
 from tianshu.storage.credential_repo import CredentialMixin
 from tianshu.storage.dag_repo import DagMixin
@@ -78,6 +79,11 @@ class Storage(
 
     def unit_of_work(self) -> SqliteUnitOfWork:
         return SqliteUnitOfWork(self._conn, self._lock)
+
+    def get_core_correlation_id(self, memorial_id: str) -> str:
+        """Query the durable root correlation used by S3 governance records."""
+        with self._lock:
+            return correlation_for_memorial(self._conn, memorial_id)
 
     # 以下 3 个方法命中多个领域 Mixin 的表（真跨表 JOIN 或语义横跨 persona/memorial/cost），
     # 无法唯一归入某个领域 Mixin，保留在组合根。

@@ -75,6 +75,7 @@ def test_fresh_schema_contains_complete_v9_submission_objects(storage: Storage) 
         "last_error_json",
         "published_at",
         "version",
+        "correlation_id",
     )
 
 

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from tianshu.models.canonical import canonical_json_bytes
 from tianshu.models.run_state import AgentContinuationV1, RunPhase, RunStateV1
 from tianshu.security.sensitive_payload import contains_raw_sensitive_payload
+from tianshu.storage.correlation import correlation_for_memorial
 
 
 class RunStateRepositoryError(RuntimeError):
@@ -159,14 +160,15 @@ class RunStateRepository:
         _require_valid_plan_lineage(state)
         _require_memorial_binding(connection, state.memorial_id, state.edict_id)
         _require_secret_free(state)
+        correlation_id = correlation_for_memorial(connection, state.memorial_id)
         try:
             connection.execute(
                 """
                 INSERT INTO run_states (
                     memorial_id, edict_id, schema_version, phase, continuation_kind,
                     continuation_json, checkpoint_ref, side_effect_cursor,
-                    version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    version, created_at, updated_at, correlation_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     state.memorial_id,
@@ -180,6 +182,7 @@ class RunStateRepository:
                     state.version,
                     state.created_at.isoformat(),
                     state.updated_at.isoformat(),
+                    correlation_id,
                 ),
             )
         except sqlite3.IntegrityError as exc:

@@ -3211,6 +3211,102 @@ def _artifacts_evidence_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V17: durable internal notification delivery and core correlation columns ---
+
+_INTERNAL_DELIVERY_STATEMENTS = (
+    """
+    CREATE TABLE internal_notification_deliveries (
+        delivery_id TEXT PRIMARY KEY CHECK (length(delivery_id) = 64),
+        event_id TEXT NOT NULL UNIQUE CHECK (length(trim(event_id)) > 0),
+        event_type TEXT NOT NULL CHECK (length(trim(event_type)) > 0),
+        correlation_id TEXT NOT NULL CHECK (length(trim(correlation_id)) BETWEEN 1 AND 256),
+        edict_id TEXT REFERENCES edicts(id) ON DELETE RESTRICT,
+        memorial_id TEXT REFERENCES memorials(id) ON DELETE RESTRICT,
+        status TEXT NOT NULL CHECK (
+            status IN ('pending','claimed','retry_wait','delivered','dead_letter')
+        ),
+        available_at TEXT NOT NULL CHECK (length(trim(available_at)) > 0),
+        deadline_at TEXT NOT NULL CHECK (length(trim(deadline_at)) > 0),
+        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        max_attempts INTEGER NOT NULL CHECK (max_attempts > 0),
+        lease_owner TEXT,
+        lease_expires_at TEXT,
+        last_error_json TEXT CHECK (
+            last_error_json IS NULL OR (
+                json_valid(last_error_json) AND json_type(last_error_json) = 'object'
+            )
+        ),
+        delivered_at TEXT,
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        updated_at TEXT NOT NULL CHECK (length(trim(updated_at)) > 0),
+        CHECK (deadline_at >= created_at),
+        CHECK (
+            (status = 'claimed' AND lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL)
+            OR
+            (status <> 'claimed' AND lease_owner IS NULL AND lease_expires_at IS NULL)
+        ),
+        CHECK (
+            (status = 'delivered' AND delivered_at IS NOT NULL)
+            OR
+            (status <> 'delivered' AND delivered_at IS NULL)
+        )
+    )
+    """,
+    """
+    CREATE INDEX idx_internal_notification_delivery_claim
+    ON internal_notification_deliveries(status, available_at, lease_expires_at, deadline_at)
+    """,
+    """
+    CREATE INDEX idx_internal_notification_delivery_correlation
+    ON internal_notification_deliveries(correlation_id, created_at)
+    """,
+)
+_CORE_CORRELATION_COLUMNS = (
+    "outbox_events",
+    "decision_requests",
+    "run_states",
+    "execution_attempts",
+    "side_effect_journal",
+    "evidence_bundles",
+)
+_INTERNAL_DELIVERY_CHECKSUM = hashlib.sha256(
+    (
+        "0017_internal_notification_delivery\n"
+        + "\n".join(" ".join(statement.split()) for statement in _INTERNAL_DELIVERY_STATEMENTS)
+        + "\ncorrelation-columns-v1:"
+        + ",".join(_CORE_CORRELATION_COLUMNS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _internal_notification_delivery_upgrade(conn: MigrationConnection) -> None:
+    existing = conn.execute(
+        """
+        SELECT name FROM sqlite_master
+        WHERE name IN (
+            'internal_notification_deliveries',
+            'idx_internal_notification_delivery_claim',
+            'idx_internal_notification_delivery_correlation'
+        )
+        ORDER BY name
+        """
+    ).fetchall()
+    if existing:
+        raise SchemaCompatibilityError(
+            "internal notification delivery objects already exist outside migration v17"
+        )
+    for table in _CORE_CORRELATION_COLUMNS:
+        columns = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if "correlation_id" in columns:
+            raise SchemaCompatibilityError(
+                f"{table}.correlation_id already exists outside migration v17"
+            )
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN correlation_id TEXT")
+    for statement in _INTERNAL_DELIVERY_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -3307,6 +3403,12 @@ MIGRATIONS = (
         name="0016_artifacts_evidence",
         checksum=_ARTIFACTS_EVIDENCE_CHECKSUM,
         upgrade=_artifacts_evidence_upgrade,
+    ),
+    Migration(
+        version=17,
+        name="0017_internal_notification_delivery",
+        checksum=_INTERNAL_DELIVERY_CHECKSUM,
+        upgrade=_internal_notification_delivery_upgrade,
     ),
 )
 

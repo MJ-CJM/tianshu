@@ -105,6 +105,19 @@ def _service(storage: Storage, clock: list[datetime]):
     return DecisionService(storage, clock=lambda: clock[0])
 
 
+def test_request_persists_auth_correlation_identity(decision_storage: Storage) -> None:
+    service = _service(decision_storage, [_NOW])
+    request = service.request(
+        _request_command(),
+        auth=_auth(correlation_id="decision-persisted-correlation"),
+    )
+    row = decision_storage._conn.execute(  # noqa: SLF001 - durable correlation assertion
+        "SELECT correlation_id FROM decision_requests WHERE decision_request_id=?",
+        (request.decision_request_id,),
+    ).fetchone()
+    assert row["correlation_id"] == "decision-persisted-correlation"
+
+
 def _waiting_state(continuation_kind: str) -> RunStateV1:
     usage = PersistedUsageSummaryV1(
         prompt_tokens=0,

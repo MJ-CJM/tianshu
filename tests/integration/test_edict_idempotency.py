@@ -86,6 +86,15 @@ def _submit_with_service(service: Any, command: Any) -> Any:
     )
 
 
+def test_submission_persists_correlation_on_the_durable_outbox_row(storage) -> None:
+    result = _submit(storage, _command("correlated", "correlated-key"))
+    row = storage._conn.execute(  # noqa: SLF001 - durable correlation assertion
+        "SELECT correlation_id FROM outbox_events WHERE event_id=?",
+        (result.event_id,),
+    ).fetchone()
+    assert row["correlation_id"] == "correlation-idempotency"
+
+
 def _overlap_two_submissions(
     database_path: Path,
     monkeypatch: pytest.MonkeyPatch,

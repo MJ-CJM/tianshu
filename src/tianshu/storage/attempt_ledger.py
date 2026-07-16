@@ -17,6 +17,7 @@ from tianshu.models.attempt import (
     AttemptStatus,
 )
 from tianshu.models.canonical import RedactedError, canonical_json_bytes
+from tianshu.storage.correlation import correlation_for_memorial
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 
@@ -108,13 +109,15 @@ def _insert_retry_attempt(
     created_at: datetime,
 ) -> AttemptLeaseV1:
     attempt_id = str(ULID())
+    correlation_id = correlation_for_memorial(connection, previous.memorial_id)
     connection.execute(
         """
         INSERT INTO execution_attempts (
             attempt_id, schema_version, memorial_id, attempt_no, status,
             owner_id, fencing_token, lease_expires_at, heartbeat_at,
-            available_at, max_attempts, failure_json, version, created_at, updated_at
-        ) VALUES (?, 1, ?, ?, 'claimable', NULL, ?, NULL, NULL, ?, ?, NULL, 1, ?, ?)
+            available_at, max_attempts, failure_json, version, created_at, updated_at,
+            correlation_id
+        ) VALUES (?, 1, ?, ?, 'claimable', NULL, ?, NULL, NULL, ?, ?, NULL, 1, ?, ?, ?)
         """,
         (
             attempt_id,
@@ -125,6 +128,7 @@ def _insert_retry_attempt(
             previous.max_attempts,
             _iso(created_at),
             _iso(created_at),
+            correlation_id,
         ),
     )
     created = _select_attempt(connection, attempt_id)
@@ -176,15 +180,17 @@ class AttemptLeaseRepository:
             return existing
         created_at = min(datetime.now(UTC), available_at)
         attempt_id = attempt_id or str(ULID())
+        correlation_id = correlation_for_memorial(connection, memorial_id)
         try:
             connection.execute(
                 """
                 INSERT INTO execution_attempts (
                     attempt_id, schema_version, memorial_id, attempt_no, status,
                     owner_id, fencing_token, lease_expires_at, heartbeat_at,
-                    available_at, max_attempts, failure_json, version, created_at, updated_at
+                    available_at, max_attempts, failure_json, version, created_at, updated_at,
+                    correlation_id
                 ) VALUES (?, 1, ?, 1, 'claimable', NULL, 0, NULL, NULL,
-                          ?, ?, NULL, 1, ?, ?)
+                          ?, ?, NULL, 1, ?, ?, ?)
                 """,
                 (
                     attempt_id,
@@ -193,6 +199,7 @@ class AttemptLeaseRepository:
                     max_attempts,
                     created_at.isoformat(),
                     created_at.isoformat(),
+                    correlation_id,
                 ),
             )
         except sqlite3.IntegrityError as exc:

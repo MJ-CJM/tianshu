@@ -16,6 +16,7 @@ from tianshu.models.side_effect import (
     SideEffectStatus,
 )
 from tianshu.storage.attempt_ledger import AttemptFenceLost, AttemptLeaseRepository
+from tianshu.storage.correlation import correlation_for_memorial
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 
@@ -260,6 +261,7 @@ class SideEffectJournal:
                 return existing
             raise SideEffectConflict("side-effect intent identity conflict")
         self._require_current_origin(connection, intent)
+        correlation_id = correlation_for_memorial(connection, intent.memorial_id)
         try:
             connection.execute(
                 """
@@ -271,11 +273,11 @@ class SideEffectJournal:
                     reason_code, uncertainty_decision_id, receipt_attempt_id,
                     receipt_owner_id, receipt_fencing_token, provider_receipt_id,
                     receipt_metadata_json, result_hash, effective_at, recorded_at,
-                    version, created_at, updated_at
+                    version, created_at, updated_at, correlation_id
                 ) VALUES (
                     ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'intended',
                     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                    1, ?, ?
+                    1, ?, ?, ?
                 )
                 """,
                 (
@@ -296,6 +298,7 @@ class SideEffectJournal:
                     intent.intent_hash,
                     intent.created_at.isoformat(),
                     intent.updated_at.isoformat(),
+                    correlation_id,
                 ),
             )
         except sqlite3.IntegrityError as exc:

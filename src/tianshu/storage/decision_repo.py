@@ -17,6 +17,7 @@ from tianshu.models.decision import (
     DecisionStatus,
     validate_resolution_payload,
 )
+from tianshu.storage.correlation import correlation_for_memorial
 
 
 class DecisionRepositoryError(RuntimeError):
@@ -186,11 +187,20 @@ class DecisionRepository:
         return [_decode_record(row).request for row in rows]
 
     def add_or_get(
-        self, connection: sqlite3.Connection, request: DecisionRequestV1
+        self,
+        connection: sqlite3.Connection,
+        request: DecisionRequestV1,
+        *,
+        correlation_id: str | None = None,
     ) -> DecisionRequestV1:
         if request.status is not DecisionStatus.PENDING or request.version != 1:
             raise ValueError("new decisions must be pending at version 1")
         _require_memorial_binding(connection, request.memorial_id, request.edict_id)
+        durable_correlation = correlation_for_memorial(
+            connection,
+            request.memorial_id,
+            explicit=correlation_id,
+        )
         existing_row = connection.execute(
             _SELECT_RECORD
             + " WHERE request.memorial_id = ? AND request.kind = ? AND request.request_key = ?",
@@ -210,8 +220,8 @@ class DecisionRepository:
                 INSERT INTO decision_requests (
                     decision_request_id, schema_version, kind, edict_id, memorial_id,
                     request_key, payload_json, payload_hash, requested_by, expires_at,
-                    status, version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, version, created_at, updated_at, correlation_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     request.decision_request_id,
@@ -228,6 +238,7 @@ class DecisionRepository:
                     request.version,
                     request.created_at.isoformat(),
                     request.updated_at.isoformat(),
+                    durable_correlation,
                 ),
             )
         except sqlite3.IntegrityError as exc:

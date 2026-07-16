@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 from tianshu.models.canonical import RedactedError, canonical_json_bytes
 from tianshu.models.events import EventEnvelope
+from tianshu.storage.correlation import correlation_for_memorial, require_correlation_id
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 
@@ -32,6 +34,7 @@ class OutboxRecord:
     edict_id: str | None
     memorial_id: str | None
     producer: str
+    correlation_id: str
     payload_json: str
     occurred_at: str
     available_at: str
@@ -56,12 +59,27 @@ class OutboxRepository:
 
     def add(self, conn: sqlite3.Connection, event: EventEnvelope) -> None:
         occurred_at = event.timestamp.isoformat()
+        explicit_correlation = event.payload.get("correlation_id")
+        if explicit_correlation is not None and not isinstance(explicit_correlation, str):
+            raise ValueError("event correlation_id must be text")
+        correlation_id = (
+            correlation_for_memorial(
+                conn,
+                event.memorial_id,
+                explicit=explicit_correlation,
+            )
+            if event.memorial_id is not None
+            else require_correlation_id(
+                explicit_correlation
+                or f"event:{hashlib.sha256(event.event_id.encode()).hexdigest()}"
+            )
+        )
         conn.execute(
             """
             INSERT INTO outbox_events (
                 event_id, event_type, aggregate_type, edict_id, memorial_id,
-                producer, payload_json, occurred_at, available_at, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                producer, correlation_id, payload_json, occurred_at, available_at, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
             """,
             (
                 event.event_id,
@@ -70,6 +88,7 @@ class OutboxRepository:
                 event.edict_id,
                 event.memorial_id,
                 event.producer,
+                correlation_id,
                 canonical_json_bytes(event.payload).decode("utf-8"),
                 occurred_at,
                 occurred_at,
@@ -374,7 +393,7 @@ def _select_outbox_record(
     row = conn.execute(
         """
         SELECT event_id, event_type, aggregate_type, edict_id, memorial_id,
-               producer, payload_json, occurred_at, available_at, status,
+               producer, correlation_id, payload_json, occurred_at, available_at, status,
                attempt_count, max_attempts, lease_owner, lease_expires_at,
                last_error_json, published_at, version
         FROM outbox_events
@@ -391,6 +410,13 @@ def _select_outbox_record(
         edict_id=row["edict_id"],
         memorial_id=row["memorial_id"],
         producer=row["producer"],
+        correlation_id=(
+            str(row["correlation_id"])
+            if row["correlation_id"] is not None
+            else correlation_for_memorial(conn, row["memorial_id"])
+            if row["memorial_id"] is not None
+            else f"event:{hashlib.sha256(str(row['event_id']).encode()).hexdigest()}"
+        ),
         payload_json=row["payload_json"],
         occurred_at=row["occurred_at"],
         available_at=row["available_at"],

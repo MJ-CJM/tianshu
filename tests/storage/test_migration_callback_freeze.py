@@ -77,6 +77,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     ),
     # v16 adds immutable evidence metadata after the live v15 tail.
     "0016_artifacts_evidence": ("b999d1ca8e809321c91eaab5ab6a966a4902bde1a213def9afe0453119ece233"),
+    # v17 adds retained internal delivery and root correlation after the live v16 tail.
+    "0017_internal_notification_delivery": (
+        "dbd30a6b7a981abc1d9c5f071a2e81276ad87f4ffa38f43f388ce8f2017450fb"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

@@ -13,6 +13,7 @@ from tianshu.evidence.models import (
     EvidenceBundleV1,
 )
 from tianshu.models.canonical import canonical_json_bytes
+from tianshu.storage.correlation import correlation_for_memorial
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 
@@ -141,12 +142,13 @@ class EvidenceRepository:
 
     @staticmethod
     def add_open_current(connection: sqlite3.Connection, bundle: EvidenceBundleV1) -> None:
+        correlation_id = correlation_for_memorial(connection, bundle.memorial_id)
         connection.execute(
             """
             INSERT INTO evidence_bundles (
                 bundle_id, schema_version, edict_id, memorial_id, status,
-                body_json, content_hash, version, created_at, closed_at
-            ) VALUES (?, '1.0', ?, ?, 'open', ?, NULL, ?, ?, NULL)
+                body_json, content_hash, version, created_at, closed_at, correlation_id
+            ) VALUES (?, '1.0', ?, ?, 'open', ?, NULL, ?, ?, NULL, ?)
             """,
             (
                 bundle.bundle_id,
@@ -155,6 +157,7 @@ class EvidenceRepository:
                 canonical_json_bytes(bundle).decode("utf-8"),
                 bundle.version,
                 bundle.created_at.isoformat(),
+                correlation_id,
             ),
         )
 

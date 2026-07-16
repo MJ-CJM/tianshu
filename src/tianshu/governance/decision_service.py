@@ -161,7 +161,11 @@ class DecisionService:
         now = self._now()
         request = self._new_request(command, auth=auth, now=now)
         try:
-            return self._repository.add_or_get(unit_of_work.connection, request)
+            return self._repository.add_or_get(
+                unit_of_work.connection,
+                request,
+                correlation_id=auth.correlation_id,
+            )
         except DecisionIdentityConflict as exc:
             _append_system_audit_unlocked(
                 unit_of_work.connection,
@@ -478,7 +482,11 @@ class DecisionService:
         auth: AuthContext,
     ) -> DecisionRequestV1:
         try:
-            return self._repository.add_or_get(unit_of_work.connection, request)
+            return self._repository.add_or_get(
+                unit_of_work.connection,
+                request,
+                correlation_id=auth.correlation_id,
+            )
         except DecisionIdentityConflict as exc:
             _append_system_audit_unlocked(
                 unit_of_work.connection,

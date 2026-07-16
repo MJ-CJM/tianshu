@@ -99,13 +99,11 @@ def _receipt(
     )
 
 
-def test_v15_remains_frozen_below_live_v16_tail() -> None:
-    assert MIGRATIONS[-3].version == 14
-    assert MIGRATIONS[-3].name == "0014_execution_attempt_ledger"
-    assert MIGRATIONS[-2].version == 15
-    assert MIGRATIONS[-2].name == "0015_side_effect_journal"
-    assert MIGRATIONS[-1].version == 16
-    assert MIGRATIONS[-1].name == "0016_artifacts_evidence"
+def test_v15_remains_frozen_below_live_v17_tail() -> None:
+    assert MIGRATIONS[13].name == "0014_execution_attempt_ledger"
+    assert MIGRATIONS[14].name == "0015_side_effect_journal"
+    assert MIGRATIONS[15].name == "0016_artifacts_evidence"
+    assert MIGRATIONS[16].name == "0017_internal_notification_delivery"
 
     storage = Storage(":memory:")
     storage.init_db()
