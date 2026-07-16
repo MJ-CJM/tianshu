@@ -49,6 +49,7 @@ Final production-recovery remediation from `65d6533`:
 | --- | --- |
 | `4d59f02` | immutable origin plus live higher-fence reconciliation authority, provider lookup adapter, and missing-adapter fail-closed registry path |
 | `65d317a` | real production C1/C2 restart proofs and foreign/unrelated/stale/mismatched zero-provider rejection matrix |
+| `3077c4d` | composition fix and regression for immutable fence 1, same-row reclaim fence 2, then retry-descendant fence 3 |
 
 No commit was pushed, merged, or tagged.
 
@@ -198,14 +199,22 @@ No Task 4C correctness concern remains in the focused and migration matrices.
   `UNCERTAIN` intent was rejected after its attempt suspended. GREEN limits live lineage checks to
   provider reconciliation or a different caller, preserving exact-origin terminal evidence replay
   without permitting any provider call.
+- Final attack-probe RED: after an origin attempt at fence 1 was reclaimed in place at fence 2 and
+  then expired into a contiguous retry descendant at fence 3, recovery failed at
+  `side-effect reconciliation root or origin conflict`. The mutable ledger origin fence had been
+  compared for equality with the immutable journal origin fence. GREEN bounds the ledger value as
+  `journal origin fence <= ledger origin fence <= live caller fence`; current lease, same root,
+  strictly higher caller fence, contiguous attempt numbers, and all-prior-failed checks remain
+  mandatory. Receipt lookup hits the original provider receipt, effective effect count stays one,
+  journal origin authority remains fence 1, and receipt authority records fence 3.
 
 ### Final gates
 
 | Gate | Result |
 | --- | --- |
 | Actual production C1 plus C2 (`max_attempts=1,3`) | `3 passed` |
-| Effects, registry, and production-recovery combination | `21 passed` |
-| Task 4C/4B2B focused model/storage/governance/application/executor/tool/scheduler matrix | `252 passed` |
+| Effects, registry, and production-recovery combination | `22 passed` |
+| Task 4C/4B2B focused model/storage/governance/application/executor/tool/scheduler matrix | `253 passed` |
 | All application/storage/executor/scheduler suites | `753 passed, 1 skipped` |
 | All migration-named freeze/ledger/preservation/upgrade suites | `129 passed` |
 | Ruff | all checks passed |
