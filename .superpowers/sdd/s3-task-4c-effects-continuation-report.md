@@ -2,13 +2,19 @@
 
 ## Outcome
 
-Task 4C is implemented from approved base `1184704` on `feat_cc_fable_v1`.
-Managed/tested effects now persist strict intent evidence before invocation and receipts before
-attempt acknowledgement. Unsupported opaque effects are never invoked blindly: they become
-`uncertain`, create one generic durable `Decision`, and suspend the fenced attempt. Resolved
-outer-loop and managed-effect Decisions converge through one replay-idempotent consumer. A
-fresh execution reconstructs L0–L3 outer-loop state from `RunState` and the resolved Decision;
-no Python coroutine or live provider/client object is serialized.
+Task 4C was implemented from approved base `1184704`; the production-path remediation was
+completed from review base `2dbb2bc` on `feat_cc_fable_v1`. The real managed runner now carries
+immutable attempt/root/fencing authority into `ToolRegistry`. Explicitly supported tool effects
+persist intent before invocation and receipt before attempt acknowledgement. A side-effect tool
+without supported semantics is not invoked: it becomes `uncertain`, creates one generic durable
+`Decision`, and suspends the fenced attempt.
+
+The production outer-loop human-Decision entry point is L3-only. At L3 the pending Decision,
+waiting `RunState`, suspended attempt, and `decision.requested` outbox row commit in one UoW;
+the claimed coroutine then unwinds as `SUSPENDED` instead of polling. L0–L3 coverage is limited
+to compatible persisted snapshot reconstruction and the generic recovery consumer. It does not
+claim production L0–L2 human-decision suspension. No Python coroutine or live provider/client
+object is serialized.
 
 The guarantee is deliberately limited to the managed boundary. This slice does not claim
 exactly-once external execution. Opaque CLI/Keqing effects remain unsupported and require a
@@ -21,6 +27,14 @@ human Decision.
 | `f125d68` | strict side-effect models, canonical identities, appended v15 schema, journal repository, model/storage RED→GREEN |
 | `faa214a` | intent→invoke/lookup→receipt lifecycle, provider idempotency, unsupported-effect Decision suspension, lifecycle fault matrix |
 | `72b00b1` | atomic Decision resume/cancel, suspended-attempt CAS, L0–L3 reconstruction, single consumer wiring, orchestrator RunState-first restart |
+
+Review remediation from `2dbb2bc`:
+
+| Commit | Review boundary |
+| --- | --- |
+| `c0f8b8b` | pre-invocation exact authority/root replay rejection and bounded metadata contracts |
+| `84d9ce4` | production runner→registry managed-effect wiring, stable provider key, receipt ordering, opaque fail-closed suspension |
+| `7c198a7` | production L3 atomic Decision/RunState/attempt/outbox suspension, unwind, restart/fence/fault matrix |
 
 No commit was pushed, merged, or tagged.
 
@@ -59,12 +73,23 @@ matrix: `61 passed`. It proves:
 - approve advances the side-effect cursor and resumes the same attempt row; reject cancels it;
 - exact resolution replay is a no-op.
 
+Production-path remediation added direct `ProductionRunRunner`→`ToolRegistry` coverage. It
+proves that `submit_edict` is the explicitly adapted provider-idempotent operation, that the
+handler receives the stable journal key, and that a crash after provider return cannot produce
+runner success before a receipt exists. Generic side-effect tools under managed authority are
+treated as opaque and suspend with zero handler calls. Explicit managed effects outside attempt
+authority fail closed. A two-root replay attack conflicts before lookup/invocation, records zero
+provider calls, and leaves the original journal row unchanged. Request/receipt metadata is a
+narrow allowlist with secret, byte, text, key-count, item-count, and nesting-depth limits.
+
 ### Durable continuation recovery
 
 RED collection failed because `tianshu.application.continuation_recovery` did not exist.
 GREEN continuation/orchestrator matrix: `43 passed`. It proves:
 
-- process close/reopen, resolve, resume, and reconstruction at L0, L1, L2, and L3;
+- compatible synthetic snapshots reconstruct after process close/reopen at L0, L1, L2, and L3;
+- the real production L3 entry commits Decision, waiting RunState, attempt suspension, and outbox
+  together, then unwinds without a live poll;
 - complete recovery of the durable cursor, level, iteration, streak/counters, summarized
   history, steer/advice, usage evidence, and total cost;
 - exactly one deterministic `execution.resume.requested` outbox record;
@@ -75,28 +100,32 @@ GREEN continuation/orchestrator matrix: `43 passed`. It proves:
   resurrects the root;
 - injected failure after RunState CAS or before resume outbox rolls the whole UoW back.
 
-Final combined Task 4C governance/effect/continuation command: `107 passed`.
+The remediation-focused model/storage/governance/effect/continuation/runner/tool/scheduler
+matrix completed with `217 passed`. The focused production L3 restart/fault and 4B2B recovery
+combination completed with `53 passed`.
 
 ## Verification
 
 | Gate | Result |
 | --- | --- |
-| Focused models/storage/governance/effects/continuation/orchestrator | `107 passed` |
-| Migration callback/ledger/preservation/v14/v15/secret upgrade paths | `146 passed` |
+| Focused models/storage/governance/effects/continuation/runner/tools/scheduler | `217 passed` |
+| Production L3 + 4B2B continuation + C1 combination | `53 passed` |
+| Migration callback/ledger/preservation/v9-v15/secret upgrade paths | `179 passed` |
 | Ruff | all checks passed |
-| Ruff format check | 793 files already formatted |
+| Ruff format check | 799 files already formatted |
 | mypy | success, 122 source files |
-| import-linter | 2 contracts kept; 446 files / 1493 dependencies |
+| import-linter | 2 contracts kept; 447 files / 1515 dependencies |
 | `git diff --check` | passed |
-| forbidden-file check | no `uv.lock` diff; only v15 appended to migrations |
+| forbidden-file check | no `uv.lock` or migration-file diff in remediation |
 
 ### Repository-wide non-slow observation
 
-`pytest -m "not slow" -q` was safely interrupted after 640 seconds when it continued to make
-slow dot-by-dot progress rather than deadlocking: `1690 passed, 2 skipped, 24 deselected` at
-the interruption point. The Task 4C tests had passed. Three failures reproduce in isolation
-and are byte-for-byte present at approved base `1184704`, so this slice did not broaden into
-unrelated fixes:
+The remediation run of `pytest -m "not slow" -q` completed in 821.59 seconds with
+`3619 passed, 2 skipped, 24 deselected, 7 failed`. One failure was the old direct
+`submit_edict` test bypassing the new managed authority; that test was migrated to a real
+managed attempt/runtime and passed in isolation. The remaining six are outside the remediation
+diff. A subsequent `--lf` run confirms the current residual set exactly:
+`6 failed, 43 deselected` in 3.56 seconds. Four were already recorded at review base `2dbb2bc`:
 
 1. `tests/architecture/test_decision_api_boundaries.py` expects one `DecisionService`
    construction path, while base `WorkspaceService` also constructs a fallback instance.
@@ -105,10 +134,17 @@ unrelated fixes:
 3. `tests/integration/test_outbox_recovery.py` uses a fixed 2026-07-15 dispatcher clock that is
    now earlier than the real submission timestamp, so it claims zero events.
 
-An additional workspace Git failure printed during Ctrl-C was an interruption artifact; its
-isolated rerun passed. A smaller combined run also confirmed a base `tests/test_executor.py`
-message expectation predating the managed-ingress fail-closed check. These are repository
-gate drift, not Task 4C regressions.
+4. `tests/test_executor.py` expects the legacy root-Memorial message before the already-present
+   managed-ingress fail-closed check.
+
+Two additional unchanged base tests failed in the complete run:
+
+5. `tests/test_gateway_extended.py` expects 404 for an invalid literal Edict ID, while request
+   validation returns 422 before lookup.
+6. `tests/test_integration_flow.py` wires the legacy event chain without the already-required
+   managed run ingress, so execution intentionally fails closed after `plan.completed`.
+
+The failing behavior/assertion lines for these six cases are unchanged by this remediation.
 
 ## Remaining limitations
 
@@ -118,5 +154,7 @@ gate drift, not Task 4C regressions.
   resolution is represented by the Decision and RunState cursor, not by rewriting history.
 - Historical outer-loop records preserve summaries and the final best output, not every full
   actor body. Reconstruction uses only those durable fields and never invents a coroutine.
+- Production outer-loop Decision suspension is L3-only; L0–L3 remains a schema/reconstruction
+  compatibility guarantee.
 
 No Task 4C correctness concern remains in the focused and migration matrices.
