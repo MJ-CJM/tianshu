@@ -71,6 +71,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0014_execution_attempt_ledger": (
         "55bc5dcb3a5d04df526dfcf92e59b9e41f97c878b345e00acf7f4dfdc33cfee2"
     ),
+    # v15 adds the managed side-effect intent/receipt journal after the live v14 tail.
+    "0015_side_effect_journal": (
+        "db69496a047a2af8a248b04db84052aa38f48cd9e407bb430384ded15fd52b1b"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

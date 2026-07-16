@@ -2918,6 +2918,169 @@ def _execution_attempt_ledger_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V15: strict managed side-effect intent/receipt journal ---
+
+_SIDE_EFFECT_JOURNAL_STATEMENTS = (
+    """
+    CREATE TABLE side_effect_journal (
+        intent_id TEXT PRIMARY KEY CHECK (
+            length(intent_id) = 64 AND intent_id NOT GLOB '*[^0-9a-f]*'
+        ),
+        effect_id TEXT NOT NULL UNIQUE CHECK (length(trim(effect_id)) > 0),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE CASCADE,
+        memorial_id TEXT NOT NULL REFERENCES memorials(id) ON DELETE CASCADE,
+        attempt_id TEXT NOT NULL REFERENCES execution_attempts(attempt_id) ON DELETE RESTRICT,
+        owner_id TEXT NOT NULL CHECK (length(trim(owner_id)) > 0),
+        fencing_token INTEGER NOT NULL CHECK (fencing_token > 0),
+        sequence_no INTEGER NOT NULL CHECK (sequence_no >= 0),
+        boundary TEXT NOT NULL CHECK (length(trim(boundary)) > 0),
+        operation TEXT NOT NULL CHECK (length(trim(operation)) > 0),
+        semantics TEXT NOT NULL CHECK (semantics IN (
+            'provider_idempotent','receipt_lookup','workspace_only',
+            'untracked_external','opaque_cli'
+        )),
+        provider_idempotency_key TEXT,
+        request_metadata_json TEXT NOT NULL CHECK (
+            json_valid(request_metadata_json)
+            AND json_type(request_metadata_json) = 'object'
+        ),
+        request_hash TEXT NOT NULL CHECK (
+            length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        intent_hash TEXT NOT NULL CHECK (
+            length(intent_hash) = 64 AND intent_hash NOT GLOB '*[^0-9a-f]*'
+        ),
+        status TEXT NOT NULL CHECK (status IN ('intended','receipted','uncertain')),
+        reason_code TEXT,
+        uncertainty_decision_id TEXT
+            REFERENCES decision_requests(decision_request_id) ON DELETE RESTRICT,
+        receipt_attempt_id TEXT
+            REFERENCES execution_attempts(attempt_id) ON DELETE RESTRICT,
+        receipt_owner_id TEXT,
+        receipt_fencing_token INTEGER,
+        provider_receipt_id TEXT,
+        receipt_metadata_json TEXT CHECK (
+            receipt_metadata_json IS NULL OR (
+                json_valid(receipt_metadata_json)
+                AND json_type(receipt_metadata_json) = 'object'
+            )
+        ),
+        result_hash TEXT CHECK (
+            result_hash IS NULL OR (
+                length(result_hash) = 64 AND result_hash NOT GLOB '*[^0-9a-f]*'
+            )
+        ),
+        effective_at TEXT,
+        recorded_at TEXT,
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        updated_at TEXT NOT NULL CHECK (length(trim(updated_at)) > 0),
+        UNIQUE (memorial_id, sequence_no),
+        CHECK (
+            (semantics IN ('provider_idempotent','receipt_lookup')
+             AND provider_idempotency_key = intent_id)
+            OR
+            (semantics NOT IN ('provider_idempotent','receipt_lookup')
+             AND provider_idempotency_key IS NULL)
+        ),
+        CHECK (
+            (status = 'intended'
+             AND reason_code IS NULL AND uncertainty_decision_id IS NULL
+             AND receipt_attempt_id IS NULL AND receipt_owner_id IS NULL
+             AND receipt_fencing_token IS NULL AND provider_receipt_id IS NULL
+             AND receipt_metadata_json IS NULL AND result_hash IS NULL
+             AND effective_at IS NULL AND recorded_at IS NULL)
+            OR
+            (status = 'uncertain'
+             AND reason_code IS NOT NULL AND length(trim(reason_code)) > 0
+             AND uncertainty_decision_id IS NOT NULL
+             AND receipt_attempt_id IS NULL AND receipt_owner_id IS NULL
+             AND receipt_fencing_token IS NULL AND provider_receipt_id IS NULL
+             AND receipt_metadata_json IS NULL AND result_hash IS NULL
+             AND effective_at IS NULL AND recorded_at IS NULL)
+            OR
+            (status = 'receipted'
+             AND reason_code IS NULL AND uncertainty_decision_id IS NULL
+             AND receipt_attempt_id IS NOT NULL
+             AND receipt_owner_id IS NOT NULL AND length(trim(receipt_owner_id)) > 0
+             AND receipt_fencing_token > 0
+             AND provider_receipt_id IS NOT NULL
+             AND length(trim(provider_receipt_id)) > 0
+             AND receipt_metadata_json IS NOT NULL AND result_hash IS NOT NULL
+             AND effective_at IS NOT NULL AND recorded_at IS NOT NULL)
+        )
+    )
+    """,
+    """
+    CREATE UNIQUE INDEX uq_side_effect_journal_provider_key
+    ON side_effect_journal(boundary, provider_idempotency_key)
+    WHERE provider_idempotency_key IS NOT NULL
+    """,
+    """
+    CREATE INDEX idx_side_effect_journal_attempt
+    ON side_effect_journal(attempt_id, sequence_no)
+    """,
+    """
+    CREATE INDEX idx_side_effect_journal_uncertain
+    ON side_effect_journal(status, updated_at, intent_id)
+    WHERE status = 'uncertain'
+    """,
+    """
+    CREATE TRIGGER side_effect_journal_no_replace
+    BEFORE INSERT ON side_effect_journal
+    WHEN EXISTS (
+        SELECT 1 FROM side_effect_journal
+        WHERE intent_id = NEW.intent_id
+           OR effect_id = NEW.effect_id
+           OR (memorial_id = NEW.memorial_id AND sequence_no = NEW.sequence_no)
+    )
+    BEGIN
+        SELECT RAISE(ABORT, 'side-effect intents are immutable by replacement');
+    END
+    """,
+    """
+    CREATE TRIGGER side_effect_journal_identity_immutable
+    BEFORE UPDATE OF intent_id, effect_id, schema_version, edict_id, memorial_id,
+                     attempt_id, owner_id, fencing_token, sequence_no, boundary,
+                     operation, semantics, provider_idempotency_key,
+                     request_metadata_json, request_hash, intent_hash, created_at
+    ON side_effect_journal
+    WHEN OLD.intent_id IS NOT NEW.intent_id
+      OR OLD.effect_id IS NOT NEW.effect_id
+      OR OLD.schema_version IS NOT NEW.schema_version
+      OR OLD.edict_id IS NOT NEW.edict_id
+      OR OLD.memorial_id IS NOT NEW.memorial_id
+      OR OLD.attempt_id IS NOT NEW.attempt_id
+      OR OLD.owner_id IS NOT NEW.owner_id
+      OR OLD.fencing_token IS NOT NEW.fencing_token
+      OR OLD.sequence_no IS NOT NEW.sequence_no
+      OR OLD.boundary IS NOT NEW.boundary
+      OR OLD.operation IS NOT NEW.operation
+      OR OLD.semantics IS NOT NEW.semantics
+      OR OLD.provider_idempotency_key IS NOT NEW.provider_idempotency_key
+      OR OLD.request_metadata_json IS NOT NEW.request_metadata_json
+      OR OLD.request_hash IS NOT NEW.request_hash
+      OR OLD.intent_hash IS NOT NEW.intent_hash
+      OR OLD.created_at IS NOT NEW.created_at
+    BEGIN
+        SELECT RAISE(ABORT, 'side-effect intent identity is immutable');
+    END
+    """,
+)
+_SIDE_EFFECT_JOURNAL_CHECKSUM = hashlib.sha256(
+    (
+        "0015_side_effect_journal\n"
+        + "\n".join(" ".join(statement.split()) for statement in _SIDE_EFFECT_JOURNAL_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _side_effect_journal_upgrade(conn: MigrationConnection) -> None:
+    for statement in _SIDE_EFFECT_JOURNAL_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = (
     Migration(
         version=1,
@@ -3002,6 +3165,12 @@ MIGRATIONS = (
         name="0014_execution_attempt_ledger",
         checksum=_EXECUTION_ATTEMPT_LEDGER_CHECKSUM,
         upgrade=_execution_attempt_ledger_upgrade,
+    ),
+    Migration(
+        version=15,
+        name="0015_side_effect_journal",
+        checksum=_SIDE_EFFECT_JOURNAL_CHECKSUM,
+        upgrade=_side_effect_journal_upgrade,
     ),
 )
 

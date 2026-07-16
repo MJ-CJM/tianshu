@@ -31,6 +31,7 @@ from tianshu.storage.petition_repo import PetitionMixin
 from tianshu.storage.run_state_repo import RunStateRepository
 from tianshu.storage.scheduler_repo import SchedulerMixin
 from tianshu.storage.security_repo import SecurityMixin
+from tianshu.storage.side_effect_journal import SideEffectJournal
 from tianshu.storage.system_audit_repo import SystemAuditMixin
 from tianshu.storage.telegram_repo import TelegramMixin
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
@@ -70,6 +71,7 @@ class Storage(
         self.attempt_repo = AttemptLeaseRepository(self.unit_of_work)
         self.decision_repo = DecisionRepository()
         self.run_state_repo = RunStateRepository()
+        self.side_effect_journal = SideEffectJournal(self.unit_of_work, self.attempt_repo)
 
     def unit_of_work(self) -> SqliteUnitOfWork:
         return SqliteUnitOfWork(self._conn, self._lock)
