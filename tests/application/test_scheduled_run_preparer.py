@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,9 @@ from tianshu.application.scheduled_runs import (
     ScheduledRunPreparer,
 )
 from tianshu.models import Edict, EdictSchedule, Memorial, TaskStatus
+from tianshu.models.events import EventEnvelope
 from tianshu.storage import Storage
+from tianshu.storage.outbox_repo import OutboxRepository
 
 _NOW = datetime(2026, 7, 16, 8, tzinfo=UTC)
 
@@ -37,6 +40,30 @@ def _preparer(
     )
 
 
+def _bind_submission(
+    storage: Storage,
+    *,
+    memorial_id: str,
+    event_id: str = "submitted-event-1",
+) -> str:
+    with storage.unit_of_work() as unit_of_work:
+        OutboxRepository().add(
+            unit_of_work.connection,
+            EventEnvelope(
+                event_id=event_id,
+                event_type="edict.submitted",
+                edict_id="edict-1",
+                memorial_id=memorial_id,
+                timestamp=_NOW - timedelta(minutes=1),
+                producer="test",
+                payload={"goal": "scheduled work"},
+            ),
+        )
+        unit_of_work.commit()
+    digest = hashlib.sha256(event_id.encode()).hexdigest()
+    return f"submitted-{digest}"
+
+
 def test_initial_once_fire_reuses_submitted_root_and_replays_one_attempt(tmp_path: Path) -> None:
     storage = _open(
         tmp_path / "initial.db",
@@ -44,20 +71,21 @@ def test_initial_once_fire_reuses_submitted_root_and_replays_one_attempt(tmp_pat
     )
     root = Memorial(id="submitted-root", edict_id="edict-1", instruction="scheduled work")
     storage.save_memorial(root)
+    job_id = _bind_submission(storage, memorial_id=root.id)
     storage.save_scheduler_job(
-        "job-1",
+        job_id,
         "edict-1",
         "once",
         next_run=_NOW,
     )
     try:
         first = _preparer(storage).prepare(
-            job_id="job-1",
+            job_id=job_id,
             scheduled_at=_NOW,
             initial_memorial_id=root.id,
         )
         replay = _preparer(storage).prepare(
-            job_id="job-1",
+            job_id=job_id,
             scheduled_at=_NOW,
             initial_memorial_id=root.id,
         )
@@ -65,7 +93,7 @@ def test_initial_once_fire_reuses_submitted_root_and_replays_one_attempt(tmp_pat
         assert first.memorial_id == root.id
         assert replay == first.model_copy(update={"deduplicated": True})
         assert storage.get_memorial(root.id).status is TaskStatus.SUBMITTED  # type: ignore[union-attr]
-        assert storage.get_scheduler_job("job-1")["status"] == "cancelled"  # type: ignore[index]
+        assert storage.get_scheduler_job(job_id)["status"] == "cancelled"  # type: ignore[index]
         assert (
             storage._conn.execute(  # noqa: SLF001
                 "SELECT COUNT(*) FROM memorials WHERE edict_id='edict-1'"
@@ -239,8 +267,9 @@ def test_same_identity_with_different_initial_root_conflicts(tmp_path: Path) -> 
         tmp_path / "conflict.db",
         schedule=EdictSchedule(type="once", at=_NOW),
     )
-    storage.save_memorial(Memorial(id="root-1", edict_id="edict-1"))
+    storage.save_memorial(Memorial(id="root-1", edict_id="edict-1", instruction="scheduled work"))
     storage.save_memorial(Memorial(id="root-2", edict_id="edict-1"))
+    job_id = _bind_submission(storage, memorial_id="root-1", event_id="conflict-event")
     with storage.unit_of_work() as unit_of_work:
         storage.attempt_repo.enqueue_initial(
             unit_of_work.connection,
@@ -248,16 +277,16 @@ def test_same_identity_with_different_initial_root_conflicts(tmp_path: Path) -> 
             available_at=_NOW,
         )
         unit_of_work.commit()
-    storage.save_scheduler_job("job-1", "edict-1", "once", next_run=_NOW)
+    storage.save_scheduler_job(job_id, "edict-1", "once", next_run=_NOW)
     try:
         _preparer(storage).prepare(
-            job_id="job-1",
+            job_id=job_id,
             scheduled_at=_NOW,
             initial_memorial_id="root-1",
         )
         with pytest.raises(ScheduledFireConflict, match="envelope"):
             _preparer(storage).prepare(
-                job_id="job-1",
+                job_id=job_id,
                 scheduled_at=_NOW,
                 initial_memorial_id="root-2",
             )
@@ -397,13 +426,298 @@ def test_once_job_cursor_must_match_persisted_edict_time(tmp_path: Path) -> None
         schedule=EdictSchedule(type="once", at=_NOW + timedelta(minutes=1)),
     )
     storage.save_memorial(Memorial(id="submitted-root", edict_id="edict-1"))
-    storage.save_scheduler_job("job-1", "edict-1", "once", next_run=_NOW)
+    job_id = _bind_submission(
+        storage,
+        memorial_id="submitted-root",
+        event_id="once-conflict-event",
+    )
+    storage.save_scheduler_job(job_id, "edict-1", "once", next_run=_NOW)
     try:
         with pytest.raises(ScheduledFireConflict, match="terminal scheduler envelope"):
             _preparer(storage).prepare(
-                job_id="job-1",
+                job_id=job_id,
                 scheduled_at=_NOW,
                 initial_memorial_id="submitted-root",
             )
+    finally:
+        storage.close()
+
+
+def test_replay_rejects_edict_schedule_config_drift_and_persists_fingerprint(
+    tmp_path: Path,
+) -> None:
+    storage = _open(
+        tmp_path / "fingerprint.db",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            timezone="UTC",
+            concurrency_policy="allow",
+        ),
+    )
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=_NOW,
+    )
+    try:
+        prepared = _preparer(storage).prepare(job_id="job-1", scheduled_at=_NOW)
+        fingerprint = storage._conn.execute(  # noqa: SLF001
+            "SELECT error FROM schedule_run WHERE id = ?",
+            (prepared.schedule_run_id,),
+        ).fetchone()[0]
+        assert isinstance(fingerprint, str)
+        assert fingerprint.startswith("fire-envelope-sha256:")
+        assert len(fingerprint.removeprefix("fire-envelope-sha256:")) == 64
+
+        drifted = EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            timezone="Asia/Shanghai",
+            concurrency_policy="allow",
+        )
+        storage._conn.execute(  # noqa: SLF001
+            "UPDATE edicts SET schedule_json = ? WHERE id = 'edict-1'",
+            (drifted.model_dump_json(),),
+        )
+        storage._conn.commit()  # noqa: SLF001
+        with pytest.raises(ScheduledFireConflict, match="envelope"):
+            _preparer(storage).prepare(job_id="job-1", scheduled_at=_NOW)
+
+        original = EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            timezone="UTC",
+            concurrency_policy="allow",
+        )
+        storage._conn.execute(  # noqa: SLF001
+            "UPDATE edicts SET schedule_json = ? WHERE id = 'edict-1'",
+            (original.model_dump_json(),),
+        )
+        storage._conn.execute(  # noqa: SLF001
+            "UPDATE scheduler_jobs SET cron_expr = 'tampered' WHERE job_id = 'job-1'"
+        )
+        storage._conn.commit()  # noqa: SLF001
+        with pytest.raises(ScheduledFireConflict, match="envelope"):
+            _preparer(storage).prepare(job_id="job-1", scheduled_at=_NOW)
+    finally:
+        storage.close()
+
+
+def test_skipped_replay_rejects_changed_initial_memorial_envelope(tmp_path: Path) -> None:
+    storage = _open(
+        tmp_path / "skipped-envelope.db",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            concurrency_policy="skip",
+        ),
+    )
+    storage.save_memorial(Memorial(id="active-root", edict_id="edict-1", status=TaskStatus.RUNNING))
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=_NOW,
+    )
+    try:
+        skipped = _preparer(storage).prepare(job_id="job-1", scheduled_at=_NOW)
+        assert skipped.status == "skipped"
+        with pytest.raises(ScheduledFireConflict, match="envelope"):
+            _preparer(storage).prepare(
+                job_id="job-1",
+                scheduled_at=_NOW,
+                initial_memorial_id="attacker-root",
+            )
+    finally:
+        storage.close()
+
+
+def test_skipped_first_fire_still_rejects_unbound_initial_memorial(tmp_path: Path) -> None:
+    storage = _open(
+        tmp_path / "skipped-unbound-initial.db",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            concurrency_policy="skip",
+        ),
+    )
+    storage.save_memorial(Memorial(id="active-root", edict_id="edict-1", status=TaskStatus.RUNNING))
+    storage.save_memorial(
+        Memorial(id="attacker-root", edict_id="edict-1", instruction="scheduled work")
+    )
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=_NOW,
+    )
+    try:
+        with pytest.raises(ScheduledFireConflict, match="initial Memorial"):
+            _preparer(storage).prepare(
+                job_id="job-1",
+                scheduled_at=_NOW,
+                initial_memorial_id="attacker-root",
+            )
+        assert storage._conn.execute("SELECT COUNT(*) FROM schedule_run").fetchone()[0] == 0  # noqa: SLF001
+    finally:
+        storage.close()
+
+
+def test_equivalent_offset_cursor_is_compared_canonically_but_cas_uses_raw_text(
+    tmp_path: Path,
+) -> None:
+    storage = _open(
+        tmp_path / "offset-cursor.db",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            concurrency_policy="allow",
+        ),
+    )
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=_NOW,
+    )
+    raw_cursor = _NOW.astimezone(timezone(timedelta(hours=8))).isoformat()
+    storage._conn.execute(  # noqa: SLF001
+        "UPDATE scheduler_jobs SET next_run = ? WHERE job_id = 'job-1'",
+        (raw_cursor,),
+    )
+    storage._conn.commit()  # noqa: SLF001
+    try:
+        prepared = _preparer(storage).prepare(job_id="job-1", scheduled_at=_NOW)
+        assert prepared.next_run == _NOW + timedelta(seconds=60)
+        durable = storage.get_scheduler_job("job-1")
+        assert durable is not None
+        assert durable["next_run"] == (_NOW + timedelta(seconds=60)).isoformat()
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize(
+    ("status", "instruction", "event_memorial"),
+    [
+        (TaskStatus.RUNNING, "scheduled work", "submitted-root"),
+        (TaskStatus.SUBMITTED, "tampered work", "submitted-root"),
+        (TaskStatus.SUBMITTED, "scheduled work", "another-root"),
+    ],
+)
+def test_initial_root_requires_exact_submitted_identity_and_envelope(
+    tmp_path: Path,
+    status: TaskStatus,
+    instruction: str,
+    event_memorial: str,
+) -> None:
+    storage = _open(
+        tmp_path / f"initial-root-{status.value}-{event_memorial}.db",
+        schedule=EdictSchedule(type="once", at=_NOW),
+    )
+    storage.save_memorial(
+        Memorial(
+            id="submitted-root",
+            edict_id="edict-1",
+            instruction=instruction,
+            status=status,
+        )
+    )
+    if event_memorial != "submitted-root":
+        storage.save_memorial(
+            Memorial(
+                id=event_memorial,
+                edict_id="edict-1",
+                instruction="scheduled work",
+            )
+        )
+    job_id = _bind_submission(
+        storage,
+        memorial_id=event_memorial,
+        event_id=f"event-{status.value}-{event_memorial}",
+    )
+    storage.save_scheduler_job(job_id, "edict-1", "once", next_run=_NOW)
+    try:
+        with pytest.raises(ScheduledFireConflict, match="initial Memorial"):
+            _preparer(storage).prepare(
+                job_id=job_id,
+                scheduled_at=_NOW,
+                initial_memorial_id="submitted-root",
+            )
+    finally:
+        storage.close()
+
+
+def test_initial_memorial_is_rejected_for_later_periodic_fire(tmp_path: Path) -> None:
+    storage = _open(
+        tmp_path / "late-initial.db",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            concurrency_policy="allow",
+        ),
+    )
+    storage.save_memorial(
+        Memorial(id="submitted-root", edict_id="edict-1", instruction="scheduled work")
+    )
+    job_id = _bind_submission(storage, memorial_id="submitted-root", event_id="periodic-event")
+    storage.save_scheduler_job(
+        job_id,
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=_NOW,
+    )
+    try:
+        _preparer(storage).prepare(
+            job_id=job_id,
+            scheduled_at=_NOW,
+            initial_memorial_id="submitted-root",
+        )
+        storage.save_memorial(
+            Memorial(id="attacker-root", edict_id="edict-1", instruction="scheduled work")
+        )
+        with pytest.raises(ScheduledFireConflict, match="first fire"):
+            _preparer(storage).prepare(
+                job_id=job_id,
+                scheduled_at=_NOW + timedelta(seconds=60),
+                initial_memorial_id="attacker-root",
+            )
+    finally:
+        storage.close()
+
+
+def test_preexisting_hash_derived_periodic_root_is_not_adopted(tmp_path: Path) -> None:
+    storage = _open(
+        tmp_path / "preexisting-periodic-root.db",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=60,
+            concurrency_policy="allow",
+        ),
+    )
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=60,
+        next_run=_NOW,
+    )
+    digest = hashlib.sha256(f"job-1\0{_NOW.isoformat()}".encode()).hexdigest()
+    storage.save_memorial(
+        Memorial(
+            id=f"memorial-{digest}",
+            edict_id="edict-1",
+            instruction="scheduled work",
+        )
+    )
+    try:
+        with pytest.raises(ScheduledFireConflict, match="already exists"):
+            _preparer(storage).prepare(job_id="job-1", scheduled_at=_NOW)
     finally:
         storage.close()

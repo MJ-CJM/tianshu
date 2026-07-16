@@ -24,12 +24,21 @@ def insert_schedule_run(
     status: str,
     edict_id: str,
     started_at: datetime,
+    envelope_fingerprint: str,
 ) -> None:
     """Insert one deterministic schedule-run row in the caller's transaction."""
     connection.execute(
-        "INSERT INTO schedule_run (id, source, kind, status, edict_id, started_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (run_id, source, kind, status, edict_id, started_at.isoformat()),
+        "INSERT INTO schedule_run (id, source, kind, status, edict_id, error, started_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            run_id,
+            source,
+            kind,
+            status,
+            edict_id,
+            envelope_fingerprint,
+            started_at.astimezone(UTC).isoformat(),
+        ),
     )
 
 
@@ -37,7 +46,7 @@ def compare_and_set_scheduler_cursor(
     connection: sqlite3.Connection,
     *,
     job_id: str,
-    expected_next_run: datetime,
+    expected_next_run_raw: str,
     next_run: datetime | None,
     status: str,
 ) -> bool:
@@ -49,10 +58,10 @@ def compare_and_set_scheduler_cursor(
         WHERE job_id = ? AND status = 'active' AND next_run = ?
         """,
         (
-            next_run.isoformat() if next_run is not None else None,
+            next_run.astimezone(UTC).isoformat() if next_run is not None else None,
             status,
             job_id,
-            expected_next_run.isoformat(),
+            expected_next_run_raw,
         ),
     )
     return cursor.rowcount == 1

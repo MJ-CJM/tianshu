@@ -13,6 +13,7 @@ from croniter import croniter
 from pydantic import BaseModel, ConfigDict
 
 from tianshu.models import EdictSchedule, Memorial, TaskStatus
+from tianshu.models.canonical import canonical_sha256
 from tianshu.storage.attempt_ledger import AttemptLeaseRepository
 from tianshu.storage.memorial_repo import insert_memorial
 from tianshu.storage.scheduler_repo import (
@@ -111,6 +112,14 @@ class ScheduledRunPreparer:
                     (schedule_run_id,),
                 ).fetchone()
                 if existing is not None:
+                    replay_fingerprint = self._fingerprint(
+                        job=job,
+                        schedule=schedule,
+                        scheduled_at=scheduled_at,
+                        next_run=next_run,
+                        initial_memorial_id=initial_memorial_id,
+                        status=str(existing["status"]),
+                    )
                     result = self._resolve_replay(
                         connection,
                         row=existing,
@@ -123,17 +132,42 @@ class ScheduledRunPreparer:
                         next_run=next_run,
                         initial_memorial_id=initial_memorial_id,
                         schedule=schedule,
+                        expected_fingerprint=replay_fingerprint,
                     )
                     unit_of_work.commit()
                     return result
 
                 persisted_cursor = job["next_run"]
-                if (
-                    job["status"] != "active"
-                    or persisted_cursor is None
-                    or _utc(datetime.fromisoformat(str(persisted_cursor))) != scheduled_at
-                ):
+                try:
+                    cursor_matches = (
+                        persisted_cursor is not None
+                        and _utc(datetime.fromisoformat(str(persisted_cursor))) == scheduled_at
+                    )
+                except (TypeError, ValueError):
+                    cursor_matches = False
+                if job["status"] != "active" or not cursor_matches:
                     raise ScheduledFireConflict("scheduler cursor is no longer current")
+                persisted_cursor_raw = str(persisted_cursor)
+
+                if (
+                    initial_memorial_id is not None
+                    and connection.execute(
+                        "SELECT 1 FROM schedule_run WHERE source = ? LIMIT 1",
+                        (job_id,),
+                    ).fetchone()
+                    is not None
+                ):
+                    raise ScheduledFireConflict(
+                        "initial Memorial is allowed only for the job's first fire"
+                    )
+                if initial_memorial_id is not None:
+                    self._validate_initial_memorial(
+                        connection,
+                        job_id=job_id,
+                        edict_id=str(job["edict_id"]),
+                        memorial_id=initial_memorial_id,
+                        goal=str(edict["goal"]),
+                    )
 
                 skip = (
                     schedule.type in {"cron", "interval"}
@@ -147,6 +181,14 @@ class ScheduledRunPreparer:
                 memorial_id: str | None = None
                 prepared_attempt_id: str | None = None
                 status = "skipped" if skip else "prepared"
+                envelope_fingerprint = self._fingerprint(
+                    job=job,
+                    schedule=schedule,
+                    scheduled_at=scheduled_at,
+                    next_run=next_run,
+                    initial_memorial_id=initial_memorial_id,
+                    status=status,
+                )
                 if not skip:
                     memorial_id = self._prepare_memorial(
                         connection,
@@ -175,6 +217,7 @@ class ScheduledRunPreparer:
                     status=status,
                     edict_id=str(job["edict_id"]),
                     started_at=scheduled_at,
+                    envelope_fingerprint=envelope_fingerprint,
                 )
                 self._observe_boundary("after_schedule_run")
                 self._observe_boundary("before_cursor_cas")
@@ -182,7 +225,7 @@ class ScheduledRunPreparer:
                 if not compare_and_set_scheduler_cursor(
                     connection,
                     job_id=job_id,
-                    expected_next_run=scheduled_at,
+                    expected_next_run_raw=persisted_cursor_raw,
                     next_run=None if terminal else next_run,
                     status="cancelled" if terminal else "active",
                 ):
@@ -260,6 +303,7 @@ class ScheduledRunPreparer:
         next_run: datetime | None,
         initial_memorial_id: str | None,
         schedule: EdictSchedule,
+        expected_fingerprint: str,
     ) -> PreparedFire:
         if (
             row["source"] != job_id
@@ -267,6 +311,7 @@ class ScheduledRunPreparer:
             or row["edict_id"] != edict_id
             or _utc(datetime.fromisoformat(str(row["started_at"]))) != scheduled_at
             or row["status"] not in {"prepared", "skipped"}
+            or row["error"] != expected_fingerprint
         ):
             raise ScheduledFireConflict("stored fire conflicts with durable envelope")
         if row["status"] == "skipped":
@@ -318,12 +363,20 @@ class ScheduledRunPreparer:
             schedule=schedule,
         )
         existing = connection.execute(
-            "SELECT edict_id, dag_node_id FROM memorials WHERE id = ?",
+            "SELECT edict_id, instruction, status, dag_node_id, parent_memorial_id "
+            "FROM memorials WHERE id = ?",
             (memorial_id,),
         ).fetchone()
         if existing is not None:
-            if existing["edict_id"] != edict_id or existing["dag_node_id"] is not None:
-                raise ScheduledFireConflict("initial Memorial conflicts with durable envelope")
+            if initial_memorial_id is None:
+                raise ScheduledFireConflict("scheduled periodic Memorial already exists")
+            self._validate_initial_memorial(
+                connection,
+                job_id=job_id,
+                edict_id=edict_id,
+                memorial_id=memorial_id,
+                goal=goal,
+            )
             return memorial_id
         if initial_memorial_id is not None:
             raise ScheduledFireConflict("initial Memorial does not exist")
@@ -354,6 +407,85 @@ class ScheduledRunPreparer:
         return _identity("memorial", job_id, scheduled_at)
 
     @staticmethod
+    def _is_bound_submission(
+        connection: sqlite3.Connection,
+        *,
+        job_id: str,
+        edict_id: str,
+        memorial_id: str,
+    ) -> bool:
+        rows = connection.execute(
+            """
+            SELECT event_id
+            FROM outbox_events
+            WHERE event_type = 'edict.submitted'
+              AND edict_id = ? AND memorial_id = ?
+            """,
+            (edict_id, memorial_id),
+        ).fetchall()
+        return any(_submission_job_id(str(row["event_id"])) == job_id for row in rows)
+
+    @classmethod
+    def _validate_initial_memorial(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        job_id: str,
+        edict_id: str,
+        memorial_id: str,
+        goal: str,
+    ) -> None:
+        row = connection.execute(
+            "SELECT edict_id, instruction, status, dag_node_id, parent_memorial_id "
+            "FROM memorials WHERE id = ?",
+            (memorial_id,),
+        ).fetchone()
+        if (
+            row is None
+            or row["edict_id"] != edict_id
+            or row["instruction"] != goal
+            or row["status"] != TaskStatus.SUBMITTED.value
+            or row["dag_node_id"] is not None
+            or row["parent_memorial_id"] is not None
+            or not cls._is_bound_submission(
+                connection,
+                job_id=job_id,
+                edict_id=edict_id,
+                memorial_id=memorial_id,
+            )
+        ):
+            raise ScheduledFireConflict("initial Memorial conflicts with durable envelope")
+
+    @staticmethod
+    def _fingerprint(
+        *,
+        job: sqlite3.Row,
+        schedule: EdictSchedule,
+        scheduled_at: datetime,
+        next_run: datetime | None,
+        initial_memorial_id: str | None,
+        status: str,
+    ) -> str:
+        digest = canonical_sha256(
+            {
+                "schema_version": 1,
+                "job": {
+                    "job_id": str(job["job_id"]),
+                    "edict_id": str(job["edict_id"]),
+                    "schedule_type": str(job["schedule_type"]),
+                    "cron_expr": job["cron_expr"],
+                    "interval_seconds": job["interval_seconds"],
+                },
+                "edict_schedule": schedule.model_dump(mode="json", exclude_none=False),
+                "scheduled_at": scheduled_at.isoformat(),
+                "next_run": next_run.isoformat() if next_run is not None else None,
+                "initial_memorial_id": initial_memorial_id,
+                "status": status,
+            }
+        )
+        return f"fire-envelope-sha256:{digest}"
+
+    @staticmethod
     def _has_active_root(
         connection: sqlite3.Connection,
         *,
@@ -373,6 +505,11 @@ class ScheduledRunPreparer:
     def _observe_boundary(self, boundary: str) -> None:
         if self._boundary_hook is not None:
             self._boundary_hook(boundary)
+
+
+def _submission_job_id(event_id: str) -> str:
+    digest = hashlib.sha256(event_id.encode()).hexdigest()
+    return f"submitted-{digest}"
 
 
 __all__ = ["PreparedFire", "ScheduledFireConflict", "ScheduledRunPreparer"]
