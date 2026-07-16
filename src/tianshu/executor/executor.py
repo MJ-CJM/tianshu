@@ -183,10 +183,15 @@ class Executor:
             )
         error = None
         if memorial.status is not TaskStatus.COMPLETED:
+            retryable = memorial.failure_reason in {
+                "provider_timeout",
+                "provider_connection_error",
+                "transient_execution_error",
+            }
             error = RedactedError(
-                code="execution_failed",
+                code=memorial.failure_reason or "execution_failed",
                 message="Managed execution failed",
-                retryable=False,
+                retryable=retryable,
                 details_hash=(
                     hashlib.sha256((memorial.error or "execution_failed").encode()).hexdigest()
                 ),
@@ -1086,11 +1091,13 @@ class Executor:
         except TimeoutError:
             memorial.status = TaskStatus.FAILED
             memorial.error = f"Execution timed out after {edict.runtime.timeout_seconds}s"
+            memorial.failure_reason = "provider_timeout"
             event_type = "execution.failed"
         except Exception as exc:
             logger.exception("Unexpected error executing edict %s", edict.id)
             memorial.status = TaskStatus.FAILED
             memorial.error = str(exc)
+            memorial.failure_reason = _retryable_failure_reason(exc)
             event_type = "execution.failed"
         finally:
             memorial.completed_at = datetime.now(UTC)
@@ -1318,3 +1325,13 @@ class Executor:
         for task in list(self._running_tasks):
             task.cancel()
         await asyncio.gather(*self._running_tasks, return_exceptions=True)
+
+
+def _retryable_failure_reason(exc: Exception) -> str | None:
+    if isinstance(exc, TimeoutError):
+        return "provider_timeout"
+    if isinstance(exc, ConnectionError):
+        return "provider_connection_error"
+    if isinstance(exc, OSError):
+        return "transient_execution_error"
+    return None

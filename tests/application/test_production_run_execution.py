@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import inspect
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 
+from tianshu.application.fenced_run_completion import FencedRunCompletion
 from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.application.run_execution import (
     ManagedExecutionProjection,
@@ -15,12 +17,14 @@ from tianshu.application.run_execution import (
     ProductionRunRunner,
 )
 from tianshu.bootstrap.wiring_scheduler import _require_restart_safe_legacy_plan
+from tianshu.bus.event_bus import EventBus
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.gateway.core.edict_bridge import EdictBridge
 from tianshu.gateway.edicts_api import follow_up_edict, update_edict_status
 from tianshu.gateway.execution_api import retry_dag
-from tianshu.models import Plan, PlanTask, TaskStatus, UsageSummary
+from tianshu.kernel.hooks import HookRegistry
+from tianshu.models import Edict, Memorial, Plan, PlanTask, TaskStatus, UsageSummary
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.canonical import RedactedError
 from tianshu.models.events import EventEnvelope
@@ -115,6 +119,106 @@ async def test_retryable_projection_is_classified_for_managed_retry() -> None:
     assert result.disposition is AttemptDisposition.RETRY
     assert result.failure == failure
     assert result.retry_at == _NOW + timedelta(seconds=1)
+
+
+async def test_real_managed_executor_timeout_retries_then_dead_letters(
+    storage,
+    config_manager,
+) -> None:
+    edict = Edict(id="edict-1", goal="work", runtime={"retry_limit": 1})
+    root = Memorial(id="root-1", edict_id=edict.id, instruction=edict.goal)
+    storage.save_edict(edict)
+    storage.save_memorial(root)
+    with storage.unit_of_work() as unit_of_work:
+        storage.attempt_repo.enqueue_initial(
+            unit_of_work.connection,
+            memorial_id=root.id,
+            available_at=_NOW,
+            max_attempts=2,
+        )
+        unit_of_work.commit()
+    executor = Executor(EventBus(), storage, config_manager, HookRegistry())
+    agent = AsyncMock()
+    agent.execute.side_effect = TimeoutError("provider timeout")
+    executor.set_agent(agent)
+    runner = ProductionRunRunner(
+        _Planner(ManagedPlanningResult(plan=_PLAN)),
+        executor,
+        clock=lambda: _NOW,
+    )
+    completer = ProductionAttemptCompleter(
+        FencedRunCompletion(storage.unit_of_work, storage.attempt_repo),
+        storage.attempt_repo,
+        runner,
+    )
+
+    first_claim = storage.attempt_repo.claim(
+        memorial_id=root.id,
+        owner_id="worker-1",
+        now=_NOW,
+        lease_seconds=30,
+    )
+    assert first_claim is not None
+    first_authority = AttemptAuthority(
+        attempt_id=first_claim.attempt_id,
+        memorial_id=root.id,
+        owner_id="worker-1",
+        fencing_token=first_claim.fencing_token,
+    )
+    first = await runner(first_authority)
+    assert first.disposition is AttemptDisposition.RETRY
+    assert completer(
+        first_authority,
+        AttemptOutcomeV1(
+            disposition=first.disposition,
+            completed_at=_NOW,
+            failure=first.failure,
+            retry_at=first.retry_at,
+        ),
+    )
+    assert storage.get_memorial(root.id).status not in {
+        TaskStatus.COMPLETED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,
+    }
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM outbox_events WHERE event_type='execution.failed'"
+        ).fetchone()[0]
+        == 0
+    )
+
+    second_claim = storage.attempt_repo.claim(
+        memorial_id=root.id,
+        owner_id="worker-2",
+        now=_NOW + timedelta(seconds=1),
+        lease_seconds=30,
+    )
+    assert second_claim is not None
+    second_authority = AttemptAuthority(
+        attempt_id=second_claim.attempt_id,
+        memorial_id=root.id,
+        owner_id="worker-2",
+        fencing_token=second_claim.fencing_token,
+    )
+    second = await runner(second_authority)
+    assert second.disposition is AttemptDisposition.RETRY
+    assert completer(
+        second_authority,
+        AttemptOutcomeV1(
+            disposition=second.disposition,
+            completed_at=_NOW + timedelta(seconds=1),
+            failure=second.failure,
+            retry_at=second.retry_at,
+        ),
+    )
+    assert storage.get_memorial(root.id).status is TaskStatus.FAILED
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM outbox_events WHERE event_type='execution.failed'"
+        ).fetchone()[0]
+        == 1
+    )
 
 
 async def test_plan_review_suspends_without_entering_executor() -> None:
