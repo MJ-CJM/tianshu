@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.hoisted(() => ({
@@ -26,6 +27,14 @@ vi.mock("./LocaleSwitcher", () => ({ default: () => <span>locale</span> }));
 
 import AppHeader from "./AppHeader";
 
+function renderHeader() {
+  return render(
+    <MemoryRouter>
+      <AppHeader />
+    </MemoryRouter>,
+  );
+}
+
 afterEach(() => {
   cleanup();
   auth.logout.mockClear();
@@ -40,7 +49,7 @@ afterEach(() => {
 
 describe("application identity header", () => {
   it("shows the secure principal and provides an explicit logout action", () => {
-    render(<AppHeader />);
+    renderHeader();
 
     expect(screen.queryByText("Owner")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
@@ -56,7 +65,7 @@ describe("application identity header", () => {
       scopes: ["api"],
     };
 
-    render(<AppHeader />);
+    renderHeader();
 
     expect(screen.queryByText("Local Owner")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "退出登录" })).toBeNull();

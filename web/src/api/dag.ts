@@ -1,13 +1,13 @@
-import apiClient from './client';
+import apiClient, { isApiProblem } from './client';
 import type { ApiResponse, DAGExecution } from './types';
 
 export async function getDagByEdict(edictId: string): Promise<ApiResponse<DAGExecution> | null> {
   try {
     const { data } = await apiClient.get(`/dag/by-edict/${edictId}`, { silentCodes: [404] } as any);
     return data;
-  } catch (err: any) {
+  } catch (err: unknown) {
     // 404 = 该敕令尚无 DAG，属于正常状态
-    if (err.response?.status === 404) return null;
+    if (isApiProblem(err) && err.status === 404) return null;
     throw err;
   }
 }

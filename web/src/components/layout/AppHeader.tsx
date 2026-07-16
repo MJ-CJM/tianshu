@@ -4,8 +4,9 @@ import HealthDot from "../common/HealthDot";
 import ConnectionIndicator from "../common/ConnectionIndicator";
 import LocaleSwitcher from "./LocaleSwitcher";
 import { useT } from "../../i18n";
-import { useLocaleMode } from "../../hooks/useLocale";
 import { useAuth } from "../../auth/AuthContext";
+import { Link } from "react-router-dom";
+import { FROZEN_BRAND_NAME, FROZEN_TAGLINE } from "../../contracts/frozenShell";
 
 interface AppHeaderProps {
   isWsConnected?: boolean;
@@ -13,11 +14,8 @@ interface AppHeaderProps {
 
 export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
   const t = useT();
-  const locale = useLocaleMode();
   const { token } = theme.useToken();
   const { mode, principal, logout } = useAuth();
-  const brand = t("comp.appHeader.brand");
-  const isLatinBrand = locale === "en";
 
   return (
     <Layout.Header
@@ -30,7 +28,11 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
         height: 56,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <Link
+        to="/control"
+        aria-label="天枢中枢总览"
+        style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}
+      >
         {/* 品牌标:TS×轨道(与 README/favicon 同一枚 logo) */}
         <img
           src="/brand.png"
@@ -43,27 +45,27 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
         <span
           style={{
             color: token.colorText,
-            fontFamily: isLatinBrand ? "'Noto Serif', serif" : "'Noto Serif SC', serif",
+            fontFamily: "'Noto Serif SC', serif",
             fontWeight: 700,
             fontSize: 18,
-            letterSpacing: isLatinBrand ? 0.5 : 2,
+            letterSpacing: 2,
             lineHeight: 1,
           }}
         >
-          {brand}
+          {FROZEN_BRAND_NAME}
         </span>
-      </div>
+      </Link>
       <div
         style={{
           flex: 1,
           textAlign: "center",
           color: token.colorTextSecondary,
-          fontFamily: isLatinBrand ? "'Noto Serif', serif" : "'Noto Serif SC', serif",
+          fontFamily: "'Noto Serif SC', serif",
           fontSize: 12.5,
           letterSpacing: 2,
         }}
       >
-        {t("comp.appHeader.tagline")}
+        {FROZEN_TAGLINE}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <LocaleSwitcher />

@@ -60,6 +60,9 @@ function buildTheme(mode: ThemeMode): ThemeConfig {
       colorSuccess: p.success,
       colorWarning: p.warning,
       colorError: p.error,
+      colorPrimaryBorder: p.border,
+      boxShadowSecondary:
+        dark ? "none" : `0 8px 24px color-mix(in srgb, ${p.text} 8%, transparent)`,
       // 状态淡染底/描边与 SemanticTag 同一配方(11% / 30% 混入容器底),
       // 避免算法推导出浑浊底色
       colorInfoBg: mix(p.info, p.bgContainer, dark ? 0.16 : 0.11),

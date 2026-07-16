@@ -1,5 +1,6 @@
 {
   "nav": {
+    "control": "Control Center",
     "edictCreate": "New Task",
     "approvals": "Decisions",
     "cabinet": "Planning",
@@ -29,6 +30,90 @@
     "expand": "Expand",
     "switchToDark": "Switch to Dark",
     "switchToLight": "Switch to Light"
+  },
+  "pageDataState": {
+    "loadingTitle": "Loading",
+    "loadingDescription": "Reading the latest data.",
+    "emptyTitle": "No data",
+    "emptyDescription": "There is no data in the current scope.",
+    "staleTitle": "Data may be stale",
+    "staleDescription": "Refresh failed; the last successful data remains visible.",
+    "errorTitle": "Request failed",
+    "errorDescription": "The data could not be loaded.",
+    "permissionTitle": "Permission denied",
+    "permissionDescription": "The current identity lacks the required permission.",
+    "unavailableTitle": "Service unavailable",
+    "unavailableDescription": "The service is recovering. Try again later.",
+    "correlation": "Correlation ID",
+    "retry": "Retry"
+  },
+  "governanceUi": {
+    "title": "Governance Contract",
+    "requestedExecutor": "Requested executor",
+    "effectiveExecutor": "Effective executor",
+    "executorLevel": "Executor level",
+    "containedCaveat": "Only verified container boundaries are shown; managed controls are not claimed.",
+    "capability": "Capability",
+    "requested": "Requested",
+    "effective": "Effective",
+    "mandatoryMismatches": "Mandatory mismatches",
+    "advisoryGaps": "Advisory gaps",
+    "requestedState": {
+      "mandatory": "Mandatory",
+      "advisory": "Advisory",
+      "unrequested": "Not requested"
+    },
+    "effectiveState": {
+      "enforced": "Enforced",
+      "best_effort": "Best effort",
+      "observed": "Observed",
+      "unsupported": "Unsupported"
+    }
+  },
+  "decisionUi": {
+    "title": "Decision",
+    "action": "Decision action",
+    "reason": "Decision reason",
+    "reasonRequired": "A decision reason is required",
+    "submit": "Submit decision",
+    "submitFailed": "Decision submission failed",
+    "status": {
+      "pending": "Pending",
+      "resolved": "Resolved",
+      "expired": "Expired"
+    },
+    "actions": {
+      "approve": "Allow",
+      "reject": "Reject",
+      "amend": "Amend",
+      "retry": "Retry",
+      "cancel": "Cancel",
+      "observe": "Observe",
+      "promote": "Promote",
+      "override": "Override"
+    }
+  },
+  "evidenceUi": {
+    "title": "Evidence Bundle",
+    "digest": "Digest",
+    "download": "Download evidence bundle",
+    "artifacts": "Executor artifacts",
+    "checks": "Acceptance checks",
+    "policies": "Policy records",
+    "cost": "Cost",
+    "environment": "Environment",
+    "auditor": "Independent auditor conclusion",
+    "missingMandatory": "Missing mandatory evidence",
+    "replayWarning": "Replay creates a new governed task and never executes the original command in the browser.",
+    "replay": "Governed replay"
+  },
+  "evolutionUi": {
+    "title": "Evolution Gate",
+    "blockingGates": "Blocking gates",
+    "realTraffic": "Real traffic enabled",
+    "noRealTraffic": "No real traffic",
+    "evidence": "Evidence",
+    "promote": "Promote"
   },
   "auth": {
     "loading": "Verifying identity…",

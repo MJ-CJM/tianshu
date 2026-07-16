@@ -9,14 +9,10 @@ export async function getOuterLoopIterations(edictId: string): Promise<ApiRespon
 }
 
 export async function getSupervisionReports(edictId: string): Promise<SupervisionReport[]> {
-  try {
-    const { data } = await apiClient.get<ApiResponse<SupervisionReport[]>>(
-      `/edicts/${edictId}/supervision-reports`,
-    );
-    return data.data ?? [];
-  } catch {
-    return [];
-  }
+  const { data } = await apiClient.get<ApiResponse<SupervisionReport[]>>(
+    `/edicts/${edictId}/supervision-reports`,
+  );
+  return data.data ?? [];
 }
 
 /** @deprecated 用 getSupervisionReports 复数版（多监督官） */

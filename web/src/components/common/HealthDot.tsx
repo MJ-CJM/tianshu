@@ -1,6 +1,7 @@
 import { useHealth } from "../../hooks/useHealth";
 import styles from "./HealthDot.module.css";
 import { useT } from "../../i18n";
+import { FROZEN_HEALTH_LABEL } from "../../contracts/frozenShell";
 
 export default function HealthDot() {
   const t = useT();
@@ -23,12 +24,13 @@ export default function HealthDot() {
         : t("comp.healthDot.err");
   const isDemo = !isError && data?.profile === "demo";
 
+  const accessibleLabel = `${label}${isDemo ? ` ${t("comp.healthDot.demo")}` : ""}`;
+
   return (
-    <span className={styles.wrapper}>
+    <span className={styles.wrapper} role="status" aria-label={accessibleLabel}>
       <span className={`${styles.dot} ${dotClass}`} />
       <span className={styles.label}>
-        {label}
-        {isDemo ? ` ${t("comp.healthDot.demo")}` : ""}
+        {FROZEN_HEALTH_LABEL}
       </span>
     </span>
   );

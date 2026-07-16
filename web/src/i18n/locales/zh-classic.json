@@ -1,5 +1,6 @@
 {
   "nav": {
+    "control": "中枢总览",
     "edictCreate": "颁发敕令",
     "approvals": "御书房",
     "cabinet": "内阁",
@@ -29,6 +30,90 @@
     "expand": "展开",
     "switchToDark": "切换深色",
     "switchToLight": "切换浅色"
+  },
+  "pageDataState": {
+    "loadingTitle": "正在加载",
+    "loadingDescription": "正在读取最新数据。",
+    "emptyTitle": "暂无数据",
+    "emptyDescription": "当前范围内没有可展示的数据。",
+    "staleTitle": "数据可能已过期",
+    "staleDescription": "刷新失败，暂时保留上一次读取的数据。",
+    "errorTitle": "请求失败",
+    "errorDescription": "数据读取失败。",
+    "permissionTitle": "无权查看此内容",
+    "permissionDescription": "当前身份缺少所需权限。",
+    "unavailableTitle": "服务暂不可用",
+    "unavailableDescription": "服务正在恢复，请稍后重试。",
+    "correlation": "关联标识",
+    "retry": "重试"
+  },
+  "governanceUi": {
+    "title": "治理契约",
+    "requestedExecutor": "请求执行器",
+    "effectiveExecutor": "生效执行器",
+    "executorLevel": "执行器级别",
+    "containedCaveat": "仅展示可验证的容器边界，不承诺托管级控制。",
+    "capability": "能力",
+    "requested": "请求",
+    "effective": "生效",
+    "mandatoryMismatches": "强制项不匹配",
+    "advisoryGaps": "建议项缺口",
+    "requestedState": {
+      "mandatory": "强制",
+      "advisory": "建议",
+      "unrequested": "未请求"
+    },
+    "effectiveState": {
+      "enforced": "已强制",
+      "best_effort": "尽力而为",
+      "observed": "仅观测",
+      "unsupported": "不支持"
+    }
+  },
+  "decisionUi": {
+    "title": "裁决",
+    "action": "裁决动作",
+    "reason": "裁决理由",
+    "reasonRequired": "必须填写裁决理由",
+    "submit": "提交裁决",
+    "submitFailed": "裁决提交失败",
+    "status": {
+      "pending": "待裁决",
+      "resolved": "已裁决",
+      "expired": "已过期"
+    },
+    "actions": {
+      "approve": "准",
+      "reject": "驳",
+      "amend": "改批",
+      "retry": "重办",
+      "cancel": "撤回",
+      "observe": "观察",
+      "promote": "晋升",
+      "override": "越权放行"
+    }
+  },
+  "evidenceUi": {
+    "title": "证据包",
+    "digest": "摘要",
+    "download": "下载证据包",
+    "artifacts": "执行产物",
+    "checks": "验收检查",
+    "policies": "策略记录",
+    "cost": "成本",
+    "environment": "环境",
+    "auditor": "独立审计结论",
+    "missingMandatory": "缺少强制证据",
+    "replayWarning": "重放会创建新的受治理敕令，不会在浏览器执行原命令。",
+    "replay": "受治理重放"
+  },
+  "evolutionUi": {
+    "title": "演化门禁",
+    "blockingGates": "阻断门禁",
+    "realTraffic": "已接入真实流量",
+    "noRealTraffic": "未接入真实流量",
+    "evidence": "证据",
+    "promote": "晋升"
   },
   "auth": {
     "loading": "正在核验身份…",

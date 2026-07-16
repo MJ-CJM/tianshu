@@ -14,6 +14,7 @@ html[data-theme="dark"] {
 body {
   margin: 0;
   background: var(--ts-color-bg-page);
+  font-size: 13px;
   /* 数字全局等宽对位:表格、统计、成本金额不再跳动 */
   font-variant-numeric: tabular-nums;
 }
@@ -25,7 +26,7 @@ body {
 
 /* 键盘可达性:focus 环用朱砂,仅键盘聚焦时出现 */
 :focus-visible {
-  outline: 2px solid var(--ts-color-accent);
+  outline: 2px solid var(--ts-color-focus-ring);
   outline-offset: 1px;
 }
 
@@ -53,4 +54,15 @@ body {
     serif;
   font-weight: 700;
   letter-spacing: 0.14em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

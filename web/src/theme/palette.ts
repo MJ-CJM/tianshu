@@ -55,6 +55,12 @@ export interface Palette {
   success: string;
   warning: string;
   error: string;
+  /** 组件语义别名；值仍来自本调色板，不形成第二套颜色系统。 */
+  surface: string;
+  surfaceRaised: string;
+  focusRing: string;
+  decision: string;
+  blocked: string;
   status: StatusColors;
 }
 
@@ -81,6 +87,11 @@ export const palettes: Record<ThemeMode, Palette> = {
     success: "#45775A",
     warning: "#8A6B24",
     error: "#A5403D",
+    surface: "#FFFFFF",
+    surfaceRaised: "#FFFFFF",
+    focusRing: "#AE3F2C",
+    decision: "#AE3F2C",
+    blocked: "#A5403D",
     status: {
       running: "#3D6C8E",
       completed: "#45775A",
@@ -115,6 +126,11 @@ export const palettes: Record<ThemeMode, Palette> = {
     success: "#82B091",
     warning: "#C9A85C",
     error: "#D08079",
+    surface: "#1E1C19",
+    surfaceRaised: "#262420",
+    focusRing: "#D96C52",
+    decision: "#D96C52",
+    blocked: "#D08079",
     status: {
       running: "#7FA7C4",
       completed: "#82B091",
