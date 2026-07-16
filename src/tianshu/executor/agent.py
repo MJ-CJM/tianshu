@@ -768,6 +768,8 @@ class Agent:
                 if stream_callback:
                     await stream_callback.on_tool_call_start(tc["name"])
                 try:
+                    from tianshu.executor.managed_tools import ManagedRunSuspended
+
                     decision_context = (
                         bind_tool_policy_decision(policy_decision)
                         if policy_decision is not None
@@ -780,6 +782,8 @@ class Agent:
                             lifecycle_phase=edict.runtime.lifecycle_phase,
                             invocation_id=tc["id"],
                         )
+                except ManagedRunSuspended:
+                    raise
                 except Exception as tool_err:
                     tool_result = ToolResult(content=f"Tool error: {tool_err}", is_error=True)
                 if stream_callback:

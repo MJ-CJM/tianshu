@@ -133,6 +133,12 @@ class SideEffectJournal:
         ).fetchone()
         return _decode_intent(row) if row is not None else None
 
+    def load_by_effect_current(
+        self, connection: sqlite3.Connection, effect_id: str
+    ) -> SideEffectIntentV1 | None:
+        row = connection.execute(_SELECT + " WHERE effect_id=?", (effect_id,)).fetchone()
+        return _decode_intent(row) if row is not None else None
+
     def load_receipt_current(
         self, connection: sqlite3.Connection, intent_id: str
     ) -> SideEffectReceiptV1 | None:

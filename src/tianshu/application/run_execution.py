@@ -58,6 +58,8 @@ class _ManagedExecutor(Protocol):
 class _AttemptCompleter(Protocol):
     def complete(self, **kwargs: object) -> bool: ...
 
+    def is_suspended(self, **kwargs: object) -> bool: ...
+
 
 class ProductionRunRunner:
     """Await the two business stages inside the dispatcher's supervised task."""
@@ -75,11 +77,19 @@ class ProductionRunRunner:
         self._projections: dict[tuple[str, str, int], ManagedExecutionProjection] = {}
 
     async def __call__(self, authority: AttemptAuthority) -> AttemptRunResult:
+        from tianshu.executor.managed_tools import (
+            ManagedRunSuspended,
+            bind_managed_attempt_authority,
+        )
+
         try:
-            planning = await self._planner.plan_attempt(authority)
-            if planning.suspended:
-                return AttemptRunResult(AttemptDisposition.SUSPENDED)
-            projection = await self._executor.execute_attempt(authority, planning.plan)
+            with bind_managed_attempt_authority(authority):
+                planning = await self._planner.plan_attempt(authority)
+                if planning.suspended:
+                    return AttemptRunResult(AttemptDisposition.SUSPENDED)
+                projection = await self._executor.execute_attempt(authority, planning.plan)
+        except ManagedRunSuspended:
+            return AttemptRunResult(AttemptDisposition.SUSPENDED)
         except Exception as exc:
             failure = _redacted_failure(exc)
             self.store_projection(
@@ -148,6 +158,13 @@ class ProductionAttemptCompleter:
         if outcome.disposition in {
             AttemptDisposition.SUSPENDED,
         }:
+            is_suspended = getattr(self._attempt_repository, "is_suspended", None)
+            if is_suspended is not None and is_suspended(
+                attempt_id=authority.attempt_id,
+                memorial_id=authority.memorial_id,
+                fencing_token=authority.fencing_token,
+            ):
+                return True
             return self._attempt_repository.complete(
                 attempt_id=authority.attempt_id,
                 owner_id=authority.owner_id,

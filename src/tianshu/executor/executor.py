@@ -31,6 +31,7 @@ from tianshu.executor.capabilities import (
     native_manifest,
 )
 from tianshu.executor.execution_gateway import ExecutionGateway
+from tianshu.executor.managed_tools import ManagedRunSuspended
 from tianshu.executor.workspace_context import BoundWorkspace, bind_workspace
 from tianshu.executor.workspace_runtime import (
     WorkspaceContractError,
@@ -998,6 +999,7 @@ class Executor:
         result = None
         event_type = "execution.failed"
         cancelled_error: asyncio.CancelledError | None = None
+        suspended_error: Exception | None = None
         retry_memorial: Memorial | None = None
         try:
             memorial.status = TaskStatus.RUNNING
@@ -1093,6 +1095,8 @@ class Executor:
             memorial.error = f"Execution timed out after {edict.runtime.timeout_seconds}s"
             memorial.failure_reason = "provider_timeout"
             event_type = "execution.failed"
+        except ManagedRunSuspended as exc:
+            suspended_error = exc
         except Exception as exc:
             logger.exception("Unexpected error executing edict %s", edict.id)
             memorial.status = TaskStatus.FAILED
@@ -1100,7 +1104,8 @@ class Executor:
             memorial.failure_reason = _retryable_failure_reason(exc)
             event_type = "execution.failed"
         finally:
-            memorial.completed_at = datetime.now(UTC)
+            if suspended_error is None:
+                memorial.completed_at = datetime.now(UTC)
 
         async def finish_terminal_lifecycle() -> WorkspaceTerminalEvidence:
             terminal_binding = (
@@ -1153,6 +1158,8 @@ class Executor:
                     logger.exception("Failed to update memorial %s", memorial.id)
         if terminal_cancellation is not None and cancelled_error is None:
             cancelled_error = terminal_cancellation
+        if suspended_error is not None:
+            raise suspended_error
         terminal_payload: dict[str, object] = {
             "status": memorial.status.value,
             "error": memorial.error,

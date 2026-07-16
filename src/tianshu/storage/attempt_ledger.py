@@ -588,6 +588,25 @@ class AttemptLeaseRepository:
         except sqlite3.IntegrityError as exc:
             raise AttemptConflict("attempt retry transition conflict") from exc
 
+    def is_suspended(
+        self,
+        *,
+        attempt_id: str,
+        memorial_id: str,
+        fencing_token: int,
+    ) -> bool:
+        """Return whether this exact fenced attempt is already durably suspended."""
+
+        with self._unit_of_work_factory() as unit_of_work:
+            current = _select_attempt(unit_of_work.connection, attempt_id)
+            unit_of_work.commit()
+        return bool(
+            current is not None
+            and current.memorial_id == memorial_id
+            and current.status is AttemptStatus.SUSPENDED
+            and current.fencing_token == fencing_token
+        )
+
 
 __all__ = [
     "AttemptConflict",

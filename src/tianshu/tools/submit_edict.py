@@ -29,6 +29,7 @@ from tianshu.models.principal import (
     ClientKind,
     PrincipalKind,
 )
+from tianshu.models.side_effect import SideEffectSemantics
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
@@ -264,6 +265,7 @@ def register_submit_edict(
             tier=ToolTier.T2_NETWORK.value,
             max_result_chars=1024,
             side_effect=True,
+            managed_effect_semantics=SideEffectSemantics.PROVIDER_IDEMPOTENT,
         ),
     )
 

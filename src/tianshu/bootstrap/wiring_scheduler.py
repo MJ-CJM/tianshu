@@ -46,6 +46,7 @@ from tianshu.auditor.auditor import Auditor
 from tianshu.bootstrap.universe_hooks import _update_universe_fitness
 from tianshu.config import TianshuSettings
 from tianshu.consultation.session import ConsultationSession
+from tianshu.executor.managed_tools import ManagedToolEffectExecutor
 from tianshu.executor.orchestrator import OrchestratorContext
 from tianshu.models.events import EventEnvelope
 from tianshu.planner.planner import Planner
@@ -175,6 +176,9 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
     app.state.planner = planner
 
     # --- Durable managed execution ---
+    tools.set_managed_effect_executor(
+        ManagedToolEffectExecutor(storage, app.state.decision_service)
+    )
     production_runner = ProductionRunRunner(planner, executor)
     fenced_completion = FencedRunCompletion(storage.unit_of_work, storage.attempt_repo)
     executor.set_fenced_completion(fenced_completion)

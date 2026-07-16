@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 import jsonschema
 from pydantic import BaseModel
 
+from tianshu.models.side_effect import SideEffectSemantics
 from tianshu.tools.types import ToolHook, ToolResult, error_result
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class ToolDefinition(BaseModel):
     tier: int = 0  # T0-T3, Phase 0: label only, no runtime interception
     max_result_chars: int = 8000  # Per-tool result truncation limit
     side_effect: bool = False  # True = modifies state; intercepted in winding_down phase
+    managed_effect_semantics: SideEffectSemantics | None = None
 
 
 class ToolRegistry:
@@ -30,10 +32,16 @@ class ToolRegistry:
         self._disabled: set[str] = set()
         # 锦衣卫·分级急停(迭代 3):非 None 时每次 execute 入口先过 check()
         self._estop: object | None = None
+        self._managed_effect_executor: object | None = None
 
     def set_estop(self, estop: object) -> None:
         """注入 EstopManager(security.estop);置于 execute 最前,含 T0 快路径。"""
         self._estop = estop
+
+    def set_managed_effect_executor(self, executor: object) -> None:
+        """Install the production durable side-effect adapter."""
+
+        self._managed_effect_executor = executor
 
     def register(
         self,
@@ -183,12 +191,53 @@ class ToolRegistry:
             list(args.keys()) if isinstance(args, dict) else "raw",
         )
 
+        from tianshu.executor.managed_tools import get_managed_attempt_authority
+
+        authority = get_managed_attempt_authority()
+        if defn.side_effect and self._managed_effect_executor is not None and authority is not None:
+            return await self._managed_effect_executor.execute(  # type: ignore[attr-defined]
+                authority=authority,
+                tool_name=name,
+                arguments=args,
+                invocation_id=invocation_id,
+                semantics=defn.managed_effect_semantics,
+                invoke=lambda provider_key: self._invoke_bound(
+                    name,
+                    args,
+                    defn,
+                    func,
+                    provider_key,
+                    bound_workspace,
+                ),
+            )
+        if defn.managed_effect_semantics is not None:
+            return error_result(
+                f"Tool '{name}' rejected: managed attempt authority is unavailable"
+            )
+        return await self._invoke_bound(
+            name,
+            args,
+            defn,
+            func,
+            invocation_id,
+            bound_workspace,
+        )
+
+    async def _invoke_bound(
+        self,
+        name: str,
+        args: dict,
+        defn: ToolDefinition,
+        func: Callable[..., Awaitable[ToolResult]],
+        invocation_id: str | None,
+        bound_workspace: object | None,
+    ) -> ToolResult:
         from tianshu.kernel.ambient import bind_tool_invocation_id
 
         with bind_tool_invocation_id(invocation_id):
             if bound_workspace is not None:
-                async with bound_workspace.tool_lock:
-                    bound_workspace.validate_identity()
+                async with bound_workspace.tool_lock:  # type: ignore[attr-defined]
+                    bound_workspace.validate_identity()  # type: ignore[attr-defined]
                     return await self._invoke(name, args, defn, func)
             return await self._invoke(name, args, defn, func)
 
