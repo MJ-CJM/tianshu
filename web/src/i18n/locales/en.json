@@ -45,6 +45,7 @@
     "unavailableTitle": "Service unavailable",
     "unavailableDescription": "The service is recovering. Try again later.",
     "chunkDescription": "The page resources failed to load. Try again.",
+    "renderDescription": "The page encountered an unexpected error. Try again.",
     "correlation": "Correlation ID",
     "retry": "Retry"
   },

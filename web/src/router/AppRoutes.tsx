@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense } from "react";
-import type { ReactNode } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Spin } from "antd";
 import AppLayout from "../components/layout/AppLayout";
@@ -65,7 +65,7 @@ function RouteFailureState({
   const visibleProblem =
     problem.code === "route-chunk-unavailable"
       ? { ...problem, message: t("pageDataState.chunkDescription") }
-      : problem;
+      : { ...problem, message: t("pageDataState.renderDescription") };
   return (
     <PageDataState
       status={problemPageStatus(visibleProblem)}
@@ -96,6 +96,10 @@ export class RouteErrorBoundary extends Component<
 
   static getDerivedStateFromError(error: unknown): RouteErrorBoundaryState {
     return { problem: routeProblem(error) };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Route render failed", error, errorInfo);
   }
 
   private retry = () => {

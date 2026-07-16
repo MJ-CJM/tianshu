@@ -89,8 +89,12 @@ describe("desktop application routes", () => {
   it("turns a rejected dynamic import into a retryable service state", async () => {
     const onRetry = vi.fn();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const privateChunkUrl =
+      "https://cdn.example/private/chunk.js?token=chunk-secret";
     const FailedChunk = lazy(() =>
-      Promise.reject(new TypeError("Failed to fetch dynamically imported module")),
+      Promise.reject(
+        new TypeError(`Failed to fetch dynamically imported module: ${privateChunkUrl}`),
+      ),
     );
 
     render(
@@ -103,16 +107,19 @@ describe("desktop application routes", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("服务暂不可用");
     expect(screen.getByRole("alert")).toHaveTextContent("页面资源加载失败");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(privateChunkUrl);
+    expect(screen.getByRole("alert")).not.toHaveTextContent("chunk-secret");
     await userEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(onRetry).toHaveBeenCalledOnce();
     consoleError.mockRestore();
   });
 
-  it("turns an unexpected render failure into a retryable error state", async () => {
+  it("masks an unexpected render failure and logs the original error internally", async () => {
     const onRetry = vi.fn();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const secret = "postgres://admin:super-secret@db.internal/prod";
     function BrokenPage(): never {
-      throw new Error("page render exploded");
+      throw new Error(`page render exploded: ${secret}`);
     }
 
     render(
@@ -122,8 +129,15 @@ describe("desktop application routes", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("请求失败");
-    expect(screen.getByRole("alert")).toHaveTextContent("page render exploded");
+    expect(screen.getByRole("alert")).toHaveTextContent("页面发生异常，请重试");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("page render exploded");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(secret);
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
+    expect(consoleError).toHaveBeenCalledWith(
+      "Route render failed",
+      expect.objectContaining({ message: expect.stringContaining(secret) }),
+      expect.objectContaining({ componentStack: expect.any(String) }),
+    );
     consoleError.mockRestore();
   });
 });

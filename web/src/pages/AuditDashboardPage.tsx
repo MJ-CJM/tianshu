@@ -60,6 +60,18 @@ function QueryProblemState({
   );
 }
 
+function QueryLoadingState() {
+  return (
+    <PageDataState
+      status="loading"
+      data={null}
+      isEmpty={(items: unknown[]) => items.length === 0}
+    >
+      {() => null}
+    </PageDataState>
+  );
+}
+
 interface HookEvent {
   id: string;
   event_type: string;
@@ -103,7 +115,9 @@ function FailureAttributionCard() {
         />
       }
     >
-      {distributionQuery.error ? (
+      {distributionQuery.isLoading ? (
+        <QueryLoadingState />
+      ) : distributionQuery.error ? (
         <QueryProblemState
           error={distributionQuery.error}
           onRetry={() => void distributionQuery.refetch()}
@@ -184,7 +198,7 @@ function HookEventsCard() {
     staleTime: 15000,
   });
   const hookEvents = hookEventsQuery.data;
-  const isLoading = hookEventsQuery.isLoading;
+  const isLoading = recentEdictsQuery.isLoading || hookEventsQuery.isLoading;
 
   const events = hookEvents ?? [];
   const queryError = recentEdictsQuery.error ?? hookEventsQuery.error;
@@ -254,22 +268,23 @@ function HookEventsCard() {
 }
 
 function PolicyDecisionsTab() {
-  const [stats, setStats] = useState<PolicyStats | null>(null);
+  const statsQuery = useQuery<PolicyStats>({
+    queryKey: ["policy", "stats"],
+    queryFn: fetchPolicyStats,
+    refetchInterval: 10_000,
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      fetchPolicyStats().then((s) => {
-        if (!cancelled) setStats(s);
-      });
-    };
-    load();
-    const timer = setInterval(load, 10_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
+  if (statsQuery.isLoading) return <QueryLoadingState />;
+  if (statsQuery.error) {
+    return (
+      <QueryProblemState
+        error={statsQuery.error}
+        onRetry={() => void statsQuery.refetch()}
+      />
+    );
+  }
+
+  const stats = statsQuery.data!;
 
   return (
     <Row gutter={16}>
@@ -277,7 +292,7 @@ function PolicyDecisionsTab() {
         <Card size="small">
           <Statistic
             title="Allow"
-            value={stats?.allow ?? 0}
+            value={stats.allow}
             valueStyle={{ color: "var(--ts-color-success)" }}
           />
         </Card>
@@ -286,7 +301,7 @@ function PolicyDecisionsTab() {
         <Card size="small">
           <Statistic
             title="Deny"
-            value={stats?.deny ?? 0}
+            value={stats.deny}
             valueStyle={{ color: "var(--ts-color-error)" }}
           />
         </Card>
@@ -295,19 +310,19 @@ function PolicyDecisionsTab() {
         <Card size="small">
           <Statistic
             title="Require Approval"
-            value={stats?.require_approval ?? 0}
+            value={stats.require_approval}
             valueStyle={{ color: "var(--ts-color-warning)" }}
           />
         </Card>
       </Col>
       <Col span={4}>
         <Card size="small">
-          <Statistic title="Approved" value={stats?.approved ?? 0} />
+          <Statistic title="Approved" value={stats.approved} />
         </Card>
       </Col>
       <Col span={4}>
         <Card size="small">
-          <Statistic title="Rejected" value={stats?.rejected ?? 0} />
+          <Statistic title="Rejected" value={stats.rejected} />
         </Card>
       </Col>
     </Row>
@@ -618,7 +633,9 @@ export default function AuditDashboardPage() {
           {
             key: "stats",
             label: t("audit.tab.stats"),
-            children: statsQuery.error ? (
+            children: statsQuery.isLoading ? (
+              <QueryLoadingState />
+            ) : statsQuery.error ? (
               <QueryProblemState
                 error={statsQuery.error}
                 onRetry={() => void statsQuery.refetch()}
@@ -742,7 +759,9 @@ export default function AuditDashboardPage() {
           {
             key: "rules",
             label: t("audit.tab.rules"),
-            children: rulesQuery.error ? (
+            children: rulesQuery.isLoading ? (
+              <QueryLoadingState />
+            ) : rulesQuery.error ? (
               <QueryProblemState
                 error={rulesQuery.error}
                 onRetry={() => void rulesQuery.refetch()}
