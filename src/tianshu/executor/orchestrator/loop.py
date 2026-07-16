@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.checkpoint import OuterLoopCheckpoint
 from tianshu.executor.execution_gateway import (
@@ -120,6 +121,7 @@ class OrchestratorContext:
         execution_gateway: ExecutionGateway | None = None,
         workspace_root: Path | None = None,
         execution_context: ExecutionContext | None = None,
+        attempt_authority: AttemptAuthority | None = None,
     ) -> None:
         self.agent = agent
         self.storage = storage
@@ -135,6 +137,7 @@ class OrchestratorContext:
         self.execution_gateway = execution_gateway
         self.workspace_root = workspace_root
         self.execution_context = execution_context
+        self.attempt_authority = attempt_authority
 
 
 class OrchestratorResult:
@@ -1169,6 +1172,7 @@ async def _escalate_to_human(
                 checkpoint_ref=f"outer-loop:{edict.id}",
                 side_effect_cursor=0,
                 timeout_seconds=float(timeout),
+                authority=ctx.attempt_authority,
             )
             candidate = getattr(request, "decision_request_id", None)
             if isinstance(candidate, str) and candidate.strip():
@@ -1176,6 +1180,13 @@ async def _escalate_to_human(
     except Exception:
         logger.exception("durable outer-loop decision request failed; aborting fail-closed")
         return HumanDecision(action="abort")
+
+    if ctx.attempt_authority is not None:
+        if decision_request_id is None:
+            raise RuntimeError("managed outer-loop suspension has no durable decision")
+        from tianshu.executor.managed_tools import ManagedRunSuspended
+
+        raise ManagedRunSuspended(decision_request_id)
 
     try:
         await emit_audit(

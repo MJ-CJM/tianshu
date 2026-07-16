@@ -172,7 +172,12 @@ class Executor:
         if edict is None:
             raise RuntimeError("managed execution edict is unavailable")
         if edict.acceptance is not None and self._orchestrator_ctx is not None:
-            await self._execute_outer_loop(edict, memorial, _defer_terminal=True)
+            await self._execute_outer_loop(
+                edict,
+                memorial,
+                _defer_terminal=True,
+                attempt_authority=authority,
+            )
         elif plan and len(plan.tasks) > 1 and self._dag_scheduler:
             await self._execute_dag(edict, plan, memorial=memorial, _defer_terminal=True)
         else:
@@ -805,6 +810,7 @@ class Executor:
         memorial: Memorial | None,
         *,
         _defer_terminal: bool = False,
+        attempt_authority: AttemptAuthority | None = None,
     ) -> None:
         """通过 orchestrator 跑长任务 outer loop。"""
         from tianshu.executor.orchestrator import run as orch_run
@@ -840,6 +846,7 @@ class Executor:
             return
 
         cancelled_error: asyncio.CancelledError | None = None
+        suspended_error: ManagedRunSuspended | None = None
         terminal_evidence = WorkspaceTerminalEvidence()
         binding = bind_workspace(bound_workspace) if bound_workspace is not None else nullcontext()
         with binding:
@@ -851,6 +858,7 @@ class Executor:
                 orchestrator_ctx = copy(self._orchestrator_ctx)
                 orchestrator_ctx.agent = prepared_executor
                 orchestrator_ctx.execution_context = prepared_executor.execution_context(edict)
+                orchestrator_ctx.attempt_authority = attempt_authority
                 if bound_workspace is not None:
                     orchestrator_ctx.workspace_root = bound_workspace.root
                 governed_edict = edict.model_copy(
@@ -865,12 +873,15 @@ class Executor:
                 cancelled_error = exc
                 memorial.status = TaskStatus.CANCELLED
                 memorial.error = "Task was cancelled"
+            except ManagedRunSuspended as exc:
+                suspended_error = exc
             except Exception as exc:
                 logger.exception("orchestrator failed for edict %s", edict.id)
                 memorial.status = TaskStatus.FAILED
                 memorial.error = f"orchestrator error: {exc}"
             finally:
-                memorial.completed_at = datetime.now(UTC)
+                if suspended_error is None:
+                    memorial.completed_at = datetime.now(UTC)
                 try:
                     terminal_evidence, terminal_cancellation = await complete_workspace_lifecycle(
                         self._workspace_runtime.finalize(
@@ -893,6 +904,8 @@ class Executor:
             TaskStatus.COMPLETED: "execution.completed",
             TaskStatus.CANCELLED: "execution.cancelled",
         }.get(memorial.status, "execution.failed")
+        if suspended_error is not None:
+            raise suspended_error
         if not _defer_terminal:
             await self._bus.emit(
                 make_event(

@@ -15,8 +15,10 @@ from tianshu.application.ingress import (
     make_ingress_auth_context,
     requested_contract_for_edict,
 )
+from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.bus.event_bus import EventBus
 from tianshu.governance.decision_service import DecisionConflict, DecisionService
+from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
 from tianshu.models.common import TaskStatus, UsageSummary
 from tianshu.models.decision import (
@@ -52,6 +54,7 @@ from tianshu.models.run_state import (
 )
 from tianshu.security.sensitive_payload import redact_sensitive_mapping
 from tianshu.storage import Storage
+from tianshu.storage.attempt_ledger import AttemptFenceLost
 from tianshu.storage.outbox_repo import OutboxRepository
 
 logger = logging.getLogger(__name__)
@@ -73,6 +76,7 @@ class ApprovalManager:
         edict_application_service: EdictApplicationService | None = None,
         decision_service: DecisionService | None = None,
         clock: Callable[[], datetime] | None = None,
+        boundary_hook: Callable[[str], None] | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
@@ -81,6 +85,7 @@ class ApprovalManager:
         self._decision_service = decision_service
         self._outbox = OutboxRepository()
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._boundary_hook = boundary_hook
         self._pending: dict[str, asyncio.Event] = {}
         self._results: dict[str, Decree] = {}
         from tianshu.application.fenced_run_completion import FencedRunCompletion
@@ -660,6 +665,7 @@ class ApprovalManager:
         checkpoint_ref: str | None,
         side_effect_cursor: int,
         timeout_seconds: float = 86400.0,
+        authority: AttemptAuthority | None = None,
     ) -> DecisionRequestV1:
         """Persist one reconstruction-grade L3 suspension atomically."""
 
@@ -755,11 +761,115 @@ class ApprovalManager:
             payload=cast(dict[str, JsonValue], payload),
             expires_at=now + timedelta(seconds=timeout_seconds),
         )
-        return self._decision_service.request_with_run_state(
-            command,
-            run_state,
-            auth=self._outer_loop_auth(edict.id),
-        )
+        auth = self._outer_loop_auth(edict.id)
+        if authority is None:
+            return self._decision_service.request_with_run_state(
+                command,
+                run_state,
+                auth=auth,
+            )
+        if authority.memorial_id != memorial.id:
+            raise ValueError("outer-loop attempt authority does not match the root")
+        with self._storage.unit_of_work() as unit_of_work:
+            connection = unit_of_work.connection
+            self._storage.attempt_repo.require_current(
+                connection,
+                attempt_id=authority.attempt_id,
+                owner_id=authority.owner_id,
+                fencing_token=authority.fencing_token,
+                now=now,
+            )
+            request = self._decision_service.request_in_transaction(
+                unit_of_work,
+                command,
+                auth=auth,
+            )
+            self._observe_boundary("after_decision")
+            bound_continuation = run_state.continuation.model_copy(
+                update={"pending_decision_id": request.decision_request_id}
+            )
+            bound_state = run_state.model_copy(
+                update={
+                    "continuation": bound_continuation,
+                    "created_at": request.created_at,
+                    "updated_at": request.created_at,
+                }
+            )
+            current = self._storage.run_state_repo.load(connection, memorial.id)
+            if current is None:
+                self._storage.run_state_repo.create(connection, bound_state)
+            elif (
+                current.phase is RunPhase.WAITING_DECISION
+                and current.continuation.pending_decision_id == request.decision_request_id
+            ):
+                normalized = bound_state.model_copy(
+                    update={
+                        "created_at": current.created_at,
+                        "updated_at": current.updated_at,
+                        "version": current.version,
+                    }
+                )
+                if current != normalized:
+                    raise DecisionConflict("decision_run_state_conflict")
+            elif (
+                current.phase is RunPhase.EXECUTING
+                and current.continuation.pending_decision_id is None
+                and current.continuation.resolved_decision_id is not None
+            ):
+                candidate = bound_state.model_copy(
+                    update={
+                        "created_at": current.created_at,
+                        "updated_at": max(bound_state.updated_at, current.updated_at),
+                        "version": current.version,
+                    }
+                )
+                self._storage.run_state_repo.compare_and_swap(
+                    connection,
+                    candidate,
+                    expected_version=current.version,
+                )
+            else:
+                raise DecisionConflict("decision_run_state_conflict")
+            self._observe_boundary("after_run_state")
+            if not self._storage.attempt_repo.complete_current(
+                connection,
+                attempt_id=authority.attempt_id,
+                owner_id=authority.owner_id,
+                fencing_token=authority.fencing_token,
+                outcome=AttemptOutcomeV1(
+                    disposition=AttemptDisposition.SUSPENDED,
+                    completed_at=now,
+                ),
+            ):
+                raise AttemptFenceLost("attempt authority is no longer current")
+            self._observe_boundary("after_attempt_suspend")
+            event_id = f"{request.decision_request_id}:decision.requested"
+            if self._outbox.get(connection, event_id) is None:
+                self._outbox.add(
+                    connection,
+                    EventEnvelope(
+                        event_id=event_id,
+                        event_type="decision.requested",
+                        edict_id=edict.id,
+                        memorial_id=memorial.id,
+                        producer="approval-manager.outer-loop.v1",
+                        timestamp=now,
+                        payload={
+                            "schema_version": 1,
+                            "decision_request_id": request.decision_request_id,
+                            "kind": request.kind.value,
+                            "attempt_id": authority.attempt_id,
+                            "correlation_id": auth.correlation_id,
+                        },
+                    ),
+                )
+            self._observe_boundary("after_outbox")
+            unit_of_work.commit()
+            return request
+
+    def _observe_boundary(self, boundary: str) -> None:
+        if self._boundary_hook is not None:
+            self._boundary_hook(boundary)
 
     async def wait_for_outer_loop_decision(
         self,

@@ -13,8 +13,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import tianshu.executor.approvals as approvals_module
+from tianshu.application.continuation_recovery import ContinuationRecoveryService
+from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.approvals import ApprovalManager
+from tianshu.executor.managed_tools import ManagedRunSuspended
 from tianshu.executor.orchestrator.human_decision import HumanDecision
 from tianshu.executor.orchestrator.loop import OrchestratorContext, _escalate_to_human
 from tianshu.executor.orchestrator.state import (
@@ -26,6 +29,7 @@ from tianshu.executor.orchestrator.state import (
 from tianshu.governance.decision_service import DecisionConflict, DecisionService
 from tianshu.models import Edict, Memorial, TaskStatus, UsageSummary
 from tianshu.models.acceptance import AcceptanceCriteria
+from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.decision import DecisionKind, ResolveDecisionCommand
 from tianshu.models.events import EventEnvelope
 from tianshu.models.principal import AuthContext, Principal
@@ -111,6 +115,30 @@ def _manager(storage) -> tuple[ApprovalManager, DecisionService]:
         clock=lambda: _NOW,
     )
     return manager, service
+
+
+def _claim(storage, memorial: Memorial, *, max_attempts: int = 3) -> AttemptAuthority:
+    with storage.unit_of_work() as unit_of_work:
+        storage.attempt_repo.enqueue_initial(
+            unit_of_work.connection,
+            memorial_id=memorial.id,
+            available_at=_NOW,
+            max_attempts=max_attempts,
+        )
+        unit_of_work.commit()
+    claimed = storage.attempt_repo.claim(
+        memorial_id=memorial.id,
+        owner_id="worker-outer",
+        now=_NOW,
+        lease_seconds=60,
+    )
+    assert claimed is not None and claimed.owner_id is not None
+    return AttemptAuthority(
+        attempt_id=claimed.attempt_id,
+        memorial_id=claimed.memorial_id,
+        owner_id=claimed.owner_id,
+        fencing_token=claimed.fencing_token,
+    )
 
 
 def _auth(identity: str = "user:reviewer") -> AuthContext:
@@ -332,6 +360,172 @@ def test_outer_loop_decision_and_run_state_rollback_together(
 
     assert storage._conn.execute("SELECT COUNT(*) FROM decision_requests").fetchone()[0] == 0  # noqa: SLF001
     assert storage._conn.execute("SELECT COUNT(*) FROM run_states").fetchone()[0] == 0  # noqa: SLF001
+
+
+@pytest.mark.parametrize("max_attempts", (1, 3))
+async def test_managed_escalation_suspends_before_unwind_without_live_poll(
+    storage,
+    monkeypatch,
+    max_attempts: int,
+) -> None:
+    edict, memorial = _seed(storage)
+    edict = edict.model_copy(update={"acceptance": AcceptanceCriteria(deadline_seconds=30)})
+    authority = _claim(storage, memorial, max_attempts=max_attempts)
+    manager, _ = _manager(storage)
+    wait = AsyncMock(side_effect=AssertionError("managed L3 must not live-poll"))
+    monkeypatch.setattr(manager, "wait_for_outer_loop_decision", wait)
+    ctx = OrchestratorContext(
+        agent=MagicMock(),
+        storage=storage,
+        bus=EventBus(),
+        actor_llm=MagicMock(),
+        critic_llm=MagicMock(),
+        approvals=manager,
+        attempt_authority=authority,
+    )
+
+    with pytest.raises(ManagedRunSuspended):
+        await _escalate_to_human(_state(edict.id), edict, ctx, memorial)
+
+    wait.assert_not_awaited()
+    row = storage._conn.execute(  # noqa: SLF001
+        "SELECT status, fencing_token FROM execution_attempts WHERE attempt_id=?",
+        (authority.attempt_id,),
+    ).fetchone()
+    assert row is not None and tuple(row) == ("suspended", authority.fencing_token)
+    assert storage._conn.execute(  # noqa: SLF001
+        "SELECT COUNT(*) FROM decision_requests WHERE status='pending'"
+    ).fetchone()[0] == 1
+    assert storage._conn.execute(  # noqa: SLF001
+        "SELECT COUNT(*) FROM outbox_events WHERE event_type='decision.requested'"
+    ).fetchone()[0] == 1
+    with storage.unit_of_work() as unit_of_work:
+        run_state = storage.run_state_repo.load(unit_of_work.connection, memorial.id)
+        unit_of_work.commit()
+    assert run_state is not None and run_state.phase is RunPhase.WAITING_DECISION
+    assert storage.attempt_repo.list_dispatchable_memorial_ids(now=_NOW, limit=10) == ()
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    ("after_decision", "after_run_state", "after_attempt_suspend", "after_outbox"),
+)
+def test_managed_outer_suspension_fault_rolls_back_whole_uow(
+    storage,
+    boundary: str,
+) -> None:
+    edict, memorial = _seed(storage)
+    authority = _claim(storage, memorial)
+
+    def fail(current: str) -> None:
+        if current == boundary:
+            raise RuntimeError(f"injected {boundary}")
+
+    service = DecisionService(storage, clock=lambda: _NOW)
+    manager = ApprovalManager(
+        event_bus=EventBus(),
+        storage=storage,
+        decision_service=service,
+        clock=lambda: _NOW,
+        boundary_hook=fail,
+    )
+
+    with pytest.raises(RuntimeError, match=boundary):
+        manager.request_outer_loop_decision(
+            edict=edict,
+            memorial=memorial,
+            state=_state(edict.id),
+            checkpoint_ref=f"outer-loop:{edict.id}",
+            side_effect_cursor=4,
+            timeout_seconds=60,
+            authority=authority,
+        )
+
+    assert storage._conn.execute("SELECT COUNT(*) FROM decision_requests").fetchone()[0] == 0  # noqa: SLF001
+    assert storage._conn.execute("SELECT COUNT(*) FROM run_states").fetchone()[0] == 0  # noqa: SLF001
+    assert storage._conn.execute("SELECT COUNT(*) FROM outbox_events").fetchone()[0] == 0  # noqa: SLF001
+    attempt = storage._conn.execute(  # noqa: SLF001
+        "SELECT status, owner_id, fencing_token FROM execution_attempts WHERE attempt_id=?",
+        (authority.attempt_id,),
+    ).fetchone()
+    assert attempt is not None and tuple(attempt) == (
+        "claimed",
+        authority.owner_id,
+        authority.fencing_token,
+    )
+
+
+@pytest.mark.parametrize("max_attempts", (1, 3))
+async def test_real_l3_suspension_survives_restart_and_resumes_once(
+    tmp_path: Path,
+    max_attempts: int,
+) -> None:
+    path = tmp_path / f"real-l3-{max_attempts}.db"
+    first = Storage(str(path))
+    first.init_db()
+    edict, memorial = _seed(first)
+    authority = _claim(first, memorial, max_attempts=max_attempts)
+    manager, _ = _manager(first)
+    request = manager.request_outer_loop_decision(
+        edict=edict,
+        memorial=memorial,
+        state=_state(edict.id),
+        checkpoint_ref=f"outer-loop:{edict.id}",
+        side_effect_cursor=4,
+        timeout_seconds=60,
+        authority=authority,
+    )
+    first.close()
+
+    restarted = Storage(str(path))
+    restarted.init_db()
+    try:
+        service = DecisionService(restarted, clock=lambda: _NOW)
+        service.resolve(
+            request.decision_request_id,
+            _resolve_continue(),
+            auth=_auth(),
+        )
+        event = EventEnvelope(
+            event_id=f"{request.decision_request_id}:test-resolved",
+            event_type="decision.resolved",
+            edict_id=edict.id,
+            memorial_id=memorial.id,
+            producer="test",
+            timestamp=_NOW,
+            payload={
+                "schema_version": 1,
+                "decision_request_id": request.decision_request_id,
+                "kind": DecisionKind.OUTER_LOOP.value,
+                "action": "continue",
+            },
+        )
+        recovery = ContinuationRecoveryService(restarted, clock=lambda: _NOW)
+        assert await recovery.handle_decision_resolved(event) is True
+        assert await recovery.handle_decision_resolved(event) is False
+        resumed = restarted.attempt_repo.claim(
+            memorial_id=memorial.id,
+            owner_id="worker-restarted",
+            now=_NOW,
+            lease_seconds=60,
+        )
+        assert resumed is not None and resumed.fencing_token > authority.fencing_token
+        outcome = AttemptOutcomeV1(
+            disposition=AttemptDisposition.SUCCEEDED,
+            completed_at=_NOW,
+        )
+        assert not restarted.attempt_repo.complete(
+            attempt_id=authority.attempt_id,
+            owner_id=authority.owner_id,
+            fencing_token=authority.fencing_token,
+            outcome=outcome,
+        )
+        assert restarted._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM outbox_events "
+            "WHERE event_type='execution.resume.requested'"
+        ).fetchone()[0] == 1
+    finally:
+        restarted.close()
 
 
 async def test_escalation_persists_real_state_before_notification_and_wait(storage) -> None:
