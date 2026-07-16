@@ -1,5 +1,5 @@
 S3_CORE_GATE_LOG_V1
-source_commit=8f5b324306b6b49e35ae89d0c22f4ab9a072edb2
+source_commit=60d3c45b836de44b132dba186e5c9a3672592ea3
 command=env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/notifier -q
 --- output ---
 ..............                                                           [100%]
@@ -21,6 +21,6 @@ command=env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/notifier -q
     warnings.warn(  # deprecated in 14.0 - 2024-11-09
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-14 passed, 4 warnings in 0.65s
+14 passed, 4 warnings in 0.71s
 --- exit ---
 exit_code=0

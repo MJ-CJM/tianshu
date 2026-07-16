@@ -4,8 +4,8 @@
 - scope: SQLite single-node durable governance and Evidence only
 - entry commit: `7736a1d3255f42ad052962f4e2b49dfe764d2300`
 - inherited cleanup commit: `a1ec0a8`
-- checked source commit: `8f5b324306b6b49e35ae89d0c22f4ab9a072edb2`
-- retained-evidence checker commit: `8f5b324`
+- checked source commit: `60d3c45b836de44b132dba186e5c9a3672592ea3`
+- retained-evidence checker commit: `60d3c45`
 
 This Gate closes the Lean S3 Core boundary: one durable Edict ingress, transactional outbox,
 persistent Decision/RunState, attempt lease and fencing, supported side-effect intent/receipt
@@ -17,13 +17,13 @@ semantics, complete OTel/SLO coverage, or delivery by external notification chan
 
 | Gate | Exact result |
 | --- | --- |
-| Focused S3 fault matrix, including all Evidence tests | `178 passed, 0 skipped, 4 warnings in 6.20s` |
-| All notifier tests | `14 passed, 0 skipped, 4 warnings in 0.65s` |
+| Focused S3 fault matrix, including all Evidence tests | `199 passed, 0 skipped, 4 warnings in 14.52s` |
+| All notifier tests | `14 passed, 0 skipped, 4 warnings in 0.71s` |
 | Ruff check | `All checks passed!` |
 | Ruff format | `824 files already formatted` |
 | mypy | `Success: no issues found in 125 source files` |
 | import-linter | `455 files / 1571 dependencies; 2 contracts kept, 0 broken` |
-| Full non-slow | `3804 passed, 2 skipped, 24 deselected, 7 warnings in 613.83s (0:10:13)` |
+| Full non-slow | `3825 passed, 2 skipped, 24 deselected, 7 warnings in 629.39s (0:10:29)` |
 
 The focused matrix executed every required fault source and skipped none. The full-suite skips
 are outside the required focused matrix; no skipped item is counted as S3 fault evidence.
@@ -62,6 +62,8 @@ published Evidence Bundle schema.
 | Remediated final full non-slow | `3769 passed, 2 skipped, 24 deselected, 7 warnings in 630.10s` | Passed from clean source `70d9cb7`; exact output is retained and hashed. |
 | Claim-classifier remediation | Independent review confirmed that OpenTelemetry/full-OTel, external-channel delivery, multiple replicas, and equivalent Chinese forms remain not claimed even under double negation or alternate word order. | Replaced broad negation-token acceptance with topic detection plus canonical negative-boundary classification in `8f5b324`; those variants remain not claimed, 39 cross-document positive cases are rejected, and current truthful documents remain accepted. |
 | Final retained-evidence rerun | `3804 passed, 2 skipped, 24 deselected, 7 warnings in 613.83s` | Passed from clean source `8f5b324`; all seven logs were regenerated and rebound. |
+| EOF/adversative claim remediation | Independent review reproduced that newline-terminated documents and mixed adversative clauses could evade the prior scanner. | Added 60 fixtures that append English and Chinese positive assertions to copies of the three actual newline-terminated documents; `rstrip()` plus Markdown block, sentence, and adversative-clause scanning rejects every case in `60d3c45`. |
+| Final post-remediation retained-evidence rerun | `3825 passed, 2 skipped, 24 deselected, 7 warnings in 629.39s` | Passed from clean source `60d3c45`; all seven logs were regenerated and rebound. |
 
 ## Machine-checked invariants
 
@@ -78,7 +80,9 @@ OTel, external-delivery guarantees, and multi-replica governance remain not clai
 boundaries remain not claimed under OpenTelemetry/full-OTel variants, delivery-before-channel
 word order, multiple replicas, double negation, or equivalent Chinese expressions; positive
 assertions fail anywhere in this report, the capability matrix, or PROGRESS, while canonical
-deferred/unsupported boundaries remain allowed.
+deferred/unsupported boundaries remain allowed. Complete OpenTelemetry, external notification
+delivery, and multi-replica governance remain not claimed; each adversative clause now has to
+carry its own canonical negative boundary, including at newline-terminated EOF.
 
 ## Known limits and deferred work
 
@@ -116,13 +120,13 @@ contracts; broader claims remain deferred.
       "counts": {
         "deselected": 0,
         "failed": 0,
-        "passed": 178,
+        "passed": 199,
         "skipped": 0
       },
       "exit_code": 0,
       "id": "focused_fault_matrix",
       "log_path": "docs/cc-fable-v1/reports/s3-core-evidence/focused_fault_matrix.log",
-      "log_sha256": "b048021df2d8224d6e9aff9744ed3c4b4499ad22ee60b7a1e88569fdd04cb00d"
+      "log_sha256": "a5160e3feb490ad1373543f6590a812f67cdc26ef9b568bece54f9939048c371"
     },
     {
       "command": "env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/notifier -q",
@@ -135,7 +139,7 @@ contracts; broader claims remain deferred.
       "exit_code": 0,
       "id": "notifier_all",
       "log_path": "docs/cc-fable-v1/reports/s3-core-evidence/notifier_all.log",
-      "log_sha256": "81faca1239cb2d310623545c2b39e05ce003d5b0bf444a1aef43dce7018c139c"
+      "log_sha256": "5c6c78fd043764bdc99c5d8187d29ceeef04fd63cc3fe9bebbb0ad22ebb34a82"
     },
     {
       "command": ".venv/bin/ruff check src tests",
@@ -148,7 +152,7 @@ contracts; broader claims remain deferred.
       "exit_code": 0,
       "id": "ruff_check",
       "log_path": "docs/cc-fable-v1/reports/s3-core-evidence/ruff_check.log",
-      "log_sha256": "d03a5ce0e955698a5a2a095b815337d66b98142c8fab0ee8894e22b52e4ddecc"
+      "log_sha256": "3d54f2fe919302b858118fbdfaf65c74a83d152a94eab55386492be460998ea5"
     },
     {
       "command": ".venv/bin/ruff format --check src tests",
@@ -161,7 +165,7 @@ contracts; broader claims remain deferred.
       "exit_code": 0,
       "id": "ruff_format_check",
       "log_path": "docs/cc-fable-v1/reports/s3-core-evidence/ruff_format_check.log",
-      "log_sha256": "5c25c90b51dff970e77bcac50630bc7b446085c5b5a2cf27d426b8be1f36dbb4"
+      "log_sha256": "51e9939f0484c39f6fbf46ab38a5eecf61d5d67233814df4400f1a9b4f73e4ac"
     },
     {
       "command": ".venv/bin/mypy",
@@ -174,7 +178,7 @@ contracts; broader claims remain deferred.
       "exit_code": 0,
       "id": "mypy",
       "log_path": "docs/cc-fable-v1/reports/s3-core-evidence/mypy.log",
-      "log_sha256": "5b706a5d0e8a6bfad7269ca0e35b8e953cdb85e5516b57d9b8c005c99f1e8d40"
+      "log_sha256": "702b8b41c874212519db2702d53c1ee85a06d50727d8483ee42eb1528ee0094b"
     },
     {
       "command": ".venv/bin/lint-imports",
@@ -187,20 +191,20 @@ contracts; broader claims remain deferred.
       "exit_code": 0,
       "id": "import_linter",
       "log_path": "docs/cc-fable-v1/reports/s3-core-evidence/import_linter.log",
-      "log_sha256": "fd2f899afb42b5ba56dbf0694b60eb7d9b09d68f5466e7ddff862a941a54a4d2"
+      "log_sha256": "eabd8cca1440de147fb7a0e627be1991b0d61c8e0a5f89968864f8ab22280efc"
     },
     {
       "command": "env -u VIRTUAL_ENV .venv/bin/python -m pytest -m \"not slow\" -q",
       "counts": {
         "deselected": 24,
         "failed": 0,
-        "passed": 3804,
+        "passed": 3825,
         "skipped": 2
       },
       "exit_code": 0,
       "id": "full_non_slow",
       "log_path": "docs/cc-fable-v1/reports/s3-core-evidence/full_non_slow.log",
-      "log_sha256": "4a568bc6440a2c13e93da0d9c970cd6179098f82932443d37e496acf57ee0447"
+      "log_sha256": "67d7938f604c1f735db9343f8f8d772e82216a19873a5cd07ce758c34c20c404"
     }
   ],
   "faults": [
@@ -246,7 +250,7 @@ contracts; broader claims remain deferred.
     },
     {
       "id": "evidence_bundle_integrity",
-      "source_sha256": "fa0f4959ac811143a54c02398141b1138164e664f3ed6a24c385bbefa6be048b",
+      "source_sha256": "8b4432fabc10573ca2978209f3812fc3f4c132e10d96b691f9f8852da1a7e6af",
       "test_path": "tests/evidence"
     },
     {
@@ -262,7 +266,7 @@ contracts; broader claims remain deferred.
     "observability": "correlation_only",
     "replication": "none"
   },
-  "source_commit": "8f5b324306b6b49e35ae89d0c22f4ab9a072edb2",
+  "source_commit": "60d3c45b836de44b132dba186e5c9a3672592ea3",
   "status": "passed"
 }
 ```
