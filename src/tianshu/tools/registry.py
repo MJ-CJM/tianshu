@@ -33,6 +33,7 @@ class ToolRegistry:
         # 锦衣卫·分级急停(迭代 3):非 None 时每次 execute 入口先过 check()
         self._estop: object | None = None
         self._managed_effect_executor: object | None = None
+        self._managed_receipt_lookups: dict[str, Callable[[str], Awaitable[object | None]]] = {}
 
     def set_estop(self, estop: object) -> None:
         """注入 EstopManager(security.estop);置于 execute 最前,含 T0 快路径。"""
@@ -42,6 +43,17 @@ class ToolRegistry:
         """Install the production durable side-effect adapter."""
 
         self._managed_effect_executor = executor
+
+    def set_managed_receipt_lookup(
+        self,
+        name: str,
+        lookup: Callable[[str], Awaitable[object | None]],
+    ) -> None:
+        """Install the provider receipt lookup for one managed tool."""
+
+        if name not in self._tools:
+            raise ValueError(f"managed receipt lookup tool '{name}' is not registered")
+        self._managed_receipt_lookups[name] = lookup
 
     def register(
         self,
@@ -194,13 +206,18 @@ class ToolRegistry:
         from tianshu.executor.managed_tools import get_managed_attempt_authority
 
         authority = get_managed_attempt_authority()
-        if defn.side_effect and self._managed_effect_executor is not None and authority is not None:
+        if defn.side_effect and authority is not None:
+            if self._managed_effect_executor is None:
+                return error_result(
+                    f"Tool '{name}' rejected: managed side-effect adapter is unavailable"
+                )
             return await self._managed_effect_executor.execute(  # type: ignore[attr-defined]
                 authority=authority,
                 tool_name=name,
                 arguments=args,
                 invocation_id=invocation_id,
                 semantics=defn.managed_effect_semantics,
+                lookup_receipt=self._managed_receipt_lookups.get(name),
                 invoke=lambda provider_key: self._invoke_bound(
                     name,
                     args,

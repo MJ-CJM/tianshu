@@ -66,10 +66,12 @@ class _RegistryBoundary:
         self,
         semantics: SideEffectSemantics,
         invoke: Callable[[str], Awaitable[ToolResult]],
+        lookup_receipt: Callable[[str], Awaitable[ProviderEffectReceipt | None]] | None,
         clock: Callable[[], datetime],
     ) -> None:
         self.semantics = semantics
         self._invoke = invoke
+        self._lookup_receipt = lookup_receipt
         self._clock = clock
 
     async def invoke(self, intent: SideEffectIntentV1) -> ProviderEffectReceipt:
@@ -86,8 +88,9 @@ class _RegistryBoundary:
         )
 
     async def lookup_receipt(self, idempotency_key: str) -> ProviderEffectReceipt | None:
-        del idempotency_key
-        return None
+        if self._lookup_receipt is None:
+            return None
+        return await self._lookup_receipt(idempotency_key)
 
 
 class ManagedToolEffectExecutor:
@@ -118,6 +121,7 @@ class ManagedToolEffectExecutor:
         arguments: dict[str, object],
         invocation_id: str | None,
         semantics: SideEffectSemantics | None,
+        lookup_receipt: Callable[[str], Awaitable[ProviderEffectReceipt | None]] | None,
         invoke: Callable[[str], Awaitable[ToolResult]],
     ) -> ToolResult:
         if not invocation_id:
@@ -128,6 +132,8 @@ class ManagedToolEffectExecutor:
         )
         sequence_no, edict_id = self._identity(authority, effect_id)
         effective_semantics = semantics or SideEffectSemantics.OPAQUE_CLI
+        if effective_semantics is SideEffectSemantics.RECEIPT_LOOKUP and lookup_receipt is None:
+            raise ValueError("receipt-lookup side effect requires a provider lookup adapter")
         request_metadata: dict[str, JsonValue] = {
             "arguments_hash": canonical_sha256(arguments),
             "tool_name": tool_name,
@@ -159,7 +165,7 @@ class ManagedToolEffectExecutor:
         result = await self._service.execute(
             authority,
             intent,
-            _RegistryBoundary(effective_semantics, invoke, self._clock),
+            _RegistryBoundary(effective_semantics, invoke, lookup_receipt, self._clock),
             uncertainty_run_state=run_state,
             decision_auth=auth,
             decision_expires_at=expires_at,

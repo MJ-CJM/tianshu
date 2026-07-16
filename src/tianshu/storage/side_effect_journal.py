@@ -176,6 +176,79 @@ class SideEffectJournal:
             unit_of_work.commit()
             return receipt
 
+    def require_reconciliation_authority_current(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        origin: SideEffectIntentV1,
+        attempt_id: str,
+        owner_id: str,
+        fencing_token: int,
+        now: datetime,
+    ) -> None:
+        """Prove a live caller is the origin authority or its durable retry descendant."""
+
+        self._require_current_authority(
+            connection,
+            attempt_id=attempt_id,
+            owner_id=owner_id,
+            fencing_token=fencing_token,
+            now=now,
+        )
+        rows = connection.execute(
+            """
+            SELECT attempt_id, memorial_id, attempt_no, status, fencing_token
+            FROM execution_attempts
+            WHERE attempt_id IN (?, ?)
+            """,
+            (origin.attempt_id, attempt_id),
+        ).fetchall()
+        attempts = {str(row["attempt_id"]): row for row in rows}
+        origin_row = attempts.get(origin.attempt_id)
+        current_row = attempts.get(attempt_id)
+        reclaimed_origin_row = (
+            attempt_id == origin.attempt_id
+            and current_row is not None
+            and int(current_row["fencing_token"]) == fencing_token
+            and fencing_token > origin.fencing_token
+        )
+        if (
+            origin_row is None
+            or current_row is None
+            or origin_row["memorial_id"] != origin.memorial_id
+            or current_row["memorial_id"] != origin.memorial_id
+            or (
+                int(origin_row["fencing_token"]) != origin.fencing_token
+                and not reclaimed_origin_row
+            )
+        ):
+            raise SideEffectConflict("side-effect reconciliation root or origin conflict")
+
+        exact_origin = (
+            attempt_id == origin.attempt_id
+            and owner_id == origin.owner_id
+            and fencing_token == origin.fencing_token
+        )
+        reclaimed_origin = attempt_id == origin.attempt_id and fencing_token > origin.fencing_token
+        origin_no = int(origin_row["attempt_no"])
+        current_no = int(current_row["attempt_no"])
+        descendant = current_no > origin_no and fencing_token > origin.fencing_token
+        if descendant:
+            lineage = connection.execute(
+                """
+                SELECT attempt_no, status
+                FROM execution_attempts
+                WHERE memorial_id=? AND attempt_no>=? AND attempt_no<?
+                ORDER BY attempt_no
+                """,
+                (origin.memorial_id, origin_no, current_no),
+            ).fetchall()
+            descendant = len(lineage) == current_no - origin_no and all(
+                row["status"] == "failed" for row in lineage
+            )
+        if not (exact_origin or reclaimed_origin or descendant):
+            raise SideEffectConflict("side-effect reconciliation authority is unrelated")
+
     def begin_intent_current(
         self,
         connection: sqlite3.Connection,
