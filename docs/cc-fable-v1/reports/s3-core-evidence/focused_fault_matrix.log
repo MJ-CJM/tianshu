@@ -1,0 +1,27 @@
+S3_CORE_GATE_LOG_V1
+source_commit=70d9cb78b2ea9f666195c6a16a3530d053d79a83
+command=env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/integration/test_edict_idempotency.py tests/integration/test_outbox_recovery.py tests/integration/test_decision_service_restart_race.py tests/integration/test_managed_production_recovery.py tests/integration/test_claim_lease_recovery.py tests/integration/test_side_effect_idempotency.py tests/integration/test_continuation_recovery.py tests/integration/test_replan_evidence.py tests/evidence tests/notifier/test_internal_delivery_recovery.py -q
+--- output ---
+........................................................................ [ 50%]
+.......................................................................  [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.12/site-packages/lark_oapi/ws/pb/google/protobuf/internal/well_known_types.py:91
+  /Users/chenjiamin/tiangong/tianshu-worktree/tianshu/.venv/lib/python3.12/site-packages/lark_oapi/ws/pb/google/protobuf/internal/well_known_types.py:91: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+    _EPOCH_DATETIME_NAIVE = datetime.datetime.utcfromtimestamp(0)
+
+.venv/lib/python3.12/site-packages/lark_oapi/ws/client.py:26
+  /Users/chenjiamin/tiangong/tianshu-worktree/tianshu/.venv/lib/python3.12/site-packages/lark_oapi/ws/client.py:26: DeprecationWarning: There is no current event loop
+    loop = asyncio.get_event_loop()
+
+.venv/lib/python3.12/site-packages/lark_oapi/ws/client.py:67
+  /Users/chenjiamin/tiangong/tianshu-worktree/tianshu/.venv/lib/python3.12/site-packages/lark_oapi/ws/client.py:67: DeprecationWarning: websockets.InvalidStatusCode is deprecated
+    def _parse_ws_conn_exception(e: websockets.InvalidStatusCode):
+
+.venv/lib/python3.12/site-packages/websockets/legacy/__init__.py:6
+  /Users/chenjiamin/tiangong/tianshu-worktree/tianshu/.venv/lib/python3.12/site-packages/websockets/legacy/__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions
+    warnings.warn(  # deprecated in 14.0 - 2024-11-09
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+143 passed, 4 warnings in 6.22s
+--- exit ---
+exit_code=0

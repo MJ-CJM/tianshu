@@ -1,0 +1,7 @@
+S3_CORE_GATE_LOG_V1
+source_commit=70d9cb78b2ea9f666195c6a16a3530d053d79a83
+command=.venv/bin/ruff check src tests
+--- output ---
+All checks passed!
+--- exit ---
+exit_code=0
