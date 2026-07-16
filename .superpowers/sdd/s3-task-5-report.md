@@ -110,3 +110,82 @@ The test runs report four pre-existing third-party deprecation warnings from Lar
 websockets; the same warnings were present in the clean baseline. Final post-commit
 verification repeats the requested focused, application/storage, static, diff, and
 forbidden-change gates.
+
+## Independent-review remediation
+
+The follow-up review identified three P1 authorization gaps and one P2 retained-event
+replay gap. They were corrected in separate reviewable commits:
+
+1. `0423fd8` — `fix: bind DAG nodes before plan activation`
+2. `197cd14` — `fix: fail closed on plan replay authority`
+3. `b77f0fd` — `style: format plan revision remediation`
+
+### Executed DAG authorization and activation order
+
+One canonical node projection now binds every immutable dispatch input represented by
+the plan: stable node ID, description, dependencies, required tools, and assignee.
+The scheduler derives the authorized projection from the durable redacted plan snapshot
+and compares it with the actual `DAGExecution.nodes`; the independently retained
+`plan_json` must still hash to the revision head.
+
+Structural validation is pure and runs before revision binding and before the RunState
+CAS to `EXECUTING`. Unknown dependencies, cycles, and node-binding failures therefore
+leave the exact prior RunState version, phase, lineage, and snapshot unchanged. A later
+valid replan remains possible.
+
+RED evidence:
+
+- independent description, dependency, tool, and assignee mutations all reached
+  activation without error;
+- unknown dependency and cycle cases changed RunState to `EXECUTING` before raising.
+
+GREEN evidence:
+
+- all four node attacks fail at the projection boundary;
+- unknown dependency and cycle attacks preserve the exact RunState and can append a
+  valid child revision afterward;
+- no worker-pool submission occurs in any rejected case.
+
+### Durable plan-review authority
+
+Before a durable snapshot can be reused, a review-required plan must resolve through
+the exact referenced Decision. The planner validates Decision existence and decoding,
+kind, root memorial, Edict, canonical plan snapshot/ref/hash, revision ID, artifact
+digest, resolved status, and an `approve` outcome. Pending, missing, cross-root,
+rejected, or unreferenced authority fails closed. The Decision-free fallback remains
+only for Edicts that never require plan-review authority.
+
+RED evidence: pending, missing, rejected, and unreferenced authority cases all continued
+planning or returned the durable snapshot. GREEN evidence: those four cases plus an
+explicit cross-root mismatch all fail before snapshot reuse; the existing valid approved
+restart case remains green.
+
+### Retained `edict.scheduled` replay
+
+The initial durable continuation now binds the source scheduled event ID and canonical
+envelope hash. An exact retained delivery validates and reuses the durable plan/revision
+without invoking the planner, appending a revision, changing RunState, or re-emitting
+`plan.completed`. Reuse of the same event identity with changed envelope content fails
+before any state or event side effect. Existing unbound lineage also fails closed instead
+of attempting a new `parent=None` revision.
+
+RED evidence: exact replay invoked planning twice and raised a parent-lineage conflict;
+conflicting payload replay reached the same late failure. GREEN evidence: exact replay
+is a no-op over the durable result, while conflicting content raises the explicit event
+identity conflict with unchanged RunState.
+
+### Remediation gates
+
+- Task 5 focused planner/DAG/scheduler suite: 57 passed.
+- Approval, Decision, RunState, attempt-resume, and DAG-workspace suite: 144 passed.
+- Application/storage/planner/DAG/scheduler regression: 595 passed.
+- Post-format affected suite: 43 passed.
+- `ruff check .`: passed.
+- `ruff format --check .`: 802 files already formatted.
+- `mypy`: no issues in 123 source files.
+- `lint-imports`: 2 contracts kept, 0 broken.
+- Diff and forbidden-scope checks: passed; no migration, dependency, lockfile,
+  estimator, scoring, self-grading, benchmark, or quality-metric framework changes.
+
+All test commands retain the same four third-party deprecation warnings documented
+above; no new project warning was introduced.
