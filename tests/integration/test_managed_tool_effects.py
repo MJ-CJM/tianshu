@@ -307,3 +307,35 @@ async def test_managed_effect_fails_closed_without_attempt_authority(storage) ->
     assert result.is_error
     assert "managed attempt authority" in result.content
     assert invocations == 0
+
+
+async def test_side_effect_fails_closed_with_authority_but_without_managed_adapter(
+    storage,
+) -> None:
+    authority = _claim(storage)
+    registry = ToolRegistry()
+    invocations = 0
+
+    async def undeclared_write(value: str) -> ToolResult:
+        nonlocal invocations
+        del value
+        invocations += 1
+        return ok_result("must not execute")
+
+    registry.register(
+        "undeclared_write",
+        undeclared_write,
+        ToolDefinition(
+            name="undeclared_write",
+            description="side effect without an installed managed adapter",
+            parameters={"type": "object", "properties": {"value": {"type": "string"}}},
+            tier=ToolTier.T3_WRITE,
+            side_effect=True,
+        ),
+    )
+    runner = ProductionRunRunner(_Planner(), _RegistryExecutor(registry, "undeclared_write"))
+
+    result = await runner(authority)
+
+    assert result.disposition is AttemptDisposition.FAILED
+    assert invocations == 0

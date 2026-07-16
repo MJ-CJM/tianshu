@@ -39,6 +39,7 @@ from tianshu.models.side_effect import (
     build_side_effect_intent,
 )
 from tianshu.storage import Storage
+from tianshu.storage.side_effect_journal import SideEffectConflict
 
 _NOW = datetime(2026, 7, 16, 8, tzinfo=UTC)
 
@@ -331,6 +332,303 @@ async def test_crash_after_effect_before_receipt_recovers_by_lookup(tmp_path: Pa
         assert provider.effective_count == 1
         assert provider.lookup_keys == [intent.intent_id, intent.intent_id]
         assert provider.invocation_keys == [intent.intent_id]
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+async def test_receipt_lookup_reconciles_after_reopen_with_descendant_authority(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "lookup-descendant.db"
+    storage = _open(path)
+    original_authority, _ = _seed(storage)
+    provider = _Provider(SideEffectSemantics.RECEIPT_LOOKUP, lookup_enabled=True)
+    original_intent = _intent(original_authority, provider.semantics)
+
+    def crash(boundary: str) -> None:
+        if boundary == "after_provider":
+            raise RuntimeError("injected after provider")
+
+    with pytest.raises(RuntimeError, match="after provider"):
+        await ManagedSideEffectService(
+            storage,
+            DecisionService(storage, clock=_Clock()),
+            clock=_Clock(),
+            boundary_hook=crash,
+        ).execute(original_authority, original_intent, provider)
+    assert provider.effective_count == 1
+    storage.close()
+
+    reopened = _open(path)
+    try:
+        claimed = reopened.attempt_repo.claim(
+            memorial_id=original_authority.memorial_id,
+            owner_id="worker-recovery",
+            now=_NOW + timedelta(seconds=62),
+            lease_seconds=60,
+        )
+        assert claimed is not None and claimed.owner_id is not None
+        recovered_authority = AttemptAuthority(
+            attempt_id=claimed.attempt_id,
+            memorial_id=claimed.memorial_id,
+            owner_id=claimed.owner_id,
+            fencing_token=claimed.fencing_token,
+        )
+        assert recovered_authority.attempt_id != original_authority.attempt_id
+        assert recovered_authority.fencing_token > original_authority.fencing_token
+
+        recovered = await ManagedSideEffectService(
+            reopened,
+            DecisionService(reopened, clock=_Clock(_NOW + timedelta(seconds=63))),
+            clock=_Clock(_NOW + timedelta(seconds=63)),
+        ).execute(
+            recovered_authority,
+            _intent(recovered_authority, provider.semantics),
+            provider,
+        )
+
+        assert recovered.receipt is not None
+        assert recovered.reconciled
+        assert provider.effective_count == 1
+        assert provider.invocation_keys == [original_intent.intent_id]
+        assert provider.lookup_keys == [original_intent.intent_id, original_intent.intent_id]
+        durable_intent = reopened.side_effect_journal.load_intent(original_intent.intent_id)
+        assert durable_intent is not None
+        assert durable_intent.attempt_id == original_authority.attempt_id
+        assert durable_intent.owner_id == original_authority.owner_id
+        assert durable_intent.fencing_token == original_authority.fencing_token
+        assert recovered.receipt.attempt_id == recovered_authority.attempt_id
+        assert recovered.receipt.owner_id == recovered_authority.owner_id
+        assert recovered.receipt.fencing_token == recovered_authority.fencing_token
+    finally:
+        reopened.close()
+
+
+@pytest.mark.asyncio
+async def test_receipt_reconciliation_allows_reclaimed_origin_with_higher_fence(
+    tmp_path: Path,
+) -> None:
+    storage = _open(tmp_path / "lookup-reclaimed-origin.db")
+    original, _ = _seed(storage)
+    provider = _Provider(SideEffectSemantics.RECEIPT_LOOKUP, lookup_enabled=True)
+    intent = _intent(original, provider.semantics)
+
+    def stop_after_intent(boundary: str) -> None:
+        if boundary == "after_intent":
+            raise RuntimeError("intent persisted")
+
+    try:
+        with pytest.raises(RuntimeError, match="intent persisted"):
+            await ManagedSideEffectService(
+                storage,
+                DecisionService(storage, clock=_Clock()),
+                clock=_Clock(),
+                boundary_hook=stop_after_intent,
+            ).execute(original, intent, provider)
+        assert storage.attempt_repo.complete(
+            attempt_id=original.attempt_id,
+            owner_id=original.owner_id,
+            fencing_token=original.fencing_token,
+            outcome=AttemptOutcomeV1(
+                disposition=AttemptDisposition.SUSPENDED,
+                completed_at=_NOW + timedelta(seconds=11),
+            ),
+        )
+        with storage.unit_of_work() as unit_of_work:
+            row = unit_of_work.connection.execute(
+                "SELECT version FROM execution_attempts WHERE attempt_id=?",
+                (original.attempt_id,),
+            ).fetchone()
+            assert row is not None
+            assert storage.attempt_repo.resume_suspended_current(
+                unit_of_work.connection,
+                attempt_id=original.attempt_id,
+                memorial_id=original.memorial_id,
+                expected_version=int(row[0]),
+                available_at=_NOW + timedelta(seconds=12),
+            )
+            unit_of_work.commit()
+        claimed = storage.attempt_repo.claim(
+            memorial_id=original.memorial_id,
+            owner_id="worker-reclaimed",
+            now=_NOW + timedelta(seconds=12),
+            lease_seconds=60,
+        )
+        assert claimed is not None and claimed.owner_id is not None
+        reclaimed = AttemptAuthority(
+            attempt_id=claimed.attempt_id,
+            memorial_id=claimed.memorial_id,
+            owner_id=claimed.owner_id,
+            fencing_token=claimed.fencing_token,
+        )
+
+        result = await ManagedSideEffectService(
+            storage,
+            DecisionService(storage, clock=_Clock(_NOW + timedelta(seconds=13))),
+            clock=_Clock(_NOW + timedelta(seconds=13)),
+        ).execute(reclaimed, _intent(reclaimed, provider.semantics), provider)
+
+        assert result.receipt is not None
+        assert reclaimed.attempt_id == original.attempt_id
+        assert reclaimed.fencing_token > original.fencing_token
+        durable = storage.side_effect_journal.load_intent(intent.intent_id)
+        assert durable is not None
+        assert durable.attempt_id == intent.attempt_id
+        assert durable.owner_id == intent.owner_id
+        assert durable.fencing_token == intent.fencing_token
+        assert result.receipt.owner_id == reclaimed.owner_id
+        assert result.receipt.fencing_token == reclaimed.fencing_token
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_rejects_stale_and_mismatched_callers_before_provider(
+    tmp_path: Path,
+) -> None:
+    storage = _open(tmp_path / "lookup-reject-stale-mismatch.db")
+    original, _ = _seed(storage)
+    provider = _Provider(SideEffectSemantics.RECEIPT_LOOKUP, lookup_enabled=True)
+    original_intent = _intent(original, provider.semantics)
+
+    def stop_after_intent(boundary: str) -> None:
+        if boundary == "after_intent":
+            raise RuntimeError("intent persisted")
+
+    try:
+        with pytest.raises(RuntimeError, match="intent persisted"):
+            await ManagedSideEffectService(
+                storage,
+                DecisionService(storage, clock=_Clock()),
+                clock=_Clock(),
+                boundary_hook=stop_after_intent,
+            ).execute(original, original_intent, provider)
+        claimed = storage.attempt_repo.claim(
+            memorial_id=original.memorial_id,
+            owner_id="worker-recovery",
+            now=_NOW + timedelta(seconds=62),
+            lease_seconds=60,
+        )
+        assert claimed is not None and claimed.owner_id is not None
+        recovered = AttemptAuthority(
+            attempt_id=claimed.attempt_id,
+            memorial_id=claimed.memorial_id,
+            owner_id=claimed.owner_id,
+            fencing_token=claimed.fencing_token,
+        )
+        before = storage.side_effect_journal.load_intent(original_intent.intent_id)
+        service = ManagedSideEffectService(
+            storage,
+            DecisionService(storage, clock=_Clock(_NOW + timedelta(seconds=63))),
+            clock=_Clock(_NOW + timedelta(seconds=63)),
+        )
+
+        with pytest.raises(SideEffectConflict, match="execution fence"):
+            await service.execute(original, original_intent, provider)
+
+        mismatched = build_side_effect_intent(
+            effect_id=original_intent.effect_id,
+            edict_id=original_intent.edict_id,
+            memorial_id=recovered.memorial_id,
+            attempt_id=recovered.attempt_id,
+            owner_id=recovered.owner_id,
+            fencing_token=recovered.fencing_token,
+            sequence_no=original_intent.sequence_no,
+            boundary=original_intent.boundary,
+            operation=original_intent.operation,
+            semantics=original_intent.semantics,
+            request_metadata={"subject": "different", "body_hash": "b" * 64},
+            created_at=_NOW + timedelta(seconds=63),
+        )
+        with pytest.raises(SideEffectConflict, match="replay identity"):
+            await service.execute(recovered, mismatched, provider)
+
+        assert provider.lookup_keys == []
+        assert provider.invocation_keys == []
+        assert storage.side_effect_journal.load_intent(original_intent.intent_id) == before
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_rejects_same_root_without_repository_lineage(
+    tmp_path: Path,
+) -> None:
+    storage = _open(tmp_path / "lookup-reject-unrelated.db")
+    original, _ = _seed(storage)
+    provider = _Provider(SideEffectSemantics.RECEIPT_LOOKUP, lookup_enabled=True)
+    original_intent = _intent(original, provider.semantics)
+
+    def stop_after_intent(boundary: str) -> None:
+        if boundary == "after_intent":
+            raise RuntimeError("intent persisted")
+
+    try:
+        with pytest.raises(RuntimeError, match="intent persisted"):
+            await ManagedSideEffectService(
+                storage,
+                DecisionService(storage, clock=_Clock()),
+                clock=_Clock(),
+                boundary_hook=stop_after_intent,
+            ).execute(original, original_intent, provider)
+        unrelated = AttemptAuthority(
+            attempt_id="attempt-unrelated-gap",
+            memorial_id=original.memorial_id,
+            owner_id="worker-unrelated",
+            fencing_token=original.fencing_token + 1,
+        )
+        now = _NOW + timedelta(seconds=62)
+        with storage.unit_of_work() as unit_of_work:
+            connection = unit_of_work.connection
+            connection.execute(
+                """
+                UPDATE execution_attempts
+                SET status='failed', owner_id=NULL, heartbeat_at=NULL,
+                    lease_expires_at=NULL, failure_json=?,
+                    version=version + 1, updated_at=?
+                WHERE attempt_id=?
+                """,
+                (
+                    '{"code":"test_failure","message":"test",'
+                    '"retryable":false,"details_hash":null}',
+                    now.isoformat(),
+                    original.attempt_id,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO execution_attempts (
+                    attempt_id, schema_version, memorial_id, attempt_no, status,
+                    owner_id, fencing_token, lease_expires_at, heartbeat_at,
+                    available_at, max_attempts, failure_json, version, created_at, updated_at
+                ) VALUES (?, 1, ?, 3, 'claimed', ?, ?, ?, ?, ?, 3, NULL, 1, ?, ?)
+                """,
+                (
+                    unrelated.attempt_id,
+                    unrelated.memorial_id,
+                    unrelated.owner_id,
+                    unrelated.fencing_token,
+                    (now + timedelta(seconds=60)).isoformat(),
+                    now.isoformat(),
+                    now.isoformat(),
+                    now.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+            unit_of_work.commit()
+        before = storage.side_effect_journal.load_intent(original_intent.intent_id)
+
+        with pytest.raises(SideEffectConflict, match="unrelated"):
+            await ManagedSideEffectService(
+                storage,
+                DecisionService(storage, clock=_Clock(now)),
+                clock=_Clock(now),
+            ).execute(unrelated, _intent(unrelated, provider.semantics), provider)
+
+        assert provider.lookup_keys == []
+        assert provider.invocation_keys == []
+        assert storage.side_effect_journal.load_intent(original_intent.intent_id) == before
     finally:
         storage.close()
 
