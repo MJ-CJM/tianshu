@@ -14,6 +14,7 @@ from tianshu.bus.event_bus import EventBus
 from tianshu.executor.dag_scheduler import DAGScheduler
 from tianshu.models import Edict, Memorial, Plan, PlanRevisionV1, PlanTask, TaskStatus
 from tianshu.models.canonical import canonical_json_bytes, canonical_sha256
+from tianshu.models.events import EventEnvelope
 from tianshu.models.plan_revision import build_plan_revision, validate_plan_revision_lineage
 from tianshu.models.run_state import AgentContinuationV1, RunPhase
 from tianshu.planner.planner import Planner
@@ -437,3 +438,67 @@ async def test_invalid_dag_leaves_revision_state_unchanged_and_allows_replan(
         reason_summary="replace invalid DAG",
     )
     assert appended.parent_revision_id == revision.revision_id
+
+
+async def test_retained_scheduled_exact_replay_has_no_new_revision_or_side_effect(
+    storage: Storage,
+    config_manager,
+) -> None:
+    edict, memorial = _seed(storage)
+    bus = EventBus()
+    completed = AsyncMock()
+    bus.on("plan.completed", completed, consumer_name="test.retained_plan_completed.v1")
+    planner = Planner(bus, storage, config_manager, clock=lambda: _NOW)
+    plan = _plan()
+    planner.plan = AsyncMock(return_value=plan)
+    event = EventEnvelope(
+        event_id="scheduled-event-1",
+        event_type="edict.scheduled",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
+        timestamp=_NOW,
+        producer="scheduler",
+        payload={"schedule_fire": "first"},
+    )
+
+    await planner.handle_scheduled(event)
+    before = _load_run_state(storage, memorial.id)
+    await planner.handle_scheduled(event)
+
+    assert _load_run_state(storage, memorial.id) == before
+    assert before is not None and isinstance(before.continuation, AgentContinuationV1)
+    assert len(before.continuation.plan_revisions) == 1
+    planner.plan.assert_awaited_once()
+    completed.assert_awaited_once()
+
+
+async def test_retained_scheduled_identity_conflict_fails_without_side_effect(
+    storage: Storage,
+    config_manager,
+) -> None:
+    edict, memorial = _seed(storage)
+    bus = EventBus()
+    completed = AsyncMock()
+    bus.on("plan.completed", completed, consumer_name="test.retained_conflict.v1")
+    planner = Planner(bus, storage, config_manager, clock=lambda: _NOW)
+    planner.plan = AsyncMock(return_value=_plan())
+    event = EventEnvelope(
+        event_id="scheduled-event-conflict",
+        event_type="edict.scheduled",
+        edict_id=edict.id,
+        memorial_id=memorial.id,
+        timestamp=_NOW,
+        producer="scheduler",
+        payload={"schedule_fire": "first"},
+    )
+    await planner.handle_scheduled(event)
+    before = _load_run_state(storage, memorial.id)
+
+    with pytest.raises(RuntimeError, match="scheduled event identity conflict"):
+        await planner.handle_scheduled(
+            event.model_copy(update={"payload": {"schedule_fire": "forged"}})
+        )
+
+    assert _load_run_state(storage, memorial.id) == before
+    planner.plan.assert_awaited_once()
+    completed.assert_awaited_once()

@@ -979,6 +979,8 @@ class ApprovalManager:
         plan: Plan,
         revision: int,
         timeout_seconds: float = 86400.0,
+        scheduled_event_id: str | None = None,
+        scheduled_event_hash: str | None = None,
     ) -> DecisionRequestV1:
         """Persist a canonical plan and its explicit non-tool waiting continuation."""
 
@@ -997,6 +999,11 @@ class ApprovalManager:
             current = self._storage.run_state_repo.load(unit_of_work.connection, memorial.id)
             unit_of_work.commit()
         current_continuation = current.continuation if current is not None else None
+        if isinstance(current_continuation, AgentContinuationV1):
+            scheduled_event_id = scheduled_event_id or current_continuation.scheduled_event_id
+            scheduled_event_hash = (
+                scheduled_event_hash or current_continuation.scheduled_event_hash
+            )
         if (
             isinstance(current_continuation, AgentContinuationV1)
             and current_continuation.plan_ref == plan_ref
@@ -1033,6 +1040,8 @@ class ApprovalManager:
             plan_revision_id=plan_revision.revision_id,
             plan_revisions=(plan_revision,),
             plan_snapshot=safe_plan,
+            scheduled_event_id=scheduled_event_id,
+            scheduled_event_hash=scheduled_event_hash,
         )
         run_state = RunStateV1(
             memorial_id=memorial.id,

@@ -112,6 +112,8 @@ class AgentContinuationV1(_StrictModel):
     plan_revision_id: str | None = None
     plan_revisions: tuple[PlanRevisionV1, ...] = ()
     plan_snapshot: dict[str, JsonValue] | None = None
+    scheduled_event_id: str | None = None
+    scheduled_event_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def validate_plan_binding(self) -> Self:
@@ -132,6 +134,10 @@ class AgentContinuationV1(_StrictModel):
                 raise ValueError("plan_snapshot does not match the lineage head")
         elif self.plan_revision_id is not None or self.plan_snapshot is not None:
             raise ValueError("plan revision fields require a complete lineage")
+        if (self.scheduled_event_id is None) != (self.scheduled_event_hash is None):
+            raise ValueError("scheduled event identity and hash must be provided together")
+        if self.scheduled_event_id is not None:
+            _non_blank(self.scheduled_event_id)
         return self
 
 

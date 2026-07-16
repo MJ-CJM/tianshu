@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from tianshu.application.outbox import OutboxDispatcher
+from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.governance.decision_service import (
@@ -523,3 +525,86 @@ async def test_planner_persists_generic_authority_before_pending_projection(
 
     assert observed == ["plan.pending_review"]
     assert storage.get_memorial(memorial.id).status is TaskStatus.NEEDS_REVIEW
+
+
+@pytest.mark.parametrize(
+    "authority_state",
+    ["pending", "missing", "mismatched", "rejected", "unreferenced"],
+)
+async def test_plan_attempt_requires_exact_approved_plan_review_authority(
+    storage,
+    config_manager,
+    authority_state: str,
+) -> None:
+    edict, memorial = _seed(storage)
+    manager, _service = _manager(storage)
+    plan = _plan()
+    request = _request(manager, edict, memorial, plan)
+    planner = Planner(
+        event_bus=EventBus(),
+        storage=storage,
+        config_manager=config_manager,
+        approval_manager=manager,
+    )
+    planner.plan = AsyncMock(return_value=plan)
+
+    if authority_state in {"missing", "rejected"}:
+        action = "approve" if authority_state == "missing" else "reject"
+        manager.submit_plan_review_decision(edict.id, action=action, auth=_auth())
+        await manager.handle_decision_resolved(
+            make_event(
+                "decision.resolved",
+                edict_id=edict.id,
+                memorial_id=memorial.id,
+                payload={
+                    "decision_request_id": request.decision_request_id,
+                    "kind": DecisionKind.PLAN_REVIEW.value,
+                    "action": action,
+                },
+            )
+        )
+
+    mismatched_decision_id: str | None = None
+    if authority_state == "mismatched":
+        other_edict = Edict(id="edict-plan-other", goal="other review", plan_review=True)
+        other_memorial = Memorial(
+            id="memorial-plan-other",
+            edict_id=other_edict.id,
+            status=TaskStatus.PLANNING,
+        )
+        storage.save_edict(other_edict)
+        storage.save_memorial(other_memorial)
+        mismatched_decision_id = _request(
+            manager,
+            other_edict,
+            other_memorial,
+        ).decision_request_id
+
+    if authority_state != "pending":
+        row = storage._conn.execute(  # noqa: SLF001
+            "SELECT continuation_json FROM run_states WHERE memorial_id=?",
+            (memorial.id,),
+        ).fetchone()
+        continuation = json.loads(row[0])
+        continuation["pending_decision_id"] = None
+        continuation["resolved_decision_id"] = {
+            "missing": "decision:missing",
+            "mismatched": mismatched_decision_id,
+            "rejected": request.decision_request_id,
+            "unreferenced": None,
+        }[authority_state]
+        storage._conn.execute(  # noqa: SLF001
+            "UPDATE run_states SET phase='planning', continuation_json=? WHERE memorial_id=?",
+            (json.dumps(continuation), memorial.id),
+        )
+        storage._conn.commit()  # noqa: SLF001
+
+    with pytest.raises(RuntimeError, match="plan review approval authority"):
+        await planner.plan_attempt(
+            AttemptAuthority(
+                attempt_id=f"attempt-{authority_state}",
+                memorial_id=memorial.id,
+                owner_id="worker",
+                fencing_token=1,
+            )
+        )

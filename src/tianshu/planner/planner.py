@@ -18,9 +18,10 @@ from tianshu.config_manager import ConfigManager
 from tianshu.llm import LLMClient
 from tianshu.models.canonical import JsonValue, canonical_sha256
 from tianshu.models.common import TaskStatus
-from tianshu.models.decision import DecisionKind
+from tianshu.models.decision import DecisionKind, DecisionRecordV1, DecisionStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
+from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan, PlanTask
 from tianshu.models.plan_revision import PlanRevisionV1, build_plan_revision
 from tianshu.models.run_state import (
@@ -38,6 +39,7 @@ from tianshu.planner.prompts import (
 )
 from tianshu.security.sensitive_payload import redact_sensitive_mapping
 from tianshu.storage import Storage
+from tianshu.storage.decision_repo import DecisionDecodeError
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,8 @@ class Planner:
         parent_revision_id: str | None,
         reason_code: str,
         reason_summary: str,
+        scheduled_event_id: str | None = None,
+        scheduled_event_hash: str | None = None,
     ) -> PlanRevisionV1:
         """Append one immutable revision at a non-executing planning boundary."""
 
@@ -130,6 +134,8 @@ class Planner:
                     plan_revision_id=revision.revision_id,
                     plan_revisions=(revision,),
                     plan_snapshot=safe_plan,
+                    scheduled_event_id=scheduled_event_id,
+                    scheduled_event_hash=scheduled_event_hash,
                 )
                 state = RunStateV1(
                     memorial_id=memorial.id,
@@ -347,6 +353,8 @@ class Planner:
         if not edict:
             logger.error("Planner: edict %s not found", edict_id)
             return
+        if self._is_retained_scheduled_replay(event):
+            return
 
         # Set PLANNING status on memorial
         memorial_id = event.memorial_id
@@ -384,6 +392,8 @@ class Planner:
                 memorial=memorial,
                 plan=plan,
                 revision=1,
+                scheduled_event_id=event.event_id,
+                scheduled_event_hash=canonical_sha256(event),
             )
             memorial.status = _TS.NEEDS_REVIEW
             self._storage.update_memorial(memorial)
@@ -410,6 +420,8 @@ class Planner:
                     parent_revision_id=None,
                     reason_code="initial_plan",
                     reason_summary="initial plan created",
+                    scheduled_event_id=event.event_id,
+                    scheduled_event_hash=canonical_sha256(event),
                 )
             # 无需审批 → 直接 plan.completed，触发执行
             await self._bus.emit(
@@ -421,6 +433,32 @@ class Planner:
                     payload=payload,
                 )
             )
+
+    def _is_retained_scheduled_replay(self, event: EventEnvelope) -> bool:
+        """Recognize only the exact durable scheduled envelope, without re-emitting work."""
+
+        if event.memorial_id is None:
+            return False
+        with self._storage.unit_of_work() as unit_of_work:
+            state = self._storage.run_state_repo.load(
+                unit_of_work.connection,
+                event.memorial_id,
+            )
+            unit_of_work.commit()
+        if state is None:
+            return False
+        continuation = state.continuation
+        if not isinstance(continuation, AgentContinuationV1) or not continuation.plan_revisions:
+            raise RuntimeError("scheduled event conflicts with an existing RunState")
+        if continuation.scheduled_event_id is None:
+            raise RuntimeError("scheduled event conflicts with an unbound plan lineage")
+        if (
+            continuation.scheduled_event_id != event.event_id
+            or continuation.scheduled_event_hash != canonical_sha256(event)
+        ):
+            raise RuntimeError("scheduled event identity conflict")
+        Plan.model_validate(continuation.plan_snapshot)
+        return True
 
     async def plan_attempt(self, authority: AttemptAuthority) -> ManagedPlanningResult:
         """Plan inside a dispatcher-owned attempt, without an event hand-off."""
@@ -436,42 +474,43 @@ class Planner:
                 unit_of_work.connection,
                 memorial.id,
             )
-            decision_record = None
-            resolved_continuation: AgentContinuationV1 | None = None
+            decision_record: DecisionRecordV1 | None = None
             durable_plan: Plan | None = None
+            plan_continuation: AgentContinuationV1 | None = None
             if (
                 run_state is not None
                 and isinstance(run_state.continuation, AgentContinuationV1)
                 and run_state.continuation.plan_revisions
                 and run_state.continuation.plan_snapshot is not None
             ):
+                plan_continuation = run_state.continuation
                 durable_plan = Plan.model_validate(run_state.continuation.plan_snapshot)
-            if (
-                run_state is not None
-                and run_state.phase.value in {"planning", "executing"}
-                and isinstance(run_state.continuation, AgentContinuationV1)
-                and run_state.continuation.resolved_decision_id is not None
-            ):
-                resolved_continuation = run_state.continuation
-                decision_record = self._storage.decision_repo.get(
-                    unit_of_work.connection,
-                    run_state.continuation.resolved_decision_id,
+                decision_id = (
+                    plan_continuation.resolved_decision_id
+                    or plan_continuation.pending_decision_id
                 )
+                if decision_id is not None:
+                    try:
+                        decision_record = self._storage.decision_repo.get(
+                            unit_of_work.connection,
+                            decision_id,
+                        )
+                    except DecisionDecodeError as exc:
+                        raise RuntimeError("plan review approval authority is malformed") from exc
             unit_of_work.commit()
-        if decision_record is not None and resolved_continuation is not None:
-            persisted_plan = decision_record.request.payload.get("plan")
-            continuation = resolved_continuation
-            if (
-                decision_record.request.kind is not DecisionKind.PLAN_REVIEW
-                or decision_record.request.memorial_id != memorial.id
-                or decision_record.request.edict_id != edict.id
-                or not isinstance(persisted_plan, dict)
-                or decision_record.request.payload.get("plan_ref") != continuation.plan_ref
-                or decision_record.request.payload.get("plan_hash") != continuation.plan_hash
-                or canonical_sha256(persisted_plan) != continuation.plan_hash
-            ):
-                raise RuntimeError("resolved plan review has an invalid canonical binding")
-            return ManagedPlanningResult(plan=Plan.model_validate(persisted_plan))
+        if durable_plan is not None and plan_continuation is not None:
+            requires_authority = (
+                edict.plan_review
+                or plan_continuation.pending_decision_id is not None
+                or plan_continuation.resolved_decision_id is not None
+            )
+            if requires_authority:
+                durable_plan = self._require_approved_plan_review(
+                    memorial=memorial,
+                    edict=edict,
+                    continuation=plan_continuation,
+                    record=decision_record,
+                )
         if (
             durable_plan is not None
             and run_state is not None
@@ -512,6 +551,39 @@ class Planner:
             suspended=True,
             decision_request_id=requested.decision_request_id,
         )
+
+    @staticmethod
+    def _require_approved_plan_review(
+        *,
+        memorial: Memorial,
+        edict: Edict,
+        continuation: AgentContinuationV1,
+        record: DecisionRecordV1 | None,
+    ) -> Plan:
+        """Return only the exact canonical plan authorized by a durable approval."""
+
+        persisted_plan = record.request.payload.get("plan") if record is not None else None
+        current_revision = continuation.plan_revisions[-1]
+        if (
+            record is None
+            or record.request.kind is not DecisionKind.PLAN_REVIEW
+            or record.request.memorial_id != memorial.id
+            or record.request.edict_id != edict.id
+            or record.request.decision_request_id != continuation.resolved_decision_id
+            or continuation.pending_decision_id is not None
+            or record.request.status is not DecisionStatus.RESOLVED
+            or record.resolution is None
+            or record.resolution.action != "approve"
+            or not isinstance(persisted_plan, dict)
+            or persisted_plan != continuation.plan_snapshot
+            or record.request.payload.get("plan_ref") != continuation.plan_ref
+            or record.request.payload.get("plan_hash") != continuation.plan_hash
+            or record.request.payload.get("plan_revision_id") != continuation.plan_revision_id
+            or record.request.payload.get("artifact_digest") != current_revision.artifact_digest
+            or canonical_sha256(persisted_plan) != continuation.plan_hash
+        ):
+            raise RuntimeError("plan review approval authority is missing or invalid")
+        return Plan.model_validate(persisted_plan)
 
     def _passthrough_plan(self, edict: Edict, persona_id: str = DEFAULT_EXECUTOR_ID) -> Plan:
         """Single-task plan that passes the entire goal to the executor."""
