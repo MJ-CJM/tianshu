@@ -234,37 +234,62 @@ class Notifier:
         }
         await self._do_dispatch_channels(memorial, message, list(edict.dispatch.channels))
 
-    async def _do_dispatch_channels(self, memorial, message: dict, channel_names: list) -> None:
+    async def _do_dispatch_channels(
+        self,
+        memorial,
+        message: dict,
+        channel_names: list[str],
+    ) -> dict[str, bool]:
         renderers = {
             "feishu": render_feishu,
             "dingtalk": render_dingtalk,
             "email": render_email,
         }
+        results: dict[str, bool] = {}
         for ch_name in channel_names:
-            renderer = renderers.get(ch_name, render_feishu)
-            rendered = redact_text(renderer(memorial))
-            channel = self._channel_registry.get(ch_name)  # type: ignore[union-attr]
-            if channel:
-                try:
-                    await channel.send(redact_mapping(message), rendered)
-                except Exception:
-                    logger.exception("External channel %s failed", ch_name)
+            try:
+                renderer = renderers.get(ch_name, render_feishu)
+                rendered = redact_text(renderer(memorial))
+                channel = (
+                    self._channel_registry.get(ch_name)  # type: ignore[union-attr]
+                    if self._channel_registry is not None
+                    else None
+                )
+                if channel is None:
+                    results[ch_name] = False
+                    continue
+                results[ch_name] = bool(await channel.send(redact_mapping(message), rendered))
+            except Exception:
+                logger.exception("External channel %s failed", ch_name)
+                results[ch_name] = False
+        return results
 
     async def _flush_pending(self) -> None:
         """Flush only the legacy fallback queue used without the durable outbox."""
+        await self.drain_legacy_pending()
+
+    async def drain_legacy_pending(self) -> int:
+        """Retry retained legacy rows and delete only fully successful sends."""
+        deleted = 0
         for pending in self._storage.list_pending_notifications():
             memorial = (
                 self._storage.get_memorial(pending["memorial_id"])
                 if pending.get("memorial_id")
                 else None
             )
-            if memorial:
-                await self._do_dispatch_channels(
-                    memorial,
-                    pending["message"],
-                    pending["channels"],
-                )
+            channels = pending["channels"]
+            if memorial is None or not channels:
+                continue
+            results = await self._do_dispatch_channels(
+                memorial,
+                pending["message"],
+                channels,
+            )
+            if not all(results.get(channel) is True for channel in channels):
+                continue
             self._storage.delete_pending_notification(pending["id"])
+            deleted += 1
+        return deleted
 
     def _save_pending(self, edict_id, memorial_id, message: dict, channels: list) -> None:
         from datetime import UTC, datetime

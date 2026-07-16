@@ -315,6 +315,21 @@ def _build_canonical_preledger(
     if prior_mcp_schema:
         conn.executescript(
             """
+            -- This pre-v8 fixture must not retain objects owned by later v16/v17
+            -- migrations. Drop dependants before their FK parents so replay sees
+            -- the actual older schema rather than a partially downgraded one.
+            DROP INDEX idx_internal_notification_delivery_claim;
+            DROP INDEX idx_internal_notification_delivery_correlation;
+            DROP TABLE internal_notification_deliveries;
+
+            DROP TRIGGER evidence_bundles_closed_no_update;
+            DROP TRIGGER evidence_bundles_closed_no_delete;
+            DROP INDEX idx_evidence_bundles_edict;
+            DROP TABLE evidence_bundles;
+            DROP TRIGGER artifact_records_no_update;
+            DROP TRIGGER artifact_records_no_delete;
+            DROP TABLE artifact_records;
+
             DROP TABLE side_effect_journal;
             DROP TABLE execution_attempts;
             DROP TABLE run_states;

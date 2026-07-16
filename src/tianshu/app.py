@@ -213,6 +213,7 @@ async def lifespan(app: FastAPI):
 
         internal_delivery_outbox = InternalDeliveryOutbox(app.state.storage.unit_of_work)
         app.state.notifier.set_delivery_outbox(internal_delivery_outbox)
+        await app.state.notifier.drain_legacy_pending()
         internal_delivery_worker = InternalDeliveryWorker(
             internal_delivery_outbox,
             app.state.notifier.deliver_internal,

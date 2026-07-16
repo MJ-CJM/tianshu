@@ -89,9 +89,6 @@ class InternalDeliveryOutbox:
                     or existing.correlation_id != correlation_id
                     or existing.edict_id != edict_id
                     or existing.memorial_id != memorial_id
-                    or existing.available_at != available
-                    or existing.deadline_at != deadline
-                    or existing.max_attempts != max_attempts
                 ):
                     raise ValueError("internal delivery identity conflict")
                 unit_of_work.commit()
@@ -145,12 +142,7 @@ class InternalDeliveryOutbox:
 
     def expire_due(self, *, now: datetime) -> int:
         current = _utc(now)
-        error = RedactedError(
-            code="delivery_deadline_expired",
-            message="internal notification delivery deadline expired",
-            retryable=False,
-            details_hash=None,
-        )
+        error = _deadline_expired_error()
         expired = 0
         with self._unit_of_work_factory() as unit_of_work:
             connection = unit_of_work.connection
@@ -277,6 +269,7 @@ class InternalDeliveryOutbox:
                     last_error_json=NULL, delivered_at=?, version=version+1,
                     updated_at=?
                 WHERE delivery_id=? AND status='claimed' AND lease_owner=? AND version=?
+                    AND lease_expires_at > ? AND deadline_at > ?
                 """,
                 (
                     current.isoformat(),
@@ -284,6 +277,8 @@ class InternalDeliveryOutbox:
                     record.delivery_id,
                     owner_id,
                     record.version,
+                    current.isoformat(),
+                    current.isoformat(),
                 ),
             )
             if cursor.rowcount == 1:
@@ -298,8 +293,11 @@ class InternalDeliveryOutbox:
                     max_attempts=record.max_attempts,
                     deadline_expired=False,
                 )
+            delivered = cursor.rowcount == 1
+            if not delivered:
+                _dead_letter_expired_claim(connection, record, owner_id, current)
             unit_of_work.commit()
-            return cursor.rowcount == 1
+            return delivered
 
     def mark_failed(
         self,
@@ -331,6 +329,7 @@ class InternalDeliveryOutbox:
                     last_error_json=?, delivered_at=NULL, version=version+1,
                     updated_at=?
                 WHERE delivery_id=? AND status='claimed' AND lease_owner=? AND version=?
+                    AND lease_expires_at > ? AND deadline_at > ?
                 """,
                 (
                     status,
@@ -340,6 +339,8 @@ class InternalDeliveryOutbox:
                     record.delivery_id,
                     owner_id,
                     record.version,
+                    current.isoformat(),
+                    current.isoformat(),
                 ),
             )
             if cursor.rowcount == 1:
@@ -354,8 +355,11 @@ class InternalDeliveryOutbox:
                     max_attempts=record.max_attempts,
                     deadline_expired=False,
                 )
+            failed = cursor.rowcount == 1
+            if not failed:
+                _dead_letter_expired_claim(connection, record, owner_id, current)
             unit_of_work.commit()
-            return cursor.rowcount == 1
+            return failed
 
 
 class InternalDeliveryWorker:
@@ -416,6 +420,7 @@ class InternalDeliveryWorker:
             try:
                 await self._handler(record)
             except Exception as error:  # noqa: BLE001 - durable retry boundary
+                completed_at = _utc(self._clock())
                 delay = min(
                     self._max_backoff_seconds,
                     self._base_backoff_seconds * (2 ** max(record.attempt_count - 1, 0)),
@@ -424,11 +429,16 @@ class InternalDeliveryWorker:
                     record,
                     owner_id=self._owner_id,
                     error=_redacted_failure(error),
-                    available_at=now + timedelta(seconds=delay),
-                    now=now,
+                    available_at=completed_at + timedelta(seconds=delay),
+                    now=completed_at,
                 )
             else:
-                self._outbox.mark_delivered(record, owner_id=self._owner_id, now=now)
+                completed_at = _utc(self._clock())
+                self._outbox.mark_delivered(
+                    record,
+                    owner_id=self._owner_id,
+                    now=completed_at,
+                )
         return len(records)
 
     async def start(self) -> None:
@@ -507,6 +517,55 @@ def _select(connection, delivery_id: str) -> InternalDeliveryRecord | None:
         created_at=_parse_utc(row["created_at"]),
         updated_at=_parse_utc(row["updated_at"]),
     )
+
+
+def _deadline_expired_error() -> RedactedError:
+    return RedactedError(
+        code="delivery_deadline_expired",
+        message="internal notification delivery deadline expired",
+        retryable=False,
+        details_hash=None,
+    )
+
+
+def _dead_letter_expired_claim(
+    connection,
+    record: InternalDeliveryRecord,
+    owner_id: str,
+    current: datetime,
+) -> bool:
+    cursor = connection.execute(
+        """
+        UPDATE internal_notification_deliveries
+        SET status='dead_letter', lease_owner=NULL, lease_expires_at=NULL,
+            last_error_json=?, delivered_at=NULL, version=version+1,
+            updated_at=?
+        WHERE delivery_id=? AND status='claimed' AND lease_owner=? AND version=?
+            AND deadline_at <= ?
+        """,
+        (
+            canonical_json_bytes(_deadline_expired_error()).decode("utf-8"),
+            current.isoformat(),
+            record.delivery_id,
+            owner_id,
+            record.version,
+            current.isoformat(),
+        ),
+    )
+    if cursor.rowcount != 1:
+        return False
+    _append_delivery_audit(
+        connection,
+        action="notification.delivery.dead_lettered",
+        correlation_id=record.correlation_id,
+        delivery_id=record.delivery_id,
+        outcome="failed",
+        reason_code="delivery_deadline_expired",
+        attempt_count=record.attempt_count,
+        max_attempts=record.max_attempts,
+        deadline_expired=True,
+    )
+    return True
 
 
 def _append_delivery_audit(
