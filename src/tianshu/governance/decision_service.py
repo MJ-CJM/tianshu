@@ -149,6 +149,32 @@ class DecisionService:
             unit_of_work.commit()
             return saved
 
+    def request_in_transaction(
+        self,
+        unit_of_work: SqliteUnitOfWork,
+        command: RequestDecisionCommand,
+        *,
+        auth: AuthContext,
+    ) -> DecisionRequestV1:
+        """Add/get generic Decision authority inside a caller-owned atomic UoW."""
+
+        now = self._now()
+        request = self._new_request(command, auth=auth, now=now)
+        try:
+            return self._repository.add_or_get(unit_of_work.connection, request)
+        except DecisionIdentityConflict as exc:
+            _append_system_audit_unlocked(
+                unit_of_work.connection,
+                _audit_request(
+                    auth=auth,
+                    action="decision.request.denied",
+                    reason_code="decision_identity_conflict",
+                    decision_request_id=(exc.existing_request_id or request.decision_request_id),
+                    metadata={"kind": command.kind.value},
+                ),
+            )
+            raise DecisionConflict("decision_identity_conflict") from None
+
     def request_with_run_state(
         self,
         command: RequestDecisionCommand,
