@@ -1001,9 +1001,7 @@ class ApprovalManager:
         current_continuation = current.continuation if current is not None else None
         if isinstance(current_continuation, AgentContinuationV1):
             scheduled_event_id = scheduled_event_id or current_continuation.scheduled_event_id
-            scheduled_event_hash = (
-                scheduled_event_hash or current_continuation.scheduled_event_hash
-            )
+            scheduled_event_hash = scheduled_event_hash or current_continuation.scheduled_event_hash
         if (
             isinstance(current_continuation, AgentContinuationV1)
             and current_continuation.plan_ref == plan_ref

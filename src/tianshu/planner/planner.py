@@ -486,8 +486,7 @@ class Planner:
                 plan_continuation = run_state.continuation
                 durable_plan = Plan.model_validate(run_state.continuation.plan_snapshot)
                 decision_id = (
-                    plan_continuation.resolved_decision_id
-                    or plan_continuation.pending_decision_id
+                    plan_continuation.resolved_decision_id or plan_continuation.pending_decision_id
                 )
                 if decision_id is not None:
                     try:

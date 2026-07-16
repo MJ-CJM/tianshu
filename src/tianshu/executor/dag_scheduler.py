@@ -359,9 +359,7 @@ class DAGScheduler:
         try:
             authorized = cast(
                 DAGExecution,
-                Plan.model_validate(state.continuation.plan_snapshot).to_dag(
-                    execution.edict_id
-                ),
+                Plan.model_validate(state.continuation.plan_snapshot).to_dag(execution.edict_id),
             )
         except (TypeError, ValueError) as exc:
             raise RuntimeError("DAG plan revision snapshot is invalid") from exc
