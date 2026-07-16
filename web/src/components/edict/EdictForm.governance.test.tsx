@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GovernanceCapabilityState, GovernanceContractPreview } from "../../api/types";
@@ -224,6 +224,56 @@ describe("edict governance confirmation", () => {
         goal: "谨慎执行",
         governance_contract: advisoryPreview().requested_contract,
       }),
+    );
+  });
+
+  it("keeps requested and effective contract truth separate before every confirmed dispatch", async () => {
+    const preview = advisoryPreview();
+    preview.advisory_gaps = [];
+    preview.requested_contract = {
+      ...preview.requested_contract,
+      workspace: {
+        ...(preview.requested_contract.workspace as Record<string, unknown>),
+        source_id: "workspace-main",
+        base_revision: "HEAD",
+      },
+    };
+    preview.effective_contract = {
+      ...preview.effective_contract!,
+      workspace: preview.requested_contract.workspace,
+      unsupported_advisory: [],
+    };
+    edictsApi.previewEdictGovernance.mockResolvedValue(preview);
+    const onSubmit = vi.fn();
+    render(
+      <EdictForm
+        onSubmit={onSubmit}
+        loading={false}
+        governanceConfirmation="always"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("敕令旨意"), {
+      target: { value: "谨慎执行" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /颁发敕令/ }));
+
+    const requested = await screen.findByRole("region", { name: "请求契约" });
+    expect(within(requested).getByText("native")).not.toBeNull();
+    expect(within(requested).getByText("workspace-main")).not.toBeNull();
+    expect(within(requested).getByText("HEAD")).not.toBeNull();
+    expect(within(requested).getByText("deny")).not.toBeNull();
+
+    const effective = screen.getByRole("region", { name: "生效契约" });
+    expect(within(effective).getByText("tianshu.native.v1")).not.toBeNull();
+    expect(within(effective).getByText("contained")).not.toBeNull();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "确认契约并下发" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ governance_contract: preview.requested_contract }),
     );
   });
 });

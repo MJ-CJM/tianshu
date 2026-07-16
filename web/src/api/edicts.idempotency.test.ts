@@ -52,4 +52,34 @@ describe("Edict submission idempotency", () => {
     ]);
     expect(bodies.map((body) => body.idempotency_key)).toEqual(keys);
   });
+
+  it("never sends browser-supplied actor fields", async () => {
+    vi.stubGlobal("crypto", {
+      randomUUID: vi.fn(() => "00000000-0000-4000-8000-000000000002"),
+    });
+    let requestBody: Record<string, unknown> | null = null;
+    apiClient.defaults.adapter = async (config) => {
+      requestBody = JSON.parse(String(config.data)) as Record<string, unknown>;
+      return {
+        config,
+        data: { success: true, data: { id: "edict-2" }, error: null, metadata: null },
+        headers: {},
+        status: 202,
+        statusText: "Accepted",
+      };
+    };
+
+    await createEdict({
+      goal: "derive authority on the server",
+      actor: "browser-forged-actor",
+      submitter: "browser-forged-submitter",
+    } as Parameters<typeof createEdict>[0] & { actor: string; submitter: string });
+
+    expect(requestBody).not.toHaveProperty("actor");
+    expect(requestBody).not.toHaveProperty("submitter");
+    expect(requestBody).toMatchObject({
+      goal: "derive authority on the server",
+      idempotency_key: "00000000-0000-4000-8000-000000000002",
+    });
+  });
 });

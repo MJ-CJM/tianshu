@@ -195,7 +195,6 @@ export interface EdictCreateRequest {
   title?: string;
   context?: string;
   idempotency_key?: string;
-  submitter?: string;
   schedule?: { type: string; cron?: string; at?: string };
   priority?: string;
   review_policy?: string;

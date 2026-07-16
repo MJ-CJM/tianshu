@@ -8,7 +8,11 @@ import GlowCard from "../components/common/GlowCard";
 import { useT } from "../i18n";
 import type { EdictCreateRequest } from "../api/types";
 
-export default function EdictCreatePage() {
+export function EdictCreationForm({
+  governanceConfirmation = "advisory",
+}: {
+  governanceConfirmation?: "advisory" | "always";
+}) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const t = useT();
@@ -30,10 +34,21 @@ export default function EdictCreatePage() {
   };
 
   return (
+    <GlowCard style={{ maxWidth: 720 }}>
+      <EdictForm
+        onSubmit={handleSubmit}
+        loading={loading}
+        governanceConfirmation={governanceConfirmation}
+      />
+    </GlowCard>
+  );
+}
+
+export default function EdictCreatePage() {
+  const t = useT();
+  return (
     <PageContainer title={t("page.edictCreate.title")}>
-      <GlowCard style={{ maxWidth: 720 }}>
-        <EdictForm onSubmit={handleSubmit} loading={loading} />
-      </GlowCard>
+      <EdictCreationForm />
     </PageContainer>
   );
 }

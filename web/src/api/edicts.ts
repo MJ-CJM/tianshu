@@ -1,6 +1,12 @@
 import apiClient from "./client";
 import type { AcceptanceCriteria, ApiResponse, Edict, EdictCreateRequest, EdictRuntime, EdictStatus, EdictUpdateRequest, GovernanceContractPreview, Memorial, EdictEvent, OuterLoopIteration, SupervisionReport } from "./types";
 
+function withoutServerOwnedIdentity(body: EdictCreateRequest): EdictCreateRequest {
+  return Object.fromEntries(
+    Object.entries(body).filter(([key]) => key !== "actor" && key !== "submitter"),
+  ) as EdictCreateRequest;
+}
+
 export async function getOuterLoopIterations(edictId: string): Promise<ApiResponse<OuterLoopIteration[]>> {
   const { data } = await apiClient.get<ApiResponse<OuterLoopIteration[]>>(
     `/edicts/${edictId}/iterations`,
@@ -23,9 +29,10 @@ export async function getSupervisionReport(edictId: string): Promise<Supervision
 
 export async function createEdict(body: EdictCreateRequest): Promise<ApiResponse<Edict>> {
   const idempotencyKey = body.idempotency_key ?? crypto.randomUUID();
+  const safeBody = withoutServerOwnedIdentity(body);
   const { data } = await apiClient.post<ApiResponse<Edict>>(
     "/edicts",
-    { ...body, idempotency_key: idempotencyKey },
+    { ...safeBody, idempotency_key: idempotencyKey },
     { headers: { "Idempotency-Key": idempotencyKey } },
   );
   return data;
@@ -36,7 +43,7 @@ export async function previewEdictGovernance(
 ): Promise<GovernanceContractPreview> {
   const { data } = await apiClient.post<ApiResponse<GovernanceContractPreview>>(
     "/edicts/governance/preview",
-    body,
+    withoutServerOwnedIdentity(body),
   );
   return data.data!;
 }

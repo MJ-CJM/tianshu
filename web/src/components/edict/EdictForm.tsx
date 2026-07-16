@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Collapse,
+  Descriptions,
   Divider,
   Form,
   Input,
@@ -35,6 +36,7 @@ import { EDICT_PRESETS, getPreset } from "./edictPresets";
 interface EdictFormProps {
   onSubmit: (values: EdictCreateRequest) => void;
   loading: boolean;
+  governanceConfirmation?: "advisory" | "always";
 }
 
 interface PendingGovernanceDispatch {
@@ -42,7 +44,11 @@ interface PendingGovernanceDispatch {
   preview: GovernanceContractPreview;
 }
 
-export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
+export default function EdictForm({
+  onSubmit,
+  loading,
+  governanceConfirmation = "advisory",
+}: EdictFormProps) {
   const t = useT();
   const [form] = Form.useForm();
   const [assignMode, setAssignMode] = useState<"auto" | "direct">("auto");
@@ -271,11 +277,13 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
         );
         return;
       }
-      if (preview.advisory_gaps.length > 0) {
+      if (governanceConfirmation === "always" || preview.advisory_gaps.length > 0) {
         setGovernanceAdvisory(
-          t("form.edict.warning.governanceAdvisory", {
-            capabilities: preview.advisory_gaps.join(", "),
-          }),
+          preview.advisory_gaps.length > 0
+            ? t("form.edict.warning.governanceAdvisory", {
+                capabilities: preview.advisory_gaps.join(", "),
+              })
+            : t("form.edict.warning.governanceReview"),
         );
         setPendingGovernanceDispatch({
           request: { ...req, governance_contract: preview.requested_contract },
@@ -308,6 +316,30 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
     (counts, control) => ({ ...counts, [control.state]: counts[control.state] + 1 }),
     { enforced: 0, best_effort: 0, observed: 0, unsupported: 0 },
   );
+  const requestedContract = pendingGovernanceDispatch?.preview.requested_contract;
+  const requestedExecutor = requestedContract?.executor as Record<string, unknown> | undefined;
+  const requestedWorkspace = requestedContract?.workspace as Record<string, unknown> | undefined;
+  const requestedNetwork = requestedContract?.network as Record<string, unknown> | undefined;
+  const requestedPermissions = requestedContract?.permissions as Record<string, unknown> | undefined;
+  const requestedCapabilities = requestedContract?.capabilities as Record<string, unknown> | undefined;
+  const requestedBudget = requestedContract?.budget as Record<string, unknown> | undefined;
+  const requestedAcceptance = requestedContract?.acceptance as Record<string, unknown> | undefined;
+  const requestedRecovery = requestedContract?.recovery as Record<string, unknown> | undefined;
+
+  const contractValue = (value: unknown): string => {
+    if (value === null || value === undefined || value === "") return "—";
+    if (Array.isArray(value)) {
+      if (value.length === 0) return "—";
+      return value
+        .map((item) =>
+          typeof item === "object" && item !== null && typeof item.name === "string"
+            ? item.name
+            : String(item),
+        )
+        .join(", ");
+    }
+    return String(value);
+  };
 
   const executionGroup = (
     <>
@@ -576,42 +608,136 @@ export default function EdictForm({ onSubmit, loading }: EdictFormProps) {
           showIcon
           message={governanceAdvisory}
           description={
-            <Space direction="vertical" size={2}>
-              <Typography.Text strong>
-                {t("form.edict.warning.governanceEffectiveTitle")}
-              </Typography.Text>
-              <Typography.Text>
-                {t("form.edict.warning.governanceEffectiveExecutor", {
-                  executor:
-                    effectiveContract?.executor_manifest_id ??
-                    effectiveContract?.executor.adapter_id ??
-                    "-",
-                })}
-              </Typography.Text>
-              <Typography.Text>
-                {t("form.edict.warning.governanceEffectiveLevel", {
-                  level: pendingGovernanceDispatch.preview.executor_level,
-                })}
-              </Typography.Text>
-              <Typography.Text>
-                {t("form.edict.warning.governanceEffectiveControls", {
-                  enforced: effectiveControlCounts?.enforced ?? 0,
-                  bestEffort: effectiveControlCounts?.best_effort ?? 0,
-                  observed: effectiveControlCounts?.observed ?? 0,
-                  unsupported: effectiveControlCounts?.unsupported ?? 0,
-                })}
-              </Typography.Text>
-              <Typography.Text type="secondary">
-                {t("form.edict.warning.governanceEffectiveHash", {
-                  hash: pendingGovernanceDispatch.preview.requested_contract_hash.slice(0, 12),
-                })}
-              </Typography.Text>
-            </Space>
+            governanceConfirmation === "always" ? (
+              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                <section role="region" aria-labelledby="requested-governance-contract-title">
+                  <Typography.Title level={5} id="requested-governance-contract-title">
+                    {t("form.edict.warning.governanceRequestedTitle")}
+                  </Typography.Title>
+                  <Descriptions size="small" column={1} bordered>
+                    <Descriptions.Item label={t("form.edict.warning.governanceExecutorLabel")}>
+                      {contractValue(requestedExecutor?.adapter_id)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceCapabilitiesLabel")}>
+                      {t("form.edict.warning.governanceCapabilitiesValue", {
+                        mandatory: contractValue(requestedCapabilities?.mandatory),
+                        advisory: contractValue(requestedCapabilities?.advisory),
+                      })}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceAllowedPathsLabel")}>
+                      {contractValue(requestedPermissions?.allowed_paths)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceReviewPolicyLabel")}>
+                      {contractValue(requestedPermissions?.review_policy)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceWorkspaceLabel")}>
+                      {contractValue(requestedWorkspace?.source_id)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceRevisionLabel")}>
+                      {contractValue(requestedWorkspace?.base_revision)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceNetworkLabel")}>
+                      {contractValue(requestedNetwork?.mode)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceHostsLabel")}>
+                      {contractValue(requestedNetwork?.allowed_hosts)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceBudgetLabel")}>
+                      {t("form.edict.warning.governanceBudgetValue", {
+                        tokens: contractValue(requestedBudget?.token_limit),
+                        cost: contractValue(requestedBudget?.cost_limit_cny),
+                        seconds: contractValue(requestedBudget?.wall_clock_seconds),
+                      })}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceAcceptanceLabel")}>
+                      {contractValue(requestedAcceptance?.checks)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceDeadlineLabel")}>
+                      {contractValue(requestedAcceptance?.deadline_seconds)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceExhaustionLabel")}>
+                      {contractValue(requestedAcceptance?.on_exhaustion)}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceRecoveryLabel")}>
+                      {t("form.edict.warning.governanceRecoveryValue", {
+                        restore: contractValue(requestedRecovery?.require_restore_point),
+                        cleanup: contractValue(requestedRecovery?.failure_cleanup),
+                        rollback: contractValue(requestedRecovery?.rollback_on_apply_failure),
+                      })}
+                    </Descriptions.Item>
+                  </Descriptions>
+                </section>
+                <section role="region" aria-labelledby="effective-governance-contract-title">
+                  <Typography.Title level={5} id="effective-governance-contract-title">
+                    {t("form.edict.warning.governanceEffectiveContractTitle")}
+                  </Typography.Title>
+                  <Descriptions size="small" column={1} bordered>
+                    <Descriptions.Item label={t("form.edict.warning.governanceExecutorLabel")}>
+                      {effectiveContract?.executor_manifest_id ??
+                        effectiveContract?.executor.adapter_id ??
+                        "-"}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceLevelLabel")}>
+                      {pendingGovernanceDispatch.preview.executor_level}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceControlsLabel")}>
+                      {t("form.edict.warning.governanceEffectiveControls", {
+                        enforced: effectiveControlCounts?.enforced ?? 0,
+                        bestEffort: effectiveControlCounts?.best_effort ?? 0,
+                        observed: effectiveControlCounts?.observed ?? 0,
+                        unsupported: effectiveControlCounts?.unsupported ?? 0,
+                      })}
+                    </Descriptions.Item>
+                    <Descriptions.Item label={t("form.edict.warning.governanceHashLabel")}>
+                      {t("form.edict.warning.governanceEffectiveHash", {
+                        hash: pendingGovernanceDispatch.preview.requested_contract_hash.slice(0, 12),
+                      })}
+                    </Descriptions.Item>
+                  </Descriptions>
+                </section>
+              </Space>
+            ) : (
+              <Space direction="vertical" size={2}>
+                <Typography.Text strong>
+                  {t("form.edict.warning.governanceEffectiveTitle")}
+                </Typography.Text>
+                <Typography.Text>
+                  {t("form.edict.warning.governanceEffectiveExecutor", {
+                    executor:
+                      effectiveContract?.executor_manifest_id ??
+                      effectiveContract?.executor.adapter_id ??
+                      "-",
+                  })}
+                </Typography.Text>
+                <Typography.Text>
+                  {t("form.edict.warning.governanceEffectiveLevel", {
+                    level: pendingGovernanceDispatch.preview.executor_level,
+                  })}
+                </Typography.Text>
+                <Typography.Text>
+                  {t("form.edict.warning.governanceEffectiveControls", {
+                    enforced: effectiveControlCounts?.enforced ?? 0,
+                    bestEffort: effectiveControlCounts?.best_effort ?? 0,
+                    observed: effectiveControlCounts?.observed ?? 0,
+                    unsupported: effectiveControlCounts?.unsupported ?? 0,
+                  })}
+                </Typography.Text>
+                <Typography.Text type="secondary">
+                  {t("form.edict.warning.governanceEffectiveHash", {
+                    hash: pendingGovernanceDispatch.preview.requested_contract_hash.slice(0, 12),
+                  })}
+                </Typography.Text>
+              </Space>
+            )
           }
           action={
             <Space direction="vertical">
               <Button type="primary" onClick={confirmGovernanceDispatch}>
-                {t("form.edict.warning.governanceContinue")}
+                {t(
+                  governanceConfirmation === "always"
+                    ? "form.edict.warning.governanceConfirm"
+                    : "form.edict.warning.governanceContinue",
+                )}
               </Button>
               <Button onClick={reviseGovernanceDispatch}>
                 {t("form.edict.warning.governanceRevise")}

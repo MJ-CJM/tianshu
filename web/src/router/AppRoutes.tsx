@@ -1,5 +1,6 @@
 import { Component, lazy, Suspense } from "react";
 import type { ErrorInfo, ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Spin } from "antd";
 import AppLayout from "../components/layout/AppLayout";
@@ -8,6 +9,7 @@ import { problemPageStatus } from "../components/states/problemPageStatus";
 import { isApiProblem, toApiProblem } from "../api/client";
 import type { ApiProblem } from "../contracts/api";
 import { useT } from "../i18n";
+import { getOnboardingState, ONBOARDING_QUERY_KEY } from "../api/onboarding";
 
 const ControlCenterPage = lazy(() => import("../pages/ControlCenterPage"));
 const RoyalStudyPage = lazy(() => import("../pages/RoyalStudyPage"));
@@ -28,6 +30,35 @@ const SessionRulesPage = lazy(() => import("../pages/SessionRulesPage"));
 const UniversePage = lazy(() => import("../pages/UniversePage"));
 const EvalsPage = lazy(() => import("../pages/EvalsPage"));
 const DagBattleMapPage = lazy(() => import("../pages/DagBattleMapPage"));
+const OnboardingPage = lazy(() => import("../pages/OnboardingPage"));
+
+function OnboardingEntryRoute() {
+  const query = useQuery({
+    queryKey: ONBOARDING_QUERY_KEY,
+    queryFn: getOnboardingState,
+  });
+  const problem = query.error
+    ? isApiProblem(query.error)
+      ? query.error
+      : toApiProblem(query.error)
+    : null;
+
+  if (query.data) {
+    return <Navigate to={query.data.required ? "/onboarding" : "/control"} replace />;
+  }
+
+  return (
+    <PageDataState
+      status={query.isPending ? "loading" : problem ? problemPageStatus(problem) : "error"}
+      data={null}
+      problem={problem}
+      isEmpty={() => false}
+      onRetry={() => void query.refetch()}
+    >
+      {() => null}
+    </PageDataState>
+  );
+}
 
 function routeProblem(error: unknown): ApiProblem {
   if (isApiProblem(error)) return error;
@@ -124,7 +155,8 @@ export default function AppRoutes() {
       <Suspense fallback={<Spin size="large" style={{ display: "block", margin: "20vh auto" }} />}>
         <Routes>
           <Route element={<AppLayout />}>
-            <Route path="/" element={<Navigate to="/control" replace />} />
+            <Route path="/" element={<OnboardingEntryRoute />} />
+            <Route path="/onboarding" element={<OnboardingPage />} />
             <Route path="/control" element={<ControlCenterPage />} />
             <Route path="/edicts/create" element={<EdictCreatePage />} />
             <Route path="/edicts/:edictId" element={<EdictDetailPage />} />
