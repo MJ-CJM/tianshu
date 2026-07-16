@@ -33,6 +33,7 @@ _DECISIONS_RUN_STATE_MIGRATION_NAME = "0011_decisions_run_state"
 _DECISION_RUN_STATE_GUARDS_MIGRATION_NAME = "0012_decision_run_state_guards"
 _GOVERNED_APPLY_DECISION_BINDING_MIGRATION_NAME = "0013_governed_apply_decision_binding"
 _EXECUTION_ATTEMPT_LEDGER_MIGRATION_NAME = "0014_execution_attempt_ledger"
+_SIDE_EFFECT_JOURNAL_MIGRATION_NAME = "0015_side_effect_journal"
 _ENV_SENTINEL = "mcp-env-sentinel-7c92f5"
 _HEADER_SENTINEL = "mcp-header-sentinel-1ad843"
 
@@ -339,7 +340,7 @@ def test_v8_fails_before_backup_when_legacy_wal_checkpoint_is_busy(
     try:
         [row] = retry.list_mcp_overrides()
         assert row["env"] == {"TOKEN": _ENV_SENTINEL}
-        assert retry._conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 14
+        assert retry._conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 15
         for active_file in (database_path, wal_path):
             if active_file.exists():
                 assert _ENV_SENTINEL.encode() not in active_file.read_bytes()
@@ -411,7 +412,7 @@ def test_v8_resumes_post_migration_wal_cleanup_while_backup_marker_exists(
         assert first._conn is None
         [backup_path] = _legacy_sensitive_backups(database_path)
         with closing(sqlite3.connect(database_path)) as current:
-            assert current.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (14,)
+            assert current.execute("SELECT MAX(version) FROM schema_migrations").fetchone() == (15,)
         assert _ENV_SENTINEL.encode() in database_path.read_bytes()
 
         second = Storage(str(database_path))
@@ -443,7 +444,7 @@ def test_v8_resumes_post_migration_wal_cleanup_while_backup_marker_exists(
         try:
             assert (
                 third._conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
-                == 14
+                == 15
             )
             assert third.list_mcp_overrides()[0]["env"] == {"TOKEN": _ENV_SENTINEL}
             for active_file in (database_path, wal_path):
@@ -503,7 +504,7 @@ def test_v8_prior_prefix_upgrade_preserves_yaml_override_semantics(
                 "SELECT version, name FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert ledger[-8:] == [
+        assert ledger[-9:] == [
             (7, "0007_system_audit_events"),
             (8, _MIGRATION_NAME),
             (9, _DURABLE_INGRESS_MIGRATION_NAME),
@@ -512,6 +513,7 @@ def test_v8_prior_prefix_upgrade_preserves_yaml_override_semantics(
             (12, _DECISION_RUN_STATE_GUARDS_MIGRATION_NAME),
             (13, _GOVERNED_APPLY_DECISION_BINDING_MIGRATION_NAME),
             (14, _EXECUTION_ATTEMPT_LEDGER_MIGRATION_NAME),
+            (15, _SIDE_EFFECT_JOURNAL_MIGRATION_NAME),
         ]
     finally:
         storage.close()
