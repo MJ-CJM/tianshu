@@ -189,3 +189,33 @@ identity conflict with unchanged RunState.
 
 All test commands retain the same four third-party deprecation warnings documented
 above; no new project warning was introduced.
+
+## Final scheduled-event immutability remediation
+
+Commit `bb1d0ca` (`fix: freeze scheduled event RunState binding`) closes the final
+review P2. `RunStateRepository.compare_and_swap` and
+`recover_terminal_identity` now require the candidate continuation's
+`scheduled_event_id` and `scheduled_event_hash` pair to equal the complete durable
+pair before any write. The check runs before candidate model reconstruction so a
+single-field clear is rejected at the same immutable-binding boundary as a complete
+rewrite or clear.
+
+TDD evidence:
+
+- RED: ID-only rewrite, hash-only rewrite, ID-only clear, hash-only clear, pair clear,
+  and pair rewrite were exercised independently through both CAS paths. Twelve cases
+  were not expected to be rejected by the immutable-binding boundary: eight wrote
+  successfully and four single-field clears failed at the wrong validation boundary.
+  The complete twelve-case attack matrix was red. The two unchanged-pair controls
+  were already green.
+- GREEN: all twelve attacks raise `RunStateConflict` for the scheduled event binding,
+  and reloading proves the exact durable row is unchanged. Both unchanged-pair
+  controls still advance one version through ordinary CAS and terminal identity
+  recovery.
+
+Focused final-P2 gates:
+
+- scheduled-event attack/control matrix: 14 passed;
+- complete RunState repository suite: 98 passed;
+- Task 5 replay, plan-review attempt, and approval suite: 43 passed;
+- Ruff, format, mypy, and import contracts: passed.
