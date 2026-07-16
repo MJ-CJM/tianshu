@@ -35,6 +35,7 @@ from tianshu.models.edict import Edict, title_from_goal
 from tianshu.models.events import EventEnvelope, make_event
 from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan
+from tianshu.models.plan_revision import build_plan_revision
 from tianshu.models.principal import (
     AuthContext,
     AuthenticationSource,
@@ -992,6 +993,33 @@ class ApprovalManager:
         )
         plan_hash = canonical_sha256(safe_plan)
         plan_ref = f"plan:{edict.id}:{revision}"
+        with self._storage.unit_of_work() as unit_of_work:
+            current = self._storage.run_state_repo.load(unit_of_work.connection, memorial.id)
+            unit_of_work.commit()
+        current_continuation = current.continuation if current is not None else None
+        if (
+            isinstance(current_continuation, AgentContinuationV1)
+            and current_continuation.plan_ref == plan_ref
+            and current_continuation.plan_hash == plan_hash
+            and current_continuation.plan_revisions
+        ):
+            plan_revision = current_continuation.plan_revisions[-1]
+        else:
+            plan_revision = build_plan_revision(
+                safe_plan,
+                revision_id=canonical_sha256(
+                    {
+                        "edict_id": edict.id,
+                        "memorial_id": memorial.id,
+                        "revision": revision,
+                        "plan_hash": plan_hash,
+                    }
+                ),
+                parent_revision_id=None,
+                reason_code="initial_plan",
+                reason_summary="initial plan created",
+                created_at=now,
+            )
         continuation = AgentContinuationV1(
             messages=(),
             pending_tool=None,
@@ -1002,6 +1030,9 @@ class ApprovalManager:
             side_effect_cursor=0,
             plan_ref=plan_ref,
             plan_hash=plan_hash,
+            plan_revision_id=plan_revision.revision_id,
+            plan_revisions=(plan_revision,),
+            plan_snapshot=safe_plan,
         )
         run_state = RunStateV1(
             memorial_id=memorial.id,
@@ -1024,6 +1055,8 @@ class ApprovalManager:
                 "revision": revision,
                 "plan_ref": plan_ref,
                 "plan_hash": plan_hash,
+                "plan_revision_id": plan_revision.revision_id,
+                "artifact_digest": plan_revision.artifact_digest,
                 "plan": safe_plan,
             },
             expires_at=now + timedelta(seconds=timeout_seconds),

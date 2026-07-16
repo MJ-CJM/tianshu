@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime
 
@@ -12,11 +13,13 @@ from tianshu.executor.adapters import PreparedExecutor
 from tianshu.executor.agent import Agent
 from tianshu.executor.worker import Worker
 from tianshu.executor.worker_pool import WorkerPool, WorkItem
+from tianshu.models.canonical import canonical_sha256
 from tianshu.models.common import TaskStatus, UsageSummary
 from tianshu.models.dag import DAGExecution, DAGNode, DAGNodeStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import make_event
 from tianshu.models.memorial import Memorial
+from tianshu.models.run_state import AgentContinuationV1, RunPhase, RunStateV1
 from tianshu.persona.loader import PersonaLoader
 from tianshu.persona.model import DEFAULT_EXECUTOR_ID
 from tianshu.persona.prompt_builder import PromptBuilder
@@ -64,6 +67,7 @@ class DAGScheduler:
         可读"这条不变量（三条执行路径共用同一纪律）。直接驱动 scheduler 的调用方
         （无 workspace lease）保持默认落库行为。
         """
+        self._activate_plan_revision(execution)
         # Keep a defensive validation boundary for direct scheduler callers.
         try:
             validate_dag_structure(execution.nodes)
@@ -290,6 +294,73 @@ class DAGScheduler:
                     self._storage.update_memorial(root)
                 return root
         return None
+
+    def _require_plan_revision_binding(self, execution: DAGExecution) -> None:
+        """Fail closed when a durable revision and projected DAG plan diverge."""
+
+        if execution.root_memorial_id is None:
+            return
+        with self._storage.unit_of_work() as unit_of_work:
+            state = self._storage.run_state_repo.load(
+                unit_of_work.connection,
+                execution.root_memorial_id,
+            )
+            self._validate_plan_revision_binding(execution, state)
+            unit_of_work.commit()
+
+    def _activate_plan_revision(self, execution: DAGExecution) -> None:
+        """Validate and freeze the revision lineage before any node is dispatched."""
+
+        if execution.root_memorial_id is None:
+            return
+        with self._storage.unit_of_work() as unit_of_work:
+            state = self._storage.run_state_repo.load(
+                unit_of_work.connection,
+                execution.root_memorial_id,
+            )
+            self._validate_plan_revision_binding(execution, state)
+            if (
+                state is None
+                or not isinstance(state.continuation, AgentContinuationV1)
+                or not state.continuation.plan_revisions
+                or state.phase is RunPhase.EXECUTING
+            ):
+                unit_of_work.commit()
+                return
+            if state.phase not in {RunPhase.PLANNING, RunPhase.PAUSED}:
+                raise RuntimeError("DAG plan revision is not at an executable boundary")
+            active = state.model_copy(
+                update={
+                    "phase": RunPhase.EXECUTING,
+                    "updated_at": max(state.updated_at, datetime.now(UTC)),
+                }
+            )
+            self._storage.run_state_repo.compare_and_swap(
+                unit_of_work.connection,
+                active,
+                expected_version=state.version,
+            )
+            unit_of_work.commit()
+
+    @staticmethod
+    def _validate_plan_revision_binding(execution: DAGExecution, state: RunStateV1 | None) -> None:
+        if (
+            state is None
+            or not isinstance(state.continuation, AgentContinuationV1)
+            or not state.continuation.plan_revisions
+        ):
+            return
+        if state.edict_id != execution.edict_id:
+            raise RuntimeError("DAG plan revision has an invalid Edict binding")
+        try:
+            plan = json.loads(execution.plan_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise RuntimeError("DAG plan revision projection is not valid JSON") from exc
+        if not isinstance(plan, dict):
+            raise RuntimeError("DAG plan revision projection is not an object")
+        current = state.continuation.plan_revisions[-1]
+        if canonical_sha256(plan) != current.plan_hash:
+            raise RuntimeError("DAG plan revision projection does not match durable evidence")
 
     async def _schedule_ready(
         self,

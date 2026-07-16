@@ -11,6 +11,7 @@ from tianshu.models.events import EventEnvelope
 from tianshu.models.run_state import AgentContinuationV1, RunPhase, RunStateV1
 from tianshu.storage import Storage
 from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.storage.run_state_repo import RunStateDecodeError
 
 
 class PlanReviewAttemptCoordinator:
@@ -42,10 +43,23 @@ class PlanReviewAttemptCoordinator:
                 (limit,),
             ).fetchall()
             for row in rows:
-                state = self._storage.run_state_repo.load(
-                    connection,
-                    str(row["memorial_id"]),
-                )
+                try:
+                    state = self._storage.run_state_repo.load(
+                        connection,
+                        str(row["memorial_id"]),
+                    )
+                except RunStateDecodeError:
+                    self._terminalize(
+                        connection,
+                        row=row,
+                        state=None,
+                        decision_id=None,
+                        now=now,
+                        code="plan_review_binding_invalid",
+                        message="Plan review binding is invalid",
+                    )
+                    changed += 1
+                    continue
                 decision_id = self._decision_id(state)
                 record = (
                     self._storage.decision_repo.get(connection, decision_id)
@@ -71,6 +85,7 @@ class PlanReviewAttemptCoordinator:
                     self._terminalize(
                         connection,
                         row=row,
+                        state=state,
                         decision_id=decision_id,
                         now=now,
                         code="plan_review_binding_invalid",
@@ -105,7 +120,7 @@ class PlanReviewAttemptCoordinator:
                             "updated_at": max(state.updated_at, decision_at),
                         }
                     )
-                    self._storage.run_state_repo.compare_and_swap(
+                    state = self._storage.run_state_repo.compare_and_swap(
                         connection,
                         next_state,
                         expected_version=state.version,
@@ -129,6 +144,7 @@ class PlanReviewAttemptCoordinator:
                     self._terminalize(
                         connection,
                         row=row,
+                        state=state,
                         decision_id=decision_id,
                         now=now,
                         code="plan_review_rejected",
@@ -232,6 +248,7 @@ class PlanReviewAttemptCoordinator:
         connection,
         *,
         row,
+        state: RunStateV1 | None,
         decision_id: str | None,
         now: datetime,
         code: str,
@@ -242,7 +259,6 @@ class PlanReviewAttemptCoordinator:
             (row["memorial_id"],),
         ).fetchone()
         edict_id = str(memorial["edict_id"]) if memorial is not None else "unknown"
-        state = self._storage.run_state_repo.load(connection, str(row["memorial_id"]))
         detected_identity_hash = (
             canonical_sha256({"detected_run_state_edict_id": state.edict_id})
             if state is not None and state.edict_id != edict_id
