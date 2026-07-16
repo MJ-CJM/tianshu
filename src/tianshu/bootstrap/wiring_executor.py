@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from tianshu.application.continuation_recovery import ContinuationRecoveryService
 from tianshu.config import TianshuSettings
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.dag_scheduler import DAGScheduler
@@ -90,6 +91,14 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
     app.state.dag_scheduler = dag_scheduler
 
     # --- ApprovalManager ---
+    continuation_recovery = ContinuationRecoveryService(storage)
+    event_bus.on(
+        "decision.resolved",
+        continuation_recovery.handle_decision_resolved,
+        consumer_name="continuation_recovery.v1",
+    )
+    app.state.continuation_recovery = continuation_recovery
+
     approval_manager = ApprovalManager(
         event_bus=event_bus,
         storage=storage,

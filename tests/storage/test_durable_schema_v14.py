@@ -58,9 +58,9 @@ def _insert_attempt(
     )
 
 
-def test_live_tail_appends_only_v14() -> None:
-    assert tuple(item.version for item in MIGRATIONS) == tuple(range(1, 15))
-    assert (MIGRATIONS[-1].version, MIGRATIONS[-1].name) == (
+def test_v14_remains_frozen_below_live_v15_tail() -> None:
+    assert tuple(item.version for item in MIGRATIONS) == tuple(range(1, 16))
+    assert (MIGRATIONS[13].version, MIGRATIONS[13].name) == (
         14,
         "0014_execution_attempt_ledger",
     )
@@ -196,9 +196,9 @@ def test_v14_callback_failure_rolls_back_schema_and_ledger(tmp_path: Path) -> No
     connection = sqlite3.connect(database)
     try:
         connection.execute("DROP TABLE execution_attempts")
-        connection.execute("DELETE FROM schema_migrations WHERE version=14")
+        connection.execute("DELETE FROM schema_migrations WHERE version>=14")
         connection.commit()
-        migration = MIGRATIONS[-1]
+        migration = MIGRATIONS[13]
 
         def fail_after_upgrade(active: MigrationConnection) -> None:
             migration.upgrade(active)

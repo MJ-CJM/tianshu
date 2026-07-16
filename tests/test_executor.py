@@ -80,7 +80,7 @@ class TestExecutor:
             edict_id=edict.id,
             payload={"plan": {"tasks": [], "priority_order": []}},
         )
-        with pytest.raises(RuntimeError, match="existing root Memorial"):
+        with pytest.raises(RuntimeError, match="managed run ingress is not configured"):
             await executor.handle_plan_completed(event)
         assert storage.list_memorials_by_edict(edict.id) == []
 

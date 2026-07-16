@@ -533,6 +533,39 @@ class AttemptLeaseRepository:
             )
         return True
 
+    def resume_suspended_current(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        attempt_id: str,
+        memorial_id: str,
+        expected_version: int,
+        available_at: datetime,
+    ) -> bool:
+        """CAS one suspended attempt back to claimable without spending retry budget."""
+
+        _non_blank(attempt_id, field="attempt_id")
+        _non_blank(memorial_id, field="memorial_id")
+        if type(expected_version) is not int or expected_version < 1:
+            raise ValueError("expected_version must be a positive integer")
+        available_at = _utc(available_at)
+        cursor = connection.execute(
+            """
+            UPDATE execution_attempts
+            SET status='claimable', owner_id=NULL, heartbeat_at=NULL,
+                lease_expires_at=NULL, available_at=?, version=version + 1, updated_at=?
+            WHERE attempt_id=? AND memorial_id=? AND status='suspended' AND version=?
+            """,
+            (
+                available_at.isoformat(),
+                available_at.isoformat(),
+                attempt_id,
+                memorial_id,
+                expected_version,
+            ),
+        )
+        return cursor.rowcount == 1
+
     def complete(
         self,
         *,

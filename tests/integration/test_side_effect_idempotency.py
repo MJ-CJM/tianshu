@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from tianshu.application.continuation_recovery import ContinuationRecoveryService
 from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.executor.side_effects import (
     ManagedSideEffectService,
@@ -16,7 +17,8 @@ from tianshu.governance.decision_service import DecisionService
 from tianshu.models import Edict, Memorial, TaskStatus
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.canonical import RedactedError
-from tianshu.models.decision import DecisionStatus
+from tianshu.models.decision import DecisionStatus, ResolveDecisionCommand
+from tianshu.models.events import EventEnvelope
 from tianshu.models.principal import (
     AuthContext,
     AuthenticationSource,
@@ -448,6 +450,87 @@ async def test_decision_outbox_failure_rolls_back_uncertainty_suspension(
             == "claimed"
         )
         assert provider.invocations == 0
+    finally:
+        storage.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "expected_attempt", "expected_phase", "expected_cursor"),
+    (
+        ("approve", "claimable", RunPhase.EXECUTING, 1),
+        ("reject", "failed", RunPhase.FAILED, 0),
+    ),
+)
+async def test_uncertain_effect_resolution_resumes_or_cancels_without_invocation(
+    tmp_path: Path,
+    action: str,
+    expected_attempt: str,
+    expected_phase: RunPhase,
+    expected_cursor: int,
+) -> None:
+    storage = _open(tmp_path / f"opaque-{action}.db")
+    authority, run_state = _seed(storage)
+    provider = _OpaqueProvider()
+    intent = _intent(authority, provider.semantics)
+    clock = _Clock()
+    decisions = DecisionService(storage, clock=clock)
+    try:
+        result = await ManagedSideEffectService(
+            storage,
+            decisions,
+            clock=clock,
+        ).execute(
+            authority,
+            intent,
+            provider,
+            uncertainty_run_state=run_state,
+            decision_auth=_auth(),
+            decision_expires_at=_NOW + timedelta(hours=1),
+        )
+        assert result.decision_request_id is not None
+        decisions.resolve(
+            result.decision_request_id,
+            ResolveDecisionCommand(
+                action=action,
+                reason="reviewed",
+                payload={"schema_version": 1},
+                expected_version=1,
+            ),
+            auth=_auth(),
+        )
+        event = EventEnvelope(
+            event_id=f"{result.decision_request_id}:resolved:test",
+            event_type="decision.resolved",
+            edict_id="edict-1",
+            memorial_id="memorial-1",
+            producer="test",
+            timestamp=clock.now,
+            payload={
+                "schema_version": 1,
+                "decision_request_id": result.decision_request_id,
+                "kind": "tool",
+                "action": action,
+                "request_version": 2,
+                "correlation_id": "effect:test",
+            },
+        )
+        recovery = ContinuationRecoveryService(storage, clock=clock)
+        assert await recovery.handle_decision_resolved(event) is True
+        assert await recovery.handle_decision_resolved(event) is False
+
+        durable = storage.run_state_repo.load(storage._conn, "memorial-1")  # noqa: SLF001
+        assert durable is not None and durable.phase is expected_phase
+        assert durable.side_effect_cursor == expected_cursor
+        assert durable.continuation.pending_tool is None
+        assert provider.invocations == 0
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT status FROM execution_attempts WHERE attempt_id=?",
+                (authority.attempt_id,),
+            ).fetchone()[0]
+            == expected_attempt
+        )
     finally:
         storage.close()
 

@@ -841,10 +841,29 @@ async def _init_outer_loop_state(
     edict: Edict,
     memorial: Memorial,
     acceptance: AcceptanceCriteria,
-) -> OuterLoopState:
-    """resume（仅 checkpointed/background）或新建 state，并发 outer_loop.started 事件。"""
-    # Resume：仅 checkpointed/background profile 启用
-    if edict.execution_profile in ("checkpointed", "background"):
+) -> tuple[OuterLoopState, HumanDecision | None]:
+    """Reconstruct durable state first, otherwise use the legacy checkpoint fallback."""
+
+    from tianshu.executor.continuation import load_outer_loop_resume
+
+    durable = load_outer_loop_resume(ctx.storage, memorial.id, edict.id)
+    decision: HumanDecision | None = None
+    if durable is not None:
+        state = durable.state
+        decision = durable.decision
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "outer_loop.resumed",
+            {
+                "iteration": state.iteration,
+                "level": state.current_level,
+                "source": "run_state",
+            },
+        )
+    elif edict.execution_profile in ("checkpointed", "background"):
         resumed = _load_checkpoint(ctx, edict.id)
         state = resumed if resumed else OuterLoopState(edict_id=edict.id)
         if resumed:
@@ -867,7 +886,7 @@ async def _init_outer_loop_state(
         "outer_loop.started",
         {"max_outer": acceptance.max_outer_iterations},
     )
-    return state
+    return state, decision
 
 
 async def run(
@@ -878,7 +897,32 @@ async def run(
     """outer loop 主入口。要求 edict.acceptance is not None。"""
     assert edict.acceptance is not None, "orchestrator.run 要求 acceptance 不为 None"
     acceptance = edict.acceptance
-    state = await _init_outer_loop_state(ctx, edict, memorial, acceptance)
+    state, resolved_decision = await _init_outer_loop_state(ctx, edict, memorial, acceptance)
+    if resolved_decision is not None:
+        state, edict, terminal = _apply_human_decision(state, resolved_decision, edict)
+        if terminal == "abort":
+            last = state.history[-1] if state.history else None
+            return await _finalize_with_supervision(
+                state,
+                edict,
+                ctx,
+                memorial,
+                TaskStatus.FAILED,
+                last.actor_output if last else None,
+                error="aborted by human",
+            )
+        if terminal == "accept_as_is":
+            last = state.history[-1] if state.history else None
+            return await _finalize_with_supervision(
+                state,
+                edict,
+                ctx,
+                memorial,
+                TaskStatus.COMPLETED,
+                last.actor_output if last else None,
+            )
+        assert edict.acceptance is not None
+        acceptance = edict.acceptance
 
     while state.iteration < acceptance.max_outer_iterations:
         iter_started = datetime.now(UTC)
