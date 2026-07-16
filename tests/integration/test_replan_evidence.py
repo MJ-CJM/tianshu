@@ -36,6 +36,34 @@ def _plan(description: str = "collect evidence") -> Plan:
     )
 
 
+def _dependent_plan() -> Plan:
+    return Plan(
+        tasks=[
+            PlanTask(
+                task_id="collect",
+                description="collect source material",
+                tools_required=["search"],
+                assigned_official="official-researcher",
+            ),
+            PlanTask(
+                task_id="write",
+                description="write the result",
+                depends_on=["collect"],
+                tools_required=["document"],
+                assigned_official="official-writer",
+            ),
+        ],
+        priority_order=["collect", "write"],
+    )
+
+
+def _load_run_state(storage: Storage, memorial_id: str):
+    with storage.unit_of_work() as unit_of_work:
+        state = storage.run_state_repo.load(unit_of_work.connection, memorial_id)
+        unit_of_work.commit()
+    return state
+
+
 def _seed(storage: Storage) -> tuple[Edict, Memorial]:
     edict = Edict(id="edict-revision", goal="produce evidence")
     memorial = Memorial(
@@ -319,3 +347,93 @@ def test_dag_activation_freezes_lineage_before_worker_dispatch(
             reason_code="runtime_change",
             reason_summary="must be rejected while active",
         )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("description", "execute a forged goal"),
+        ("depends_on", []),
+        ("tools_required", ["shell"]),
+        ("assigned_official", "official-attacker"),
+    ],
+)
+def test_dag_node_projection_mutation_fails_before_activation(
+    storage: Storage,
+    config_manager,
+    field: str,
+    value: object,
+) -> None:
+    edict, memorial = _seed(storage)
+    planner = Planner(EventBus(), storage, config_manager, clock=lambda: _NOW)
+    plan = _dependent_plan()
+    planner.persist_plan_revision(
+        memorial_id=memorial.id,
+        plan=plan,
+        parent_revision_id=None,
+        reason_code="initial_plan",
+        reason_summary="initial plan",
+    )
+    before = _load_run_state(storage, memorial.id)
+    execution = plan.to_dag(edict.id)
+    execution.root_memorial_id = memorial.id
+    setattr(execution.nodes[-1], field, value)
+    pool = AsyncMock()
+    scheduler = DAGScheduler(
+        worker_pool=pool,
+        agent=AsyncMock(),
+        storage=storage,
+        event_bus=EventBus(),
+    )
+
+    with pytest.raises(RuntimeError, match="node projection"):
+        scheduler._activate_plan_revision(execution)  # noqa: SLF001
+
+    assert _load_run_state(storage, memorial.id) == before
+    pool.submit.assert_not_awaited()
+
+
+@pytest.mark.parametrize("invalid", ["unknown", "cycle"])
+async def test_invalid_dag_leaves_revision_state_unchanged_and_allows_replan(
+    storage: Storage,
+    config_manager,
+    invalid: str,
+) -> None:
+    edict, memorial = _seed(storage)
+    planner = Planner(EventBus(), storage, config_manager, clock=lambda: _NOW)
+    plan = _dependent_plan()
+    revision = planner.persist_plan_revision(
+        memorial_id=memorial.id,
+        plan=plan,
+        parent_revision_id=None,
+        reason_code="initial_plan",
+        reason_summary="initial plan",
+    )
+    before = _load_run_state(storage, memorial.id)
+    execution = plan.to_dag(edict.id)
+    execution.root_memorial_id = memorial.id
+    if invalid == "unknown":
+        execution.nodes[-1].depends_on = ["missing"]
+    else:
+        execution.nodes[0].depends_on = [execution.nodes[-1].node_id]
+    pool = AsyncMock()
+    scheduler = DAGScheduler(
+        worker_pool=pool,
+        agent=AsyncMock(),
+        storage=storage,
+        event_bus=EventBus(),
+    )
+
+    with pytest.raises(ValueError, match="DAG validation failed"):
+        await scheduler.run(edict, execution)
+
+    assert _load_run_state(storage, memorial.id) == before
+    pool.submit.assert_not_awaited()
+    appended = planner.persist_plan_revision(
+        memorial_id=memorial.id,
+        plan=_plan("valid replan after rejected DAG"),
+        parent_revision_id=revision.revision_id,
+        reason_code="invalid_dag",
+        reason_summary="replace invalid DAG",
+    )
+    assert appended.parent_revision_id == revision.revision_id

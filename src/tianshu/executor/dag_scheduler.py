@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime
+from typing import cast
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.dag.graph import DAG, validate_dag_structure
@@ -19,6 +20,7 @@ from tianshu.models.dag import DAGExecution, DAGNode, DAGNodeStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import make_event
 from tianshu.models.memorial import Memorial
+from tianshu.models.plan import Plan
 from tianshu.models.run_state import AgentContinuationV1, RunPhase, RunStateV1
 from tianshu.persona.loader import PersonaLoader
 from tianshu.persona.model import DEFAULT_EXECUTOR_ID
@@ -67,20 +69,13 @@ class DAGScheduler:
         可读"这条不变量（三条执行路径共用同一纪律）。直接驱动 scheduler 的调用方
         （无 workspace lease）保持默认落库行为。
         """
-        self._activate_plan_revision(execution)
-        # Keep a defensive validation boundary for direct scheduler callers.
+        # Keep both checks pure until the complete execution projection is known-safe.
         try:
             validate_dag_structure(execution.nodes)
         except ValueError as e:
-            execution.status = "failed"
-            execution.completed_at = datetime.now(UTC)
-            self._storage.update_dag_execution_status(
-                execution.id,
-                "failed",
-                completed_at=execution.completed_at,
-            )
             logger.error("DAG validation failed: %s", e)
             raise ValueError(f"DAG validation failed: {e}") from e
+        self._activate_plan_revision(execution)
 
         dag = DAG.from_execution(execution)
         node_results: dict[str, str] = {}
@@ -361,6 +356,34 @@ class DAGScheduler:
         current = state.continuation.plan_revisions[-1]
         if canonical_sha256(plan) != current.plan_hash:
             raise RuntimeError("DAG plan revision projection does not match durable evidence")
+        try:
+            authorized = cast(
+                DAGExecution,
+                Plan.model_validate(state.continuation.plan_snapshot).to_dag(
+                    execution.edict_id
+                ),
+            )
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("DAG plan revision snapshot is invalid") from exc
+        if DAGScheduler._node_projection(execution.nodes) != DAGScheduler._node_projection(
+            authorized.nodes
+        ):
+            raise RuntimeError("DAG node projection does not match durable plan revision")
+
+    @staticmethod
+    def _node_projection(nodes: list[DAGNode]) -> list[dict[str, object]]:
+        """Project only immutable node facts that control dispatched work."""
+
+        return [
+            {
+                "node_id": node.node_id,
+                "description": node.description,
+                "depends_on": list(node.depends_on),
+                "tools_required": list(node.tools_required),
+                "assigned_official": node.assigned_official,
+            }
+            for node in nodes
+        ]
 
     async def _schedule_ready(
         self,
