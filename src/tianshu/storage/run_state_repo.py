@@ -8,7 +8,7 @@ import sqlite3
 from pydantic import ValidationError
 
 from tianshu.models.canonical import canonical_json_bytes
-from tianshu.models.run_state import RunPhase, RunStateV1
+from tianshu.models.run_state import AgentContinuationV1, RunPhase, RunStateV1
 from tianshu.security.sensitive_payload import contains_raw_sensitive_payload
 
 
@@ -31,6 +31,37 @@ class RunStateSecretError(RunStateRepositoryError):
 def _require_secret_free(state: RunStateV1) -> None:
     if contains_raw_sensitive_payload(state.model_dump(mode="python")):
         raise RunStateSecretError("raw secret is not allowed in durable RunState")
+
+
+def _require_valid_plan_lineage(state: RunStateV1) -> None:
+    continuation = state.continuation
+    if not isinstance(continuation, AgentContinuationV1):
+        return
+    try:
+        AgentContinuationV1.model_validate(continuation.model_dump(mode="python"))
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise RunStateConflict("invalid RunState plan revision lineage") from exc
+
+
+def _require_immutable_plan_lineage(current: RunStateV1, candidate: RunStateV1) -> None:
+    current_continuation = current.continuation
+    candidate_continuation = candidate.continuation
+    current_lineage = (
+        current_continuation.plan_revisions
+        if isinstance(current_continuation, AgentContinuationV1)
+        else ()
+    )
+    candidate_lineage = (
+        candidate_continuation.plan_revisions
+        if isinstance(candidate_continuation, AgentContinuationV1)
+        else ()
+    )
+    if (
+        len(candidate_lineage) < len(current_lineage)
+        or len(candidate_lineage) > len(current_lineage) + 1
+        or candidate_lineage[: len(current_lineage)] != current_lineage
+    ):
+        raise RunStateConflict("RunState plan revision lineage is immutable")
 
 
 def _require_decision_binding(state: RunStateV1) -> None:
@@ -99,6 +130,7 @@ class RunStateRepository:
         if state.version != 1:
             raise ValueError("new RunState must start at version 1")
         _require_decision_binding(state)
+        _require_valid_plan_lineage(state)
         _require_memorial_binding(connection, state.memorial_id, state.edict_id)
         _require_secret_free(state)
         try:
@@ -138,6 +170,7 @@ class RunStateRepository:
         if state.version != expected_version:
             raise ValueError("RunState input version must equal expected_version")
         _require_decision_binding(state)
+        _require_valid_plan_lineage(state)
         current = self.load(connection, state.memorial_id)
         if current is None:
             raise RunStateConflict("RunState compare-and-swap conflict")
@@ -148,6 +181,7 @@ class RunStateRepository:
             raise RunStateConflict("RunState schema_version is immutable")
         if current.created_at != state.created_at:
             raise RunStateConflict("RunState created_at is immutable")
+        _require_immutable_plan_lineage(current, state)
         if state.updated_at < current.updated_at:
             raise RunStateConflict("RunState updated_at must not move backwards")
         _require_secret_free(state)
@@ -192,6 +226,7 @@ class RunStateRepository:
         if state.version != expected_version:
             raise ValueError("RunState input version must equal expected_version")
         _require_decision_binding(state)
+        _require_valid_plan_lineage(state)
         current = self.load(connection, state.memorial_id)
         if current is None or current.version != expected_version:
             raise RunStateConflict("RunState recovery compare-and-swap conflict")
@@ -202,6 +237,7 @@ class RunStateRepository:
             raise RunStateConflict("RunState schema_version is immutable")
         if current.created_at != state.created_at:
             raise RunStateConflict("RunState created_at is immutable")
+        _require_immutable_plan_lineage(current, state)
         if state.updated_at < current.updated_at:
             raise RunStateConflict("RunState updated_at must not move backwards")
         _require_secret_free(state)

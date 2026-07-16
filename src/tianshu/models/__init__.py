@@ -34,6 +34,7 @@ from tianshu.models.governance_contract import (
 )
 from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan, PlanTask
+from tianshu.models.plan_revision import PlanRevisionV1
 
 __all__ = [
     # common
@@ -65,6 +66,7 @@ __all__ = [
     "make_event",
     # plan
     "Plan",
+    "PlanRevisionV1",
     "PlanTask",
     # dag
     "DAGExecution",

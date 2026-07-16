@@ -10,6 +10,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tianshu.models.canonical import JsonValue, canonical_sha256
+from tianshu.models.plan_revision import PlanRevisionV1, validate_plan_revision_lineage
 
 
 class RunPhase(StrEnum):
@@ -108,6 +109,9 @@ class AgentContinuationV1(_StrictModel):
     side_effect_cursor: int = Field(ge=0)
     plan_ref: str | None = None
     plan_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    plan_revision_id: str | None = None
+    plan_revisions: tuple[PlanRevisionV1, ...] = ()
+    plan_snapshot: dict[str, JsonValue] | None = None
 
     @model_validator(mode="after")
     def validate_plan_binding(self) -> Self:
@@ -115,6 +119,19 @@ class AgentContinuationV1(_StrictModel):
             raise ValueError("plan_ref and plan_hash must be provided together")
         if self.plan_ref is not None:
             _non_blank(self.plan_ref)
+        if self.plan_revisions:
+            validate_plan_revision_lineage(self.plan_revisions)
+            current = self.plan_revisions[-1]
+            if self.plan_revision_id != current.revision_id:
+                raise ValueError("plan_revision_id must reference the lineage head")
+            if self.plan_hash != current.plan_hash:
+                raise ValueError("plan_hash must match the lineage head")
+            if self.plan_snapshot is None:
+                raise ValueError("plan revision lineage requires a plan_snapshot")
+            if canonical_sha256(self.plan_snapshot) != current.plan_hash:
+                raise ValueError("plan_snapshot does not match the lineage head")
+        elif self.plan_revision_id is not None or self.plan_snapshot is not None:
+            raise ValueError("plan revision fields require a complete lineage")
         return self
 
 
