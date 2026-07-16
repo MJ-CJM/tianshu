@@ -97,6 +97,126 @@ def _state(arguments: dict[str, object] | None = None) -> RunStateV1:
     )
 
 
+def _scheduled_state() -> RunStateV1:
+    state = _state()
+    continuation = state.continuation.model_copy(
+        update={
+            "scheduled_event_id": "scheduled-event-1",
+            "scheduled_event_hash": "a" * 64,
+        }
+    )
+    return state.model_copy(update={"continuation": continuation})
+
+
+def _prepare_scheduled_update(
+    storage: Storage,
+    operation: str,
+) -> tuple[RunStateV1, RunStateV1]:
+    state = _scheduled_state()
+    with storage.unit_of_work() as unit_of_work:
+        storage.run_state_repo.create(unit_of_work.connection, state)
+        unit_of_work.commit()
+    if operation == "recovery":
+        storage._conn.execute(  # noqa: SLF001 - corrupt identity recovery fixture
+            "INSERT INTO edicts (id, goal, created_at) VALUES (?, ?, ?)",
+            ("edict-forged", "forged", "2026-07-15T00:00:00+00:00"),
+        )
+        storage._conn.execute(  # noqa: SLF001 - corrupt identity recovery fixture
+            "UPDATE run_states SET edict_id='edict-forged' WHERE memorial_id='memorial-1'"
+        )
+        storage._conn.commit()  # noqa: SLF001 - corrupt identity recovery fixture
+    with storage.unit_of_work() as unit_of_work:
+        current = storage.run_state_repo.load(unit_of_work.connection, state.memorial_id)
+        unit_of_work.commit()
+    assert current is not None
+    candidate = current.model_copy(
+        update={
+            "edict_id": "edict-1" if operation == "recovery" else current.edict_id,
+            "phase": RunPhase.FAILED if operation == "recovery" else RunPhase.PAUSED,
+            "updated_at": current.updated_at + timedelta(seconds=1),
+        }
+    )
+    return current, candidate
+
+
+@pytest.mark.parametrize("operation", ["cas", "recovery"])
+@pytest.mark.parametrize(
+    "binding_update",
+    [
+        {"scheduled_event_id": "scheduled-event-forged"},
+        {"scheduled_event_hash": "b" * 64},
+        {"scheduled_event_id": None},
+        {"scheduled_event_hash": None},
+        {"scheduled_event_id": None, "scheduled_event_hash": None},
+        {
+            "scheduled_event_id": "scheduled-event-forged",
+            "scheduled_event_hash": "b" * 64,
+        },
+    ],
+    ids=["rewrite-id", "rewrite-hash", "clear-id", "clear-hash", "clear-both", "rewrite-both"],
+)
+def test_scheduled_event_binding_is_immutable_with_zero_write(
+    operation: str,
+    binding_update: dict[str, object],
+) -> None:
+    _, conflict_type, *_ = _contracts()
+    storage = _storage()
+    try:
+        current, candidate = _prepare_scheduled_update(storage, operation)
+        continuation = candidate.continuation.model_copy(update=binding_update)
+        candidate = candidate.model_copy(update={"continuation": continuation})
+
+        with (
+            pytest.raises(conflict_type, match="scheduled event binding"),
+            storage.unit_of_work() as uow,
+        ):
+            if operation == "cas":
+                storage.run_state_repo.compare_and_swap(
+                    uow.connection,
+                    candidate,
+                    expected_version=current.version,
+                )
+            else:
+                storage.run_state_repo.recover_terminal_identity(
+                    uow.connection,
+                    candidate,
+                    expected_version=current.version,
+                )
+
+        with storage.unit_of_work() as unit_of_work:
+            durable = storage.run_state_repo.load(unit_of_work.connection, current.memorial_id)
+            unit_of_work.commit()
+        assert durable == current
+    finally:
+        storage.close()
+
+
+@pytest.mark.parametrize("operation", ["cas", "recovery"])
+def test_scheduled_event_binding_unchanged_allows_update(operation: str) -> None:
+    storage = _storage()
+    try:
+        current, candidate = _prepare_scheduled_update(storage, operation)
+        with storage.unit_of_work() as unit_of_work:
+            if operation == "cas":
+                saved = storage.run_state_repo.compare_and_swap(
+                    unit_of_work.connection,
+                    candidate,
+                    expected_version=current.version,
+                )
+            else:
+                saved = storage.run_state_repo.recover_terminal_identity(
+                    unit_of_work.connection,
+                    candidate,
+                    expected_version=current.version,
+                )
+            unit_of_work.commit()
+        assert saved.continuation.scheduled_event_id == "scheduled-event-1"
+        assert saved.continuation.scheduled_event_hash == "a" * 64
+        assert saved.version == current.version + 1
+    finally:
+        storage.close()
+
+
 @pytest.mark.parametrize("operation", ("create", "cas"))
 @pytest.mark.parametrize(
     ("phase", "pending_decision_id", "resolved_decision_id"),

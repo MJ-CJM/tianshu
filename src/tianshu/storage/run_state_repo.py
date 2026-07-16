@@ -64,6 +64,32 @@ def _require_immutable_plan_lineage(current: RunStateV1, candidate: RunStateV1) 
         raise RunStateConflict("RunState plan revision lineage is immutable")
 
 
+def _require_immutable_scheduled_event_binding(
+    current: RunStateV1,
+    candidate: RunStateV1,
+) -> None:
+    current_continuation = current.continuation
+    candidate_continuation = candidate.continuation
+    current_binding = (
+        (
+            current_continuation.scheduled_event_id,
+            current_continuation.scheduled_event_hash,
+        )
+        if isinstance(current_continuation, AgentContinuationV1)
+        else (None, None)
+    )
+    candidate_binding = (
+        (
+            candidate_continuation.scheduled_event_id,
+            candidate_continuation.scheduled_event_hash,
+        )
+        if isinstance(candidate_continuation, AgentContinuationV1)
+        else (None, None)
+    )
+    if candidate_binding != current_binding:
+        raise RunStateConflict("RunState scheduled event binding is immutable")
+
+
 def _require_decision_binding(state: RunStateV1) -> None:
     pending = state.continuation.pending_decision_id
     resolved = state.continuation.resolved_decision_id
@@ -170,10 +196,11 @@ class RunStateRepository:
         if state.version != expected_version:
             raise ValueError("RunState input version must equal expected_version")
         _require_decision_binding(state)
-        _require_valid_plan_lineage(state)
         current = self.load(connection, state.memorial_id)
         if current is None:
             raise RunStateConflict("RunState compare-and-swap conflict")
+        _require_immutable_scheduled_event_binding(current, state)
+        _require_valid_plan_lineage(state)
         if current.edict_id != state.edict_id:
             raise RunStateConflict("RunState edict_id is immutable")
         _require_memorial_binding(connection, state.memorial_id, state.edict_id)
@@ -226,10 +253,11 @@ class RunStateRepository:
         if state.version != expected_version:
             raise ValueError("RunState input version must equal expected_version")
         _require_decision_binding(state)
-        _require_valid_plan_lineage(state)
         current = self.load(connection, state.memorial_id)
         if current is None or current.version != expected_version:
             raise RunStateConflict("RunState recovery compare-and-swap conflict")
+        _require_immutable_scheduled_event_binding(current, state)
+        _require_valid_plan_lineage(state)
         if current.edict_id == state.edict_id:
             raise RunStateConflict("RunState recovery requires an identity mismatch")
         _require_memorial_binding(connection, state.memorial_id, state.edict_id)
