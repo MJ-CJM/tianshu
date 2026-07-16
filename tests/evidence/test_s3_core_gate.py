@@ -71,6 +71,11 @@ _REQUIRED_FAULTS = {
     "evidence_bundle_integrity": "tests/evidence",
     "internal_delivery_recovery": "tests/notifier/test_internal_delivery_recovery.py",
 }
+_GOVERNANCE_DOCUMENTS = (
+    "docs/cc-fable-v1/reports/s3-core-governance-report.md",
+    "docs/launch/capability-matrix.md",
+    "docs/cc-fable-v1/PROGRESS.md",
+)
 
 
 def _logs() -> dict[str, bytes]:
@@ -357,7 +362,7 @@ def test_rejects_noncanonical_json_block() -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ["report.md", "capability-matrix.md", "PROGRESS.md"],
+    _GOVERNANCE_DOCUMENTS,
 )
 @pytest.mark.parametrize(
     ("claim", "topic"),
@@ -378,13 +383,40 @@ def test_rejects_noncanonical_json_block() -> None:
         ("完整 OTel 覆盖不再延期，现已完全支持。", "full OTel"),
         ("完整 OpenTelemetry 覆盖并非不受支持。", "full OTel"),
         ("S3 支持全量 OTel 覆盖。", "full OTel"),
+        (
+            "Complete OTel remains deferred, but S3 fully supports it.",
+            "full OTel",
+        ),
+        (
+            "External notification delivery is not guaranteed in theory, but S3 guarantees "
+            "it in production.",
+            "external",
+        ),
+        (
+            "Multiple replicas are not claimed by the old Gate, but S3 now supports them.",
+            "multi-replica",
+        ),
+        (
+            "Complete OTel remains deferred; however, S3 fully supports it.",
+            "full OTel",
+        ),
+        (
+            "External notification delivery is not guaranteed, yet S3 guarantees it in production.",
+            "external",
+        ),
+        ("完整 OpenTelemetry 覆盖仍属延期，但 S3 现已完全支持。", "full OTel"),
+        ("S3 不保证外部通知渠道送达，但是 S3 在生产环境保证送达。", "external"),
     ],
 )
 def test_rejects_positive_claim_anywhere_in_governance_docs(
     path: str, claim: str, topic: str
 ) -> None:
+    repository = Path(__file__).parents[2]
+    original = (repository / path).read_text(encoding="utf-8")
+    assert original.endswith("\n")
+
     with pytest.raises(GateEvidenceError, match=rf"{path}.*{topic}"):
-        validate_documents({path: claim})
+        validate_documents({path: f"{original}{claim}\n"})
 
 
 def test_allows_explicitly_deferred_or_unsupported_claim_boundaries() -> None:
@@ -420,10 +452,7 @@ def test_negative_claim_for_one_topic_does_not_mask_positive_other_topic() -> No
 
 def test_current_governance_documents_have_no_positive_scope_expansion() -> None:
     repository = Path(__file__).parents[2]
-    paths = (
-        "docs/cc-fable-v1/reports/s3-core-governance-report.md",
-        "docs/launch/capability-matrix.md",
-        "docs/cc-fable-v1/PROGRESS.md",
-    )
 
-    validate_documents({path: (repository / path).read_text(encoding="utf-8") for path in paths})
+    validate_documents(
+        {path: (repository / path).read_text(encoding="utf-8") for path in _GOVERNANCE_DOCUMENTS}
+    )

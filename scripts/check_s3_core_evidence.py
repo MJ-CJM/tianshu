@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -81,6 +81,22 @@ _NEGATION_REVERSAL = re.compile(
     r"不再延期|并非不受支持)",
     re.IGNORECASE,
 )
+_INDEPENDENT_CLAUSE_SPLIT = re.compile(
+    r"[;；](?!\s*(?:but\b|however\b|yet\b|但是|但|然而))", re.IGNORECASE
+)
+_ADVERSATIVE_SPLIT = re.compile(
+    r"\s*(?:[,，;；]\s*)?(?:but\b|however\b|yet\b|但是|但|然而)\s*[,，]?\s*",
+    re.IGNORECASE,
+)
+_STATUS_ASSERTION = re.compile(
+    r"\b(?:support(?:s|ed|ing)?|provide(?:s|d)?|guarantee(?:s|d)?|"
+    r"claim(?:s|ed|ing)?|defer(?:s|red|ring)?)\b|支持|保证|承诺|延期",
+    re.IGNORECASE,
+)
+_MARKDOWN_STANDALONE_LINE = re.compile(
+    r"^(?:#{1,6}\s|\| |```|<!--|===|[A-Za-z][^:\n]{0,80}:)",
+)
+_MARKDOWN_LIST_LINE = re.compile(r"^[-*+]\s")
 _FORBIDDEN_TOPICS = {
     "full OTel": re.compile(
         r"(?:full|complete)[-\s]+(?:OTel|OpenTelemetry)|"
@@ -103,6 +119,54 @@ _FORBIDDEN_TOPICS = {
 
 class GateEvidenceError(ValueError):
     """The report cannot support the bounded S3 Core Gate claim."""
+
+
+def _iter_markdown_blocks(content: str) -> Iterable[tuple[int, str]]:
+    """Yield prose blocks without joining distinct Markdown records."""
+
+    pending: list[str] = []
+    pending_offset = 0
+    pending_is_list = False
+    offset = 0
+
+    for line in content.splitlines(keepends=True):
+        stripped = line.rstrip("\r\n")
+        is_blank = not stripped.strip()
+        is_standalone = bool(_MARKDOWN_STANDALONE_LINE.match(stripped))
+        is_list_start = bool(_MARKDOWN_LIST_LINE.match(stripped))
+        is_indented_continuation = pending_is_list and line[:1].isspace()
+
+        if is_blank:
+            if pending:
+                yield pending_offset, "".join(pending).rstrip()
+                pending = []
+                pending_is_list = False
+            offset += len(line)
+            continue
+
+        if is_indented_continuation:
+            pending.append(line)
+            offset += len(line)
+            continue
+
+        if pending and (pending_is_list or is_list_start or is_standalone):
+            yield pending_offset, "".join(pending).rstrip()
+            pending = []
+            pending_is_list = False
+
+        if is_standalone:
+            yield offset, stripped
+            offset += len(line)
+            continue
+
+        if not pending:
+            pending_offset = offset
+            pending_is_list = is_list_start
+        pending.append(line)
+        offset += len(line)
+
+    if pending:
+        yield pending_offset, "".join(pending).rstrip()
 
 
 @dataclass(frozen=True)
@@ -291,16 +355,11 @@ def validate_documents(documents: Mapping[str, str]) -> None:
     """Reject unbounded positive S3 claims in every supplied governance document."""
 
     for path, content in documents.items():
+        content = content.rstrip()
+        if not content:
+            continue
         segments: list[tuple[int, str]] = []
-        for paragraph in re.finditer(r"\S(?:.*?\S)?(?=\n\s*\n|\Z)", content, re.DOTALL):
-            paragraph_text = paragraph.group()
-            paragraph_offset = paragraph.start()
-            if any(line.lstrip().startswith("|") for line in paragraph_text.splitlines()):
-                cursor = paragraph_offset
-                for line in paragraph_text.splitlines(keepends=True):
-                    segments.append((cursor, line))
-                    cursor += len(line)
-                continue
+        for paragraph_offset, paragraph_text in _iter_markdown_blocks(content):
             for sentence in re.finditer(
                 r"\S.*?(?:[.!?。！？](?=\s|\Z)|\Z)", paragraph_text, re.DOTALL
             ):
@@ -308,15 +367,32 @@ def validate_documents(documents: Mapping[str, str]) -> None:
         for offset, segment in segments:
             line_number = content.count("\n", 0, offset) + 1
             claim_text = re.sub(r"\]\([^)]+\)", "]", segment)
-            for clause in re.split(r"[;；]", claim_text):
-                for topic, pattern in _FORBIDDEN_TOPICS.items():
-                    if pattern.search(clause) and (
-                        _NEGATION_REVERSAL.search(clause)
-                        or not _ALLOWED_NEGATIVE_BOUNDARY.search(clause)
+            for statement in _INDEPENDENT_CLAUSE_SPLIT.split(claim_text):
+                statement_topics = {
+                    topic
+                    for topic, pattern in _FORBIDDEN_TOPICS.items()
+                    if pattern.search(statement)
+                }
+                adversative_clauses = _ADVERSATIVE_SPLIT.split(statement)
+                for clause in adversative_clauses:
+                    clause_topics = {
+                        topic
+                        for topic, pattern in _FORBIDDEN_TOPICS.items()
+                        if pattern.search(clause)
+                    }
+                    if (
+                        not clause_topics
+                        and len(adversative_clauses) > 1
+                        and _STATUS_ASSERTION.search(clause)
                     ):
-                        raise GateEvidenceError(
-                            f"{path}:{line_number} makes forbidden positive {topic} claim"
-                        )
+                        clause_topics = statement_topics
+                    for topic in clause_topics:
+                        if _NEGATION_REVERSAL.search(
+                            clause
+                        ) or not _ALLOWED_NEGATIVE_BOUNDARY.search(clause):
+                            raise GateEvidenceError(
+                                f"{path}:{line_number} makes forbidden positive {topic} claim"
+                            )
 
 
 def _validate_source(record: Mapping[str, Any], owner: str, context: GateContext) -> None:
