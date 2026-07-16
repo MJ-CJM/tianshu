@@ -14,7 +14,6 @@ Follow-up 路径与 gateway.api.follow_up_edict 行为对齐：
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -137,7 +136,15 @@ class EdictBridge:
                 )
                 if has_active:
                     raise EdictBusyError(f"敕令 #{edict.id[:8]} 仍在处理中，请等待完成后再继续")
-                memorial_id = await self._follow_up(edict, text, sender_open_id, memorials)
+                if source_message_id is None or not source_message_id.strip():
+                    raise ValueError("channel follow-up requires a stable source_message_id")
+                memorial_id = await self._follow_up(
+                    edict,
+                    text,
+                    sender_open_id,
+                    memorials,
+                    idempotency_key=(f"{self._channel}:{self._instance_id}:{source_message_id}"),
+                )
                 return EdictBridgeResult(edict_id=edict.id, memorial_id=memorial_id)
             # X1：已结案 → 自动新建（无感）
             logger.info(
@@ -293,42 +300,40 @@ class EdictBridge:
         text: str,
         sender_open_id: str,
         prev_memorials: list[Memorial],
+        *,
+        idempotency_key: str,
     ) -> str:
         """对应 gateway.api.follow_up_edict 的核心逻辑（无 HTTP 层）。返回 memorial_id。"""
-        history = _build_history(edict, prev_memorials)
-        memorial = Memorial(
-            edict_id=edict.id,
-            instruction=text,
-            status=TaskStatus.SUBMITTED,
-            parent_memorial_id=next(
-                (item.id for item in reversed(prev_memorials) if item.dag_node_id is None),
-                None,
-            ),
-        )
-        self._storage.save_memorial(memorial)
-        self._storage.append_event(
-            edict.id,
-            memorial.id,
-            "followup.submitted",
-            {
-                "instruction": text,
-                "channel": self._channel,
-                self._user_meta_key: sender_open_id,
-            },
-        )
-        task = asyncio.create_task(
-            self._executor.execute_edict(
-                edict,
-                memorial=memorial,
-                history=history,
-                user_content=text,
+        del prev_memorials
+        from tianshu.application.managed_run_ingress import ManagedRunCommand
+
+        ingress = self._executor.managed_run_ingress
+        if ingress is None:
+            raise RuntimeError("managed run ingress is not configured")
+        result = await ingress.start(
+            ManagedRunCommand(
+                edict_id=edict.id,
+                idempotency_key=idempotency_key,
+                instruction=text,
+                parent_memorial_id=next(
+                    (
+                        item.id
+                        for item in reversed(self._storage.list_memorials_by_edict(edict.id))
+                        if item.dag_node_id is None
+                    ),
+                    None,
+                ),
+                event_type="followup.submitted",
+                event_payload={
+                    "instruction": text,
+                    "channel": self._channel,
+                    self._user_meta_key: sender_open_id,
+                },
             )
         )
-        self._executor.running_tasks.add(task)
-        task.add_done_callback(self._executor.running_tasks.discard)
         logger.info(
             "[feishu/edict] follow_up edict=%s memorial=%s",
             edict.id,
-            memorial.id,
+            result.memorial.id,
         )
-        return memorial.id
+        return result.memorial.id

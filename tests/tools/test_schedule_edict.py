@@ -41,8 +41,8 @@ class FakeScheduler:
         self.calls.append(("resume", job_id))
         return True
 
-    async def run_now(self, job_id):
-        self.calls.append(("run_now", job_id))
+    async def run_now(self, job_id, *, idempotency_key=None):
+        self.calls.append(("run_now", job_id, idempotency_key))
         return True
 
 
@@ -129,15 +129,18 @@ async def test_manage_actions_require_job_id(setup):
 
 @pytest.mark.asyncio
 async def test_manage_actions_delegate(setup):
+    from tianshu.kernel.ambient import bind_tool_invocation_id
+
     func, _, sched = setup
     await func(action="cancel", job_id="j9")
     await func(action="pause", job_id="j9")
     await func(action="resume", job_id="j9")
-    await func(action="run_now", job_id="j9")
+    with bind_tool_invocation_id("tool-call-9"):
+        await func(action="run_now", job_id="j9")
     assert ("cancel", "j9") in sched.calls
     assert ("pause", "j9") in sched.calls
     assert ("resume", "j9") in sched.calls
-    assert ("run_now", "j9") in sched.calls
+    assert ("run_now", "j9", "tool:tool-call-9") in sched.calls
 
 
 @pytest.mark.asyncio

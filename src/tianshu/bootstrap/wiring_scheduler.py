@@ -37,6 +37,7 @@ from uuid import uuid4
 from fastapi import FastAPI
 
 from tianshu.application.fenced_run_completion import FencedRunCompletion
+from tianshu.application.managed_run_ingress import ManagedRunIngress
 from tianshu.application.plan_review_lifecycle import PlanReviewAttemptCoordinator
 from tianshu.application.run_dispatcher import RunDispatcher
 from tianshu.application.run_execution import ProductionAttemptCompleter, ProductionRunRunner
@@ -167,6 +168,8 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         run_dispatcher,
         before_scan=plan_review_coordinator.reconcile_once,
     )
+    managed_run_ingress = ManagedRunIngress(storage, run_reconciler)
+    executor.set_managed_run_ingress(managed_run_ingress)
     scheduled_run_preparer = ScheduledRunPreparer(
         storage.unit_of_work,
         storage.attempt_repo,
@@ -176,6 +179,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
     app.state.run_dispatcher = run_dispatcher
     app.state.plan_review_attempt_coordinator = plan_review_coordinator
     app.state.run_reconciler = run_reconciler
+    app.state.managed_run_ingress = managed_run_ingress
     app.state.scheduled_run_preparer = scheduled_run_preparer
 
     # --- Scheduler ---

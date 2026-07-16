@@ -69,7 +69,9 @@ class TestExecutor:
         loaded = storage.get_memorial(memorial.id)
         assert loaded.status == TaskStatus.COMPLETED
 
-    async def test_handle_plan_completed(self, executor, event_bus, storage):
+    async def test_legacy_plan_completed_without_binding_fails_closed(
+        self, executor, event_bus, storage
+    ):
         edict = Edict(goal="via event")
         storage.save_edict(edict)
 
@@ -78,15 +80,9 @@ class TestExecutor:
             edict_id=edict.id,
             payload={"plan": {"tasks": [], "priority_order": []}},
         )
-        await executor.handle_plan_completed(event)
-
-        # Wait for background task
-        import asyncio
-
-        await asyncio.sleep(0.1)
-
-        memorials = storage.list_memorials_by_edict(edict.id)
-        assert len(memorials) >= 1
+        with pytest.raises(RuntimeError, match="existing root Memorial"):
+            await executor.handle_plan_completed(event)
+        assert storage.list_memorials_by_edict(edict.id) == []
 
     async def test_execute_attempt_defers_root_terminal_to_fenced_completer(
         self, executor, event_bus, storage

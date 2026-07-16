@@ -232,6 +232,43 @@ def test_manual_fire_is_idempotent_and_does_not_advance_periodic_cursor(
         storage.close()
 
 
+def test_manual_fire_replay_returns_first_envelope_when_retry_clock_differs(
+    tmp_path: Path,
+) -> None:
+    storage = _open(
+        tmp_path / "manual-retry-clock.db",
+        schedule=EdictSchedule(
+            type="interval",
+            interval_seconds=3600,
+            concurrency_policy="allow",
+        ),
+    )
+    cursor = _NOW + timedelta(hours=1)
+    storage.save_scheduler_job(
+        "job-1",
+        "edict-1",
+        "interval",
+        interval_seconds=3600,
+        next_run=cursor,
+    )
+    try:
+        first = _preparer(storage).prepare_manual(
+            job_id="job-1",
+            idempotency_key="request-1",
+            scheduled_at=_NOW,
+        )
+        replay = _preparer(storage).prepare_manual(
+            job_id="job-1",
+            idempotency_key="request-1",
+            scheduled_at=_NOW + timedelta(minutes=5),
+        )
+
+        assert replay == first.model_copy(update={"deduplicated": True})
+        assert storage.get_scheduler_job("job-1")["next_run"] == cursor.isoformat()
+    finally:
+        storage.close()
+
+
 @pytest.mark.parametrize(
     "boundary",
     ["after_memorial", "after_attempt", "after_schedule_run", "before_cursor_cas"],

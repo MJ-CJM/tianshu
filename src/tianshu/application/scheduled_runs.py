@@ -286,17 +286,39 @@ class ScheduledRunPreparer:
                     raise ScheduledFireConflict("manual scheduler edict is unavailable")
                 runtime = EdictRuntime.model_validate(json.loads(edict["runtime_json"]))
                 max_attempts = runtime.retry_limit + 1
-                fingerprint = f"manual-fire-envelope-sha256:{canonical_sha256({'schema_version': 1, 'job_id': job_id, 'edict_id': str(job['edict_id']), 'idempotency_key': idempotency_key, 'scheduled_at': scheduled_at.isoformat(), 'max_attempts': max_attempts})}"
                 next_run = (
                     _utc(datetime.fromisoformat(str(job["next_run"])))
                     if job["next_run"] is not None
                     else None
+                )
+                identity_fingerprint = canonical_sha256(
+                    {
+                        "schema_version": 1,
+                        "job_id": job_id,
+                        "edict_id": str(job["edict_id"]),
+                        "idempotency_key": idempotency_key,
+                        "max_attempts": max_attempts,
+                    }
                 )
                 existing = connection.execute(
                     "SELECT * FROM schedule_run WHERE id=?",
                     (schedule_run_id,),
                 ).fetchone()
                 if existing is not None:
+                    try:
+                        stored_envelope = json.loads(str(existing["error"]))
+                        first_scheduled_at = _utc(
+                            datetime.fromisoformat(str(stored_envelope["scheduled_at"]))
+                        )
+                        first_next_run = (
+                            _utc(datetime.fromisoformat(str(stored_envelope["next_run"])))
+                            if stored_envelope["next_run"] is not None
+                            else None
+                        )
+                    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                        raise ScheduledFireConflict(
+                            "stored manual fire conflicts with envelope"
+                        ) from exc
                     attempt = connection.execute(
                         "SELECT max_attempts FROM execution_attempts "
                         "WHERE attempt_id=? AND memorial_id=?",
@@ -306,8 +328,9 @@ class ScheduledRunPreparer:
                         existing["source"] != job_id
                         or existing["kind"] != "run_now"
                         or existing["edict_id"] != job["edict_id"]
-                        or existing["error"] != fingerprint
-                        or _utc(datetime.fromisoformat(str(existing["started_at"]))) != scheduled_at
+                        or stored_envelope.get("fingerprint") != identity_fingerprint
+                        or _utc(datetime.fromisoformat(str(existing["started_at"])))
+                        != first_scheduled_at
                         or attempt is None
                         or attempt["max_attempts"] != max_attempts
                     ):
@@ -317,8 +340,8 @@ class ScheduledRunPreparer:
                         fire_id=fire_id,
                         job_id=job_id,
                         edict_id=str(job["edict_id"]),
-                        scheduled_at=scheduled_at,
-                        next_run=next_run,
+                        scheduled_at=first_scheduled_at,
+                        next_run=first_next_run,
                         status="prepared",
                         memorial_id=memorial_id,
                         attempt_id=attempt_id,
@@ -350,7 +373,15 @@ class ScheduledRunPreparer:
                     status="prepared",
                     edict_id=str(job["edict_id"]),
                     started_at=scheduled_at,
-                    envelope_fingerprint=fingerprint,
+                    envelope_fingerprint=json.dumps(
+                        {
+                            "fingerprint": identity_fingerprint,
+                            "scheduled_at": scheduled_at.isoformat(),
+                            "next_run": next_run.isoformat() if next_run is not None else None,
+                        },
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
                 )
                 unit_of_work.commit()
                 return PreparedFire(

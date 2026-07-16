@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
 
 from tianshu.application.run_dispatcher import AttemptAuthority
@@ -11,6 +12,9 @@ from tianshu.application.run_execution import (
     ProductionAttemptCompleter,
     ProductionRunRunner,
 )
+from tianshu.executor.executor import Executor
+from tianshu.gateway.core.edict_bridge import EdictBridge
+from tianshu.gateway.edicts_api import follow_up_edict
 from tianshu.models import Plan, PlanTask, TaskStatus
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 
@@ -139,3 +143,14 @@ def test_suspended_completer_uses_attempt_ledger_without_terminal_projection() -
         outcome,
     )
     assert recorded[0]["attempt_id"] == "attempt-1"
+
+
+def test_production_adapters_contain_no_root_task_creation() -> None:
+    for adapter in (
+        Executor.handle_plan_completed,
+        Executor.handle_resume,
+        Executor.retry_dag,
+        EdictBridge._follow_up,  # noqa: SLF001
+        follow_up_edict,
+    ):
+        assert "create_task" not in inspect.getsource(adapter), adapter.__qualname__

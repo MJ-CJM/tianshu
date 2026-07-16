@@ -20,10 +20,8 @@ from tianshu.executor.capabilities import (
     probe_host_capabilities,
     resolve_governance_contract,
 )
-from tianshu.executor.executor import Executor
 from tianshu.executor.workspace_policy import workspace_policy_mismatches
 from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
-from tianshu.gateway._helpers import _build_history
 from tianshu.gateway.auth import get_auth_context
 from tianshu.governance.decision_service import DecisionServiceError
 from tianshu.models import (
@@ -34,7 +32,6 @@ from tianshu.models import (
     EdictStatusUpdateRequest,
     EdictUpdateRequest,
     FollowUpRequest,
-    Memorial,
     TaskStatus,
 )
 from tianshu.models.api import ParseEdictRequest
@@ -734,7 +731,13 @@ def reject_plan(edict_id: str, request: Request):
 @edicts_router.post("/{edict_id}/follow-up", response_model=ApiResponse, status_code=202)
 async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request):
     storage: Storage = request.app.state.storage
-    executor: Executor = request.app.state.executor
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if idempotency_key is None:
+        raise HTTPException(422, {"code": "idempotency_key_required"})
+    try:
+        validate_idempotency_key(idempotency_key)
+    except ValueError as exc:
+        raise HTTPException(422, {"code": "invalid_idempotency_key"}) from exc
 
     edict = storage.get_edict(edict_id)
     if not edict:
@@ -746,8 +749,6 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
     has_active = any(m.status in (TaskStatus.SUBMITTED, TaskStatus.RUNNING) for m in prev_memorials)
     if has_active:
         raise HTTPException(status_code=409, detail="尚有奏折正在执行，请等待完成后再下达指令")
-    history = _build_history(edict, prev_memorials)
-
     runtime_override_dict: dict | None = None
     if body.runtime_override is not None:
         _validate_network_runtime(body.runtime_override)
@@ -758,40 +759,29 @@ async def follow_up_edict(edict_id: str, body: FollowUpRequest, request: Request
         }
         runtime_override_dict = rt_data or None
 
-    memorial = Memorial(
-        edict_id=edict_id,
-        instruction=body.instruction,
-        status=TaskStatus.SUBMITTED,
-        parent_memorial_id=next(
-            (item.id for item in reversed(prev_memorials) if item.dag_node_id is None),
-            None,
-        ),
-        runtime_override=runtime_override_dict,
-        acceptance_override=body.acceptance_override,
-    )
-    storage.save_memorial(memorial)
-    storage.append_event(
-        edict.id,
-        memorial.id,
-        "followup.submitted",
-        {
-            "instruction": body.instruction,
-            "has_runtime_override": runtime_override_dict is not None,
-            "has_acceptance_override": body.acceptance_override is not None,
-        },
-    )
+    from tianshu.application.managed_run_ingress import ManagedRunCommand
 
-    import asyncio
-
-    task = asyncio.create_task(
-        executor.execute_edict(
-            edict, memorial=memorial, history=history, user_content=body.instruction
+    result = await request.app.state.managed_run_ingress.start(
+        ManagedRunCommand(
+            edict_id=edict_id,
+            idempotency_key=f"api:{idempotency_key}",
+            instruction=body.instruction,
+            parent_memorial_id=next(
+                (item.id for item in reversed(prev_memorials) if item.dag_node_id is None),
+                None,
+            ),
+            runtime_override=runtime_override_dict,
+            acceptance_override=body.acceptance_override,
+            event_type="followup.submitted",
+            event_payload={
+                "instruction": body.instruction,
+                "has_runtime_override": runtime_override_dict is not None,
+                "has_acceptance_override": body.acceptance_override is not None,
+            },
         )
     )
-    executor.running_tasks.add(task)
-    task.add_done_callback(executor.running_tasks.discard)
 
-    return ApiResponse(success=True, data=memorial.model_dump(mode="json"))
+    return ApiResponse(success=True, data=result.memorial.model_dump(mode="json"))
 
 
 @edicts_router.patch("/{edict_id}/status", response_model=ApiResponse)

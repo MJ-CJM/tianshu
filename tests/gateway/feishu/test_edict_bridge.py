@@ -15,11 +15,18 @@ from tianshu.models.memorial import Memorial
 
 @pytest.fixture
 def bridge(storage):
+    from tianshu.application.managed_run_ingress import ManagedRunIngress
+
+    class Reconciler:
+        async def reconcile_once(self) -> int:
+            return 0
+
     bus = EventBus()
     anchor = SessionAnchor(storage)
     executor = MagicMock()
     executor.execute_edict = AsyncMock()
     executor.running_tasks = set()
+    executor.managed_run_ingress = ManagedRunIngress(storage, Reconciler())
     return (
         EdictBridge(
             storage=storage,
@@ -97,7 +104,12 @@ async def test_continue_or_create_with_active_anchor_follow_up(bridge, storage):
             parent_memorial_id=r1.memorial_id,
         )
     )
-    r2 = await b.continue_or_create(chat_id="oc_x", sender_open_id="ou_a", text="more")
+    r2 = await b.continue_or_create(
+        chat_id="oc_x",
+        sender_open_id="ou_a",
+        text="more",
+        source_message_id="message-follow-up-1",
+    )
     assert r2.edict_id == r1.edict_id
     assert r2.memorial_id != r1.memorial_id
     assert anchor.get("oc_x") == r1.edict_id

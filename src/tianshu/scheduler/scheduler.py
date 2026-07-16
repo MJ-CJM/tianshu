@@ -877,6 +877,28 @@ class Scheduler:
             return False
         sched = edict.schedule
         initial_memorial_id = self._restore_initial_memorial_id(edict.id, job_id)
+        if self._scheduled_run_preparer is not None:
+            persisted_cursor = row.get("next_run")
+            if persisted_cursor is None:
+                return False
+            next_run = datetime.fromisoformat(str(persisted_cursor)).astimezone(UTC)
+            self._storage.set_scheduler_job_status(job_id, "active")
+            task = asyncio.create_task(
+                self._managed_job_loop(
+                    job_id,
+                    initial_memorial_id=initial_memorial_id,
+                ),
+                name=f"scheduled-fire-{job_id}",
+            )
+            self._jobs[job_id] = _Job(
+                job_id,
+                edict.id,
+                str(row["schedule_type"]),
+                task=task,
+                next_run=next_run,
+                initial_memorial_id=initial_memorial_id,
+            )
+            return True
         next_run: datetime | None = None
         if sched.type == "cron" and sched.cron:
             tz_name = sched.timezone or "UTC"
@@ -964,9 +986,11 @@ class Scheduler:
         if not edict or edict.status.value != "open":
             return False
         if self._scheduled_run_preparer is not None:
+            if idempotency_key is None or not idempotency_key.strip():
+                raise ValueError("run_now idempotency_key is required in managed mode")
             prepared = self._scheduled_run_preparer.prepare_manual(
                 job_id=job_id,
-                idempotency_key=idempotency_key or str(ULID()),
+                idempotency_key=idempotency_key,
                 scheduled_at=self._clock(),
             )
             if prepared.attempt_id is not None and self._run_reconciler is not None:

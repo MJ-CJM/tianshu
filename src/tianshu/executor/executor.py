@@ -91,6 +91,7 @@ class Executor:
         self._universe_manager = None  # set via set_universe_manager()
         self._running_tasks: set[asyncio.Task] = set()
         self._orchestrator_ctx = None  # set via set_orchestrator_context()
+        self._managed_run_ingress = None
         # 迭代 3.5「客卿」:外部 CLI 执行器(runtime.executor=keqing:<agent> 时路由)
         from tianshu.executor.keqing import KeqingExecutor
 
@@ -135,6 +136,13 @@ class Executor:
     def set_orchestrator_context(self, orch_ctx: object) -> None:
         """注入 orchestrator 依赖（agent/storage/bus/llms/...）。"""
         self._orchestrator_ctx = orch_ctx
+
+    def set_managed_run_ingress(self, ingress: object) -> None:
+        self._managed_run_ingress = ingress
+
+    @property
+    def managed_run_ingress(self) -> object | None:
+        return self._managed_run_ingress
 
     @property
     def running_tasks(self) -> set[asyncio.Task]:
@@ -181,7 +189,7 @@ class Executor:
         )
 
     async def handle_plan_completed(self, event: EventEnvelope) -> None:
-        """EventBus handler for plan.completed."""
+        """Adopt safely bound upgrade-time work into durable dispatch."""
         edict_id = event.edict_id
         if not edict_id:
             return
@@ -190,43 +198,20 @@ class Executor:
             logger.error("Executor: edict %s not found", edict_id)
             return
 
-        plan = None
-        if "plan" in event.payload:
-            plan = Plan.model_validate(event.payload["plan"])
-
-        # Recover memorial created at submission time
         memorial_id = event.memorial_id
         memorial = self._storage.get_memorial(memorial_id) if memorial_id else None
-
-        # follow-up 时 memorial 可能携带 override，合并到 edict 副本（不持久化）
-        edict = self._apply_memorial_override(edict, memorial)
-
-        # 长任务 outer loop 路径（仅当 edict.acceptance 不为 None 且 ctx 已注入）
-        if edict.acceptance is not None and self._orchestrator_ctx is not None:
-            logger.info(
-                "[EXEC] Edict %s: 走 orchestrator outer loop 路径（profile=%s）",
-                edict.id,
-                edict.execution_profile,
-            )
-            task = asyncio.create_task(self._execute_outer_loop(edict, memorial))
-            self._running_tasks.add(task)
-            task.add_done_callback(self._running_tasks.discard)
-            return
-
-        # Multi-task plan → DAG execution
-        if plan and len(plan.tasks) > 1 and self._dag_scheduler:
-            logger.debug(
-                "[EXEC] Edict %s: using DAG path, %d tasks, max_concurrency=%d",
-                edict.id,
-                len(plan.tasks),
-                edict.runtime.max_concurrency,
-            )
-            task = asyncio.create_task(self._execute_dag(edict, plan, memorial=memorial))
-        else:
-            task = asyncio.create_task(self.execute_edict(edict, plan, memorial=memorial))
-
-        self._running_tasks.add(task)
-        task.add_done_callback(self._running_tasks.discard)
+        if memorial is None:
+            raise RuntimeError("managed plan.completed requires an existing root Memorial")
+        if "plan" in event.payload and "decision_request_id" not in event.payload:
+            raise RuntimeError("legacy plan.completed has no restart-safe canonical plan binding")
+        ingress = self._managed_run_ingress
+        if ingress is None:
+            raise RuntimeError("managed run ingress is not configured")
+        await ingress.adopt_existing(
+            memorial_id=memorial.id,
+            idempotency_key=f"legacy:{event.event_id}",
+            available_at=event.timestamp,
+        )
 
     async def handle_resume(self, event: EventEnvelope) -> None:
         """EventBus handler for edict.resume —— 续跑被 sweeper 判为孤儿的长任务（Multica 借鉴 #1）。
@@ -248,15 +233,14 @@ class Executor:
                 edict_id,
             )
             return
-        edict = self._apply_memorial_override(edict, memorial)
-        logger.info(
-            "[EXEC] Resuming outer loop for edict %s (memorial %s)",
-            edict_id,
-            memorial.id,
+        ingress = self._managed_run_ingress
+        if ingress is None:
+            raise RuntimeError("managed run ingress is not configured")
+        await ingress.adopt_existing(
+            memorial_id=memorial.id,
+            idempotency_key=f"resume:{event.event_id}",
+            available_at=event.timestamp,
         )
-        task = asyncio.create_task(self._execute_outer_loop(edict, memorial))
-        self._running_tasks.add(task)
-        task.add_done_callback(self._running_tasks.discard)
 
     async def _execute_dag(
         self,
@@ -1349,24 +1333,6 @@ class Executor:
             acceptance_override=previous_root.acceptance_override,
         )
         self._storage.save_memorial(retry_root)
-        governed_edict = self._apply_memorial_override(edict, retry_root)
-        try:
-            prepared_executor, bound_workspace = await self._prepare_runtime_or_cancel(
-                governed_edict,
-                retry_root,
-                execution_mode="dag",
-                dag_id=execution.id,
-            )
-        except MandatoryCapabilityMismatch as exc:
-            await self._reject_capability_mismatch(governed_edict, retry_root, exc)
-            raise ValueError(f"Cannot retry: {exc}") from exc
-        except UnsupportedExecutorMode as exc:
-            await self._reject_executor_mode(governed_edict, retry_root, exc)
-            raise ValueError(f"Cannot retry: {exc}") from exc
-        except (WorkspaceContractError, WorkspaceError) as exc:
-            await self._reject_workspace_runtime(governed_edict, retry_root, exc)
-            raise ValueError(f"Cannot retry: {exc}") from exc
-
         try:
             reset_ids = self._storage.claim_dag_retry(
                 execution.id,
@@ -1375,10 +1341,6 @@ class Executor:
                 from_node_ids=from_node_ids,
             )
         except Exception as exc:
-            await self._workspace_runtime.finalize(
-                bound_workspace,
-                TaskStatus.FAILED,
-            )
             retry_root.status = TaskStatus.FAILED
             retry_root.error = f"DAG retry claim failed: {exc}"
             retry_root.completed_at = datetime.now(UTC)
@@ -1386,20 +1348,12 @@ class Executor:
             raise ValueError(f"Cannot retry: {exc}") from exc
 
         if reset_ids is None:
-            await self._workspace_runtime.finalize(
-                bound_workspace,
-                TaskStatus.FAILED,
-            )
             retry_root.status = TaskStatus.FAILED
             retry_root.error = "DAG retry lost the atomic claim"
             retry_root.completed_at = datetime.now(UTC)
             self._storage.update_memorial(retry_root)
             raise ValueError("Cannot retry: DAG root or status changed concurrently")
         if not reset_ids:
-            await self._workspace_runtime.finalize(
-                bound_workspace,
-                TaskStatus.FAILED,
-            )
             retry_root.status = TaskStatus.FAILED
             retry_root.error = "DAG retry has no retryable nodes"
             retry_root.completed_at = datetime.now(UTC)
@@ -1417,18 +1371,14 @@ class Executor:
                 node.started_at = None
                 node.completed_at = None
 
-        task = asyncio.create_task(
-            self._run_prepared_dag(
-                governed_edict,
-                execution,
-                retry_root,
-                prepared_executor,
-                bound_workspace,
-                save_execution=False,
-            )
+        ingress = self._managed_run_ingress
+        if ingress is None:
+            raise RuntimeError("managed run ingress is not configured")
+        await ingress.adopt_existing(
+            memorial_id=retry_root.id,
+            idempotency_key=f"dag-retry:{execution.id}:{retry_root.id}",
+            available_at=datetime.now(UTC),
         )
-        self._running_tasks.add(task)
-        task.add_done_callback(self._running_tasks.discard)
 
         return reset_ids
 

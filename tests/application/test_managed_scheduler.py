@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from tianshu.application.scheduled_runs import PreparedFire
 from tianshu.bus.event_bus import EventBus
@@ -123,3 +125,74 @@ async def test_run_now_uses_explicit_stable_key_without_moving_cursor(storage) -
 
     assert order == ["prepare_manual", "dispatch"]
     assert preparer.calls[0]["idempotency_key"] == "manual-1"
+
+
+async def test_managed_run_now_rejects_missing_stable_key(storage) -> None:
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=_Preparer([]),
+        run_reconciler=_Reconciler([]),
+        clock=lambda: _NOW,
+    )
+    storage.save_edict(Edict(id="edict-1", goal="work"))
+    storage.save_scheduler_job("job-1", "edict-1", "immediate", next_run=_NOW)
+
+    with pytest.raises(ValueError, match="idempotency"):
+        await scheduler.run_now("job-1")
+
+
+@pytest.mark.parametrize("schedule_type", ["cron", "interval", "once"])
+async def test_managed_resume_restores_cursor_and_only_starts_managed_loop(
+    storage,
+    monkeypatch,
+    schedule_type: str,
+) -> None:
+    scheduler = Scheduler(
+        EventBus(),
+        storage,
+        scheduled_run_preparer=_Preparer([]),
+        run_reconciler=_Reconciler([]),
+        clock=lambda: _NOW,
+    )
+    if schedule_type == "cron":
+        schedule = {"type": "cron", "cron": "0 9 * * *"}
+        job_kwargs = {"cron_expr": "0 9 * * *"}
+    elif schedule_type == "interval":
+        schedule = {"type": "interval", "interval_seconds": 3600}
+        job_kwargs = {"interval_seconds": 3600}
+    else:
+        schedule = {"type": "once", "at": (_NOW + timedelta(hours=2)).isoformat()}
+        job_kwargs = {}
+    edict = Edict(id="edict-1", goal="work", schedule=schedule)
+    storage.save_edict(edict)
+    persisted_cursor = _NOW + timedelta(hours=1)
+    storage.save_scheduler_job(
+        "job-1",
+        edict.id,
+        schedule_type,
+        next_run=persisted_cursor,
+        **job_kwargs,
+    )
+    storage.set_scheduler_job_status("job-1", "paused")
+    calls: list[str] = []
+
+    async def managed(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        del args, kwargs
+        calls.append("managed")
+
+    async def legacy(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        del args, kwargs
+        calls.append("legacy")
+
+    monkeypatch.setattr(scheduler, "_managed_job_loop", managed)
+    monkeypatch.setattr(scheduler, "_cron_loop", legacy)
+    monkeypatch.setattr(scheduler, "_interval_loop", legacy)
+    monkeypatch.setattr(scheduler, "_delayed_emit", legacy)
+
+    assert await scheduler.resume("job-1") is True
+    await scheduler._jobs["job-1"].task  # noqa: SLF001
+
+    assert calls == ["managed"]
+    assert scheduler._jobs["job-1"].next_run == persisted_cursor  # noqa: SLF001
+    assert storage.get_scheduler_job("job-1")["next_run"] == persisted_cursor.isoformat()

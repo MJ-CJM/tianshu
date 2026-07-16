@@ -271,7 +271,13 @@ def register_schedule_edict(
                     else error_result("无法恢复：任务不存在或非暂停态")
                 )
             # run_now
-            ok = await scheduler.run_now(job_id)
+            invocation_id = get_current_tool_invocation_id()
+            if invocation_id is None:
+                return error_result("run_now requires a stable tool invocation identity")
+            ok = await scheduler.run_now(
+                job_id,
+                idempotency_key=f"tool:{invocation_id}",
+            )
             return (
                 ok_result(f"已立即触发任务 {job_id[:8]} 一次", details={"job_id": job_id})
                 if ok
