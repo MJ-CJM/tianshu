@@ -151,12 +151,12 @@ Review: zero unresolved Critical / zero unresolved Important; full G1.6, remote 
 Next: S3 Core Governance
 
 === S3 / Core Governance Gate (2026-07-17) ===
-S3 Gate: passed (source `70d9cb78b2ea9f666195c6a16a3530d053d79a83`; inherited cleanup `a1ec0a8`; retained-evidence checker `70d9cb7`)
+S3 Gate: passed (source `8f5b324306b6b49e35ae89d0c22f4ab9a072edb2`; inherited cleanup `a1ec0a8`; retained-evidence checker `8f5b324`)
 Inherited cleanup: exact nine = 9 passed / 0 failed; surrounding eight-file batch = 58 passed; continuation/Decision/Evidence/schema batch = 76 passed; WorkspaceService now receives the sole DecisionService from composition and managed L3 recovery preserves immutable plan lineage
-Focused fault matrix: 143 passed / 0 skipped / 0 failed / 4 warnings in 6.22s; all notifier tests: 14 passed / 0 skipped / 0 failed / 4 warnings in 0.66s
+Focused fault matrix: 178 passed / 0 skipped / 0 failed / 4 warnings in 6.20s; all notifier tests: 14 passed / 0 skipped / 0 failed / 4 warnings in 0.65s
 Static Gates: Ruff check passed; Ruff format 824 files formatted; mypy 125 source files clean; import-linter 455 files / 1571 dependencies / 2 contracts kept / 0 broken
-Final non-slow Gate: 3769 passed / 2 skipped / 24 deselected / 0 failed / 7 warnings in 630.10s (0:10:30)
-Gate history: planned focused filenames were rebound to the actual durable Decision and managed outer-loop recovery files under a source-existence guard; first full diagnostic rejected checker direct Git subprocess use, then checker moved to narrow named GitBackend read-only operations without an architecture exemption; independent checker review then required seven source-bound retained logs, derived hashes/counts/exits, canonical JSON, and whole-report/capability/PROGRESS claim scanning before this rerun
+Final non-slow Gate: 3804 passed / 2 skipped / 24 deselected / 0 failed / 7 warnings in 613.83s (0:10:13)
+Gate history: planned focused filenames were rebound to the actual durable Decision and managed outer-loop recovery files under a source-existence guard; first full diagnostic rejected checker direct Git subprocess use, then checker moved to narrow named GitBackend read-only operations without an architecture exemption; independent checker review then required seven source-bound retained logs, derived hashes/counts/exits, canonical JSON, and whole-report/capability/PROGRESS claim scanning; follow-up review confirmed that double-negation, alternate-word-order, OpenTelemetry/full-OTel, multiple-replica, and equivalent Chinese variants remain not claimed before this final rerun
 Boundary: passed only for managed Native durable governance, tracked effect semantics, Evidence Bundle v1, durable internal notification and single-node SQLite; full OTel/SLO, external notification delivery, PostgreSQL/K8s/multi-replica, external CLI internal governance, container and publication remain deferred/not claimed
 Report: docs/cc-fable-v1/reports/s3-core-governance-report.md
 Next: S4 Core
