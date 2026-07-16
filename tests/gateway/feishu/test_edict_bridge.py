@@ -128,7 +128,12 @@ async def test_continue_or_create_raises_when_active_memorial(bridge, storage):
     await b.create_new(chat_id="oc_x", sender_open_id="ou_a", goal="g")
     # 不修改 memorial 状态（仍是 SUBMITTED）→ should raise
     with pytest.raises(EdictBusyError):
-        await b.continue_or_create(chat_id="oc_x", sender_open_id="ou_a", text="more")
+        await b.continue_or_create(
+            chat_id="oc_x",
+            sender_open_id="ou_a",
+            text="more",
+            source_message_id="message-busy-1",
+        )
 
 
 @pytest.mark.asyncio

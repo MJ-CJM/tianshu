@@ -1069,10 +1069,12 @@ async def test_dag_retry_without_managed_ingress_fails_before_new_lease_or_task(
     execution = storage.get_dag_by_edict(edict.id)
     assert execution is not None
     memorial_ids = {item.id for item in storage.list_memorials_by_edict(edict.id)}
+    changes_before_retry = storage._conn.total_changes  # noqa: SLF001
 
     with pytest.raises(RuntimeError, match="managed run ingress is not configured"):
-        await executor.retry_dag(execution.id)
+        await executor.retry_dag(execution.id, idempotency_key="retry-without-ingress")
 
+    assert storage._conn.total_changes == changes_before_retry  # noqa: SLF001
     assert {item.id for item in storage.list_memorials_by_edict(edict.id)} == memorial_ids
     assert storage.get_workspace_lease_by_run(root.id) is not None
     assert not executor.running_tasks
@@ -1451,7 +1453,7 @@ async def test_dag_scheduler_failure_persists_matching_root_and_execution_termin
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
-async def test_dag_retry_claim_loss_persists_consistent_terminal_root(
+async def test_dag_retry_delegates_claim_authority_without_local_writes(
     storage,
     config_manager,
     tmp_path: Path,
@@ -1496,42 +1498,49 @@ async def test_dag_retry_claim_loss_persists_consistent_terminal_root(
     )
     execution = storage.get_dag_by_edict(edict.id)
     assert execution is not None
+    delegated: list[tuple[str, str, list[str] | None]] = []
 
     class Ingress:
-        async def adopt_existing(self, **_kwargs):
-            raise AssertionError("claim loss must happen before managed adoption")
+        async def retry_dag(
+            self,
+            *,
+            dag_id: str,
+            idempotency_key: str,
+            from_node_ids: list[str] | None,
+        ):
+            delegated.append((dag_id, idempotency_key, from_node_ids))
+            raise ValueError("Cannot retry after atomic claim loss")
 
     executor.set_managed_run_ingress(Ingress())
+
+    def reject_local_claim(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("Executor must not claim DAG retry outside managed ingress")
+
     monkeypatch.setattr(
         storage,
         "claim_dag_retry",
-        lambda *_args, **_kwargs: None,
+        reject_local_claim,
     )
+    memorial_ids = {item.id for item in storage.list_memorials_by_edict(edict.id)}
+    changes_before_retry = storage._conn.total_changes  # noqa: SLF001
 
     with pytest.raises(ValueError, match="Cannot retry"):
-        await executor.retry_dag(execution.id)
+        await executor.retry_dag(execution.id, idempotency_key="claim-loss")
 
-    memorials = sorted(
-        storage.list_memorials_by_edict(edict.id),
-        key=lambda item: item.created_at,
-    )
-    assert len(memorials) == 2
-    retry_root = memorials[-1]
-    assert retry_root.parent_memorial_id == first_root.id
-    assert retry_root.status is TaskStatus.FAILED
-    assert retry_root.completed_at is not None
+    assert delegated == [(execution.id, "claim-loss", None)]
+    assert storage._conn.total_changes == changes_before_retry  # noqa: SLF001
+    assert {item.id for item in storage.list_memorials_by_edict(edict.id)} == memorial_ids
     reloaded = storage.get_dag_execution(execution.id)
     assert reloaded is not None and reloaded.status == "failed"
     assert reloaded.nodes[0].status.value == "failed"
     assert reloaded.root_memorial_id == first_root.id
-    assert storage.get_workspace_lease_by_run(retry_root.id) is None
     assert get_bound_workspace() is None
     assert not executor.running_tasks
     await service.shutdown()
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
-async def test_dag_retry_adopts_new_lineage_root_without_direct_workspace_execution(
+async def test_dag_retry_delegates_without_direct_workspace_execution(
     storage,
     config_manager,
     tmp_path: Path,
@@ -1573,11 +1582,18 @@ async def test_dag_retry_adopts_new_lineage_root_without_direct_workspace_execut
         terminal_contexts.append(get_bound_workspace())
 
     executor.set_dag_scheduler(Scheduler())
-    adopted: list[str] = []
+    delegated: list[tuple[str, str, list[str] | None]] = []
 
     class Ingress:
-        async def adopt_existing(self, *, memorial_id: str, **_kwargs):
-            adopted.append(memorial_id)
+        async def retry_dag(
+            self,
+            *,
+            dag_id: str,
+            idempotency_key: str,
+            from_node_ids: list[str] | None,
+        ):
+            delegated.append((dag_id, idempotency_key, from_node_ids))
+            return SimpleNamespace(reset_node_ids=("one",))
 
     executor.set_managed_run_ingress(Ingress())
     executor._bus.on(  # noqa: SLF001
@@ -1599,26 +1615,23 @@ async def test_dag_retry_adopts_new_lineage_root_without_direct_workspace_execut
     await executor._execute_dag(edict, plan, memorial=first_root)  # noqa: SLF001
     execution = storage.get_dag_by_edict(edict.id)
     assert execution is not None
-    assert await executor.retry_dag(execution.id) == ["one"]
+    memorial_ids = {item.id for item in storage.list_memorials_by_edict(edict.id)}
+    changes_before_retry = storage._conn.total_changes  # noqa: SLF001
+    assert await executor.retry_dag(execution.id, idempotency_key="retry-dag-1") == ["one"]
     while executor.running_tasks:
         await asyncio.gather(*tuple(executor.running_tasks))
 
     retried_execution = storage.get_dag_execution(execution.id)
     assert retried_execution is not None
-    assert retried_execution.root_memorial_id != first_root.id
-    retry_root = storage.get_memorial(retried_execution.root_memorial_id)
-    assert retry_root is not None
-    assert retry_root.parent_memorial_id == first_root.id
-    assert retry_root.attempt == first_root.attempt + 1
-    assert retry_root.status is TaskStatus.SUBMITTED
-    assert adopted == [retry_root.id]
+    assert retried_execution.root_memorial_id == first_root.id
+    assert delegated == [(execution.id, "retry-dag-1", None)]
+    assert storage._conn.total_changes == changes_before_retry  # noqa: SLF001
+    assert {item.id for item in storage.list_memorials_by_edict(edict.id)} == memorial_ids
     assert run_roots == [first_root.id]
     assert terminal_contexts == [None]
 
     first_lease = storage.get_workspace_lease_by_run(first_root.id)
-    retry_lease = storage.get_workspace_lease_by_run(retry_root.id)
     assert first_lease is not None and first_lease.state is WorkspaceLeaseState.CLOSED
-    assert retry_lease is None
     assert storage.get_latest_canonical_change_set_for_lease(first_lease.id) is not None
     assert (source / "tracked.txt").read_text() == "base\n"
     await service.shutdown()

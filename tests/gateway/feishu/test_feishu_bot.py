@@ -40,12 +40,19 @@ def _settings(disable_assistant_mode: bool = True) -> FeishuSettings:
 
 @pytest.fixture
 def bot(storage):
+    from tianshu.application.managed_run_ingress import ManagedRunIngress
+
+    class Reconciler:
+        async def reconcile_once(self) -> int:
+            return 0
+
     bus = EventBus()
     approval = MagicMock()
     approval.submit_tool_decision = AsyncMock()
     executor = MagicMock()
     executor.execute_edict = AsyncMock()
     executor.running_tasks = set()
+    executor.managed_run_ingress = ManagedRunIngress(storage, Reconciler())
     notifier = MagicMock()
     persona_loader = MagicMock()
     persona_loader.get = MagicMock(return_value=None)
