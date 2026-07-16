@@ -119,6 +119,7 @@ class RunDispatcher:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lease_seconds = lease_seconds
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._memorial_tasks: dict[str, asyncio.Task[None]] = {}
         self._idle_event = asyncio.Event()
         self._idle_event.set()
         self._stop_requested = False
@@ -134,6 +135,8 @@ class RunDispatcher:
     async def dispatch(self, memorial_id: str) -> bool:
         """Claim and start one due root attempt, returning whether this process won."""
         if self._stop_requested:
+            return False
+        if memorial_id in self._memorial_tasks:
             return False
         claimed = self._repository.claim(
             memorial_id=memorial_id,
@@ -156,9 +159,14 @@ class RunDispatcher:
         )
         self._idle_event.clear()
         self._tasks[authority.attempt_id] = task
+        self._memorial_tasks[authority.memorial_id] = task
 
         def observe(completed: asyncio.Task[None]) -> None:
-            self._observe_task(authority.attempt_id, completed)
+            self._observe_task(
+                authority.attempt_id,
+                authority.memorial_id,
+                completed,
+            )
 
         task.add_done_callback(observe)
         return True
@@ -243,9 +251,16 @@ class RunDispatcher:
             if not current:
                 raise _HeartbeatLost("execution attempt heartbeat lost its fence")
 
-    def _observe_task(self, attempt_id: str, task: asyncio.Task[None]) -> None:
+    def _observe_task(
+        self,
+        attempt_id: str,
+        memorial_id: str,
+        task: asyncio.Task[None],
+    ) -> None:
         if self._tasks.get(attempt_id) is task:
             self._tasks.pop(attempt_id, None)
+        if self._memorial_tasks.get(memorial_id) is task:
+            self._memorial_tasks.pop(memorial_id, None)
         if not self._tasks:
             self._idle_event.set()
         if not task.cancelled():

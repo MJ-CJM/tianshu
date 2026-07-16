@@ -18,6 +18,7 @@ from tianshu.models import Edict, Memorial
 from tianshu.models.attempt import AttemptDisposition
 from tianshu.models.canonical import RedactedError
 from tianshu.storage import Storage
+from tianshu.storage.attempt_ledger import AttemptConflict
 
 _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
 
@@ -47,6 +48,68 @@ def _seed(storage: Storage, *, max_attempts: int = 3) -> None:
             max_attempts=max_attempts,
         )
         uow.commit()
+
+
+def _insert_child_attempt(storage: Storage) -> None:
+    storage.save_edict(Edict(id="edict-child", goal="test child"))
+    storage.save_memorial(
+        Memorial(
+            id="dag-child",
+            edict_id="edict-child",
+            parent_memorial_id="memorial-1",
+            dag_node_id="node-1",
+        )
+    )
+    with storage.unit_of_work() as uow:
+        uow.connection.execute(
+            """
+            INSERT INTO execution_attempts (
+                attempt_id, schema_version, memorial_id, attempt_no, status,
+                owner_id, fencing_token, lease_expires_at, heartbeat_at,
+                available_at, max_attempts, failure_json, version, created_at, updated_at
+            ) VALUES (
+                'child-attempt', 1, 'dag-child', 1, 'claimable',
+                NULL, 0, NULL, NULL, ?, 3, NULL, 1, ?, ?
+            )
+            """,
+            (_NOW.isoformat(), _NOW.isoformat(), _NOW.isoformat()),
+        )
+        uow.commit()
+
+
+@pytest.mark.asyncio
+async def test_direct_child_claim_fails_before_runner_even_if_attempt_was_injected(
+    tmp_path: Path,
+) -> None:
+    storage = _open(tmp_path / "child-claim.db")
+    _insert_child_attempt(storage)
+    runs = 0
+
+    async def runner(authority: AttemptAuthority) -> AttemptRunResult:
+        nonlocal runs
+        del authority
+        runs += 1
+        return AttemptRunResult(disposition=AttemptDisposition.SUCCEEDED)
+
+    dispatcher = RunDispatcher(
+        storage.attempt_repo,
+        runner,
+        owner_id="worker",
+        clock=_Clock(),
+    )
+    try:
+        with pytest.raises(AttemptConflict, match="not a root") as error:
+            await dispatcher.dispatch("dag-child")
+        assert "dag-child" not in str(error.value)
+        assert runs == 0
+        assert dispatcher.active_count == 0
+        row = storage._conn.execute(  # noqa: SLF001
+            "SELECT status, owner_id, fencing_token FROM execution_attempts"
+        ).fetchone()
+        assert tuple(row) == ("claimable", None, 0)
+    finally:
+        await dispatcher.stop()
+        storage.close()
 
 
 @pytest.mark.asyncio
@@ -166,6 +229,80 @@ async def test_restart_waits_for_expiry_then_dispatches_attempt_two(tmp_path: Pa
     finally:
         await reconciler.stop()
         restarted.close()
+
+
+@pytest.mark.asyncio
+async def test_local_runner_exits_after_exact_expiry_before_attempt_two_starts(
+    tmp_path: Path,
+) -> None:
+    storage = _open(tmp_path / "local-overlap.db")
+    _seed(storage)
+    clock = _Clock()
+    first_started = asyncio.Event()
+    first_cancelled = asyncio.Event()
+    active_runners = 0
+    max_active_runners = 0
+    runs: list[int] = []
+
+    async def runner(authority: AttemptAuthority) -> AttemptRunResult:
+        nonlocal active_runners, max_active_runners
+        active_runners += 1
+        max_active_runners = max(max_active_runners, active_runners)
+        runs.append(authority.fencing_token)
+        try:
+            if authority.fencing_token == 1:
+                first_started.set()
+                await asyncio.Future()
+            return AttemptRunResult(disposition=AttemptDisposition.SUCCEEDED)
+        finally:
+            active_runners -= 1
+            if authority.fencing_token == 1:
+                first_cancelled.set()
+
+    dispatcher = RunDispatcher(
+        storage.attempt_repo,
+        runner,
+        owner_id="worker",
+        clock=clock,
+        lease_seconds=1,
+        heartbeat_interval_seconds=0.01,
+    )
+    try:
+        assert await dispatcher.dispatch("memorial-1")
+        await first_started.wait()
+        clock.now = _NOW + timedelta(seconds=1)
+
+        assert not await dispatcher.dispatch("memorial-1")
+        assert dispatcher.active_count == 1
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM execution_attempts"
+            ).fetchone()[0]
+            == 1
+        )
+
+        await first_cancelled.wait()
+        async with asyncio.timeout(1):
+            await dispatcher.wait_until_idle()
+        assert dispatcher.active_count == 0
+
+        assert await dispatcher.dispatch("memorial-1")
+        assert dispatcher.active_count == 1
+        async with asyncio.timeout(1):
+            await dispatcher.wait_until_idle()
+
+        assert runs == [1, 2]
+        assert max_active_runners == 1
+        rows = storage._conn.execute(  # noqa: SLF001
+            "SELECT attempt_no, status, fencing_token FROM execution_attempts ORDER BY attempt_no"
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [
+            (1, "failed", 1),
+            (2, "succeeded", 2),
+        ]
+    finally:
+        await dispatcher.stop()
+        storage.close()
 
 
 @pytest.mark.asyncio

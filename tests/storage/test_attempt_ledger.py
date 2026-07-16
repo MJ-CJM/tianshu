@@ -182,6 +182,51 @@ def test_enqueue_is_idempotent_rejects_unknown_memorial_and_never_mutates_legacy
         storage.close()
 
 
+def test_enqueue_rejects_dag_child_but_allows_root_retry_lineage(tmp_path: Path) -> None:
+    storage = _open(tmp_path / "root-enqueue.db")
+    storage.save_edict(Edict(id="edict-1", goal="test"))
+    storage.save_memorial(
+        Memorial(
+            id="retry-root",
+            edict_id="edict-1",
+            parent_memorial_id="previous-root",
+            dag_node_id=None,
+        )
+    )
+    storage.save_memorial(
+        Memorial(
+            id="dag-child",
+            edict_id="edict-1",
+            parent_memorial_id="retry-root",
+            dag_node_id="node-1",
+        )
+    )
+    try:
+        with storage.unit_of_work() as uow:
+            root_attempt = storage.attempt_repo.enqueue_initial(
+                uow.connection,
+                memorial_id="retry-root",
+                available_at=_NOW,
+            )
+            with pytest.raises(AttemptConflict, match="not a root") as error:
+                storage.attempt_repo.enqueue_initial(
+                    uow.connection,
+                    memorial_id="dag-child",
+                    available_at=_NOW,
+                )
+            uow.commit()
+        assert root_attempt.memorial_id == "retry-root"
+        assert "dag-child" not in str(error.value)
+        assert (
+            storage._conn.execute(  # noqa: SLF001
+                "SELECT COUNT(*) FROM execution_attempts WHERE memorial_id='dag-child'"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        storage.close()
+
+
 def test_missing_future_unexpired_and_suspended_attempts_are_not_claimed(tmp_path: Path) -> None:
     storage = _open(tmp_path / "not-due.db")
     _seed(storage)
@@ -653,6 +698,35 @@ def test_list_dispatchable_memorials_is_due_read_only_and_deterministic(tmp_path
             "due-b",
         )
         assert storage._conn.total_changes == before  # noqa: SLF001
+    finally:
+        storage.close()
+
+
+def test_dispatchable_scan_excludes_manually_injected_dag_child(tmp_path: Path) -> None:
+    storage = _open(tmp_path / "child-scan.db")
+    storage.save_edict(Edict(id="edict-1", goal="test"))
+    storage.save_memorial(Memorial(id="dag-child", edict_id="edict-1", dag_node_id="node-1"))
+    with storage.unit_of_work() as uow:
+        uow.connection.execute(
+            """
+            INSERT INTO execution_attempts (
+                attempt_id, schema_version, memorial_id, attempt_no, status,
+                owner_id, fencing_token, lease_expires_at, heartbeat_at,
+                available_at, max_attempts, failure_json, version, created_at, updated_at
+            ) VALUES (
+                'child-attempt', 1, 'dag-child', 1, 'claimable',
+                NULL, 0, NULL, NULL, ?, 3, NULL, 1, ?, ?
+            )
+            """,
+            (_NOW.isoformat(), _NOW.isoformat(), _NOW.isoformat()),
+        )
+        uow.commit()
+    try:
+        assert storage.attempt_repo.list_dispatchable_memorial_ids(now=_NOW, limit=10) == ()
+        row = storage._conn.execute(  # noqa: SLF001
+            "SELECT status, owner_id, fencing_token FROM execution_attempts"
+        ).fetchone()
+        assert tuple(row) == ("claimable", None, 0)
     finally:
         storage.close()
 

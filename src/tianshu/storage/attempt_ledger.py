@@ -152,10 +152,12 @@ class AttemptLeaseRepository:
         if type(max_attempts) is not int or max_attempts <= 0:
             raise ValueError("max_attempts must be a positive integer")
         memorial = connection.execute(
-            "SELECT 1 FROM memorials WHERE id = ?", (memorial_id,)
+            "SELECT dag_node_id FROM memorials WHERE id = ?", (memorial_id,)
         ).fetchone()
         if memorial is None:
             raise AttemptConflict("attempt memorial does not exist")
+        if memorial["dag_node_id"] is not None:
+            raise AttemptConflict("attempt memorial is not a root")
         existing_row = connection.execute(
             _SELECT_ATTEMPT + " WHERE memorial_id = ? AND attempt_no = 1",
             (memorial_id,),
@@ -205,11 +207,16 @@ class AttemptLeaseRepository:
         with self._unit_of_work_factory() as unit_of_work:
             rows = unit_of_work.connection.execute(
                 """
-                SELECT memorial_id
-                FROM execution_attempts
-                WHERE (status = 'claimable' AND available_at <= ?)
-                   OR (status = 'claimed' AND lease_expires_at <= ?)
-                ORDER BY available_at, created_at, attempt_id
+                SELECT attempt.memorial_id
+                FROM execution_attempts AS attempt
+                JOIN memorials AS memorial ON memorial.id = attempt.memorial_id
+                WHERE memorial.dag_node_id IS NULL
+                  AND (
+                      (attempt.status = 'claimable' AND attempt.available_at <= ?)
+                      OR
+                      (attempt.status = 'claimed' AND attempt.lease_expires_at <= ?)
+                  )
+                ORDER BY attempt.available_at, attempt.created_at, attempt.attempt_id
                 LIMIT ?
                 """,
                 (now.isoformat(), now.isoformat(), limit),
@@ -276,6 +283,12 @@ class AttemptLeaseRepository:
         try:
             with self._unit_of_work_factory() as unit_of_work:
                 connection = unit_of_work.connection
+                memorial = connection.execute(
+                    "SELECT dag_node_id FROM memorials WHERE id = ?",
+                    (memorial_id,),
+                ).fetchone()
+                if memorial is not None and memorial["dag_node_id"] is not None:
+                    raise AttemptConflict("attempt memorial is not a root")
                 row = connection.execute(
                     _SELECT_ATTEMPT
                     + """
