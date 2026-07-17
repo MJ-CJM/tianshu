@@ -17,6 +17,7 @@ from tianshu.models.evolution_candidate import (
     CandidateVersionRefV1,
     EvolutionCandidateV1,
 )
+from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1
 
 if TYPE_CHECKING:
     from tianshu.evolution.candidate_service import CandidateProposalV1, CandidateSourceV1
@@ -94,6 +95,28 @@ class BaseCandidateAdapter:
 
     def _normalize_domain(self, payload: Mapping[str, object]) -> dict[str, JsonValue]:
         raise NotImplementedError
+
+    def resolve_effective_payload(
+        self,
+        champion_payload: Mapping[str, object],
+        *,
+        overlay: EffectiveEvolutionOverlayV1 | None,
+        candidate_payload: Mapping[str, object] | None,
+    ) -> dict[str, JsonValue]:
+        """Resolve through one verified overlay without mutating the live resource."""
+
+        if overlay is None or overlay.kind is None:
+            return self._normalize_domain(champion_payload)
+        self._require_kind(overlay.kind)
+        if candidate_payload is None:
+            raise AdapterOperationUnavailable("candidate overlay payload is unavailable")
+        normalized = self._normalize_domain(candidate_payload)
+        if (
+            canonical_sha256(normalized) != overlay.canonical_digest
+            or canonical_sha256(normalized) != overlay.artifact_digest
+        ):
+            raise AdapterError("candidate overlay digest mismatch")
+        return normalized
 
     def _materialize(self, payload: Mapping[str, object], *, media_type: str) -> ArtifactRefV1:
         return self._artifacts.put_bytes(

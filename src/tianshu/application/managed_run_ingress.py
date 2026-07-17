@@ -17,6 +17,7 @@ from tianshu.models.events import EventEnvelope
 from tianshu.storage import Storage
 from tianshu.storage.memorial_repo import insert_memorial
 from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.universe.router import ChallengerRouter
 
 
 class _Reconciler(Protocol):
@@ -64,12 +65,14 @@ class ManagedRunIngress:
         *,
         clock: Callable[[], datetime] | None = None,
         boundary_hook: Callable[[str], None] | None = None,
+        challenger_router: ChallengerRouter | None = None,
     ) -> None:
         self._storage = storage
         self._reconciler = reconciler
         self._clock = clock or (lambda: datetime.now(UTC))
         self._boundary_hook = boundary_hook
         self._outbox = OutboxRepository()
+        self._challenger_router = challenger_router or ChallengerRouter(storage)
 
     async def start(self, command: ManagedRunCommand) -> ManagedRunResult:
         self._validate(command)
@@ -147,6 +150,11 @@ class ManagedRunIngress:
                     created_at=now,
                 )
                 insert_memorial(connection, memorial)
+                self._challenger_router.assign_current(
+                    unit_of_work,
+                    memorial_id=memorial_id,
+                    created_at=now,
+                )
                 available_at = now
                 payload = {**dict(command.event_payload), "managed_request_hash": fingerprint}
                 self._outbox.add(
@@ -163,6 +171,10 @@ class ManagedRunIngress:
                 )
             else:
                 deduplicated = True
+                self._challenger_router.assign_current(
+                    unit_of_work,
+                    memorial_id=memorial_id,
+                )
                 available_at = datetime.fromisoformat(str(existing["created_at"])).astimezone(UTC)
                 stored_event = self._outbox.get(connection, event_id)
                 expected_payload = canonical_json_bytes(
@@ -231,6 +243,10 @@ class ManagedRunIngress:
                 (event.memorial_id,),
             ).fetchone()
             runtime = EdictRuntime.model_validate(json.loads(str(root["runtime_json"])))
+            self._challenger_router.assign_current(
+                unit_of_work,
+                memorial_id=event.memorial_id,
+            )
             if existing is not None and existing["attempt_id"] != requested_attempt_id:
                 raise RuntimeError("legacy managed event conflicts with prior adoption")
             if existing is None:
@@ -289,6 +305,10 @@ class ManagedRunIngress:
                 (memorial_id,),
             ).fetchone()
             if existing_root is not None:
+                self._challenger_router.assign_current(
+                    unit_of_work,
+                    memorial_id=memorial_id,
+                )
                 stored_event = self._outbox.get(connection, event_id)
                 stored_attempt = connection.execute(
                     """
@@ -390,6 +410,11 @@ class ManagedRunIngress:
                     created_at=now,
                 )
                 insert_memorial(connection, retry_root)
+                self._challenger_router.assign_current(
+                    unit_of_work,
+                    memorial_id=memorial_id,
+                    created_at=now,
+                )
                 self._observe_boundary("after_root")
                 claimed = connection.execute(
                     """
@@ -488,6 +513,10 @@ class ManagedRunIngress:
                 (memorial_id,),
             ).fetchone()
             runtime = EdictRuntime.model_validate(json.loads(str(root["runtime_json"])))
+            self._challenger_router.assign_current(
+                unit_of_work,
+                memorial_id=memorial_id,
+            )
             attempt = self._storage.attempt_repo.enqueue_initial(
                 connection,
                 memorial_id=memorial_id,

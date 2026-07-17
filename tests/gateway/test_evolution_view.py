@@ -13,7 +13,9 @@ from pydantic import ValidationError
 from tianshu.app import create_app
 from tianshu.config import TianshuSettings
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
+from tianshu.models import Edict, Memorial
 from tianshu.storage import Storage
+from tianshu.universe.router import ChallengerRouter
 
 TOKEN = "evolution-view-bootstrap-token"
 HEADERS = {"Authorization": f"Bearer {TOKEN}"}
@@ -348,6 +350,42 @@ def test_endpoint_source_failure_is_an_explicit_correlated_503(tmp_path) -> None
             "correlation_id": response.headers["x-correlation-id"],
         }
         assert "candidates" not in response.text
+    finally:
+        storage.close()
+
+
+def test_assignment_endpoint_is_owner_scoped_and_disclosure_safe(tmp_path) -> None:
+    symbols = _symbols()
+    app, storage = _app(tmp_path, symbols, SnapshotService(symbols))
+    try:
+        owner_edict = Edict(id="edict-owner", goal="owner", submitter="user:owner")
+        owner_memorial = Memorial(id="memorial-owner", edict_id=owner_edict.id)
+        other_edict = Edict(id="edict-other", goal="other", submitter="user:other")
+        other_memorial = Memorial(id="memorial-other", edict_id=other_edict.id)
+        storage.save_edict(owner_edict)
+        storage.save_memorial(owner_memorial)
+        storage.save_edict(other_edict)
+        storage.save_memorial(other_memorial)
+        assignment = ChallengerRouter(storage).assign(owner_memorial.id)
+        ChallengerRouter(storage).assign(other_memorial.id)
+
+        with TestClient(app, base_url=BASE_URL, client=("127.0.0.1", 41000)) as client:
+            owner = client.get(
+                f"/api/evolution/runs/{owner_memorial.id}/assignment",
+                headers=HEADERS,
+            )
+            outsider = client.get(
+                f"/api/evolution/runs/{other_memorial.id}/assignment",
+                headers=HEADERS,
+            )
+
+        assert owner.status_code == 200
+        assert owner.json()["data"]["assignment"] == assignment.model_dump(mode="json")
+        assert "effective_overlay" in owner.json()["data"]
+        assert "secret" not in owner.text.lower()
+        assert "host_path" not in owner.text
+        assert outsider.status_code == 404
+        assert outsider.json()["detail"]["code"] == "run_assignment_not_found"
     finally:
         storage.close()
 

@@ -18,6 +18,7 @@ from tianshu.models.decision import (
     ResolveDecisionCommand,
 )
 from tianshu.models.principal import AuthContext, Principal
+from tianshu.universe.router import ChallengerRouter
 
 from ._fixtures import evidence_service, seed_closed_run
 
@@ -126,3 +127,40 @@ def test_close_decodes_a_durable_resolution_timestamp_from_sqlite(storage, tmp_p
     closed = service.close(memorial.id, expected_version=opened.version)
 
     assert closed.snapshot.decisions[0].resolved_at == now
+
+
+def test_evidence_does_not_create_a_missing_assignment(storage, tmp_path) -> None:
+    _, memorial = seed_closed_run(storage)
+    service = evidence_service(storage, tmp_path / "artifacts")
+
+    legacy = service.build_open(memorial.id)
+
+    assert not any(
+        artifact.media_type == "application/vnd.tianshu.evolution.assignment.v1+json"
+        for artifact in legacy.snapshot.artifacts
+    )
+    assert (
+        storage._conn.execute(  # noqa: SLF001
+            "SELECT COUNT(*) FROM run_evolution_assignments WHERE memorial_id=?",
+            (memorial.id,),
+        ).fetchone()[0]
+        == 0
+    )
+
+
+def test_evidence_includes_an_existing_assignment(storage, tmp_path) -> None:
+    _, memorial = seed_closed_run(storage)
+    service = evidence_service(storage, tmp_path / "artifacts")
+    assignment = ChallengerRouter(storage).assign(memorial.id)
+    attributed = service.build_open(memorial.id)
+    evolution_artifact = next(
+        artifact
+        for artifact in attributed.snapshot.artifacts
+        if artifact.media_type == "application/vnd.tianshu.evolution.assignment.v1+json"
+    )
+    payload = json.loads(service._artifacts.get_bytes(evolution_artifact.digest))  # noqa: SLF001
+
+    assert payload["assignment"] == assignment.model_dump(mode="json")
+    assert payload["overlay"]["assignment_id"] == assignment.assignment_id
+    assert payload["candidate_id"] == assignment.candidate_id
+    assert payload["routing_version"] == assignment.routing_version

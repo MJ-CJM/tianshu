@@ -17,6 +17,10 @@ from tianshu.models.evolution_candidate import (
     EvolutionCandidateV1,
     validate_lifecycle_transition,
 )
+from tianshu.models.run_assignment import (
+    EffectiveEvolutionOverlayV1,
+    RunAssignmentV1,
+)
 from tianshu.storage.decision_repo import DecisionDecodeError, DecisionRepository
 
 
@@ -30,6 +34,10 @@ class EvolutionRepositoryConflict(EvolutionRepositoryError):
 
 class EvolutionRepositoryDecodeError(EvolutionRepositoryError):
     """A durable candidate row violates the v1 contract."""
+
+
+class EvolutionAssignmentConflict(EvolutionRepositoryConflict):
+    """A Memorial already has a different immutable assignment."""
 
 
 class _CodePromotionDecisionBindingV1(BaseModel):
@@ -254,6 +262,148 @@ class EvolutionRepository:
         ).fetchone()
         return _decode_candidate(row) if row is not None else None
 
+    def get_routable_candidate(self, connection: sqlite3.Connection) -> EvolutionCandidateV1 | None:
+        """Return the single canary routing authority or fail closed if ambiguous."""
+
+        rows = connection.execute(
+            _SELECT_CANDIDATE + " WHERE lifecycle = 'canary' ORDER BY created_at, candidate_id"
+        ).fetchall()
+        candidates = tuple(_decode_candidate(row) for row in rows)
+        if len(candidates) > 1:
+            raise EvolutionRepositoryConflict("multiple canary routing authorities")
+        if not candidates:
+            return None
+        candidate = candidates[0]
+        routing = candidate.routing
+        row = connection.execute(
+            "SELECT * FROM evolution_routing_allocations WHERE candidate_id=?",
+            (candidate.candidate_id,),
+        ).fetchone()
+        if routing is None or row is None:
+            raise EvolutionRepositoryConflict("canary routing authority is incomplete")
+        payload = routing.model_dump(mode="json")
+        if (
+            row["routing_version"] != routing.routing_version
+            or row["allocation_basis_points"] != routing.allocation_basis_points
+            or row["allocation_seed_id"] != routing.allocation_seed_id
+            or row["routing_json"] != canonical_json_bytes(payload).decode("utf-8")
+            or row["routing_hash"] != canonical_sha256(payload)
+        ):
+            raise EvolutionRepositoryConflict("canary routing authority conflicts")
+        return candidate
+
+    def get_assignment(
+        self, connection: sqlite3.Connection, memorial_id: str
+    ) -> tuple[RunAssignmentV1, EffectiveEvolutionOverlayV1] | None:
+        row = connection.execute(
+            "SELECT * FROM run_evolution_assignments WHERE memorial_id=?",
+            (memorial_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        raw = row["assignment_json"]
+        try:
+            decoded = json.loads(raw) if isinstance(raw, str) else None
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise EvolutionRepositoryDecodeError(
+                "persisted run assignment is not valid JSON"
+            ) from exc
+        if decoded is None or canonical_sha256(decoded) != row["assignment_hash"]:
+            raise EvolutionRepositoryDecodeError("persisted assignment hash does not match")
+        try:
+            assignment = RunAssignmentV1.model_validate_json(raw)
+        except (ValidationError, TypeError, ValueError) as exc:
+            raise EvolutionRepositoryDecodeError(
+                "persisted run assignment violates the v1 contract"
+            ) from exc
+        if canonical_json_bytes(assignment).decode("utf-8") != raw:
+            raise EvolutionRepositoryDecodeError("assignment_json is not canonical JSON")
+        if (
+            row["assignment_id"] != assignment.assignment_id
+            or row["memorial_id"] != assignment.memorial_id
+            or row["candidate_id"] != assignment.candidate_id
+            or row["routing_version"] != assignment.routing_version
+            or row["bucket"] != assignment.bucket
+            or row["champion_ref_json"]
+            != canonical_json_bytes(assignment.champion_ref).decode("utf-8")
+            or row["selected_ref_json"]
+            != canonical_json_bytes(assignment.selected_ref).decode("utf-8")
+            or row["created_at"] != assignment.created_at.isoformat()
+        ):
+            raise EvolutionRepositoryDecodeError("assignment columns conflict with assignment_json")
+        kind: CandidateKind | None = None
+        subject_key: str | None = None
+        if assignment.candidate_id is not None:
+            candidate = self.get_candidate(connection, assignment.candidate_id)
+            if (
+                candidate is None
+                or candidate.base != assignment.champion_ref
+                or assignment.selected_ref not in {candidate.base, candidate.candidate}
+            ):
+                raise EvolutionRepositoryDecodeError("assignment candidate attribution conflicts")
+            if assignment.selected_ref == candidate.candidate:
+                kind = candidate.kind
+                subject_key = candidate.subject_key
+        overlay = EffectiveEvolutionOverlayV1(
+            assignment_id=assignment.assignment_id,
+            kind=kind,
+            subject_key=subject_key,
+            artifact_digest=assignment.selected_ref.artifact_digest,
+            canonical_digest=assignment.selected_ref.canonical_digest,
+        )
+        if row["overlay_digest"] != canonical_sha256(overlay):
+            raise EvolutionRepositoryDecodeError("assignment overlay digest conflicts")
+        return assignment, overlay
+
+    def insert_assignment(
+        self,
+        connection: sqlite3.Connection,
+        assignment: RunAssignmentV1,
+        overlay: EffectiveEvolutionOverlayV1,
+    ) -> RunAssignmentV1:
+        if (
+            overlay.assignment_id != assignment.assignment_id
+            or overlay.artifact_digest != assignment.selected_ref.artifact_digest
+            or overlay.canonical_digest != assignment.selected_ref.canonical_digest
+        ):
+            raise ValueError("effective overlay does not match assignment")
+        existing = self.get_assignment(connection, assignment.memorial_id)
+        if existing is not None:
+            if existing != (assignment, overlay):
+                raise EvolutionAssignmentConflict("Memorial assignment is immutable")
+            return existing[0]
+        raw = canonical_json_bytes(assignment).decode("utf-8")
+        try:
+            connection.execute(
+                """INSERT INTO run_evolution_assignments (
+                       assignment_id, memorial_id, candidate_id, routing_version, bucket,
+                       champion_ref_json, selected_ref_json, overlay_digest,
+                       assignment_json, assignment_hash, created_at
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    assignment.assignment_id,
+                    assignment.memorial_id,
+                    assignment.candidate_id,
+                    assignment.routing_version,
+                    assignment.bucket,
+                    canonical_json_bytes(assignment.champion_ref).decode("utf-8"),
+                    canonical_json_bytes(assignment.selected_ref).decode("utf-8"),
+                    canonical_sha256(overlay),
+                    raw,
+                    canonical_sha256(assignment),
+                    assignment.created_at.isoformat(),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            replay = self.get_assignment(connection, assignment.memorial_id)
+            if replay is not None and replay == (assignment, overlay):
+                return replay[0]
+            raise EvolutionAssignmentConflict("Memorial assignment identity conflict") from exc
+        durable = self.get_assignment(connection, assignment.memorial_id)
+        if durable is None:  # pragma: no cover - successful insert preserves the identity
+            raise EvolutionAssignmentConflict("Memorial assignment disappeared")
+        return durable[0]
+
     def insert_candidate(
         self, connection: sqlite3.Connection, candidate: EvolutionCandidateV1
     ) -> EvolutionCandidateV1:
@@ -379,6 +529,7 @@ class EvolutionRepository:
 
 
 __all__ = [
+    "EvolutionAssignmentConflict",
     "EvolutionRepository",
     "EvolutionRepositoryConflict",
     "EvolutionRepositoryDecodeError",

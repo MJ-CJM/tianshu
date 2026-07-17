@@ -194,6 +194,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         owner_id=f"run-{uuid4().hex}",
         completer=production_completer,
         exit_cleanup=production_runner.discard_projection,
+        challenger_router=app.state.challenger_router,
     )
     plan_review_coordinator = PlanReviewAttemptCoordinator(storage)
     run_reconciler = RunReconciler(
@@ -201,7 +202,11 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         run_dispatcher,
         before_scan=plan_review_coordinator.reconcile_once,
     )
-    managed_run_ingress = ManagedRunIngress(storage, run_reconciler)
+    managed_run_ingress = ManagedRunIngress(
+        storage,
+        run_reconciler,
+        challenger_router=app.state.challenger_router,
+    )
     executor.set_managed_run_ingress(managed_run_ingress)
     scheduled_run_preparer = ScheduledRunPreparer(
         storage.unit_of_work,

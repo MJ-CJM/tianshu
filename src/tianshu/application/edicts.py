@@ -21,6 +21,7 @@ from tianshu.storage.outbox_repo import (
     SubmissionIdempotencyRecord,
 )
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
+from tianshu.universe.router import ChallengerRouter
 
 
 class _SubmissionStorage(Protocol):
@@ -60,9 +61,15 @@ class IdempotencyConflict(RuntimeError):
 
 
 class EdictApplicationService:
-    def __init__(self, storage: _SubmissionStorage) -> None:
+    def __init__(
+        self,
+        storage: _SubmissionStorage,
+        *,
+        challenger_router: ChallengerRouter | None = None,
+    ) -> None:
         self._storage = storage
         self._outbox = OutboxRepository()
+        self._challenger_router = challenger_router or ChallengerRouter(storage)
 
     def submit(
         self,
@@ -100,7 +107,13 @@ class EdictApplicationService:
                 idempotency_key=command.idempotency_key,
             )
             if existing is not None:
-                return self._resolve_existing(conn, existing, request_hash)
+                self._challenger_router.assign_current(
+                    unit_of_work,
+                    memorial_id=existing.memorial_id,
+                )
+                result = self._resolve_existing(conn, existing, request_hash)
+                unit_of_work.commit()
+                return result
 
             edict = _edict_for_submission(command)
             memorial = Memorial(
@@ -115,6 +128,13 @@ class EdictApplicationService:
                 producer=producer,
                 payload=_event_payload(command, correlation_id=correlation_id),
             )
+            _insert_edict(conn, edict)
+            _insert_memorial(conn, memorial)
+            self._challenger_router.assign_current(
+                unit_of_work,
+                memorial_id=memorial.id,
+                created_at=event.timestamp,
+            )
             result = SubmitEdictResult(
                 edict=edict,
                 memorial=memorial,
@@ -124,8 +144,6 @@ class EdictApplicationService:
             )
             response_json = _serialize_replay_identity(result)
 
-            _insert_edict(conn, edict)
-            _insert_memorial(conn, memorial)
             self._outbox.add(conn, event)
             self._outbox.add_submission(
                 conn,

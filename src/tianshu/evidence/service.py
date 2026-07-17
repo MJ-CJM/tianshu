@@ -44,6 +44,7 @@ from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     RequestedGovernanceContractV1,
 )
+from tianshu.models.run_assignment import EvolutionRunEvidenceV1
 from tianshu.models.run_state import RunPhase, agent_plan_continuation
 from tianshu.security.redact import redact_text
 from tianshu.security.sensitive_payload import contains_raw_sensitive_payload
@@ -54,6 +55,7 @@ from tianshu.storage.artifact_repo import (
     EvidenceRepository,
     EvidenceRepositoryError,
 )
+from tianshu.storage.evolution_repo import EvolutionRepository
 from tianshu.storage.run_state_repo import RunStateRepository
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
@@ -405,6 +407,16 @@ class ArtifactStore:
             raise ArtifactIntegrityError("artifact metadata not found")
         return self._read_verified(artifact)
 
+    def get_bytes_current(self, connection: object, digest: str) -> bytes:
+        if not isinstance(connection, sqlite3.Connection):
+            raise TypeError("artifact connection must be SQLite")
+        if _DIGEST.fullmatch(digest) is None:
+            raise ValueError("artifact digest must be 64 lowercase hexadecimal characters")
+        artifact = self._repository.get_current(connection, digest)
+        if artifact is None:
+            raise ArtifactIntegrityError("artifact metadata not found")
+        return self._read_verified(artifact)
+
     def verify(self, digest: str) -> bool:
         try:
             self.get_bytes(digest)
@@ -698,6 +710,23 @@ class EvidenceService:
         checks = self._checks(connection, memorial_id, requested)
         artifact_by_digest = {plan_artifact.digest: plan_artifact}
         required_artifact_digests = {plan_artifact.digest}
+        assignment_record = EvolutionRepository().get_assignment(connection, memorial_id)
+        if assignment_record is not None:
+            assignment, overlay = assignment_record
+            evolution_evidence = EvolutionRunEvidenceV1(
+                assignment=assignment,
+                overlay=overlay,
+                candidate_id=assignment.candidate_id,
+                routing_version=assignment.routing_version,
+            )
+            assignment_artifact = self._artifacts.put_bytes_current(
+                connection,
+                canonical_json_bytes(evolution_evidence),
+                media_type="application/vnd.tianshu.evolution.assignment.v1+json",
+                redaction="governed_candidate",
+            )
+            artifact_by_digest[assignment_artifact.digest] = assignment_artifact
+            required_artifact_digests.add(assignment_artifact.digest)
         for check in checks:
             if check.output_artifact_digest is None:
                 continue

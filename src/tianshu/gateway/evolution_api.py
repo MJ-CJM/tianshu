@@ -21,7 +21,7 @@ from tianshu.evolution.promotion import (
     StartCanaryCommand,
 )
 from tianshu.gateway.auth import get_auth_context
-from tianshu.storage.evolution_repo import EvolutionRepositoryConflict
+from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
 
 evolution_router = APIRouter(prefix="/evolution", tags=["evolution-center"])
 
@@ -49,6 +49,47 @@ def get_evolution_center(request: Request) -> dict[str, object]:
         ) from exc
     return {
         "data": snapshot.model_dump(mode="json"),
+        "correlation_id": context.correlation_id,
+    }
+
+
+@evolution_router.get("/runs/{memorial_id}/assignment")
+def get_run_evolution_assignment(memorial_id: str, request: Request) -> dict[str, object]:
+    context = get_auth_context(request)
+    storage = request.app.state.storage
+    with storage.unit_of_work() as unit_of_work:
+        connection = unit_of_work.connection
+        owner = connection.execute(
+            """SELECT edict.submitter
+               FROM memorials AS memorial
+               JOIN edicts AS edict ON edict.id=memorial.edict_id
+               WHERE memorial.id=?""",
+            (memorial_id,),
+        ).fetchone()
+        if owner is None or owner["submitter"] != context.principal.id:
+            raise HTTPException(
+                404,
+                {
+                    "code": "run_assignment_not_found",
+                    "correlation_id": context.correlation_id,
+                },
+            )
+        loaded = EvolutionRepository().get_assignment(connection, memorial_id)
+        if loaded is None:
+            raise HTTPException(
+                404,
+                {
+                    "code": "run_assignment_not_found",
+                    "correlation_id": context.correlation_id,
+                },
+            )
+        assignment, overlay = loaded
+        unit_of_work.commit()
+    return {
+        "data": {
+            "assignment": assignment.model_dump(mode="json"),
+            "effective_overlay": overlay.model_dump(mode="json"),
+        },
         "correlation_id": context.correlation_id,
     }
 

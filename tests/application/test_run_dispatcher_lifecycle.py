@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -112,6 +113,43 @@ async def test_every_dispatch_exit_clears_authority_projection_buffer() -> None:
     with pytest.raises(AttemptFenceLost):
         await dispatcher._execute(authority)  # noqa: SLF001
     assert cleaned == [authority]
+
+
+@pytest.mark.asyncio
+async def test_runner_executes_inside_existing_assignment_runtime_scope() -> None:
+    repository = _ProbeRepository()
+    events: list[str] = []
+
+    class BindingRouter:
+        @contextmanager
+        def bind_runtime(self, memorial_id: str):
+            events.append(f"enter:{memorial_id}")
+            try:
+                yield
+            finally:
+                events.append(f"exit:{memorial_id}")
+
+    async def runner(authority: AttemptAuthority) -> AttemptRunResult:
+        assert events == [f"enter:{authority.memorial_id}"]
+        return AttemptRunResult(disposition=AttemptDisposition.SUCCEEDED)
+
+    authority = AttemptAuthority(
+        attempt_id="attempt-overlay",
+        memorial_id="memorial-overlay",
+        owner_id="worker",
+        fencing_token=1,
+    )
+    dispatcher = RunDispatcher(
+        repository,
+        runner,
+        owner_id="worker",
+        completer=lambda _authority, _outcome: True,
+        challenger_router=BindingRouter(),  # type: ignore[arg-type]
+    )
+
+    await dispatcher._execute(authority)  # noqa: SLF001
+
+    assert events == ["enter:memorial-overlay", "exit:memorial-overlay"]
 
 
 def test_heartbeat_interval_must_be_below_lease_deadline() -> None:

@@ -87,6 +87,7 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         agent_config=lambda: config_manager.agent_config,
         code_store=code_variant_store,
         deployer=code_deployer,
+        challenger_router=app.state.challenger_router,
     )
     # opt-in 持久化：env 开启，或库中已存在 champion 位面（此前已开启过）→ 续上开启状态，
     # 避免"重启后位面数据还在、功能却悄悄关闭"的困惑态。

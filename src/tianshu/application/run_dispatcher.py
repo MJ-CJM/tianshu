@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import math
 from collections.abc import Callable, Coroutine
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -17,6 +17,7 @@ from tianshu.models.attempt import (
 )
 from tianshu.models.canonical import RedactedError
 from tianshu.storage.attempt_ledger import AttemptFenceLost
+from tianshu.universe.router import ChallengerRouter
 
 
 class RunShutdownTimeout(TimeoutError):
@@ -103,6 +104,7 @@ class RunDispatcher:
         lease_seconds: int = 30,
         heartbeat_interval_seconds: float = 10,
         shutdown_timeout_seconds: float = 5,
+        challenger_router: ChallengerRouter | None = None,
     ) -> None:
         if not owner_id.strip():
             raise ValueError("owner_id must be non-blank")
@@ -125,6 +127,7 @@ class RunDispatcher:
         self._owner_id = owner_id
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lease_seconds = lease_seconds
+        self._challenger_router = challenger_router
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._memorial_tasks: dict[str, asyncio.Task[None]] = {}
         self._idle_event = asyncio.Event()
@@ -208,43 +211,49 @@ class RunDispatcher:
             raise RunShutdownTimeout("supervised run did not stop before shutdown deadline")
 
     async def _execute(self, authority: AttemptAuthority) -> None:
-        runner_task: asyncio.Task[AttemptRunResult] = asyncio.create_task(
-            self._runner(authority),
-            name=f"run-body-{authority.attempt_id}",
+        runtime_scope = (
+            self._challenger_router.bind_runtime(authority.memorial_id)
+            if self._challenger_router is not None
+            else nullcontext()
         )
-        heartbeat_task = asyncio.create_task(
-            self._heartbeat(authority),
-            name=f"run-heartbeat-{authority.attempt_id}",
-        )
-        try:
-            done, _ = await asyncio.wait(
-                {runner_task, heartbeat_task},
-                return_when=asyncio.FIRST_COMPLETED,
+        with runtime_scope:
+            runner_task: asyncio.Task[AttemptRunResult] = asyncio.create_task(
+                self._runner(authority),
+                name=f"run-body-{authority.attempt_id}",
             )
-            if heartbeat_task in done:
-                try:
+            heartbeat_task = asyncio.create_task(
+                self._heartbeat(authority),
+                name=f"run-heartbeat-{authority.attempt_id}",
+            )
+            try:
+                done, _ = await asyncio.wait(
+                    {runner_task, heartbeat_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if heartbeat_task in done:
+                    try:
+                        await heartbeat_task
+                    except _HeartbeatLost:
+                        runner_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await runner_task
+                        return
+                result = await runner_task
+                heartbeat_task.cancel()
+                with suppress(asyncio.CancelledError):
                     await heartbeat_task
-                except _HeartbeatLost:
-                    runner_task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await runner_task
-                    return
-            result = await runner_task
-            heartbeat_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await heartbeat_task
-            outcome = result.to_outcome(completed_at=self._clock())
-            if not self._completer(authority, outcome):
-                raise AttemptFenceLost("attempt completion lost its fence")
-        finally:
-            heartbeat_task.cancel()
-            runner_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await heartbeat_task
-            with suppress(asyncio.CancelledError):
-                await runner_task
-            if self._exit_cleanup is not None:
-                self._exit_cleanup(authority)
+                outcome = result.to_outcome(completed_at=self._clock())
+                if not self._completer(authority, outcome):
+                    raise AttemptFenceLost("attempt completion lost its fence")
+            finally:
+                heartbeat_task.cancel()
+                runner_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await heartbeat_task
+                with suppress(asyncio.CancelledError):
+                    await runner_task
+                if self._exit_cleanup is not None:
+                    self._exit_cleanup(authority)
 
     def _complete_with_repository(
         self,

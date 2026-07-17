@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from tianshu.universe.model import Universe, UniverseOrigin, UniverseStatus
+from tianshu.universe.router import ChallengerRouter
 from tianshu.universe.store import UniverseStore
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class UniverseManager:
         agent_config: Callable[[], Any] | None = None,
         code_store: Any | None = None,
         deployer: Any | None = None,
+        challenger_router: ChallengerRouter | None = None,
     ) -> None:
         self._storage = storage
         self._store = store
@@ -38,6 +40,7 @@ class UniverseManager:
         self._agent_config = agent_config or (lambda: None)
         self._code_store = code_store
         self._deployer = deployer
+        self._challenger_router = challenger_router
 
     def attach_event_bus(self, bus: Any) -> None:
         self._bus = bus
@@ -52,13 +55,11 @@ class UniverseManager:
         return champ["id"] if champ else None
 
     def route_for_memorial(self, memorial_id: str) -> str | None:
-        """返回本 memorial 应归属的位面——当前一律归冠军(仅作归因标记)。
-
-        历史版本曾按 explore_ratio 把流量哈希分桶给 challenger,但 challenger
-        的行为配置只有晋升(switch)后才会加载到 live,被"探索"到的流量实际仍以
-        冠军配置执行,fitness 归因失真。探索路由退役;challenger 的适应度改由
-        沙箱配对评估产生(evolver),待支持 per-run 位面装配后再恢复在线探索。
-        """
+        """Return only the legacy Universe projection for an already assigned run."""
+        if self._challenger_router is None:
+            raise RuntimeError("challenger_router_required")
+        if self._challenger_router.overlay_for(memorial_id) is None:
+            raise LookupError("run assignment not found")
         return self.champion_id()
 
     def list(self, *, include_archived: bool = True) -> list[dict]:

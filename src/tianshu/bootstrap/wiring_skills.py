@@ -25,6 +25,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.config import TianshuSettings
 from tianshu.evolution.candidate_service import CandidateLiveAuthorities, CandidateService
 from tianshu.evolution.gates import GateEvaluator
@@ -41,6 +42,7 @@ from tianshu.skills.loader import SkillsLoader, SkillsWatcher
 from tianshu.skills.metrics import SkillMetricsStore
 from tianshu.tools.registry import ToolRegistry
 from tianshu.tools.skill_tools import register_skill_tools
+from tianshu.universe.router import ChallengerRouter
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +102,15 @@ def wire_evolution_services(
         app.state.storage,
         gate_evaluator,
         adapter_resolver=promotion_adapters.__getitem__,
+    )
+    challenger_router = ChallengerRouter(
+        app.state.storage,
+        artifact_reader=app.state.artifact_store.get_bytes_current,
+    )
+    app.state.challenger_router = challenger_router
+    app.state.edict_application_service = EdictApplicationService(
+        app.state.storage,
+        challenger_router=challenger_router,
     )
     app.state.skill_install_service = SkillInstallService(
         candidates,

@@ -22,6 +22,57 @@ _MAX_RESOURCE_BYTES = 1024 * 1024  # 1 MiB per resource file
 _SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 
 
+def _runtime_skill_overlay() -> tuple[str, dict | None] | None:
+    from tianshu.evolution.runtime_context import current_evolution_runtime
+
+    runtime = current_evolution_runtime()
+    if (
+        runtime is None
+        or runtime.overlay.kind is None
+        or runtime.overlay.kind.value != "skill"
+        or runtime.overlay.subject_key is None
+        or runtime.candidate_payload is None
+    ):
+        return None
+    name = runtime.overlay.subject_key.removeprefix("skill:")
+    if runtime.overlay.subject_key != f"skill:{name}":
+        raise ValueError("skill overlay subject is invalid")
+    validate_skill_name(name)
+    package = runtime.candidate_payload
+    if package.get("name") != name:
+        raise ValueError("skill overlay package does not match its subject")
+    if package.get("state") == "absent":
+        return name, None
+    members = package.get("members")
+    if not isinstance(members, list):
+        raise ValueError("skill overlay members are invalid")
+    skill_member = next(
+        (
+            member
+            for member in members
+            if isinstance(member, dict)
+            and member.get("path") == "SKILL.md"
+            and member.get("kind") == "file"
+        ),
+        None,
+    )
+    if skill_member is None or not isinstance(skill_member.get("content"), str):
+        raise ValueError("skill overlay has no SKILL.md")
+    post = frontmatter.loads(skill_member["content"])
+    metadata = post.metadata or {}
+    openclaw = metadata.get("metadata", {}).get("openclaw", {})
+    return name, {
+        "name": name,
+        "description": metadata.get("description", ""),
+        "source": "evolution-overlay",
+        "always": openclaw.get("always", False),
+        "tool_tier": openclaw.get("toolTier"),
+        "path": "",
+        "content_length": len(post.content),
+        "content": post.content,
+    }
+
+
 def validate_skill_name(name: str) -> str:
     """Return a canonical ASCII skill identifier or raise ``ValueError``."""
     if not isinstance(name, str) or _SKILL_NAME_RE.fullmatch(name) is None:
@@ -260,6 +311,14 @@ class SkillsLoader:
         if hasattr(self, "_injected_skills"):
             skills.update(self._injected_skills)
 
+        runtime_overlay = _runtime_skill_overlay()
+        if runtime_overlay is not None:
+            runtime_name, runtime_skill = runtime_overlay
+            if runtime_skill is None:
+                skills.pop(runtime_name, None)
+            else:
+                skills[runtime_name] = runtime_skill["content"]
+
         # Filter by allowed names if specified
         if filter_set is not None:
             skills = {k: v for k, v in skills.items() if k in filter_set}
@@ -462,6 +521,9 @@ class SkillsLoader:
     def get_skill(self, name: str) -> dict | None:
         """Return full content + metadata for a single skill."""
         validate_skill_name(name)
+        runtime_overlay = _runtime_skill_overlay()
+        if runtime_overlay is not None and runtime_overlay[0] == name:
+            return runtime_overlay[1]
         # Check injected first
         if hasattr(self, "_injected_skills") and name in self._injected_skills:
             return {
