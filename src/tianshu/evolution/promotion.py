@@ -7,7 +7,6 @@ import json
 import os
 import shutil
 import sqlite3
-import tempfile
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -195,25 +194,36 @@ class SkillPromotionAdapter:
 
     def _apply(self, candidate: EvolutionCandidateV1, *, digest: str) -> None:
         try:
-            raw = self._artifacts.get_bytes(digest)
-            payload = json.loads(raw)
-            if (
-                not isinstance(payload, dict)
-                or canonical_json_bytes(payload) != raw
-                or canonical_sha256(payload) != digest
-            ):
-                raise ValueError("candidate artifact is not canonical")
-            package = self._validator._normalize_domain(payload)  # noqa: SLF001
+            package = self._load_package(digest)
             name = package.get("name")
             if not isinstance(name, str) or candidate.subject_key != f"skill:{name}":
                 raise ValueError("candidate subject does not match skill package")
+            fallback_digest = (
+                candidate.base.artifact_digest
+                if digest == candidate.candidate.artifact_digest
+                else candidate.candidate.artifact_digest
+            )
+            fallback = self._load_package(fallback_digest)
+            if fallback.get("name") != name:
+                raise ValueError("skill fallback subject does not match candidate")
             target = self._live_root / name
             if target.parent != self._live_root or target.name != name:
                 raise ValueError("skill target is not canonical")
             with self._locked():
-                self._replace(target, package, digest=digest)
+                self._replace(target, package, fallback=fallback, digest=digest)
         except (ArtifactStoreError, AdapterError, OSError, TypeError, ValueError):
             raise AdapterError("skill promotion artifact apply failed") from None
+
+    def _load_package(self, digest: str) -> dict[str, object]:
+        raw = self._artifacts.get_bytes(digest)
+        payload = json.loads(raw)
+        if (
+            not isinstance(payload, dict)
+            or canonical_json_bytes(payload) != raw
+            or canonical_sha256(payload) != digest
+        ):
+            raise ValueError("candidate artifact is not canonical")
+        return self._validator._normalize_domain(payload)  # noqa: SLF001
 
     @contextmanager
     def _locked(self):
@@ -231,32 +241,117 @@ class SkillPromotionAdapter:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
 
-    def _replace(self, target: Path, package: dict[str, object], *, digest: str) -> None:
-        backup = self._live_root / f".promotion-backup-{digest}"
+    def _replace(
+        self,
+        target: Path,
+        package: dict[str, object],
+        *,
+        fallback: dict[str, object],
+        digest: str,
+    ) -> None:
+        backup = self._live_root / f".promotion-backup-{target.name}"
+        stage = self._live_root / f".promotion-stage-{target.name}-{digest}"
+        self._reconcile(target, package, fallback=fallback, backup=backup, stage=stage)
         if self._matches(target, package):
-            self._remove_tree(backup)
             return
+        if not self._matches(target, fallback):
+            raise ValueError("live skill does not match the governed fallback")
         state = package.get("state")
         if state == "absent":
             if target.exists() or target.is_symlink():
-                self._remove_tree(backup)
                 os.replace(target, backup)
                 self._remove_tree(backup)
             return
         if state != "present":
             raise ValueError("skill package state is invalid")
-        stage = Path(tempfile.mkdtemp(prefix=".promotion-stage-", dir=self._live_root))
+        stage.mkdir(mode=0o700)
         try:
             self._materialize(stage, package)
             if not self._matches(stage, package):
                 raise ValueError("staged skill package verification failed")
-            if target.exists() or target.is_symlink():
-                self._remove_tree(backup)
-                os.replace(target, backup)
-            os.replace(stage, target)
-            self._remove_tree(backup)
-        finally:
+        except Exception:
             self._remove_tree(stage)
+            raise
+        if target.exists() or target.is_symlink():
+            os.replace(target, backup)
+        try:
+            os.replace(stage, target)
+        except OSError:
+            if backup.exists() or backup.is_symlink():
+                try:
+                    os.replace(backup, target)
+                except OSError:
+                    # Both exact trees are retained for deterministic recovery.
+                    raise
+            raise
+        self._remove_tree(backup)
+
+    def _reconcile(
+        self,
+        target: Path,
+        package: dict[str, object],
+        *,
+        fallback: dict[str, object],
+        backup: Path,
+        stage: Path,
+    ) -> None:
+        stages = tuple(self._live_root.glob(f".promotion-stage-{target.name}-*"))
+        target_present = target.exists() or target.is_symlink()
+        backup_present = backup.exists() or backup.is_symlink()
+
+        if target_present:
+            if not (self._matches(target, package) or self._matches(target, fallback)):
+                raise ValueError("live skill recovery state is not governed")
+            self._remove_tree(backup)
+            for stale in stages:
+                self._remove_tree(stale)
+            return
+
+        if backup_present:
+            backup_is_desired = self._matches(backup, package)
+            backup_is_fallback = self._matches(backup, fallback)
+            if not (backup_is_desired or backup_is_fallback):
+                raise ValueError("skill backup recovery state is not governed")
+            if package.get("state") == "absent":
+                if not backup_is_fallback:
+                    raise ValueError("absent skill recovery is ambiguous")
+                self._remove_tree(backup)
+                for stale in stages:
+                    self._remove_tree(stale)
+                return
+            if self._matches(stage, package):
+                try:
+                    os.replace(stage, target)
+                except OSError:
+                    try:
+                        os.replace(backup, target)
+                    except OSError:
+                        raise
+                    raise
+                self._remove_tree(backup)
+                for stale in stages:
+                    self._remove_tree(stale)
+                return
+            os.replace(backup, target)
+            for stale in stages:
+                self._remove_tree(stale)
+            return
+
+        if package.get("state") == "absent":
+            for stale in stages:
+                self._remove_tree(stale)
+            return
+        if self._matches(stage, package):
+            if fallback.get("state") != "absent":
+                raise ValueError("skill stage has no recoverable fallback")
+            os.replace(stage, target)
+            for stale in stages:
+                self._remove_tree(stale)
+            return
+        for stale in stages:
+            self._remove_tree(stale)
+        if fallback.get("state") != "absent" and package.get("state") != "absent":
+            raise ValueError("governed live skill and recovery backup are missing")
 
     @staticmethod
     def _materialize(stage: Path, package: dict[str, object]) -> None:
@@ -336,13 +431,17 @@ class SkillPromotionAdapter:
 
 class _JournalEntry(_StrictModel):
     schema_version: Literal[1] = 1
+    command_key: str
+    candidate_id: str
     action: Literal["start_canary", "promote", "rollback"]
     status: Literal["intended", "applied", "rollback_pending", "completed"]
+    decision_request_id: str | None
     request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     principal_id: str
     reason: str
     pre_transition_candidate_version: int = Field(ge=1)
     candidate_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    base_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     gate_snapshot_version: int = Field(ge=1)
     gate_report_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     routing_version: int | None = Field(default=None, ge=1)
@@ -369,6 +468,12 @@ def _request_hash(candidate_id: str, action: str, command: _Command) -> str:
 
 def _journal_id(command_key: str, status: str) -> str:
     return hashlib.sha256(f"{command_key}\0{status}".encode()).hexdigest()
+
+
+_JOURNAL_COLUMNS = """
+promotion_journal_id, command_key, candidate_id, candidate_version,
+gate_snapshot_version, action, status, decision_request_id, entry_json, entry_hash
+"""
 
 
 class PromotionService:
@@ -403,6 +508,9 @@ class PromotionService:
                 command_key=command_key,
                 request_hash=request_hash,
                 receipt_type=PromotionReceiptV1,
+                candidate=candidate,
+                action="start_canary",
+                command=command,
             )
             if existing is not None:
                 unit_of_work.commit()
@@ -461,13 +569,17 @@ class PromotionService:
                 completed_at=now,
             )
             entry = _JournalEntry(
+                command_key=command_key,
+                candidate_id=candidate_id,
                 action="start_canary",
                 status="completed",
+                decision_request_id=command.decision_request_id,
                 request_hash=request_hash,
                 principal_id=auth.principal.id,
                 reason=command.reason,
                 pre_transition_candidate_version=candidate.version,
                 candidate_digest=candidate.candidate.artifact_digest,
+                base_digest=candidate.base.artifact_digest,
                 gate_snapshot_version=report.gate_snapshot_version,
                 gate_report_hash=report.report_hash,
                 routing_version=routing.routing_version,
@@ -506,32 +618,53 @@ class PromotionService:
                 command_key=command_key,
                 request_hash=request_hash,
                 receipt_type=PromotionReceiptV1,
+                candidate=candidate,
+                action="promote",
+                command=command,
             )
             if existing is not None:
                 unit_of_work.commit()
                 return existing
             applied_entry = self._load_journal(connection, command_key, "applied")
             if applied_entry is not None:
-                self._require_same_request(applied_entry, request_hash)
+                self._require_command_binding(
+                    applied_entry,
+                    candidate=candidate,
+                    command_key=command_key,
+                    action="promote",
+                    command=command,
+                    request_hash=request_hash,
+                )
             self._require_expected_version(candidate, command.expected_version)
             if candidate.lifecycle is not CandidateLifecycle.CANARY:
                 raise PromotionConflict("promotion_preconditions_not_met")
-            if candidate.kind is CandidateKind.CODE and not command.decision_request_id:
-                raise PromotionConflict("promotion_decision_required")
             start = self._require_start_binding(connection, candidate)
             self._validate_bound_report(connection, candidate, start)
             self._require_routing_matches(connection, candidate, start)
+            if candidate.kind is CandidateKind.CODE:
+                try:
+                    self._repository.require_code_promotion_decision(
+                        connection,
+                        candidate=candidate,
+                        decision_request_id=command.decision_request_id,
+                    )
+                except EvolutionRepositoryConflict as exc:
+                    raise PromotionConflict("promotion_decision_required") from exc
             intended = self._load_journal(connection, command_key, "intended")
             if intended is None:
                 now = self._now()
                 intended = _JournalEntry(
+                    command_key=command_key,
+                    candidate_id=candidate_id,
                     action="promote",
                     status="intended",
+                    decision_request_id=command.decision_request_id,
                     request_hash=request_hash,
                     principal_id=auth.principal.id,
                     reason=command.reason,
                     pre_transition_candidate_version=candidate.version,
                     candidate_digest=candidate.candidate.artifact_digest,
+                    base_digest=candidate.base.artifact_digest,
                     gate_snapshot_version=start.gate_snapshot_version,
                     gate_report_hash=start.gate_report_hash,
                     routing_version=candidate.routing.routing_version
@@ -550,7 +683,14 @@ class PromotionService:
                     now=now,
                 )
             else:
-                self._require_same_request(intended, request_hash)
+                self._require_command_binding(
+                    intended,
+                    candidate=candidate,
+                    command_key=command_key,
+                    action="promote",
+                    command=command,
+                    request_hash=request_hash,
+                )
             unit_of_work.commit()
 
         if applied_entry is None:
@@ -559,7 +699,7 @@ class PromotionService:
             except Exception as exc:
                 raise PromotionConflict("promotion_activation_failed") from exc
         else:
-            effect = self._activation_effect(applied_entry)
+            effect = self._activation_effect(applied_entry, candidate=candidate)
         if (
             effect.candidate_id != candidate_id
             or effect.artifact_digest != candidate.candidate.artifact_digest
@@ -590,6 +730,9 @@ class PromotionService:
                 command_key=command_key,
                 request_hash=request_hash,
                 receipt_type=PromotionReceiptV1,
+                candidate=candidate,
+                action="promote",
+                command=command,
             )
             if existing is not None:
                 unit_of_work.commit()
@@ -677,13 +820,23 @@ class PromotionService:
                 command_key=command_key,
                 request_hash=request_hash,
                 receipt_type=RollbackReceiptV1,
+                candidate=authorized,
+                action="rollback",
+                command=command,
             )
             if existing is not None:
                 unit_of_work.commit()
                 return existing
             applied_entry = self._load_journal(connection, command_key, "applied")
             if applied_entry is not None:
-                self._require_same_request(applied_entry, request_hash)
+                self._require_command_binding(
+                    applied_entry,
+                    candidate=authorized,
+                    command_key=command_key,
+                    action="rollback",
+                    command=command,
+                    request_hash=request_hash,
+                )
             pending_entry = self._load_journal(connection, command_key, "rollback_pending")
             if pending_entry is None:
                 current = authorized
@@ -708,13 +861,17 @@ class PromotionService:
                     expected_version=current.version,
                 )
                 pending_entry = _JournalEntry(
+                    command_key=command_key,
+                    candidate_id=candidate_id,
                     action="rollback",
                     status="rollback_pending",
+                    decision_request_id=command.decision_request_id,
                     request_hash=request_hash,
                     principal_id=auth.principal.id,
                     reason=command.reason,
                     pre_transition_candidate_version=current.version,
                     candidate_digest=current.candidate.artifact_digest,
+                    base_digest=current.base.artifact_digest,
                     gate_snapshot_version=current.gate_snapshot_version,
                     gate_report_hash=self._gate_hash_for_candidate(connection, current),
                     routing_version=routing.routing_version,
@@ -737,7 +894,14 @@ class PromotionService:
                     pending=True,
                 )
             else:
-                self._require_same_request(pending_entry, request_hash)
+                self._require_command_binding(
+                    pending_entry,
+                    candidate=authorized,
+                    command_key=command_key,
+                    action="rollback",
+                    command=command,
+                    request_hash=request_hash,
+                )
                 pending = self._repository.get_candidate(connection, candidate_id)
                 if (
                     pending is None
@@ -756,7 +920,7 @@ class PromotionService:
             except Exception as exc:
                 raise PromotionConflict("rollback_restore_failed") from exc
         else:
-            effect = self._rollback_effect(applied_entry)
+            effect = self._rollback_effect(applied_entry, candidate=pending)
         if (
             effect.candidate_id != candidate_id
             or effect.artifact_digest != pending.base.artifact_digest
@@ -787,6 +951,9 @@ class PromotionService:
                 command_key=command_key,
                 request_hash=request_hash,
                 receipt_type=RollbackReceiptV1,
+                candidate=pending,
+                action="rollback",
+                command=command,
             )
             if existing is not None:
                 unit_of_work.commit()
@@ -977,8 +1144,8 @@ class PromotionService:
         self, connection: sqlite3.Connection, candidate: EvolutionCandidateV1
     ) -> _JournalEntry:
         rows = connection.execute(
-            """SELECT entry_json, entry_hash FROM evolution_promotion_journal
-               WHERE candidate_id=? AND action='start_canary' AND status='completed'""",
+            f"""SELECT {_JOURNAL_COLUMNS} FROM evolution_promotion_journal
+                WHERE candidate_id=? AND action='start_canary' AND status='completed'""",
             (candidate.candidate_id,),
         ).fetchall()
         if len(rows) != 1:
@@ -986,8 +1153,11 @@ class PromotionService:
         entry = self._decode_entry(rows[0])
         if (
             entry.action != "start_canary"
+            or entry.status != "completed"
+            or entry.candidate_id != candidate.candidate_id
             or entry.pre_transition_candidate_version + 1 != candidate.version
             or entry.candidate_digest != candidate.candidate.artifact_digest
+            or entry.base_digest != candidate.base.artifact_digest
             or entry.gate_snapshot_version != candidate.gate_snapshot_version
         ):
             raise PromotionConflict("gate_snapshot_conflict")
@@ -1037,6 +1207,12 @@ class PromotionService:
         entry: _JournalEntry,
         now: datetime,
     ) -> None:
+        if (
+            entry.command_key != command_key
+            or entry.candidate_id != candidate.candidate_id
+            or entry.decision_request_id != decision_request_id
+        ):
+            raise PromotionConflict("promotion_journal_conflict")
         entry_json = canonical_json_bytes(entry).decode("utf-8")
         try:
             connection.execute(
@@ -1046,14 +1222,14 @@ class PromotionService:
                        decision_request_id, entry_json, entry_hash, created_at
                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    _journal_id(command_key, entry.status),
-                    command_key,
-                    candidate.candidate_id,
+                    _journal_id(entry.command_key, entry.status),
+                    entry.command_key,
+                    entry.candidate_id,
                     entry.pre_transition_candidate_version,
                     entry.gate_snapshot_version,
                     entry.action,
                     entry.status,
-                    decision_request_id,
+                    entry.decision_request_id,
                     entry_json,
                     hashlib.sha256(entry_json.encode()).hexdigest(),
                     now.isoformat(),
@@ -1066,8 +1242,8 @@ class PromotionService:
         self, connection: sqlite3.Connection, command_key: str, status: str
     ) -> _JournalEntry | None:
         row = connection.execute(
-            """SELECT entry_json, entry_hash FROM evolution_promotion_journal
-               WHERE command_key=? AND status=?""",
+            f"""SELECT {_JOURNAL_COLUMNS} FROM evolution_promotion_journal
+                WHERE command_key=? AND status=?""",
             (command_key, status),
         ).fetchone()
         return self._decode_entry(row) if row is not None else None
@@ -1086,12 +1262,53 @@ class PromotionService:
             raise PromotionConflict("promotion_journal_conflict") from exc
         if canonical_json_bytes(entry).decode("utf-8") != raw:
             raise PromotionConflict("promotion_journal_conflict")
+        valid_statuses = {
+            "start_canary": {"completed"},
+            "promote": {"intended", "applied", "completed"},
+            "rollback": {"rollback_pending", "applied", "completed"},
+        }
+        if (
+            row["promotion_journal_id"] != _journal_id(entry.command_key, entry.status)
+            or row["command_key"] != entry.command_key
+            or row["candidate_id"] != entry.candidate_id
+            or row["candidate_version"] != entry.pre_transition_candidate_version
+            or row["gate_snapshot_version"] != entry.gate_snapshot_version
+            or row["action"] != entry.action
+            or row["status"] != entry.status
+            or row["decision_request_id"] != entry.decision_request_id
+            or entry.status not in valid_statuses[entry.action]
+            or ((entry.status in {"applied", "completed"}) != (entry.receipt is not None))
+        ):
+            raise PromotionConflict("promotion_journal_conflict")
         return entry
 
     @staticmethod
     def _require_same_request(entry: _JournalEntry, request_hash: str) -> None:
         if entry.request_hash != request_hash:
             raise PromotionConflict("idempotency_conflict")
+
+    @classmethod
+    def _require_command_binding(
+        cls,
+        entry: _JournalEntry,
+        *,
+        candidate: EvolutionCandidateV1,
+        command_key: str,
+        action: Literal["start_canary", "promote", "rollback"],
+        command: StartCanaryCommand | PromoteCommand | RollbackCommand,
+        request_hash: str,
+    ) -> None:
+        cls._require_same_request(entry, request_hash)
+        if (
+            entry.command_key != command_key
+            or entry.candidate_id != candidate.candidate_id
+            or entry.action != action
+            or entry.decision_request_id != command.decision_request_id
+            or entry.pre_transition_candidate_version != command.expected_version
+            or entry.candidate_digest != candidate.candidate.artifact_digest
+            or entry.base_digest != candidate.base.artifact_digest
+        ):
+            raise PromotionConflict("promotion_journal_conflict")
 
     def _completed_receipt(
         self,
@@ -1100,35 +1317,99 @@ class PromotionService:
         command_key: str,
         request_hash: str,
         receipt_type: type[PromotionReceiptV1] | type[RollbackReceiptV1],
+        candidate: EvolutionCandidateV1,
+        action: Literal["start_canary", "promote", "rollback"],
+        command: StartCanaryCommand | PromoteCommand | RollbackCommand,
     ) -> PromotionReceiptV1 | RollbackReceiptV1 | None:
         entry = self._load_journal(connection, command_key, "completed")
         if entry is None:
             return None
-        self._require_same_request(entry, request_hash)
-        if entry.receipt is None:
+        self._require_command_binding(
+            entry,
+            candidate=candidate,
+            command_key=command_key,
+            action=action,
+            command=command,
+            request_hash=request_hash,
+        )
+        if entry.status != "completed" or entry.receipt is None:
             raise PromotionConflict("promotion_journal_conflict")
         try:
-            return receipt_type.model_validate_json(json.dumps(entry.receipt))
+            receipt = receipt_type.model_validate_json(json.dumps(entry.receipt))
         except ValidationError as exc:
             raise PromotionConflict("promotion_journal_conflict") from exc
+        common_invalid = (
+            receipt.journal_id != _journal_id(command_key, "completed")
+            or receipt.candidate_id != candidate.candidate_id
+            or receipt.idempotency_key != command.idempotency_key
+        )
+        if isinstance(receipt, PromotionReceiptV1):
+            effect_digest = candidate.candidate.artifact_digest if action == "promote" else None
+            invalid = (
+                common_invalid
+                or receipt.action != action
+                or receipt.candidate_version != command.expected_version + 1
+                or receipt.gate_snapshot_version != entry.gate_snapshot_version
+                or receipt.gate_report_hash != entry.gate_report_hash
+                or receipt.routing_version != entry.routing_version
+                or receipt.allocation_basis_points != entry.allocation_basis_points
+                or receipt.effect_artifact_digest != effect_digest
+                or (action == "start_canary" and receipt.lifecycle is not CandidateLifecycle.CANARY)
+                or (action == "promote" and receipt.lifecycle is not CandidateLifecycle.PROMOTED)
+            )
+        else:
+            invalid = (
+                common_invalid
+                or action != "rollback"
+                or receipt.candidate_version != command.expected_version + 2
+                or receipt.lifecycle is not CandidateLifecycle.ROLLED_BACK
+                or receipt.routing_version != entry.routing_version
+                or receipt.allocation_basis_points != 0
+                or receipt.effect_artifact_digest != entry.base_digest
+            )
+        if invalid:
+            raise PromotionConflict("promotion_journal_conflict")
+        return receipt
 
     @staticmethod
-    def _activation_effect(entry: _JournalEntry) -> ActivationReceiptV1:
+    def _activation_effect(
+        entry: _JournalEntry, *, candidate: EvolutionCandidateV1
+    ) -> ActivationReceiptV1:
         if entry.receipt is None:
             raise PromotionConflict("promotion_journal_conflict")
         try:
-            return ActivationReceiptV1.model_validate_json(json.dumps(entry.receipt))
+            receipt = ActivationReceiptV1.model_validate_json(json.dumps(entry.receipt))
         except ValidationError as exc:
             raise PromotionConflict("promotion_journal_conflict") from exc
+        if (
+            entry.action != "promote"
+            or entry.status != "applied"
+            or entry.candidate_id != candidate.candidate_id
+            or receipt.candidate_id != entry.candidate_id
+            or receipt.artifact_digest != entry.candidate_digest
+        ):
+            raise PromotionConflict("promotion_journal_conflict")
+        return receipt
 
     @staticmethod
-    def _rollback_effect(entry: _JournalEntry) -> AdapterRollbackReceiptV1:
+    def _rollback_effect(
+        entry: _JournalEntry, *, candidate: EvolutionCandidateV1
+    ) -> AdapterRollbackReceiptV1:
         if entry.receipt is None:
             raise PromotionConflict("promotion_journal_conflict")
         try:
-            return AdapterRollbackReceiptV1.model_validate_json(json.dumps(entry.receipt))
+            receipt = AdapterRollbackReceiptV1.model_validate_json(json.dumps(entry.receipt))
         except ValidationError as exc:
             raise PromotionConflict("promotion_journal_conflict") from exc
+        if (
+            entry.action != "rollback"
+            or entry.status != "applied"
+            or entry.candidate_id != candidate.candidate_id
+            or receipt.candidate_id != entry.candidate_id
+            or receipt.artifact_digest != entry.base_digest
+        ):
+            raise PromotionConflict("promotion_journal_conflict")
+        return receipt
 
     def _record(
         self,

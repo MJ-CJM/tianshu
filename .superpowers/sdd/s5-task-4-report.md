@@ -100,3 +100,108 @@ The four pytest warnings are existing third-party deprecations from `lark_oapi` 
 - Task 4 persists governed allocation policy; request-time challenger routing remains
   outside this task.
 - No dependency or lockfile was changed, and no unrelated cleanup was performed.
+
+## Review remediation
+
+The Changes-required review identified two Important and two Minor gaps. All four were
+reproduced before production changes and remediated without adding Task 5 behavior.
+
+### Durable CODE Decision preflight
+
+The root cause was ordering: the repository validated the Decision only during the
+final `CANARY -> PROMOTED` save, after the intended journal and adapter effect. The
+repository now exposes its existing exact connection-level validation as
+`require_code_promotion_decision()`. `PromotionService` invokes it in the first unit of
+work after candidate/Gate/routing validation and before an intended journal row or any
+adapter call. The final repository save still runs the same validation a second time.
+
+The preflight requires a real Decision row that is resolved with `approve`, is a
+`GOVERNED_APPLY`, and is bound to the exact current candidate ID, version, candidate
+digest, Gate snapshot version, `promote` action, and `high` risk. Nonexistent, pending,
+rejected, wrong-version, wrong-digest, and wrong-snapshot Decisions all return the
+stable `promotion_decision_required`; the candidate remains `CANARY`, activate is not
+called, and no promote intended/applied journal exists.
+
+### Crash-atomic Skill replacement
+
+The root cause was the filesystem state sequence: after `target -> backup`, a failed
+`stage -> target` fell through a `finally` that deleted the only staged new tree and
+never restored the old target.
+
+Replacement now uses one deterministic backup per skill and one deterministic stage
+per skill/candidate digest under the existing process lock. Before every apply,
+including after constructing a new adapter after a simulated restart, reconciliation
+validates every canonical target/backup/stage against the exact artifact-backed old or
+new package. It then performs only a deterministic finish, restore, or cleanup:
+
+- a failed second rename immediately attempts `backup -> target`;
+- if compensation also fails, the exact backup and exact stage are both retained and
+  the target stays fail-closed until the next locked reconciliation;
+- cleanup failure can leave a deterministic remnant, but the canonical target remains
+  an exact old or new tree;
+- retry/reopen clears the remnant without rewriting an already exact target, preserving
+  the idempotent inode contract;
+- unknown, corrupt, mismatched, or symlink recovery state is never installed or
+  silently deleted.
+
+### Journal and receipt binding
+
+Promotion journal entries now carry command key, candidate ID, Decision ID, candidate
+digest, and base digest. Reads select the durable journal ID, command key, candidate
+ID/version, Gate snapshot, action, status, Decision ID, JSON, and hash together. Decode
+requires canonical JSON and exact equality between every relational column and entry,
+including deterministic journal ID and valid action/status/receipt combinations.
+
+Command replay also binds the entry to the current candidate, exact request hash,
+expected pre-transition version, action, Decision, and both digests. Applied receipts
+must match the action-specific candidate/effect digest. Completed receipts additionally
+must match deterministic journal ID, candidate, action, idempotency key, expected final
+version/lifecycle, Gate/routing values, and effect digest. Valid-hash receipt tampering
+and relational cross-binding now fail with the stable `promotion_journal_conflict`.
+
+### Lifecycle authority architecture gate
+
+The architecture suite now uses AST analysis rather than string presence. It follows
+local aliases for governed lifecycle values and update dictionaries, detects direct or
+aliased `model_copy(update=...)`, constructor lifecycle writes, and direct attribute
+writes, and scans raw candidate lifecycle SQL persistence. A synthetic aliased
+`model_copy + save_candidate` bypass proves the scanner catches the pattern. Production
+write sites are limited to the three `PromotionService` methods; the only raw durable
+primitive remains `EvolutionRepository` (migrations are excluded from application
+authority).
+
+### Remediation RED/GREEN evidence
+
+- CODE Decision RED:
+  `pytest ... -k durably_preflighted` -> `6 failed, 13 deselected`; invalid Decisions
+  either reached activate or produced a foreign-key journal conflict.
+- CODE Decision GREEN: `pytest ... -k code_` -> `8 passed, 20 deselected`.
+- Skill fault RED:
+  `pytest ... -k 'skill_second_rename or skill_failed_restore or skill_cleanup_failure'`
+  -> `2 failed, 1 passed, 19 deselected`; the old target disappeared and the recovery
+  stage was deleted.
+- Skill fault GREEN: real adapter, rename failure, compensation failure, cleanup
+  failure, reopen/retry, absent restore idempotency, and golden app tests -> `6 passed,
+  23 deselected`.
+- Journal RED: receipt tamper and row cross-binding command ->
+  `6 failed, 22 deselected`; all corruptions were accepted.
+- Journal/service GREEN: the final promotion service suite passed `29 passed, 4
+  warnings`.
+- Architecture alias RED: `1 failed, 5 deselected`; the old direct-only scanner returned
+  no site for an aliased bypass.
+- Architecture GREEN: `7 passed, 4 warnings`.
+- Final promotion plus architecture rerun after formatting: `36 passed, 4 warnings in
+  4.84s`.
+
+### Remediation verification
+
+- Required promotion/architecture plus affected Gate and universe suites:
+  `106 passed, 4 warnings in 13.03s`.
+- Adjacent candidate adapter, skill-install, evolution gateway, and Evolver suites:
+  `153 passed, 4 warnings in 6.06s`.
+- Ruff: all checks passed for the four remediation files.
+- Ruff format: all four remediation files already formatted.
+- Mypy: `Success: no issues found in 130 source files`.
+- Import-linter: 477 files / 1711 dependencies; 2 contracts kept, 0 broken.
+- `git diff --check`: clean.
+- `uv.lock`: zero diff from the pre-remediation Task 4 commit.

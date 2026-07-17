@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -8,9 +9,10 @@ import pytest
 from pydantic import ValidationError
 from tests.evidence._fixtures import seed_closed_run
 
+import tianshu.evolution.promotion as promotion_module
 from tianshu.app import create_app, lifespan
 from tianshu.evidence.service import ArtifactStore
-from tianshu.evolution.adapters.base import ActivationReceiptV1
+from tianshu.evolution.adapters.base import ActivationReceiptV1, AdapterError
 from tianshu.evolution.adapters.base import RollbackReceiptV1 as AdapterRollbackReceiptV1
 from tianshu.evolution.gates import (
     REQUIRED_GATES,
@@ -347,6 +349,143 @@ def _start_command(
     )
 
 
+def _add_code_decision(
+    storage: Storage,
+    candidate: EvolutionCandidateV1,
+    auth: AuthContext,
+    *,
+    decision_id: str,
+    payload_updates: dict[str, object] | None = None,
+    resolution_action: str | None = "approve",
+) -> None:
+    with storage.unit_of_work() as unit_of_work:
+        connection = unit_of_work.connection
+        edict_id = f"edict-{decision_id}"
+        memorial_id = f"memorial-{decision_id}"
+        connection.execute(
+            "INSERT INTO edicts (id, goal, created_at) VALUES (?, ?, ?)",
+            (edict_id, "review promotion", NOW.isoformat()),
+        )
+        connection.execute(
+            "INSERT INTO memorials (id, edict_id, status, created_at) VALUES (?, ?, ?, ?)",
+            (memorial_id, edict_id, "submitted", NOW.isoformat()),
+        )
+        payload = {
+            "schema_version": 1,
+            "candidate_id": candidate.candidate_id,
+            "candidate_version": candidate.version,
+            "candidate_artifact_digest": candidate.candidate.artifact_digest,
+            "gate_snapshot_version": candidate.gate_snapshot_version,
+            "action": "promote",
+            "risk_tier": "high",
+        }
+        payload.update(payload_updates or {})
+        request = DecisionRequestV1(
+            decision_request_id=decision_id,
+            kind=DecisionKind.GOVERNED_APPLY,
+            edict_id=edict_id,
+            memorial_id=memorial_id,
+            request_key=f"request-{decision_id}",
+            payload=payload,
+            payload_hash=canonical_sha256(payload),
+            requested_by=auth.principal.id,
+            expires_at=NOW + timedelta(hours=1),
+            status=DecisionStatus.PENDING,
+            version=1,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+        decisions = DecisionRepository()
+        decisions.add_or_get(connection, request)
+        if resolution_action is not None:
+            decisions.resolve(
+                connection,
+                DecisionResolutionV1(
+                    decision_request_id=decision_id,
+                    action=resolution_action,
+                    reason="reviewed high risk code",
+                    payload={"schema_version": 1},
+                    actor_principal_id="reviewer-1",
+                    actor_display_name="Reviewer",
+                    resolved_at=NOW + timedelta(minutes=1),
+                ),
+                expected_version=1,
+                now=NOW + timedelta(minutes=1),
+            )
+        unit_of_work.commit()
+
+
+def _skill_adapter_case(
+    storage: Storage, tmp_path: Path
+) -> tuple[ArtifactStore, Path, Path, EvolutionCandidateV1, str, str]:
+    artifacts = ArtifactStore(
+        tmp_path / "artifacts",
+        storage.artifact_repo,
+        storage.unit_of_work,
+        max_object_bytes=1024 * 1024,
+        max_total_bytes=4 * 1024 * 1024,
+        clock=lambda: NOW,
+    )
+    live_root = tmp_path / "skills"
+    skill_root = live_root / "review-helper"
+    skill_root.mkdir(parents=True)
+    base_text = "---\nname: review-helper\ndescription: safe base\n---\nbase body"
+    candidate_text = "---\nname: review-helper\ndescription: safe candidate\n---\ncandidate body"
+    (skill_root / "SKILL.md").write_text(base_text, encoding="utf-8")
+    base_payload = {
+        "name": "review-helper",
+        "state": "present",
+        "trust_source": "workspace",
+        "members": [{"path": "SKILL.md", "kind": "file", "content": base_text}],
+    }
+    candidate_payload = {
+        "name": "review-helper",
+        "state": "present",
+        "trust_source": "workspace",
+        "members": [{"path": "SKILL.md", "kind": "file", "content": candidate_text}],
+    }
+    base_artifact = artifacts.put_bytes(
+        canonical_json_bytes(base_payload),
+        media_type="application/vnd.tianshu.evolution.skill+json",
+        redaction="governed_candidate",
+    )
+    candidate_artifact = artifacts.put_bytes(
+        canonical_json_bytes(candidate_payload),
+        media_type="application/vnd.tianshu.evolution.skill+json",
+        redaction="governed_candidate",
+    )
+    envelope = _candidate(CandidateKind.SKILL)
+    skill_contract = envelope.evolution_contract.model_copy(
+        update={"subject_key": "skill:review-helper"}
+    )
+    base_ref = CandidateVersionRefV1(
+        version="1",
+        artifact_digest=base_artifact.digest,
+        canonical_digest=canonical_sha256(base_payload),
+    )
+    candidate_ref = CandidateVersionRefV1(
+        version="2",
+        artifact_digest=candidate_artifact.digest,
+        canonical_digest=canonical_sha256(candidate_payload),
+    )
+    envelope = envelope.model_copy(
+        update={
+            "subject_key": "skill:review-helper",
+            "base": base_ref,
+            "candidate": candidate_ref,
+            "evolution_contract": skill_contract,
+            "evolution_contract_hash": canonical_sha256(skill_contract),
+            "rollback": envelope.rollback.model_copy(update={"champion_ref": base_ref}),
+            "lifecycle": CandidateLifecycle.CANARY,
+        }
+    )
+    return artifacts, live_root, skill_root, envelope, base_text, candidate_text
+
+
+def _promotion_remnants(live_root: Path) -> tuple[str, ...]:
+    return tuple(sorted(path.name for path in live_root.glob(".promotion-*")))
+
+
 def test_candidate_owner_authorization_precedes_every_mutation_and_idempotent_replay(
     storage: Storage, auth: AuthContext
 ) -> None:
@@ -581,6 +720,66 @@ def test_code_never_promotes_without_explicit_current_decision(
     assert adapter.activate_calls == 0
 
 
+@pytest.mark.parametrize(
+    ("case", "payload_updates", "resolution_action"),
+    (
+        ("nonexistent", None, None),
+        ("pending", None, None),
+        ("rejected", None, "reject"),
+        ("wrong-version", {"candidate_version": 999}, "approve"),
+        ("wrong-digest", {"candidate_artifact_digest": DIGEST_C}, "approve"),
+        ("wrong-snapshot", {"gate_snapshot_version": 999}, "approve"),
+    ),
+)
+def test_code_decision_is_durably_preflighted_before_journal_or_effect(
+    storage: Storage,
+    auth: AuthContext,
+    case: str,
+    payload_updates: dict[str, object] | None,
+    resolution_action: str | None,
+) -> None:
+    candidate = _ready(storage, CandidateKind.CODE)
+    service, _gates, adapter = _service(storage, candidate)
+    canary = service.start_canary(candidate.candidate_id, _start_command(candidate), auth=auth)
+    decision_id = f"decision-{case}"
+    if case != "nonexistent":
+        current = candidate.model_copy(
+            update={"version": canary.candidate_version, "lifecycle": CandidateLifecycle.CANARY}
+        )
+        _add_code_decision(
+            storage,
+            current,
+            auth,
+            decision_id=decision_id,
+            payload_updates=payload_updates,
+            resolution_action=resolution_action,
+        )
+
+    with pytest.raises(PromotionConflict, match="^promotion_decision_required$"):
+        service.promote(
+            candidate.candidate_id,
+            PromoteCommand(
+                expected_version=canary.candidate_version,
+                idempotency_key=f"promote-{case}",
+                reason="reviewed code candidate",
+                decision_request_id=decision_id,
+            ),
+            auth=auth,
+        )
+
+    with storage.unit_of_work() as unit_of_work:
+        current = EvolutionRepository().get_candidate(
+            unit_of_work.connection, candidate.candidate_id
+        )
+        promote_journal_count = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM evolution_promotion_journal WHERE action='promote'"
+        ).fetchone()[0]
+        unit_of_work.commit()
+    assert current is not None and current.lifecycle is CandidateLifecycle.CANARY
+    assert adapter.activate_calls == 0
+    assert promote_journal_count == 0
+
+
 def test_code_promotes_with_current_resolved_high_risk_decision(
     storage: Storage, auth: AuthContext
 ) -> None:
@@ -693,6 +892,76 @@ def test_rollback_zeroes_allocation_before_restore_and_retries_from_pending(
     assert adapter.rollback_calls == 2
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("journal_id", "f" * 64),
+        ("candidate_id", "cross-bound-candidate"),
+        ("action", "start_canary"),
+        ("idempotency_key", "different-key"),
+        ("effect_artifact_digest", DIGEST_C),
+    ),
+)
+def test_completed_receipt_tamper_is_rejected_as_journal_conflict(
+    storage: Storage,
+    auth: AuthContext,
+    field: str,
+    value: str,
+) -> None:
+    candidate = _ready(storage)
+    service, _gates, _adapter = _service(storage, candidate)
+    canary = service.start_canary(candidate.candidate_id, _start_command(candidate), auth=auth)
+    command = PromoteCommand(
+        expected_version=canary.candidate_version,
+        idempotency_key="tamper-promote",
+        reason="reviewed canary",
+    )
+    service.promote(candidate.candidate_id, command, auth=auth)
+    with storage.unit_of_work() as unit_of_work:
+        connection = unit_of_work.connection
+        connection.execute("DROP TRIGGER evolution_promotion_journal_no_update")
+        row = connection.execute(
+            """SELECT promotion_journal_id, entry_json
+               FROM evolution_promotion_journal
+               WHERE candidate_id=? AND action='promote' AND status='completed'""",
+            (candidate.candidate_id,),
+        ).fetchone()
+        payload = json.loads(row["entry_json"])
+        payload["receipt"][field] = value
+        tampered = canonical_json_bytes(payload).decode("utf-8")
+        connection.execute(
+            """UPDATE evolution_promotion_journal
+               SET entry_json=?, entry_hash=? WHERE promotion_journal_id=?""",
+            (tampered, sha256(tampered.encode()).hexdigest(), row["promotion_journal_id"]),
+        )
+        unit_of_work.commit()
+
+    with pytest.raises(PromotionConflict, match="^promotion_journal_conflict$"):
+        service.promote(candidate.candidate_id, command, auth=auth)
+
+
+def test_journal_row_cross_binding_is_rejected_even_when_entry_hash_is_valid(
+    storage: Storage, auth: AuthContext
+) -> None:
+    candidate = _ready(storage)
+    other = _ready(storage, candidate_id="candidate-memory-cross-bind")
+    service, _gates, _adapter = _service(storage, candidate)
+    command = _start_command(candidate, key="cross-bind-start")
+    service.start_canary(candidate.candidate_id, command, auth=auth)
+    with storage.unit_of_work() as unit_of_work:
+        connection = unit_of_work.connection
+        connection.execute("DROP TRIGGER evolution_promotion_journal_no_update")
+        connection.execute(
+            """UPDATE evolution_promotion_journal SET candidate_id=?
+               WHERE candidate_id=? AND action='start_canary' AND status='completed'""",
+            (other.candidate_id, candidate.candidate_id),
+        )
+        unit_of_work.commit()
+
+    with pytest.raises(PromotionConflict, match="^promotion_journal_conflict$"):
+        service.start_canary(candidate.candidate_id, command, auth=auth)
+
+
 def test_real_skill_adapter_applies_and_restores_exact_artifacts(
     storage: Storage, tmp_path: Path
 ) -> None:
@@ -775,6 +1044,138 @@ def test_real_skill_adapter_applies_and_restores_exact_artifacts(
     assert restore == repeated_restore
     assert (skill_root / "SKILL.md").stat().st_ino == restored_inode
     assert (skill_root / "SKILL.md").read_text(encoding="utf-8") == base_text
+
+
+def test_skill_second_rename_failure_restores_old_tree_before_return_and_retries(
+    storage: Storage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts, live_root, skill_root, envelope, base_text, candidate_text = _skill_adapter_case(
+        storage, tmp_path
+    )
+    adapter = SkillPromotionAdapter(artifacts, live_root=live_root)
+    original_replace = promotion_module.os.replace
+    calls = 0
+
+    def fail_second_replace(source: Path | str, target: Path | str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected second rename failure")
+        original_replace(source, target)
+
+    monkeypatch.setattr(promotion_module.os, "replace", fail_second_replace)
+    with pytest.raises(AdapterError, match="skill promotion artifact apply failed"):
+        adapter.activate(envelope)
+    assert (skill_root / "SKILL.md").read_text(encoding="utf-8") == base_text
+
+    monkeypatch.undo()
+    reopened = SkillPromotionAdapter(artifacts, live_root=live_root)
+    reopened.activate(envelope)
+    assert (skill_root / "SKILL.md").read_text(encoding="utf-8") == candidate_text
+    assert _promotion_remnants(live_root) == ()
+
+
+def test_skill_failed_restore_keeps_deterministic_recovery_state_for_reopen(
+    storage: Storage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts, live_root, skill_root, envelope, _base_text, candidate_text = _skill_adapter_case(
+        storage, tmp_path
+    )
+    adapter = SkillPromotionAdapter(artifacts, live_root=live_root)
+    original_replace = promotion_module.os.replace
+    calls = 0
+
+    def fail_install_and_restore(source: Path | str, target: Path | str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls in {2, 3}:
+            raise OSError("injected rename failure")
+        original_replace(source, target)
+
+    monkeypatch.setattr(promotion_module.os, "replace", fail_install_and_restore)
+    with pytest.raises(AdapterError, match="skill promotion artifact apply failed"):
+        adapter.activate(envelope)
+    assert not skill_root.exists()
+    remnants = _promotion_remnants(live_root)
+    assert len([name for name in remnants if "backup" in name]) == 1
+    assert len([name for name in remnants if "stage" in name]) == 1
+
+    monkeypatch.undo()
+    reopened = SkillPromotionAdapter(artifacts, live_root=live_root)
+    reopened.activate(envelope)
+    assert (skill_root / "SKILL.md").read_text(encoding="utf-8") == candidate_text
+    assert _promotion_remnants(live_root) == ()
+
+
+def test_skill_cleanup_failure_keeps_complete_new_tree_and_retry_preserves_inode(
+    storage: Storage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts, live_root, skill_root, envelope, _base_text, candidate_text = _skill_adapter_case(
+        storage, tmp_path
+    )
+    adapter = SkillPromotionAdapter(artifacts, live_root=live_root)
+    original_rmtree = promotion_module.shutil.rmtree
+    failed = False
+
+    def fail_backup_cleanup(path: Path | str, *args: object, **kwargs: object) -> None:
+        nonlocal failed
+        if not failed and "promotion-backup" in Path(path).name:
+            failed = True
+            raise OSError("injected backup cleanup failure")
+        original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(promotion_module.shutil, "rmtree", fail_backup_cleanup)
+    with pytest.raises(AdapterError, match="skill promotion artifact apply failed"):
+        adapter.activate(envelope)
+    assert (skill_root / "SKILL.md").read_text(encoding="utf-8") == candidate_text
+    activated_inode = (skill_root / "SKILL.md").stat().st_ino
+    assert any("backup" in name for name in _promotion_remnants(live_root))
+
+    monkeypatch.undo()
+    reopened = SkillPromotionAdapter(artifacts, live_root=live_root)
+    reopened.activate(envelope)
+    assert (skill_root / "SKILL.md").stat().st_ino == activated_inode
+    assert _promotion_remnants(live_root) == ()
+
+
+def test_skill_absent_restore_is_idempotent_after_recovery_state_is_clean(
+    storage: Storage, tmp_path: Path
+) -> None:
+    artifacts, live_root, skill_root, envelope, _base_text, _candidate_text = _skill_adapter_case(
+        storage, tmp_path
+    )
+    promotion_module.shutil.rmtree(skill_root)
+    absent_payload = {
+        "name": "review-helper",
+        "state": "absent",
+        "trust_source": "workspace",
+        "members": [],
+    }
+    absent_artifact = artifacts.put_bytes(
+        canonical_json_bytes(absent_payload),
+        media_type="application/vnd.tianshu.evolution.skill+json",
+        redaction="governed_candidate",
+    )
+    absent_ref = CandidateVersionRefV1(
+        version="absent",
+        artifact_digest=absent_artifact.digest,
+        canonical_digest=canonical_sha256(absent_payload),
+    )
+    envelope = envelope.model_copy(
+        update={
+            "base": absent_ref,
+            "rollback": envelope.rollback.model_copy(update={"champion_ref": absent_ref}),
+        }
+    )
+    adapter = SkillPromotionAdapter(artifacts, live_root=live_root)
+    adapter.activate(envelope)
+    rollback = envelope.model_copy(update={"lifecycle": CandidateLifecycle.ROLLBACK_PENDING})
+    first = adapter.rollback(rollback)
+    second = adapter.rollback(rollback)
+
+    assert first == second
+    assert not skill_root.exists()
+    assert _promotion_remnants(live_root) == ()
 
 
 def test_promote_retry_after_final_outbox_failure_reuses_applied_receipt(

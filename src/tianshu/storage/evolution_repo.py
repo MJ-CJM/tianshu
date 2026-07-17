@@ -229,6 +229,23 @@ def _require_immutable_core(current: EvolutionCandidateV1, candidate: EvolutionC
 class EvolutionRepository:
     """Stateless primitives whose caller owns the SQLite transaction."""
 
+    def require_code_promotion_decision(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        candidate: EvolutionCandidateV1,
+        decision_request_id: str | None,
+    ) -> None:
+        """Preflight an exact, resolved high-risk code promotion Decision."""
+
+        if candidate.kind is not CandidateKind.CODE:
+            raise ValueError("code promotion Decision validation requires a code candidate")
+        _require_high_risk_code_promotion_decision(
+            connection,
+            candidate=candidate,
+            decision_request_id=decision_request_id,
+        )
+
     def get_candidate(
         self, connection: sqlite3.Connection, candidate_id: str
     ) -> EvolutionCandidateV1 | None:
@@ -315,7 +332,7 @@ class EvolutionRepository:
                 candidate.kind is CandidateKind.CODE
                 and candidate.lifecycle is CandidateLifecycle.PROMOTED
             ):
-                _require_high_risk_code_promotion_decision(
+                self.require_code_promotion_decision(
                     connection,
                     candidate=current,
                     decision_request_id=high_risk_decision_request_id,
