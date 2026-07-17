@@ -1,7 +1,7 @@
 import { theme } from "antd";
 import type { ThemeConfig } from "antd";
 import type { ThemeMode } from "../hooks/useTheme";
-import { palettes, presetSeeds } from "./palette";
+import { darkPresetSeeds, palettes, presetSeeds } from "./palette";
 
 // 字体一律走本地：不引入 Google Fonts 等外部 CDN(离线 wheel/容器必须可用)。
 // Noto/JetBrains 若本机已装则优先，否则降级到各平台的系统中文字体栈。
@@ -40,6 +40,7 @@ function buildTheme(mode: ThemeMode): ThemeConfig {
     algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
     token: {
       ...sharedToken,
+      ...(dark ? darkPresetSeeds : {}),
       // 主色 = 墨(浅)/ 米白(深):按钮保持无彩度,朱砂不做普通按钮色
       colorPrimary: p.text,
       colorBgBase: p.bgPage,

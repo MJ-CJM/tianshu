@@ -26,8 +26,14 @@ body {
 
 /* 键盘可达性:focus 环用朱砂,仅键盘聚焦时出现 */
 :focus-visible {
-  outline: 2px solid var(--ts-color-focus-ring);
-  outline-offset: 1px;
+  outline: 2px solid var(--ts-color-focus-ring) !important;
+  outline-offset: 1px !important;
+}
+
+/* Segmented 的原生 radio 位于视觉标签内且自身不可见，焦点环须落在标签上。 */
+.ant-segmented-item:has(.ant-segmented-item-input:focus-visible) {
+  outline: 2px solid var(--ts-color-focus-ring) !important;
+  outline-offset: 1px !important;
 }
 
 /* ── 侧栏:选中项左侧一道朱杠(奏折眉批) ── */

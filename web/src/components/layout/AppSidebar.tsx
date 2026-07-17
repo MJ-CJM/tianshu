@@ -41,7 +41,13 @@ export default function AppSidebar() {
           selectedKeys={[location.pathname]}
           items={buildSidebarItems(t, reviewCount)}
           onClick={({ key }) => navigate(key)}
-          style={{ flex: 1, paddingTop: 12, borderRight: "none" }}
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            paddingTop: 12,
+            borderRight: "none",
+          }}
         />
 
         <div

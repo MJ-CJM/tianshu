@@ -432,14 +432,18 @@ class EvidenceService:
                 continue
             reason = redact_text(str(row["reason"]))
             evidence.append(
-                DecisionEvidenceV1(
-                    decision_request_id=row["decision_request_id"],
-                    kind=row["kind"],
-                    action=row["action"],
-                    actor_principal_id=row["actor_principal_id"],
-                    reason=reason,
-                    payload_hash=row["payload_hash"],
-                    resolved_at=row["resolved_at"],
+                DecisionEvidenceV1.model_validate_json(
+                    json.dumps(
+                        {
+                            "decision_request_id": row["decision_request_id"],
+                            "kind": row["kind"],
+                            "action": row["action"],
+                            "actor_principal_id": row["actor_principal_id"],
+                            "reason": reason,
+                            "payload_hash": row["payload_hash"],
+                            "resolved_at": row["resolved_at"],
+                        }
+                    )
                 )
             )
         return required, tuple(evidence)

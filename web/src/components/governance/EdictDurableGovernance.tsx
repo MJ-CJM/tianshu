@@ -19,6 +19,7 @@ import DecisionPanel, {
 import GovernanceContractCard, {
   type GovernanceCapabilityView,
 } from "./GovernanceContractCard";
+import styles from "./EdictDurableGovernance.module.css";
 
 interface EdictDurableGovernanceProps {
   detail: EdictDetailSnapshotV1;
@@ -160,7 +161,10 @@ export default function EdictDurableGovernance({
   };
 
   return (
-    <section aria-label={t("page.edictDetail.durable.workspaceTitle")}>
+    <section
+      aria-label={t("page.edictDetail.durable.workspaceTitle")}
+      className={styles.workspace}
+    >
       <GlowCard style={{ marginBottom: 24 }}>
         {effective ? (
           <GovernanceContractCard

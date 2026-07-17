@@ -5,6 +5,7 @@ import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { notification } from "antd";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -271,6 +272,9 @@ describe("first-run onboarding", () => {
   it("previews requested/effective truth, omits browser actors, and opens the real Edict", async () => {
     onboardingApi.getOnboardingState.mockResolvedValue(FRESH_STATE);
     const { queryClient } = renderPage();
+    const successNotification = vi.spyOn(notification, "success").mockImplementation(() => {
+      expect(screen.getByText("/edicts/edict-new")).toBeInTheDocument();
+    });
     await userEvent.click(await screen.findByRole("radio", { name: /演示配置/ }));
     fireEvent.change(await screen.findByLabelText("敕令旨意"), {
       target: { value: "完成首次治理任务" },
@@ -299,6 +303,7 @@ describe("first-run onboarding", () => {
     expect(submitted).toHaveProperty("governance_contract", governancePreview().requested_contract);
     expect(await screen.findByText("/edicts/edict-new")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "敕令详情" })).toBeInTheDocument();
+    expect(successNotification).toHaveBeenCalledOnce();
     expect(queryClient.getQueryData<OnboardingState>(ONBOARDING_QUERY_KEY)?.required).toBe(false);
   });
 

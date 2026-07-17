@@ -112,7 +112,7 @@ export const palettes: Record<ThemeMode, Palette> = {
     bgCode: "#211F1B",
     text: "#EAE6DC",
     textSecondary: "#A29C8F",
-    textTertiary: "#7E7A6F",
+    textTertiary: "#8F8A80",
     border: "#33302A",
     borderSecondary: "#2A2823",
     borderHover: "#454138",
@@ -164,4 +164,24 @@ export const presetSeeds = {
   pink: "#96496B",
   geekblue: "#44618E",
   lime: "#6B7A3A",
+} as const;
+
+/**
+ * darkAlgorithm 会把浅色种子再次压暗；深色主题须从对应的深色语义色起算，
+ * 否则预设 Tag 的文字会落到 WCAG AA 对比度以下。
+ */
+export const darkPresetSeeds = {
+  blue: palettes.dark.info,
+  green: palettes.dark.success,
+  red: palettes.dark.error,
+  orange: palettes.dark.warning,
+  gold: palettes.dark.warning,
+  yellow: palettes.dark.warning,
+  purple: palettes.dark.status.planning,
+  cyan: palettes.dark.status.auditing,
+  volcano: palettes.dark.error,
+  magenta: palettes.dark.status.planning,
+  pink: palettes.dark.status.planning,
+  geekblue: palettes.dark.info,
+  lime: palettes.dark.success,
 } as const;

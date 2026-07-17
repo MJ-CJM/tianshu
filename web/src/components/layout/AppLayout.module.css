@@ -3,6 +3,12 @@
   background: var(--ts-color-bg-page);
 }
 
+.body {
+  height: calc(100vh - 56px);
+  min-height: 0;
+  overflow: hidden;
+}
+
 .content {
   overflow-y: auto;
   height: calc(100vh - 56px);

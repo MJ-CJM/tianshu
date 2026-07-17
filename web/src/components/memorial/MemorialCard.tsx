@@ -43,7 +43,7 @@ export default function MemorialCard({ memorial, index, readOnly = false }: Memo
   return (
     <GlowCard
       title={
-        <Space size="middle">
+        <Space size="middle" wrap>
           <span>{title}</span>
           <StatusTag status={memorial.status} />
           {isRunning && <SyncOutlined spin style={{ color: token.colorInfo }} />}

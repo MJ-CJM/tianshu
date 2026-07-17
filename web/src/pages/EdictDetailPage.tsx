@@ -329,7 +329,7 @@ export default function EdictDetailPage() {
         )}
         <Descriptions
           size="small"
-          column={4}
+          column={{ xs: 1, sm: 2, md: 3, lg: 4 }}
           style={{ marginBottom: 12 }}
           items={[
             {
@@ -487,7 +487,7 @@ export default function EdictDetailPage() {
               children: (
                 <Descriptions
                   size="small"
-                  column={3}
+                  column={{ xs: 1, sm: 2, md: 3 }}
                   items={[
                     { key: "timeout", label: t("page.edictDetail.details.timeout"), children: `${edict.runtime?.timeout_seconds ?? 300}s` },
                     { key: "iterations", label: t("page.edictDetail.details.maxIterations"), children: edict.runtime?.max_iterations ?? 20 },
@@ -643,7 +643,7 @@ export default function EdictDetailPage() {
             onChange={setFollowUpOverride}
             assignedPersonaId={edict?.assigned_persona_id ?? null}
           />
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
             <div style={{ flex: 1, textAlign: "center" }}>
               <Button
                 type="primary"
@@ -656,7 +656,7 @@ export default function EdictDetailPage() {
               </Button>
             </div>
             {edict.status === "open" && (
-              <Space size="small">
+              <Space size="small" wrap>
                 {edict.runtime.lifecycle_phase === "active" && (
                   <Button
                     size="small"
@@ -705,7 +705,7 @@ export default function EdictDetailPage() {
       )}
 
       {!canFollowUp && edict.status === "open" && (
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginBottom: 24 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 12, marginBottom: 24 }}>
           {edict.runtime.lifecycle_phase === "active" && (
             <Button icon={<PauseCircleOutlined />} onClick={handlePause}>
               {t("button.pause")}

@@ -1,0 +1,17 @@
+.workspace {
+  min-width: 0;
+}
+
+.workspace table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.workspace th,
+.workspace td,
+.workspace dd,
+.workspace li,
+.workspace code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

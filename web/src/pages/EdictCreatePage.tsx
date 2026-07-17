@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { notification } from "antd";
+import { flushSync } from "react-dom";
 import { createEdict } from "../api/edicts";
 import EdictForm from "../components/edict/EdictForm";
 import PageContainer from "../components/common/PageContainer";
@@ -25,7 +26,9 @@ export function EdictCreationForm({
     try {
       const res = await createEdict(values);
       if (res.success && res.data) {
+        const edictId = res.data.id;
         await queryClient.cancelQueries({ queryKey: ONBOARDING_QUERY_KEY, exact: true });
+        flushSync(() => navigate(`/edicts/${edictId}`));
         queryClient.setQueryData<OnboardingState>(ONBOARDING_QUERY_KEY, (current) =>
           current ? { ...current, required: false } : current,
         );
@@ -33,7 +36,6 @@ export function EdictCreationForm({
           message: t("page.edictCreate.successTitle"),
           description: t("page.edictCreate.successDesc"),
         });
-        navigate(`/edicts/${res.data.id}`);
       }
     } finally {
       setLoading(false);

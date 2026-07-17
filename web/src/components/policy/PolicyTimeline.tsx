@@ -105,6 +105,7 @@ export function PolicyTimeline({
         {counts.hook}
       </Text>
       <Select
+        aria-label={`${t("comp.policyTimeline.title")} ${t("comp.policyTimeline.filterAll")}`}
         size="small"
         value={filter}
         onChange={(v) => setFilter(v as FilterKey)}
@@ -179,25 +180,28 @@ export function PolicyTimeline({
   );
 
   return (
-    <Collapse
-      activeKey={activeKey}
-      onChange={(k) => setActiveKey(Array.isArray(k) ? k : [k])}
-      style={{ marginBottom: 24 }}
-      items={[
-        {
-          key: "policy",
-          label: (
-            <Space>
-              <span>{t("comp.policyTimeline.title")}</span>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                ({events.length})
-              </Text>
-            </Space>
-          ),
-          extra: filterSelect,
-          children: body,
-        },
-      ]}
-    />
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+        {filterSelect}
+      </div>
+      <Collapse
+        activeKey={activeKey}
+        onChange={(k) => setActiveKey(Array.isArray(k) ? k : [k])}
+        items={[
+          {
+            key: "policy",
+            label: (
+              <Space>
+                <span>{t("comp.policyTimeline.title")}</span>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  ({events.length})
+                </Text>
+              </Space>
+            ),
+            children: body,
+          },
+        ]}
+      />
+    </div>
   );
 }
