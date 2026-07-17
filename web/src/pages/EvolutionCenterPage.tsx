@@ -39,6 +39,9 @@ function DisabledSnapshot({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 })
 function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) {
   const t = useT();
   if (snapshot.status === "not_enabled") return <DisabledSnapshot snapshot={snapshot} />;
+  const routingByCandidate = new Map(
+    snapshot.routing.map((item) => [item.candidate_id, item] as const),
+  );
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <section aria-labelledby="evolution-status-title" style={panelStyle}>
@@ -71,7 +74,7 @@ function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) 
           <EvolutionGate
             key={candidate.candidate_id}
             candidate={candidate}
-            routing={snapshot.routing.find((item) => item.candidate_id === candidate.candidate_id) ?? null}
+            routing={routingByCandidate.get(candidate.candidate_id) ?? null}
           />
         ))}
       </section>

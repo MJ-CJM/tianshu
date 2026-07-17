@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import inspect
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from fastapi import FastAPI
@@ -22,6 +22,19 @@ HASH_A = "a" * 64
 HASH_B = "b" * 64
 HASH_C = "c" * 64
 NOT_ENABLED_REASON = "s5_governed_evolution_not_enabled"
+S5_CANDIDATE_LIFECYCLES = (
+    "proposed",
+    "staged",
+    "evaluating",
+    "blocked",
+    "ready",
+    "canary",
+    "promoted",
+    "rejected",
+    "rollback_pending",
+    "rolled_back",
+    "archived",
+)
 
 
 def _symbols() -> dict[str, Any]:
@@ -42,21 +55,26 @@ def _symbols() -> dict[str, Any]:
     }
 
 
-def _future_fixture(symbols: dict[str, Any], *, status: str = "enabled"):
+def _future_fixture(
+    symbols: dict[str, Any],
+    *,
+    status: str = "enabled",
+    lifecycle: str = "canary",
+):
     gate = symbols["Gate"](
         code="minimum_samples",
         status="failed",
         blocking=True,
         current=18,
         required=50,
+        evidence_bundle_id="evidence:gate-samples",
         evidence_hash=HASH_B,
-        evidence_uri="/api/evidence/gate-samples/download",
     )
     candidate = symbols["Candidate"](
         candidate_id="candidate-skill-7",
         kind="skill",
         version=7,
-        lifecycle="canary",
+        lifecycle=lifecycle,
         artifact_hash=HASH_A,
         promotion_allowed=False,
         rollback_state="ready",
@@ -76,6 +94,27 @@ def _future_fixture(symbols: dict[str, Any], *, status: str = "enabled"):
         routing=(routing,),
         last_gate_hash=HASH_C,
     )
+
+
+@pytest.mark.parametrize("lifecycle", ["proposed", "blocked"])
+def test_future_fixture_accepts_pre_canary_s5_lifecycles(lifecycle: str) -> None:
+    snapshot = _future_fixture(_symbols(), lifecycle=lifecycle)
+
+    assert snapshot.candidates[0].lifecycle == lifecycle
+
+
+def test_read_lifecycle_is_the_exact_s5_cross_handoff_contract() -> None:
+    symbols = _symbols()
+    lifecycle_annotation = symbols["Candidate"].model_fields["lifecycle"].annotation
+
+    assert get_args(lifecycle_annotation) == S5_CANDIDATE_LIFECYCLES
+    with pytest.raises(ValidationError, match="lifecycle"):
+        symbols["Candidate"](
+            **{
+                **_future_fixture(symbols).candidates[0].model_dump(mode="python"),
+                "lifecycle": "draft",
+            }
+        )
 
 
 def test_contract_forbids_fabricated_pre_s5_data() -> None:
@@ -124,8 +163,8 @@ def test_future_fixture_shapes_preserve_gate_routing_and_rollback_truth(status: 
         "blocking": True,
         "current": 18.0,
         "required": 50.0,
+        "evidence_bundle_id": "evidence:gate-samples",
         "evidence_hash": HASH_B,
-        "evidence_uri": "/api/evidence/gate-samples/download",
     }
     assert snapshot.candidates[0].rollback_state == "ready"
     assert snapshot.routing[0].champion_assignment_count == 82
@@ -153,6 +192,78 @@ def test_contract_is_strict_and_blocks_inconsistent_future_claims() -> None:
                 **fixture.model_dump(mode="python"),
                 "routing": (
                     fixture.routing[0].model_copy(update={"candidate_id": "candidate-unknown"}),
+                ),
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("evidence_bundle_id", "evidence_hash"),
+    [("evidence:gate-samples", None), (None, HASH_B)],
+)
+def test_gate_requires_evidence_identity_and_hash_as_a_pair(
+    evidence_bundle_id: str | None,
+    evidence_hash: str | None,
+) -> None:
+    symbols = _symbols()
+
+    with pytest.raises(ValidationError, match="evidence_bundle_id and evidence_hash"):
+        symbols["Gate"](
+            code="minimum_samples",
+            status="failed",
+            blocking=True,
+            current=18,
+            required=50,
+            evidence_bundle_id=evidence_bundle_id,
+            evidence_hash=evidence_hash,
+        )
+
+
+@pytest.mark.parametrize(
+    "unsafe_target",
+    ["javascript:alert(1)", "https://evil.example/evidence", "/api/evidence/other/download"],
+)
+def test_gate_rejects_caller_supplied_evidence_urls(unsafe_target: str) -> None:
+    symbols = _symbols()
+
+    with pytest.raises(ValidationError, match="evidence_uri"):
+        symbols["Gate"](
+            code="minimum_samples",
+            status="failed",
+            blocking=True,
+            current=18,
+            required=50,
+            evidence_hash=HASH_B,
+            evidence_uri=unsafe_target,
+        )
+
+
+def test_candidate_rejects_duplicate_gate_codes() -> None:
+    symbols = _symbols()
+    candidate = _future_fixture(symbols).candidates[0]
+    gate = candidate.gates[0]
+
+    with pytest.raises(ValidationError, match="gate codes must be unique"):
+        symbols["Candidate"](
+            **{
+                **candidate.model_dump(mode="python"),
+                "gates": (gate, gate.model_copy(update={"status": "error"})),
+            }
+        )
+
+
+def test_snapshot_rejects_duplicate_routing_candidate_ids() -> None:
+    symbols = _symbols()
+    snapshot = _future_fixture(symbols)
+    routing = snapshot.routing[0]
+
+    with pytest.raises(ValidationError, match="routing candidate ids must be unique"):
+        symbols["Snapshot"](
+            **{
+                **snapshot.model_dump(mode="python"),
+                "routing": (
+                    routing,
+                    routing.model_copy(update={"routing_version": 4}),
                 ),
             }
         )

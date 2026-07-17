@@ -2,6 +2,8 @@
 
 import "@testing-library/jest-dom/vitest";
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -48,6 +50,12 @@ const ENABLED_EMPTY: EvolutionCenterSnapshotV1 = {
   reason_code: "enabled_no_candidates",
 };
 
+const DEGRADED_EMPTY: EvolutionCenterSnapshotV1 = {
+  ...NOT_ENABLED,
+  status: "degraded",
+  reason_code: "evolution_source_degraded",
+};
+
 const FIXTURE: EvolutionCenterSnapshotV1 = {
   schema_version: 1,
   status: "enabled",
@@ -68,8 +76,8 @@ const FIXTURE: EvolutionCenterSnapshotV1 = {
           blocking: true,
           current: 18,
           required: 50,
+          evidence_bundle_id: "evidence:gate-samples",
           evidence_hash: HASH_B,
-          evidence_uri: "/api/evidence/gate-samples/download",
         },
       ],
     },
@@ -84,6 +92,12 @@ const FIXTURE: EvolutionCenterSnapshotV1 = {
     },
   ],
   last_gate_hash: HASH_C,
+};
+
+const DEGRADED_FIXTURE: EvolutionCenterSnapshotV1 = {
+  ...FIXTURE,
+  status: "degraded",
+  reason_code: "gate_evaluation_degraded",
 };
 
 function problem(status: number, code: string, message: string): ApiProblem {
@@ -148,6 +162,35 @@ describe("authoritative Evolution Center snapshot", () => {
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
+  it("renders degraded status and reason even when the snapshot has no candidates", async () => {
+    evolutionSource.result = DEGRADED_EMPTY;
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "演化状态" })).toBeInTheDocument();
+    expect(screen.getByText("降级")).toBeInTheDocument();
+    expect(screen.getByText("evolution_source_degraded")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "暂无数据" })).not.toBeInTheDocument();
+  });
+
+  it("keeps degraded status and reason visible beside candidate data", async () => {
+    evolutionSource.result = DEGRADED_FIXTURE;
+    renderPage();
+
+    expect(await screen.findByText("candidate-skill-7")).toBeInTheDocument();
+    expect(screen.getByText("降级")).toBeInTheDocument();
+    expect(screen.getByText("gate_evaluation_degraded")).toBeInTheDocument();
+  });
+
+  it("indexes validated routing identities instead of performing ambiguous array lookup", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/pages/EvolutionCenterPage.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("new Map(");
+    expect(source).not.toContain("snapshot.routing.find(");
+  });
+
   it("renders fixture gates hashes assignments rollback and no mutation controls", async () => {
     evolutionSource.result = FIXTURE;
     const user = userEvent.setup();
@@ -163,7 +206,10 @@ describe("authoritative Evolution Center snapshot", () => {
     expect(screen.getByText("10%")).toBeInTheDocument();
     expect(screen.getByText("ready")).toBeInTheDocument();
     const evidence = screen.getByRole("link", { name: "查看门禁证据" });
-    expect(evidence).toHaveAttribute("href", "/api/evidence/gate-samples/download");
+    expect(evidence).toHaveAttribute(
+      "href",
+      "/api/evidence/evidence%3Agate-samples/download",
+    );
     await user.tab();
     expect(document.activeElement).toBe(evidence);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();

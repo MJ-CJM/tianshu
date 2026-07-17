@@ -12,7 +12,7 @@ export const EVOLUTION_CENTER_QUERY_KEY = ["evolution-center", "snapshot-v1"] as
 
 export function isEvolutionSnapshotEmpty(snapshot: EvolutionCenterSnapshotV1): boolean {
   return (
-    snapshot.status !== "not_enabled" &&
+    snapshot.status === "enabled" &&
     snapshot.candidates.length === 0 &&
     snapshot.routing.length === 0
   );

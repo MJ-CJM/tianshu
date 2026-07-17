@@ -102,10 +102,14 @@ export default function EvolutionGate({ candidate, routing }: EvolutionGateProps
                       {t("evolutionUi.evidenceHash")}: {" "}
                     </Typography.Text>
                     <MonoText>{gate.evidence_hash}</MonoText>
-                    {gate.evidence_uri ? (
+                    {gate.evidence_bundle_id ? (
                       <>
                         {" · "}
-                        <a href={gate.evidence_uri}>{t("evolutionUi.viewEvidence")}</a>
+                        <a
+                          href={`/api/evidence/${encodeURIComponent(gate.evidence_bundle_id)}/download`}
+                        >
+                          {t("evolutionUi.viewEvidence")}
+                        </a>
                       </>
                     ) : null}
                   </div>

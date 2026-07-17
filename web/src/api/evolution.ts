@@ -6,8 +6,8 @@ export interface EvolutionGateSummaryV1 {
   blocking: boolean;
   current: number | null;
   required: number | null;
+  evidence_bundle_id: string | null;
   evidence_hash: string | null;
-  evidence_uri: string | null;
 }
 
 export interface EvolutionCandidateSummaryV1 {
@@ -15,9 +15,10 @@ export interface EvolutionCandidateSummaryV1 {
   kind: "memory" | "skill" | "policy" | "persona" | "code";
   version: number;
   lifecycle:
-    | "draft"
+    | "proposed"
     | "staged"
     | "evaluating"
+    | "blocked"
     | "ready"
     | "canary"
     | "promoted"

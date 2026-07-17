@@ -28,8 +28,8 @@ describe("EvolutionGate", () => {
             blocking: true,
             current: 18,
             required: 50,
+            evidence_bundle_id: "evidence:gate-samples",
             evidence_hash: "b".repeat(64),
-            evidence_uri: "/api/evidence/gate-samples/download",
           }],
         }}
         routing={{
@@ -47,6 +47,10 @@ describe("EvolutionGate", () => {
     expect(screen.getByText("82")).toBeInTheDocument();
     expect(screen.getAllByText("18")).toHaveLength(1);
     const evidence = screen.getByRole("link", { name: "查看门禁证据" });
+    expect(evidence).toHaveAttribute(
+      "href",
+      "/api/evidence/evidence%3Agate-samples/download",
+    );
     await user.tab();
     expect(document.activeElement).toBe(evidence);
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
