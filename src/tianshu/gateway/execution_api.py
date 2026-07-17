@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal, cast
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from tianshu.application.edicts import validate_idempotency_key
@@ -10,8 +12,14 @@ from tianshu.executor.executor import Executor
 from tianshu.executor.lanes import LaneManager
 from tianshu.executor.worker_pool import WorkerPool
 from tianshu.gateway.auth import get_auth_context
-from tianshu.governance.decision_service import DecisionConflict
-from tianshu.models import ApiResponse, Decree, DecreeCreateRequest, TaskStatus, ToolDecisionRequest
+from tianshu.gateway.decisions_api import (
+    raise_decision_error,
+    raise_decision_service_error,
+    require_owned_decision,
+)
+from tianshu.governance.decision_service import DecisionServiceError
+from tianshu.models import ApiResponse, DecreeCreateRequest, TaskStatus, ToolDecisionRequest
+from tianshu.models.decision import DecisionKind
 from tianshu.scheduler.scheduler import Scheduler
 from tianshu.storage import Storage
 
@@ -71,29 +79,46 @@ async def cancel_scheduler_job(job_id: str, request: Request):
 @execution_router.post("/decrees", response_model=ApiResponse, status_code=201)
 async def create_decree(body: DecreeCreateRequest, request: Request):
     approval_manager: ApprovalManager = request.app.state.approval_manager
-    actor = get_auth_context(request).principal.id
-
-    decree = Decree(
-        memorial_id=body.memorial_id,
-        action=body.action,
-        comment=body.comment,
-        amended_goal=body.amended_goal,
-        actor=actor,
-    )
-
+    context = get_auth_context(request)
+    existing = require_owned_decision(request, context, body.decision_request_id)
+    if existing.request.memorial_id != body.memorial_id:
+        raise_decision_error(context, 422, "decision_identity_conflict")
+    if existing.request.kind is not DecisionKind.TOOL:
+        raise_decision_error(context, 410, "legacy_decree_kind_unsupported")
+    if body.action in {"retry", "amend", "cancel"}:
+        raise_decision_error(context, 410, "legacy_decree_action_retired")
     try:
-        await approval_manager.submit_decree(decree)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-    return ApiResponse(success=True, data=decree.model_dump(mode="json"))
+        record = await approval_manager.resolve_tool_decision_strict(
+            body.decision_request_id,
+            action=cast(Literal["approve", "reject", "guide"], body.action),
+            comment=body.comment,
+            expected_version=body.expected_version,
+            auth=context,
+        )
+    except DecisionServiceError as error:
+        raise_decision_service_error(context, error)
+    decree = approval_manager.project_tool_decree(record)
+    return ApiResponse(
+        success=True,
+        data={
+            **decree.model_dump(mode="json"),
+            "decision_status": record.request.status.value,
+            "decision_version": record.request.version,
+        },
+    )
 
 
 @execution_router.get("/approvals/pending_tool_calls", response_model=ApiResponse)
-async def list_pending_tool_calls(request: Request):
+async def list_pending_tool_calls(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=200),
+):
     """Return restart-visible durable tool decisions awaited by PolicyHook."""
     approval_manager: ApprovalManager = request.app.state.approval_manager
-    items = approval_manager.list_pending_tool_calls()
+    items = approval_manager.list_pending_tool_calls(
+        submitter=get_auth_context(request).principal.id,
+        limit=limit,
+    )
     return ApiResponse(success=True, data={"items": items})
 
 
@@ -108,28 +133,24 @@ async def list_pending_tool_calls(request: Request):
 async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
     """Approve or reject a pending tool-call without mutating memorial status."""
     approval_manager: ApprovalManager = request.app.state.approval_manager
-    decision_request_id = body.decision_request_id
-    if decision_request_id is None:
-        try:
-            decision_request_id = approval_manager.pending_tool_decision_id_for_memorial(
-                body.memorial_id or ""
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=409, detail=str(e)) from e
+    context = get_auth_context(request)
+    existing = require_owned_decision(request, context, body.decision_request_id)
+    if existing.request.kind is not DecisionKind.TOOL:
+        raise_decision_error(context, 422, "invalid_decision_kind")
     try:
-        record = await approval_manager.resolve_tool_decision(
-            decision_request_id,
+        record = await approval_manager.resolve_tool_decision_strict(
+            body.decision_request_id,
             action=body.action,
             comment=body.comment,
+            expected_version=body.expected_version,
             grant_scope=body.grant_scope,
             grant_reason=body.grant_reason,
-            auth=get_auth_context(request),
+            auth=context,
         )
-    except ValueError as e:
-        status = 404 if "not found" in str(e) else 400
-        raise HTTPException(status_code=status, detail=str(e)) from e
-    except DecisionConflict as e:
-        raise HTTPException(status_code=409, detail=e.code) from e
+    except DecisionServiceError as error:
+        raise_decision_service_error(context, error)
+    except ValueError:
+        raise_decision_error(context, 422, "invalid_decision_resolution")
     resolution = record.resolution
     if resolution is None:
         raise HTTPException(status_code=409, detail="tool decision is not resolved")
@@ -148,6 +169,9 @@ async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
             "grant_downgraded": resolution.payload.get("grant_downgraded", False),
             "grant_downgrade_reason": resolution.payload.get("grant_downgrade_reason"),
             "resolved_at": resolution.resolved_at.isoformat(),
+            "status": record.request.status.value,
+            "version": record.request.version,
+            "record": record.model_dump(mode="json"),
         },
     )
 

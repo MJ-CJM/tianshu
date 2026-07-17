@@ -6,7 +6,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tianshu.application.edict_detail import EdictDetailNotFound, EdictDetailUnavailable
 from tianshu.application.edicts import (
@@ -24,6 +24,11 @@ from tianshu.executor.capabilities import (
 from tianshu.executor.workspace_policy import workspace_policy_mismatches
 from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.gateway.auth import get_auth_context
+from tianshu.gateway.decisions_api import (
+    raise_decision_error,
+    raise_decision_service_error,
+    require_owned_decision,
+)
 from tianshu.governance.decision_service import DecisionServiceError
 from tianshu.models import (
     ApiResponse,
@@ -36,6 +41,7 @@ from tianshu.models import (
     TaskStatus,
 )
 from tianshu.models.api import ParseEdictRequest
+from tianshu.models.decision import DecisionKind, ResolveDecisionCommand
 from tianshu.models.edict import EdictRuntime, PolicyProfilePayload, title_from_goal
 from tianshu.models.governance_contract import (
     AcceptancePolicyV1,
@@ -707,56 +713,70 @@ def get_latest_memorials_batch(body: LatestMemorialsRequest, request: Request):
     return ApiResponse(success=True, data=data)
 
 
-@edicts_router.post("/{edict_id}/plan/approve", response_model=ApiResponse)
-def approve_plan(edict_id: str, request: Request):
-    """Resolve a pending durable plan review; projection triggers execution later."""
-    storage: Storage = request.app.state.storage
-    edict = storage.get_edict(edict_id)
-    if not edict:
-        raise HTTPException(404, "Edict not found")
+class PlanReviewDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision_request_id: str = Field(min_length=1, max_length=128)
+    expected_version: int = Field(ge=1)
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_reason(self):
+        if not self.reason.strip():
+            raise ValueError("reason must not be blank")
+        return self
+
+
+def _resolve_plan_review(
+    edict_id: str,
+    body: PlanReviewDecisionRequest,
+    request: Request,
+    *,
+    action: Literal["approve", "reject"],
+) -> ApiResponse:
+    context = get_auth_context(request)
+    existing = require_owned_decision(request, context, body.decision_request_id)
+    if existing.request.edict_id != edict_id:
+        raise_decision_error(context, 422, "decision_identity_conflict")
+    if existing.request.kind is not DecisionKind.PLAN_REVIEW:
+        raise_decision_error(context, 422, "invalid_decision_kind")
     try:
-        resolution = request.app.state.approval_manager.submit_plan_review_decision(
-            edict_id,
-            action="approve",
-            auth=get_auth_context(request),
+        resolution = request.app.state.decision_service.resolve(
+            body.decision_request_id,
+            ResolveDecisionCommand(
+                action=action,
+                reason=body.reason.strip(),
+                payload={"schema_version": 1},
+                expected_version=body.expected_version,
+            ),
+            auth=context,
         )
-    except ValueError as exc:
-        raise HTTPException(400, "No pending plan to approve") from exc
-    except DecisionServiceError as exc:
-        raise HTTPException(409, "Plan review is no longer active") from exc
+    except DecisionServiceError as error:
+        raise_decision_service_error(context, error)
+    record = require_owned_decision(request, context, body.decision_request_id)
     return ApiResponse(
         success=True,
         data={
-            "status": "approved",
+            "action": resolution.action,
             "decision_request_id": resolution.decision_request_id,
+            "status": record.request.status.value,
+            "version": record.request.version,
+            "resolution": resolution.model_dump(mode="json"),
+            "record": record.model_dump(mode="json"),
         },
     )
+
+
+@edicts_router.post("/{edict_id}/plan/approve", response_model=ApiResponse)
+def approve_plan(edict_id: str, body: PlanReviewDecisionRequest, request: Request):
+    """Resolve a pending durable plan review; projection triggers execution later."""
+    return _resolve_plan_review(edict_id, body, request, action="approve")
 
 
 @edicts_router.post("/{edict_id}/plan/reject", response_model=ApiResponse)
-def reject_plan(edict_id: str, request: Request):
+def reject_plan(edict_id: str, body: PlanReviewDecisionRequest, request: Request):
     """Resolve a pending durable plan review as rejected."""
-    storage: Storage = request.app.state.storage
-    edict = storage.get_edict(edict_id)
-    if not edict:
-        raise HTTPException(404, "Edict not found")
-    try:
-        resolution = request.app.state.approval_manager.submit_plan_review_decision(
-            edict_id,
-            action="reject",
-            auth=get_auth_context(request),
-        )
-    except ValueError as exc:
-        raise HTTPException(400, "No pending plan to reject") from exc
-    except DecisionServiceError as exc:
-        raise HTTPException(409, "Plan review is no longer active") from exc
-    return ApiResponse(
-        success=True,
-        data={
-            "status": "rejected",
-            "decision_request_id": resolution.decision_request_id,
-        },
-    )
+    return _resolve_plan_review(edict_id, body, request, action="reject")
 
 
 @edicts_router.post("/{edict_id}/follow-up", response_model=ApiResponse, status_code=202)

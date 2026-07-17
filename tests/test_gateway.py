@@ -111,4 +111,4 @@ class TestDecreeEndpoints:
             "/api/decrees",
             json={"memorial_id": "nonexistent", "action": "approve"},
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 422

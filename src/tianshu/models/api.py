@@ -192,11 +192,19 @@ class EdictStatusUpdateRequest(BaseModel):
 
 
 class DecreeCreateRequest(BaseModel):
-    memorial_id: str = Field(min_length=1)
-    action: str = Field(min_length=1)
-    comment: str | None = None
-    amended_goal: str | None = None
-    actor: str = "human"
+    model_config = ConfigDict(extra="forbid")
+
+    decision_request_id: str = Field(min_length=1, max_length=128)
+    memorial_id: str = Field(min_length=1, max_length=128)
+    action: Literal["approve", "reject", "guide", "retry", "amend", "cancel"]
+    comment: str = Field(min_length=1, max_length=2000)
+    expected_version: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_comment(self):
+        if not self.comment.strip():
+            raise ValueError("comment must not be blank")
+        return self
 
 
 class ToolDecisionRequest(BaseModel):
@@ -207,19 +215,17 @@ class ToolDecisionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    decision_request_id: str | None = Field(default=None, min_length=1, max_length=128)
-    memorial_id: str | None = Field(default=None, min_length=1, max_length=128)
+    decision_request_id: str = Field(min_length=1, max_length=128)
     action: Literal["approve", "reject", "guide"]  # guide=驳回+指导(迭代 5)
-    comment: str | None = Field(default=None, max_length=2000)
+    comment: str = Field(min_length=1, max_length=2000)
+    expected_version: int = Field(ge=1)
     grant_scope: Literal["once", "edict", "always"] | None = None
     grant_reason: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
     def validate_target(self):
-        if (self.decision_request_id is None) == (self.memorial_id is None):
-            raise ValueError("provide exactly one decision_request_id or memorial_id")
-        if self.action == "guide" and not (self.comment and self.comment.strip()):
-            raise ValueError("guide requires a non-blank comment")
+        if not self.comment.strip():
+            raise ValueError("comment must not be blank")
         if self.action != "approve" and self.grant_scope is not None:
             raise ValueError("grant_scope is only valid for approval")
         return self

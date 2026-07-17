@@ -152,6 +152,21 @@ class DecisionRepository:
         ).fetchone()
         return _decode_record(row) if row is not None else None
 
+    def get_for_submitter(
+        self,
+        connection: sqlite3.Connection,
+        decision_request_id: str,
+        *,
+        submitter: str,
+    ) -> DecisionRecordV1 | None:
+        if not submitter.strip():
+            raise ValueError("submitter must not be blank")
+        row = connection.execute(
+            _SELECT_RECORD + " WHERE request.decision_request_id = ? AND edict.submitter = ?",
+            (decision_request_id, submitter),
+        ).fetchone()
+        return _decode_record(row) if row is not None else None
+
     def list_for_edict(
         self,
         connection: sqlite3.Connection,
@@ -178,6 +193,32 @@ class DecisionRepository:
         rows = connection.execute(
             _SELECT_RECORD + where + " ORDER BY request.created_at, request.decision_request_id",
             parameters,
+        ).fetchall()
+        return [_decode_record(row).request for row in rows]
+
+    def list_pending_owned(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        submitter: str,
+        kind: DecisionKind | None = None,
+        limit: int,
+    ) -> list[DecisionRequestV1]:
+        if not submitter.strip():
+            raise ValueError("submitter must not be blank")
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        parameters: list[object] = [submitter]
+        where = " WHERE request.status = 'pending' AND edict.submitter = ?"
+        if kind is not None:
+            where += " AND request.kind = ?"
+            parameters.append(kind.value)
+        parameters.append(limit)
+        rows = connection.execute(
+            _SELECT_RECORD
+            + where
+            + " ORDER BY request.created_at, request.decision_request_id LIMIT ?",
+            tuple(parameters),
         ).fetchall()
         return [_decode_record(row).request for row in rows]
 

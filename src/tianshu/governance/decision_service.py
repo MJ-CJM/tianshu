@@ -507,6 +507,21 @@ class DecisionService:
             unit_of_work.commit()
             return record
 
+    def get_for_submitter(
+        self,
+        decision_request_id: str,
+        *,
+        submitter: str,
+    ) -> DecisionRecordV1 | None:
+        with self._storage.unit_of_work() as unit_of_work:
+            record = self._repository.get_for_submitter(
+                unit_of_work.connection,
+                decision_request_id,
+                submitter=submitter,
+            )
+            unit_of_work.commit()
+            return record
+
     def list_pending(
         self,
         *,
@@ -514,6 +529,23 @@ class DecisionService:
     ) -> list[DecisionRequestV1]:
         with self._storage.unit_of_work() as unit_of_work:
             requests = self._repository.list_pending(unit_of_work.connection, kind=kind)
+            unit_of_work.commit()
+            return requests
+
+    def list_pending_owned(
+        self,
+        *,
+        submitter: str,
+        kind: DecisionKind | None = None,
+        limit: int = 100,
+    ) -> list[DecisionRequestV1]:
+        with self._storage.unit_of_work() as unit_of_work:
+            requests = self._repository.list_pending_owned(
+                unit_of_work.connection,
+                submitter=submitter,
+                kind=kind,
+                limit=limit,
+            )
             unit_of_work.commit()
             return requests
 

@@ -56,8 +56,8 @@ def _requester() -> AuthContext:
 
 def _seed(storage: Storage) -> None:
     storage._conn.execute(  # noqa: SLF001 - API fixture
-        "INSERT INTO edicts (id, goal, created_at) VALUES (?, ?, ?)",
-        ("edict-1", "goal", _NOW.isoformat()),
+        "INSERT INTO edicts (id, goal, submitter, created_at) VALUES (?, ?, ?, ?)",
+        ("edict-1", "goal", "user:owner", _NOW.isoformat()),
     )
     storage._conn.execute(  # noqa: SLF001 - API fixture
         "INSERT INTO memorials (id, edict_id, status, created_at) VALUES (?, ?, ?, ?)",
@@ -139,8 +139,10 @@ def test_list_and_get_are_authenticated_filtered_and_correlated(decision_api) ->
         anonymous = client.get("/api/decisions")
         listed = client.get("/api/decisions", headers=_HEADERS, params={"kind": "tool"})
         fetched = client.get(f"/api/decisions/{tool.decision_request_id}", headers=_HEADERS)
+        unbounded = client.get("/api/decisions", headers=_HEADERS, params={"limit": 201})
 
     assert anonymous.status_code == 401
+    assert unbounded.status_code == 422
     assert listed.status_code == fetched.status_code == 200
     assert [item["decision_request_id"] for item in listed.json()["items"]] == [
         tool.decision_request_id
@@ -151,6 +153,39 @@ def test_list_and_get_are_authenticated_filtered_and_correlated(decision_api) ->
         assert "credential_id" not in response.text
         assert "remote_addr" not in response.text
         assert "127.0.0.1" not in response.text
+
+
+def test_list_get_and_resolve_hide_other_principals_decisions(decision_api) -> None:
+    _, service, _, app = decision_api
+    requested = service.request(_request_command(), auth=_requester())
+    outsider = app.state.auth_service.issue_pat(
+        Principal(
+            id="user:outsider",
+            kind="human",
+            display_name="Outsider",
+            scopes=frozenset({"api"}),
+        ),
+        label="outsider",
+        scopes=frozenset({"api"}),
+    )
+    headers = {"Authorization": f"Bearer {outsider.raw_token}"}
+
+    with _client(app) as client:
+        listed = client.get("/api/decisions", headers=headers)
+        fetched = client.get(f"/api/decisions/{requested.decision_request_id}", headers=headers)
+        resolved = client.post(
+            f"/api/decisions/{requested.decision_request_id}/resolve",
+            headers=headers,
+            json={"actor": "must-not-be-parsed-for-a-non-owner"},
+        )
+
+    assert listed.status_code == 200
+    assert listed.json()["items"] == []
+    for response in (fetched, resolved):
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "decision_not_found"
+    record = service.get(requested.decision_request_id)
+    assert record is not None and record.resolution is None
 
 
 def test_resolve_rejects_body_identity_and_derives_actor_from_auth_context(decision_api) -> None:
@@ -222,7 +257,7 @@ def test_governed_apply_resolution_with_api_only_scope_is_403_and_audited(
     )
     api_only = app.state.auth_service.issue_pat(
         Principal(
-            id="service:api-only-reviewer",
+            id="user:owner",
             kind="service",
             display_name="API-only reviewer",
             scopes=frozenset({"api"}),

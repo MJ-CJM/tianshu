@@ -17,7 +17,12 @@ from tianshu.application.ingress import (
 )
 from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.bus.event_bus import EventBus
-from tianshu.governance.decision_service import DecisionConflict, DecisionService
+from tianshu.governance.decision_service import (
+    DecisionConflict,
+    DecisionNotFound,
+    DecisionService,
+    DecisionValidationError,
+)
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
 from tianshu.models.common import TaskStatus, UsageSummary
@@ -1128,11 +1133,25 @@ class ApprovalManager:
             auth=auth,
         )
 
-    def list_pending_tool_calls(self) -> list[dict]:
+    def list_pending_tool_calls(
+        self,
+        *,
+        submitter: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
         """Project restart-visible pending TOOL decisions from durable authority."""
 
         if self._decision_service is None:
             return []
+        requests = (
+            self._decision_service.list_pending_owned(
+                submitter=submitter,
+                kind=DecisionKind.TOOL,
+                limit=limit,
+            )
+            if submitter is not None
+            else self._decision_service.list_pending(kind=DecisionKind.TOOL)
+        )
         return [
             {
                 "decision_request_id": request.decision_request_id,
@@ -1145,7 +1164,7 @@ class ApprovalManager:
                 "args_summary": request.payload.get("arguments") or {},
                 "created_at": request.created_at.isoformat(),
             }
-            for request in self._decision_service.list_pending(kind=DecisionKind.TOOL)
+            for request in requests
         ]
 
     def get_tool_decision(self, decision_request_id: str) -> DecisionRecordV1 | None:
@@ -1246,6 +1265,72 @@ class ApprovalManager:
                 decision_request_id,
             )
         return record
+
+    async def resolve_tool_decision_strict(
+        self,
+        decision_request_id: str,
+        action: Literal["approve", "reject", "guide"],
+        *,
+        comment: str,
+        expected_version: int,
+        grant_scope: Literal["once", "edict", "always"] | None = None,
+        grant_reason: str | None = None,
+        auth: AuthContext,
+    ) -> DecisionRecordV1:
+        """Resolve an HTTP-bound TOOL decision without reconstructing authority fields."""
+
+        if self._decision_service is None:
+            raise RuntimeError("DecisionService is required for durable tool decisions")
+        reason = comment.strip()
+        if not reason:
+            raise ValueError("comment must not be blank")
+        if action != "approve" and grant_scope is not None:
+            raise ValueError("grant_scope is only valid for approval")
+
+        service = self._decision_service
+        existing = service.get(decision_request_id)
+        if existing is None:
+            raise DecisionNotFound("decision_not_found")
+        if existing.request.kind is not DecisionKind.TOOL:
+            raise DecisionValidationError("invalid_decision_kind")
+
+        payload: dict[str, JsonValue] = {"schema_version": 1}
+        if action == "approve":
+            payload.update(
+                grant_scope=grant_scope or "once",
+                grant_reason=grant_reason,
+            )
+        elif action == "guide":
+            payload["guidance"] = reason
+        service.resolve(
+            decision_request_id,
+            ResolveDecisionCommand(
+                action=action,
+                reason=reason,
+                payload=payload,
+                expected_version=expected_version,
+            ),
+            auth=auth,
+        )
+        record = service.get(decision_request_id)
+        if record is None or record.resolution is None:
+            raise RuntimeError("durable tool resolution is unavailable")
+        try:
+            await self._project_tool_resolution(record)
+        except Exception:
+            logger.exception(
+                "tool decision %s committed but compatibility projection failed",
+                decision_request_id,
+            )
+        return record
+
+    def project_tool_decree(self, record: DecisionRecordV1) -> Decree:
+        """Return the idempotent legacy Decree projection for durable TOOL truth."""
+
+        decree = self._project_tool_decree(record)
+        if decree is None:
+            raise ValueError("decision is not a resolved tool decision")
+        return decree
 
     async def submit_tool_decision(
         self,

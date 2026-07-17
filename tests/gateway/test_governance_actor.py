@@ -24,7 +24,7 @@ from tianshu.models.principal import (
 )
 
 
-def _app_with_identity(storage) -> FastAPI:
+def _app_with_identity(storage, identity: str = "user:owner") -> FastAPI:
     app = FastAPI()
     app.state.storage = storage
     app.state.event_bus = EventBus()
@@ -37,9 +37,9 @@ def _app_with_identity(storage) -> FastAPI:
     app.include_router(edicts_router)
     context = AuthContext(
         principal=Principal(
-            id="user:owner",
+            id=identity,
             kind=PrincipalKind.HUMAN,
-            display_name="Owner",
+            display_name=identity,
             scopes=frozenset({"api"}),
         ),
         source=AuthenticationSource.BEARER,
@@ -63,7 +63,7 @@ def test_plan_review_uses_authenticated_actor(
     storage,
     endpoint: str,
 ) -> None:
-    edict = Edict(goal=f"plan {endpoint}")
+    edict = Edict(goal=f"plan {endpoint}", submitter="user:owner")
     memorial = Memorial(edict_id=edict.id, status=TaskStatus.NEEDS_REVIEW)
     storage.save_edict(edict)
     storage.save_memorial(memorial)
@@ -78,7 +78,11 @@ def test_plan_review_uses_authenticated_actor(
     with TestClient(app) as client:
         response = client.post(
             f"/edicts/{edict.id}/plan/{endpoint}",
-            json={"actor": "forged:admin"},
+            json={
+                "decision_request_id": requested.decision_request_id,
+                "expected_version": requested.version,
+                "reason": "reviewed plan",
+            },
         )
 
     assert response.status_code == 200
@@ -86,6 +90,82 @@ def test_plan_review_uses_authenticated_actor(
     assert record is not None and record.resolution is not None
     assert record.resolution.actor_principal_id == "user:owner"
     assert not storage.get_events(edict.id)
+
+
+def test_plan_review_requires_exact_owned_decision_version_and_reason(storage) -> None:
+    edict = Edict(goal="strict plan", submitter="user:owner", plan_review=True)
+    memorial = Memorial(edict_id=edict.id, status=TaskStatus.NEEDS_REVIEW)
+    storage.save_edict(edict)
+    storage.save_memorial(memorial)
+    app = _app_with_identity(storage)
+    requested = app.state.approval_manager.request_plan_review_decision(
+        edict=edict,
+        memorial=memorial,
+        plan=Plan(tasks=[PlanTask(task_id="one", description="one")]),
+        revision=1,
+    )
+
+    with TestClient(app) as client:
+        blank = client.post(
+            f"/edicts/{edict.id}/plan/approve",
+            json={
+                "decision_request_id": requested.decision_request_id,
+                "expected_version": requested.version,
+                "reason": "  ",
+            },
+        )
+        stale = client.post(
+            f"/edicts/{edict.id}/plan/approve",
+            json={
+                "decision_request_id": requested.decision_request_id,
+                "expected_version": requested.version + 1,
+                "reason": "reviewed",
+            },
+        )
+        wrong_edict = client.post(
+            "/edicts/another-edict/plan/approve",
+            json={
+                "decision_request_id": requested.decision_request_id,
+                "expected_version": requested.version,
+                "reason": "reviewed",
+            },
+        )
+
+    assert blank.status_code == 422
+    assert stale.status_code == 409
+    assert wrong_edict.status_code == 422
+    assert wrong_edict.json()["detail"]["code"] == "decision_identity_conflict"
+    record = app.state.decision_service.get(requested.decision_request_id)
+    assert record is not None and record.resolution is None
+
+
+def test_plan_review_hides_non_owned_decision(storage) -> None:
+    edict = Edict(goal="owned plan", submitter="user:owner", plan_review=True)
+    memorial = Memorial(edict_id=edict.id, status=TaskStatus.NEEDS_REVIEW)
+    storage.save_edict(edict)
+    storage.save_memorial(memorial)
+    owner_app = _app_with_identity(storage)
+    requested = owner_app.state.approval_manager.request_plan_review_decision(
+        edict=edict,
+        memorial=memorial,
+        plan=Plan(tasks=[PlanTask(task_id="one", description="one")]),
+        revision=1,
+    )
+    outsider_app = _app_with_identity(storage, "user:outsider")
+
+    with TestClient(outsider_app) as client:
+        response = client.post(
+            f"/edicts/{edict.id}/plan/reject",
+            json={
+                "decision_request_id": requested.decision_request_id,
+                "expected_version": requested.version,
+                "reason": "not mine",
+            },
+        )
+
+    assert response.status_code == 404
+    record = owner_app.state.decision_service.get(requested.decision_request_id)
+    assert record is not None and record.resolution is None
 
 
 def test_outer_loop_review_uses_authenticated_actor_not_body_identity(storage) -> None:
