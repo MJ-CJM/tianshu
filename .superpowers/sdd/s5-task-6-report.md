@@ -55,9 +55,9 @@ The generic adapter protocol remains limited to activation and rollback. Automat
 
 ### Review fix: durable rollback marker writes
 
-Rollback marker creation now loops until every payload byte is written and rejects zero- or negative-progress writes. After fsync, the temporary marker is checked as a regular non-symlink file with bytes exactly equal to the canonical payload; after rename, the final marker is fsynced and checked again under the same promotion lock before any restore effect or `applied` journal write.
+Rollback marker creation now loops until every payload byte is written and rejects zero- or negative-progress writes. The expected inode identity comes only from the open temporary descriptor before rename. After fsync, the temporary marker is checked as a regular non-symlink file with that identity and bytes exactly equal to the canonical payload. Rename on the same filesystem preserves the inode, so the final marker must open with that same identity, survive fsync and exact-byte read, and still have the same path identity after the read, all under the promotion lock before any restore effect or `applied` journal write.
 
-Fault injection proves that recoverable short writes complete with the exact marker, while a zero-byte write or truncated final marker fails before the effect boundary. Those failures leave allocation zero, lifecycle `rollback_pending`, readiness degraded, and no `applied`/`completed` entry. Invalid marker residue is removed only while its inode identity still matches the file created by this write; an externally replaced path is retained and fails closed. This avoids deleting an unrelated writer's file, while ordinary write corruption does not permanently fence a future candidate for the same subject. A complete marker rejects the rolled-back candidate while allowing a distinct later candidate.
+Fault injection proves that recoverable short writes complete with the exact marker, while a zero-byte write or truncated final marker fails before the effect boundary. A review reproduction also replaces the final marker with an external inode inside `os.replace` before it returns; the original temporary identity detects that drift without trusting a post-rename `lstat`. Those failures leave allocation zero, lifecycle `rollback_pending`, readiness degraded, and no `applied`/`completed` entry. Invalid marker residue is removed only while its inode identity still matches the file created by this write; an externally replaced path is retained and fails closed, including for future activation. This avoids deleting an unrelated writer's file, while ordinary write corruption does not permanently fence a future candidate for the same subject. A complete marker rejects the rolled-back candidate while allowing a distinct later candidate.
 
 ## Production composition and readiness
 
@@ -71,11 +71,11 @@ Fault injection proves that recoverable short writes complete with the exact mar
 ## Verification
 
 - Task 6 brief set: 32 passed.
-- Rollback marker I/O fault injection: 5 passed.
+- Rollback marker I/O fault injection: 6 passed.
 - Task 4 rollback/fail-closed authority set: 45 passed.
 - Task 4/5 authority, dispatcher, evidence, readiness/health, and migration regression set: 361 passed.
 - Evolution production composition plus readiness/health: 77 passed (3 composition tests plus 74 tests already included in the regression set).
-- Total distinct tests exercised: 385 (520 executions including overlap).
+- Total distinct tests exercised: 386 (521 executions including overlap).
 - Ruff check: passed; Ruff format check: passed.
 - mypy on changed production modules: passed.
 - import-linter: 2 contracts kept, 0 broken.

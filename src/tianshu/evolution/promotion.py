@@ -389,7 +389,7 @@ class SkillPromotionAdapter:
             }
         )
         temporary_identity: tuple[int, int] | None = None
-        replacement_identity: tuple[int, int] | None = None
+        replace_attempted = False
         try:
             descriptor = os.open(
                 temporary,
@@ -405,12 +405,22 @@ class SkillPromotionAdapter:
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
-            self._verify_marker_file(temporary, payload, sync=False)
-            os.replace(temporary, marker)
-            replacement_identity = self._path_identity(marker)
-            if replacement_identity is None:
+            if temporary_identity is None:
                 raise AdapterError("skill rollback marker verification failed")
-            self._verify_marker_file(marker, payload, sync=True)
+            self._verify_marker_file(
+                temporary,
+                payload,
+                expected_identity=temporary_identity,
+                sync=False,
+            )
+            replace_attempted = True
+            os.replace(temporary, marker)
+            self._verify_marker_file(
+                marker,
+                payload,
+                expected_identity=temporary_identity,
+                sync=True,
+            )
             self._sync_live_root()
         except (AdapterError, OSError, TypeError, ValueError) as exc:
             cleanup_error: Exception | None = None
@@ -422,10 +432,10 @@ class SkillPromotionAdapter:
                     )
                 except (AdapterError, OSError, TypeError, ValueError) as residue_exc:
                     cleanup_error = residue_exc
-            if replacement_identity is not None:
+            if replace_attempted and temporary_identity is not None:
                 try:
                     self._remove_marker_residue(
-                        marker, expected_identity=replacement_identity, valid_payload=payload
+                        marker, expected_identity=temporary_identity, valid_payload=payload
                     )
                 except (AdapterError, OSError, TypeError, ValueError) as residue_exc:
                     cleanup_error = residue_exc
@@ -441,12 +451,22 @@ class SkillPromotionAdapter:
             remaining = remaining[written:]
 
     @staticmethod
-    def _verify_marker_file(path: Path, payload: bytes, *, sync: bool) -> None:
+    def _verify_marker_file(
+        path: Path,
+        payload: bytes,
+        *,
+        expected_identity: tuple[int, int],
+        sync: bool,
+    ) -> None:
         if path.is_symlink():
             raise AdapterError("skill rollback marker verification failed")
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         try:
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            details = os.fstat(descriptor)
+            if not stat.S_ISREG(details.st_mode) or expected_identity != (
+                details.st_dev,
+                details.st_ino,
+            ):
                 raise AdapterError("skill rollback marker verification failed")
             if sync:
                 os.fsync(descriptor)
@@ -460,14 +480,15 @@ class SkillPromotionAdapter:
             os.close(descriptor)
         if bytes(raw) != payload:
             raise AdapterError("skill rollback marker verification failed")
-
-    @staticmethod
-    def _path_identity(path: Path) -> tuple[int, int] | None:
         try:
             details = path.lstat()
         except FileNotFoundError:
-            return None
-        return details.st_dev, details.st_ino
+            raise AdapterError("skill rollback marker verification failed") from None
+        if not stat.S_ISREG(details.st_mode) or expected_identity != (
+            details.st_dev,
+            details.st_ino,
+        ):
+            raise AdapterError("skill rollback marker verification failed")
 
     def _remove_marker_residue(
         self,
@@ -484,7 +505,12 @@ class SkillPromotionAdapter:
             return
         if valid_payload is not None:
             try:
-                self._verify_marker_file(path, valid_payload, sync=False)
+                self._verify_marker_file(
+                    path,
+                    valid_payload,
+                    expected_identity=expected_identity,
+                    sync=False,
+                )
             except (AdapterError, OSError, TypeError, ValueError):
                 pass
             else:

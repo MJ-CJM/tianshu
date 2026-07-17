@@ -173,12 +173,23 @@ def test_final_marker_identity_drift_fails_closed_without_deleting_external_repl
     original_verify = adapter._verify_marker_file  # noqa: SLF001
     external_payload = b"external replacement"
 
-    def replace_before_final_verify(path: Path, payload: bytes, *, sync: bool) -> None:
+    def replace_before_final_verify(
+        path: Path,
+        payload: bytes,
+        *,
+        expected_identity: tuple[int, int],
+        sync: bool,
+    ) -> None:
         if sync and path.name.startswith(".rollback-authority-"):
             replacement = live_root / ".external-marker"
             replacement.write_bytes(external_payload)
             promotion_module.os.replace(replacement, path)
-        original_verify(path, payload, sync=sync)
+        original_verify(
+            path,
+            payload,
+            expected_identity=expected_identity,
+            sync=sync,
+        )
 
     monkeypatch.setattr(adapter, "_verify_marker_file", replace_before_final_verify)
     with pytest.raises(PromotionConflict, match="rollback_restore_failed"):
@@ -187,6 +198,41 @@ def test_final_marker_identity_drift_fails_closed_without_deleting_external_repl
     _assert_failed_before_effect(storage, service, current.candidate_id)
     marker = next(live_root.glob(".rollback-authority-*.json"))
     assert marker.read_bytes() == external_payload
+
+
+def test_replace_return_identity_drift_preserves_external_marker_and_fails_closed(
+    storage, tmp_path, monkeypatch
+) -> None:
+    (
+        live_root,
+        _live_skill,
+        _base_text,
+        _changed_text,
+        current,
+        canary_candidate,
+        adapter,
+        service,
+        command,
+    ) = _real_skill_rollback_case(storage, tmp_path)
+    original_replace = promotion_module.os.replace
+    external_payload = b"external replacement before replace returns"
+
+    def replace_then_swap_before_return(source: Path, destination: Path) -> None:
+        original_replace(source, destination)
+        if destination.name.startswith(".rollback-authority-"):
+            replacement = live_root / ".external-marker"
+            replacement.write_bytes(external_payload)
+            original_replace(replacement, destination)
+
+    monkeypatch.setattr(promotion_module.os, "replace", replace_then_swap_before_return)
+    with pytest.raises(PromotionConflict, match="rollback_restore_failed"):
+        service.rollback(current.candidate_id, command, auth=_auth())
+
+    _assert_failed_before_effect(storage, service, current.candidate_id)
+    marker = next(live_root.glob(".rollback-authority-*.json"))
+    assert marker.read_bytes() == external_payload
+    with pytest.raises(AdapterError):
+        adapter.activate(_future_candidate(canary_candidate))
 
 
 def test_complete_marker_rejects_old_candidate_but_allows_new_candidate(storage, tmp_path) -> None:
