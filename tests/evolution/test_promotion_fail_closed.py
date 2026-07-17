@@ -1113,16 +1113,17 @@ def test_skill_exchange_capability_failure_leaves_old_tree_untouched(
 
 
 @pytest.mark.parametrize(
-    ("platform", "operation_name", "expected_flags"),
+    ("platform", "operation_name", "expected_directory_fd", "expected_flags"),
     [
-        ("darwin", "renameatx_np", 0x12),
-        ("linux", "renameat2", 0x02),
+        ("darwin", "renameatx_np", -2, 0x12),
+        ("linux", "renameat2", -100, 0x02),
     ],
 )
 def test_atomic_exchange_uses_supported_platform_primitive(
     monkeypatch: pytest.MonkeyPatch,
     platform: str,
     operation_name: str,
+    expected_directory_fd: int,
     expected_flags: int,
 ) -> None:
     calls: list[tuple[object, ...]] = []
@@ -1142,7 +1143,15 @@ def test_atomic_exchange_uses_supported_platform_primitive(
 
     promotion_module._atomic_exchange(Path("source"), Path("target"))
 
-    assert calls == [(-2, b"source", -2, b"target", expected_flags)]
+    assert calls == [
+        (
+            expected_directory_fd,
+            b"source",
+            expected_directory_fd,
+            b"target",
+            expected_flags,
+        )
+    ]
 
 
 def test_atomic_exchange_missing_platform_primitive_fails_closed(

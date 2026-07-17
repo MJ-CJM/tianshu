@@ -45,7 +45,8 @@ from tianshu.storage.outbox_repo import OutboxRepository
 from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
-_AT_FDCWD = getattr(os, "AT_FDCWD", -2)
+_DARWIN_AT_FDCWD = -2
+_LINUX_AT_FDCWD = -100
 _RENAME_EXCHANGE = 0x00000002
 _RENAME_NOFOLLOW_ANY = 0x00000010
 
@@ -70,9 +71,9 @@ def _atomic_exchange(source: Path, target: Path) -> None:
         )
         operation.restype = ctypes.c_int
         result = operation(
-            _AT_FDCWD,
+            _DARWIN_AT_FDCWD,
             encoded_source,
-            _AT_FDCWD,
+            _DARWIN_AT_FDCWD,
             encoded_target,
             _RENAME_EXCHANGE | _RENAME_NOFOLLOW_ANY,
         )
@@ -90,9 +91,9 @@ def _atomic_exchange(source: Path, target: Path) -> None:
         )
         operation.restype = ctypes.c_int
         result = operation(
-            _AT_FDCWD,
+            _LINUX_AT_FDCWD,
             encoded_source,
-            _AT_FDCWD,
+            _LINUX_AT_FDCWD,
             encoded_target,
             _RENAME_EXCHANGE,
         )

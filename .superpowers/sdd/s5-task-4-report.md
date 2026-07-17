@@ -280,3 +280,30 @@ SQL gate tokenizes normalized lowercase words, so whitespace and newlines betwee
 - Import-linter: 477 files / 1711 dependencies; 2 contracts kept, 0 broken.
 - `git diff --check`: clean.
 - `uv.lock`: zero diff from remediation base `a4328d0`.
+
+## Final FFI constant remediation
+
+The final Minor review found that the atomic-exchange FFI shared an `AT_FDCWD=-2`
+fallback across platforms. That value is correct for Darwin but not Linux. The FFI now
+uses explicit platform ABI constants: Darwin `_DARWIN_AT_FDCWD=-2` and Linux
+`_LINUX_AT_FDCWD=-100`. It no longer depends on whether Python's `os` module exports a
+platform constant, and all source/target path arguments remain encoded directly for the
+selected native primitive.
+
+The platform test was changed first to assert both directory descriptors independently.
+RED was `1 failed, 1 passed, 32 deselected`: Darwin passed and Linux observed `-2`
+instead of `-100`. After splitting the constants, the atomic exchange/capability focus
+passed `5 passed, 29 deselected`, retaining the missing-capability and syscall-failure
+fail-closed coverage that proves the old canonical target is untouched.
+
+Final verification from remediation base `07d9af4`:
+
+- Promotion plus architecture: `43 passed, 4 warnings in 4.63s`.
+- Required affected promotion, architecture, Gate, and universe suites: `113 passed,
+  4 warnings in 12.79s`.
+- Ruff: all checks passed for the two changed source/test files.
+- Ruff format: both changed source/test files already formatted.
+- Mypy: `Success: no issues found in 130 source files`.
+- Import-linter: 477 files / 1711 dependencies; 2 contracts kept, 0 broken.
+- `git diff --check`: clean.
+- `uv.lock`: zero diff.
