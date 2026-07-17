@@ -17,7 +17,12 @@ from tianshu.skills.install_service import (
     ProposeSkillCommand,
     SkillInstallService,
 )
-from tianshu.skills.installer import SkillPackageSnapshotError, snapshot_skill_package
+from tianshu.skills.installer import (
+    SkillPackageRenderError,
+    SkillPackageSnapshotError,
+    render_skill_document_body,
+    snapshot_skill_package,
+)
 from tianshu.storage import Storage
 
 skills_router = APIRouter(tags=["skills"])
@@ -97,13 +102,27 @@ async def update_skill(name: str, request: Request):
         ProposedSkillMemberV1(path=member.path, kind=member.kind, content=member.content)
         for member in snapshot
     )
+    raw_document = next(
+        (member.content for member in snapshot if member.path == "SKILL.md"),
+        None,
+    )
+    if raw_document is None:
+        raise HTTPException(status_code=409, detail="skill_package_render_invalid")
+    try:
+        candidate_document = render_skill_document_body(
+            raw_document,
+            str(content),
+            expected_name=name,
+        )
+    except SkillPackageRenderError:
+        raise HTTPException(status_code=409, detail="skill_package_render_invalid") from None
     service: SkillInstallService = request.app.state.skill_install_service
     auth = get_auth_context(request)
     candidate = service.propose(
         _inline_command(
             name=name,
             base_members=base_members,
-            content=str(content),
+            content=candidate_document,
             source_channel=CandidateSourceChannel.API,
             correlation_id=auth.correlation_id,
         ),

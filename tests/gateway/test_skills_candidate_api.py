@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import frontmatter
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -95,7 +96,9 @@ def test_http_update_snapshots_complete_authoritative_live_package(tmp_path: Pat
     app, storage, live = _app(tmp_path)
     skill_root = live / "existing-skill"
     raw_skill = (
-        "---\nname: existing-skill\ndescription: Existing skill\n---\n\nOriginal instructions."
+        "---\n# trusted comment\nname: existing-skill\ndescription: Existing skill\n"
+        "metadata:\n  openclaw:\n    always: true\n"
+        "custom:\n  nested: retained\n---\n\nOriginal instructions."
     )
     resource_files = {
         "scripts/run.py": "print('safe')\n",
@@ -109,9 +112,6 @@ def test_http_update_snapshots_complete_authoritative_live_package(tmp_path: Pat
         target = skill_root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(value, encoding="utf-8")
-    candidate_content = (
-        "---\nname: existing-skill\ndescription: Updated skill\n---\n\nUpdated instructions."
-    )
     expected_members = [
         {"path": "SKILL.md", "kind": "file", "content": raw_skill},
         {"path": "assets", "kind": "directory", "content": None},
@@ -132,6 +132,11 @@ def test_http_update_snapshots_complete_authoritative_live_package(tmp_path: Pat
     }
     try:
         with TestClient(app, base_url=BASE_URL, client=("127.0.0.1", 41000)) as client:
+            fetched = client.get("/api/skills/existing-skill", headers=HEADERS)
+            assert fetched.status_code == 200
+            current_body = fetched.json()["data"]["content"]
+            assert current_body == "Original instructions."
+            candidate_content = current_body.replace("Original", "Updated")
             proposed = client.put(
                 "/api/skills/existing-skill",
                 headers=HEADERS,
@@ -154,15 +159,62 @@ def test_http_update_snapshots_complete_authoritative_live_package(tmp_path: Pat
         candidate_package = json.loads(
             app.state.artifact_store.get_bytes(candidate.candidate.artifact_digest)
         )
-        assert candidate_package["members"][0] == {
-            "path": "SKILL.md",
-            "kind": "file",
-            "content": candidate_content,
-        }
+        candidate_skill = candidate_package["members"][0]
+        assert candidate_skill["path"] == "SKILL.md"
+        assert candidate_skill["kind"] == "file"
+        base_post = frontmatter.loads(raw_skill)
+        candidate_post = frontmatter.loads(candidate_skill["content"])
+        assert candidate_post.metadata == base_post.metadata
+        assert candidate_post.content == candidate_content
+        trusted_header = raw_skill.rsplit("\n\nOriginal instructions.", maxsplit=1)[0]
+        assert candidate_skill["content"].startswith(f"{trusted_header}\n\n")
         assert candidate_package["members"][1:] == expected_members[1:]
         assert (skill_root / "SKILL.md").read_text("utf-8") == raw_skill
         for relative, value in resource_files.items():
             assert (skill_root / relative).read_text("utf-8") == value
+    finally:
+        storage.close()
+
+
+def test_http_update_rejects_unrenderable_live_document_without_persistence(
+    tmp_path: Path,
+) -> None:
+    app, storage, live = _app(tmp_path)
+    skill_root = live / "existing-skill"
+    raw_skill = "Original instructions without frontmatter."
+    skill_root.mkdir(parents=True)
+    (skill_root / "SKILL.md").write_text(raw_skill, encoding="utf-8")
+    tables = (
+        "artifact_records",
+        "evolution_candidates",
+        "evolution_lifecycle_journal",
+        "system_audit_events",
+        "outbox_events",
+    )
+    before = {
+        table: storage._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608, SLF001
+        for table in tables
+    }
+    try:
+        with TestClient(
+            app,
+            base_url=BASE_URL,
+            client=("127.0.0.1", 41000),
+            raise_server_exceptions=False,
+        ) as client:
+            response = client.put(
+                "/api/skills/existing-skill",
+                headers=HEADERS,
+                json={"content": "Updated body."},
+            )
+        assert response.status_code == 409
+        assert response.json()["detail"] == "skill_package_render_invalid"
+        after = {
+            table: storage._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608, SLF001
+            for table in tables
+        }
+        assert after == before
+        assert (skill_root / "SKILL.md").read_text("utf-8") == raw_skill
     finally:
         storage.close()
 

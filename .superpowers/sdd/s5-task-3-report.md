@@ -24,7 +24,8 @@ routing, or allocation mutation.
 - Skill creation uses an explicit absent base package and rejects any same-name loader
   hit before persistence. Updates snapshot the loader-selected raw `SKILL.md` plus all
   ordinary files and directories under `scripts`, `references`, `assets`, and
-  `templates`; the candidate preserves those resources while replacing `SKILL.md`.
+  `templates`. The Web/API edit contract remains body-only: candidate rendering keeps
+  trusted live frontmatter metadata, replaces only the body, and preserves resources.
   Symlinks, non-ordinary files, illegal paths, unsafe loader identities, concurrent
   changes, and size/member limits fail closed before proposal persistence.
 - Proposal contracts were placed in `models` and the skill service depends on a port
@@ -71,6 +72,11 @@ The implementation was developed through observed RED/GREEN cycles:
     service call; artifact, candidate, lifecycle, audit, and outbox counts remain
     unchanged. Snapshot errors similarly return stable
     `skill_package_snapshot_invalid` with no filesystem path disclosure or persistence.
+12. A real GET-edit-PUT round-trip exposed that loader `content` is intentionally
+    body-only, so treating it as a complete candidate document produced an unhandled
+    adapter failure. Candidate rendering now parses only the authoritative snapshot,
+    preserves all trusted metadata, and treats submitted frontmatter-like text as body.
+    Snapshot/render failures return stable 409 responses before persistence.
 
 ## Verification
 
@@ -93,6 +99,8 @@ The implementation was developed through observed RED/GREEN cycles:
   contracts kept.
 - `uv.lock` is unchanged from `HEAD`; validation uses the existing virtual environment
   directly so verification does not rewrite dependency metadata.
+- Body-only Web/API round-trip remediation: `329 passed, 4 warnings in 8.02s` across
+  the same focused suites; Ruff/format, mypy, and both import-linter contracts pass.
 
 The four pytest warnings are third-party deprecations from `lark_oapi` and `websockets`;
 no Task 3 warning was introduced. Per controller direction, no unrelated full-repository

@@ -56,6 +56,10 @@ class SkillPackageSnapshotError(ValueError):
     """The loader-selected live package cannot be safely snapshotted."""
 
 
+class SkillPackageRenderError(ValueError):
+    """A trusted live document cannot safely supply candidate frontmatter."""
+
+
 @dataclass(frozen=True)
 class PackageValidationResult:
     valid: bool
@@ -90,6 +94,31 @@ def canonical_skill_package_member_path(value: str) -> str:
     if canonical in {"", "."}:
         raise ValueError("skill package member cannot target package root")
     return canonical
+
+
+def render_skill_document_body(raw_document: str, body: str, *, expected_name: str) -> str:
+    """Preserve trusted frontmatter while replacing only the editable body."""
+
+    try:
+        trusted = fm.loads(raw_document)
+        if trusted.handler is None or trusted.metadata.get("name") != expected_name:
+            raise SkillPackageRenderError("trusted skill frontmatter is invalid")
+        boundary = trusted.handler.FM_BOUNDARY
+        if boundary is None:
+            raise SkillPackageRenderError("trusted skill frontmatter is invalid")
+        matches = list(boundary.finditer(raw_document.strip()))
+        if len(matches) < 2:
+            raise SkillPackageRenderError("trusted skill frontmatter is invalid")
+        trusted_header = raw_document.strip()[: matches[1].end()]
+        rendered = f"{trusted_header}\n\n{body}"
+        candidate = fm.loads(rendered)
+    except SkillPackageRenderError:
+        raise
+    except Exception as exc:
+        raise SkillPackageRenderError("trusted skill frontmatter cannot be rendered") from exc
+    if candidate.metadata != trusted.metadata or candidate.content != body.strip():
+        raise SkillPackageRenderError("trusted skill frontmatter cannot be preserved")
+    return rendered
 
 
 def snapshot_skill_package(

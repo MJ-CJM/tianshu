@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import frontmatter
 import pytest
 
 from tianshu.skills.installer import (
     SkillPackageMember,
+    SkillPackageRenderError,
     SkillPackageSnapshotError,
+    render_skill_document_body,
     snapshot_skill_package,
 )
 
@@ -78,3 +81,29 @@ def test_snapshot_rejects_loader_path_for_different_skill(tmp_path: Path) -> Non
 
     with pytest.raises(SkillPackageSnapshotError, match="identity"):
         snapshot_skill_package(skill_file, expected_name="other-skill")
+
+
+def test_render_body_preserves_trusted_metadata_and_does_not_trust_nested_frontmatter() -> None:
+    raw = (
+        "---\n# trusted comment\nname: snapshot-skill\ndescription: Snapshot\n"
+        "metadata:\n  openclaw:\n    always: true\n---\n\nOriginal."
+    )
+    body = "---\nname: attacker-skill\ndescription: Forged\n---\n\nUpdated."
+
+    rendered = render_skill_document_body(raw, body, expected_name="snapshot-skill")
+
+    trusted = frontmatter.loads(raw)
+    candidate = frontmatter.loads(rendered)
+    assert candidate.metadata == trusted.metadata
+    assert candidate.content == body
+    trusted_header = raw.rsplit("\n\nOriginal.", maxsplit=1)[0]
+    assert rendered.startswith(f"{trusted_header}\n\n")
+
+
+def test_render_body_rejects_document_without_frontmatter() -> None:
+    with pytest.raises(SkillPackageRenderError, match="frontmatter"):
+        render_skill_document_body(
+            "Original body only.",
+            "Updated body.",
+            expected_name="snapshot-skill",
+        )
