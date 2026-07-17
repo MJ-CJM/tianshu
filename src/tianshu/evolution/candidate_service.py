@@ -8,7 +8,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-from tianshu.evidence.service import ArtifactStore
+from tianshu.evidence.service import ArtifactStore, ArtifactWriteReceipt
 from tianshu.evolution.adapters.base import BaseCandidateAdapter, StagedCandidateV1
 from tianshu.evolution.adapters.code import CodeCandidateAdapter
 from tianshu.evolution.adapters.memory import MemoryCandidateAdapter
@@ -138,79 +138,129 @@ class CandidateService:
         return _ADAPTER_TYPES[kind](self._artifacts)
 
     @staticmethod
-    def _candidate_id(proposal: CandidateProposalV1) -> str:
-        return f"evolution-{canonical_sha256(proposal)}"
+    def _candidate_id(
+        proposal: CandidateProposalV1,
+        *,
+        base_digest: str,
+        candidate_digest: str,
+    ) -> str:
+        identity = {
+            "schema_version": 1,
+            "command_id": proposal.command_id,
+            "kind": proposal.kind.value,
+            "subject_key": proposal.subject_key,
+            "base_version": proposal.base.version,
+            "base_digest": base_digest,
+            "candidate_version": proposal.candidate.version,
+            "candidate_digest": candidate_digest,
+            "evolution_contract_hash": canonical_sha256(proposal.evolution_contract),
+            "provenance": proposal.provenance.model_dump(mode="json"),
+            "evidence_bundle_ids": list(proposal.evidence_bundle_ids),
+            "restore_point_ref": proposal.restore_point_ref,
+        }
+        return f"evolution-{canonical_sha256(identity)}"
 
     def propose(self, proposal: CandidateProposalV1) -> EvolutionCandidateV1:
         adapter = self._adapter(proposal.kind)
-        base = adapter.materialize_base(proposal)
-        candidate_ref = adapter.validate_source(proposal)
-        diff = adapter.build_diff(proposal)
-        now = self._clock().astimezone(UTC)
-        candidate = EvolutionCandidateV1(
-            candidate_id=self._candidate_id(proposal),
-            kind=proposal.kind,
-            subject_key=proposal.subject_key,
-            provenance=EvolutionProvenanceV1(
-                **proposal.provenance.model_dump(),
-                source_digest=canonical_sha256(proposal.candidate.payload),
-                received_at=now,
-            ),
-            base=base,
-            candidate=candidate_ref,
-            diff_artifact_digest=diff.digest,
-            evolution_contract=proposal.evolution_contract,
-            evolution_contract_hash=canonical_sha256(proposal.evolution_contract),
-            gate_snapshot_version=0,
-            evidence_bundle_ids=proposal.evidence_bundle_ids,
-            routing=None,
-            rollback=RollbackSpecV1(
-                champion_ref=base,
-                restore_point_ref=proposal.restore_point_ref,
-                adapter_name=proposal.kind.value,
-                max_seconds=proposal.evolution_contract.rollback_slo_seconds,
-            ),
-            lifecycle=CandidateLifecycle.PROPOSED,
-            version=1,
-            created_at=now,
-            updated_at=now,
-        )
-        with self._storage.unit_of_work() as unit_of_work:
-            existing = self._repository.get_candidate(
-                unit_of_work.connection, candidate.candidate_id
-            )
-            if existing is not None:
-                return existing
-            try:
-                durable = self._repository.insert_candidate(unit_of_work.connection, candidate)
-            except EvolutionRepositoryConflict as exc:
-                raise CandidateIdentityConflict("candidate command identity conflict") from exc
-            unit_of_work.commit()
-            return durable
+        writes: list[ArtifactWriteReceipt] = []
+        try:
+            with self._storage.unit_of_work() as unit_of_work:
+                base, base_write = adapter.materialize_base_current(
+                    unit_of_work.connection, proposal
+                )
+                writes.append(base_write)
+                candidate_ref, candidate_write = adapter.validate_source_current(
+                    unit_of_work.connection, proposal
+                )
+                writes.append(candidate_write)
+                diff_write = adapter.build_diff_current(
+                    unit_of_work.connection,
+                    proposal,
+                    base=base,
+                    candidate=candidate_ref,
+                )
+                writes.append(diff_write)
+                now = self._clock().astimezone(UTC)
+                candidate = EvolutionCandidateV1(
+                    candidate_id=self._candidate_id(
+                        proposal,
+                        base_digest=base.canonical_digest,
+                        candidate_digest=candidate_ref.canonical_digest,
+                    ),
+                    kind=proposal.kind,
+                    subject_key=proposal.subject_key,
+                    provenance=EvolutionProvenanceV1(
+                        **proposal.provenance.model_dump(),
+                        source_digest=candidate_ref.canonical_digest,
+                        received_at=now,
+                    ),
+                    base=base,
+                    candidate=candidate_ref,
+                    diff_artifact_digest=diff_write.artifact.digest,
+                    evolution_contract=proposal.evolution_contract,
+                    evolution_contract_hash=canonical_sha256(proposal.evolution_contract),
+                    gate_snapshot_version=0,
+                    evidence_bundle_ids=proposal.evidence_bundle_ids,
+                    routing=None,
+                    rollback=RollbackSpecV1(
+                        champion_ref=base,
+                        restore_point_ref=proposal.restore_point_ref,
+                        adapter_name=proposal.kind.value,
+                        max_seconds=proposal.evolution_contract.rollback_slo_seconds,
+                    ),
+                    lifecycle=CandidateLifecycle.PROPOSED,
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                existing = self._repository.get_candidate(
+                    unit_of_work.connection, candidate.candidate_id
+                )
+                if existing is not None:
+                    unit_of_work.commit()
+                    return existing
+                try:
+                    durable = self._repository.insert_candidate(unit_of_work.connection, candidate)
+                except EvolutionRepositoryConflict as exc:
+                    raise CandidateIdentityConflict("candidate command identity conflict") from exc
+                unit_of_work.commit()
+                return durable
+        except BaseException:
+            self._artifacts.discard_uncommitted(writes)
+            raise
 
     def stage(self, candidate_id: str) -> StagedCandidateV1:
-        with self._storage.unit_of_work() as unit_of_work:
-            current = self._repository.get_candidate(unit_of_work.connection, candidate_id)
-            if current is None:
-                raise CandidateNotFound(f"evolution candidate {candidate_id!r} was not found")
-            adapter = self._adapter(current.kind)
-            if current.lifecycle is CandidateLifecycle.STAGED:
-                staged = adapter.stage_current(unit_of_work.connection, current)
+        writes: list[ArtifactWriteReceipt] = []
+        try:
+            with self._storage.unit_of_work() as unit_of_work:
+                current = self._repository.get_candidate(unit_of_work.connection, candidate_id)
+                if current is None:
+                    raise CandidateNotFound(f"evolution candidate {candidate_id!r} was not found")
+                adapter = self._adapter(current.kind)
+                if current.lifecycle is CandidateLifecycle.STAGED:
+                    staged, write = adapter.stage_tracked_current(unit_of_work.connection, current)
+                    writes.append(write)
+                    unit_of_work.commit()
+                    return staged
+                if current.lifecycle is not CandidateLifecycle.PROPOSED:
+                    raise CandidateServiceError("only proposed candidates can be staged")
+                staged_envelope = current.model_copy(
+                    update={"lifecycle": CandidateLifecycle.STAGED, "updated_at": self._clock()}
+                )
+                staged, write = adapter.stage_tracked_current(
+                    unit_of_work.connection, staged_envelope
+                )
+                writes.append(write)
+                durable = self._repository.save_candidate(
+                    unit_of_work.connection,
+                    staged_envelope,
+                    expected_version=current.version,
+                )
                 unit_of_work.commit()
-                return staged
-            if current.lifecycle is not CandidateLifecycle.PROPOSED:
-                raise CandidateServiceError("only proposed candidates can be staged")
-            staged_envelope = current.model_copy(
-                update={"lifecycle": CandidateLifecycle.STAGED, "updated_at": self._clock()}
-            )
-            staged = adapter.stage_current(unit_of_work.connection, staged_envelope)
-            durable = self._repository.save_candidate(
-                unit_of_work.connection,
-                staged_envelope,
-                expected_version=current.version,
-            )
-            unit_of_work.commit()
-            return staged.model_copy(update={"candidate": durable})
+                return staged.model_copy(update={"candidate": durable})
+        except BaseException:
+            self._artifacts.discard_uncommitted(writes)
+            raise
 
 
 __all__ = [

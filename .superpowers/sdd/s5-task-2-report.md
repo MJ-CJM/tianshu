@@ -129,3 +129,38 @@ Commit subject: `feat: stage five evolution candidate kinds`. The immutable comm
 ## Concerns
 
 No task blocker. Activation and rollback deliberately remain unavailable until the later PromotionService task supplies a safe live-resource boundary. The third-party deprecation warnings noted above remain pre-existing.
+
+## Review Remediation — 2026-07-17
+
+The Task 2 review returned four Important findings and one Minor finding. This follow-up closes all five without adding Task 3 gate, allocation, promotion, web, or live-mutation behavior.
+
+- Proposal base/candidate/diff artifact rows and candidate insertion now share one SQLite unit of work. Stage receipt insertion, lifecycle CAS, and commit use the same transaction.
+- Artifact writes return tracked ownership receipts. Rollback compensation removes only a file created by that failed transaction, only when its inode is unchanged and no durable metadata exists. Pre-existing or shared digest bytes are never claimed or deleted.
+- All five adapters materialize their strict normalized domain model. Extras fail closed with generic errors that do not echo source payloads; memory coercions, `CanonicalChangeSet` ordering, safe persona-relative paths, and canonical skill-member ordering therefore affect the persisted bytes and digest.
+- Skill candidates now describe a complete package. Validate-only staging reuses installer member limits, traversal/root checks, symlink rejection, unique root `SKILL.md`, frontmatter/name validation, and guard scanning without installing into a live skill directory.
+- Candidate identity binds command, kind, subject, normalized base/candidate versions and digests, evolution contract, provenance principal/source, evidence IDs, and restore point. Identical retries remain stable while each identity-bearing input changes the ID.
+- Real temporary memory/skill/policy/persona/code resources remain byte-identical through propose/stage. Close/reopen storage tests and two independent SQLite connections cover restart and concurrency; injected envelope/insert/CAS/commit failures assert candidate, journal, artifact-row, and artifact-file outcomes.
+
+TDD review-fix evidence:
+
+```text
+Initial reviewer-focused RED: 4 failed, 20 deselected
+Artifact persistent-commit RED: 1 failed, 1 passed, 2 deselected
+Artifact persistent-commit GREEN: 2 passed, 2 deselected
+Candidate full file: 51 passed, 4 warnings in 2.49s
+```
+
+Fresh final verification:
+
+```text
+Task 2 brief (candidate + universe + skills): 529 passed, 4 warnings in 28.15s
+Evidence plus evolution contract regression: 181 passed, 4 warnings in 11.96s
+Task 1 brief regression: 118 passed, 4 warnings in 0.73s
+Skills/installer regression: 208 passed, 4 warnings in 1.89s
+ruff check: All checks passed
+mypy: Success, no issues found in 11 source files
+lint-imports: 2 kept, 0 broken
+git diff --check: clean
+```
+
+The four warnings are unchanged third-party deprecations from `lark_oapi` and `websockets`. No review-remediation blocker remains.

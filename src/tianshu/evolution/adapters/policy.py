@@ -2,23 +2,32 @@
 
 from collections.abc import Mapping
 
+from pydantic import BaseModel, ConfigDict, ValidationError
+
 from tianshu.evolution.adapters.base import AdapterError, BaseCandidateAdapter
 from tianshu.executor.workspace_policy import validate_workspace_policy
+from tianshu.models.canonical import JsonValue
 from tianshu.models.evolution_candidate import CandidateKind
 from tianshu.models.governance_contract import RecoveryPolicyV1, WorkspacePolicyV1
+
+
+class _PolicySourceV1(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace: WorkspacePolicyV1
+    recovery: RecoveryPolicyV1
 
 
 class PolicyCandidateAdapter(BaseCandidateAdapter):
     kind = CandidateKind.POLICY
 
-    def _validate_domain(self, payload: Mapping[str, object]) -> None:
-        workspace_payload = payload.get("workspace")
-        recovery_payload = payload.get("recovery")
-        if not isinstance(workspace_payload, dict) or not isinstance(recovery_payload, dict):
-            raise AdapterError("policy source requires workspace and recovery objects")
-        workspace = WorkspacePolicyV1.model_validate(workspace_payload)
-        recovery = RecoveryPolicyV1.model_validate(recovery_payload)
-        validate_workspace_policy(workspace, recovery)
+    def _normalize_domain(self, payload: Mapping[str, object]) -> dict[str, JsonValue]:
+        try:
+            source = _PolicySourceV1.model_validate(payload)
+            validate_workspace_policy(source.workspace, source.recovery)
+        except (ValidationError, TypeError, ValueError):
+            raise AdapterError("policy source validation failed") from None
+        return source.model_dump(mode="json")
 
 
 __all__ = ["PolicyCandidateAdapter"]

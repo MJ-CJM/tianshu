@@ -19,6 +19,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import Literal
 
 import frontmatter as fm
 
@@ -35,6 +36,21 @@ class InstallResult:
     """安装结果。失败时 ``installed=False`` 且 ``reason`` 说明卡在哪一关。"""
 
     installed: bool
+    skill_name: str | None
+    reason: str
+    findings: tuple[ValidationFinding, ...] = ()
+
+
+@dataclass(frozen=True)
+class SkillPackageMember:
+    path: str
+    kind: Literal["file", "directory", "symlink_file", "symlink_directory"]
+    content: str | None = None
+
+
+@dataclass(frozen=True)
+class PackageValidationResult:
+    valid: bool
     skill_name: str | None
     reason: str
     findings: tuple[ValidationFinding, ...] = ()
@@ -92,33 +108,98 @@ class SkillInstaller:
             else:
                 raise _Reject(f"不支持的源类型: {src}")
 
-            skill_root = self._locate_skill_root(staging)
-            content = self._read_skill_md(skill_root)
-            name = self._frontmatter_name(content)
-
-            validation = self._validator.validate(name or "", content, source_trust)
-            if not validation.valid:
-                raise _Reject("结构校验未通过", validation.findings)
-
-            guard_result = self._guard.scan_content(content, level)
-            if not SkillsGuard.should_allow(guard_result, level):
-                raise _Reject(
-                    f"安全策略拒绝(verdict={guard_result.verdict}, trust={level.value})",
-                    validation.findings,
-                )
-
-            if not name:  # validation 通过即保证存在,防御性兜底
-                raise _Reject("缺少技能名", validation.findings)
+            skill_root, name, findings = self._validate_staged(
+                staging, source_trust=source_trust, trust_level=level
+            )
             dest = self._target_root / name
             if dest.exists():
-                raise _Reject(f"技能已存在: {name}", validation.findings)
+                raise _Reject(f"技能已存在: {name}", findings)
 
             os.replace(skill_root, dest)  # 原子落地(同一文件系统内 rename)
-            return InstallResult(True, name, "安装成功", validation.findings)
+            return InstallResult(True, name, "安装成功", findings)
         except _Reject as rej:
             return InstallResult(False, None, rej.reason, rej.findings)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
+
+    def validate_package(
+        self,
+        members: tuple[SkillPackageMember, ...],
+        *,
+        declared_name: str,
+        source_trust: str = "community",
+        trust_level: TrustLevel | None = None,
+    ) -> PackageValidationResult:
+        """Validate a complete in-memory package without installing it."""
+
+        level = trust_level or SkillsGuard.resolve_trust_level(source_trust)
+        with tempfile.TemporaryDirectory(prefix="tianshu-skill-package-") as temporary:
+            staging = Path(temporary)
+            try:
+                self._stage_members(members, staging)
+                _skill_root, name, findings = self._validate_staged(
+                    staging, source_trust=source_trust, trust_level=level
+                )
+                if name != declared_name:
+                    raise _Reject("技能名与包声明不一致", findings)
+                return PackageValidationResult(True, name, "校验通过", findings)
+            except _Reject as rejected:
+                return PackageValidationResult(False, None, rejected.reason, rejected.findings)
+
+    def _stage_members(
+        self, members: tuple[SkillPackageMember, ...], staging: Path
+    ) -> tuple[SkillPackageMember, ...]:
+        if len(members) > self._max_members:
+            raise _Reject(f"成员数超限: {len(members)} > {self._max_members}")
+        paths: set[str] = set()
+        total = 0
+        normalized = tuple(sorted(members, key=lambda member: member.path))
+        for member in normalized:
+            if member.path in paths:
+                raise _Reject("技能包含重复成员路径")
+            paths.add(member.path)
+            target = self._safe_target(staging, member.path)
+            if member.kind in {"symlink_file", "symlink_directory"}:
+                raise _Reject("拒绝 symlink 成员")
+            if member.kind == "directory":
+                if member.content is not None:
+                    raise _Reject("目录成员不能包含内容")
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if member.content is None:
+                raise _Reject("文件成员缺少内容")
+            data = member.content.encode("utf-8")
+            if len(data) > self._max_file_bytes:
+                raise _Reject("技能包单文件超限")
+            total += len(data)
+            if total > self._max_total_bytes:
+                raise _Reject("技能包总大小超限")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with target.open("x", encoding="utf-8") as stream:
+                    stream.write(member.content)
+            except (FileExistsError, IsADirectoryError, NotADirectoryError) as exc:
+                raise _Reject("技能包成员路径冲突") from exc
+        return normalized
+
+    def _validate_staged(
+        self, staging: Path, *, source_trust: str, trust_level: TrustLevel
+    ) -> tuple[Path, str, tuple[ValidationFinding, ...]]:
+        skill_root = self._locate_skill_root(staging)
+        content = self._read_skill_md(skill_root)
+        name = self._frontmatter_name(content)
+        validation = self._validator.validate(name or "", content, source_trust)
+        if not validation.valid:
+            raise _Reject("结构校验未通过", validation.findings)
+        guard_result = self._guard.scan_content(content, trust_level)
+        if not SkillsGuard.should_allow(guard_result, trust_level):
+            raise _Reject(
+                f"安全策略拒绝(verdict={guard_result.verdict}, trust={trust_level.value})",
+                validation.findings,
+            )
+        if not name:
+            raise _Reject("缺少技能名", validation.findings)
+        return skill_root, name, validation.findings
 
     # ---------- 暂存(zip) ----------
 
@@ -191,12 +272,17 @@ class SkillInstaller:
     @staticmethod
     def _locate_skill_root(staging: Path) -> Path:
         """定位含 SKILL.md 的技能根:暂存根,或唯一一层包裹目录。"""
-        if (staging / "SKILL.md").is_file():
+        skill_files = [path for path in staging.rglob("SKILL.md") if path.is_file()]
+        if not skill_files:
+            raise _Reject("未找到 SKILL.md")
+        if len(skill_files) != 1:
+            raise _Reject("SKILL.md 数量必须为 1")
+        if skill_files[0] == staging / "SKILL.md":
             return staging
         children = [c for c in staging.iterdir() if c.is_dir()]
-        if len(children) == 1 and (children[0] / "SKILL.md").is_file():
+        if len(children) == 1 and skill_files[0] == children[0] / "SKILL.md":
             return children[0]
-        raise _Reject("未找到 SKILL.md")
+        raise _Reject("SKILL.md 必须位于包根或唯一一层包装目录")
 
     @staticmethod
     def _read_skill_md(skill_root: Path) -> str:

@@ -11,6 +11,7 @@ import sqlite3
 import tempfile
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -67,6 +68,14 @@ class ArtifactIntegrityError(ArtifactStoreError):
 
 class ArtifactQuotaExceeded(ArtifactStoreError):
     """The per-object or total artifact quota would be exceeded."""
+
+
+@dataclass(frozen=True)
+class ArtifactWriteReceipt:
+    """Tracks a file created by one uncommitted metadata transaction."""
+
+    artifact: ArtifactRefV1
+    created_file_identity: tuple[int, int] | None
 
 
 class EvidenceServiceError(RuntimeError):
@@ -155,15 +164,21 @@ class ArtifactStore:
             raise ValueError("raw secret is not allowed in artifact bytes")
 
     def put_bytes(self, data: bytes, *, media_type: str, redaction: str) -> ArtifactRefV1:
-        with self._unit_of_work_factory() as unit_of_work:
-            artifact = self.put_bytes_current(
-                unit_of_work.connection,
-                data,
-                media_type=media_type,
-                redaction=redaction,
-            )
-            unit_of_work.commit()
-            return artifact
+        writes: list[ArtifactWriteReceipt] = []
+        try:
+            with self._unit_of_work_factory() as unit_of_work:
+                write = self.put_bytes_tracked_current(
+                    unit_of_work.connection,
+                    data,
+                    media_type=media_type,
+                    redaction=redaction,
+                )
+                writes.append(write)
+                unit_of_work.commit()
+                return write.artifact
+        except BaseException:
+            self.discard_uncommitted(writes)
+            raise
 
     def put_bytes_current(
         self,
@@ -173,6 +188,21 @@ class ArtifactStore:
         media_type: str,
         redaction: str,
     ) -> ArtifactRefV1:
+        return self.put_bytes_tracked_current(
+            connection,
+            data,
+            media_type=media_type,
+            redaction=redaction,
+        ).artifact
+
+    def put_bytes_tracked_current(
+        self,
+        connection: object,
+        data: bytes,
+        *,
+        media_type: str,
+        redaction: str,
+    ) -> ArtifactWriteReceipt:
         if not isinstance(connection, sqlite3.Connection):
             raise TypeError("artifact connection must be SQLite")
         if not isinstance(data, bytes):
@@ -201,19 +231,31 @@ class ArtifactStore:
                 raise ArtifactIntegrityError("artifact metadata conflicts with its digest")
             if self._read_verified(existing) != data:
                 raise ArtifactIntegrityError("artifact digest mismatch")
-            return existing
+            return ArtifactWriteReceipt(artifact=existing, created_file_identity=None)
         total = self._repository.total_bytes_current(connection, self._root_fingerprint)
         if total + len(data) > self._max_total_bytes:
             raise ArtifactQuotaExceeded("artifact total quota exceeded")
         path = self._path(digest, create_parent=True)
+        if path.exists() or path.is_symlink():
+            if self._read_verified(artifact) != data:
+                raise ArtifactIntegrityError("artifact digest mismatch")
+            self._repository.add_current(connection, artifact, self._clock().isoformat())
+            return ArtifactWriteReceipt(artifact=artifact, created_file_identity=None)
         descriptor, temporary_name = tempfile.mkstemp(prefix=".artifact-", dir=path.parent)
+        created_file_identity: tuple[int, int] | None = None
         try:
             os.fchmod(descriptor, 0o600)
             with os.fdopen(descriptor, "wb", closefd=True) as stream:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary_name, path)
+            try:
+                os.link(temporary_name, path)
+                stat_result = path.stat(follow_symlinks=False)
+                created_file_identity = (stat_result.st_dev, stat_result.st_ino)
+            except FileExistsError:
+                if self._read_verified(artifact) != data:
+                    raise ArtifactIntegrityError("artifact digest mismatch") from None
             directory_fd = os.open(path.parent, os.O_RDONLY)
             try:
                 os.fsync(directory_fd)
@@ -222,10 +264,58 @@ class ArtifactStore:
         except BaseException:
             with suppress(OSError):
                 os.close(descriptor)
-            Path(temporary_name).unlink(missing_ok=True)
+            if created_file_identity is not None:
+                self._discard_created_file(artifact, created_file_identity)
             raise
-        self._repository.add_current(connection, artifact, self._clock().isoformat())
-        return artifact
+        finally:
+            Path(temporary_name).unlink(missing_ok=True)
+        try:
+            self._repository.add_current(connection, artifact, self._clock().isoformat())
+        except BaseException:
+            if created_file_identity is not None:
+                self._discard_created_file(artifact, created_file_identity)
+            raise
+        return ArtifactWriteReceipt(
+            artifact=artifact,
+            created_file_identity=created_file_identity,
+        )
+
+    def discard_uncommitted(self, writes: list[ArtifactWriteReceipt]) -> None:
+        """Delete only files created by rolled-back writes without durable metadata."""
+
+        seen: set[str] = set()
+        for write in writes:
+            identity = write.created_file_identity
+            digest = write.artifact.digest
+            if identity is None or digest in seen:
+                continue
+            seen.add(digest)
+            if not self._has_durable_metadata(digest):
+                self._discard_created_file(write.artifact, identity)
+
+    def _has_durable_metadata(self, digest: str) -> bool:
+        """Read committed metadata without depending on a possibly failing commit path."""
+
+        try:
+            with self._unit_of_work_factory() as unit_of_work:
+                value = self._repository.get_current(unit_of_work.connection, digest)
+                unit_of_work.rollback()
+                return value is not None
+        except BaseException:
+            # Cleanup must never risk deleting bytes whose durable ownership
+            # cannot be established.
+            return True
+
+    def _discard_created_file(self, artifact: ArtifactRefV1, identity: tuple[int, int]) -> None:
+        path = self._path(artifact.digest)
+        try:
+            stat_result = path.stat(follow_symlinks=False)
+            if (stat_result.st_dev, stat_result.st_ino) != identity:
+                return
+            self._read_verified(artifact)
+            path.unlink()
+        except (ArtifactStoreError, FileNotFoundError, OSError):
+            return
 
     def _read_verified(self, artifact: ArtifactRefV1) -> bytes:
         if artifact.root_fingerprint != self._root_fingerprint:
@@ -902,6 +992,7 @@ __all__ = [
     "ArtifactQuotaExceeded",
     "ArtifactStore",
     "ArtifactStoreError",
+    "ArtifactWriteReceipt",
     "EvidenceImportError",
     "EvidenceIncompleteError",
     "EvidenceNotFound",

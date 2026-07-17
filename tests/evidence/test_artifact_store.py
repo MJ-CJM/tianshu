@@ -10,6 +10,7 @@ from tianshu.evidence.service import (
     ArtifactStore,
 )
 from tianshu.storage import Storage
+from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 
 def _store(
@@ -68,3 +69,45 @@ def test_artifact_store_rejects_traversal_cross_root_secrets_and_size(storage, t
     other_root = _store(storage, tmp_path / "root-b")
     with pytest.raises(ArtifactIntegrityError, match="root"):
         other_root.get_bytes(stored.digest)
+
+
+def test_failed_commit_removes_only_new_unreferenced_artifact_file(
+    storage: Storage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "artifacts"
+    artifacts = _store(storage, root)
+
+    def fail_commit(unit_of_work: SqliteUnitOfWork) -> None:
+        del unit_of_work
+        raise RuntimeError("injected artifact commit failure")
+
+    monkeypatch.setattr(SqliteUnitOfWork, "commit", fail_commit)
+
+    with pytest.raises(RuntimeError, match="injected artifact commit failure"):
+        artifacts.put_bytes(b"new artifact", media_type="text/plain", redaction="safe")
+
+    assert storage._conn.execute("SELECT COUNT(*) FROM artifact_records").fetchone()[0] == 0
+    assert [path for path in root.rglob("*") if path.is_file()] == []
+
+
+def test_failed_commit_never_deletes_preexisting_shared_digest(
+    storage: Storage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "artifacts"
+    artifacts = _store(storage, root)
+    shared = artifacts.put_bytes(b"shared artifact", media_type="text/plain", redaction="safe")
+    shared_path = root / shared.digest[:2] / shared.digest
+    original_commit = SqliteUnitOfWork.commit
+
+    def fail_commit(unit_of_work: SqliteUnitOfWork) -> None:
+        del unit_of_work
+        raise RuntimeError("injected retry commit failure")
+
+    monkeypatch.setattr(SqliteUnitOfWork, "commit", fail_commit)
+
+    with pytest.raises(RuntimeError, match="injected retry commit failure"):
+        artifacts.put_bytes(b"shared artifact", media_type="text/plain", redaction="safe")
+
+    monkeypatch.setattr(SqliteUnitOfWork, "commit", original_commit)
+    assert shared_path.read_bytes() == b"shared artifact"
+    assert artifacts.get_bytes(shared.digest) == b"shared artifact"
