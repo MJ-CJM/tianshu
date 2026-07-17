@@ -35,6 +35,7 @@ from tianshu.evolution.promotion import (
     SkillPromotionAdapter,
     UnavailablePromotionAdapter,
 )
+from tianshu.evolution.reconciler import EvolutionRollbackReconciler
 from tianshu.models.evolution_candidate import CandidateKind, EvolutionContractV1, GateName
 from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.curator import SkillCurator
@@ -109,6 +110,7 @@ def wire_evolution_services(
         gate_evaluator,
         adapter_resolver=promotion_adapters.__getitem__,
     )
+    app.state.evolution_reconciler = EvolutionRollbackReconciler(app.state.promotion_service)
     challenger_router = ChallengerRouter(
         app.state.storage,
         allocation_secret=settings.evolution_routing_secret.encode() or None,

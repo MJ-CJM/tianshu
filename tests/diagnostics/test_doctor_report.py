@@ -219,6 +219,7 @@ def _inputs(**overrides) -> ReadinessInputs:
         provider_ready=lambda: True,
         provider_profile=lambda: "demo",
         workspace_ready=lambda: True,
+        evolution_rollback_ready=lambda: True,
         optional_integrations=lambda: {"mcp": None},
     )
     values.update(overrides)

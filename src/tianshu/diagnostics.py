@@ -678,6 +678,8 @@ class ReadinessInputs:
     provider_ready: Callable[[], bool]
     provider_profile: Callable[[], str | None]  # 仅用于证据展示
     workspace_ready: Callable[[], bool]
+    # rollback_pending is operationally degraded: traffic is sealed, restore is incomplete.
+    evolution_rollback_ready: Callable[[], bool]
     # 可选集成：name -> None(未启用) | True(健康) | False(启用但异常)
     optional_integrations: Callable[[], dict[str, bool | None]]
 
@@ -769,6 +771,24 @@ def assess_readiness(inputs: ReadinessInputs) -> ReadinessReport:
             remediation=""
             if provider_ok
             else "当前生效的 LLM 配置缺 api_key/model；在 Web 配置页补齐或改用 demo 档位",
+        )
+    )
+    rollback_value, rollback_errored = _guarded(inputs.evolution_rollback_ready)
+    rollback_ok = rollback_value is True
+    rollback_evidence: dict[str, object] = {"ok": rollback_ok}
+    if rollback_errored:
+        rollback_evidence["probe_error"] = True
+    elif not rollback_ok:
+        rollback_evidence["rollback_pending"] = True
+    checks.append(
+        DoctorCheck(
+            id="evolution.rollback",
+            status="pass" if rollback_ok else "degraded",
+            required=False,
+            evidence=_safe_evidence(rollback_evidence),
+            remediation=""
+            if rollback_ok
+            else "Evolution rollback 尚未验证完成；保持流量封闭并检查恢复日志",
         )
     )
     optional, optional_errored = _guarded(inputs.optional_integrations)

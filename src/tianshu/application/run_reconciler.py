@@ -138,7 +138,7 @@ class RunReconciler:
         if self._stop_requested:
             return 0
         if self._before_scan is not None:
-            self._before_scan()
+            await asyncio.to_thread(self._before_scan)
         memorial_ids = self._repository.list_dispatchable_memorial_ids(
             now=self._clock(),
             limit=self._scan_limit,

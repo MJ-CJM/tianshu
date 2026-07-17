@@ -132,6 +132,7 @@ def _assess_app_readiness(state):
             provider_ready=provider_ready,
             provider_profile=lambda: state.settings.startup_profile,
             workspace_ready=lambda: state.workspace_service.is_ready,
+            evolution_rollback_ready=state.evolution_reconciler.readiness_probe,
             optional_integrations=optional_integrations,
         )
     )

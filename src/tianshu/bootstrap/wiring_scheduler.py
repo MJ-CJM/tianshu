@@ -197,10 +197,15 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         challenger_router=app.state.challenger_router,
     )
     plan_review_coordinator = PlanReviewAttemptCoordinator(storage)
+
+    def reconcile_control_planes() -> int:
+        evolution_count = app.state.evolution_reconciler.reconcile_once()
+        return evolution_count + plan_review_coordinator.reconcile_once()
+
     run_reconciler = RunReconciler(
         storage.attempt_repo,
         run_dispatcher,
-        before_scan=plan_review_coordinator.reconcile_once,
+        before_scan=reconcile_control_planes,
     )
     managed_run_ingress = ManagedRunIngress(
         storage,

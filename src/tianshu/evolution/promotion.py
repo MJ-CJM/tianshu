@@ -38,7 +38,13 @@ from tianshu.models.evolution_candidate import (
     EvolutionCandidateV1,
     RoutingPolicyV1,
 )
-from tianshu.models.principal import AuthContext
+from tianshu.models.principal import (
+    AuthContext,
+    AuthenticationSource,
+    ClientKind,
+    Principal,
+    PrincipalKind,
+)
 from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
 from tianshu.storage.outbox_repo import OutboxRepository
@@ -229,6 +235,10 @@ class _Adapter(Protocol):
 
     def rollback(self, candidate: EvolutionCandidateV1) -> AdapterRollbackReceiptV1: ...
 
+    def verify_rollback(
+        self, candidate: EvolutionCandidateV1
+    ) -> AdapterRollbackReceiptV1 | None: ...
+
 
 class UnavailablePromotionAdapter:
     """Explicit fail-closed capability for kinds without a safe live writer yet."""
@@ -238,6 +248,10 @@ class UnavailablePromotionAdapter:
         raise AdapterOperationUnavailable("candidate activation is unavailable")
 
     def rollback(self, candidate: EvolutionCandidateV1) -> AdapterRollbackReceiptV1:
+        del candidate
+        raise AdapterOperationUnavailable("candidate rollback is unavailable")
+
+    def verify_rollback(self, candidate: EvolutionCandidateV1) -> AdapterRollbackReceiptV1 | None:
         del candidate
         raise AdapterOperationUnavailable("candidate rollback is unavailable")
 
@@ -275,6 +289,31 @@ class SkillPromotionAdapter:
             artifact_digest=candidate.base.artifact_digest,
         )
 
+    def verify_rollback(self, candidate: EvolutionCandidateV1) -> AdapterRollbackReceiptV1 | None:
+        """Return a receipt only when the governed base is already live and exact."""
+
+        if candidate.kind is not CandidateKind.SKILL:
+            raise AdapterError("skill rollback kind mismatch")
+        if candidate.lifecycle is not CandidateLifecycle.ROLLBACK_PENDING:
+            raise AdapterError("skill rollback requires rollback_pending candidate")
+        try:
+            package = self._load_package(candidate.base.artifact_digest)
+            name = package.get("name")
+            if not isinstance(name, str) or candidate.subject_key != f"skill:{name}":
+                raise ValueError("candidate subject does not match skill package")
+            target = self._live_root / name
+            if target.parent != self._live_root or target.name != name:
+                raise ValueError("skill target is not canonical")
+            with self._locked():
+                if not self._matches(target, package):
+                    return None
+        except (ArtifactStoreError, AdapterError, OSError, TypeError, ValueError):
+            raise AdapterError("skill rollback verification failed") from None
+        return AdapterRollbackReceiptV1(
+            candidate_id=candidate.candidate_id,
+            artifact_digest=candidate.base.artifact_digest,
+        )
+
     def _apply(self, candidate: EvolutionCandidateV1, *, digest: str) -> None:
         try:
             package = self._load_package(digest)
@@ -306,7 +345,9 @@ class SkillPromotionAdapter:
             or canonical_sha256(payload) != digest
         ):
             raise ValueError("candidate artifact is not canonical")
-        return self._validator._normalize_domain(payload)  # noqa: SLF001
+        return cast(  # noqa: SLF001
+            dict[str, object], self._validator._normalize_domain(payload)
+        )
 
     @contextmanager
     def _locked(self):
@@ -494,6 +535,7 @@ class SkillPromotionAdapter:
 class _JournalEntry(_StrictModel):
     schema_version: Literal[1] = 1
     command_key: str
+    idempotency_key: str | None = None
     candidate_id: str
     action: Literal["start_canary", "promote", "rollback"]
     status: Literal["intended", "applied", "rollback_pending", "completed"]
@@ -555,6 +597,11 @@ class PromotionService:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._repository = EvolutionRepository()
         self._outbox = OutboxRepository()
+        self._reconciliation_error_codes: tuple[str, ...] = ()
+
+    @property
+    def reconciliation_error_codes(self) -> tuple[str, ...]:
+        return self._reconciliation_error_codes
 
     def start_canary(
         self, candidate_id: str, command: StartCanaryCommand, *, auth: AuthContext
@@ -577,7 +624,7 @@ class PromotionService:
             )
             if existing is not None:
                 unit_of_work.commit()
-                return existing
+                return cast(PromotionReceiptV1, existing)
             self._require_expected_version(candidate, command.expected_version)
             if candidate.lifecycle is not CandidateLifecycle.READY:
                 raise PromotionConflict("promotion_preconditions_not_met")
@@ -633,6 +680,7 @@ class PromotionService:
             )
             entry = _JournalEntry(
                 command_key=command_key,
+                idempotency_key=command.idempotency_key,
                 candidate_id=candidate_id,
                 action="start_canary",
                 status="completed",
@@ -688,7 +736,7 @@ class PromotionService:
             )
             if existing is not None:
                 unit_of_work.commit()
-                return existing
+                return cast(PromotionReceiptV1, existing)
             applied_entry = self._load_journal(connection, command_key, "applied")
             if applied_entry is not None:
                 self._require_command_binding(
@@ -720,6 +768,7 @@ class PromotionService:
                 now = self._now()
                 intended = _JournalEntry(
                     command_key=command_key,
+                    idempotency_key=command.idempotency_key,
                     candidate_id=candidate_id,
                     action="promote",
                     status="intended",
@@ -803,7 +852,7 @@ class PromotionService:
             )
             if existing is not None:
                 unit_of_work.commit()
-                return existing
+                return cast(PromotionReceiptV1, existing)
             current = self._get_authorized_candidate(connection, candidate_id, auth=auth)
             self._require_expected_version(current, command.expected_version)
             if current.lifecycle is not CandidateLifecycle.CANARY:
@@ -894,7 +943,7 @@ class PromotionService:
             )
             if existing is not None:
                 unit_of_work.commit()
-                return existing
+                return cast(RollbackReceiptV1, existing)
             applied_entry = self._load_journal(connection, command_key, "applied")
             if applied_entry is not None:
                 self._require_command_binding(
@@ -931,6 +980,7 @@ class PromotionService:
                 )
                 pending_entry = _JournalEntry(
                     command_key=command_key,
+                    idempotency_key=command.idempotency_key,
                     candidate_id=candidate_id,
                     action="rollback",
                     status="rollback_pending",
@@ -972,21 +1022,26 @@ class PromotionService:
                     request_hash=request_hash,
                     auth=auth,
                 )
-                pending = self._repository.get_candidate(connection, candidate_id)
+                loaded_pending = self._repository.get_candidate(connection, candidate_id)
                 if (
-                    pending is None
-                    or pending.lifecycle is not CandidateLifecycle.ROLLBACK_PENDING
-                    or pending.version != pending_entry.pre_transition_candidate_version + 1
-                    or pending.routing is None
-                    or pending.routing.allocation_basis_points != 0
-                    or pending.routing.routing_version != pending_entry.routing_version
+                    loaded_pending is None
+                    or loaded_pending.lifecycle is not CandidateLifecycle.ROLLBACK_PENDING
+                    or loaded_pending.version != pending_entry.pre_transition_candidate_version + 1
+                    or loaded_pending.routing is None
+                    or loaded_pending.routing.allocation_basis_points != 0
+                    or loaded_pending.routing.routing_version != pending_entry.routing_version
                 ):
                     raise PromotionConflict("candidate_version_conflict")
+                pending = loaded_pending
             unit_of_work.commit()
 
         if applied_entry is None:
             try:
-                effect = self._adapter_resolver(pending.kind).rollback(pending)
+                adapter = self._adapter_resolver(pending.kind)
+                verifier = getattr(adapter, "verify_rollback", None)
+                effect = verifier(pending) if callable(verifier) else None
+                if effect is None:
+                    effect = adapter.rollback(pending)
             except Exception as exc:
                 raise PromotionConflict("rollback_restore_failed") from exc
         else:
@@ -1028,10 +1083,11 @@ class PromotionService:
             )
             if existing is not None:
                 unit_of_work.commit()
-                return existing
-            current = self._repository.get_candidate(connection, candidate_id)
-            if current is None:
+                return cast(RollbackReceiptV1, existing)
+            loaded_current = self._repository.get_candidate(connection, candidate_id)
+            if loaded_current is None:
                 raise PromotionConflict("candidate_version_conflict")
+            current = loaded_current
             self._authorize_candidate(auth, current)
             if (
                 current.lifecycle is not CandidateLifecycle.ROLLBACK_PENDING
@@ -1078,6 +1134,135 @@ class PromotionService:
             )
             unit_of_work.commit()
             return receipt
+
+    def has_pending_rollbacks(self) -> bool:
+        """Report durable rollback work without interpreting untrusted journal payloads."""
+
+        with self._storage.unit_of_work() as unit_of_work:
+            connection = unit_of_work.connection
+            candidate_pending = connection.execute(
+                "SELECT 1 FROM evolution_candidates WHERE lifecycle='rollback_pending' LIMIT 1"
+            ).fetchone()
+            journal_pending = connection.execute(
+                """SELECT 1 FROM evolution_promotion_journal AS pending
+                   WHERE pending.action='rollback' AND pending.status='rollback_pending'
+                     AND NOT EXISTS (
+                         SELECT 1 FROM evolution_promotion_journal AS completed
+                         WHERE completed.command_key=pending.command_key
+                           AND completed.status='completed'
+                     )
+                   LIMIT 1"""
+            ).fetchone()
+            unit_of_work.commit()
+        return candidate_pending is not None or journal_pending is not None
+
+    def reconcile_pending_rollbacks(self, *, limit: int = 50) -> int:
+        """Replay validated rollback commands from their sole durable journal authority."""
+
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        with self._storage.unit_of_work() as unit_of_work:
+            connection = unit_of_work.connection
+            candidate_ids = tuple(
+                str(row["candidate_id"])
+                for row in connection.execute(
+                    """SELECT candidate_id FROM evolution_candidates
+                       WHERE lifecycle='rollback_pending'
+                       ORDER BY updated_at, candidate_id"""
+                ).fetchall()
+            )
+            rows = connection.execute(
+                f"""SELECT {_JOURNAL_COLUMNS} FROM evolution_promotion_journal AS pending
+                    WHERE pending.action='rollback' AND pending.status='rollback_pending'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM evolution_promotion_journal AS completed
+                          WHERE completed.command_key=pending.command_key
+                            AND completed.status='completed'
+                      )
+                    ORDER BY pending.created_at, pending.candidate_id, pending.command_key"""
+            ).fetchall()
+            entries = tuple(self._decode_entry(row) for row in rows)
+            if len(entries) != len(candidate_ids) or tuple(
+                sorted(entry.candidate_id for entry in entries)
+            ) != tuple(sorted(candidate_ids)):
+                raise PromotionConflict("rollback_reconciliation_journal_conflict")
+            if len({entry.candidate_id for entry in entries}) != len(entries):
+                raise PromotionConflict("rollback_reconciliation_journal_conflict")
+            commands: list[tuple[str, RollbackCommand, AuthContext, bool]] = []
+            for entry in entries:
+                if entry.idempotency_key is None or not entry.idempotency_key.strip():
+                    raise PromotionConflict("rollback_reconciliation_identity_missing")
+                candidate = self._repository.get_candidate(connection, entry.candidate_id)
+                if (
+                    candidate is None
+                    or candidate.lifecycle is not CandidateLifecycle.ROLLBACK_PENDING
+                    or candidate.version != entry.pre_transition_candidate_version + 1
+                    or candidate.routing is None
+                    or candidate.routing.allocation_basis_points != 0
+                    or candidate.routing.routing_version != entry.routing_version
+                ):
+                    raise PromotionConflict("rollback_reconciliation_journal_conflict")
+                command = RollbackCommand(
+                    expected_version=entry.pre_transition_candidate_version,
+                    idempotency_key=entry.idempotency_key,
+                    reason=entry.reason,
+                    decision_request_id=entry.decision_request_id,
+                )
+                auth = AuthContext(
+                    principal=Principal(
+                        id=entry.principal_id,
+                        kind=PrincipalKind.SERVICE,
+                        display_name="Evolution rollback reconciler",
+                        scopes=frozenset({"admin"}),
+                    ),
+                    source=AuthenticationSource.TRUSTED_LOCAL,
+                    client_kind=ClientKind.SYSTEM,
+                    correlation_id=f"rollback-reconcile:{entry.candidate_id}",
+                )
+                self._require_command_binding(
+                    entry,
+                    candidate=candidate,
+                    command_key=entry.command_key,
+                    action="rollback",
+                    command=command,
+                    request_hash=_request_hash(entry.candidate_id, "rollback", command),
+                    auth=auth,
+                )
+                applied = self._load_journal(connection, entry.command_key, "applied")
+                if applied is not None:
+                    self._require_command_binding(
+                        applied,
+                        candidate=candidate,
+                        command_key=entry.command_key,
+                        action="rollback",
+                        command=command,
+                        request_hash=entry.request_hash,
+                        auth=auth,
+                    )
+                    self._rollback_effect(applied, candidate=candidate)
+                adapter = self._adapter_resolver(candidate.kind)
+                replay_safe = callable(getattr(adapter, "verify_rollback", None)) or (
+                    getattr(adapter, "rollback_is_idempotent", False) is True
+                )
+                commands.append((entry.candidate_id, command, auth, replay_safe))
+            unit_of_work.commit()
+
+        completed = 0
+        error_codes: list[str] = []
+        for candidate_id, command, auth, replay_safe in commands:
+            if not replay_safe:
+                error_codes.append("rollback_restore_safety_unavailable")
+                continue
+            try:
+                self.rollback(candidate_id, command, auth=auth)
+            except PromotionConflict as exc:
+                error_codes.append(str(exc))
+                continue
+            completed += 1
+            if completed >= limit:
+                break
+        self._reconciliation_error_codes = tuple(error_codes)
+        return completed
 
     @staticmethod
     def _authorize(auth: AuthContext) -> None:
@@ -1332,7 +1517,10 @@ class PromotionService:
         except (ValidationError, TypeError, ValueError) as exc:
             raise PromotionConflict("promotion_journal_conflict") from exc
         if canonical_json_bytes(entry).decode("utf-8") != raw:
-            raise PromotionConflict("promotion_journal_conflict")
+            legacy = entry.model_dump(mode="json")
+            legacy.pop("idempotency_key", None)
+            if canonical_json_bytes(legacy).decode("utf-8") != raw:
+                raise PromotionConflict("promotion_journal_conflict")
         valid_statuses = {
             "start_canary": {"completed"},
             "promote": {"intended", "applied", "completed"},
@@ -1381,6 +1569,10 @@ class PromotionService:
             or entry.base_digest != candidate.base.artifact_digest
             or entry.principal_id != auth.principal.id
             or entry.reason != command.reason
+            or (
+                entry.idempotency_key is not None
+                and entry.idempotency_key != command.idempotency_key
+            )
         ):
             raise PromotionConflict("promotion_journal_conflict")
 
