@@ -7,6 +7,7 @@ import { useT } from "../../i18n";
 import { useAuth } from "../../auth/AuthContext";
 import { Link } from "react-router-dom";
 import { FROZEN_BRAND_NAME, FROZEN_TAGLINE } from "../../contracts/frozenShell";
+import styles from "./AppHeader.module.css";
 
 interface AppHeaderProps {
   isWsConnected?: boolean;
@@ -19,6 +20,7 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
 
   return (
     <Layout.Header
+      className={styles.header}
       style={{
         display: "flex",
         alignItems: "center",
@@ -29,6 +31,7 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
       }}
     >
       <Link
+        className={styles.brand}
         to="/control"
         aria-label="天枢中枢总览"
         style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}
@@ -56,6 +59,7 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
         </span>
       </Link>
       <div
+        className={styles.tagline}
         style={{
           flex: 1,
           textAlign: "center",
@@ -63,11 +67,15 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
           fontFamily: "'Noto Serif SC', serif",
           fontSize: 12.5,
           letterSpacing: 2,
+          lineHeight: "56px",
         }}
       >
         {FROZEN_TAGLINE}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div
+        className={styles.statuses}
+        style={{ display: "flex", alignItems: "center", gap: 12, lineHeight: 1.5 }}
+      >
         <LocaleSwitcher />
         {principal ? (
           <span

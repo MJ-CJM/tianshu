@@ -8,7 +8,9 @@ Implementation base: `6ccf90a`, `81c3125`
 
 Browser-found product fixes: `e69f50a`
 
-Automation/report commit: `test: automate the S4 core desktop Web Gate` (this commit)
+Automation/report commit: `c45e52b` (`test: automate the S4 core desktop Web Gate`)
+
+Review remediation: `fix: close S4 Web Gate review gaps` (follow-up commit)
 
 ## 1. Verdict
 
@@ -45,6 +47,8 @@ cross-browser matrix, wheel/container/publication, OIDC, mobile, or S5 governed 
   read contract for the blocked-candidate contract test; the disabled-route test is unmocked.
 - Browser console errors, page errors, request failures, and HTTP `>=400` responses fail the
   test. The Edict detail's documented optional DAG lookup is explicitly asserted as a `404`.
+- The English journey/a11y default is installed only when no stored locale exists; an explicit
+  user or visual-test locale therefore survives reload without relying on init-script order.
 
 ## 3. Governed journey and truth checks
 
@@ -76,10 +80,15 @@ Each core route has three independent checks:
 | Edict detail | 0 | pass | pass |
 | Evolution disabled | 0 | pass | pass |
 
-Result: `9 passed`. The zoom check halves the CSS viewport from `1280x800` and asserts the
-header, sidebar, and sidebar control remain operable and the primary content has no horizontal
-trap. This automated evidence does not substitute for VoiceOver; manual assistive-technology
-review remains `external_pending`.
+Result: `9 passed`. Keyboard coverage freezes the identity of every initially visible action,
+then proves each exact identity receives keyboard focus with a visible proxy and focus indicator;
+the Menu and Segmented composite widgets are traversed with their arrow-key semantics. The zoom
+check halves the CSS viewport from `1280x800`, scrolls each required shell element into view, and
+individually verifies the brand link, complete motto, locale switcher, realtime/health status,
+Control/Evolution entries, theme control, and sidebar control. The mutable controls are focused
+and operated by keyboard before the primary/document horizontal-trap assertions run. This
+automated evidence does not substitute for VoiceOver; manual assistive-technology review remains
+`external_pending`.
 
 ## 5. Visual result
 
@@ -106,15 +115,20 @@ interaction status is therefore `user_approval_pending` as required by the S4 ex
 
 ## 6. Performance and build evidence
 
-Production Vite build measurements:
+Production Vite manifest/asset measurements and executable ceilings:
 
-| Chunk | Minified | gzip |
-|---|---:|---:|
-| ControlCenterPage | 5.48 kB | 1.77 kB |
-| EvolutionCenterPage | 5.57 kB | 1.81 kB |
-| EdictDetailPage | 59.28 kB | 16.18 kB |
-| DagBattleMapPage | 187.43 kB | 60.98 kB |
-| shared antd | 1,086.34 kB | 337.50 kB |
+| Chunk | Measured minified | Ceiling | Measured gzip | Ceiling |
+|---|---:|---:|---:|---:|
+| ControlCenterPage | 5.35 KiB | 7.00 KiB | 1.72 KiB | 2.25 KiB |
+| EvolutionCenterPage | 5.44 KiB | 7.00 KiB | 1.77 KiB | 2.25 KiB |
+| EdictDetailPage | 57.89 KiB | 70.00 KiB | 15.80 KiB | 20.00 KiB |
+| DagBattleMapPage | 183.04 KiB | 220.00 KiB | 59.55 KiB | 72.00 KiB |
+| shared antd | 1,060.88 KiB | not route-gated | 329.59 KiB | not route-gated |
+
+The route ceilings are 20-31% above the recorded build, providing explicit regression margin
+without representing an optimization claim. The browser gate parses the production
+`.vite/manifest.json`, reads the emitted assets, computes minified bytes and gzip bytes, converts
+both with `1 KiB = 1024 bytes`, and fails when either route ceiling is exceeded.
 
 The real browser network assertion proves the Control initial load fetches its own route chunk
 and does not fetch `DagBattleMapPage`, `EdictDetailPage`, `PersonaDashboardPage`, or
@@ -129,19 +143,34 @@ and does not fetch `DagBattleMapPage`, `EdictDetailPage`, `PersonaDashboardPage`
 | `npm run lint` | pass, 0 errors / 35 retained warnings |
 | `npm run typecheck` | pass |
 | `npm test -- --run` | 35 files / 186 tests passed |
-| `npm run build` | pass, 3,718 modules transformed |
-| `npm run e2e -- --reporter=line` | 39 passed in 30.5 s |
+| `npm run build` | pass, 3,719 modules transformed |
+| `npm run e2e -- --reporter=line` | 41 passed in 36.3 s |
 | accessibility subset | 9 passed |
 | visual comparison subset | 24 passed |
 | `.venv/bin/pytest tests/evidence/test_close_snapshot_immutable.py -q` | 3 passed |
 | focused Ruff check/format | pass |
 | screenshot SHA-256 verification | 24 passed |
 
-The full E2E count is 39: 9 accessibility checks, 24 visual comparisons, and 6 governed
-journey/contract/performance checks. CI now has a separate `web-e2e` job with Node 20, frozen
+The full E2E count is 41: 9 accessibility checks, 24 visual comparisons, and 8 governed
+journey/contract/performance/locale checks. CI now has a separate `web-e2e` job with Node 20, frozen
 Python 3.12/all-extras sync, production Web build, Chromium install, and the same E2E command.
 
-## 8. Deferred boundary
+## 8. Review remediation evidence
+
+The review fixes followed explicit RED/GREEN cycles:
+
+- RED `stored locale|production core route`: `0/2`; reload overwrote the stored locale and the
+  production manifest was absent. GREEN: `2/2 passed in 6.6 s`.
+- RED `visible keyboard focus|200% zoom`: `0/6`; frozen menu identities were not all reached and
+  the full motto was outside the small viewport. GREEN: all three keyboard checks passed, all
+  three 200% checks passed, and the complete accessibility spec passed `9/9 in 13.5 s`.
+- The unchanged `zh-classic` visual comparison passed `24/24 in 10.5 s`; screenshot SHA-256
+  passed `24/24`, and `public/brand.png` remained
+  `3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`.
+- Final gates: lint `0 errors / 35 retained warnings`, typecheck passed, `35 files / 186` unit
+  tests passed, production build passed, and the full real-stack browser gate passed `41/41`.
+
+## 9. Deferred boundary
 
 - S4.8-S4.11 departmental depth remains deferred; their retained navigation does not expand
   this gate's three-route claim.

@@ -7,6 +7,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  FROZEN_BRAND_NAME,
+  FROZEN_CONNECTION_LABEL,
+  FROZEN_HEALTH_LABEL,
+  FROZEN_TAGLINE,
+} from "../src/contracts/frozenShell";
+
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(webRoot, "..");
 const python = join(repoRoot, ".venv", "bin", "python");
@@ -200,7 +207,9 @@ export const test = base.extend<Fixtures>({
     const isAssertedMissingDag = (url: string) =>
       /^\/api\/dag\/by-edict\/[^/]+$/.test(new URL(url).pathname);
     await page.addInitScript(() => {
-      localStorage.setItem("tianshu-locale", "en");
+      if (localStorage.getItem("tianshu-locale") === null) {
+        localStorage.setItem("tianshu-locale", "en");
+      }
     });
     page.on("console", (message) => {
       if (
@@ -444,57 +453,263 @@ export async function assertAxeClean(page: Page): Promise<void> {
 }
 
 export async function assertKeyboardActionsHaveVisibleFocus(page: Page): Promise<void> {
-  const expected = await page.locator(
-    'a[href]:visible, button:not([disabled]):visible, input:not([disabled]):visible, textarea:not([disabled]):visible, select:not([disabled]):visible, [tabindex]:not([tabindex="-1"]):visible',
-  ).evaluateAll((elements) => elements.filter((element) => (element as HTMLElement).tabIndex >= 0).length);
+  const expected = await page.evaluate(() => {
+    const candidates = Array.from(document.querySelectorAll<HTMLElement>([
+      "a[href]",
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "textarea:not([disabled])",
+      "select:not([disabled])",
+      '[role="button"]',
+      '[role="checkbox"]',
+      '[role="combobox"]',
+      '[role="link"]',
+      '[role="menuitem"]',
+      '[role="radio"]',
+      '[role="switch"]',
+      '[role="tab"]',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(",")));
+    const rectVisible = (element: HTMLElement) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" &&
+        rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 &&
+        rect.left < window.innerWidth && rect.top < window.innerHeight;
+    };
+    const proxyFor = (element: HTMLElement): HTMLElement | null => {
+      if (element.classList.contains("ant-segmented-item-input")) {
+        return element.closest<HTMLElement>(".ant-segmented-item");
+      }
+      if (element.closest(".ant-select")) {
+        return element.closest<HTMLElement>(".ant-select")
+          ?.querySelector<HTMLElement>(".ant-select-selector") ?? null;
+      }
+      if (rectVisible(element)) return element;
+      if (element instanceof HTMLInputElement && ["checkbox", "radio"].includes(element.type)) {
+        return element.closest<HTMLElement>("label");
+      }
+      return null;
+    };
+    const frozen: Array<{ id: string; identity: string }> = [];
+    const proxies = new Set<HTMLElement>();
+    for (const element of candidates) {
+      if (element.getAttribute("role") === "menu") continue;
+      if (element.getAttribute("aria-disabled") === "true") continue;
+      const proxy = proxyFor(element);
+      if (!proxy || !rectVisible(proxy) || proxies.has(proxy)) continue;
+      proxies.add(proxy);
+      const id = `s4-action-${frozen.length}`;
+      const role = element.getAttribute("role") ?? element.tagName.toLowerCase();
+      const name = element.getAttribute("aria-label") ??
+        proxy.getAttribute("aria-label") ?? proxy.textContent?.trim().replace(/\s+/g, " ") ?? "";
+      const href = element.getAttribute("href") ?? "";
+      const identity = `${role}:${name}:${href}`;
+      element.dataset.s4FocusTarget = id;
+      proxy.dataset.s4FocusProxy = id;
+      frozen.push({ id, identity });
+    }
+    return frozen;
+  });
+
+  expect(
+    new Set(expected.map((action) => action.identity)).size,
+    "initially visible action identities are unique",
+  ).toBe(expected.length);
   const reached = new Set<string>();
-  for (let index = 0; index < expected + 8; index += 1) {
-    await page.keyboard.press("Tab");
+  const observed: string[] = [];
+  const exploredComposites = new Set<string>();
+  const capture = async () => {
     const state = await page.evaluate(() => {
       const active = document.activeElement as HTMLElement | null;
       if (!active || active === document.body) return null;
+      const id = active.dataset.s4FocusTarget;
+      if (!id && active.getAttribute("role") === "menu") {
+        return { id: "", identity: "menu:root:", visible: true, focusVisible: true, composite: "menu" };
+      }
       const activeRect = active.getBoundingClientRect();
-      const target = activeRect.width > 0 && activeRect.height > 0
-        ? active
-        : active.closest<HTMLElement>("label");
-      if (!target) return null;
-      const style = getComputedStyle(target);
-      const rect = target.getBoundingClientRect();
-      const focusables = Array.from(document.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ));
+      const proxy = id
+        ? document.querySelector<HTMLElement>(`[data-s4-focus-proxy="${id}"]`)
+        : active.classList.contains("ant-segmented-item-input")
+          ? active.closest<HTMLElement>(".ant-segmented-item")
+          : active.closest(".ant-select")
+            ? active.closest<HTMLElement>(".ant-select")
+              ?.querySelector<HTMLElement>(".ant-select-selector") ?? null
+            : activeRect.width > 0 && activeRect.height > 0
+              ? active
+              : active instanceof HTMLInputElement && ["checkbox", "radio"].includes(active.type)
+                ? active.closest<HTMLElement>("label")
+                : null;
+      if (!proxy) return null;
+      const style = getComputedStyle(proxy);
+      const rect = proxy.getBoundingClientRect();
+      const outlineVisible = style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) > 0;
+      const shadowVisible = style.boxShadow !== "none";
+      const role = active.getAttribute("role") ?? active.tagName.toLowerCase();
+      const name = active.getAttribute("aria-label") ??
+        proxy.getAttribute("aria-label") ?? proxy.textContent?.trim().replace(/\s+/g, " ") ?? "";
+      const identity = `${role}:${name}:${active.getAttribute("href") ?? ""}`;
       return {
-        key: `${focusables.indexOf(active)}:${target.tagName}:${active.getAttribute("aria-label") ?? target.textContent?.trim() ?? ""}:${active.getAttribute("href") ?? ""}`,
-        visible: rect.width > 0 && rect.height > 0,
-        focusVisible: active.matches(":focus-visible") && style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) > 0,
+        id: id ?? "",
+        identity,
+        visible: rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 &&
+          rect.left < window.innerWidth && rect.top < window.innerHeight,
+        focusVisible: active.matches(":focus-visible") && (outlineVisible || shadowVisible),
+        composite: active.matches('[role="menuitem"]')
+          ? "menu"
+          : active.classList.contains("ant-segmented-item-input")
+            ? "segmented"
+            : null,
       };
     });
-    if (!state) continue;
-    expect(state.visible, `focused action ${state.key} is visible`).toBe(true);
-    expect(state.focusVisible, `focused action ${state.key} has a visible focus ring`).toBe(true);
-    reached.add(state.key);
+    if (!state) return null;
+    const action = state.id
+      ? expected.find((candidate) => candidate.id === state.id)
+      : expected.find((candidate) => candidate.identity === state.identity);
+    const identity = action?.identity ?? state.identity;
+    observed.push(identity);
+    expect(state.visible, `focused action ${identity} has a visible proxy`).toBe(true);
+    expect(state.focusVisible, `focused action ${identity} has a visible focus indicator`).toBe(true);
+    if (action) reached.add(action.id);
+    return state;
+  };
+
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  for (let index = 0; index < expected.length + 12 && reached.size < expected.length; index += 1) {
+    await page.keyboard.press("Tab");
+    const state = await capture();
+    if (!state?.composite || exploredComposites.has(state.composite)) continue;
+    exploredComposites.add(state.composite);
+    const keys = state.composite === "segmented"
+      ? ["ArrowLeft", "ArrowLeft", "ArrowRight", "ArrowRight"]
+      : [
+        ...Array.from(
+          { length: expected.filter((action) => action.identity.startsWith("menuitem:")).length },
+          () => "ArrowDown",
+        ),
+        ...Array.from(
+          { length: expected.filter((action) => action.identity.startsWith("menuitem:")).length },
+          () => "ArrowUp",
+        ),
+        "Home",
+        "End",
+      ];
+    for (const key of keys) {
+      await page.keyboard.press(key);
+      if (state.composite === "segmented") {
+        await page.evaluate(() => new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame())));
+      }
+      await capture();
+    }
   }
-  expect(reached.size, "keyboard reaches every tabbable action").toBeGreaterThanOrEqual(expected);
+
+  const missing = expected.filter((action) => !reached.has(action.id)).map((action) => action.identity);
+  expect(
+    missing,
+    `keyboard reaches every initially visible action by frozen identity; observed=${JSON.stringify(observed)}`,
+  ).toEqual([]);
 }
 
 export async function assertZoomHasNoPrimaryHorizontalTrap(page: Page): Promise<void> {
   const original = page.viewportSize() ?? { width: 1280, height: 800 };
   await page.setViewportSize({ width: Math.floor(original.width / 2), height: Math.floor(original.height / 2) });
   await page.waitForTimeout(100);
+  const originalUrl = page.url();
+  const assertInViewport = async (name: string, locator: ReturnType<Page["locator"]>) => {
+    await expect(locator, `${name} exists at 200% zoom`).toHaveCount(1);
+    await locator.scrollIntoViewIfNeeded();
+    await expect(locator, `${name} is visible at 200% zoom`).toBeVisible();
+    const box = await locator.boundingBox();
+    const viewport = page.viewportSize();
+    expect(box, `${name} has rendered geometry at 200% zoom`).not.toBeNull();
+    expect(
+      box && viewport && box.x >= -1 && box.y >= -1 &&
+        box.x + box.width <= viewport.width + 1 && box.y + box.height <= viewport.height + 1,
+      `${name} is fully within the 200% viewport after scrolling; geometry=${JSON.stringify({ box, viewport })}`,
+    ).toBe(true);
+  };
+  const assertFocused = async (name: string, locator: ReturnType<Page["locator"]>) => {
+    await locator.focus();
+    expect(
+      await locator.evaluate((element) => document.activeElement === element),
+      `${name} accepts focus at 200% zoom`,
+    ).toBe(true);
+  };
+
+  const brand = page.getByRole("link", { name: FROZEN_BRAND_NAME }).or(
+    page.getByRole("link", { name: "天枢中枢总览" }),
+  ).first();
+  const tagline = page.getByText(FROZEN_TAGLINE, { exact: true });
+  const locale = page.locator(".ant-segmented");
+  const connection = page.getByRole("status").filter({ hasText: FROZEN_CONNECTION_LABEL });
+  const health = page.getByRole("status").filter({ hasText: FROZEN_HEALTH_LABEL });
+  const control = page.getByRole("menuitem", { name: "Control Center", exact: true });
+  const evolution = page.getByRole("menuitem", { name: "Evolution Center", exact: true });
+  const sidebar = page.locator("aside");
+  const theme = sidebar.getByRole("button", { name: "Switch to Light", exact: true });
+  const collapse = sidebar.getByRole("button", { name: "Collapse", exact: true });
+
+  for (const [name, locator] of [
+    ["brand logo", brand],
+    ["brand motto", tagline],
+    ["language switcher", locale],
+    ["realtime status", connection],
+    ["governance health status", health],
+    ["Control Center entry", control],
+    ["Evolution Center entry", evolution],
+    ["theme control", theme],
+    ["sidebar collapse control", collapse],
+  ] as const) {
+    await assertInViewport(name, locator);
+  }
+
+  const localeTarget = locale.locator(".ant-segmented-item-input:checked");
+  await assertFocused("language switcher", localeTarget);
+  await localeTarget.press("ArrowLeft");
+  expect(await page.evaluate(() => localStorage.getItem("tianshu-locale"))).toBe("zh-modern");
+  await page.keyboard.press("ArrowRight");
+  expect(await page.evaluate(() => localStorage.getItem("tianshu-locale"))).toBe("en");
+
+  await assertFocused("theme control", theme);
+  await theme.press("Enter");
+  await expect(sidebar.getByRole("button", { name: "Switch to Dark", exact: true })).toBeVisible();
+  await sidebar.getByRole("button", { name: "Switch to Dark", exact: true }).press("Enter");
+
+  await assertFocused("sidebar collapse control", collapse);
+  await collapse.press("Enter");
+  await expect(sidebar.getByRole("button", { name: "Expand", exact: true })).toBeVisible();
+  await sidebar.getByRole("button", { name: "Expand", exact: true }).press("Enter");
+
+  for (const [name, locator, path] of [
+    ["brand logo", brand, "/control"],
+    ["Control Center entry", control, "/control"],
+    ["Evolution Center entry", evolution, "/evolution"],
+  ] as const) {
+    await assertInViewport(name, locator);
+    await assertFocused(name, locator);
+    await locator.press("Enter");
+    await expect.poll(() => new URL(page.url()).pathname, `${name} activates at 200% zoom`).toBe(path);
+    if (path === "/control") {
+      await expect(page.getByRole("heading", { name: "Control Center" })).toBeVisible();
+    } else {
+      await expect(page.getByRole("heading", { name: "Not enabled" })).toBeVisible();
+    }
+    if (page.url() !== originalUrl) {
+      await page.goto(originalUrl);
+      const originalPath = new URL(originalUrl).pathname;
+      const heading = originalPath === "/control"
+        ? "Control Center"
+        : originalPath === "/evolution"
+          ? "Not enabled"
+          : "Governance Contract";
+      await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    }
+  }
+
   const result = await page.evaluate(() => {
-    const header = document.querySelector("header") as HTMLElement | null;
-    const sidebar = document.querySelector("aside") as HTMLElement | null;
     const main = document.querySelector("main") as HTMLElement | null;
-    const collapse = document.querySelector('button[aria-label="Collapse"], button[aria-label="Expand"]') as HTMLElement | null;
-    const visible = (element: HTMLElement | null) => {
-      if (!element) return false;
-      const rect = element.getBoundingClientRect();
-      return rect.width > 0 && rect.height > 0 && rect.left < window.innerWidth && rect.top < window.innerHeight;
-    };
     return {
-      header: visible(header),
-      sidebar: visible(sidebar),
-      collapse: visible(collapse),
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       primaryOverflow: main ? main.scrollWidth - main.clientWidth : Number.POSITIVE_INFINITY,
       overflowElements: main ? Array.from(main.querySelectorAll<HTMLElement>("*"))
         .filter((element) => element.scrollWidth - element.clientWidth > 1)
@@ -507,9 +722,7 @@ export async function assertZoomHasNoPrimaryHorizontalTrap(page: Page): Promise<
         })) : [],
     };
   });
-  expect(result.header, "header remains visible at 200% zoom").toBe(true);
-  expect(result.sidebar, "sidebar remains visible at 200% zoom").toBe(true);
-  expect(result.collapse, "sidebar control remains visible at 200% zoom").toBe(true);
+  expect(result.documentOverflow, "the 200% shell has no document-level horizontal trap").toBeLessThanOrEqual(1);
   expect(
     result.primaryOverflow,
     `primary content has no horizontal trap at 200% zoom; offenders=${JSON.stringify(result.overflowElements)}`,

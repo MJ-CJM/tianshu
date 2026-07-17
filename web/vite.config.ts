@@ -19,6 +19,7 @@ export default defineConfig({
   build: {
     outDir: "../src/tianshu/web/static",
     emptyOutDir: true,
+    manifest: true,
     rollupOptions: {
       output: {
         manualChunks: {

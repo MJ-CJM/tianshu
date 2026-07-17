@@ -1,7 +1,21 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 
 import { expect, test } from "./fixtures";
+
+const KIB = 1024;
+const ROUTE_CHUNK_CEILINGS_KIB = {
+  ControlCenterPage: { minified: 7, gzip: 2.25 },
+  EvolutionCenterPage: { minified: 7, gzip: 2.25 },
+  EdictDetailPage: { minified: 70, gzip: 20 },
+  DagBattleMapPage: { minified: 220, gzip: 72 },
+} as const;
+
+type ViteManifestChunk = {
+  file: string;
+  src?: string;
+};
 
 test("fresh onboarding creates the first governed Edict on the real demo stack", async ({
   isolatedStack,
@@ -35,6 +49,45 @@ test("product source does not import mockData", async () => {
     readFileSync(file, "utf8"),
   ));
   expect(offenders).toEqual([]);
+});
+
+test("a stored locale survives reload instead of being overwritten by the E2E default", async ({
+  stack,
+  page,
+}) => {
+  await page.goto(`${stack.baseURL}/control`);
+  await expect(page.getByRole("heading", { name: "Control Center" })).toBeVisible();
+  await page.evaluate(() => localStorage.setItem("tianshu-locale", "zh-classic"));
+  await page.reload();
+
+  await expect(page.getByRole("heading", { name: "中枢总览" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("tianshu-locale"))).toBe("zh-classic");
+});
+
+test("production core route chunks stay within documented KiB ceilings", async () => {
+  const staticRoot = join(process.cwd(), "..", "src", "tianshu", "web", "static");
+  const manifest = JSON.parse(
+    readFileSync(join(staticRoot, ".vite", "manifest.json"), "utf8"),
+  ) as Record<string, ViteManifestChunk>;
+
+  for (const [route, ceilings] of Object.entries(ROUTE_CHUNK_CEILINGS_KIB)) {
+    const chunk = Object.values(manifest).find((entry) =>
+      entry.src?.endsWith(`/pages/${route}.tsx`)
+    );
+    expect(chunk, `${route} must be recorded in the production Vite manifest`).toBeDefined();
+    const bytes = readFileSync(join(staticRoot, chunk!.file));
+    const minifiedKib = statSync(join(staticRoot, chunk!.file)).size / KIB;
+    const gzipKib = gzipSync(bytes).byteLength / KIB;
+
+    expect(
+      minifiedKib,
+      `${route} minified ${minifiedKib.toFixed(2)} KiB exceeds ${ceilings.minified.toFixed(2)} KiB`,
+    ).toBeLessThanOrEqual(ceilings.minified);
+    expect(
+      gzipKib,
+      `${route} gzip ${gzipKib.toFixed(2)} KiB exceeds ${ceilings.gzip.toFixed(2)} KiB`,
+    ).toBeLessThanOrEqual(ceilings.gzip);
+  }
 });
 
 test("Control Center initial load keeps large deferred route chunks out of the critical path", async ({

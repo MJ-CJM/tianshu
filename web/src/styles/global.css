@@ -36,6 +36,12 @@ body {
   outline-offset: 1px !important;
 }
 
+/* Select 的真实 combobox input 不可见，键盘焦点环落在可见 selector 上。 */
+.ant-select:has(input:focus-visible) .ant-select-selector {
+  outline: 2px solid var(--ts-color-focus-ring) !important;
+  outline-offset: 1px !important;
+}
+
 /* ── 侧栏:选中项左侧一道朱杠(奏折眉批) ── */
 .ant-menu-inline .ant-menu-item,
 .ant-menu-vertical .ant-menu-item {

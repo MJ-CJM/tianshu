@@ -6,11 +6,33 @@ import {
   SunOutlined,
 } from "@ant-design/icons";
 import { useLocation, useNavigate } from "react-router-dom";
+import type { KeyboardEvent } from "react";
 import { useTheme } from "../../hooks/useTheme";
 import { useNeedsReview } from "../../hooks/useApprovals";
 import { useSidebarState } from "../../hooks/useSidebarState";
 import { useT } from "../../i18n";
 import { buildSidebarItems } from "../../navigation/departments";
+
+function moveMenuFocus(event: KeyboardEvent<HTMLElement>) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const items = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])'),
+  );
+  if (items.length === 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const current = items.indexOf(document.activeElement as HTMLElement);
+  const next = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? items.length - 1
+      : event.key === "ArrowDown"
+        ? (current + 1 + items.length) % items.length
+        : current < 0
+          ? items.length - 1
+          : (current - 1 + items.length) % items.length;
+  items[next]?.focus();
+}
 
 export default function AppSidebar() {
   const navigate = useNavigate();
@@ -36,6 +58,9 @@ export default function AppSidebar() {
     >
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <Menu
+          aria-label="Primary navigation"
+          tabIndex={0}
+          onKeyDownCapture={moveMenuFocus}
           mode="inline"
           inlineCollapsed={collapsed}
           selectedKeys={[location.pathname]}

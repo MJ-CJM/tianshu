@@ -1,0 +1,19 @@
+@media (max-width: 720px) {
+  .header {
+    justify-content: flex-start !important;
+    gap: 24px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .brand,
+  .tagline,
+  .statuses {
+    flex: none !important;
+  }
+
+  .tagline {
+    white-space: nowrap;
+  }
+}
