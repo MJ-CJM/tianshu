@@ -1,17 +1,12 @@
 import { Button, Space, Tag, Typography, theme } from "antd";
 import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  RedoOutlined,
-  EditOutlined,
-  StopOutlined,
+  ArrowRightOutlined,
   LoadingOutlined,
   ClockCircleOutlined,
 } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import GlowCard from "../common/GlowCard";
 import SemanticTag from "../common/SemanticTag";
-import PendingToolCallCard from "./PendingToolCallCard";
 import { formatTime } from "../../utils/format";
 import {
   deriveEdictPhase,
@@ -26,14 +21,12 @@ import { useT, type TFunction } from "../../i18n";
 interface EdictActivityCardProps {
   edict: Edict;
   latestMemorial: Memorial | null;
-  onOpenDecree: (memorial: Memorial, action: string) => void;
   pendingToolCalls?: PendingToolCall[];
 }
 
 export default function EdictActivityCard({
   edict,
   latestMemorial,
-  onOpenDecree,
   pendingToolCalls = [],
 }: EdictActivityCardProps) {
   const t = useT();
@@ -80,9 +73,17 @@ export default function EdictActivityCard({
       onClick={handleClick}
     >
       {hasPendingTool && (
-        <div onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
           {pendingToolCalls.map((p) => (
-            <PendingToolCallCard key={p.decision_request_id} pending={p} />
+            <Space key={p.decision_request_id} size={6} wrap>
+              <Typography.Text code>{p.tool_name}</Typography.Text>
+              {p.tool_tier ? <Tag color="orange">{p.tool_tier}</Tag> : null}
+              {p.reason ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {p.reason}
+                </Typography.Text>
+              ) : null}
+            </Space>
           ))}
         </div>
       )}
@@ -90,9 +91,15 @@ export default function EdictActivityCard({
         phase={phase}
         memorial={latestMemorial}
         token={token}
-        onOpenDecree={onOpenDecree}
         t={t}
       />
+      {(hasPendingTool || phase === "needs_review") && (
+        <div style={{ marginTop: 12 }} onClick={(event) => event.stopPropagation()}>
+          <Button size="small" icon={<ArrowRightOutlined />} onClick={handleClick}>
+            {t("comp.edictActivity.openDecision")}
+          </Button>
+        </div>
+      )}
       <div style={{ marginTop: 8 }}>
         <Typography.Text
           style={{ color: token.colorTextTertiary, fontSize: 12 }}
@@ -108,13 +115,11 @@ function PhaseContent({
   phase,
   memorial,
   token,
-  onOpenDecree,
   t,
 }: {
   phase: EdictPhase;
   memorial: Memorial | null;
   token: ReturnType<typeof theme.useToken>["token"];
-  onOpenDecree: (memorial: Memorial, action: string) => void;
   t: TFunction;
 }) {
   if (phase === "no_memorial") {
@@ -171,45 +176,6 @@ function PhaseContent({
             ))}
           </div>
         )}
-        <Space wrap onClick={(e) => e.stopPropagation()}>
-          <Button
-            type="primary"
-            size="small"
-            icon={<CheckCircleOutlined />}
-            onClick={() => onOpenDecree(memorial, "approve")}
-          >
-            {t("action.approve")}
-          </Button>
-          <Button
-            danger
-            size="small"
-            icon={<CloseCircleOutlined />}
-            onClick={() => onOpenDecree(memorial, "reject")}
-          >
-            {t("action.reject")}
-          </Button>
-          <Button
-            size="small"
-            icon={<RedoOutlined />}
-            onClick={() => onOpenDecree(memorial, "retry")}
-          >
-            {t("action.retry")}
-          </Button>
-          <Button
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => onOpenDecree(memorial, "amend")}
-          >
-            {t("action.amend")}
-          </Button>
-          <Button
-            size="small"
-            icon={<StopOutlined />}
-            onClick={() => onOpenDecree(memorial, "cancel")}
-          >
-            {t("action.cancel")}
-          </Button>
-        </Space>
       </>
     );
   }

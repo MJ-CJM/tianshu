@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from unittest.mock import Mock
 
 import pytest
 from fastapi import FastAPI
@@ -10,6 +11,7 @@ from tests.evidence._fixtures import evidence_service, seed_closed_run
 from tianshu.config import TianshuSettings
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.models.principal import Principal
+from tianshu.storage.artifact_repo import EvidenceRepositoryError
 
 _TOKEN = "evidence-api-bootstrap-token"
 _HEADERS = {"Authorization": f"Bearer {_TOKEN}"}
@@ -33,6 +35,11 @@ def evidence_api(storage, tmp_path):
     from tianshu.gateway.evidence_api import evidence_router
 
     edict, memorial = seed_closed_run(storage)
+    storage._conn.execute(
+        "UPDATE edicts SET submitter=? WHERE id=?",
+        ("user:owner", edict.id),
+    )
+    storage._conn.commit()
     service = evidence_service(storage, tmp_path / "artifacts")
     opened = service.build_open(memorial.id)
     closed = service.close(memorial.id, expected_version=opened.version)
@@ -73,6 +80,10 @@ def test_evidence_list_and_download_are_authenticated_canonical_and_scoped(
             f"/api/edicts/{edict.id}/evidence",
             headers={"Authorization": f"Bearer {mcp_only.raw_token}"},
         )
+        wrong_scope_download = client.get(
+            f"/api/evidence/{closed.bundle_id}/download",
+            headers={"Authorization": f"Bearer {mcp_only.raw_token}"},
+        )
         listed = client.get(f"/api/edicts/{edict.id}/evidence", headers=_HEADERS)
         downloaded = client.get(
             f"/api/evidence/{closed.bundle_id}/download",
@@ -80,7 +91,7 @@ def test_evidence_list_and_download_are_authenticated_canonical_and_scoped(
         )
 
     assert anonymous.status_code == 401
-    assert wrong_scope.status_code == 403
+    assert wrong_scope.status_code == wrong_scope_download.status_code == 403
     assert listed.status_code == downloaded.status_code == 200
     assert listed.json()["items"] == [
         {
@@ -113,3 +124,47 @@ def test_evidence_api_maps_unknown_resources_without_disclosure(evidence_api) ->
     assert missing_edict.json()["detail"]["code"] == "edict_not_found"
     assert missing_bundle.json()["detail"]["code"] == "evidence_not_found"
     assert closed.content_hash not in missing_bundle.text
+
+
+def test_evidence_routes_hide_owned_exports_from_another_api_principal(
+    evidence_api,
+    monkeypatch,
+) -> None:
+    app, edict, closed, service = evidence_api
+    other = app.state.auth_service.issue_pat(
+        Principal(
+            id="user:other",
+            kind="human",
+            display_name="Other user",
+            scopes=frozenset({"api"}),
+        ),
+        label="other-user",
+        scopes=frozenset({"api"}),
+    )
+    owner_export = service.export(closed.bundle_id)
+    export = Mock(wraps=service.export)
+    monkeypatch.setattr(service, "export", export)
+    get_bundle = Mock(side_effect=EvidenceRepositoryError("corrupt bundle"))
+    list_bundles = Mock(side_effect=EvidenceRepositoryError("corrupt bundle"))
+    monkeypatch.setattr(app.state.storage.evidence_repo, "get", get_bundle)
+    monkeypatch.setattr(app.state.storage.evidence_repo, "list_for_edict", list_bundles)
+    headers = {"Authorization": f"Bearer {other.raw_token}"}
+
+    with _client(app) as client:
+        listed = client.get(f"/api/edicts/{edict.id}/evidence", headers=headers)
+        downloaded = client.get(
+            f"/api/evidence/{closed.bundle_id}/download",
+            headers=headers,
+        )
+
+    assert listed.status_code == downloaded.status_code == 404
+    assert listed.json()["detail"]["code"] == "edict_not_found"
+    assert downloaded.json()["detail"]["code"] == "evidence_not_found"
+    assert closed.bundle_id not in listed.text
+    assert closed.bundle_id not in downloaded.text
+    assert closed.content_hash not in listed.text
+    assert closed.content_hash not in downloaded.text
+    assert downloaded.content != owner_export
+    get_bundle.assert_not_called()
+    list_bundles.assert_not_called()
+    export.assert_not_called()

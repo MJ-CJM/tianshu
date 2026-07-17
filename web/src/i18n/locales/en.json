@@ -1135,7 +1135,8 @@
       "createdAt": "Created {time}",
       "initializing": "Initializing…",
       "executing": "Running…",
-      "auditReasons": "Audit reasons: "
+      "auditReasons": "Audit reasons: ",
+      "openDecision": "Open authoritative decision"
     },
     "appHeader": {
       "brand": "Tianshu",

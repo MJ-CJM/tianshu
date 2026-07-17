@@ -70,7 +70,9 @@ export default function DecisionPanel({
   const [reason, setReason] = useState(decision.resolvedReason ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expired, setExpired] = useState(false);
+  const [expiredKey, setExpiredKey] = useState<string | null>(null);
+  const expiryKey = `${durable.id}:${durable.version}:${durable.expiresAt ?? ""}`;
+  const expired = durable.status === "pending" && expiredKey === expiryKey;
   const visibleStatus = expired ? "expired" : durable.status;
   const locked = visibleStatus !== "pending";
 
@@ -87,14 +89,14 @@ export default function DecisionPanel({
     const scheduleExpiry = () => {
       const remaining = expiresAt - Date.now();
       if (remaining <= 0) {
-        timer = window.setTimeout(() => setExpired(true), 0);
+        timer = window.setTimeout(() => setExpiredKey(expiryKey), 0);
       } else {
         timer = window.setTimeout(scheduleExpiry, Math.min(remaining, 2_147_483_647));
       }
     };
     scheduleExpiry();
     return () => window.clearTimeout(timer);
-  }, [durable.status, durable.expiresAt]);
+  }, [durable.status, durable.expiresAt, expiryKey]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();

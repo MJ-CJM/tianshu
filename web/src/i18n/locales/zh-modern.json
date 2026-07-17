@@ -1135,7 +1135,8 @@
       "createdAt": "创建于 {time}",
       "initializing": "正在初始化…",
       "executing": "执行中…",
-      "auditReasons": "审计原因："
+      "auditReasons": "审计原因：",
+      "openDecision": "前往裁决详情"
     },
     "appHeader": {
       "brand": "天枢",

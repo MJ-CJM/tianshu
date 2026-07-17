@@ -6,7 +6,6 @@ import {
   useEdictLatestMemorials,
   usePendingToolCalls,
 } from "../../hooks/useApprovals";
-import DecreeModal from "../decree/DecreeModal";
 import EdictActivityCard from "../decree/EdictActivityCard";
 import {
   deriveEdictPhase,
@@ -15,7 +14,7 @@ import {
   type EdictPhase,
 } from "../../utils/edictPhase";
 import { useT } from "../../i18n";
-import type { Memorial, PendingToolCall } from "../../api/types";
+import type { PendingToolCall } from "../../api/types";
 import { toApiProblem } from "../../api/client";
 import PageDataState from "../states/PageDataState";
 import { problemPageStatus } from "../states/problemPageStatus";
@@ -56,22 +55,6 @@ export default function PendingView({ active }: PendingViewProps) {
 
   const [searchText, setSearchText] = useState("");
   const [phaseFilter, setPhaseFilter] = useState<EdictPhase | "">("");
-
-  const [modalMemorial, setModalMemorial] = useState<Memorial | null>(null);
-  const [modalAction, setModalAction] = useState<string | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-
-  const openModal = (memorial: Memorial, action: string) => {
-    setModalMemorial(memorial);
-    setModalAction(action);
-    setModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setModalOpen(false);
-    setModalMemorial(null);
-    setModalAction(null);
-  };
 
   const items = useMemo(() => {
     const all = edicts.map((edict) => {
@@ -164,19 +147,11 @@ export default function PendingView({ active }: PendingViewProps) {
               key={edict.id}
               edict={edict}
               latestMemorial={latestMemorial}
-              onOpenDecree={openModal}
               pendingToolCalls={pending}
             />
           ))}
         </div>
       )}
-
-      <DecreeModal
-        memorial={modalMemorial}
-        action={modalAction}
-        open={modalOpen}
-        onClose={closeModal}
-      />
     </>
   );
 }

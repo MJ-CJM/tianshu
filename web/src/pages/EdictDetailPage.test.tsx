@@ -12,10 +12,16 @@ import type { ApiProblem, PageDataStatus } from "../contracts/api";
 import { useLocaleProvider } from "../hooks/useLocale";
 
 const detailHook = vi.hoisted(() => ({ useEdictDetail: vi.fn() }));
+const legacyApprovals = vi.hoisted(() => ({
+  pendingTools: [] as Array<Record<string, unknown>>,
+}));
 
 vi.mock("../hooks/useEdictDetail", () => ({ useEdictDetail: detailHook.useEdictDetail }));
 vi.mock("../hooks/useDag", () => ({ useDagByEdict: () => ({ data: null }) }));
-vi.mock("../hooks/useApprovals", () => ({ usePendingToolCalls: () => ({ data: [] }) }));
+vi.mock("../hooks/useApprovals", () => ({
+  usePendingToolCalls: () => ({ data: legacyApprovals.pendingTools }),
+}));
+vi.mock("../hooks/usePersonas", () => ({ usePersonas: () => ({ data: [] }) }));
 vi.mock("../components/policy/PolicyTimeline", () => ({ PolicyTimeline: () => null }));
 vi.mock("../components/edict/OuterLoopTimeline", () => ({ default: () => null }));
 vi.mock("../components/edict/SupervisionReportCard", () => ({ default: () => null }));
@@ -242,11 +248,102 @@ beforeEach(() => {
     })),
   });
   detailHook.useEdictDetail.mockReset();
+  legacyApprovals.pendingTools = [];
 });
 
 afterEach(() => cleanup());
 
 describe("Edict detail durable governance workspace", () => {
+  it("keeps legacy event, tool, and memorial review records read-only and mutates only the composed decision", async () => {
+    const legacyDetail = {
+      ...SNAPSHOT,
+      memorials: [
+        {
+          id: "memorial-1",
+          edict_id: "edict-1",
+          instruction: "旧审核记录",
+          status: "completed",
+          summary: null,
+          result: null,
+          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+          error: null,
+          created_at: "2026-07-17T08:00:00Z",
+          started_at: "2026-07-17T08:00:00Z",
+          completed_at: "2026-07-17T08:10:00Z",
+          attempt: 1,
+          parent_memorial_id: null,
+          review_status: "pending",
+          audit: null,
+          artifacts: [],
+          timeline: [],
+          persona_id: null,
+          dag_node_id: null,
+        },
+      ],
+    } as unknown as EdictDetailSnapshotV1;
+    const state = {
+      ...hookState("success-data", legacyDetail),
+      events: [
+        {
+          id: "event-plan-pending",
+          event_type: "plan.pending_review",
+          created_at: "2026-07-17T08:11:00Z",
+          edict_id: "edict-1",
+          memorial_id: "memorial-1",
+          payload: {
+            plan: {
+              tasks: [
+                {
+                  task_id: "legacy-task",
+                  description: "旧方案任务",
+                  assigned_official: "executor",
+                  depends_on: [],
+                  tools_required: [],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    legacyApprovals.pendingTools = [
+      {
+        decision_request_id: "legacy-tool-decision",
+        memorial_id: "memorial-1",
+        edict_id: "edict-1",
+        tool_name: "legacy.tool",
+        rule_id: null,
+        reason: "旧工具审批",
+        tool_tier: "write",
+        args_summary: {},
+        created_at: "2026-07-17T08:12:00Z",
+      },
+    ];
+    detailHook.useEdictDetail.mockReturnValue(state);
+    const user = userEvent.setup();
+
+    renderPage();
+
+    expect(screen.getByText("旧方案任务")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "准（执行此方案）" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "驳（驳回方案）" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "准/驳" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "待裁决" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重办" })).not.toBeInTheDocument();
+    expect(screen.queryByText("legacy.tool")).not.toBeInTheDocument();
+
+    await user.type(screen.getAllByLabelText("裁决理由")[0]!, "只走权威裁决");
+    await user.click(screen.getAllByRole("button", { name: "提交裁决" })[0]!);
+
+    await waitFor(() => expect(state.resolveDecision).toHaveBeenCalledWith({
+      decisionRequestId: "decision-pending",
+      kind: "governed_apply",
+      action: "approve",
+      reason: "只走权威裁决",
+      expectedVersion: 4,
+    }));
+  });
+
   it("renders one authoritative snapshot with requested/effective contract, real run lineage, durable decisions, and closed evidence", async () => {
     const state = hookState("success-data", SNAPSHOT);
     detailHook.useEdictDetail.mockReturnValue(state);

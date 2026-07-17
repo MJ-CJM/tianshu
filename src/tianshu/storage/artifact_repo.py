@@ -214,6 +214,33 @@ class EvidenceRepository:
             unit_of_work.commit()
             return value
 
+    @staticmethod
+    def submitter_for_bundle_current(
+        connection: sqlite3.Connection,
+        bundle_id: str,
+    ) -> str | None:
+        row = connection.execute(
+            """
+            SELECT edict.submitter
+            FROM evidence_bundles AS bundle
+            JOIN edicts AS edict ON edict.id = bundle.edict_id
+            WHERE bundle.bundle_id = ?
+            """,
+            (bundle_id,),
+        ).fetchone()
+        if row is None or row["submitter"] is None:
+            return None
+        return str(row["submitter"])
+
+    def submitter_for_bundle(self, bundle_id: str) -> str | None:
+        with self._unit_of_work_factory() as unit_of_work:
+            submitter = self.submitter_for_bundle_current(
+                unit_of_work.connection,
+                bundle_id,
+            )
+            unit_of_work.commit()
+            return submitter
+
     def list_for_edict(self, edict_id: str) -> list[EvidenceBundleV1 | ClosedEvidenceBundleV1]:
         with self._unit_of_work_factory() as unit_of_work:
             rows = unit_of_work.connection.execute(

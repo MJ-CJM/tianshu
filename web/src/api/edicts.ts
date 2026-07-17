@@ -376,20 +376,6 @@ export async function deleteEdict(
   return data;
 }
 
-export async function approvePlan(edictId: string): Promise<ApiResponse<{ status: string }>> {
-  const { data } = await apiClient.post<ApiResponse<{ status: string }>>(
-    `/edicts/${edictId}/plan/approve`,
-  );
-  return data;
-}
-
-export async function rejectPlan(edictId: string): Promise<ApiResponse<{ status: string }>> {
-  const { data } = await apiClient.post<ApiResponse<{ status: string }>>(
-    `/edicts/${edictId}/plan/reject`,
-  );
-  return data;
-}
-
 export async function updateEdictStatus(
   edictId: string,
   status: EdictStatus,

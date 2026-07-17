@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button, Input, Modal, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme, Tooltip } from "antd";
-import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined, ThunderboltOutlined, LikeOutlined, DislikeOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined, LikeOutlined, DislikeOutlined } from "@ant-design/icons";
 import { useEdictDetail } from "../hooks/useEdictDetail";
-import { followUpEdict, updateEdictStatus, updateEdict, approvePlan, rejectPlan, pauseEdict, resumeEdict } from "../api/edicts";
+import { followUpEdict, updateEdictStatus, updateEdict, pauseEdict, resumeEdict } from "../api/edicts";
 import { submitUniverseFeedback } from "../api/universe";
 import { isApiProblem } from "../api/client";
 import PageContainer from "../components/common/PageContainer";
@@ -19,12 +19,9 @@ import SupervisionReportCard from "../components/edict/SupervisionReportCard";
 import FollowUpOverridePanel from "../components/edict/FollowUpOverridePanel";
 import SteerPanel from "../components/edict/SteerPanel";
 import type { FollowUpOverrideValue } from "../components/edict/FollowUpOverridePanel";
-import DecreeModal from "../components/decree/DecreeModal";
-import PendingToolCallCard from "../components/decree/PendingToolCallCard";
 import { PolicyTimeline } from "../components/policy/PolicyTimeline";
 import EdictDurableGovernance from "../components/governance/EdictDurableGovernance";
 import { useDagByEdict } from "../hooks/useDag";
-import { usePendingToolCalls } from "../hooks/useApprovals";
 import { formatTime, truncateId } from "../utils/format";
 import {
   EDICT_STATUS_COLORS,
@@ -59,17 +56,8 @@ export default function EdictDetailPage() {
   const [editGoal, setEditGoal] = useState("");
   const [editContext, setEditContext] = useState("");
   const [editSaving, setEditSaving] = useState(false);
-  const [decreeAction, setDecreeAction] = useState<string | null>(null);
-  const [decreeModalOpen, setDecreeModalOpen] = useState(false);
   const { data: dagExecution } = useDagByEdict(edictId);
   const hasDag = dagExecution && dagExecution.nodes && dagExecution.nodes.length > 1;
-
-  // 执行中工具待裁决：就地处理（无需跳转 /approvals）。按当前敕令过滤。
-  const { data: allPendingTools = [] } = usePendingToolCalls();
-  const pendingTools = useMemo(
-    () => allPendingTools.filter((p) => p.edict_id === edictId),
-    [allPendingTools, edictId],
-  );
 
   // Extract plan event for display
   const planEvent = useMemo(() => {
@@ -97,42 +85,12 @@ export default function EdictDetailPage() {
     return hasPending && !hasResolution;
   }, [events, planEvent]);
 
-  const [planApproving, setPlanApproving] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState<Record<string, number>>({});
-
-  const handleApprovePlan = async () => {
-    if (!edictId) return;
-    setPlanApproving(true);
-    try {
-      await approvePlan(edictId);
-      message.success(t("toast.planApproved"));
-      refetch();
-    } catch {
-      message.error(t("toast.planApproveFailed"));
-    } finally {
-      setPlanApproving(false);
-    }
-  };
-
-  const handleRejectPlan = async () => {
-    if (!edictId) return;
-    setPlanApproving(true);
-    try {
-      await rejectPlan(edictId);
-      message.success(t("toast.planRejected"));
-      refetch();
-    } catch {
-      message.error(t("toast.planRejectFailed"));
-    } finally {
-      setPlanApproving(false);
-    }
-  };
 
   const hasActiveMemorial = memorials.some((m) =>
     ["running", "submitted", "scheduled", "planning", "auditing"].includes(m.status),
   );
-  const pendingReviewMemorial = memorials.find((m) => m.review_status === "pending");
-  const hasPendingReview = !!pendingReviewMemorial;
+  const hasPendingReview = memorials.some((m) => m.review_status === "pending");
   const canFollowUp = edict?.status === "open" && !hasActiveMemorial && !hasPendingReview;
 
   const aggregatedUsage = useMemo<UsageSummary>(() => {
@@ -571,22 +529,6 @@ export default function EdictDetailPage() {
         />
       ) : null}
 
-      {pendingTools.length > 0 && (
-        <GlowCard
-          title={
-            <Space>
-              <ThunderboltOutlined style={{ color: "var(--ts-color-warning)" }} />
-              {t("comp.edictActivity.pendingTool", { n: pendingTools.length })}
-            </Space>
-          }
-          style={{ marginBottom: 24, borderLeft: "3px solid var(--ts-color-warning)" }}
-        >
-          {pendingTools.map((p) => (
-            <PendingToolCallCard key={p.decision_request_id} pending={p} />
-          ))}
-        </GlowCard>
-      )}
-
       {planEvent && planTasks.length > 0 && (
         <GlowCard
           title={
@@ -636,30 +578,12 @@ export default function EdictDetailPage() {
             ]}
           />
 
-          {isPendingPlanReview && edict.status === "open" && (
-            <Space style={{ marginTop: 16 }}>
-              <Button
-                type="primary"
-                onClick={handleApprovePlan}
-                loading={planApproving}
-              >
-                {t("page.edictDetail.planApprove")}
-              </Button>
-              <Button
-                danger
-                onClick={handleRejectPlan}
-                loading={planApproving}
-              >
-                {t("page.edictDetail.planReject")}
-              </Button>
-            </Space>
-          )}
         </GlowCard>
       )}
 
       {memorials.map((memorial, index) => (
         <div key={memorial.id}>
-          <MemorialCard memorial={memorial} index={index} />
+          <MemorialCard memorial={memorial} index={index} readOnly />
           {edictId && edict?.acceptance && (
             <SupervisionReportCard edictId={edictId} memorialId={memorial.id} />
           )}
@@ -698,45 +622,6 @@ export default function EdictDetailPage() {
       {hasUsage && <UsageDisplay usage={aggregatedUsage} />}
 
       {edictId && hasActiveMemorial && <SteerPanel edictId={edictId} />}
-
-      {hasPendingReview && edict.status === "open" && (
-        <GlowCard title={t("decree.title")} style={{ marginBottom: 24 }}>
-          <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 13, display: "block", marginBottom: 16 }}>
-            {t("page.edictDetail.decreePrompt")}
-          </Typography.Text>
-          <Space wrap>
-            {([
-              { action: "approve", labelKey: "action.approve", type: "primary" as const },
-              { action: "reject", labelKey: "action.reject", type: "default" as const },
-              { action: "retry", labelKey: "action.retry", type: "default" as const },
-              { action: "amend", labelKey: "action.amend", type: "default" as const },
-              { action: "cancel", labelKey: "action.cancel", type: "default" as const, danger: true },
-            ] as const).map((item) => (
-              <Button
-                key={item.action}
-                type={item.type}
-                danger={"danger" in item ? item.danger : false}
-                onClick={() => {
-                  setDecreeAction(item.action);
-                  setDecreeModalOpen(true);
-                }}
-              >
-                {t(item.labelKey)}
-              </Button>
-            ))}
-          </Space>
-          <DecreeModal
-            memorial={pendingReviewMemorial ?? null}
-            action={decreeAction}
-            open={decreeModalOpen}
-            onClose={() => {
-              setDecreeModalOpen(false);
-              setDecreeAction(null);
-              refetch();
-            }}
-          />
-        </GlowCard>
-      )}
 
       {canFollowUp && (
         <GlowCard title={t("page.edictDetail.followupTitle")} style={{ marginBottom: 24 }}>

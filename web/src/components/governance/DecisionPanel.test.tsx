@@ -123,4 +123,38 @@ describe("DecisionPanel", () => {
     expect(await screen.findByText("已过期")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "提交裁决" })).toBeDisabled();
   });
+
+  it("lets a same-id authoritative resolution override a prior local expiry", async () => {
+    const { rerender } = render(
+      <DecisionPanel
+        decision={{
+          id: "decision-expired-then-resolved",
+          status: "pending",
+          version: 2,
+          expiresAt: "2020-01-01T00:00:00Z",
+        }}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText("已过期")).toBeInTheDocument();
+
+    rerender(
+      <DecisionPanel
+        decision={{
+          id: "decision-expired-then-resolved",
+          status: "resolved",
+          version: 3,
+          expiresAt: "2020-01-01T00:00:00Z",
+          resolvedAction: "approve",
+          resolvedReason: "服务端已裁决",
+        }}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("已裁决")).toBeInTheDocument();
+    expect(screen.queryByText("已过期")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("裁决理由")).toHaveValue("服务端已裁决");
+    expect(screen.getByLabelText("裁决理由")).toBeDisabled();
+  });
 });

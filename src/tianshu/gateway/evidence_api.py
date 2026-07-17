@@ -38,7 +38,8 @@ def _raise(context: AuthContext, status_code: int, code: str) -> NoReturn:
 def list_edict_evidence(request: Request, edict_id: str) -> dict[str, object]:
     context = get_auth_context(request)
     storage: Storage = request.app.state.storage
-    if storage.get_edict(edict_id) is None:
+    edict = storage.get_edict(edict_id)
+    if edict is None or edict.submitter != context.principal.id:
         _raise(context, 404, "edict_not_found")
     try:
         bundles = storage.evidence_repo.list_for_edict(edict_id)
@@ -69,6 +70,8 @@ def list_edict_evidence(request: Request, edict_id: str) -> dict[str, object]:
 def download_evidence(request: Request, bundle_id: str) -> Response:
     context = get_auth_context(request)
     storage: Storage = request.app.state.storage
+    if storage.evidence_repo.submitter_for_bundle(bundle_id) != context.principal.id:
+        _raise(context, 404, "evidence_not_found")
     try:
         bundle = storage.evidence_repo.get(bundle_id)
     except EvidenceRepositoryError:
