@@ -178,10 +178,50 @@ skills plus submit/schedule tools:              278 passed, 4 warnings
 
 Final static gates:
 
-- Ruff check and format: 50 changed Python files passed.
+- Ruff check and format: 51 changed Python files passed.
 - Mypy: 12 affected core modules passed; the changed Skill overlay passed separately
   while disabling only the seven documented pre-existing `attr-defined` errors in the
   watcher/metrics portions of that historical file.
 - Import Linter: 480 files and 1,737 dependencies analyzed; 2 contracts kept, 0 broken.
+- `git diff --check`: passed.
+- `uv.lock`: unchanged.
+
+## Review-two remediation (2026-07-18)
+
+The second Task 5 review was handled as a separate, narrowly scoped RED/GREEN cycle.
+
+- `BaseCandidateAdapter.resolve_effective_payload()` now invokes an adapter-owned
+  `require_subject_binding()` hook after domain normalization. The default hook adds no
+  semantics to memory, policy, persona, or code. The Skill adapter alone requires the
+  canonical `skill:` prefix and exact equality between `overlay.subject_key` and the
+  normalized package name. Present and absent packages both require a canonical Skill
+  identifier. The loader remains only a consumer.
+- Present and absent packages on both champion and challenger arms are covered. A
+  claimed-name/package-name mismatch fails before assignment insertion and rolls back
+  the Edict, Memorial, assignment, and outbox in the same submission Unit of Work.
+  Later durable subject attribution drift also fails runtime binding.
+- `ChallengerRouter.bind_runtime()` converts only
+  `EvolutionRepositoryDecodeError` into the explicit
+  `RunAssignmentUnavailable("run_assignment_unavailable")` subtype. RunDispatcher
+  completes the claimed attempt once as non-retryable FAILED, never starts the runner,
+  and performs cleanup once. Real bad-hash, conflicting-column, and candidate-attribution
+  rows are covered. A real `sqlite3.OperationalError("database is busy")` remains
+  unmodified and propagates to the infrastructure failure path.
+- The prior Ruff count was corrected after counting commit `8805805` directly:
+  51 changed Python files, plus the Markdown report.
+
+Fresh review-two verification:
+
+```text
+focused review-two regressions:                 11 passed, 4 warnings
+required Task 5 baseline:                      154 passed, 4 warnings
+dispatcher/architecture/gateway relevant set: 126 passed, 4 warnings
+```
+
+Static gates for the review-two delta:
+
+- Ruff check and format: all 6 changed Python files passed.
+- Mypy: all 4 changed production modules passed.
+- Import Linter: 480 files and 1,739 dependencies analyzed; 2 contracts kept, 0 broken.
 - `git diff --check`: passed.
 - `uv.lock`: unchanged.

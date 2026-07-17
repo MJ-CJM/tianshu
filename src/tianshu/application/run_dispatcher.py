@@ -17,7 +17,11 @@ from tianshu.models.attempt import (
 )
 from tianshu.models.canonical import RedactedError
 from tianshu.storage.attempt_ledger import AttemptFenceLost
-from tianshu.universe.router import ChallengerRouter, EvolutionRuntimeUnavailable
+from tianshu.universe.router import (
+    ChallengerRouter,
+    EvolutionRuntimeUnavailable,
+    RunAssignmentUnavailable,
+)
 
 
 class RunShutdownTimeout(TimeoutError):
@@ -248,9 +252,9 @@ class RunDispatcher:
                     raise AttemptFenceLost("attempt completion lost its fence")
         except (EvolutionRuntimeUnavailable, LookupError) as exc:
             failure_code = (
-                "candidate_overlay_unavailable"
-                if isinstance(exc, EvolutionRuntimeUnavailable)
-                else "run_assignment_unavailable"
+                "run_assignment_unavailable"
+                if isinstance(exc, (RunAssignmentUnavailable, LookupError))
+                else "candidate_overlay_unavailable"
             )
             outcome = AttemptOutcomeV1(
                 disposition=AttemptDisposition.FAILED,

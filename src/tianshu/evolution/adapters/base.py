@@ -96,6 +96,16 @@ class BaseCandidateAdapter:
     def _normalize_domain(self, payload: Mapping[str, object]) -> dict[str, JsonValue]:
         raise NotImplementedError
 
+    def require_subject_binding(
+        self,
+        normalized_payload: Mapping[str, JsonValue],
+        *,
+        overlay: EffectiveEvolutionOverlayV1,
+    ) -> None:
+        """Require domain-specific attribution without imposing cross-domain semantics."""
+
+        del normalized_payload, overlay
+
     def resolve_effective_payload(
         self,
         selected_payload: Mapping[str, object],
@@ -108,6 +118,7 @@ class BaseCandidateAdapter:
             raise AdapterOperationUnavailable("governed overlay kind is unavailable")
         self._require_kind(overlay.kind)
         normalized = self._normalize_domain(selected_payload)
+        self.require_subject_binding(normalized, overlay=overlay)
         if (
             canonical_sha256(normalized) != overlay.canonical_digest
             or canonical_sha256(normalized) != overlay.artifact_digest

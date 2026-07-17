@@ -22,7 +22,10 @@ from tianshu.models.run_assignment import (
     LegacyRunAssignmentV1,
     RunAssignmentV1,
 )
-from tianshu.storage.evolution_repo import EvolutionRepository
+from tianshu.storage.evolution_repo import (
+    EvolutionRepository,
+    EvolutionRepositoryDecodeError,
+)
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
 
@@ -41,6 +44,10 @@ BeforeInsert = Callable[[Assignment], None]
 
 class EvolutionRuntimeUnavailable(ValueError):
     """A selected governed payload cannot be bound for execution."""
+
+
+class RunAssignmentUnavailable(EvolutionRuntimeUnavailable):
+    """A durable assignment deterministically failed integrity decoding."""
 
 
 def allocation_bucket(memorial_id: str, allocation_seed_id: str, secret: bytes) -> int:
@@ -181,10 +188,13 @@ class ChallengerRouter:
     def bind_runtime(self, memorial_id: str) -> Iterator[EvolutionRuntimeContext | None]:
         legacy = False
         with self._storage.unit_of_work() as unit_of_work:
-            loaded = self._repository.get_assignment(
-                unit_of_work.connection,
-                memorial_id,
-            )
+            try:
+                loaded = self._repository.get_assignment(
+                    unit_of_work.connection,
+                    memorial_id,
+                )
+            except EvolutionRepositoryDecodeError as exc:
+                raise RunAssignmentUnavailable("run_assignment_unavailable") from exc
             if loaded is None:
                 raise LookupError("run assignment not found")
             assignment, overlay = loaded
@@ -248,6 +258,7 @@ class ChallengerRouter:
 __all__ = [
     "ChallengerRouter",
     "EvolutionRuntimeUnavailable",
+    "RunAssignmentUnavailable",
     "allocation_bucket",
     "selects_challenger",
 ]

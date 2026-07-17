@@ -12,11 +12,13 @@ from tianshu.evidence.service import ArtifactStore
 from tianshu.evolution.adapters.base import AdapterError, BaseCandidateAdapter
 from tianshu.models.canonical import JsonValue
 from tianshu.models.evolution_candidate import CandidateKind
+from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1
 from tianshu.skills.installer import (
     SkillInstaller,
     SkillPackageMember,
     canonical_skill_package_member_path,
 )
+from tianshu.skills.loader import validate_skill_name
 
 
 class _SkillMemberV1(BaseModel):
@@ -69,6 +71,7 @@ class SkillCandidateAdapter(BaseCandidateAdapter):
     def _normalize_domain(self, payload: Mapping[str, object]) -> dict[str, JsonValue]:
         try:
             package = _SkillPackageV1.model_validate(payload)
+            validate_skill_name(package.name)
             if package.state == "absent":
                 return package.model_dump(mode="json")
             members = tuple(
@@ -89,6 +92,16 @@ class SkillCandidateAdapter(BaseCandidateAdapter):
         except (ValidationError, TypeError, ValueError):
             raise AdapterError("skill source validation failed") from None
         return package.model_dump(mode="json")
+
+    def require_subject_binding(
+        self,
+        normalized_payload: Mapping[str, JsonValue],
+        *,
+        overlay: EffectiveEvolutionOverlayV1,
+    ) -> None:
+        package_name = normalized_payload.get("name")
+        if not isinstance(package_name, str) or overlay.subject_key != f"skill:{package_name}":
+            raise AdapterError("skill overlay subject does not match package name")
 
 
 __all__ = ["SkillCandidateAdapter"]

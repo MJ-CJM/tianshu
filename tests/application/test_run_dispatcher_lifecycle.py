@@ -20,7 +20,7 @@ from tianshu.models import Edict, Memorial
 from tianshu.models.attempt import AttemptDisposition
 from tianshu.storage import Storage
 from tianshu.storage.attempt_ledger import AttemptFenceLost
-from tianshu.universe.router import EvolutionRuntimeUnavailable
+from tianshu.universe.router import ChallengerRouter, EvolutionRuntimeUnavailable
 
 _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
 
@@ -119,6 +119,60 @@ async def test_runtime_bind_failure_completes_claimed_attempt_and_cleans_project
     assert outcomes[0][0] == authority
     assert outcomes[0][1].disposition is AttemptDisposition.FAILED
     assert outcomes[0][1].failure.code == failure_code
+    assert cleaned == [authority]
+
+
+@pytest.mark.asyncio
+async def test_corrupt_durable_assignment_is_completed_once_without_running(
+    tmp_path: Path,
+) -> None:
+    storage = Storage(str(tmp_path / "corrupt-assignment.db"))
+    storage.init_db()
+    storage.save_edict(Edict(id="edict-corrupt", goal="test"))
+    storage.save_memorial(Memorial(id="memorial-corrupt", edict_id="edict-corrupt"))
+    router = ChallengerRouter(storage)
+    router.assign("memorial-corrupt")
+    storage._conn.execute("DROP TRIGGER run_evolution_assignments_no_update")  # noqa: SLF001
+    storage._conn.execute(  # noqa: SLF001
+        "UPDATE run_evolution_assignments SET assignment_hash=?",
+        ("0" * 64,),
+    )
+    storage._conn.commit()  # noqa: SLF001
+    authority = AttemptAuthority(
+        attempt_id="attempt-corrupt",
+        memorial_id="memorial-corrupt",
+        owner_id="worker",
+        fencing_token=11,
+    )
+    outcomes = []
+    cleaned = []
+    runner_calls = []
+
+    async def runner(actual: AttemptAuthority) -> AttemptRunResult:
+        runner_calls.append(actual)
+        return AttemptRunResult(disposition=AttemptDisposition.SUCCEEDED)
+
+    dispatcher = RunDispatcher(
+        storage.attempt_repo,
+        runner,
+        owner_id="worker",
+        challenger_router=router,
+        completer=lambda actual, outcome: outcomes.append((actual, outcome)) or True,
+        exit_cleanup=cleaned.append,
+        clock=lambda: _NOW,
+    )
+    try:
+        await dispatcher._execute(authority)  # noqa: SLF001
+    finally:
+        storage.close()
+
+    assert runner_calls == []
+    assert len(outcomes) == 1
+    assert outcomes[0][0] == authority
+    failure = outcomes[0][1].failure
+    assert outcomes[0][1].disposition is AttemptDisposition.FAILED
+    assert failure.code == "run_assignment_unavailable"
+    assert not failure.retryable
     assert cleaned == [authority]
 
 
