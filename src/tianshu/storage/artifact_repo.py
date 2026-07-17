@@ -65,6 +65,27 @@ class ArtifactRepository:
         return int(row[0])
 
     @staticmethod
+    def is_referenced_current(connection: sqlite3.Connection, digest: str) -> bool:
+        """Conservatively detect durable references outside artifact metadata."""
+
+        queries = (
+            "SELECT 1 FROM evidence_bundles WHERE instr(body_json, ?) > 0 LIMIT 1",
+            """
+            SELECT 1 FROM evolution_candidates
+            WHERE diff_artifact_digest = ?
+               OR instr(base_json, ?) > 0
+               OR instr(candidate_ref_json, ?) > 0
+            LIMIT 1
+            """,
+            "SELECT 1 FROM memorials WHERE instr(artifacts_json, ?) > 0 LIMIT 1",
+        )
+        parameters = ((digest,), (digest, digest, digest), (digest,))
+        return any(
+            connection.execute(query, values).fetchone() is not None
+            for query, values in zip(queries, parameters, strict=True)
+        )
+
+    @staticmethod
     def add_current(
         connection: sqlite3.Connection, artifact: ArtifactRefV1, created_at: str
     ) -> None:

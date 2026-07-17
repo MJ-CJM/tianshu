@@ -200,3 +200,35 @@ git diff --check: clean
 ```
 
 No Task 3 gate, allocation, promotion, web, live activation, or `uv.lock` behavior was added. The four warnings remain the pre-existing third-party `lark_oapi` and `websockets` deprecations.
+
+## Third Review Remediation — 2026-07-17
+
+The final three Important findings were closed without expanding beyond Task 2:
+
+- Rollback cleanup keeps the global `BEGIN IMMEDIATE -> artifact-root flock` order used by writers. After any initial no-metadata observation, cleanup opens an independent unit of work, takes the root lock, and rechecks durable artifact metadata plus Evidence, evolution-candidate, and memorial references in that same critical section before validating ownership and unlinking. An adversarial independent-store test commits the same digest after the stale initial decision and proves the committed row and correct file survive. The spawned-process test now asserts both the expected blocked wait and eventual completion instead of ignoring timeout results.
+- Persona and skill canonical path checks reject every Unicode `Cc` and `Cf` code point, including U+0085 and U+202E, without reflecting the source path. Legal CJK path segments remain accepted and enter canonical materialized bytes.
+- `CandidateLiveAuthorities` has five required fields with no defaults, including no cwd-derived skill target. `CandidateService` requires the complete authority object as an explicit keyword argument; missing service injection and incomplete authority construction fail immediately. Every normal Task 2 call site now supplies all five authorities, while the negative skill-proposal test deliberately omits them.
+
+Third-review TDD evidence:
+
+```text
+Metadata/authority RED: 2 failed, 61 deselected, 4 warnings in 0.53s
+Unicode RED: 4 failed, 58 deselected, 4 warnings in 0.57s
+Focused GREEN: 6 passed, 57 deselected, 4 warnings in 0.41s
+```
+
+Fresh third-review verification:
+
+```text
+Candidate + ArtifactStore + Skills: 276 passed, 4 warnings in 7.33s
+Evidence: 125 passed, 4 warnings in 12.91s
+Task 2 brief: 540 passed, 4 warnings in 26.07s
+Task 1 regression: 118 passed, 4 warnings in 0.70s
+ruff check: All checks passed
+ruff format --check: 14 files already formatted
+mypy: Success, no issues found in 12 source files
+lint-imports: 2 kept, 0 broken
+git diff --check: clean
+```
+
+No Gate, allocation, PromotionService, Web, live activation, or `uv.lock` change is included. The four warnings remain the pre-existing third-party deprecations.

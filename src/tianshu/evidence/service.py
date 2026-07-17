@@ -304,7 +304,7 @@ class ArtifactStore:
                 continue
             seen.add(digest)
             if not self._has_durable_metadata(digest):
-                self._discard_created_file(write.artifact, identity)
+                self._discard_if_still_unowned(write.artifact, identity)
 
     def _has_durable_metadata(self, digest: str) -> bool:
         """Read committed metadata without depending on a possibly failing commit path."""
@@ -319,9 +319,24 @@ class ArtifactStore:
             # cannot be established.
             return True
 
-    def _discard_created_file(self, artifact: ArtifactRefV1, identity: tuple[int, int]) -> None:
-        with self._artifact_root_lock():
-            self._discard_created_file_locked(artifact, identity)
+    def _discard_if_still_unowned(self, artifact: ArtifactRefV1, identity: tuple[int, int]) -> None:
+        """Recheck durable ownership under DB-then-root-lock ordering before unlink."""
+
+        try:
+            with self._unit_of_work_factory() as unit_of_work:
+                with self._artifact_root_lock():
+                    has_metadata = (
+                        self._repository.get_current(unit_of_work.connection, artifact.digest)
+                        is not None
+                    )
+                    is_referenced = self._repository.is_referenced_current(
+                        unit_of_work.connection, artifact.digest
+                    )
+                    if not has_metadata and not is_referenced:
+                        self._discard_created_file_locked(artifact, identity)
+                unit_of_work.rollback()
+        except BaseException:
+            return
 
     def _discard_created_file_locked(
         self, artifact: ArtifactRefV1, identity: tuple[int, int]

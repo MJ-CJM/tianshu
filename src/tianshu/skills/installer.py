@@ -17,6 +17,7 @@ import re
 import shutil
 import stat
 import tempfile
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -75,7 +76,7 @@ def canonical_skill_package_member_path(value: str) -> str:
         or path.is_absolute()
         or "\\" in value
         or re.match(r"^[A-Za-z]:", value) is not None
-        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        or any(unicodedata.category(character) in {"Cc", "Cf"} for character in value)
         or ".." in value.split("/")
     ):
         raise ValueError("skill package member path is invalid")

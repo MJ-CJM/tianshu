@@ -92,7 +92,7 @@ def _sources() -> dict[CandidateKind, tuple[dict[str, object], dict[str, object]
         "id": "ducha-reviewer",
         "name": "Reviewer",
         "department": "ducha",
-        "soul_path": "personas/ducha/SOUL.md",
+        "soul_path": "personas/督察/SOUL.md",
         "role_path": "personas/ducha/ROLE.md",
         "memory_path": "personas/ducha/MEMORY.md",
         "tools_allowed": ["grep"],
@@ -224,12 +224,22 @@ def _proposal(kind: CandidateKind) -> CandidateProposalV1:
     )
 
 
+def _service(storage: Storage, artifacts: ArtifactStore) -> CandidateService:
+    authority_root = Path(storage._db_path).parent / "candidate-live-authorities"
+    return CandidateService(
+        storage,
+        artifacts,
+        live_authorities=_live_authorities(authority_root),
+        clock=lambda: NOW,
+    )
+
+
 @pytest.mark.parametrize("kind", tuple(CandidateKind))
 def test_propose_binds_all_canonical_inputs_and_builds_diff(
     kind: CandidateKind, storage: Storage, artifacts: ArtifactStore
 ) -> None:
     proposal = _proposal(kind)
-    service = CandidateService(storage, artifacts, clock=lambda: NOW)
+    service = _service(storage, artifacts)
 
     candidate = service.propose(proposal)
 
@@ -272,7 +282,7 @@ def test_wrong_adapter_fails_closed(
 def test_adapter_activation_and_rollback_are_explicitly_unavailable(
     kind: CandidateKind, storage: Storage, artifacts: ArtifactStore, tmp_path: Path
 ) -> None:
-    candidate = CandidateService(storage, artifacts, clock=lambda: NOW).propose(_proposal(kind))
+    candidate = _service(storage, artifacts).propose(_proposal(kind))
     adapter = ADAPTERS[kind](artifacts, live_root=tmp_path / "live")
 
     with pytest.raises(AdapterOperationUnavailable, match="promotion service"):
@@ -289,11 +299,11 @@ def test_stage_is_restart_safe_idempotent_and_has_no_live_effect(
     proposal = _proposal(kind)
     live_sentinel = tmp_path / "live-resource"
     live_sentinel.write_text("champion", encoding="utf-8")
-    first_service = CandidateService(storage, artifacts, clock=lambda: NOW)
+    first_service = _service(storage, artifacts)
     proposed = first_service.propose(proposal)
 
     first = first_service.stage(proposed.candidate_id)
-    restarted = CandidateService(storage, artifacts, clock=lambda: NOW)
+    restarted = _service(storage, artifacts)
     second = restarted.stage(proposed.candidate_id)
     repeated = restarted.propose(proposal)
 
@@ -314,7 +324,7 @@ def test_propose_insert_failure_leaves_no_artifact_orphan(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    service = CandidateService(storage, artifacts, clock=lambda: NOW)
+    service = _service(storage, artifacts)
 
     def fail_insert(*args: object, **kwargs: object) -> None:
         del args, kwargs
@@ -339,7 +349,7 @@ def test_memory_materializes_normalized_domain_value(
         update={"candidate": CandidateSourceV1(version="candidate-v1", payload=raw)}
     )
 
-    candidate = CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
+    candidate = _service(storage, artifacts).propose(proposal)
     materialized = json.loads(artifacts.get_bytes(candidate.candidate.artifact_digest))
 
     assert materialized["confidence"] == 0.9
@@ -357,15 +367,21 @@ def test_persona_rejects_host_absolute_paths_without_echoing_them(
     )
 
     with pytest.raises(AdapterError) as captured:
-        CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
+        _service(storage, artifacts).propose(proposal)
 
     assert private_path not in str(captured.value)
 
 
 @pytest.mark.parametrize(
     "private_path",
-    ["C:/Users/reviewer/private/SOUL.md", ".", "personas/\x00private/SOUL.md"],
-    ids=["windows-drive", "dot-root", "nul-control"],
+    [
+        "C:/Users/reviewer/private/SOUL.md",
+        ".",
+        "personas/\x00private/SOUL.md",
+        "personas/\u0085private/SOUL.md",
+        "personas/\u202eprivate/SOUL.md",
+    ],
+    ids=["windows-drive", "dot-root", "nul-control", "unicode-cc", "unicode-cf"],
 )
 def test_persona_rejects_noncanonical_portable_paths(
     private_path: str, storage: Storage, artifacts: ArtifactStore
@@ -376,8 +392,9 @@ def test_persona_rejects_noncanonical_portable_paths(
         update={"candidate": CandidateSourceV1(version="candidate-v1", payload=payload)}
     )
 
-    with pytest.raises(AdapterError, match="persona source validation failed"):
-        CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
+    with pytest.raises(AdapterError, match="persona source validation failed") as captured:
+        _service(storage, artifacts).propose(proposal)
+    assert private_path not in str(captured.value)
 
 
 def test_skill_accepts_a_complete_canonical_package(
@@ -389,7 +406,7 @@ def test_skill_accepts_a_complete_canonical_package(
         "trust_source": "workspace",
         "members": [
             {
-                "path": "scripts/check.sh",
+                "path": "脚本/check.sh",
                 "kind": "file",
                 "content": "#!/bin/sh\necho checked\n",
             },
@@ -409,12 +426,12 @@ def test_skill_accepts_a_complete_canonical_package(
         }
     )
 
-    candidate = CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
+    candidate = _service(storage, artifacts).propose(proposal)
     materialized = json.loads(artifacts.get_bytes(candidate.candidate.artifact_digest))
 
     assert [member["path"] for member in materialized["members"]] == [
         "SKILL.md",
-        "scripts/check.sh",
+        "脚本/check.sh",
     ]
 
 
@@ -437,9 +454,7 @@ def test_invalid_envelope_rolls_back_all_proposal_artifacts(
     monkeypatch.setattr(candidate_service_module, "EvolutionCandidateV1", fail_envelope)
 
     with pytest.raises(ValueError, match="injected envelope failure"):
-        CandidateService(storage, artifacts, clock=lambda: NOW).propose(
-            _proposal(CandidateKind.MEMORY)
-        )
+        _service(storage, artifacts).propose(_proposal(CandidateKind.MEMORY))
 
     assert storage._conn.execute("SELECT COUNT(*) FROM evolution_candidates").fetchone()[0] == 0
     assert _artifact_state(storage, tmp_path / "artifacts") == (0, ())
@@ -453,7 +468,7 @@ def test_stage_failure_rolls_back_receipt_and_keeps_proposed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    service = CandidateService(storage, artifacts, clock=lambda: NOW)
+    service = _service(storage, artifacts)
     proposed = service.propose(_proposal(CandidateKind.CODE))
     before = _artifact_state(storage, tmp_path / "artifacts")
 
@@ -491,7 +506,7 @@ def test_stage_failure_does_not_delete_preexisting_shared_receipt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    service = CandidateService(storage, artifacts, clock=lambda: NOW)
+    service = _service(storage, artifacts)
     proposed = service.propose(_proposal(CandidateKind.CODE))
     adapter = CodeCandidateAdapter(artifacts, live_root=tmp_path / "worktree")
     staged_envelope = proposed.model_copy(update={"lifecycle": CandidateLifecycle.STAGED})
@@ -579,7 +594,7 @@ def test_skill_package_security_boundaries_fail_closed(
     )
 
     with pytest.raises(AdapterError, match="skill source validation failed"):
-        CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
+        _service(storage, artifacts).propose(proposal)
 
 
 @pytest.mark.parametrize(
@@ -591,8 +606,16 @@ def test_skill_package_security_boundaries_fail_closed(
         ),
         ({"path": "a//b", "kind": "file", "content": "alias"},),
         ({"path": "a/./b", "kind": "file", "content": "alias"},),
+        ({"path": "assets/\u0085secret", "kind": "file", "content": "alias"},),
+        ({"path": "assets/\u202esecret", "kind": "file", "content": "alias"},),
     ],
-    ids=["trailing-slash-alias", "empty-segment", "dot-segment"],
+    ids=[
+        "trailing-slash-alias",
+        "empty-segment",
+        "dot-segment",
+        "unicode-cc",
+        "unicode-cf",
+    ],
 )
 def test_skill_rejects_noncanonical_or_aliased_member_paths(
     attack_members: tuple[dict[str, object], ...],
@@ -619,22 +642,25 @@ def test_skill_rejects_noncanonical_or_aliased_member_paths(
         }
     )
 
-    with pytest.raises(AdapterError, match="skill source validation failed"):
-        CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
+    with pytest.raises(AdapterError, match="skill source validation failed") as captured:
+        _service(storage, artifacts).propose(proposal)
+    assert all(str(member["path"]) not in str(captured.value) for member in attack_members)
 
 
-def test_candidate_service_requires_explicit_live_authority_injection(
-    storage: Storage, artifacts: ArtifactStore
+def test_candidate_service_requires_complete_explicit_live_authorities(
+    storage: Storage, artifacts: ArtifactStore, tmp_path: Path
 ) -> None:
-    authority_type = getattr(candidate_service_module, "CandidateLiveAuthorities", None)
-    assert authority_type is not None
-    service = CandidateService(
-        storage,
-        artifacts,
-        live_authorities=authority_type(),
-        clock=lambda: NOW,
-    )
-    service.propose(_proposal(CandidateKind.MEMORY))
+    with pytest.raises(TypeError):
+        CandidateService(storage, artifacts, clock=lambda: NOW).propose(
+            _proposal(CandidateKind.SKILL)
+        )
+    with pytest.raises(TypeError):
+        CandidateLiveAuthorities(
+            memory_root=tmp_path / "memory",
+            policy_root=tmp_path / "policy",
+            persona_root=tmp_path / "personas",
+            code_worktree=tmp_path / "worktree",
+        )
 
 
 def test_skill_package_rejects_oversize_member(storage: Storage, artifacts: ArtifactStore) -> None:
@@ -658,7 +684,7 @@ def test_skill_package_rejects_oversize_member(storage: Storage, artifacts: Arti
     )
 
     with pytest.raises(AdapterError, match="skill source validation failed"):
-        CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
+        _service(storage, artifacts).propose(proposal)
 
 
 @pytest.mark.parametrize("kind", tuple(CandidateKind))
@@ -673,7 +699,7 @@ def test_domain_source_extras_fail_closed_without_secret_echo(
     )
 
     with pytest.raises(AdapterError) as captured:
-        CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
+        _service(storage, artifacts).propose(proposal)
 
     assert secret not in str(captured.value)
 
@@ -681,7 +707,7 @@ def test_domain_source_extras_fail_closed_without_secret_echo(
 def _open_candidate_runtime(
     database: Path,
     artifact_root: Path,
-    live_authorities: CandidateLiveAuthorities | None = None,
+    live_authorities: CandidateLiveAuthorities,
 ) -> tuple[Storage, ArtifactStore, CandidateService]:
     storage = Storage(str(database))
     storage.init_db()
@@ -829,8 +855,13 @@ def test_real_live_resources_remain_unchanged_across_reopen_and_retry(
 def test_two_independent_connections_converge_on_one_candidate_and_stage(tmp_path: Path) -> None:
     database = tmp_path / "concurrent.db"
     artifact_root = tmp_path / "artifacts"
-    first_storage, _first_artifacts, first = _open_candidate_runtime(database, artifact_root)
-    second_storage, _second_artifacts, second = _open_candidate_runtime(database, artifact_root)
+    authorities = _live_authorities(tmp_path / "live")
+    first_storage, _first_artifacts, first = _open_candidate_runtime(
+        database, artifact_root, authorities
+    )
+    second_storage, _second_artifacts, second = _open_candidate_runtime(
+        database, artifact_root, authorities
+    )
     proposal = _proposal(CandidateKind.CODE)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -896,7 +927,7 @@ def _identity_variants(proposal: CandidateProposalV1) -> tuple[CandidateProposal
 def test_candidate_identity_binds_principal_provenance_sources_contract_and_subject(
     storage: Storage, artifacts: ArtifactStore
 ) -> None:
-    service = CandidateService(storage, artifacts, clock=lambda: NOW)
+    service = _service(storage, artifacts)
     proposal = _proposal(CandidateKind.MEMORY)
     original = service.propose(proposal)
     repeated = service.propose(proposal)

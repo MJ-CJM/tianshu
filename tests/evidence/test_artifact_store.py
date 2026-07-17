@@ -178,7 +178,7 @@ def test_cleanup_serializes_with_independent_process_publish(
         verified = original_read(artifact)  # type: ignore[arg-type]
         start.set()
         assert attempted.wait(5)
-        done.wait(2)
+        assert not done.wait(2)
         return verified
 
     monkeypatch.setattr(artifacts, "_read_verified", open_cleanup_window)
@@ -187,7 +187,51 @@ def test_cleanup_serializes_with_independent_process_publish(
     process.join(10)
 
     assert process.exitcode == 0
+    assert done.is_set()
     assert result.get(timeout=1) is None
     path = root / receipt.artifact.digest[:2] / receipt.artifact.digest
     assert path.read_bytes() == data
     storage.close()
+
+
+def test_cleanup_rechecks_metadata_after_stale_initial_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = tmp_path / "shared.db"
+    root = tmp_path / "artifacts"
+    first_storage = Storage(str(database))
+    first_storage.init_db()
+    first = _store(first_storage, root)
+    data = b"metadata race artifact"
+    with first_storage.unit_of_work() as unit_of_work:
+        receipt = first.put_bytes_tracked_current(
+            unit_of_work.connection,
+            data,
+            media_type="text/plain",
+            redaction="safe",
+        )
+        unit_of_work.rollback()
+
+    second_storage = Storage(str(database))
+    second_storage.init_db()
+    second = _store(second_storage, root)
+    original_has_metadata = first._has_durable_metadata
+
+    def commit_after_initial_decision(digest: str) -> bool:
+        assert original_has_metadata(digest) is False
+        second.put_bytes(data, media_type="text/plain", redaction="safe")
+        return False
+
+    monkeypatch.setattr(first, "_has_durable_metadata", commit_after_initial_decision)
+    try:
+        first.discard_uncommitted([receipt])
+        row = first_storage._conn.execute(
+            "SELECT COUNT(*) FROM artifact_records WHERE digest = ?",
+            (receipt.artifact.digest,),
+        ).fetchone()
+        assert row is not None and row[0] == 1
+        path = root / receipt.artifact.digest[:2] / receipt.artifact.digest
+        assert path.read_bytes() == data
+    finally:
+        first_storage.close()
+        second_storage.close()

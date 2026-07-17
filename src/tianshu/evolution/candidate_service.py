@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
@@ -116,13 +116,13 @@ class _Storage(Protocol):
 class CandidateLiveAuthorities:
     """Read-only roots that adapters must never mutate during propose or stage."""
 
-    memory_root: Path | None = None
-    skill_target: Path = field(default_factory=Path.cwd)
-    policy_root: Path | None = None
-    persona_root: Path | None = None
-    code_worktree: Path | None = None
+    memory_root: Path
+    skill_target: Path
+    policy_root: Path
+    persona_root: Path
+    code_worktree: Path
 
-    def for_kind(self, kind: CandidateKind) -> Path | None:
+    def for_kind(self, kind: CandidateKind) -> Path:
         return {
             CandidateKind.MEMORY: self.memory_root,
             CandidateKind.SKILL: self.skill_target,
@@ -149,13 +149,13 @@ class CandidateService:
         storage: _Storage,
         artifacts: ArtifactStore,
         *,
-        live_authorities: CandidateLiveAuthorities | None = None,
+        live_authorities: CandidateLiveAuthorities,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._storage = storage
         self._artifacts = artifacts
         self._repository = EvolutionRepository()
-        self._live_authorities = live_authorities or CandidateLiveAuthorities()
+        self._live_authorities = live_authorities
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def _adapter(self, kind: CandidateKind) -> BaseCandidateAdapter:
