@@ -8,7 +8,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from tianshu.models.canonical import canonical_sha256
+from tianshu.models.canonical import JsonValue, canonical_sha256
 
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 
@@ -184,6 +184,59 @@ class EvolutionContractV1(_StrictModel):
         return values
 
 
+class CandidateSourceV1(_StrictModel):
+    schema_version: Literal[1] = 1
+    version: str
+    payload: dict[str, JsonValue]
+
+    _validate_version = field_validator("version")(_non_blank)
+
+
+class ProvenanceInputV1(_StrictModel):
+    schema_version: Literal[1] = 1
+    source_channel: CandidateSourceChannel
+    source_uri_redacted: str | None
+    actor_principal_id: str
+    actor_display_name: str
+    originating_edict_id: str | None
+    originating_memorial_id: str | None
+    producer_name: str
+    producer_version: str
+
+
+class CandidateProposalV1(_StrictModel):
+    schema_version: Literal[1] = 1
+    command_id: str
+    kind: CandidateKind
+    subject_key: str
+    base: CandidateSourceV1
+    candidate: CandidateSourceV1
+    evolution_contract: EvolutionContractV1
+    provenance: ProvenanceInputV1
+    evidence_bundle_ids: tuple[str, ...]
+    restore_point_ref: str
+
+    _validate_identity = field_validator("command_id", "subject_key", "restore_point_ref")(
+        _non_blank
+    )
+
+    @field_validator("evidence_bundle_ids")
+    @classmethod
+    def validate_evidence_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not value.strip() for value in values) or len(set(values)) != len(values):
+            raise ValueError("evidence bundle IDs must be unique and non-blank")
+        return values
+
+    @model_validator(mode="after")
+    def validate_contract_binding(self) -> Self:
+        if (
+            self.kind is not self.evolution_contract.kind
+            or self.subject_key != self.evolution_contract.subject_key
+        ):
+            raise ValueError("proposal kind and subject_key must match evolution contract")
+        return self
+
+
 class EvolutionCandidateV1(_StrictModel):
     schema_version: Literal[1] = 1
     candidate_id: str
@@ -239,6 +292,8 @@ class EvolutionCandidateV1(_StrictModel):
 __all__ = [
     "CandidateKind",
     "CandidateLifecycle",
+    "CandidateProposalV1",
+    "CandidateSourceV1",
     "CandidateSourceChannel",
     "CandidateVersionRefV1",
     "EvolutionCandidateV1",
@@ -246,6 +301,7 @@ __all__ = [
     "EvolutionProvenanceV1",
     "GateName",
     "LEGAL_LIFECYCLE_TRANSITIONS",
+    "ProvenanceInputV1",
     "RollbackSpecV1",
     "RoutingPolicyV1",
     "validate_lifecycle_transition",

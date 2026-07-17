@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from tianshu.gateway.auth import get_auth_context
 from tianshu.models import ApiResponse
+from tianshu.models.evolution_candidate import CandidateSourceChannel
+from tianshu.skills.install_service import (
+    ProposedSkillMemberV1,
+    ProposeSkillCommand,
+    SkillInstallService,
+)
 from tianshu.storage import Storage
 
 skills_router = APIRouter(tags=["skills"])
@@ -70,31 +79,35 @@ async def update_skill(name: str, request: Request):
     from tianshu.skills.loader import SkillsLoader
 
     loader: SkillsLoader = request.app.state.skills_loader
-    metrics = getattr(request.app.state, "skill_metrics_store", None)
     body = await request.json()
     content = body.get("content")
     if content is None:
         raise HTTPException(status_code=400, detail="content is required")
-    try:
-        skill = loader.save_skill(name, content)
-    except FileNotFoundError:
+    current = loader.get_skill(name)
+    if current is None:
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found") from None
-    if metrics is not None:
-        metrics.ensure_exists(name)
-        metrics.set_human_curated(name, True)
-    return ApiResponse(success=True, data={**skill, "human_curated": True})
+    service: SkillInstallService = request.app.state.skill_install_service
+    auth = get_auth_context(request)
+    candidate = service.propose(
+        _inline_command(
+            name=name,
+            base_content=str(current["content"]),
+            content=str(content),
+            source_channel=CandidateSourceChannel.API,
+            correlation_id=auth.correlation_id,
+        ),
+        auth=auth,
+    )
+    return ApiResponse(
+        success=True,
+        data={"candidate_id": candidate.candidate_id, "lifecycle": candidate.lifecycle},
+    )
 
 
 @skills_router.post("/skills/{name}/archive")
 def archive_skill(name: str, request: Request):
     """Human undo: archive an agent-created skill (recoverable)."""
-    loader = request.app.state.skills_loader
-    metrics = getattr(request.app.state, "skill_metrics_store", None)
-    ok = loader.archive_skill(name)
-    if ok and metrics is not None:
-        metrics.mark_archived(name)
-        metrics.touch_human_action(name)
-    return ApiResponse(success=ok, data={"name": name, "archived": ok})
+    raise HTTPException(status_code=409, detail="governed_skill_service_required")
 
 
 @skills_router.post("/skills/{name}/pin")
@@ -117,19 +130,41 @@ async def pin_skill(name: str, request: Request):
 
 @skills_router.post("/skills", response_model=ApiResponse, status_code=201)
 async def create_skill(request: Request):
-    from tianshu.skills.loader import SkillsLoader
-
-    loader: SkillsLoader = request.app.state.skills_loader
     body = await request.json()
     name = body.get("name")
     content = body.get("content", "")
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
-    try:
-        skill = loader.create_skill(name, content)
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    return ApiResponse(success=True, data=skill)
+    service: SkillInstallService = request.app.state.skill_install_service
+    auth = get_auth_context(request)
+    candidate = service.propose(
+        _inline_command(
+            name=str(name),
+            base_content=str(content),
+            content=str(content),
+            source_channel=CandidateSourceChannel.API,
+            correlation_id=auth.correlation_id,
+        ),
+        auth=auth,
+    )
+    return ApiResponse(
+        success=True,
+        data={"candidate_id": candidate.candidate_id, "lifecycle": candidate.lifecycle},
+    )
+
+
+@skills_router.post("/skills/candidates/{candidate_id}/stage", response_model=ApiResponse)
+def stage_skill_candidate(candidate_id: str, request: Request):
+    service: SkillInstallService = request.app.state.skill_install_service
+    staged = service.stage(candidate_id, auth=get_auth_context(request))
+    return ApiResponse(
+        success=True,
+        data={
+            "candidate_id": staged.candidate_id,
+            "lifecycle": staged.lifecycle,
+            "live_changed": False,
+        },
+    )
 
 
 @skills_router.delete("/skills/{name}", response_model=ApiResponse)
@@ -143,10 +178,29 @@ def delete_skill(name: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
     if skill["source"] == "builtin":
         raise HTTPException(status_code=403, detail="Cannot delete builtin skills")
-    deleted = loader.delete_skill(name)
-    if not deleted:
-        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
-    return ApiResponse(success=True, data={"name": name})
+    raise HTTPException(status_code=409, detail="governed_skill_service_required")
+
+
+def _inline_command(
+    *,
+    name: str,
+    base_content: str,
+    content: str,
+    source_channel: CandidateSourceChannel,
+    correlation_id: str,
+) -> ProposeSkillCommand:
+    identity = hashlib.sha256(f"{correlation_id}:{name}:{content}".encode()).hexdigest()
+    return ProposeSkillCommand(
+        command_id=f"skill-api-{identity}",
+        name=name,
+        version=f"candidate-{identity[:16]}",
+        base_version=f"base-{hashlib.sha256(base_content.encode()).hexdigest()[:16]}",
+        source_channel=source_channel,
+        base_members=(ProposedSkillMemberV1(path="SKILL.md", kind="file", content=base_content),),
+        members=(ProposedSkillMemberV1(path="SKILL.md", kind="file", content=content),),
+        evidence_bundle_ids=(),
+        restore_point_ref=f"skill:{name}:current",
+    )
 
 
 # --- Tools endpoints (藏兵阁) ---

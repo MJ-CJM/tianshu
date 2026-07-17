@@ -19,20 +19,70 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
 from fastapi import FastAPI
 
 from tianshu.config import TianshuSettings
+from tianshu.evolution.candidate_service import CandidateLiveAuthorities, CandidateService
+from tianshu.evolution.gates import GateEvaluator
+from tianshu.models.evolution_candidate import CandidateKind, EvolutionContractV1, GateName
 from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.curator import SkillCurator
+from tianshu.skills.install_service import SkillInstallService
 from tianshu.skills.loader import SkillsLoader, SkillsWatcher
 from tianshu.skills.metrics import SkillMetricsStore
 from tianshu.tools.registry import ToolRegistry
 from tianshu.tools.skill_tools import register_skill_tools
 
 logger = logging.getLogger(__name__)
+
+
+def wire_evolution_services(
+    app: FastAPI,
+    settings: TianshuSettings,
+    *,
+    skill_target: Path,
+) -> None:
+    """Wire the Task 3 candidate, gate, and authenticated skill proposal authorities."""
+
+    authorities = CandidateLiveAuthorities(
+        memory_root=Path(settings.memory_dir).expanduser().resolve(),
+        skill_target=Path(skill_target).expanduser().resolve(),
+        policy_root=(Path(settings.workspace_dir).expanduser().resolve() / ".tianshu/policies"),
+        persona_root=Path(settings.runtime_personas_dir).expanduser().resolve(),
+        code_worktree=Path(settings.workspace_dir).expanduser().resolve(),
+    )
+    candidates = CandidateService(
+        app.state.storage,
+        app.state.artifact_store,
+        live_authorities=authorities,
+    )
+
+    def skill_contract(name: str) -> EvolutionContractV1:
+        policy_digest = hashlib.sha256(b"tianshu.skill-gates.lean-preview.v1").hexdigest()
+        return EvolutionContractV1(
+            kind=CandidateKind.SKILL,
+            subject_key=f"skill:{name}",
+            governance_contract_hash=policy_digest,
+            required_gates=tuple(GateName),
+            regression_policy_artifact_digest=policy_digest,
+            sample_policy_artifact_digest=policy_digest,
+            budget_policy_artifact_digest=policy_digest,
+            minimum_canary_samples=10,
+            max_canary_allocation_basis_points=500,
+            rollback_slo_seconds=30,
+        )
+
+    app.state.candidate_service = candidates
+    app.state.evolution_gate_evaluator = GateEvaluator(app.state.storage)
+    app.state.skill_install_service = SkillInstallService(
+        candidates,
+        app.state.storage,
+        contract_factory=skill_contract,
+    )
 
 
 def wire_skills(app: FastAPI, settings: TianshuSettings) -> tuple[SkillsLoader, SkillMetricsStore]:
@@ -56,6 +106,7 @@ def wire_skills(app: FastAPI, settings: TianshuSettings) -> tuple[SkillsLoader, 
     _skills_override = os.environ.get("TIANSHU_RUNTIME_SKILLS_DIR")
     user_skills_dir = Path(_skills_override or "~/.tianshu/skills").expanduser()
     user_skills_dir.mkdir(parents=True, exist_ok=True)
+    wire_evolution_services(app, settings, skill_target=user_skills_dir)
     skills = SkillsLoader(
         builtin_dir=builtin_skills_dir,
         workspace_dir=workspace_path,
@@ -130,5 +181,5 @@ def wire_skills_watcher(app: FastAPI, settings: TianshuSettings) -> SkillsWatche
         skills_watcher.start()
     except Exception:
         logger.warning("SkillsWatcher failed to start (watchdog may not be installed)")
-        skills_watcher = None
+        return None
     return skills_watcher

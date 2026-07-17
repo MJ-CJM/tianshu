@@ -7,7 +7,8 @@
 4. 结构校验 + 安全扫描:``SkillValidator.validate`` + ``SkillsGuard.scan_content``,
    并按信任级经 ``should_allow`` 决定放行。
 
-任一关不过即拒绝,不落地任何文件(失败安全)。全部通过后才原子移动进目标目录。
+任一关不过即拒绝,不落地任何文件(失败安全)。公开安装入口即使校验通过也只返回稳定拒绝；
+技能写入统一由受治理的 ``SkillInstallService`` 创建候选并进入门控流程。
 """
 
 from __future__ import annotations
@@ -113,7 +114,7 @@ class SkillInstaller:
         source_trust: str = "community",
         trust_level: TrustLevel | None = None,
     ) -> InstallResult:
-        """安全安装 ``source``(.zip 或目录)。返回结构化 ``InstallResult``。"""
+        """Validate legacy input but refuse direct live installation."""
         src = Path(source)
         if not src.exists():
             return InstallResult(False, None, f"源不存在: {src}")
@@ -129,15 +130,14 @@ class SkillInstaller:
             else:
                 raise _Reject(f"不支持的源类型: {src}")
 
-            skill_root, name, findings = self._validate_staged(
+            _skill_root, name, findings = self._validate_staged(
                 staging, source_trust=source_trust, trust_level=level
             )
             dest = self._target_root / name
             if dest.exists():
                 raise _Reject(f"技能已存在: {name}", findings)
 
-            os.replace(skill_root, dest)  # 原子落地(同一文件系统内 rename)
-            return InstallResult(True, name, "安装成功", findings)
+            raise _Reject("governed_skill_service_required", findings)
         except _Reject as rej:
             return InstallResult(False, None, rej.reason, rej.findings)
         finally:

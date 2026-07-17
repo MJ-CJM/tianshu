@@ -22,6 +22,9 @@ _STABLE_CODE_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,127}$")
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
 
 SYSTEM_AUDIT_METADATA_KEYS: dict[str, frozenset[str]] = {
+    "evolution.gate.evaluated": frozenset({"blocking_gate_count", "gate_snapshot_version"}),
+    "skill.candidate.proposed": frozenset({"candidate_version", "source_channel"}),
+    "skill.candidate.staged": frozenset({"candidate_version", "source_channel"}),
     "auth.token.issued": frozenset({"scope_count", "token_type"}),
     "auth.token.rotated": frozenset({"scope_count", "token_type"}),
     "auth.token.revoked": frozenset({"family_size", "token_type"}),
@@ -97,7 +100,14 @@ def _validate_metadata_value(key: str, value: SystemAuditMetadataValue) -> None:
         if value not in {"pat", "access", "refresh"}:
             raise ValueError("token_type must be a stable token category")
         return
-    if key in {"family_size", "frozen_tool_count", "scope_count"}:
+    if key in {
+        "blocking_gate_count",
+        "candidate_version",
+        "family_size",
+        "frozen_tool_count",
+        "gate_snapshot_version",
+        "scope_count",
+    }:
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError(f"{key} must be a non-negative integer")
         return

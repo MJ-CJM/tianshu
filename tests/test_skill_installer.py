@@ -44,27 +44,26 @@ def _zip(tmp_path: Path, members: dict[str, str]) -> Path:
     return zip_path
 
 
-# ---------- 正常安装 ----------
+# ---------- 公开入口已收口到候选服务 ----------
 
 
 def test_install_from_directory(installer: SkillInstaller, target: Path, tmp_path: Path) -> None:
     result = installer.install(_skill_dir(tmp_path))
-    assert result.installed is True
-    assert result.skill_name == "demo-skill"
-    assert (target / "demo-skill" / "SKILL.md").is_file()
+    assert result == InstallResult(False, None, "governed_skill_service_required")
+    assert not (target / "demo-skill").exists()
 
 
 def test_install_from_flat_zip(installer: SkillInstaller, target: Path, tmp_path: Path) -> None:
     result = installer.install(_zip(tmp_path, {"SKILL.md": _VALID_SKILL}))
-    assert result.installed is True
-    assert (target / "demo-skill" / "SKILL.md").is_file()
+    assert result == InstallResult(False, None, "governed_skill_service_required")
+    assert not (target / "demo-skill").exists()
 
 
 def test_install_from_wrapped_zip(installer: SkillInstaller, target: Path, tmp_path: Path) -> None:
     """常见 GitHub 导出布局:内容包在单层文件夹里。"""
     result = installer.install(_zip(tmp_path, {"demo-skill/SKILL.md": _VALID_SKILL}))
-    assert result.installed is True
-    assert (target / "demo-skill" / "SKILL.md").is_file()
+    assert result == InstallResult(False, None, "governed_skill_service_required")
+    assert not (target / "demo-skill").exists()
 
 
 def test_install_carries_bundled_resource(
@@ -74,8 +73,8 @@ def test_install_carries_bundled_resource(
     (src / "scripts").mkdir()
     (src / "scripts" / "helper.py").write_text("print('hi')", encoding="utf-8")
     result = installer.install(src)
-    assert result.installed is True
-    assert (target / "demo-skill" / "scripts" / "helper.py").is_file()
+    assert result == InstallResult(False, None, "governed_skill_service_required")
+    assert not (target / "demo-skill").exists()
 
 
 def test_install_rejects_trailing_newline_name_without_landing_files(
@@ -204,10 +203,11 @@ def test_nonexistent_source_rejected(installer: SkillInstaller, tmp_path: Path) 
 def test_duplicate_install_rejected(
     installer: SkillInstaller, target: Path, tmp_path: Path
 ) -> None:
-    assert installer.install(_skill_dir(tmp_path)).installed is True
+    assert installer.install(_skill_dir(tmp_path)).reason == "governed_skill_service_required"
     second = installer.install(_skill_dir(tmp_path / "again"))
     assert second.installed is False
-    assert "已存在" in second.reason
+    assert second.reason == "governed_skill_service_required"
+    assert not (target / "demo-skill").exists()
 
 
 def test_result_is_frozen_dataclass() -> None:

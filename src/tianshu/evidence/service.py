@@ -540,6 +540,10 @@ class EvidenceService:
                 output_digest = payload.get("output_artifact_digest")
                 started_at = payload.get("started_at", row["created_at"])
                 completed_at = payload.get("completed_at", row["created_at"])
+                if isinstance(started_at, str):
+                    started_at = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                if isinstance(completed_at, str):
+                    completed_at = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
                 checks[name] = CheckEvidenceV1(
                     check_id=f"check:{hashlib.sha256(name.encode()).hexdigest()[:32]}",
                     name=name,

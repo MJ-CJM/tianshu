@@ -135,29 +135,7 @@ async def _handle_create(
         return error_result("'content' is required for create action")
     if len(content) > _MAX_CONTENT_SIZE:
         return error_result(f"Content exceeds {_MAX_CONTENT_SIZE} bytes limit")
-    try:
-        result = skills.create_skill(name, content)
-        if metrics_store:
-            metrics_store.ensure_exists(name, created_by="agent")
-        bus = kwargs.get("event_bus")
-        if bus is not None:
-            try:
-                from tianshu.models.events import make_event
-
-                bus.fire(
-                    make_event(
-                        event_type="skill.learned",
-                        edict_id=None,
-                        memorial_id=None,
-                        producer="skill_manage",
-                        payload={"name": name, "created_by": "agent"},
-                    )
-                )
-            except Exception:
-                pass
-        return ok_result(json.dumps({"status": "created", "skill": result}, ensure_ascii=False))
-    except ValueError as e:
-        return error_result(str(e))
+    return error_result("governed_skill_service_required")
 
 
 async def _handle_edit(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
@@ -166,11 +144,7 @@ async def _handle_edit(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolRe
         return error_result("'content' is required for edit action")
     if len(content) > _MAX_CONTENT_SIZE:
         return error_result(f"Content exceeds {_MAX_CONTENT_SIZE} bytes limit")
-    try:
-        result = skills.save_skill(name, content)
-        return ok_result(json.dumps({"status": "updated", "skill": result}, ensure_ascii=False))
-    except (FileNotFoundError, ValueError) as e:
-        return error_result(str(e))
+    return error_result("governed_skill_service_required")
 
 
 async def _handle_patch(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
@@ -178,11 +152,7 @@ async def _handle_patch(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolR
     patch_new = kwargs.get("patch_new")
     if not patch_old or not patch_new:
         return error_result("'patch_old' and 'patch_new' are required for patch action")
-    try:
-        result = skills.patch_skill(name, patch_old, patch_new)
-        return ok_result(json.dumps({"status": "patched", "skill": result}, ensure_ascii=False))
-    except (FileNotFoundError, ValueError) as e:
-        return error_result(str(e))
+    return error_result("governed_skill_service_required")
 
 
 async def _handle_delete(
@@ -191,12 +161,7 @@ async def _handle_delete(
     metrics_store: MetricsStore | None = None,
     **kwargs: Any,
 ) -> ToolResult:
-    deleted = skills.delete_skill(name)
-    if deleted:
-        if metrics_store:
-            metrics_store.delete(name)
-        return ok_result(json.dumps({"status": "deleted", "name": name}))
-    return error_result(f"Skill '{name}' not found or is a builtin (cannot delete)")
+    return error_result("governed_skill_service_required")
 
 
 async def _handle_activate(
@@ -225,24 +190,14 @@ async def _handle_write_file(skills: SkillsLoader, name: str, **kwargs: Any) -> 
         if not SkillsGuard.should_allow(gres, TrustLevel.AGENT_CREATED):
             findings = "; ".join(f.message for f in gres.findings)
             return error_result(f"guard blocked resource: {findings}")
-    try:
-        result = skills.write_skill_file(name, file_path, file_content)
-        return ok_result(json.dumps({"status": "file_written", **result}, ensure_ascii=False))
-    except (FileNotFoundError, ValueError, OSError) as e:
-        return error_result(str(e))
+    return error_result("governed_skill_service_required")
 
 
 async def _handle_remove_file(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
     file_path = kwargs.get("file_path")
     if not file_path:
         return error_result("'file_path' is required for remove_file")
-    try:
-        removed = skills.remove_skill_file(name, file_path)
-        if removed:
-            return ok_result(json.dumps({"status": "file_removed", "file": file_path}))
-        return error_result(f"File '{file_path}' not found in skill '{name}'")
-    except (FileNotFoundError, ValueError, OSError) as e:
-        return error_result(str(e))
+    return error_result("governed_skill_service_required")
 
 
 _ACTION_HANDLERS = {

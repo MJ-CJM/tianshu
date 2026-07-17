@@ -197,11 +197,11 @@ class TestIteratePass:
         curator = self._make_curator(env, improved_md)
         improved = await curator._iterate_pass()
 
-        assert "improve-me" in improved
-        # Skill content should be updated
+        assert improved == []
+        # An unwired curator cannot mutate live skill content.
         skill = loader.get_skill("improve-me")
         assert skill is not None
-        assert "better body" in skill["content"]
+        assert "better body" not in skill["content"]
 
     @pytest.mark.asyncio
     async def test_iterate_pass_skips_human_curated(self, env) -> None:

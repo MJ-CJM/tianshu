@@ -100,16 +100,13 @@ async def test_consolidation_and_archival(env):
     result = await curator.run(trigger_source="test", dry_run=False)
 
     assert llm.calls == 1
-    assert "web-scraping" in result.created
-    assert set(result.archived) == {"scrape-react", "scrape-vue", "obsolete-thing"}
-    # New umbrella is live; absorbed + archived skills are gone from the library.
-    assert _live(loader, "web-scraping")
-    assert not _live(loader, "scrape-react")
-    assert not _live(loader, "obsolete-thing")
-    # Provenance recorded.
-    assert ms.get("scrape-react").absorbed_into == "web-scraping"
-    assert ms.get("obsolete-thing").state == "archived"
-    assert ms.get("web-scraping").created_by == "agent"
+    assert result.created == []
+    assert result.archived == []
+    assert any("governed_skill_service_required" in error for error in result.errors)
+    # An unwired curator is a stable refusal and never changes the live library.
+    assert not _live(loader, "web-scraping")
+    assert _live(loader, "scrape-react")
+    assert _live(loader, "obsolete-thing")
     # Audit report written.
     assert result.report_dir and Path(result.report_dir, "REPORT.md").is_file()
 

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Protocol
-
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from typing import Protocol
 
 from tianshu.evidence.service import ArtifactStore, ArtifactWriteReceipt
 from tianshu.evolution.adapters.base import BaseCandidateAdapter, StagedCandidateV1
@@ -17,14 +16,15 @@ from tianshu.evolution.adapters.memory import MemoryCandidateAdapter
 from tianshu.evolution.adapters.persona import PersonaCandidateAdapter
 from tianshu.evolution.adapters.policy import PolicyCandidateAdapter
 from tianshu.evolution.adapters.skill import SkillCandidateAdapter
-from tianshu.models.canonical import JsonValue, canonical_sha256
+from tianshu.models.canonical import canonical_sha256
 from tianshu.models.evolution_candidate import (
     CandidateKind,
     CandidateLifecycle,
-    CandidateSourceChannel,
+    CandidateProposalV1,
+    CandidateSourceV1,
     EvolutionCandidateV1,
-    EvolutionContractV1,
     EvolutionProvenanceV1,
+    ProvenanceInputV1,
     RollbackSpecV1,
 )
 from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
@@ -41,71 +41,6 @@ class CandidateNotFound(CandidateServiceError):
 
 class CandidateIdentityConflict(CandidateServiceError):
     """A deterministic command identity is already bound differently."""
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
-
-
-class CandidateSourceV1(_StrictModel):
-    schema_version: Literal[1] = 1
-    version: str
-    payload: dict[str, JsonValue]
-
-    @field_validator("version")
-    @classmethod
-    def validate_version(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("source version must not be blank")
-        return value
-
-
-class ProvenanceInputV1(_StrictModel):
-    schema_version: Literal[1] = 1
-    source_channel: CandidateSourceChannel
-    source_uri_redacted: str | None
-    actor_principal_id: str
-    actor_display_name: str
-    originating_edict_id: str | None
-    originating_memorial_id: str | None
-    producer_name: str
-    producer_version: str
-
-
-class CandidateProposalV1(_StrictModel):
-    schema_version: Literal[1] = 1
-    command_id: str
-    kind: CandidateKind
-    subject_key: str
-    base: CandidateSourceV1
-    candidate: CandidateSourceV1
-    evolution_contract: EvolutionContractV1
-    provenance: ProvenanceInputV1
-    evidence_bundle_ids: tuple[str, ...]
-    restore_point_ref: str
-
-    @field_validator("command_id", "subject_key", "restore_point_ref")
-    @classmethod
-    def validate_non_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("proposal identity values must not be blank")
-        return value
-
-    @field_validator("evidence_bundle_ids")
-    @classmethod
-    def validate_evidence_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        if any(not value.strip() for value in values) or len(set(values)) != len(values):
-            raise ValueError("evidence bundle IDs must be unique and non-blank")
-        return values
-
-    @model_validator(mode="after")
-    def validate_contract_binding(self) -> CandidateProposalV1:
-        if (
-            self.kind is not self.evolution_contract.kind
-            or self.subject_key != self.evolution_contract.subject_key
-        ):
-            raise ValueError("proposal kind and subject_key must match evolution contract")
-        return self
 
 
 class _Storage(Protocol):
@@ -187,7 +122,12 @@ class CandidateService:
         }
         return f"evolution-{canonical_sha256(identity)}"
 
-    def propose(self, proposal: CandidateProposalV1) -> EvolutionCandidateV1:
+    def propose(
+        self,
+        proposal: CandidateProposalV1,
+        *,
+        on_persist: Callable[[sqlite3.Connection, EvolutionCandidateV1], None] | None = None,
+    ) -> EvolutionCandidateV1:
         adapter = self._adapter(proposal.kind)
         writes: list[ArtifactWriteReceipt] = []
         try:
@@ -250,13 +190,20 @@ class CandidateService:
                     durable = self._repository.insert_candidate(unit_of_work.connection, candidate)
                 except EvolutionRepositoryConflict as exc:
                     raise CandidateIdentityConflict("candidate command identity conflict") from exc
+                if on_persist is not None:
+                    on_persist(unit_of_work.connection, durable)
                 unit_of_work.commit()
                 return durable
         except BaseException:
             self._artifacts.discard_uncommitted(writes)
             raise
 
-    def stage(self, candidate_id: str) -> StagedCandidateV1:
+    def stage(
+        self,
+        candidate_id: str,
+        *,
+        on_persist: Callable[[sqlite3.Connection, EvolutionCandidateV1], None] | None = None,
+    ) -> StagedCandidateV1:
         writes: list[ArtifactWriteReceipt] = []
         try:
             with self._storage.unit_of_work() as unit_of_work:
@@ -283,6 +230,8 @@ class CandidateService:
                     staged_envelope,
                     expected_version=current.version,
                 )
+                if on_persist is not None:
+                    on_persist(unit_of_work.connection, durable)
                 unit_of_work.commit()
                 return staged.model_copy(update={"candidate": durable})
         except BaseException:
