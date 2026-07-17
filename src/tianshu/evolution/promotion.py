@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import json
 import os
 import shutil
 import sqlite3
+import sys
+import tempfile
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -40,6 +44,83 @@ from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionReposit
 from tianshu.storage.outbox_repo import OutboxRepository
 from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
+
+_AT_FDCWD = getattr(os, "AT_FDCWD", -2)
+_RENAME_EXCHANGE = 0x00000002
+_RENAME_NOFOLLOW_ANY = 0x00000010
+
+
+def _atomic_exchange(source: Path, target: Path) -> None:
+    """Atomically exchange two existing paths or fail without changing either."""
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    encoded_source = os.fsencode(source)
+    encoded_target = os.fsencode(target)
+    if sys.platform == "darwin":
+        try:
+            operation = libc.renameatx_np
+        except AttributeError as exc:
+            raise OSError(errno.ENOTSUP, "atomic directory exchange unavailable") from exc
+        operation.argtypes = (
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        )
+        operation.restype = ctypes.c_int
+        result = operation(
+            _AT_FDCWD,
+            encoded_source,
+            _AT_FDCWD,
+            encoded_target,
+            _RENAME_EXCHANGE | _RENAME_NOFOLLOW_ANY,
+        )
+    elif sys.platform.startswith("linux"):
+        try:
+            operation = libc.renameat2
+        except AttributeError as exc:
+            raise OSError(errno.ENOTSUP, "atomic directory exchange unavailable") from exc
+        operation.argtypes = (
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        )
+        operation.restype = ctypes.c_int
+        result = operation(
+            _AT_FDCWD,
+            encoded_source,
+            _AT_FDCWD,
+            encoded_target,
+            _RENAME_EXCHANGE,
+        )
+    else:
+        raise OSError(errno.ENOTSUP, "atomic directory exchange unavailable")
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, "atomic directory exchange failed")
+
+
+def _preflight_atomic_exchange(root: Path) -> None:
+    """Prove exchange support on the live filesystem before staging a mutation."""
+
+    left = Path(tempfile.mkdtemp(prefix=".atomic-exchange-probe-a-", dir=root))
+    right: Path | None = None
+    try:
+        right = Path(tempfile.mkdtemp(prefix=".atomic-exchange-probe-b-", dir=root))
+        (left / "left").write_text("left", encoding="utf-8")
+        (right / "right").write_text("right", encoding="utf-8")
+        _atomic_exchange(left, right)
+        if not (left / "right").is_file() or not (right / "left").is_file():
+            raise OSError(errno.EIO, "atomic directory exchange verification failed")
+    finally:
+        try:
+            shutil.rmtree(left, ignore_errors=False)
+        finally:
+            if right is not None:
+                shutil.rmtree(right, ignore_errors=False)
 
 
 class PromotionError(RuntimeError):
@@ -169,6 +250,7 @@ class SkillPromotionAdapter:
         self._live_root = Path(live_root).resolve(strict=True)
         self._validator = SkillCandidateAdapter(artifacts, live_root=self._live_root)
         self._lock_path = self._live_root / ".promotion.lock"
+        self._exchange_ready = False
 
     def activate(self, candidate: EvolutionCandidateV1) -> ActivationReceiptV1:
         if candidate.kind is not CandidateKind.SKILL:
@@ -259,11 +341,33 @@ class SkillPromotionAdapter:
         state = package.get("state")
         if state == "absent":
             if target.exists() or target.is_symlink():
-                os.replace(target, backup)
-                self._remove_tree(backup)
+                os.replace(target, stage)
+                self._remove_tree(stage)
             return
         if state != "present":
             raise ValueError("skill package state is invalid")
+        target_present = target.exists() or target.is_symlink()
+        if target_present:
+            self._ensure_atomic_exchange()
+        self._prepare_stage(stage, package)
+        if target_present:
+            _atomic_exchange(stage, target)
+            if not self._matches(target, package) or not self._matches(stage, fallback):
+                raise ValueError("atomic skill exchange did not preserve exact trees")
+        else:
+            os.replace(stage, target)
+        self._remove_tree(stage)
+
+    def _ensure_atomic_exchange(self) -> None:
+        if not self._exchange_ready:
+            _preflight_atomic_exchange(self._live_root)
+            self._exchange_ready = True
+
+    def _prepare_stage(self, stage: Path, package: dict[str, object]) -> None:
+        if stage.exists() or stage.is_symlink():
+            if not self._matches(stage, package):
+                raise ValueError("skill stage recovery state is not governed")
+            return
         stage.mkdir(mode=0o700)
         try:
             self._materialize(stage, package)
@@ -272,19 +376,6 @@ class SkillPromotionAdapter:
         except Exception:
             self._remove_tree(stage)
             raise
-        if target.exists() or target.is_symlink():
-            os.replace(target, backup)
-        try:
-            os.replace(stage, target)
-        except OSError:
-            if backup.exists() or backup.is_symlink():
-                try:
-                    os.replace(backup, target)
-                except OSError:
-                    # Both exact trees are retained for deterministic recovery.
-                    raise
-            raise
-        self._remove_tree(backup)
 
     def _reconcile(
         self,
@@ -299,59 +390,29 @@ class SkillPromotionAdapter:
         target_present = target.exists() or target.is_symlink()
         backup_present = backup.exists() or backup.is_symlink()
 
-        if target_present:
-            if not (self._matches(target, package) or self._matches(target, fallback)):
-                raise ValueError("live skill recovery state is not governed")
-            self._remove_tree(backup)
-            for stale in stages:
-                self._remove_tree(stale)
-            return
-
         if backup_present:
             backup_is_desired = self._matches(backup, package)
             backup_is_fallback = self._matches(backup, fallback)
             if not (backup_is_desired or backup_is_fallback):
                 raise ValueError("skill backup recovery state is not governed")
-            if package.get("state") == "absent":
-                if not backup_is_fallback:
-                    raise ValueError("absent skill recovery is ambiguous")
+            if target_present or package.get("state") == "absent":
                 self._remove_tree(backup)
-                for stale in stages:
-                    self._remove_tree(stale)
-                return
-            if self._matches(stage, package):
-                try:
-                    os.replace(stage, target)
-                except OSError:
-                    try:
-                        os.replace(backup, target)
-                    except OSError:
-                        raise
-                    raise
-                self._remove_tree(backup)
-                for stale in stages:
-                    self._remove_tree(stale)
-                return
-            os.replace(backup, target)
-            for stale in stages:
-                self._remove_tree(stale)
-            return
+            elif backup_is_fallback:
+                os.replace(backup, target)
+            else:
+                raise ValueError("skill backup recovery state is ambiguous")
 
-        if package.get("state") == "absent":
-            for stale in stages:
-                self._remove_tree(stale)
-            return
-        if self._matches(stage, package):
-            if fallback.get("state") != "absent":
-                raise ValueError("skill stage has no recoverable fallback")
-            os.replace(stage, target)
-            for stale in stages:
-                self._remove_tree(stale)
-            return
-        for stale in stages:
-            self._remove_tree(stale)
-        if fallback.get("state") != "absent" and package.get("state") != "absent":
-            raise ValueError("governed live skill and recovery backup are missing")
+        target_is_desired = self._matches(target, package)
+        target_is_fallback = self._matches(target, fallback)
+        if not (target_is_desired or target_is_fallback):
+            raise ValueError("live skill recovery state is not governed")
+        for residue in stages:
+            residue_is_desired = self._matches(residue, package)
+            residue_is_fallback = self._matches(residue, fallback)
+            if not (residue_is_desired or residue_is_fallback):
+                raise ValueError("skill stage recovery state is not governed")
+            if target_is_desired or residue != stage or residue_is_fallback:
+                self._remove_tree(residue)
 
     @staticmethod
     def _materialize(stage: Path, package: dict[str, object]) -> None:
@@ -511,6 +572,7 @@ class PromotionService:
                 candidate=candidate,
                 action="start_canary",
                 command=command,
+                auth=auth,
             )
             if existing is not None:
                 unit_of_work.commit()
@@ -621,6 +683,7 @@ class PromotionService:
                 candidate=candidate,
                 action="promote",
                 command=command,
+                auth=auth,
             )
             if existing is not None:
                 unit_of_work.commit()
@@ -634,6 +697,7 @@ class PromotionService:
                     action="promote",
                     command=command,
                     request_hash=request_hash,
+                    auth=auth,
                 )
             self._require_expected_version(candidate, command.expected_version)
             if candidate.lifecycle is not CandidateLifecycle.CANARY:
@@ -690,6 +754,7 @@ class PromotionService:
                     action="promote",
                     command=command,
                     request_hash=request_hash,
+                    auth=auth,
                 )
             unit_of_work.commit()
 
@@ -733,6 +798,7 @@ class PromotionService:
                 candidate=candidate,
                 action="promote",
                 command=command,
+                auth=auth,
             )
             if existing is not None:
                 unit_of_work.commit()
@@ -823,6 +889,7 @@ class PromotionService:
                 candidate=authorized,
                 action="rollback",
                 command=command,
+                auth=auth,
             )
             if existing is not None:
                 unit_of_work.commit()
@@ -836,6 +903,7 @@ class PromotionService:
                     action="rollback",
                     command=command,
                     request_hash=request_hash,
+                    auth=auth,
                 )
             pending_entry = self._load_journal(connection, command_key, "rollback_pending")
             if pending_entry is None:
@@ -901,6 +969,7 @@ class PromotionService:
                     action="rollback",
                     command=command,
                     request_hash=request_hash,
+                    auth=auth,
                 )
                 pending = self._repository.get_candidate(connection, candidate_id)
                 if (
@@ -954,6 +1023,7 @@ class PromotionService:
                 candidate=pending,
                 action="rollback",
                 command=command,
+                auth=auth,
             )
             if existing is not None:
                 unit_of_work.commit()
@@ -1297,6 +1367,7 @@ class PromotionService:
         action: Literal["start_canary", "promote", "rollback"],
         command: StartCanaryCommand | PromoteCommand | RollbackCommand,
         request_hash: str,
+        auth: AuthContext,
     ) -> None:
         cls._require_same_request(entry, request_hash)
         if (
@@ -1307,6 +1378,8 @@ class PromotionService:
             or entry.pre_transition_candidate_version != command.expected_version
             or entry.candidate_digest != candidate.candidate.artifact_digest
             or entry.base_digest != candidate.base.artifact_digest
+            or entry.principal_id != auth.principal.id
+            or entry.reason != command.reason
         ):
             raise PromotionConflict("promotion_journal_conflict")
 
@@ -1320,6 +1393,7 @@ class PromotionService:
         candidate: EvolutionCandidateV1,
         action: Literal["start_canary", "promote", "rollback"],
         command: StartCanaryCommand | PromoteCommand | RollbackCommand,
+        auth: AuthContext,
     ) -> PromotionReceiptV1 | RollbackReceiptV1 | None:
         entry = self._load_journal(connection, command_key, "completed")
         if entry is None:
@@ -1331,6 +1405,7 @@ class PromotionService:
             action=action,
             command=command,
             request_hash=request_hash,
+            auth=auth,
         )
         if entry.status != "completed" or entry.receipt is None:
             raise PromotionConflict("promotion_journal_conflict")

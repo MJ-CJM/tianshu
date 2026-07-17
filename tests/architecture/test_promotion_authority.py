@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,6 +23,22 @@ def _governed_lifecycle_write_sites(source: str, *, path: str) -> list[str]:
                 and expression.value in {"canary", "promoted", "rollback_pending", "rolled_back"}
             )
             or (isinstance(expression, ast.Name) and expression.id in aliases)
+            or (
+                isinstance(expression, ast.Call)
+                and (
+                    (
+                        isinstance(expression.func, ast.Name)
+                        and expression.func.id == "CandidateLifecycle"
+                    )
+                    or (
+                        isinstance(expression.func, ast.Attribute)
+                        and expression.func.attr == "CandidateLifecycle"
+                    )
+                )
+                and len(expression.args) == 1
+                and not expression.keywords
+                and governed_value(expression.args[0], aliases)
+            )
         )
 
     def governed_update(expression: ast.expr, aliases: set[str]) -> bool:
@@ -77,13 +94,22 @@ def _governed_lifecycle_write_sites(source: str, *, path: str) -> list[str]:
                     and governed_value(node.args[1], value_aliases)
                 ):
                     sites.append(f"{path}:{qualifier}:{node.lineno}")
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if isinstance(node, ast.Call) and isinstance(node.func, (ast.Name, ast.Attribute)):
                 lifecycle = next(
                     (item.value for item in node.keywords if item.arg == "lifecycle"), None
                 )
                 if lifecycle is not None and governed_value(lifecycle, value_aliases):
                     sites.append(f"{path}:{qualifier}:{node.lineno}")
     return sites
+
+
+def _writes_candidate_lifecycle_sql(source: str) -> bool:
+    tokens = re.findall(r"[a-z_]+", source.lower())
+    for index in range(len(tokens) - 2):
+        if tokens[index : index + 3] != ["update", "evolution_candidates", "set"]:
+            continue
+        return "lifecycle" in tokens[index + 3 :]
+    return False
 
 
 def test_lifecycle_writer_scanner_detects_aliased_model_copy_save_bypass() -> None:
@@ -94,6 +120,30 @@ def bypass(repository, connection, candidate):
     return repository.save_candidate(connection, changed, expected_version=candidate.version)
 """
     assert _governed_lifecycle_write_sites(bypass, path="synthetic.py") == ["synthetic.py:bypass:4"]
+
+
+def test_lifecycle_writer_scanner_detects_constructor_and_enum_call_variants() -> None:
+    bypass = """
+def enum_call(candidate):
+    lifecycle = CandidateLifecycle("canary")
+    return candidate.model_copy(update={"lifecycle": lifecycle})
+
+def qualified_constructor(models):
+    return models.EvolutionCandidateV1(lifecycle=CandidateLifecycle.PROMOTED)
+"""
+    assert _governed_lifecycle_write_sites(bypass, path="variants.py") == [
+        "variants.py:enum_call:4",
+        "variants.py:qualified_constructor:7",
+    ]
+
+
+def test_sql_writer_scanner_normalizes_tokens_and_whitespace() -> None:
+    bypass = '''connection.execute("""UPDATE
+        evolution_candidates
+        SET
+            lifecycle = ?
+        WHERE candidate_id = ?""")'''
+    assert _writes_candidate_lifecycle_sql(bypass) is True
 
 
 def test_only_promotion_service_builds_governed_lifecycle_transitions() -> None:
@@ -114,8 +164,8 @@ def test_only_promotion_service_builds_governed_lifecycle_transitions() -> None:
 
     sql_writers = []
     for source_path in (ROOT / "src/tianshu").rglob("*.py"):
-        source = source_path.read_text(encoding="utf-8").lower()
-        if "update evolution_candidates" in source and "lifecycle" in source:
+        source = source_path.read_text(encoding="utf-8")
+        if _writes_candidate_lifecycle_sql(source):
             sql_writers.append(str(source_path.relative_to(ROOT)))
     assert sql_writers == ["src/tianshu/storage/evolution_repo.py"]
 

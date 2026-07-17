@@ -940,6 +940,48 @@ def test_completed_receipt_tamper_is_rejected_as_journal_conflict(
         service.promote(candidate.candidate_id, command, auth=auth)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (("principal_id", "different-principal"), ("reason", "different reason")),
+)
+def test_journal_command_identity_tamper_is_rejected_on_replay(
+    storage: Storage,
+    auth: AuthContext,
+    field: str,
+    value: str,
+) -> None:
+    candidate = _ready(storage)
+    service, _gates, _adapter = _service(storage, candidate)
+    canary = service.start_canary(candidate.candidate_id, _start_command(candidate), auth=auth)
+    command = PromoteCommand(
+        expected_version=canary.candidate_version,
+        idempotency_key="identity-tamper-promote",
+        reason="reviewed canary identity",
+    )
+    service.promote(candidate.candidate_id, command, auth=auth)
+    with storage.unit_of_work() as unit_of_work:
+        connection = unit_of_work.connection
+        connection.execute("DROP TRIGGER evolution_promotion_journal_no_update")
+        row = connection.execute(
+            """SELECT promotion_journal_id, entry_json
+               FROM evolution_promotion_journal
+               WHERE candidate_id=? AND action='promote' AND status='completed'""",
+            (candidate.candidate_id,),
+        ).fetchone()
+        payload = json.loads(row["entry_json"])
+        payload[field] = value
+        tampered = canonical_json_bytes(payload).decode("utf-8")
+        connection.execute(
+            """UPDATE evolution_promotion_journal
+               SET entry_json=?, entry_hash=? WHERE promotion_journal_id=?""",
+            (tampered, sha256(tampered.encode()).hexdigest(), row["promotion_journal_id"]),
+        )
+        unit_of_work.commit()
+
+    with pytest.raises(PromotionConflict, match="^promotion_journal_conflict$"):
+        service.promote(candidate.candidate_id, command, auth=auth)
+
+
 def test_journal_row_cross_binding_is_rejected_even_when_entry_hash_is_valid(
     storage: Storage, auth: AuthContext
 ) -> None:
@@ -1046,27 +1088,22 @@ def test_real_skill_adapter_applies_and_restores_exact_artifacts(
     assert (skill_root / "SKILL.md").read_text(encoding="utf-8") == base_text
 
 
-def test_skill_second_rename_failure_restores_old_tree_before_return_and_retries(
+def test_skill_exchange_capability_failure_leaves_old_tree_untouched(
     storage: Storage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     artifacts, live_root, skill_root, envelope, base_text, candidate_text = _skill_adapter_case(
         storage, tmp_path
     )
     adapter = SkillPromotionAdapter(artifacts, live_root=live_root)
-    original_replace = promotion_module.os.replace
-    calls = 0
 
-    def fail_second_replace(source: Path | str, target: Path | str) -> None:
-        nonlocal calls
-        calls += 1
-        if calls == 2:
-            raise OSError("injected second rename failure")
-        original_replace(source, target)
+    def unavailable_exchange(_source: Path, _target: Path) -> None:
+        raise OSError("injected atomic exchange unavailable")
 
-    monkeypatch.setattr(promotion_module.os, "replace", fail_second_replace)
+    monkeypatch.setattr(promotion_module, "_atomic_exchange", unavailable_exchange, raising=False)
     with pytest.raises(AdapterError, match="skill promotion artifact apply failed"):
         adapter.activate(envelope)
     assert (skill_root / "SKILL.md").read_text(encoding="utf-8") == base_text
+    assert _promotion_remnants(live_root) == ()
 
     monkeypatch.undo()
     reopened = SkillPromotionAdapter(artifacts, live_root=live_root)
@@ -1075,7 +1112,50 @@ def test_skill_second_rename_failure_restores_old_tree_before_return_and_retries
     assert _promotion_remnants(live_root) == ()
 
 
-def test_skill_failed_restore_keeps_deterministic_recovery_state_for_reopen(
+@pytest.mark.parametrize(
+    ("platform", "operation_name", "expected_flags"),
+    [
+        ("darwin", "renameatx_np", 0x12),
+        ("linux", "renameat2", 0x02),
+    ],
+)
+def test_atomic_exchange_uses_supported_platform_primitive(
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    operation_name: str,
+    expected_flags: int,
+) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    class Operation:
+        argtypes: object = None
+        restype: object = None
+
+        def __call__(self, *args: object) -> int:
+            calls.append(args)
+            return 0
+
+    operation = Operation()
+    libc = type("Libc", (), {operation_name: operation})()
+    monkeypatch.setattr(promotion_module.sys, "platform", platform)
+    monkeypatch.setattr(promotion_module.ctypes, "CDLL", lambda *_args, **_kwargs: libc)
+
+    promotion_module._atomic_exchange(Path("source"), Path("target"))
+
+    assert calls == [(-2, b"source", -2, b"target", expected_flags)]
+
+
+def test_atomic_exchange_missing_platform_primitive_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(promotion_module.sys, "platform", "linux")
+    monkeypatch.setattr(promotion_module.ctypes, "CDLL", lambda *_args, **_kwargs: object())
+
+    with pytest.raises(OSError, match="atomic directory exchange unavailable"):
+        promotion_module._atomic_exchange(Path("source"), Path("target"))
+
+
+def test_skill_atomic_exchange_ignores_old_install_and_compensation_rename_failures(
     storage: Storage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     artifacts, live_root, skill_root, envelope, _base_text, candidate_text = _skill_adapter_case(
@@ -1093,12 +1173,10 @@ def test_skill_failed_restore_keeps_deterministic_recovery_state_for_reopen(
         original_replace(source, target)
 
     monkeypatch.setattr(promotion_module.os, "replace", fail_install_and_restore)
-    with pytest.raises(AdapterError, match="skill promotion artifact apply failed"):
-        adapter.activate(envelope)
-    assert not skill_root.exists()
-    remnants = _promotion_remnants(live_root)
-    assert len([name for name in remnants if "backup" in name]) == 1
-    assert len([name for name in remnants if "stage" in name]) == 1
+    adapter.activate(envelope)
+    assert calls == 0
+    assert (skill_root / "SKILL.md").read_text(encoding="utf-8") == candidate_text
+    assert _promotion_remnants(live_root) == ()
 
     monkeypatch.undo()
     reopened = SkillPromotionAdapter(artifacts, live_root=live_root)
@@ -1117,19 +1195,19 @@ def test_skill_cleanup_failure_keeps_complete_new_tree_and_retry_preserves_inode
     original_rmtree = promotion_module.shutil.rmtree
     failed = False
 
-    def fail_backup_cleanup(path: Path | str, *args: object, **kwargs: object) -> None:
+    def fail_stage_cleanup(path: Path | str, *args: object, **kwargs: object) -> None:
         nonlocal failed
-        if not failed and "promotion-backup" in Path(path).name:
+        if not failed and "promotion-stage-review-helper" in Path(path).name:
             failed = True
-            raise OSError("injected backup cleanup failure")
+            raise OSError("injected stage cleanup failure")
         original_rmtree(path, *args, **kwargs)
 
-    monkeypatch.setattr(promotion_module.shutil, "rmtree", fail_backup_cleanup)
+    monkeypatch.setattr(promotion_module.shutil, "rmtree", fail_stage_cleanup)
     with pytest.raises(AdapterError, match="skill promotion artifact apply failed"):
         adapter.activate(envelope)
     assert (skill_root / "SKILL.md").read_text(encoding="utf-8") == candidate_text
     activated_inode = (skill_root / "SKILL.md").stat().st_ino
-    assert any("backup" in name for name in _promotion_remnants(live_root))
+    assert any("stage" in name for name in _promotion_remnants(live_root))
 
     monkeypatch.undo()
     reopened = SkillPromotionAdapter(artifacts, live_root=live_root)

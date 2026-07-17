@@ -205,3 +205,78 @@ authority).
 - Import-linter: 477 files / 1711 dependencies; 2 contracts kept, 0 broken.
 - `git diff --check`: clean.
 - `uv.lock`: zero diff from the pre-remediation Task 4 commit.
+
+## Second review remediation
+
+The second review identified one Important atomicity gap and two Minor binding/scanner
+gaps. All three were reproduced before production changes and fixed without widening
+Task 4 scope.
+
+### Canonical old-or-new Skill publication
+
+The prior compensation design could still return while the canonical target was
+missing if both `stage -> target` and `backup -> target` failed. Present-to-present
+publication now uses one filesystem syscall to exchange the complete staged and live
+directories: `renameatx_np(RENAME_SWAP | RENAME_NOFOLLOW_ANY)` on Darwin and libc
+`renameat2(RENAME_EXCHANGE)` on Linux. The adapter first performs a hidden two-directory
+probe on the live filesystem, before staging or touching the canonical target. Missing
+symbols, unsupported platforms/filesystems, syscall errors, or a failed probe all fail
+closed with the old target untouched.
+
+After a successful exchange, the canonical target is the complete desired package and
+the deterministic stage is the complete fallback package. Cleanup failure can therefore
+leave only a governed old-tree residue; reopen/retry validates and removes it without
+rewriting the canonical target. Present-to-absent and absent-to-present transitions each
+remain a single atomic rename because only one side exists. The same logic is used for
+activation and rollback. The old install and compensation `os.replace` calls are no
+longer reachable for a present-to-present transition.
+
+Tests cover the Darwin and Linux primitive/flag branches, a missing libc primitive,
+live-filesystem capability failure, injected legacy install/compensation failures,
+post-exchange cleanup failure, reopen recovery, inode preservation, activation, and
+rollback. The Darwin path is additionally exercised against the real local filesystem.
+
+### Complete command identity binding
+
+Every completed, intended, applied, and rollback-pending replay check now passes the
+authenticated context into `_require_command_binding`. Alongside the existing command,
+candidate, action, version, Decision, and digest checks, replay requires exact equality
+between the journal entry and both `auth.principal.id` and `command.reason`. Tests mutate
+each field in canonical journal JSON, recompute the entry hash, and prove replay returns
+the stable `promotion_journal_conflict`.
+
+### Lifecycle authority scanner variants
+
+The AST gate now recognizes governed values constructed with
+`CandidateLifecycle("canary")`, including qualified enum calls, and recognizes lifecycle
+keywords on qualified constructors such as `models.EvolutionCandidateV1(...)`. The raw
+SQL gate tokenizes normalized lowercase words, so whitespace and newlines between
+`UPDATE`, `evolution_candidates`, `SET`, and `lifecycle` cannot evade it.
+
+### Second remediation RED/GREEN evidence
+
+- Atomic replacement RED: the capability, legacy install/compensation, and cleanup
+  scenarios produced `3 failed, 26 deselected`; the previous adapter either changed the
+  live tree despite failed capability or lost the canonical target.
+- Atomic replacement GREEN: platform, capability, swap, cleanup, and recovery focus ->
+  `6 passed, 28 deselected`.
+- Command identity RED: valid-hash `principal_id` and `reason` tampering -> `2 failed,
+  29 deselected`; both replays were accepted.
+- Command identity GREEN: `2 passed, 29 deselected` with stable conflicts.
+- Scanner variants RED: enum-call/qualified-constructor and multiline SQL cases ->
+  `2 failed, 7 deselected`.
+- Scanner GREEN: `9 passed, 4 warnings`.
+- Final promotion plus architecture focus: `43 passed, 4 warnings in 4.83s`.
+
+### Second remediation verification
+
+- Required promotion, architecture, Gate, and universe suites: `113 passed, 4 warnings
+  in 13.12s`.
+- Adjacent candidate adapter, skill-install, evolution gateway, and Evolver suites:
+  `153 passed, 4 warnings in 6.08s`.
+- Ruff: all checks passed for the three changed source/test files.
+- Ruff format: all three changed source/test files already formatted.
+- Mypy: `Success: no issues found in 130 source files`.
+- Import-linter: 477 files / 1711 dependencies; 2 contracts kept, 0 broken.
+- `git diff --check`: clean.
+- `uv.lock`: zero diff from remediation base `a4328d0`.
