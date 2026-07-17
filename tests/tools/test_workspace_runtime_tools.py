@@ -408,7 +408,7 @@ async def test_policy_hook_uses_staging_root_and_fails_closed_without_binding(
 
 
 @pytest.mark.asyncio
-async def test_skill_mutations_use_staging_overlay_without_touching_source(
+async def test_skill_mutations_without_governed_service_leave_workspaces_unchanged(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "source"
@@ -454,13 +454,15 @@ async def test_skill_mutations_use_staging_overlay_without_touching_source(
         viewed = await registry.execute("skill_view", {"name": "new-skill"})
         listed = await registry.execute("skill_list", {"query": "new-skill"})
 
-    assert not edited.is_error and not created.is_error and not resource.is_error
-    assert not viewed.is_error and "new body" in viewed.content
-    assert not listed.is_error and "new-skill" in listed.content
+    assert edited.is_error and edited.content == "governed_skill_service_required"
+    assert created.is_error and created.content == "governed_skill_service_required"
+    assert resource.is_error and resource.content == "governed_skill_service_required"
+    assert viewed.is_error and "not found" in viewed.content.lower()
+    assert not listed.is_error and "new-skill" not in listed.content
     assert "source body" in existing.read_text(encoding="utf-8")
-    assert "staged body" in (staging / "skills/existing/SKILL.md").read_text(encoding="utf-8")
-    assert (staging / "skills/new-skill/SKILL.md").is_file()
-    assert (staging / "skills/new-skill/scripts/run.py").is_file()
+    assert not (staging / "skills/existing/SKILL.md").exists()
+    assert not (staging / "skills/new-skill/SKILL.md").exists()
+    assert not (staging / "skills/new-skill/scripts/run.py").exists()
     assert not (source / "skills/new-skill").exists()
 
 

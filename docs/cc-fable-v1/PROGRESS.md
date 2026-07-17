@@ -173,3 +173,12 @@ CI: separate `web-e2e` job (Node 20 + frozen Python 3.12/all-extras + production
 Boundary: S4.8-S4.11 department depth deferred; VoiceOver/manual cross-browser accessibility external_pending; no wheel/container/publication/OIDC/mobile/S5 claim
 Report: docs/cc-fable-v1/reports/s4-core-web-report.md
 Next: user visual/interaction approval, then S5 Core
+
+=== S5 / Lean Core Evolution Gate (2026-07-18) ===
+S5 Lean Core Gate: passed (focused candidate/gate/promotion/routing/rollback/authority: 259 passed / 0 failed / 4 warnings in 15.74s; final non-slow: 4182 passed / 2 skipped / 24 deselected / 0 failed / 6 warnings in 714.38s)
+Evolution Center: real candidate, current gate blockers, current-version allocation/assignment counts, last gate hash, and rollback state are exposed through the S4 read contract; guarded mutations remain PromotionService-only and require reason/expected version
+Static Gates: Ruff check passed; Ruff format 875 files clean; mypy 131 source files clean; import-linter 481 files / 1745 dependencies / 2 contracts kept / 0 broken
+Web verification: Evolution Center 13 passed; typecheck passed; production build passed; inherited antd >500k chunk warning remains disclosed
+Evidence: repository-bound candidate/gate/promotion/assignment/rollback/Decision artifacts were recomputed by the Lean checker; missing/corrupt evidence, authority bypass, label-only challenger, routing/distribution/restart drift, rollback traffic reopening, automatic code promotion, missing high-risk Decision, and inflated deferred claims are rejected
+Boundary: this closes only the Lean Core Gate; OpenHands, executor compatibility, ROI, cost calibration/enforcement, and full G4 remain external_pending; S4 visual/interaction approval remains user_approval_pending
+Report: docs/cc-fable-v1/reports/s5-lean-evolution-report.md

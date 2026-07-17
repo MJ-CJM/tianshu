@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.governance.decision_service import DecisionService
@@ -50,6 +51,7 @@ class TestApprovalManager:
         return ApprovalManager(
             event_bus=event_bus,
             storage=storage,
+            edict_application_service=EdictApplicationService(storage),
             decision_service=DecisionService(storage),
         )
 

@@ -2,6 +2,7 @@
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.models import Decree, Edict, Memorial, TaskStatus
@@ -14,7 +15,11 @@ class TestDecreeIntegration:
 
     @pytest.fixture
     def manager(self, event_bus, storage):
-        return ApprovalManager(event_bus=event_bus, storage=storage)
+        return ApprovalManager(
+            event_bus=event_bus,
+            storage=storage,
+            edict_application_service=EdictApplicationService(storage),
+        )
 
     async def test_approve_flow(self, manager, storage, event_bus):
         """approve decree → memorial COMPLETED."""

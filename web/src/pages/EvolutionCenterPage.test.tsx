@@ -181,6 +181,14 @@ describe("authoritative Evolution Center snapshot", () => {
     expect(screen.getByText("gate_evaluation_degraded")).toBeInTheDocument();
   });
 
+  it("labels governed data as the bounded Lean Core Gate without a full G4 claim", async () => {
+    evolutionSource.result = FIXTURE;
+    renderPage();
+
+    expect(await screen.findByText("Lean Core Gate")).toBeInTheDocument();
+    expect(screen.queryByText(/G4 passed/i)).not.toBeInTheDocument();
+  });
+
   it("indexes validated routing identities instead of performing ambiguous array lookup", () => {
     const source = readFileSync(
       resolve(process.cwd(), "src/pages/EvolutionCenterPage.tsx"),

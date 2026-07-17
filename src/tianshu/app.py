@@ -340,7 +340,10 @@ async def lifespan(app: FastAPI):
             readiness_status=lambda: _assess_app_readiness(app.state).status,
         )
         app.state.edict_detail_service = EdictDetailQueryService(app.state.storage)
-        app.state.evolution_center_service = EvolutionCenterQueryService()
+        app.state.evolution_center_service = EvolutionCenterQueryService(
+            app.state.storage,
+            app.state.evolution_gate_evaluator,
+        )
         logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     except BaseException:
         await _cleanup_started()

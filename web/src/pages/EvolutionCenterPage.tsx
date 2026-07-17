@@ -52,11 +52,14 @@ function SnapshotContent({ snapshot }: { snapshot: EvolutionCenterSnapshotV1 }) 
             </Typography.Title>
             <Typography.Text type="secondary">{snapshot.reason_code}</Typography.Text>
           </div>
-          <Tag color={snapshot.status === "enabled" ? "green" : "orange"}>
-            {snapshot.status === "enabled"
-              ? t("page.evolutionCenter.enabled")
-              : t("page.evolutionCenter.degraded")}
-          </Tag>
+          <div>
+            <Tag>Lean Core Gate</Tag>
+            <Tag color={snapshot.status === "enabled" ? "green" : "orange"}>
+              {snapshot.status === "enabled"
+                ? t("page.evolutionCenter.enabled")
+                : t("page.evolutionCenter.degraded")}
+            </Tag>
+          </div>
         </div>
         {snapshot.last_gate_hash ? (
           <div style={{ marginTop: 12 }}>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
@@ -571,7 +572,16 @@ def delete_edict(edict_id: str, request: Request):
             status_code=409,
             detail="无法删除正在执行中的敕令，请先取消执行",
         )
-    storage.delete_edict(edict_id)
+    try:
+        storage.delete_edict(edict_id)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "governed_evolution_history_retained",
+                "message": "敕令存在不可变的治理演进历史，不能删除",
+            },
+        ) from exc
     return ApiResponse(success=True, data={"id": edict_id})
 
 

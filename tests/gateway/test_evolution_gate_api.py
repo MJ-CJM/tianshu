@@ -73,13 +73,20 @@ def test_candidate_gate_evaluate_and_read_are_authenticated_and_correlated(tmp_p
         storage.close()
 
 
-def test_task_three_api_exposes_no_promote_canary_or_rollback_route(tmp_path) -> None:
-    app, storage, _candidate_id, _version = _app(tmp_path)
+def test_s5_api_exposes_guarded_promotion_routes_with_strict_commands(tmp_path) -> None:
+    app, storage, candidate_id, _version = _app(tmp_path)
     try:
         paths = {route.path for route in app.routes}
-        assert not any(
-            token in path for path in paths for token in ("promote", "canary", "rollback")
-        )
+        for action in ("promote", "canary", "rollback"):
+            assert f"/api/evolution/candidates/{{candidate_id}}/{action}" in paths
+        with TestClient(app, base_url=BASE_URL, client=("127.0.0.1", 41000)) as client:
+            for action in ("promote", "canary", "rollback"):
+                response = client.post(
+                    f"/api/evolution/candidates/{candidate_id}/{action}",
+                    headers=HEADERS,
+                    json={"idempotency_key": f"missing-required-{action}"},
+                )
+                assert response.status_code == 422
     finally:
         storage.close()
 
