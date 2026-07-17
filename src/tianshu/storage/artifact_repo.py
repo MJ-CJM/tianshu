@@ -13,6 +13,7 @@ from tianshu.evidence.models import (
     EvidenceBundleV1,
 )
 from tianshu.models.canonical import canonical_json_bytes
+from tianshu.models.control_center import ControlEvidenceSummaryV1
 from tianshu.storage.correlation import correlation_for_memorial
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
@@ -210,6 +211,50 @@ class EvidenceRepository:
             ]
             unit_of_work.commit()
             return values
+
+    @classmethod
+    def list_recent_for_submitter_current(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        submitter: str,
+        limit: int,
+    ) -> list[ControlEvidenceSummaryV1]:
+        if not submitter.strip():
+            raise ValueError("submitter must not be blank")
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        rows = connection.execute(
+            """
+            SELECT bundle.*, COALESCE(NULLIF(edict.title, ''), edict.goal) AS edict_title
+            FROM evidence_bundles AS bundle
+            JOIN edicts AS edict ON edict.id = bundle.edict_id
+            WHERE edict.submitter = ?
+            ORDER BY COALESCE(bundle.closed_at, bundle.created_at) DESC, bundle.bundle_id
+            LIMIT ?
+            """,
+            (submitter, limit),
+        ).fetchall()
+        summaries: list[ControlEvidenceSummaryV1] = []
+        for row in rows:
+            bundle = cls._decode(row)
+            summaries.append(
+                ControlEvidenceSummaryV1(
+                    bundle_id=bundle.bundle_id,
+                    edict_id=bundle.edict_id,
+                    edict_title=str(row["edict_title"]),
+                    memorial_id=bundle.memorial_id,
+                    status=bundle.status,
+                    content_hash=(
+                        bundle.content_hash if isinstance(bundle, ClosedEvidenceBundleV1) else None
+                    ),
+                    created_at=bundle.created_at,
+                    closed_at=(
+                        bundle.closed_at if isinstance(bundle, ClosedEvidenceBundleV1) else None
+                    ),
+                )
+            )
+        return summaries
 
 
 __all__ = [

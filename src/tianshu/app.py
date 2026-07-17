@@ -12,12 +12,14 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from tianshu import bootstrap
+from tianshu.application.control_center import ControlCenterQueryService
 from tianshu.config import TianshuSettings
 from tianshu.gateway import gateway_router
 from tianshu.gateway.audit_api import audit_router
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.gateway.auth_api import auth_router
 from tianshu.gateway.config_api import config_router
+from tianshu.gateway.control_center_api import control_center_router
 from tianshu.gateway.cost_api import cost_router
 from tianshu.gateway.credentials_api import credentials_router
 from tianshu.gateway.decisions_api import decisions_router
@@ -42,6 +44,94 @@ from tianshu.resources.overlay import packaged_defaults
 from tianshu.web import mount_web
 
 logger = logging.getLogger(__name__)
+
+
+def _assess_app_readiness(state):
+    """Build the same authoritative readiness report for health and Control Center."""
+    from tianshu.diagnostics import ReadinessInputs, assess_readiness, provider_config_check
+    from tianshu.storage.migration_ledger import pending_migrations
+    from tianshu.storage.migrations import MIGRATIONS
+
+    storage = state.storage
+    try:
+        with storage._lock:
+            storage._conn.execute("SELECT 1").fetchone()
+        database_ok = True
+    except Exception:  # noqa: BLE001 - fail-closed readiness probe
+        database_ok = False
+    if database_ok:
+        try:
+            with storage._lock:
+                migrations_ok = not pending_migrations(storage._conn, MIGRATIONS)
+        except Exception:  # noqa: BLE001 - fail-closed readiness probe
+            migrations_ok = False
+    else:
+        migrations_ok = False
+
+    tables = {
+        "outbox": "outbox_events",
+        "decision": "decision_requests",
+        "attempt": "execution_attempts",
+        "artifact": "artifact_records",
+    }
+    durable_tables: dict[str, bool] = {}
+    for name, table in tables.items():
+        try:
+            with storage._lock:
+                storage._conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()
+            durable_tables[name] = True
+        except Exception:  # noqa: BLE001 - fail-closed readiness probe
+            durable_tables[name] = False
+
+    def resources_ok() -> bool:
+        from tianshu.resources import catalog
+
+        return (catalog.persona_defaults() / "court" / "COURT.md").is_file()
+
+    def optional_integrations() -> dict[str, bool | None]:
+        manager = getattr(state, "mcp_manager", None)
+        if manager is None:
+            return {"mcp": None}
+        expected = set(manager.admitted_enabled_names)
+        if not expected:
+            return {"mcp": None}
+        connected = {
+            name for name, session in manager.sessions.items() if session.status == "connected"
+        }
+        failed = expected - connected - set(manager.starting_names)
+        return {"mcp": not failed}
+
+    def provider_ready() -> bool:
+        return (
+            provider_config_check(
+                profile=state.settings.startup_profile,
+                effective=state.config_manager.state,
+                config_source="runtime",
+            ).status
+            == "pass"
+        )
+
+    return assess_readiness(
+        ReadinessInputs(
+            database_ok=lambda: database_ok,
+            migrations_current=lambda: migrations_ok,
+            scheduler_ready=lambda: state.scheduler.is_ready,
+            worker_ready=lambda: state.worker_pool.is_ready,
+            outbox_ready=lambda: durable_tables["outbox"] and state.outbox_lifecycle.is_ready,
+            dispatcher_ready=lambda: state.outbox_lifecycle.is_ready,
+            decision_ready=lambda: durable_tables["decision"],
+            attempt_ready=lambda: durable_tables["attempt"],
+            artifact_ready=lambda: durable_tables["artifact"] and state.artifact_store.is_ready,
+            delivery_ready=lambda: (
+                state.internal_delivery_outbox.probe() and state.internal_delivery_worker.is_ready
+            ),
+            resources_ok=resources_ok,
+            provider_ready=provider_ready,
+            provider_profile=lambda: state.settings.startup_profile,
+            workspace_ready=lambda: state.workspace_service.is_ready,
+            optional_integrations=optional_integrations,
+        )
+    )
 
 
 def _async_stop(callback: Callable[[], None]) -> Callable[[], Awaitable[None]]:
@@ -232,6 +322,13 @@ async def lifespan(app: FastAPI):
         # Outbox starts last after every consumer is registered.
         startup_stops.append(_stop_outbox_if_created)
         await bootstrap.wire_outbox(app, settings)
+        app.state.control_center_service = ControlCenterQueryService(
+            unit_of_work=app.state.storage.unit_of_work,
+            decision_repository=app.state.storage.decision_repo,
+            run_state_repository=app.state.storage.run_state_repo,
+            evidence_repository=app.state.storage.evidence_repo,
+            readiness_status=lambda: _assess_app_readiness(app.state).status,
+        )
         logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     except BaseException:
         await _cleanup_started()
@@ -306,6 +403,7 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     app.include_router(auth_router, prefix="/api")
     app.include_router(audit_router, prefix="/api")
     app.include_router(config_router, prefix="/api")
+    app.include_router(control_center_router, prefix="/api")
     app.include_router(cost_router, prefix="/api")
     app.include_router(credentials_router, prefix="/api")
     app.include_router(decisions_router, prefix="/api")
@@ -343,119 +441,14 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     async def health_ready(request: Request):
         from fastapi.responses import JSONResponse
 
-        from tianshu.diagnostics import ReadinessInputs, assess_readiness, provider_config_check
-
-        state = app.state
-
-        def _probe_database() -> tuple[bool, bool]:
-            """(可连接, 迁移到位)。与 Doctor 同口径：pending_migrations 判定迁移。
-
-            纯同步 SQLite，走 storage 锁并在线程池执行，不阻塞事件循环。
-            """
-            from tianshu.storage.migration_ledger import pending_migrations
-            from tianshu.storage.migrations import MIGRATIONS
-
-            storage = state.storage
-            try:
-                with storage._lock:
-                    storage._conn.execute("SELECT 1").fetchone()
-            except Exception:  # noqa: BLE001 - readiness 探针不得抛出
-                return False, False
-            try:
-                with storage._lock:
-                    pending = pending_migrations(storage._conn, MIGRATIONS)
-            except Exception:  # noqa: BLE001
-                return True, False
-            return True, not pending
-
-        database_ok, migrations_ok = await asyncio.to_thread(_probe_database)
-
-        def _probe_durable_tables() -> dict[str, bool]:
-            tables = {
-                "outbox": "outbox_events",
-                "decision": "decision_requests",
-                "attempt": "execution_attempts",
-                "artifact": "artifact_records",
-            }
-            results: dict[str, bool] = {}
-            for name, table in tables.items():
-                try:
-                    with state.storage._lock:
-                        state.storage._conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()
-                    results[name] = True
-                except Exception:  # noqa: BLE001 - fail-closed readiness probe
-                    results[name] = False
-            return results
-
-        durable_tables = await asyncio.to_thread(_probe_durable_tables)
-
-        def _resources_ok() -> bool:
-            from tianshu.resources import catalog
-
-            return (catalog.persona_defaults() / "court" / "COURT.md").is_file()
-
-        def _optional_integrations() -> dict[str, bool | None]:
-            """MCP 的**真实**健康信号。
-
-            两个陷阱：会话对象存在 ≠ 已连接（真实字段是 ``status``）；启动就没连上的
-            server 压根不会进 ``sessions``（``_start_one`` 失败返回 None）——所以必须拿
-            "应连"基线（enabled ∧ 准入）去比"实连"，否则最常见的生产故障（npx 拉包失败、
-            命令不存在）在健康端点上完全不可见。
-            """
-            manager = getattr(state, "mcp_manager", None)
-            if manager is None:
-                return {"mcp": None}
-            expected = set(manager.admitted_enabled_names)
-            if not expected:
-                return {"mcp": None}  # 未配置任何 enabled server = 未启用
-            connected = {
-                name for name, session in manager.sessions.items() if session.status == "connected"
-            }
-            # 启动中的 server 既未连上也未失败：算作失败会让每次冷启动先报一段假降级。
-            # 只有"既没连上、也不在启动中"才是真失败。
-            failed = expected - connected - set(manager.starting_names)
-            return {"mcp": not failed}
-
-        def _provider_ready() -> bool:
-            """判定源 = 运行时实际会用到的 active 配置，不是 env（见 provider_config_check）。"""
-            return (
-                provider_config_check(
-                    profile=state.settings.startup_profile,
-                    effective=state.config_manager.state,
-                    config_source="runtime",
-                ).status
-                == "pass"
-            )
-
-        report = assess_readiness(
-            ReadinessInputs(
-                database_ok=lambda: database_ok,
-                migrations_current=lambda: migrations_ok,
-                scheduler_ready=lambda: state.scheduler.is_ready,
-                worker_ready=lambda: state.worker_pool.is_ready,
-                outbox_ready=lambda: durable_tables["outbox"] and state.outbox_lifecycle.is_ready,
-                dispatcher_ready=lambda: state.outbox_lifecycle.is_ready,
-                decision_ready=lambda: durable_tables["decision"],
-                attempt_ready=lambda: durable_tables["attempt"],
-                artifact_ready=lambda: durable_tables["artifact"] and state.artifact_store.is_ready,
-                delivery_ready=lambda: (
-                    state.internal_delivery_outbox.probe()
-                    and state.internal_delivery_worker.is_ready
-                ),
-                resources_ok=_resources_ok,
-                provider_ready=_provider_ready,
-                provider_profile=lambda: state.settings.startup_profile,
-                workspace_ready=lambda: state.workspace_service.is_ready,
-                optional_integrations=_optional_integrations,
-            )
-        )
+        report = await asyncio.to_thread(_assess_app_readiness, app.state)
         http_status = 200 if report.status in ("ready", "degraded") else 503
         # 未认证调用方（任何 runtime mode）只拿摘要；已认证才看内部检查细节
         authenticated = request.scope.get("state", {}).get("auth_context") is not None
         if not authenticated:
             return JSONResponse(report.to_summary_dict(), status_code=http_status)
         detail = report.to_detail_dict()
-        detail["profile"] = state.settings.startup_profile
+        detail["profile"] = app.state.settings.startup_profile
         return JSONResponse(detail, status_code=http_status)
 
     # MCP server(可选能力:mcp extra 未安装则跳过)——外部 MCP 宿主经 POST /mcp 驱动天枢

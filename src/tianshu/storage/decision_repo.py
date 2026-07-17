@@ -9,6 +9,7 @@ from datetime import datetime
 from pydantic import ValidationError
 
 from tianshu.models.canonical import canonical_json_bytes
+from tianshu.models.control_center import ControlDecisionSummaryV1
 from tianshu.models.decision import (
     DecisionKind,
     DecisionRecordV1,
@@ -65,10 +66,12 @@ SELECT
     resolution.payload_json AS resolution_payload_json,
     resolution.actor_principal_id,
     resolution.actor_display_name,
-    resolution.resolved_at
+    resolution.resolved_at,
+    COALESCE(NULLIF(edict.title, ''), edict.goal) AS edict_title
 FROM decision_requests AS request
 LEFT JOIN decision_resolutions AS resolution
     ON resolution.decision_request_id = request.decision_request_id
+JOIN edicts AS edict ON edict.id = request.edict_id
 """
 
 
@@ -165,6 +168,42 @@ class DecisionRepository:
             parameters,
         ).fetchall()
         return [_decode_record(row).request for row in rows]
+
+    def list_pending_for_submitter(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        submitter: str,
+        limit: int,
+    ) -> list[ControlDecisionSummaryV1]:
+        if not submitter.strip():
+            raise ValueError("submitter must not be blank")
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        rows = connection.execute(
+            _SELECT_RECORD
+            + """
+            WHERE request.status = 'pending' AND edict.submitter = ?
+            ORDER BY request.expires_at, request.created_at, request.decision_request_id
+            LIMIT ?
+            """,
+            (submitter, limit),
+        ).fetchall()
+        summaries: list[ControlDecisionSummaryV1] = []
+        for row in rows:
+            request = _decode_record(row).request
+            summaries.append(
+                ControlDecisionSummaryV1(
+                    decision_request_id=request.decision_request_id,
+                    edict_id=request.edict_id,
+                    edict_title=str(row["edict_title"]),
+                    memorial_id=request.memorial_id,
+                    kind=request.kind,
+                    expires_at=request.expires_at,
+                    created_at=request.created_at,
+                )
+            )
+        return summaries
 
     def list_due(
         self,

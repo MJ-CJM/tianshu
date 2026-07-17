@@ -12,6 +12,7 @@ import { MemoryRouter, Outlet, useLocation, useNavigationType } from "react-rout
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../components/layout/AppLayout", () => ({ default: () => <Outlet /> }));
+vi.mock("../pages/ControlCenterPage", () => ({ default: () => <h1>中枢总览</h1> }));
 vi.mock("../pages/RoyalStudyPage", () => ({ default: () => <h1>御书房</h1> }));
 vi.mock("../pages/OnboardingPage", () => ({ default: () => <h1>初启中枢</h1> }));
 const onboardingApi = vi.hoisted(() => ({ getOnboardingState: vi.fn() }));

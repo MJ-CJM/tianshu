@@ -8,6 +8,7 @@ import sqlite3
 from pydantic import ValidationError
 
 from tianshu.models.canonical import canonical_json_bytes
+from tianshu.models.control_center import ControlRunSummaryV1
 from tianshu.models.run_state import (
     AgentContinuationV1,
     RunPhase,
@@ -149,6 +150,43 @@ class RunStateRepository:
             "SELECT * FROM run_states WHERE memorial_id = ?", (memorial_id,)
         ).fetchone()
         return _decode_state(row) if row is not None else None
+
+    def list_active_for_submitter(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        submitter: str,
+        limit: int,
+    ) -> list[ControlRunSummaryV1]:
+        if not submitter.strip():
+            raise ValueError("submitter must not be blank")
+        if type(limit) is not int or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        rows = connection.execute(
+            """
+            SELECT state.*, COALESCE(NULLIF(edict.title, ''), edict.goal) AS edict_title
+            FROM run_states AS state
+            JOIN edicts AS edict ON edict.id = state.edict_id
+            WHERE edict.submitter = ?
+              AND state.phase NOT IN ('completed', 'failed')
+            ORDER BY state.updated_at DESC, state.memorial_id
+            LIMIT ?
+            """,
+            (submitter, limit),
+        ).fetchall()
+        summaries: list[ControlRunSummaryV1] = []
+        for row in rows:
+            state = _decode_state(row)
+            summaries.append(
+                ControlRunSummaryV1(
+                    edict_id=state.edict_id,
+                    edict_title=str(row["edict_title"]),
+                    memorial_id=state.memorial_id,
+                    phase=state.phase,
+                    updated_at=state.updated_at,
+                )
+            )
+        return summaries
 
     def create(self, connection: sqlite3.Connection, state: RunStateV1) -> RunStateV1:
         if state.version != 1:
