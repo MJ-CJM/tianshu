@@ -205,6 +205,25 @@ class DecisionRepository:
             )
         return summaries
 
+    @staticmethod
+    def count_pending_for_submitter(
+        connection: sqlite3.Connection,
+        *,
+        submitter: str,
+    ) -> int:
+        if not submitter.strip():
+            raise ValueError("submitter must not be blank")
+        row = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM decision_requests AS request
+            JOIN edicts AS edict ON edict.id = request.edict_id
+            WHERE request.status = 'pending' AND edict.submitter = ?
+            """,
+            (submitter,),
+        ).fetchone()
+        return int(row[0])
+
     def list_due(
         self,
         connection: sqlite3.Connection,

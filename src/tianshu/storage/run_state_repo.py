@@ -188,6 +188,26 @@ class RunStateRepository:
             )
         return summaries
 
+    @staticmethod
+    def count_active_for_submitter(
+        connection: sqlite3.Connection,
+        *,
+        submitter: str,
+    ) -> int:
+        if not submitter.strip():
+            raise ValueError("submitter must not be blank")
+        row = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM run_states AS state
+            JOIN edicts AS edict ON edict.id = state.edict_id
+            WHERE edict.submitter = ?
+              AND state.phase NOT IN ('completed', 'failed')
+            """,
+            (submitter,),
+        ).fetchone()
+        return int(row[0])
+
     def create(self, connection: sqlite3.Connection, state: RunStateV1) -> RunStateV1:
         if state.version != 1:
             raise ValueError("new RunState must start at version 1")

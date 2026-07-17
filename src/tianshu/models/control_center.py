@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tianshu.models.decision import DecisionKind
 from tianshu.models.run_state import RunPhase
@@ -73,12 +73,31 @@ class ControlCenterSnapshotV1(_StrictModel):
     schema_version: Literal[1] = 1
     generated_at: datetime
     readiness: Literal["ready", "degraded"]
-    active_runs: tuple[ControlRunSummaryV1, ...]
-    pending_decisions: tuple[ControlDecisionSummaryV1, ...]
-    recent_evidence: tuple[ControlEvidenceSummaryV1, ...]
-    evolution_status: Literal["not_enabled", "enabled", "degraded"]
+    active_run_total: int = Field(ge=0, description="Total active runs before summary limit")
+    pending_decision_total: int = Field(
+        ge=0,
+        description="Total pending decisions before summary limit",
+    )
+    evidence_total: int = Field(
+        ge=0,
+        description="Total evidence bundles before recent summary limit",
+    )
+    active_runs: tuple[ControlRunSummaryV1, ...] = Field(max_length=20)
+    pending_decisions: tuple[ControlDecisionSummaryV1, ...] = Field(max_length=20)
+    recent_evidence: tuple[ControlEvidenceSummaryV1, ...] = Field(max_length=20)
+    evolution_status: Literal["not_enabled"]
 
     _normalize_generated_at = field_validator("generated_at")(_utc)
+
+    @model_validator(mode="after")
+    def validate_summary_totals(self) -> Self:
+        if self.active_run_total < len(self.active_runs):
+            raise ValueError("active_run_total must cover active_runs")
+        if self.pending_decision_total < len(self.pending_decisions):
+            raise ValueError("pending_decision_total must cover pending_decisions")
+        if self.evidence_total < len(self.recent_evidence):
+            raise ValueError("evidence_total must cover recent_evidence")
+        return self
 
 
 __all__ = [

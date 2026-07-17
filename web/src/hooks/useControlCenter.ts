@@ -12,9 +12,9 @@ export const CONTROL_CENTER_QUERY_KEY = ["control-center", "snapshot-v1"] as con
 
 function isEmpty(snapshot: ControlCenterSnapshotV1): boolean {
   return (
-    snapshot.active_runs.length === 0 &&
-    snapshot.pending_decisions.length === 0 &&
-    snapshot.recent_evidence.length === 0
+    snapshot.active_run_total === 0 &&
+    snapshot.pending_decision_total === 0 &&
+    snapshot.evidence_total === 0
   );
 }
 

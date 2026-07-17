@@ -10,6 +10,7 @@ from tianshu.application.control_center import (
     ControlCenterQueryService,
     ControlCenterUnavailable,
 )
+from tianshu.evidence.models import EvidenceBundleV1
 from tianshu.models import Edict, Memorial, TaskStatus
 from tianshu.models.canonical import canonical_sha256
 from tianshu.models.control_center import ControlCenterSnapshotV1
@@ -96,7 +97,7 @@ def _seed_run(
     title: str,
     phase: RunPhase,
     updated_at: datetime,
-) -> None:
+) -> Memorial:
     edict = Edict(id=edict_id, title=title, goal=title, submitter=submitter)
     memorial = Memorial(
         id=memorial_id,
@@ -112,6 +113,7 @@ def _seed_run(
             _run_state(memorial, phase=phase, updated_at=updated_at),
         )
         unit_of_work.commit()
+    return memorial
 
 
 def _seed_decision(
@@ -140,6 +142,28 @@ def _seed_decision(
     )
     with storage.unit_of_work() as unit_of_work:
         storage.decision_repo.add_or_get(unit_of_work.connection, request)
+        unit_of_work.commit()
+
+
+def _seed_evidence(
+    storage: Storage,
+    *,
+    template: EvidenceBundleV1,
+    bundle_id: str,
+    edict_id: str,
+    memorial_id: str,
+    created_at: datetime,
+) -> None:
+    bundle = template.model_copy(
+        update={
+            "bundle_id": bundle_id,
+            "edict_id": edict_id,
+            "memorial_id": memorial_id,
+            "created_at": created_at,
+        }
+    )
+    with storage.unit_of_work() as unit_of_work:
+        storage.evidence_repo.add_open_current(unit_of_work.connection, bundle)
         unit_of_work.commit()
 
 
@@ -216,6 +240,9 @@ def test_snapshot_uses_real_scoped_storage_and_stable_sorting(storage, tmp_path)
     assert snapshot.generated_at == NOW
     assert snapshot.readiness == "ready"
     assert snapshot.evolution_status == "not_enabled"
+    assert snapshot.active_run_total == 2
+    assert snapshot.pending_decision_total == 2
+    assert snapshot.evidence_total == 1
     assert [item.memorial_id for item in snapshot.active_runs] == [
         "memorial-owner-new",
         "memorial-owner-old",
@@ -232,7 +259,80 @@ def test_snapshot_uses_real_scoped_storage_and_stable_sorting(storage, tmp_path)
     assert "不可见运行" not in json.dumps(dumped, ensure_ascii=False)
 
 
-def test_snapshot_exposes_degraded_evolution_but_rejects_not_ready(storage) -> None:
+def test_snapshot_totals_exceed_bounded_lists_and_remain_principal_scoped(
+    storage,
+    tmp_path,
+) -> None:
+    _template_edict, template_memorial = seed_closed_run(storage)
+    template_service = evidence_service(storage, tmp_path / "artifacts")
+    template = template_service.build_open(template_memorial.id)
+
+    owner_evidence_ids: list[str] = []
+    for principal, count in (("user:owner", 25), ("user:other", 5)):
+        prefix = "owner" if principal == "user:owner" else "other"
+        for index in range(count):
+            edict_id = f"edict-{prefix}-{index:02d}"
+            memorial_id = f"memorial-{prefix}-{index:02d}"
+            _seed_run(
+                storage,
+                edict_id=edict_id,
+                memorial_id=memorial_id,
+                submitter=principal,
+                title=f"{prefix}-{index:02d}",
+                phase=RunPhase.EXECUTING,
+                updated_at=NOW + timedelta(minutes=index),
+            )
+            _seed_decision(
+                storage,
+                decision_id=f"decision-{prefix}-{index:02d}",
+                edict_id=edict_id,
+                memorial_id=memorial_id,
+                expires_at=NOW + timedelta(hours=1, minutes=index),
+            )
+            bundle_id = f"evidence:{prefix}:{index:02d}"
+            _seed_evidence(
+                storage,
+                template=template,
+                bundle_id=bundle_id,
+                edict_id=edict_id,
+                memorial_id=memorial_id,
+                created_at=NOW + timedelta(minutes=index),
+            )
+            if principal == "user:owner":
+                owner_evidence_ids.append(bundle_id)
+
+    query = ControlCenterQueryService(
+        unit_of_work=storage.unit_of_work,
+        decision_repository=storage.decision_repo,
+        run_state_repository=storage.run_state_repo,
+        evidence_repository=storage.evidence_repo,
+        readiness_status=lambda: "ready",
+        clock=lambda: NOW,
+    )
+
+    snapshot = query.get_snapshot(_auth())
+
+    assert snapshot.active_run_total == 25
+    assert snapshot.pending_decision_total == 25
+    assert snapshot.evidence_total == 25
+    assert len(snapshot.active_runs) == 20
+    assert len(snapshot.pending_decisions) == 20
+    assert len(snapshot.recent_evidence) == 20
+    assert [item.memorial_id for item in snapshot.active_runs] == [
+        f"memorial-owner-{index:02d}" for index in range(24, 4, -1)
+    ]
+    assert [item.decision_request_id for item in snapshot.pending_decisions] == [
+        f"decision-owner-{index:02d}" for index in range(20)
+    ]
+    assert [item.bundle_id for item in snapshot.recent_evidence] == list(
+        reversed(owner_evidence_ids[5:])
+    )
+    assert all("other" not in item.edict_id for item in snapshot.active_runs)
+    assert all("other" not in item.edict_id for item in snapshot.pending_decisions)
+    assert all("other" not in item.edict_id for item in snapshot.recent_evidence)
+
+
+def test_snapshot_keeps_evolution_disabled_when_readiness_is_degraded(storage) -> None:
     degraded = ControlCenterQueryService(
         unit_of_work=storage.unit_of_work,
         decision_repository=storage.decision_repo,
@@ -242,7 +342,11 @@ def test_snapshot_exposes_degraded_evolution_but_rejects_not_ready(storage) -> N
         clock=lambda: NOW,
     ).get_snapshot(_auth())
     assert degraded.readiness == "degraded"
-    assert degraded.evolution_status == "degraded"
+    assert degraded.evolution_status == "not_enabled"
+    assert (
+        ControlCenterSnapshotV1.model_json_schema()["properties"]["evolution_status"]["const"]
+        == "not_enabled"
+    )
 
     unavailable = ControlCenterQueryService(
         unit_of_work=storage.unit_of_work,

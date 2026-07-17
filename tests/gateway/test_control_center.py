@@ -32,6 +32,9 @@ class SnapshotService:
         return ControlCenterSnapshotV1(
             generated_at=NOW,
             readiness="ready",
+            active_run_total=0,
+            pending_decision_total=0,
+            evidence_total=0,
             active_runs=(),
             pending_decisions=(),
             recent_evidence=(),
@@ -77,6 +80,9 @@ def test_snapshot_is_authenticated_principal_scoped_and_correlated(tmp_path) -> 
         assert response.status_code == 200
         assert service.principals == ["user:owner"]
         assert response.json()["data"]["schema_version"] == 1
+        assert response.json()["data"]["active_run_total"] == 0
+        assert response.json()["data"]["pending_decision_total"] == 0
+        assert response.json()["data"]["evidence_total"] == 0
         assert response.json()["data"]["evolution_status"] == "not_enabled"
         assert response.json()["correlation_id"] == response.headers["x-correlation-id"]
     finally:

@@ -256,6 +256,25 @@ class EvidenceRepository:
             )
         return summaries
 
+    @staticmethod
+    def count_for_submitter_current(
+        connection: sqlite3.Connection,
+        *,
+        submitter: str,
+    ) -> int:
+        if not submitter.strip():
+            raise ValueError("submitter must not be blank")
+        row = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM evidence_bundles AS bundle
+            JOIN edicts AS edict ON edict.id = bundle.edict_id
+            WHERE edict.submitter = ?
+            """,
+            (submitter,),
+        ).fetchone()
+        return int(row[0])
+
 
 __all__ = [
     "ArtifactRepository",

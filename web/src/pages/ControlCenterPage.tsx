@@ -128,12 +128,6 @@ function SnapshotContent({ snapshot }: { snapshot: ControlCenterSnapshotV1 }) {
   const t = useT();
   const locale = useLocaleMode();
   const dateLocale = locale === "en" ? "en-US" : "zh-CN";
-  const evolutionLabel =
-    snapshot.evolution_status === "not_enabled"
-      ? t("page.controlCenter.evolutionNotEnabled")
-      : snapshot.evolution_status === "degraded"
-        ? t("page.controlCenter.evolutionDegraded")
-        : t("page.controlCenter.evolutionEnabled");
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <section aria-labelledby="control-status-title" style={sectionStyle}>
@@ -153,7 +147,7 @@ function SnapshotContent({ snapshot }: { snapshot: ControlCenterSnapshotV1 }) {
                 ? t("page.controlCenter.readinessReady")
                 : t("page.controlCenter.readinessDegraded")}
             </Tag>
-            <Tag>{evolutionLabel}</Tag>
+            <Tag>{t("page.controlCenter.evolutionNotEnabled")}</Tag>
           </div>
         </div>
       </section>
@@ -164,15 +158,15 @@ function SnapshotContent({ snapshot }: { snapshot: ControlCenterSnapshotV1 }) {
       >
         <Metric
           label={t("page.controlCenter.activeRunsMetric")}
-          value={snapshot.active_runs.length}
+          value={snapshot.active_run_total}
         />
         <Metric
           label={t("page.controlCenter.pendingDecisionsMetric")}
-          value={snapshot.pending_decisions.length}
+          value={snapshot.pending_decision_total}
         />
         <Metric
-          label={t("page.controlCenter.recentEvidenceMetric")}
-          value={snapshot.recent_evidence.length}
+          label={t("page.controlCenter.evidenceMetric")}
+          value={snapshot.evidence_total}
         />
       </section>
 

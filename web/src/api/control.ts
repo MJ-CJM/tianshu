@@ -43,10 +43,13 @@ export interface ControlCenterSnapshotV1 {
   schema_version: 1;
   generated_at: string;
   readiness: "ready" | "degraded";
+  active_run_total: number;
+  pending_decision_total: number;
+  evidence_total: number;
   active_runs: ControlRunSummaryV1[];
   pending_decisions: ControlDecisionSummaryV1[];
   recent_evidence: ControlEvidenceSummaryV1[];
-  evolution_status: "not_enabled" | "enabled" | "degraded";
+  evolution_status: "not_enabled";
 }
 
 interface ControlCenterResponse {

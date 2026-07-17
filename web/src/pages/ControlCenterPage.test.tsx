@@ -26,6 +26,9 @@ const SNAPSHOT: ControlCenterSnapshotV1 = {
   schema_version: 1,
   generated_at: "2026-07-17T09:00:00Z",
   readiness: "ready",
+  active_run_total: 25,
+  pending_decision_total: 24,
+  evidence_total: 23,
   active_runs: [
     {
       edict_id: "edict-1",
@@ -63,6 +66,9 @@ const SNAPSHOT: ControlCenterSnapshotV1 = {
 
 const EMPTY_SNAPSHOT: ControlCenterSnapshotV1 = {
   ...SNAPSHOT,
+  active_run_total: 0,
+  pending_decision_total: 0,
+  evidence_total: 0,
   active_runs: [],
   pending_decisions: [],
   recent_evidence: [],
@@ -146,7 +152,9 @@ describe("real Control Center snapshot", () => {
     expect(evidenceLink).toHaveAttribute("href", "/api/evidence/bundle-1/download");
     await user.tab();
     expect(document.activeElement).toBe(edictLink);
-    expect(screen.getAllByText("1")).toHaveLength(3);
+    expect(screen.getByText("25")).toBeInTheDocument();
+    expect(screen.getByText("24")).toBeInTheDocument();
+    expect(screen.getByText("23")).toBeInTheDocument();
     expect(screen.getByText("尚未启用")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/系统可信|置信度|信心分|88%/);
     expect(controlApi.getControlCenterSnapshot).toHaveBeenCalledTimes(1);
@@ -213,6 +221,19 @@ describe("real Control Center snapshot", () => {
     expect(await screen.findByText("生成中")).toBeInTheDocument();
     expect(screen.getByText("等待封存")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "下载证据" })).not.toBeInTheDocument();
+  });
+
+  it("keeps evolution not enabled when overall readiness is degraded", async () => {
+    controlApi.getControlCenterSnapshot.mockResolvedValue({
+      ...EMPTY_SNAPSHOT,
+      readiness: "degraded",
+      evolution_status: "not_enabled",
+    });
+    renderPage();
+
+    expect(await screen.findByText("服务降级")).toBeInTheDocument();
+    expect(screen.getByText("尚未启用")).toBeInTheDocument();
+    expect(screen.queryByText("随系统降级")).not.toBeInTheDocument();
   });
 
   it("uses the English locale for Control Center copy", async () => {

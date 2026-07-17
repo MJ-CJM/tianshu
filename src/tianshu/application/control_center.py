@@ -46,15 +46,27 @@ class ControlCenterQueryService:
             readiness = cast(Literal["ready", "degraded"], readiness_status)
             submitter = auth.principal.id
             with self._unit_of_work() as unit_of_work:
+                active_run_total = self._run_state_repository.count_active_for_submitter(
+                    unit_of_work.connection,
+                    submitter=submitter,
+                )
                 active_runs = self._run_state_repository.list_active_for_submitter(
                     unit_of_work.connection,
                     submitter=submitter,
                     limit=_SUMMARY_LIMIT,
                 )
+                pending_decision_total = self._decision_repository.count_pending_for_submitter(
+                    unit_of_work.connection,
+                    submitter=submitter,
+                )
                 pending_decisions = self._decision_repository.list_pending_for_submitter(
                     unit_of_work.connection,
                     submitter=submitter,
                     limit=_SUMMARY_LIMIT,
+                )
+                evidence_total = self._evidence_repository.count_for_submitter_current(
+                    unit_of_work.connection,
+                    submitter=submitter,
                 )
                 recent_evidence = self._evidence_repository.list_recent_for_submitter_current(
                     unit_of_work.connection,
@@ -70,6 +82,9 @@ class ControlCenterQueryService:
         return ControlCenterSnapshotV1(
             generated_at=self._clock(),
             readiness=readiness,
+            active_run_total=active_run_total,
+            pending_decision_total=pending_decision_total,
+            evidence_total=evidence_total,
             active_runs=tuple(
                 sorted(
                     active_runs,
@@ -95,7 +110,7 @@ class ControlCenterQueryService:
                     ),
                 )
             ),
-            evolution_status="degraded" if readiness == "degraded" else "not_enabled",
+            evolution_status="not_enabled",
         )
 
 
