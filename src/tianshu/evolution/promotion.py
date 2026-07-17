@@ -235,13 +235,11 @@ class _Adapter(Protocol):
 
     def rollback(self, candidate: EvolutionCandidateV1) -> AdapterRollbackReceiptV1: ...
 
-    def verify_rollback(
-        self, candidate: EvolutionCandidateV1
-    ) -> AdapterRollbackReceiptV1 | None: ...
-
 
 class UnavailablePromotionAdapter:
     """Explicit fail-closed capability for kinds without a safe live writer yet."""
+
+    rollback_is_idempotent = True
 
     def activate(self, candidate: EvolutionCandidateV1) -> ActivationReceiptV1:
         del candidate
@@ -279,15 +277,43 @@ class SkillPromotionAdapter:
         )
 
     def rollback(self, candidate: EvolutionCandidateV1) -> AdapterRollbackReceiptV1:
-        if candidate.kind is not CandidateKind.SKILL:
-            raise AdapterError("skill rollback kind mismatch")
-        if candidate.lifecycle is not CandidateLifecycle.ROLLBACK_PENDING:
-            raise AdapterError("skill rollback requires rollback_pending candidate")
-        self._apply(candidate, digest=candidate.base.artifact_digest)
-        return AdapterRollbackReceiptV1(
-            candidate_id=candidate.candidate_id,
-            artifact_digest=candidate.base.artifact_digest,
-        )
+        with self.rollback_guard(candidate, applied=False) as receipt:
+            return receipt
+
+    @contextmanager
+    def rollback_guard(
+        self,
+        candidate: EvolutionCandidateV1,
+        *,
+        applied: bool,
+    ):
+        """Hold the subject lock until PromotionService finalizes durable rollback."""
+
+        try:
+            package, fallback, target = self._bound_packages(
+                candidate, digest=candidate.base.artifact_digest
+            )
+        except (ArtifactStoreError, AdapterError, OSError, TypeError, ValueError):
+            raise AdapterError("skill rollback verification failed") from None
+        with self._locked():
+            try:
+                self._write_rollback_marker(candidate)
+                if applied and not self._matches(target, package):
+                    raise ValueError("applied rollback live tree does not match base")
+                self._replace(
+                    target,
+                    package,
+                    fallback=fallback,
+                    digest=candidate.base.artifact_digest,
+                )
+                if not self._matches(target, package):
+                    raise ValueError("skill rollback live verification failed")
+            except (ArtifactStoreError, AdapterError, OSError, TypeError, ValueError):
+                raise AdapterError("skill rollback verification failed") from None
+            yield AdapterRollbackReceiptV1(
+                candidate_id=candidate.candidate_id,
+                artifact_digest=candidate.base.artifact_digest,
+            )
 
     def verify_rollback(self, candidate: EvolutionCandidateV1) -> AdapterRollbackReceiptV1 | None:
         """Return a receipt only when the governed base is already live and exact."""
@@ -316,25 +342,97 @@ class SkillPromotionAdapter:
 
     def _apply(self, candidate: EvolutionCandidateV1, *, digest: str) -> None:
         try:
-            package = self._load_package(digest)
-            name = package.get("name")
-            if not isinstance(name, str) or candidate.subject_key != f"skill:{name}":
-                raise ValueError("candidate subject does not match skill package")
-            fallback_digest = (
-                candidate.base.artifact_digest
-                if digest == candidate.candidate.artifact_digest
-                else candidate.candidate.artifact_digest
-            )
-            fallback = self._load_package(fallback_digest)
-            if fallback.get("name") != name:
-                raise ValueError("skill fallback subject does not match candidate")
-            target = self._live_root / name
-            if target.parent != self._live_root or target.name != name:
-                raise ValueError("skill target is not canonical")
+            package, fallback, target = self._bound_packages(candidate, digest=digest)
             with self._locked():
+                if digest == candidate.candidate.artifact_digest:
+                    self._reject_stale_activation(candidate)
                 self._replace(target, package, fallback=fallback, digest=digest)
         except (ArtifactStoreError, AdapterError, OSError, TypeError, ValueError):
             raise AdapterError("skill promotion artifact apply failed") from None
+
+    def _bound_packages(
+        self, candidate: EvolutionCandidateV1, *, digest: str
+    ) -> tuple[dict[str, object], dict[str, object], Path]:
+        package = self._load_package(digest)
+        name = package.get("name")
+        if not isinstance(name, str) or candidate.subject_key != f"skill:{name}":
+            raise ValueError("candidate subject does not match skill package")
+        fallback_digest = (
+            candidate.base.artifact_digest
+            if digest == candidate.candidate.artifact_digest
+            else candidate.candidate.artifact_digest
+        )
+        fallback = self._load_package(fallback_digest)
+        if fallback.get("name") != name:
+            raise ValueError("skill fallback subject does not match candidate")
+        target = self._live_root / name
+        if target.parent != self._live_root or target.name != name:
+            raise ValueError("skill target is not canonical")
+        return package, fallback, target
+
+    def _rollback_marker_path(self, candidate: EvolutionCandidateV1) -> Path:
+        subject_digest = hashlib.sha256(candidate.subject_key.encode()).hexdigest()
+        return self._live_root / f".rollback-authority-{subject_digest}.json"
+
+    def _write_rollback_marker(self, candidate: EvolutionCandidateV1) -> None:
+        marker = self._rollback_marker_path(candidate)
+        temporary = marker.with_suffix(".tmp")
+        if temporary.is_symlink():
+            raise ValueError("rollback marker temporary path is not canonical")
+        payload = canonical_json_bytes(
+            {
+                "schema_version": 1,
+                "candidate_id": candidate.candidate_id,
+                "subject_key": candidate.subject_key,
+                "base_digest": candidate.base.artifact_digest,
+            }
+        )
+        descriptor = os.open(
+            temporary,
+            os.O_CREAT | os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        try:
+            os.write(descriptor, payload)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(temporary, marker)
+        directory = os.open(self._live_root, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+
+    def _reject_stale_activation(self, candidate: EvolutionCandidateV1) -> None:
+        marker = self._rollback_marker_path(candidate)
+        if not marker.exists() and not marker.is_symlink():
+            return
+        if marker.is_symlink() or not marker.is_file():
+            raise ValueError("rollback marker is not canonical")
+        raw = marker.read_bytes()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("rollback marker is not valid JSON") from exc
+        expected = {
+            "schema_version": 1,
+            "candidate_id": candidate.candidate_id,
+            "subject_key": candidate.subject_key,
+            "base_digest": candidate.base.artifact_digest,
+        }
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != set(expected)
+            or payload.get("schema_version") != 1
+            or not isinstance(payload.get("candidate_id"), str)
+            or payload.get("subject_key") != candidate.subject_key
+            or not isinstance(payload.get("base_digest"), str)
+            or canonical_json_bytes(payload) != raw
+        ):
+            raise ValueError("rollback marker is not canonical")
+        if payload == expected:
+            raise AdapterError("skill activation conflicts with rollback authority")
 
     def _load_package(self, digest: str) -> dict[str, object]:
         raw = self._artifacts.get_bytes(digest)
@@ -1035,9 +1133,31 @@ class PromotionService:
                 pending = loaded_pending
             unit_of_work.commit()
 
+        adapter = self._adapter_resolver(pending.kind)
+        final_lifecycle: Literal[CandidateLifecycle.ROLLED_BACK] = CandidateLifecycle.ROLLED_BACK
+        guard_factory = getattr(adapter, "rollback_guard", None)
+        if callable(guard_factory):
+            try:
+                with guard_factory(
+                    pending,
+                    applied=applied_entry is not None,
+                ) as guarded_effect:
+                    return self._complete_rollback(
+                        candidate_id=candidate_id,
+                        command=command,
+                        auth=auth,
+                        request_hash=request_hash,
+                        command_key=command_key,
+                        pending=pending,
+                        pending_entry=pending_entry,
+                        applied_entry=applied_entry,
+                        effect=guarded_effect,
+                        final_lifecycle=final_lifecycle,
+                    )
+            except AdapterError as exc:
+                raise PromotionConflict("rollback_restore_failed") from exc
         if applied_entry is None:
             try:
-                adapter = self._adapter_resolver(pending.kind)
                 verifier = getattr(adapter, "verify_rollback", None)
                 effect = verifier(pending) if callable(verifier) else None
                 if effect is None:
@@ -1046,6 +1166,33 @@ class PromotionService:
                 raise PromotionConflict("rollback_restore_failed") from exc
         else:
             effect = self._rollback_effect(applied_entry, candidate=pending)
+        return self._complete_rollback(
+            candidate_id=candidate_id,
+            command=command,
+            auth=auth,
+            request_hash=request_hash,
+            command_key=command_key,
+            pending=pending,
+            pending_entry=pending_entry,
+            applied_entry=applied_entry,
+            effect=effect,
+            final_lifecycle=final_lifecycle,
+        )
+
+    def _complete_rollback(
+        self,
+        *,
+        candidate_id: str,
+        command: RollbackCommand,
+        auth: AuthContext,
+        request_hash: str,
+        command_key: str,
+        pending: EvolutionCandidateV1,
+        pending_entry: _JournalEntry,
+        applied_entry: _JournalEntry | None,
+        effect: AdapterRollbackReceiptV1,
+        final_lifecycle: Literal[CandidateLifecycle.ROLLED_BACK],
+    ) -> RollbackReceiptV1:
         if (
             effect.candidate_id != candidate_id
             or effect.artifact_digest != pending.base.artifact_digest
@@ -1099,9 +1246,7 @@ class PromotionService:
             now = self._now()
             durable = self._repository.save_candidate(
                 connection,
-                current.model_copy(
-                    update={"lifecycle": CandidateLifecycle.ROLLED_BACK, "updated_at": now}
-                ),
+                current.model_copy(update={"lifecycle": final_lifecycle, "updated_at": now}),
                 expected_version=current.version,
             )
             receipt = RollbackReceiptV1(
@@ -1109,7 +1254,7 @@ class PromotionService:
                 journal_id=_journal_id(command_key, "completed"),
                 candidate_id=candidate_id,
                 candidate_version=durable.version,
-                lifecycle=CandidateLifecycle.ROLLED_BACK,
+                lifecycle=final_lifecycle,
                 routing_version=current.routing.routing_version,
                 effect_artifact_digest=effect.artifact_digest,
                 completed_at=now,
@@ -1241,7 +1386,7 @@ class PromotionService:
                     )
                     self._rollback_effect(applied, candidate=candidate)
                 adapter = self._adapter_resolver(candidate.kind)
-                replay_safe = callable(getattr(adapter, "verify_rollback", None)) or (
+                replay_safe = callable(getattr(adapter, "rollback_guard", None)) or (
                     getattr(adapter, "rollback_is_idempotent", False) is True
                 )
                 commands.append((entry.candidate_id, command, auth, replay_safe))

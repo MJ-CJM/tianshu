@@ -3,25 +3,28 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from threading import Event
 
 import pytest
 from tests.diagnostics.test_doctor_report import _inputs
 from tests.evolution.test_promotion_fail_closed import (
-    _candidate,
     _GateAuthority,
     _green,
     _ready,
     _service,
+    _skill_adapter_case,
     _start_command,
 )
 
+import tianshu.evolution.promotion as promotion_module
 from tianshu.application.run_reconciler import RunReconciler, RunReconcilerState
 from tianshu.diagnostics import assess_readiness
-from tianshu.evidence.service import ArtifactStore
 from tianshu.evolution.adapters.base import (
     ActivationReceiptV1,
+    AdapterError,
 )
 from tianshu.evolution.adapters.base import (
     RollbackReceiptV1 as AdapterRollbackReceiptV1,
@@ -33,11 +36,9 @@ from tianshu.evolution.promotion import (
     SkillPromotionAdapter,
 )
 from tianshu.evolution.reconciler import EvolutionRollbackReconciler
-from tianshu.models.canonical import canonical_json_bytes, canonical_sha256
+from tianshu.models.canonical import canonical_json_bytes
 from tianshu.models.evolution_candidate import (
-    CandidateKind,
     CandidateLifecycle,
-    CandidateVersionRefV1,
 )
 from tianshu.models.principal import (
     AuthContext,
@@ -80,6 +81,57 @@ def _pending(storage):
     adapter.fail_rollback = False
     adapter.rollback_is_idempotent = True
     return candidate, service, adapter, command
+
+
+def _real_skill_rollback_case(storage, tmp_path):
+    artifacts, live_root, skill_root, envelope, base_text, changed_text = _skill_adapter_case(
+        storage, tmp_path
+    )
+    proposed = envelope.model_copy(update={"lifecycle": CandidateLifecycle.PROPOSED})
+    repository = EvolutionRepository()
+    with storage.unit_of_work() as unit_of_work:
+        current = repository.insert_candidate(unit_of_work.connection, proposed)
+        for lifecycle in (
+            CandidateLifecycle.STAGED,
+            CandidateLifecycle.EVALUATING,
+            CandidateLifecycle.READY,
+        ):
+            current = repository.save_candidate(
+                unit_of_work.connection,
+                current.model_copy(update={"lifecycle": lifecycle}),
+                expected_version=current.version,
+            )
+        unit_of_work.commit()
+    adapter = SkillPromotionAdapter(artifacts, live_root=live_root)
+    service = PromotionService(
+        storage,
+        _GateAuthority(_green(current)),
+        adapter_resolver=lambda _kind: adapter,
+        clock=lambda: current.updated_at + timedelta(minutes=1),
+    )
+    canary = service.start_canary(current.candidate_id, _start_command(current), auth=_auth())
+    with storage.unit_of_work() as unit_of_work:
+        canary_candidate = repository.get_candidate(unit_of_work.connection, current.candidate_id)
+        unit_of_work.commit()
+    assert canary_candidate is not None
+    adapter.activate(canary_candidate)
+    assert (skill_root / "SKILL.md").read_text(encoding="utf-8") == changed_text
+    command = RollbackCommand(
+        expected_version=canary.candidate_version,
+        idempotency_key="golden-rollback-after-effect-crash",
+        reason="restore base after regression",
+    )
+    return (
+        live_root,
+        skill_root / "SKILL.md",
+        base_text,
+        changed_text,
+        current,
+        canary_candidate,
+        adapter,
+        service,
+        command,
+    )
 
 
 def test_reconciler_restarts_from_pending_without_reopening_new_challenger_traffic(storage) -> None:
@@ -176,103 +228,27 @@ def test_failure_before_allocation_zero_commit_preserves_canary_and_skips_restor
 def test_real_skill_restore_crash_before_applied_receipt_recovers_by_live_verification(
     storage, tmp_path, monkeypatch
 ) -> None:
-    artifacts = ArtifactStore(
-        tmp_path / "artifacts",
-        storage.artifact_repo,
-        storage.unit_of_work,
-        max_object_bytes=1024 * 1024,
-        max_total_bytes=4 * 1024 * 1024,
-    )
-    live_root = tmp_path / "skills"
-    live_skill = live_root / "rollback-golden" / "SKILL.md"
-    live_skill.parent.mkdir(parents=True)
-    base_text = "---\nname: rollback-golden\ndescription: base\n---\nBASE"
-    changed_text = "---\nname: rollback-golden\ndescription: changed\n---\nCHANGED"
-    live_skill.write_text(base_text, encoding="utf-8")
-    base_payload = {
-        "name": "rollback-golden",
-        "state": "present",
-        "trust_source": "workspace",
-        "members": [{"path": "SKILL.md", "kind": "file", "content": base_text}],
-    }
-    changed_payload = {
-        "name": "rollback-golden",
-        "state": "present",
-        "trust_source": "workspace",
-        "members": [{"path": "SKILL.md", "kind": "file", "content": changed_text}],
-    }
-    base_artifact = artifacts.put_bytes(
-        canonical_json_bytes(base_payload),
-        media_type="application/vnd.tianshu.evolution.skill+json",
-        redaction="governed_candidate",
-    )
-    changed_artifact = artifacts.put_bytes(
-        canonical_json_bytes(changed_payload),
-        media_type="application/vnd.tianshu.evolution.skill+json",
-        redaction="governed_candidate",
-    )
-    proposed = _candidate(CandidateKind.SKILL)
-    contract = proposed.evolution_contract.model_copy(
-        update={"subject_key": "skill:rollback-golden"}
-    )
-    base_ref = CandidateVersionRefV1(
-        version="base",
-        artifact_digest=base_artifact.digest,
-        canonical_digest=canonical_sha256(base_payload),
-    )
-    changed_ref = CandidateVersionRefV1(
-        version="changed",
-        artifact_digest=changed_artifact.digest,
-        canonical_digest=canonical_sha256(changed_payload),
-    )
-    proposed = proposed.model_copy(
-        update={
-            "subject_key": "skill:rollback-golden",
-            "base": base_ref,
-            "candidate": changed_ref,
-            "evolution_contract": contract,
-            "evolution_contract_hash": canonical_sha256(contract),
-            "rollback": proposed.rollback.model_copy(update={"champion_ref": base_ref}),
-        }
-    )
-    repository = EvolutionRepository()
-    with storage.unit_of_work() as unit_of_work:
-        current = repository.insert_candidate(unit_of_work.connection, proposed)
-        for lifecycle in (
-            CandidateLifecycle.STAGED,
-            CandidateLifecycle.EVALUATING,
-            CandidateLifecycle.READY,
-        ):
-            current = repository.save_candidate(
-                unit_of_work.connection,
-                current.model_copy(update={"lifecycle": lifecycle}),
-                expected_version=current.version,
-            )
-        unit_of_work.commit()
-    adapter = SkillPromotionAdapter(artifacts, live_root=live_root)
-    service = PromotionService(
-        storage,
-        _GateAuthority(_green(current)),
-        adapter_resolver=lambda _kind: adapter,
-        clock=lambda: current.updated_at + timedelta(minutes=1),
-    )
-    canary = service.start_canary(current.candidate_id, _start_command(current), auth=_auth())
-    with storage.unit_of_work() as unit_of_work:
-        canary_candidate = repository.get_candidate(unit_of_work.connection, current.candidate_id)
-        unit_of_work.commit()
-    assert canary_candidate is not None
-    adapter.activate(canary_candidate)
-    assert live_skill.read_text(encoding="utf-8") == changed_text
+    (
+        live_root,
+        live_skill,
+        base_text,
+        changed_text,
+        current,
+        canary_candidate,
+        adapter,
+        service,
+        command,
+    ) = _real_skill_rollback_case(storage, tmp_path)
 
-    rollback_calls = 0
-    original_rollback = adapter.rollback
+    exchange_calls = 0
+    original_exchange = promotion_module._atomic_exchange
 
-    def counted_rollback(candidate):
-        nonlocal rollback_calls
-        rollback_calls += 1
-        return original_rollback(candidate)
+    def counted_exchange(source, target):
+        nonlocal exchange_calls
+        exchange_calls += 1
+        return original_exchange(source, target)
 
-    monkeypatch.setattr(adapter, "rollback", counted_rollback)
+    monkeypatch.setattr(promotion_module, "_atomic_exchange", counted_exchange)
     original_append = service._append_journal
 
     def fail_applied(*args, entry, **kwargs):
@@ -281,20 +257,199 @@ def test_real_skill_restore_crash_before_applied_receipt_recovers_by_live_verifi
         return original_append(*args, entry=entry, **kwargs)
 
     monkeypatch.setattr(service, "_append_journal", fail_applied)
-    command = RollbackCommand(
-        expected_version=canary.candidate_version,
-        idempotency_key="golden-rollback-after-effect-crash",
-        reason="restore base after regression",
-    )
     with pytest.raises(RuntimeError, match="crash before applied receipt"):
         service.rollback(current.candidate_id, command, auth=_auth())
-    assert rollback_calls == 1
+    assert exchange_calls == 1
     assert live_skill.read_text(encoding="utf-8") == base_text
+    stage = (
+        live_root
+        / f".promotion-stage-{live_skill.parent.name}-{canary_candidate.candidate.artifact_digest}"
+    )
+    stage.mkdir()
+    (stage / "SKILL.md").write_text(changed_text, encoding="utf-8")
 
     monkeypatch.setattr(service, "_append_journal", original_append)
     assert EvolutionRollbackReconciler(service).reconcile_once() == 1
-    assert rollback_calls == 1
+    assert exchange_calls == 1
+    assert not stage.exists()
     assert live_skill.read_text(encoding="utf-8") == base_text
+
+
+def test_skill_rollback_blocks_competing_activation_until_applied_and_final_commit(
+    storage, tmp_path, monkeypatch
+) -> None:
+    (
+        _live_root,
+        live_skill,
+        base_text,
+        _changed_text,
+        current,
+        canary_candidate,
+        adapter,
+        service,
+        command,
+    ) = _real_skill_rollback_case(storage, tmp_path)
+    applied_reached = Event()
+    allow_applied = Event()
+    activation_started = Event()
+    activation_done = Event()
+    original_append = service._append_journal
+
+    def pause_before_applied_commit(*args, entry, **kwargs):
+        if entry.action == "rollback" and entry.status == "applied":
+            applied_reached.set()
+            if not allow_applied.wait(timeout=5):
+                raise RuntimeError("test did not release applied commit")
+        return original_append(*args, entry=entry, **kwargs)
+
+    def compete_activate():
+        activation_started.set()
+        try:
+            return adapter.activate(canary_candidate)
+        finally:
+            activation_done.set()
+
+    monkeypatch.setattr(service, "_append_journal", pause_before_applied_commit)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        rollback_future = pool.submit(service.rollback, current.candidate_id, command, auth=_auth())
+        assert applied_reached.wait(timeout=5)
+        activation_future = pool.submit(compete_activate)
+        assert activation_started.wait(timeout=5)
+        activation_escaped_before_commit = activation_done.wait(timeout=0.2)
+        allow_applied.set()
+        receipt = rollback_future.result(timeout=5)
+        try:
+            activation_future.result(timeout=5)
+        except AdapterError as exc:
+            activation_error: AdapterError | None = exc
+        else:
+            activation_error = None
+
+    assert activation_escaped_before_commit is False
+    assert activation_error is not None
+    assert receipt.lifecycle is CandidateLifecycle.ROLLED_BACK
+    assert live_skill.read_text(encoding="utf-8") == base_text
+
+
+def test_skill_applied_rollback_blocks_competing_activation_until_completed_commit(
+    storage, tmp_path, monkeypatch
+) -> None:
+    (
+        _live_root,
+        live_skill,
+        base_text,
+        _changed_text,
+        current,
+        canary_candidate,
+        adapter,
+        service,
+        command,
+    ) = _real_skill_rollback_case(storage, tmp_path)
+    original_record = service._record
+
+    def fail_first_final(*args, pending=False, **kwargs):
+        if not pending:
+            raise RuntimeError("crash after applied before completed")
+        return original_record(*args, pending=pending, **kwargs)
+
+    monkeypatch.setattr(service, "_record", fail_first_final)
+    with pytest.raises(RuntimeError, match="crash after applied before completed"):
+        service.rollback(current.candidate_id, command, auth=_auth())
+    assert live_skill.read_text(encoding="utf-8") == base_text
+    with storage.unit_of_work() as unit_of_work:
+        applied_count = unit_of_work.connection.execute(
+            """SELECT COUNT(*) FROM evolution_promotion_journal
+               WHERE candidate_id=? AND action='rollback' AND status='applied'""",
+            (current.candidate_id,),
+        ).fetchone()[0]
+        pending = EvolutionRepository().get_candidate(unit_of_work.connection, current.candidate_id)
+        unit_of_work.commit()
+    assert applied_count == 1
+    assert pending is not None and pending.lifecycle is CandidateLifecycle.ROLLBACK_PENDING
+
+    final_reached = Event()
+    allow_final = Event()
+    activation_started = Event()
+    activation_done = Event()
+
+    def pause_before_final_commit(*args, pending=False, **kwargs):
+        if not pending:
+            final_reached.set()
+            if not allow_final.wait(timeout=5):
+                raise RuntimeError("test did not release final commit")
+        return original_record(*args, pending=pending, **kwargs)
+
+    def compete_activate():
+        activation_started.set()
+        try:
+            return adapter.activate(canary_candidate)
+        finally:
+            activation_done.set()
+
+    monkeypatch.setattr(service, "_record", pause_before_final_commit)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        rollback_future = pool.submit(service.rollback, current.candidate_id, command, auth=_auth())
+        assert final_reached.wait(timeout=5)
+        activation_future = pool.submit(compete_activate)
+        assert activation_started.wait(timeout=5)
+        activation_escaped_before_commit = activation_done.wait(timeout=0.2)
+        allow_final.set()
+        receipt = rollback_future.result(timeout=5)
+        try:
+            activation_future.result(timeout=5)
+        except AdapterError as exc:
+            activation_error: AdapterError | None = exc
+        else:
+            activation_error = None
+
+    assert activation_escaped_before_commit is False
+    assert activation_error is not None
+    assert receipt.lifecycle is CandidateLifecycle.ROLLED_BACK
+    assert live_skill.read_text(encoding="utf-8") == base_text
+
+
+def test_skill_applied_retry_with_preexisting_wrong_live_stays_pending(
+    storage, tmp_path, monkeypatch
+) -> None:
+    (
+        _live_root,
+        live_skill,
+        base_text,
+        changed_text,
+        current,
+        _canary_candidate,
+        _adapter,
+        service,
+        command,
+    ) = _real_skill_rollback_case(storage, tmp_path)
+    original_record = service._record
+
+    def fail_final(*args, pending=False, **kwargs):
+        if not pending:
+            raise RuntimeError("crash after applied before completed")
+        return original_record(*args, pending=pending, **kwargs)
+
+    monkeypatch.setattr(service, "_record", fail_final)
+    with pytest.raises(RuntimeError, match="crash after applied before completed"):
+        service.rollback(current.candidate_id, command, auth=_auth())
+    assert live_skill.read_text(encoding="utf-8") == base_text
+    live_skill.write_text(changed_text, encoding="utf-8")
+    monkeypatch.setattr(service, "_record", original_record)
+
+    with pytest.raises(PromotionConflict, match="rollback_restore_failed"):
+        service.rollback(current.candidate_id, command, auth=_auth())
+    with storage.unit_of_work() as unit_of_work:
+        durable = EvolutionRepository().get_candidate(unit_of_work.connection, current.candidate_id)
+        completed_count = unit_of_work.connection.execute(
+            """SELECT COUNT(*) FROM evolution_promotion_journal
+               WHERE candidate_id=? AND action='rollback' AND status='completed'""",
+            (current.candidate_id,),
+        ).fetchone()[0]
+        unit_of_work.commit()
+
+    assert durable is not None and durable.lifecycle is CandidateLifecycle.ROLLBACK_PENDING
+    assert completed_count == 0
+    assert live_skill.read_text(encoding="utf-8") == changed_text
 
 
 def test_reconciler_fails_closed_for_legacy_missing_identity_and_corrupt_binding(storage) -> None:

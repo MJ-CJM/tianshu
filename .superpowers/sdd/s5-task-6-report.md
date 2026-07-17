@@ -38,6 +38,21 @@ The first rollback UoW CASes allocation to zero and commits `rollback_pending` w
 
 Skill is the golden real-effect domain: it verifies the exact governed live tree before synthesizing a missing applied receipt. Memory, policy, persona, and code retain the existing truthful `UnavailablePromotionAdapter`; they remain pending/degraded rather than pretending restore completion.
 
+### Review fix: linearizable Skill rollback
+
+The Skill adapter now exposes a rollback guard that holds the same subject promotion lock across the complete authority boundary. The observed order in both controlled concurrency tests is:
+
+1. acquire `.promotion.lock`;
+2. restore or verify the governed base and produce the effect receipt;
+3. commit the durable `applied` journal entry when it is missing;
+4. commit the durable `completed` journal entry and `rolled_back` lifecycle;
+5. release the lock;
+6. allow the waiting competing writer to acquire the lock, where the durable rollback-authority marker rejects that stale activation.
+
+The second race begins with an existing `applied` receipt and verifies the same ordering from exact-base verification through final commit. In that state the guard never blindly restores: if live content drifted before lock acquisition, finalization fails closed with `rollback_restore_failed`, leaves the candidate `rollback_pending`, writes no completed journal entry, and preserves the observed live tree for diagnosis. A missing `applied` receipt may restore the governed base idempotently. Crash-created stage residue is removed while the same guard is held.
+
+The generic adapter protocol remains limited to activation and rollback. Automatic reconciliation accepts either the explicit linearizable rollback guard or an explicit idempotency declaration; adapters with neither remain pending/degraded.
+
 ## Production composition and readiness
 
 - `app.state.evolution_reconciler` is wired beside the one production `PromotionService`.
@@ -49,10 +64,10 @@ Skill is the golden real-effect domain: it verifies the exact governed live tree
 
 ## Verification
 
-- Task 6 brief set: 29 passed.
+- Task 6 brief set: 32 passed.
 - Task 4/5 authority, dispatcher, evidence, readiness/health, and migration regression set: 361 passed.
-- Evolution production composition: 3 passed.
-- Total distinct tests exercised: 377 (393 executions including overlap).
+- Evolution production composition plus readiness/health: 77 passed (3 composition tests plus 74 tests already included in the regression set).
+- Total distinct tests exercised: 380 (470 executions including overlap).
 - Ruff check: passed; Ruff format check: passed.
 - mypy on changed production modules: passed.
 - import-linter: 2 contracts kept, 0 broken.
