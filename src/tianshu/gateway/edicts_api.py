@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
+from tianshu.application.edict_detail import EdictDetailNotFound, EdictDetailUnavailable
 from tianshu.application.edicts import (
     EdictApplicationService,
     IdempotencyConflict,
@@ -490,6 +491,35 @@ def get_edict(edict_id: str, request: Request):
     return ApiResponse(success=True, data=edict.model_dump(mode="json"))
 
 
+@edicts_router.get("/{edict_id}/detail")
+def get_edict_detail(edict_id: str, request: Request) -> dict[str, object]:
+    auth = get_auth_context(request)
+    try:
+        snapshot = request.app.state.edict_detail_service.get_snapshot(auth, edict_id)
+    except EdictDetailNotFound:
+        raise HTTPException(
+            404,
+            {
+                "code": "edict_detail_not_found",
+                "message": "edict detail not found",
+                "correlation_id": auth.correlation_id,
+            },
+        ) from None
+    except EdictDetailUnavailable:
+        raise HTTPException(
+            503,
+            {
+                "code": "edict_detail_unavailable",
+                "message": "edict detail sources are unavailable",
+                "correlation_id": auth.correlation_id,
+            },
+        ) from None
+    return {
+        "data": snapshot.model_dump(mode="json"),
+        "correlation_id": auth.correlation_id,
+    }
+
+
 @edicts_router.patch("/{edict_id}", response_model=ApiResponse)
 def update_edict(edict_id: str, body: EdictUpdateRequest, request: Request):
     storage: Storage = request.app.state.storage
@@ -522,6 +552,7 @@ def update_edict(edict_id: str, body: EdictUpdateRequest, request: Request):
         },
     )
     updated = storage.get_edict(edict_id)
+    assert updated is not None
     return ApiResponse(success=True, data=updated.model_dump(mode="json"))
 
 

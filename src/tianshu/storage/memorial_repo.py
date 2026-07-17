@@ -67,6 +67,37 @@ def insert_memorial(conn: sqlite3.Connection, memorial: Memorial) -> None:
     _insert_memorial(conn, memorial)
 
 
+def list_memorials_for_edict_current(
+    conn: sqlite3.Connection,
+    edict_id: str,
+) -> list[Memorial]:
+    """Load all Memorials and effective contracts without per-row queries."""
+
+    rows = conn.execute(
+        """
+        SELECT memorial.*, effective.contract_json AS effective_contract_json,
+               effective.contract_hash AS effective_contract_hash
+        FROM memorials AS memorial
+        LEFT JOIN effective_governance_contracts AS effective
+          ON effective.memorial_id = memorial.id
+        WHERE memorial.edict_id = ?
+        ORDER BY memorial.created_at, memorial.id
+        """,
+        (edict_id,),
+    ).fetchall()
+    memorials: list[Memorial] = []
+    for row in rows:
+        contract = None
+        if row["effective_contract_json"] is not None:
+            contract = EffectiveGovernanceContractV1.model_validate_json(
+                row["effective_contract_json"]
+            )
+            if contract.content_hash != row["effective_contract_hash"]:
+                raise ValueError(f"effective governance contract hash mismatch for {row['id']}")
+        memorials.append(_row_to_memorial(row, effective_governance_contract=contract))
+    return memorials
+
+
 class MemorialMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock

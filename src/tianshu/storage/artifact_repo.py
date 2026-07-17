@@ -141,6 +141,22 @@ class EvidenceRepository:
         ).fetchone()
         return cls._decode(row) if row is not None else None
 
+    @classmethod
+    def list_for_edict_current(
+        cls,
+        connection: sqlite3.Connection,
+        edict_id: str,
+    ) -> list[EvidenceBundleV1 | ClosedEvidenceBundleV1]:
+        rows = connection.execute(
+            """
+            SELECT * FROM evidence_bundles
+            WHERE edict_id = ?
+            ORDER BY created_at, bundle_id
+            """,
+            (edict_id,),
+        ).fetchall()
+        return [cls._decode(row) for row in rows]
+
     @staticmethod
     def add_open_current(connection: sqlite3.Connection, bundle: EvidenceBundleV1) -> None:
         correlation_id = correlation_for_memorial(connection, bundle.memorial_id)

@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from tianshu import bootstrap
 from tianshu.application.control_center import ControlCenterQueryService
+from tianshu.application.edict_detail import EdictDetailQueryService
 from tianshu.config import TianshuSettings
 from tianshu.gateway import gateway_router
 from tianshu.gateway.audit_api import audit_router
@@ -329,6 +330,7 @@ async def lifespan(app: FastAPI):
             evidence_repository=app.state.storage.evidence_repo,
             readiness_status=lambda: _assess_app_readiness(app.state).status,
         )
+        app.state.edict_detail_service = EdictDetailQueryService(app.state.storage)
         logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     except BaseException:
         await _cleanup_started()

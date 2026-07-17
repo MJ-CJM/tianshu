@@ -3,14 +3,33 @@ import { useT } from "../../i18n";
 
 export interface EvidenceBundleView {
   id: string;
-  digest: string;
-  downloadUrl: string;
-  artifacts: readonly string[];
-  checks: readonly string[];
+  status: "open" | "closed";
+  version: number;
+  digest: string | null;
+  downloadUrl: string | null;
+  executor: {
+    id: string;
+    displayName: string;
+    level: "managed" | "contained" | "observe-only";
+  };
+  artifacts: readonly {
+    digest: string;
+    mediaType: string;
+    sizeBytes: number;
+  }[];
+  checks: readonly {
+    name: string;
+    status: "passed" | "failed" | "unavailable" | "skipped";
+    exitCode: number | null;
+  }[];
   policies: readonly string[];
   cost: string;
   environment: readonly string[];
-  auditorConclusion: string;
+  auditor: {
+    id: string;
+    verdict: "pass" | "fail";
+    reason: string;
+  };
   missingMandatory: readonly string[];
   replayAvailable: boolean;
 }
@@ -35,23 +54,53 @@ export default function EvidenceBundlePanel({ bundle, onReplay }: EvidenceBundle
   return (
     <section aria-labelledby={`evidence-title-${bundle.id}`}>
       <h2 id={`evidence-title-${bundle.id}`}>{t("evidenceUi.title")}</h2>
+      <p role="status">{t(`evidenceUi.status.${bundle.status}`)}</p>
       <dl>
+        <dt>{t("evidenceUi.version")}</dt>
+        <dd>{bundle.version}</dd>
         <dt>{t("evidenceUi.digest")}</dt>
         <dd>
-          <code>{bundle.digest}</code>
+          {bundle.digest ? <code>{bundle.digest}</code> : t("evidenceUi.digestPending")}
         </dd>
       </dl>
-      <a href={bundle.downloadUrl} download>
-        {t("evidenceUi.download")}
-      </a>
+      {bundle.status === "closed" && bundle.downloadUrl ? (
+        <a href={bundle.downloadUrl} download>
+          {t("evidenceUi.download")}
+        </a>
+      ) : null}
+
+      <section>
+        <h3>{t("evidenceUi.executor")}</h3>
+        <dl>
+          <dt>{t("evidenceUi.executorName")}</dt>
+          <dd>{bundle.executor.displayName}</dd>
+          <dt>{t("evidenceUi.executorId")}</dt>
+          <dd>{bundle.executor.id}</dd>
+          <dt>{t("evidenceUi.executorLevel")}</dt>
+          <dd>{bundle.executor.level}</dd>
+        </dl>
+      </section>
 
       <section>
         <h3>{t("evidenceUi.artifacts")}</h3>
-        <StringList values={bundle.artifacts} />
+        <ul>
+          {bundle.artifacts.map((artifact) => (
+            <li key={artifact.digest}>
+              <code>{artifact.digest}</code> · {artifact.mediaType} · {artifact.sizeBytes} B
+            </li>
+          ))}
+        </ul>
       </section>
       <section>
         <h3>{t("evidenceUi.checks")}</h3>
-        <StringList values={bundle.checks} />
+        <ul>
+          {bundle.checks.map((check) => (
+            <li key={check.name}>
+              {check.name}: {t(`evidenceUi.checkStatus.${check.status}`)}
+              {check.exitCode === null ? "" : ` · exit ${check.exitCode}`}
+            </li>
+          ))}
+        </ul>
       </section>
       <section>
         <h3>{t("evidenceUi.policies")}</h3>
@@ -67,7 +116,9 @@ export default function EvidenceBundlePanel({ bundle, onReplay }: EvidenceBundle
       </section>
       <section>
         <h3>{t("evidenceUi.auditor")}</h3>
-        <p>{bundle.auditorConclusion}</p>
+        <p>{bundle.auditor.id}</p>
+        <p>{t(`evidenceUi.verdict.${bundle.auditor.verdict}`)}</p>
+        <p>{bundle.auditor.reason}</p>
       </section>
       {bundle.missingMandatory.length > 0 ? (
         <section role="alert">

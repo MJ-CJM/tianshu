@@ -151,6 +151,21 @@ class RunStateRepository:
         ).fetchone()
         return _decode_state(row) if row is not None else None
 
+    def list_for_edict(
+        self,
+        connection: sqlite3.Connection,
+        edict_id: str,
+    ) -> list[RunStateV1]:
+        rows = connection.execute(
+            """
+            SELECT * FROM run_states
+            WHERE edict_id = ?
+            ORDER BY updated_at DESC, memorial_id
+            """,
+            (edict_id,),
+        ).fetchall()
+        return [_decode_state(row) for row in rows]
+
     def list_active_for_submitter(
         self,
         connection: sqlite3.Connection,

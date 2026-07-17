@@ -8,7 +8,7 @@ export interface GovernanceCapabilityView {
 }
 
 export interface GovernanceContractCardProps {
-  executorLevel: "managed" | "contained" | "observe-only";
+  executorLevel: "managed" | "contained" | "observe-only" | null;
   requestedExecutor: string;
   effectiveExecutor: string;
   capabilities: readonly GovernanceCapabilityView[];
@@ -16,7 +16,12 @@ export interface GovernanceContractCardProps {
   advisoryGaps: readonly string[];
 }
 
-const MANAGED_ONLY_CAPABILITIES = new Set(["decision_bridge", "budget_enforcement"]);
+const CONTAINED_CAPABILITIES = new Set([
+  "action_interception",
+  "workspace_control",
+  "network_control",
+  "governed_apply_merge",
+]);
 
 export default function GovernanceContractCard({
   executorLevel,
@@ -29,8 +34,18 @@ export default function GovernanceContractCard({
   const t = useT();
   const visibleCapabilities =
     executorLevel === "contained"
-      ? capabilities.filter(({ id }) => !MANAGED_ONLY_CAPABILITIES.has(id))
+      ? capabilities.filter(({ id }) => CONTAINED_CAPABILITIES.has(id))
       : capabilities;
+  const visibleMandatoryMismatches =
+    executorLevel === "contained"
+      ? mandatoryMismatches.filter((item) =>
+          [...CONTAINED_CAPABILITIES].some((capability) => item.startsWith(capability)),
+        )
+      : mandatoryMismatches;
+  const visibleAdvisoryGaps =
+    executorLevel === "contained"
+      ? advisoryGaps.filter((item) => CONTAINED_CAPABILITIES.has(item))
+      : advisoryGaps;
 
   return (
     <section aria-labelledby="governance-contract-title">
@@ -41,7 +56,7 @@ export default function GovernanceContractCard({
         <dt>{t("governanceUi.effectiveExecutor")}</dt>
         <dd>{effectiveExecutor}</dd>
         <dt>{t("governanceUi.executorLevel")}</dt>
-        <dd>{executorLevel}</dd>
+        <dd>{executorLevel ?? t("governanceUi.executorLevelUnknown")}</dd>
       </dl>
       {executorLevel === "contained" ? <p>{t("governanceUi.containedCaveat")}</p> : null}
 
@@ -64,16 +79,16 @@ export default function GovernanceContractCard({
         </tbody>
       </table>
 
-      {mandatoryMismatches.length > 0 ? (
+      {visibleMandatoryMismatches.length > 0 ? (
         <section>
           <h3>{t("governanceUi.mandatoryMismatches")}</h3>
-          <ul>{mandatoryMismatches.map((item) => <li key={item}>{item}</li>)}</ul>
+          <ul>{visibleMandatoryMismatches.map((item) => <li key={item}>{item}</li>)}</ul>
         </section>
       ) : null}
-      {advisoryGaps.length > 0 ? (
+      {visibleAdvisoryGaps.length > 0 ? (
         <section>
           <h3>{t("governanceUi.advisoryGaps")}</h3>
-          <ul>{advisoryGaps.map((item) => <li key={item}>{item}</li>)}</ul>
+          <ul>{visibleAdvisoryGaps.map((item) => <li key={item}>{item}</li>)}</ul>
         </section>
       ) : null}
     </section>

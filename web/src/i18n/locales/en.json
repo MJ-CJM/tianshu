@@ -54,6 +54,7 @@
     "requestedExecutor": "Requested executor",
     "effectiveExecutor": "Effective executor",
     "executorLevel": "Executor level",
+    "executorLevelUnknown": "Executor level evidence is not available yet",
     "containedCaveat": "Only verified container boundaries are shown; managed controls are not claimed.",
     "capability": "Capability",
     "requested": "Requested",
@@ -79,10 +80,14 @@
     "reasonRequired": "A decision reason is required",
     "submit": "Submit decision",
     "submitFailed": "Decision submission failed",
+    "versionConflict": "The decision changed. Review the latest version and try again.",
+    "resolvedBy": "Decision maker",
+    "resolvedAt": "Resolved at",
     "status": {
       "pending": "Pending",
       "resolved": "Resolved",
-      "expired": "Expired"
+      "expired": "Expired",
+      "cancelled": "Cancelled"
     },
     "actions": {
       "approve": "Allow",
@@ -92,13 +97,24 @@
       "cancel": "Cancel",
       "observe": "Observe",
       "promote": "Promote",
-      "override": "Override"
+      "override": "Override",
+      "guide": "Guide and continue",
+      "continue": "Continue",
+      "accept_as_is": "Accept as is",
+      "abort": "Abort",
+      "modify_acceptance": "Modify acceptance"
     }
   },
   "evidenceUi": {
     "title": "Evidence Bundle",
+    "version": "Version",
     "digest": "Digest",
+    "digestPending": "Generated after closure",
     "download": "Download evidence bundle",
+    "executor": "Executor identity",
+    "executorName": "Executor",
+    "executorId": "Executor ID",
+    "executorLevel": "Executor level",
     "artifacts": "Executor artifacts",
     "checks": "Acceptance checks",
     "policies": "Policy records",
@@ -107,7 +123,21 @@
     "auditor": "Independent auditor conclusion",
     "missingMandatory": "Missing mandatory evidence",
     "replayWarning": "Replay creates a new governed task and never executes the original command in the browser.",
-    "replay": "Governed replay"
+    "replay": "Governed replay",
+    "status": {
+      "open": "Generating",
+      "closed": "Closed"
+    },
+    "checkStatus": {
+      "passed": "Passed",
+      "failed": "Failed",
+      "unavailable": "Unavailable",
+      "skipped": "Skipped"
+    },
+    "verdict": {
+      "pass": "Pass",
+      "fail": "Fail"
+    }
   },
   "evolutionUi": {
     "title": "Evolution Gate",
@@ -469,6 +499,24 @@
       "followupSubmit": "Submit (Ctrl+Enter)",
       "closeButton": "Close",
       "cancelButton": "Cancel",
+      "durable": {
+        "workspaceTitle": "Durable governance workspace",
+        "effectivePending": "No effective governance contract has been recorded yet.",
+        "runStateTitle": "Run state",
+        "runsEmpty": "No governed run has been recorded yet.",
+        "decisionsTitle": "Durable decisions",
+        "decisionsEmpty": "No durable decision has been recorded yet.",
+        "evidenceTitle": "Verifiable evidence",
+        "evidenceEmpty": "No verifiable Evidence bundle has been recorded yet.",
+        "memorial": "Memorial",
+        "phase": "Phase",
+        "version": "Version",
+        "sideEffectCursor": "Side-effect cursor",
+        "checkpoint": "Checkpoint",
+        "planLineage": "Plan revision lineage",
+        "yes": "Yes",
+        "no": "No"
+      },
       "confirmClose": {
         "title": "Confirm close?",
         "description": "Cannot send further instructions after close"

@@ -136,6 +136,7 @@ export interface Memorial {
   timeline: TimelineItem[];
   persona_id: string | null;
   dag_node_id: string | null;
+  effective_governance_contract?: GovernanceEffectiveContract | null;
 }
 
 export interface EdictEvent {

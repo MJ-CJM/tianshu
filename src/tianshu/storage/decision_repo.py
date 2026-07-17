@@ -152,6 +152,18 @@ class DecisionRepository:
         ).fetchone()
         return _decode_record(row) if row is not None else None
 
+    def list_for_edict(
+        self,
+        connection: sqlite3.Connection,
+        edict_id: str,
+    ) -> list[DecisionRecordV1]:
+        rows = connection.execute(
+            _SELECT_RECORD
+            + " WHERE request.edict_id = ? ORDER BY request.created_at, request.decision_request_id",
+            (edict_id,),
+        ).fetchall()
+        return [_decode_record(row) for row in rows]
+
     def list_pending(
         self,
         connection: sqlite3.Connection,

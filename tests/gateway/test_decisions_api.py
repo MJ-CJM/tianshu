@@ -190,6 +190,11 @@ def test_resolve_rejects_body_identity_and_derives_actor_from_auth_context(decis
     assert resolved.json()["correlation_id"] == resolved.headers["x-correlation-id"]
     assert resolved.json()["data"]["actor_principal_id"] == "user:owner"
     assert resolved.json()["data"]["actor_display_name"] == "Owner"
+    assert resolved.json()["status"] == "resolved"
+    assert resolved.json()["version"] == 2
+    assert resolved.json()["record"]["request"]["status"] == "resolved"
+    assert resolved.json()["record"]["request"]["version"] == 2
+    assert resolved.json()["record"]["resolution"]["actor_principal_id"] == "user:owner"
     record = service.get(requested.decision_request_id)
     assert record is not None and record.resolution is not None
     assert record.resolution.actor_principal_id == "user:owner"

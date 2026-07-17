@@ -159,8 +159,14 @@ async def resolve_decision(request: Request, decision_request_id: str) -> dict[s
         )
     except DecisionServiceError as error:
         _raise_service_error(context, error)
+    record = _service(request).get(decision_request_id)
+    if record is None:  # pragma: no cover - the successful durable resolution owns this record
+        _raise(context, 409, "decision_conflict")
     return {
         "data": resolution.model_dump(mode="json"),
+        "status": record.request.status.value,
+        "version": record.request.version,
+        "record": record.model_dump(mode="json"),
         "correlation_id": context.correlation_id,
     }
 

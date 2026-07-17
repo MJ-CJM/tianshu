@@ -1,14 +1,13 @@
 import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Button, Input, Modal, Spin, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme, Tooltip } from "antd";
+import { Button, Input, Modal, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme, Tooltip } from "antd";
 import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined, ThunderboltOutlined, LikeOutlined, DislikeOutlined } from "@ant-design/icons";
 import { useEdictDetail } from "../hooks/useEdictDetail";
 import { followUpEdict, updateEdictStatus, updateEdict, approvePlan, rejectPlan, pauseEdict, resumeEdict } from "../api/edicts";
 import { submitUniverseFeedback } from "../api/universe";
-import { isApiProblem, toApiProblem } from "../api/client";
+import { isApiProblem } from "../api/client";
 import PageContainer from "../components/common/PageContainer";
 import PageDataState from "../components/states/PageDataState";
-import { problemPageStatus } from "../components/states/problemPageStatus";
 import GlowCard from "../components/common/GlowCard";
 import MonoText from "../components/common/MonoText";
 import SemanticTag from "../components/common/SemanticTag";
@@ -18,12 +17,12 @@ import EventTimeline from "../components/memorial/EventTimeline";
 import OuterLoopTimeline from "../components/edict/OuterLoopTimeline";
 import SupervisionReportCard from "../components/edict/SupervisionReportCard";
 import FollowUpOverridePanel from "../components/edict/FollowUpOverridePanel";
-import ShadowSnapshotPanel from "../components/edict/ShadowSnapshotPanel";
 import SteerPanel from "../components/edict/SteerPanel";
 import type { FollowUpOverrideValue } from "../components/edict/FollowUpOverridePanel";
 import DecreeModal from "../components/decree/DecreeModal";
 import PendingToolCallCard from "../components/decree/PendingToolCallCard";
 import { PolicyTimeline } from "../components/policy/PolicyTimeline";
+import EdictDurableGovernance from "../components/governance/EdictDurableGovernance";
 import { useDagByEdict } from "../hooks/useDag";
 import { usePendingToolCalls } from "../hooks/useApprovals";
 import { formatTime, truncateId } from "../utils/format";
@@ -39,7 +38,17 @@ export default function EdictDetailPage() {
   const { edictId } = useParams<{ edictId: string }>();
   const navigate = useNavigate();
   const { token } = theme.useToken();
-  const { edict, memorials, events, isLoading, error, refetch } = useEdictDetail(edictId ?? "");
+  const {
+    detail,
+    edict,
+    memorials,
+    events,
+    status,
+    problem,
+    refetch,
+    resolveDecision,
+    replay,
+  } = useEdictDetail(edictId ?? "");
   const t = useT();
   const edictStatusLabels = useEdictStatusLabels();
   const [instruction, setInstruction] = useState("");
@@ -251,30 +260,19 @@ export default function EdictDetailPage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          height: "50vh",
-        }}
-      >
-        <Spin size="large" />
-      </div>
-    );
-  }
-
-  if (error) {
-    const problem = toApiProblem(error);
+  if (
+    status === "loading" ||
+    status === "error" ||
+    status === "permission-denied" ||
+    status === "service-unavailable"
+  ) {
     return (
       <PageContainer title={t("page.edictDetail.title")}>
         <PageDataState
-          status={problemPageStatus(problem)}
+          status={status}
           data={null}
           problem={problem}
-          isEmpty={(items: typeof memorials) => items.length === 0}
+          isEmpty={() => true}
           onRetry={refetch}
         >
           {() => null}
@@ -313,6 +311,20 @@ export default function EdictDetailPage() {
         </Space>
       }
     >
+      {status === "stale" ? (
+        <div style={{ marginBottom: 24 }}>
+          <PageDataState
+            status="stale"
+            data={detail}
+            problem={problem}
+            isEmpty={() => false}
+            onRetry={refetch}
+          >
+            {() => null}
+          </PageDataState>
+        </div>
+      ) : null}
+
       <GlowCard
         title={
           <Space size="middle">
@@ -546,6 +558,19 @@ export default function EdictDetailPage() {
         </Space>
       </GlowCard>
 
+      {detail ? (
+        <EdictDurableGovernance
+          detail={detail}
+          onResolve={resolveDecision}
+          onConflict={refetch}
+          onReplay={async (source) => {
+            const nextEdictId = await replay(source);
+            navigate(`/edicts/${encodeURIComponent(nextEdictId)}`);
+            return nextEdictId;
+          }}
+        />
+      ) : null}
+
       {pendingTools.length > 0 && (
         <GlowCard
           title={
@@ -673,8 +698,6 @@ export default function EdictDetailPage() {
       {hasUsage && <UsageDisplay usage={aggregatedUsage} />}
 
       {edictId && hasActiveMemorial && <SteerPanel edictId={edictId} />}
-
-      {edictId && <ShadowSnapshotPanel edictId={edictId} />}
 
       {hasPendingReview && edict.status === "open" && (
         <GlowCard title={t("decree.title")} style={{ marginBottom: 24 }}>

@@ -54,6 +54,7 @@
     "requestedExecutor": "请求执行器",
     "effectiveExecutor": "生效执行器",
     "executorLevel": "执行器级别",
+    "executorLevelUnknown": "尚无执行器等第凭据",
     "containedCaveat": "仅展示可验证的容器边界，不承诺托管级控制。",
     "capability": "能力",
     "requested": "请求",
@@ -79,10 +80,14 @@
     "reasonRequired": "必须填写裁决理由",
     "submit": "提交裁决",
     "submitFailed": "裁决提交失败",
+    "versionConflict": "裁决已变化，请核对最新版本后重试",
+    "resolvedBy": "裁决人",
+    "resolvedAt": "裁决时间",
     "status": {
       "pending": "待裁决",
       "resolved": "已裁决",
-      "expired": "已过期"
+      "expired": "已过期",
+      "cancelled": "已取消"
     },
     "actions": {
       "approve": "准",
@@ -92,13 +97,24 @@
       "cancel": "撤回",
       "observe": "观察",
       "promote": "晋升",
-      "override": "越权放行"
+      "override": "越权放行",
+      "guide": "指导后继续",
+      "continue": "继续",
+      "accept_as_is": "照此验收",
+      "abort": "终止",
+      "modify_acceptance": "修改验收条件"
     }
   },
   "evidenceUi": {
     "title": "证据包",
+    "version": "版本",
     "digest": "摘要",
+    "digestPending": "封存后生成",
     "download": "下载证据包",
+    "executor": "执行器身份",
+    "executorName": "执行器",
+    "executorId": "执行器标识",
+    "executorLevel": "执行器级别",
     "artifacts": "执行产物",
     "checks": "验收检查",
     "policies": "策略记录",
@@ -107,7 +123,21 @@
     "auditor": "独立审计结论",
     "missingMandatory": "缺少强制证据",
     "replayWarning": "重放会创建新的受治理敕令，不会在浏览器执行原命令。",
-    "replay": "受治理重放"
+    "replay": "受治理重放",
+    "status": {
+      "open": "生成中",
+      "closed": "已封存"
+    },
+    "checkStatus": {
+      "passed": "通过",
+      "failed": "失败",
+      "unavailable": "不可用",
+      "skipped": "已跳过"
+    },
+    "verdict": {
+      "pass": "通过",
+      "fail": "未通过"
+    }
   },
   "evolutionUi": {
     "title": "演化门禁",
@@ -469,6 +499,24 @@
       "followupSubmit": "继续批示 (Ctrl+Enter)",
       "closeButton": "结案",
       "cancelButton": "废除",
+      "durable": {
+        "workspaceTitle": "持久治理案牍",
+        "effectivePending": "尚未成实授治理契约。",
+        "runStateTitle": "行止实录",
+        "runsEmpty": "尚无治理运行实录。",
+        "decisionsTitle": "持久裁决",
+        "decisionsEmpty": "尚无持久裁决实录。",
+        "evidenceTitle": "可验凭据",
+        "evidenceEmpty": "尚无可验凭据包。",
+        "memorial": "奏折",
+        "phase": "阶段",
+        "version": "版本",
+        "sideEffectCursor": "副作用游标",
+        "checkpoint": "检查点",
+        "planLineage": "筹划修订谱系",
+        "yes": "是",
+        "no": "否"
+      },
       "confirmClose": {
         "title": "确认结案？",
         "description": "结案后将无法继续下达指令"

@@ -80,6 +80,29 @@ def _insert_edict(
     return _insert_requested_governance_contract(conn, edict)
 
 
+def get_edict_current(conn: sqlite3.Connection, edict_id: str) -> Edict | None:
+    """Load one Edict and its requested contract on the caller-owned transaction."""
+
+    row = conn.execute(
+        """
+        SELECT edict.*, requested.contract_json AS requested_contract_json,
+               requested.contract_hash AS requested_contract_hash
+        FROM edicts AS edict
+        LEFT JOIN requested_governance_contracts AS requested ON requested.edict_id = edict.id
+        WHERE edict.id = ?
+        """,
+        (edict_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    contract = None
+    if row["requested_contract_json"] is not None:
+        contract = RequestedGovernanceContractV1.model_validate_json(row["requested_contract_json"])
+        if contract.content_hash != row["requested_contract_hash"]:
+            raise ValueError(f"requested governance contract hash mismatch for {edict_id}")
+    return _row_to_edict(row, governance_contract=contract)
+
+
 class EdictMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock

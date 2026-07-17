@@ -65,6 +65,8 @@ describe("DecisionPanel", () => {
           version: 8,
           resolvedAction: "reject",
           resolvedReason: "证据不足",
+          resolvedBy: "auditor:independent",
+          resolvedAt: "2026-07-17T09:00:00Z",
         }}
         onSubmit={vi.fn()}
       />,
@@ -72,5 +74,53 @@ describe("DecisionPanel", () => {
 
     expect(screen.getByText("已裁决")).toBeInTheDocument();
     expect(screen.getByLabelText("裁决理由")).toBeDisabled();
+    expect(screen.getByText("auditor:independent")).toBeInTheDocument();
+  });
+
+  it("shows a version conflict without overwriting the pending form and returns focus", async () => {
+    const onConflict = vi.fn();
+    const onSubmit = vi.fn(async () => {
+      throw {
+        status: 409,
+        code: "decision_stale",
+        message: "stale durable version",
+        correlationId: "corr-stale",
+        retryable: false,
+      };
+    });
+    render(
+      <DecisionPanel
+        decision={{ id: "decision-3", status: "pending", version: 4 }}
+        onSubmit={onSubmit}
+        onConflict={onConflict}
+      />,
+    );
+
+    const reason = screen.getByLabelText("裁决理由");
+    await userEvent.type(reason, "保留本地理由");
+    await userEvent.click(screen.getByRole("button", { name: "提交裁决" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("裁决已变化，请核对最新版本后重试");
+    expect(reason).toHaveValue("保留本地理由");
+    expect(reason).not.toBeDisabled();
+    expect(onConflict).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { name: "裁决" })).toHaveFocus();
+  });
+
+  it("locks a pending record whose authoritative expiry has passed", async () => {
+    render(
+      <DecisionPanel
+        decision={{
+          id: "decision-expired",
+          status: "pending",
+          version: 2,
+          expiresAt: "2020-01-01T00:00:00Z",
+        }}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("已过期")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "提交裁决" })).toBeDisabled();
   });
 });
