@@ -76,8 +76,9 @@ class ProposeSkillCommand(_StrictModel):
     name: str
     version: str
     base_version: str
+    base_state: Literal["present", "absent"] = "present"
     source_channel: CandidateSourceChannel
-    base_members: tuple[ProposedSkillMemberV1, ...] = Field(min_length=1)
+    base_members: tuple[ProposedSkillMemberV1, ...]
     members: tuple[ProposedSkillMemberV1, ...] = Field(min_length=1)
     evidence_bundle_ids: tuple[str, ...]
     restore_point_ref: str
@@ -96,6 +97,10 @@ class ProposeSkillCommand(_StrictModel):
 
     @model_validator(mode="after")
     def validate_member_paths(self) -> Self:
+        if self.base_state == "absent" and self.base_members:
+            raise ValueError("absent skill base must not contain package members")
+        if self.base_state == "present" and not self.base_members:
+            raise ValueError("present skill base requires package members")
         for package in (self.base_members, self.members):
             paths: set[str] = set()
             for member in package:
@@ -133,11 +138,15 @@ class SkillInstallService:
             subject_key=contract.subject_key,
             base=CandidateSourceV1(
                 version=command.base_version,
-                payload=self._package_payload(command.name, command.base_members),
+                payload=self._package_payload(
+                    command.name,
+                    command.base_members,
+                    state=command.base_state,
+                ),
             ),
             candidate=CandidateSourceV1(
                 version=command.version,
-                payload=self._package_payload(command.name, command.members),
+                payload=self._package_payload(command.name, command.members, state="present"),
             ),
             evolution_contract=contract,
             provenance=ProvenanceInputV1(
@@ -190,13 +199,17 @@ class SkillInstallService:
 
     @staticmethod
     def _package_payload(
-        name: str, members: tuple[ProposedSkillMemberV1, ...]
+        name: str,
+        members: tuple[ProposedSkillMemberV1, ...],
+        *,
+        state: Literal["present", "absent"],
     ) -> dict[str, JsonValue]:
         serialized_members: list[JsonValue] = [
             {"path": item.path, "kind": item.kind, "content": item.content} for item in members
         ]
         return {
             "name": name,
+            "state": state,
             "trust_source": "community",
             "members": serialized_members,
         }

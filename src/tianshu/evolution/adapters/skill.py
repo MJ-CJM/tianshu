@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from tianshu.evidence.service import ArtifactStore
 from tianshu.evolution.adapters.base import AdapterError, BaseCandidateAdapter
@@ -31,11 +31,18 @@ class _SkillPackageV1(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str
+    state: Literal["present", "absent"] = "present"
     trust_source: str = "community"
-    members: tuple[_SkillMemberV1, ...] = Field(min_length=1)
+    members: tuple[_SkillMemberV1, ...]
 
     @model_validator(mode="after")
     def canonicalize_members(self) -> _SkillPackageV1:
+        if self.state == "absent":
+            if self.members:
+                raise ValueError("absent skill package must not contain members")
+            return self
+        if not self.members:
+            raise ValueError("present skill package requires members")
         seen: set[str] = set()
         members: list[_SkillMemberV1] = []
         for member in self.members:
@@ -62,6 +69,8 @@ class SkillCandidateAdapter(BaseCandidateAdapter):
     def _normalize_domain(self, payload: Mapping[str, object]) -> dict[str, JsonValue]:
         try:
             package = _SkillPackageV1.model_validate(payload)
+            if package.state == "absent":
+                return package.model_dump(mode="json")
             members = tuple(
                 SkillPackageMember(
                     path=member.path,

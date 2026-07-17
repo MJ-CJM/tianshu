@@ -70,7 +70,19 @@ def test_legacy_installer_public_entry_cannot_materialize_live_skills() -> None:
         for node in ast.walk(install)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr in {"replace", "rename", "move", "copy", "copytree"}
+        and node.func.attr
+        in {
+            "replace",
+            "rename",
+            "move",
+            "copy",
+            "copytree",
+            "mkdir",
+            "mkdtemp",
+            "_stage_zip",
+            "_stage_dir",
+            "_validate_staged",
+        }
     }
     assert live_materializers == set()
 

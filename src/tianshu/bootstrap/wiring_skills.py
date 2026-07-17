@@ -77,7 +77,10 @@ def wire_evolution_services(
         )
 
     app.state.candidate_service = candidates
-    app.state.evolution_gate_evaluator = GateEvaluator(app.state.storage)
+    app.state.evolution_gate_evaluator = GateEvaluator(
+        app.state.storage,
+        artifact_verifier=app.state.artifact_store,
+    )
     app.state.skill_install_service = SkillInstallService(
         candidates,
         app.state.storage,

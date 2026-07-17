@@ -12,7 +12,7 @@ from typing import Literal, Protocol, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from tianshu.evidence.models import ClosedEvidenceBundleV1
+from tianshu.evidence.models import ArtifactRefV1, ClosedEvidenceBundleV1
 from tianshu.models.canonical import canonical_json_bytes, canonical_sha256
 from tianshu.models.events import make_event
 from tianshu.models.evolution_candidate import (
@@ -21,7 +21,12 @@ from tianshu.models.evolution_candidate import (
     GateName,
 )
 from tianshu.models.system_audit import AppendSystemAuditRequest
-from tianshu.storage.artifact_repo import EvidenceRepository, EvidenceRepositoryError
+from tianshu.storage.artifact_repo import (
+    ArtifactRepository,
+    ArtifactRepositoryError,
+    EvidenceRepository,
+    EvidenceRepositoryError,
+)
 from tianshu.storage.evolution_repo import (
     EvolutionRepository,
     EvolutionRepositoryConflict,
@@ -42,6 +47,10 @@ class GateStatus(StrEnum):
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+
+class _ArtifactVerifier(Protocol):
+    def verify_ref_current(self, artifact: ArtifactRefV1) -> bool: ...
 
 
 class EvolutionGateResultV1(_StrictModel):
@@ -142,9 +151,11 @@ class GateEvaluator:
         self,
         storage: _Storage,
         *,
+        artifact_verifier: _ArtifactVerifier | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._storage = storage
+        self._artifact_verifier = artifact_verifier
         self._clock = clock or (lambda: datetime.now(UTC))
         self._repository = EvolutionRepository()
         self._outbox = OutboxRepository()
@@ -177,6 +188,8 @@ class GateEvaluator:
                 connection,
                 evaluating,
                 binding_version=current.version,
+                evidence_not_before=current.updated_at,
+                artifact_verifier=self._artifact_verifier,
             )
             snapshot_version = evaluating.gate_snapshot_version + 1
             report = EvolutionGateReportV1.from_results(
@@ -242,6 +255,29 @@ class GateEvaluator:
                 or report.gate_snapshot_version != candidate.gate_snapshot_version
             ):
                 raise EvolutionRepositoryConflict("current gate snapshot is stale")
+            if report.promotion_allowed:
+                bundles: list[ClosedEvidenceBundleV1] = []
+                try:
+                    for bundle_id in candidate.evidence_bundle_ids:
+                        bundle = EvidenceRepository.get_current(unit_of_work.connection, bundle_id)
+                        if not isinstance(bundle, ClosedEvidenceBundleV1):
+                            raise EvolutionRepositoryConflict(
+                                "current gate snapshot evidence is no longer valid"
+                            )
+                        bundles.append(bundle)
+                except EvidenceRepositoryError as exc:
+                    raise EvolutionRepositoryConflict(
+                        "current gate snapshot evidence is no longer valid"
+                    ) from exc
+                evidence_result = next(
+                    result for result in report.results if result.gate is GateName.EVIDENCE
+                )
+                if evidence_result.evidence_hashes != tuple(
+                    bundle.content_hash for bundle in bundles
+                ) or not self._artifacts_are_valid(unit_of_work.connection, bundles):
+                    raise EvolutionRepositoryConflict(
+                        "current gate snapshot evidence is no longer valid"
+                    )
             unit_of_work.commit()
             return report
 
@@ -251,12 +287,14 @@ class GateEvaluator:
             raise ValueError("gate evaluator clock must be timezone-aware")
         return value.astimezone(UTC)
 
-    @staticmethod
     def _derive_results(
+        self,
         connection: sqlite3.Connection,
         candidate: EvolutionCandidateV1,
         *,
         binding_version: int,
+        evidence_not_before: datetime,
+        artifact_verifier: _ArtifactVerifier | None,
     ) -> tuple[EvolutionGateResultV1, ...]:
         if not candidate.evidence_bundle_ids:
             return ()
@@ -288,7 +326,27 @@ class GateEvaluator:
                         reason_code="evidence_bundle_open",
                     ),
                 )
+            if bundle.closed_at < evidence_not_before:
+                return (
+                    EvolutionGateResultV1(
+                        gate=GateName.EVIDENCE,
+                        status=GateStatus.BLOCKED,
+                        reason_code="evidence_bundle_stale",
+                    ),
+                )
             bundles.append(bundle)
+        if not self._artifacts_are_valid(
+            connection,
+            bundles,
+            artifact_verifier=artifact_verifier,
+        ):
+            return (
+                EvolutionGateResultV1(
+                    gate=GateName.EVIDENCE,
+                    status=GateStatus.ERROR,
+                    reason_code="evidence_artifact_invalid",
+                ),
+            )
         evidence_hashes = tuple(bundle.content_hash for bundle in bundles)
         checks = {check.name: check for bundle in bundles for check in bundle.snapshot.checks}
         binding_name = (
@@ -355,6 +413,28 @@ class GateEvaluator:
                 )
             )
         return tuple(results)
+
+    def _artifacts_are_valid(
+        self,
+        connection: sqlite3.Connection,
+        bundles: list[ClosedEvidenceBundleV1],
+        *,
+        artifact_verifier: _ArtifactVerifier | None = None,
+    ) -> bool:
+        verifier = artifact_verifier or self._artifact_verifier
+        for bundle in bundles:
+            for artifact in bundle.snapshot.artifacts:
+                try:
+                    durable = ArtifactRepository.get_current(connection, artifact.digest)
+                    if (
+                        durable != artifact
+                        or verifier is None
+                        or not verifier.verify_ref_current(artifact)
+                    ):
+                        return False
+                except (ArtifactRepositoryError, OSError, TypeError, ValueError):
+                    return False
+        return True
 
     @staticmethod
     def _insert_snapshot(connection: sqlite3.Connection, report: EvolutionGateReportV1) -> None:

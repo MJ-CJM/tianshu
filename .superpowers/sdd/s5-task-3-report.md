@@ -6,7 +6,9 @@ Implemented the Task 3 boundary without adding promotion, canary, rollback, cham
 routing, or allocation mutation.
 
 - `GateEvaluator` re-derives all eight required gates from persisted, closed Evidence.
-- Missing, open, corrupt, stale, or candidate-mismatched Evidence blocks evaluation.
+- Missing, open, corrupt, stale, artifact-invalid, or candidate-mismatched Evidence
+  blocks evaluation. Freshness is measured from the pre-evaluation candidate timestamp,
+  so Evidence closed after staging and before evaluation remains valid.
 - Gate evaluation uses candidate CAS, persists an immutable hash-bound snapshot, moves
   only through `EVALUATING` to `BLOCKED`/`READY`, and appends audit plus outbox in the
   same unit of work.
@@ -16,8 +18,12 @@ routing, or allocation mutation.
   provenance from `AuthContext`, validates client/source binding, rejects cross-principal
   staging, preserves idempotency, and writes candidate/artifact/audit/outbox atomically.
 - API, tool, reviewer, curator, lifecycle, and legacy installer write paths no longer
-  mutate live skills. The legacy `SkillInstaller.install()` validates input but returns
-  the stable `governed_skill_service_required` refusal before any live materialization.
+  mutate live skills. The legacy `SkillInstaller.install()` immediately returns the
+  stable `governed_skill_service_required` refusal without reading the source, creating
+  the target, or staging inside the live tree.
+- Skill creation uses an explicit absent base package; updates retain a present base
+  bound to the actual current skill. Create proposals therefore have distinct base and
+  candidate digests and a truthful absent restore point.
 - Proposal contracts were placed in `models` and the skill service depends on a port
   protocol, preserving the repository's import-layer contract.
 - The composition root wires candidate, gate, and skill-install services during the real
@@ -42,18 +48,29 @@ The implementation was developed through observed RED/GREEN cycles:
 6. Import-linter then detected a new indirect `skills -> executor` dependency. Proposal
    DTOs were moved to `models` and a candidate authority port was introduced; both layer
    contracts now pass.
+7. Remediation tests showed that Gate evaluation trusted artifact metadata without
+   verifying bytes and compared freshness against the new `EVALUATING` timestamp. An
+   injected artifact verification port plus a pre-transition `evidence_not_before`
+   timestamp fixed metadata loss, byte tampering, stale Evidence, and the real
+   stage-T0/close-T1/evaluate-T2 ordering.
+8. Remediation tests showed that the retired installer still created its target and
+   staged beneath it. Direct stable refusal made valid, invalid, and malicious sources
+   leave both missing and pre-existing live trees byte-for-byte unchanged.
+9. The API create-stage test exposed identical base/candidate digests. An explicit
+   absent base state was added and the test now proves distinct digests, truthful
+   rollback binding, and no live write.
 
 ## Verification
 
-- Brief plus extended focused tests: `268 passed, 4 warnings in 5.33s`.
+- Remediation focused tests: `339 passed, 4 warnings in 10.61s`.
 - Exact brief command before the final layer-only refactor: `246 passed, 4 warnings in
   3.10s`; the larger 268-test run was repeated after that refactor.
-- Real application lifespan smoke is included in the 268-test run and independently
+- Real application lifespan smoke is included in the focused run and independently
   passed: services present during startup; clean watcher/scheduler/MCP shutdown and
   closed storage after exit.
-- Ruff: all checks passed for the 23 Task 3 touched source/test files.
-- Ruff format check: 23 files already formatted.
-- Mypy: no issues in the 9 Task 3 core source files.
+- Ruff: all checks passed for the 10 remediation-touched source/test files.
+- Ruff format check: 10 files already formatted.
+- Mypy: no issues in the 6 remediation-touched source files.
 - Import-linter: 476 files / 1694 dependencies; 2 contracts kept, 0 broken.
 - `git diff --check`: clean.
 
@@ -66,6 +83,9 @@ slow regression was run during final verification.
 - No Task 4 promotion or traffic-allocation behavior is present.
 - No live skill tree is changed by propose, stage, API, agent, reviewer, curator, zip, or
   CLI-facing paths covered by the architecture test.
+- Closed Evidence artifacts must match both immutable database metadata and actual
+  content-addressed bytes; a missing verifier fails closed, and a prior green snapshot
+  is rejected if its artifact bytes later change.
 - Caller identity/provenance and gate decisions are server-derived.
 - Audit/outbox failure injection rolls back candidate and artifact records.
 - Changes outside the new services are limited to wiring, shared DTO/audit enums,

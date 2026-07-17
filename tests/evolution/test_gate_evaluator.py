@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 
 import pytest
-from tests.evidence._fixtures import evidence_service, seed_closed_run
+from tests.evidence._fixtures import seed_closed_run
 
+from tianshu.evidence.service import ArtifactStore, EvidenceService
 from tianshu.evolution.gates import (
     REQUIRED_GATES,
     EvolutionGateReportV1,
@@ -43,7 +44,10 @@ def storage(tmp_path: Path) -> Storage:
 
 
 def _staged_candidate(
-    storage: Storage, *, evidence_bundle_ids: tuple[str, ...] = ()
+    storage: Storage,
+    *,
+    evidence_bundle_ids: tuple[str, ...] = (),
+    updated_at: datetime = NOW,
 ) -> EvolutionCandidateV1:
     contract = EvolutionContractV1(
         kind=CandidateKind.SKILL,
@@ -95,7 +99,7 @@ def _staged_candidate(
         lifecycle=CandidateLifecycle.PROPOSED,
         version=1,
         created_at=NOW,
-        updated_at=NOW,
+        updated_at=updated_at,
     )
     repository = EvolutionRepository()
     with storage.unit_of_work() as unit_of_work:
@@ -233,7 +237,8 @@ def _seed_gate_evidence(
     close: bool,
     bind_candidate: bool,
     failed_gate: GateName | None = None,
-) -> None:
+    evidence_time: datetime = NOW,
+) -> EvidenceService:
     checks = [
         AcceptanceCheckV1(
             name=f"evolution.gate.{gate.value}",
@@ -270,10 +275,133 @@ def _seed_gate_evidence(
                 "completed_at": NOW.isoformat(),
             },
         )
-    service = evidence_service(storage, root)
+    artifacts = ArtifactStore(
+        root,
+        storage.artifact_repo,
+        storage.unit_of_work,
+        max_object_bytes=1024 * 1024,
+        max_total_bytes=4 * 1024 * 1024,
+        clock=lambda: evidence_time,
+    )
+    service = EvidenceService(storage, artifacts, clock=lambda: evidence_time)
     service.build_open(memorial.id)
     if close:
         service.close(memorial.id, expected_version=1)
+    return service
+
+
+def _artifact_path(root: Path, digest: str) -> Path:
+    return root / digest[:2] / digest
+
+
+def test_closed_evidence_older_than_staged_candidate_is_blocking(
+    storage: Storage, tmp_path: Path
+) -> None:
+    candidate = _staged_candidate(
+        storage,
+        evidence_bundle_ids=(_evidence_id(),),
+        updated_at=NOW + timedelta(seconds=1),
+    )
+    service = _seed_gate_evidence(
+        storage,
+        tmp_path / "stale-artifacts",
+        candidate,
+        close=True,
+        bind_candidate=True,
+    )
+
+    report = GateEvaluator(
+        storage,
+        artifact_verifier=service._artifacts,
+        clock=lambda: NOW + timedelta(seconds=2),
+    ).evaluate(candidate.candidate_id, expected_version=candidate.version)
+
+    evidence = next(result for result in report.results if result.gate is GateName.EVIDENCE)
+    assert evidence.status is GateStatus.BLOCKED
+    assert evidence.reason_code == "evidence_bundle_stale"
+
+
+def test_evidence_closed_after_stage_but_before_evaluate_is_fresh(
+    storage: Storage, tmp_path: Path
+) -> None:
+    stage_time = NOW
+    evidence_time = NOW + timedelta(seconds=1)
+    evaluation_time = NOW + timedelta(seconds=2)
+    candidate = _staged_candidate(
+        storage,
+        evidence_bundle_ids=(_evidence_id(),),
+        updated_at=stage_time,
+    )
+    service = _seed_gate_evidence(
+        storage,
+        tmp_path / "ordered-fresh-artifacts",
+        candidate,
+        close=True,
+        bind_candidate=True,
+        evidence_time=evidence_time,
+    )
+
+    report = GateEvaluator(
+        storage,
+        artifact_verifier=service._artifacts,
+        clock=lambda: evaluation_time,
+    ).evaluate(candidate.candidate_id, expected_version=candidate.version)
+
+    assert report.promotion_allowed is True
+    assert all(result.status is GateStatus.PASSED for result in report.results)
+
+
+def test_missing_evidence_artifact_metadata_is_error(storage: Storage, tmp_path: Path) -> None:
+    candidate = _staged_candidate(storage, evidence_bundle_ids=(_evidence_id(),))
+    root = tmp_path / "missing-artifact-metadata"
+    service = _seed_gate_evidence(
+        storage,
+        root,
+        candidate,
+        close=True,
+        bind_candidate=True,
+    )
+    bundle = storage.evidence_repo.get(_evidence_id())
+    assert bundle is not None
+    artifact = bundle.snapshot.artifacts[0]
+    with storage.unit_of_work() as unit_of_work:
+        unit_of_work.connection.execute("DROP TRIGGER artifact_records_no_delete")
+        unit_of_work.connection.execute(
+            "DELETE FROM artifact_records WHERE digest=?", (artifact.digest,)
+        )
+        unit_of_work.commit()
+
+    report = GateEvaluator(
+        storage, artifact_verifier=service._artifacts, clock=lambda: NOW
+    ).evaluate(candidate.candidate_id, expected_version=candidate.version)
+
+    evidence = next(result for result in report.results if result.gate is GateName.EVIDENCE)
+    assert evidence.status is GateStatus.ERROR
+    assert evidence.reason_code == "evidence_artifact_invalid"
+
+
+def test_tampered_evidence_artifact_bytes_are_error(storage: Storage, tmp_path: Path) -> None:
+    candidate = _staged_candidate(storage, evidence_bundle_ids=(_evidence_id(),))
+    root = tmp_path / "tampered-artifact-bytes"
+    service = _seed_gate_evidence(
+        storage,
+        root,
+        candidate,
+        close=True,
+        bind_candidate=True,
+    )
+    bundle = storage.evidence_repo.get(_evidence_id())
+    assert bundle is not None
+    artifact = bundle.snapshot.artifacts[0]
+    _artifact_path(root, artifact.digest).write_bytes(b"tampered")
+
+    report = GateEvaluator(
+        storage, artifact_verifier=service._artifacts, clock=lambda: NOW
+    ).evaluate(candidate.candidate_id, expected_version=candidate.version)
+
+    evidence = next(result for result in report.results if result.gate is GateName.EVIDENCE)
+    assert evidence.status is GateStatus.ERROR
+    assert evidence.reason_code == "evidence_artifact_invalid"
 
 
 def test_open_referenced_evidence_is_blocking(storage: Storage, tmp_path: Path) -> None:
@@ -299,7 +427,7 @@ def test_mismatched_candidate_binding_blocks_closed_evidence(
     storage: Storage, tmp_path: Path
 ) -> None:
     candidate = _staged_candidate(storage, evidence_bundle_ids=(_evidence_id(),))
-    _seed_gate_evidence(
+    service = _seed_gate_evidence(
         storage,
         tmp_path / "mismatch-artifacts",
         candidate,
@@ -307,9 +435,9 @@ def test_mismatched_candidate_binding_blocks_closed_evidence(
         bind_candidate=False,
     )
 
-    report = GateEvaluator(storage, clock=lambda: NOW).evaluate(
-        candidate.candidate_id, expected_version=candidate.version
-    )
+    report = GateEvaluator(
+        storage, artifact_verifier=service._artifacts, clock=lambda: NOW
+    ).evaluate(candidate.candidate_id, expected_version=candidate.version)
 
     evidence = next(result for result in report.results if result.gate is GateName.EVIDENCE)
     assert evidence.status is GateStatus.BLOCKED
@@ -320,7 +448,7 @@ def test_complete_current_evidence_derives_all_eight_passes_and_ready(
     storage: Storage, tmp_path: Path
 ) -> None:
     candidate = _staged_candidate(storage, evidence_bundle_ids=(_evidence_id(),))
-    _seed_gate_evidence(
+    service = _seed_gate_evidence(
         storage,
         tmp_path / "ready-artifacts",
         candidate,
@@ -328,9 +456,8 @@ def test_complete_current_evidence_derives_all_eight_passes_and_ready(
         bind_candidate=True,
     )
 
-    report = GateEvaluator(storage, clock=lambda: NOW).evaluate(
-        candidate.candidate_id, expected_version=candidate.version
-    )
+    evaluator = GateEvaluator(storage, artifact_verifier=service._artifacts, clock=lambda: NOW)
+    report = evaluator.evaluate(candidate.candidate_id, expected_version=candidate.version)
 
     assert tuple(result.gate for result in report.results) == REQUIRED_GATES
     assert all(result.status is GateStatus.PASSED for result in report.results)
@@ -340,6 +467,49 @@ def test_complete_current_evidence_derives_all_eight_passes_and_ready(
         GateEvaluator(storage, clock=lambda: NOW).get_candidate(candidate.candidate_id).lifecycle
         is CandidateLifecycle.READY
     )
+
+
+def test_missing_artifact_verifier_fails_closed(storage: Storage, tmp_path: Path) -> None:
+    candidate = _staged_candidate(storage, evidence_bundle_ids=(_evidence_id(),))
+    _seed_gate_evidence(
+        storage,
+        tmp_path / "unverified-artifacts",
+        candidate,
+        close=True,
+        bind_candidate=True,
+    )
+
+    report = GateEvaluator(storage, clock=lambda: NOW).evaluate(
+        candidate.candidate_id, expected_version=candidate.version
+    )
+
+    evidence = next(result for result in report.results if result.gate is GateName.EVIDENCE)
+    assert evidence.status is GateStatus.ERROR
+    assert evidence.reason_code == "evidence_artifact_invalid"
+
+
+def test_current_green_snapshot_is_not_reused_after_artifact_tampering(
+    storage: Storage, tmp_path: Path
+) -> None:
+    candidate = _staged_candidate(storage, evidence_bundle_ids=(_evidence_id(),))
+    root = tmp_path / "green-then-tampered"
+    service = _seed_gate_evidence(
+        storage,
+        root,
+        candidate,
+        close=True,
+        bind_candidate=True,
+    )
+    evaluator = GateEvaluator(storage, artifact_verifier=service._artifacts, clock=lambda: NOW)
+    green = evaluator.evaluate(candidate.candidate_id, expected_version=candidate.version)
+    assert green.promotion_allowed is True
+    bundle = storage.evidence_repo.get(_evidence_id())
+    assert bundle is not None
+    artifact = bundle.snapshot.artifacts[0]
+    _artifact_path(root, artifact.digest).write_bytes(b"tampered after green")
+
+    with pytest.raises(EvolutionRepositoryConflict, match="evidence is no longer valid"):
+        evaluator.get_current_report(candidate.candidate_id)
 
 
 @pytest.mark.parametrize(

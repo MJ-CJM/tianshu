@@ -140,7 +140,7 @@ async def create_skill(request: Request):
     candidate = service.propose(
         _inline_command(
             name=str(name),
-            base_content=str(content),
+            base_content=None,
             content=str(content),
             source_channel=CandidateSourceChannel.API,
             correlation_id=auth.correlation_id,
@@ -184,7 +184,7 @@ def delete_skill(name: str, request: Request):
 def _inline_command(
     *,
     name: str,
-    base_content: str,
+    base_content: str | None,
     content: str,
     source_channel: CandidateSourceChannel,
     correlation_id: str,
@@ -194,12 +194,23 @@ def _inline_command(
         command_id=f"skill-api-{identity}",
         name=name,
         version=f"candidate-{identity[:16]}",
-        base_version=f"base-{hashlib.sha256(base_content.encode()).hexdigest()[:16]}",
+        base_version=(
+            "absent"
+            if base_content is None
+            else f"base-{hashlib.sha256(base_content.encode()).hexdigest()[:16]}"
+        ),
+        base_state="absent" if base_content is None else "present",
         source_channel=source_channel,
-        base_members=(ProposedSkillMemberV1(path="SKILL.md", kind="file", content=base_content),),
+        base_members=(
+            ()
+            if base_content is None
+            else (ProposedSkillMemberV1(path="SKILL.md", kind="file", content=base_content),)
+        ),
         members=(ProposedSkillMemberV1(path="SKILL.md", kind="file", content=content),),
         evidence_bundle_ids=(),
-        restore_point_ref=f"skill:{name}:current",
+        restore_point_ref=(
+            f"skill:{name}:absent" if base_content is None else f"skill:{name}:current"
+        ),
     )
 
 

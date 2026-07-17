@@ -114,34 +114,9 @@ class SkillInstaller:
         source_trust: str = "community",
         trust_level: TrustLevel | None = None,
     ) -> InstallResult:
-        """Validate legacy input but refuse direct live installation."""
-        src = Path(source)
-        if not src.exists():
-            return InstallResult(False, None, f"源不存在: {src}")
-        level = trust_level or SkillsGuard.resolve_trust_level(source_trust)
-
-        self._target_root.mkdir(parents=True, exist_ok=True)
-        staging = Path(tempfile.mkdtemp(dir=self._target_root, prefix=".staging-"))
-        try:
-            if src.is_file() and src.suffix == ".zip":
-                self._stage_zip(src, staging)
-            elif src.is_dir():
-                self._stage_dir(src, staging)
-            else:
-                raise _Reject(f"不支持的源类型: {src}")
-
-            _skill_root, name, findings = self._validate_staged(
-                staging, source_trust=source_trust, trust_level=level
-            )
-            dest = self._target_root / name
-            if dest.exists():
-                raise _Reject(f"技能已存在: {name}", findings)
-
-            raise _Reject("governed_skill_service_required", findings)
-        except _Reject as rej:
-            return InstallResult(False, None, rej.reason, rej.findings)
-        finally:
-            shutil.rmtree(staging, ignore_errors=True)
+        """Refuse the retired live-write entry without touching source or target."""
+        del source, source_trust, trust_level
+        return InstallResult(False, None, "governed_skill_service_required")
 
     def validate_package(
         self,

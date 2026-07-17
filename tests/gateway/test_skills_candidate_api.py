@@ -14,6 +14,7 @@ from tianshu.evidence.service import ArtifactStore
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.gateway.skills_api import skills_router
 from tianshu.skills.loader import SkillsLoader
+from tianshu.storage.evolution_repo import EvolutionRepository
 from tianshu.storage.facade import Storage
 
 TOKEN = "skill-candidate-bootstrap-token"
@@ -75,6 +76,14 @@ def test_http_propose_and_stage_delegate_service_without_live_write(tmp_path: Pa
         assert proposed.json()["data"]["lifecycle"] == "proposed"
         assert staged.status_code == 200
         assert staged.json()["data"]["lifecycle"] == "staged"
+        with storage.unit_of_work() as unit_of_work:
+            candidate = EvolutionRepository().get_candidate(unit_of_work.connection, candidate_id)
+            unit_of_work.commit()
+        assert candidate is not None
+        assert candidate.base.artifact_digest != candidate.candidate.artifact_digest
+        assert candidate.base.canonical_digest != candidate.candidate.canonical_digest
+        assert candidate.base.version == "absent"
+        assert candidate.rollback.champion_ref == candidate.base
         assert not (live / "api-skill").exists()
     finally:
         storage.close()
