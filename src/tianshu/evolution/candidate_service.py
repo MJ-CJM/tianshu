@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -110,6 +112,26 @@ class _Storage(Protocol):
     def unit_of_work(self) -> SqliteUnitOfWork: ...
 
 
+@dataclass(frozen=True)
+class CandidateLiveAuthorities:
+    """Read-only roots that adapters must never mutate during propose or stage."""
+
+    memory_root: Path | None = None
+    skill_target: Path = field(default_factory=Path.cwd)
+    policy_root: Path | None = None
+    persona_root: Path | None = None
+    code_worktree: Path | None = None
+
+    def for_kind(self, kind: CandidateKind) -> Path | None:
+        return {
+            CandidateKind.MEMORY: self.memory_root,
+            CandidateKind.SKILL: self.skill_target,
+            CandidateKind.POLICY: self.policy_root,
+            CandidateKind.PERSONA: self.persona_root,
+            CandidateKind.CODE: self.code_worktree,
+        }[kind]
+
+
 _ADAPTER_TYPES: dict[CandidateKind, type[BaseCandidateAdapter]] = {
     CandidateKind.MEMORY: MemoryCandidateAdapter,
     CandidateKind.SKILL: SkillCandidateAdapter,
@@ -127,15 +149,20 @@ class CandidateService:
         storage: _Storage,
         artifacts: ArtifactStore,
         *,
+        live_authorities: CandidateLiveAuthorities | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._storage = storage
         self._artifacts = artifacts
         self._repository = EvolutionRepository()
+        self._live_authorities = live_authorities or CandidateLiveAuthorities()
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def _adapter(self, kind: CandidateKind) -> BaseCandidateAdapter:
-        return _ADAPTER_TYPES[kind](self._artifacts)
+        return _ADAPTER_TYPES[kind](
+            self._artifacts,
+            live_root=self._live_authorities.for_kind(kind),
+        )
 
     @staticmethod
     def _candidate_id(
@@ -265,6 +292,7 @@ class CandidateService:
 
 __all__ = [
     "CandidateIdentityConflict",
+    "CandidateLiveAuthorities",
     "CandidateNotFound",
     "CandidateProposalV1",
     "CandidateService",

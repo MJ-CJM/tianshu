@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import platform
 import re
 import sqlite3
+import stat
 import tempfile
-from collections.abc import Callable
-from contextlib import suppress
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -128,6 +130,7 @@ class ArtifactStore:
             raise ValueError("artifact root must be a directory")
         os.chmod(self._root, 0o700)
         self._root_fingerprint = hashlib.sha256(os.fsencode(self._root)).hexdigest()
+        self._lock_path = self._root.parent / f".tianshu-artifact-{self._root_fingerprint}.lock"
         self._repository = repository
         self._unit_of_work_factory = unit_of_work_factory
         self._max_object_bytes = max_object_bytes
@@ -223,6 +226,16 @@ class ArtifactStore:
             uri=f"artifact://sha256/{digest}",
             root_fingerprint=self._root_fingerprint,
         )
+        with self._artifact_root_lock():
+            return self._put_bytes_tracked_current_locked(connection, data, artifact)
+
+    def _put_bytes_tracked_current_locked(
+        self,
+        connection: sqlite3.Connection,
+        data: bytes,
+        artifact: ArtifactRefV1,
+    ) -> ArtifactWriteReceipt:
+        digest = artifact.digest
         existing = self._repository.get_current(connection, digest)
         if existing is not None:
             if existing.root_fingerprint != self._root_fingerprint:
@@ -265,7 +278,7 @@ class ArtifactStore:
             with suppress(OSError):
                 os.close(descriptor)
             if created_file_identity is not None:
-                self._discard_created_file(artifact, created_file_identity)
+                self._discard_created_file_locked(artifact, created_file_identity)
             raise
         finally:
             Path(temporary_name).unlink(missing_ok=True)
@@ -273,7 +286,7 @@ class ArtifactStore:
             self._repository.add_current(connection, artifact, self._clock().isoformat())
         except BaseException:
             if created_file_identity is not None:
-                self._discard_created_file(artifact, created_file_identity)
+                self._discard_created_file_locked(artifact, created_file_identity)
             raise
         return ArtifactWriteReceipt(
             artifact=artifact,
@@ -307,6 +320,12 @@ class ArtifactStore:
             return True
 
     def _discard_created_file(self, artifact: ArtifactRefV1, identity: tuple[int, int]) -> None:
+        with self._artifact_root_lock():
+            self._discard_created_file_locked(artifact, identity)
+
+    def _discard_created_file_locked(
+        self, artifact: ArtifactRefV1, identity: tuple[int, int]
+    ) -> None:
         path = self._path(artifact.digest)
         try:
             stat_result = path.stat(follow_symlinks=False)
@@ -316,6 +335,32 @@ class ArtifactStore:
             path.unlink()
         except (ArtifactStoreError, FileNotFoundError, OSError):
             return
+
+    @contextmanager
+    def _artifact_root_lock(self) -> Iterator[None]:
+        """Serialize protocol-compliant artifact-root writers on POSIX targets."""
+
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(self._lock_path, flags, 0o600)
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise OSError("artifact root lock is not a regular file")
+            os.fchmod(descriptor, 0o600)
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        except OSError as exc:
+            if descriptor is not None:
+                os.close(descriptor)
+            raise ArtifactIntegrityError("artifact root lock is unavailable") from exc
+        assert descriptor is not None
+        try:
+            yield
+        finally:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)
 
     def _read_verified(self, artifact: ArtifactRefV1) -> bytes:
         if artifact.root_fingerprint != self._root_fingerprint:

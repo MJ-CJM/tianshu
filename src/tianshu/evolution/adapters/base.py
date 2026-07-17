@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict
@@ -81,8 +82,9 @@ class BaseCandidateAdapter:
 
     kind: CandidateKind
 
-    def __init__(self, artifacts: ArtifactStore) -> None:
+    def __init__(self, artifacts: ArtifactStore, *, live_root: Path | None = None) -> None:
         self._artifacts = artifacts
+        self._live_root = live_root
 
     def _require_kind(self, actual: CandidateKind) -> None:
         if actual is not self.kind:

@@ -135,7 +135,7 @@ No task blocker. Activation and rollback deliberately remain unavailable until t
 The Task 2 review returned four Important findings and one Minor finding. This follow-up closes all five without adding Task 3 gate, allocation, promotion, web, or live-mutation behavior.
 
 - Proposal base/candidate/diff artifact rows and candidate insertion now share one SQLite unit of work. Stage receipt insertion, lifecycle CAS, and commit use the same transaction.
-- Artifact writes return tracked ownership receipts. Rollback compensation removes only a file created by that failed transaction, only when its inode is unchanged and no durable metadata exists. Pre-existing or shared digest bytes are never claimed or deleted.
+- Artifact writes return tracked ownership receipts. Rollback compensation removes only a file created by that failed transaction, only when its inode is unchanged and no durable metadata exists. Within the ArtifactStore writer-lock protocol, pre-existing or shared digest bytes are not claimed or deleted; uncooperative external filesystem writers are outside this guarantee.
 - All five adapters materialize their strict normalized domain model. Extras fail closed with generic errors that do not echo source payloads; memory coercions, `CanonicalChangeSet` ordering, safe persona-relative paths, and canonical skill-member ordering therefore affect the persisted bytes and digest.
 - Skill candidates now describe a complete package. Validate-only staging reuses installer member limits, traversal/root checks, symlink rejection, unique root `SKILL.md`, frontmatter/name validation, and guard scanning without installing into a live skill directory.
 - Candidate identity binds command, kind, subject, normalized base/candidate versions and digests, evolution contract, provenance principal/source, evidence IDs, and restore point. Identical retries remain stable while each identity-bearing input changes the ID.
@@ -164,3 +164,39 @@ git diff --check: clean
 ```
 
 The four warnings are unchanged third-party deprecations from `lark_oapi` and `websockets`. No review-remediation blocker remains.
+
+## Second Review Remediation — 2026-07-17
+
+The second review identified four remaining boundary gaps. The remediation stays inside Task 2:
+
+- Artifact publish, metadata repair, and cleanup now share one sibling artifact-root lock using POSIX `fcntl.flock`, the Lean target supported by Ubuntu and macOS. The lock descriptor is released on normal and exceptional exits. A spawned process with an independent `Storage` and `ArtifactStore` proves a protocol-compliant same-digest publish cannot be removed by concurrent rollback cleanup. This is a cooperating-writer protocol guarantee, not protection from processes that bypass the lock.
+- Persona source paths now require a canonical relative POSIX representation and reject Windows drives, absolute/root/UNC forms, backslashes, empty or dot segments, traversal, NUL, and control characters without echoing the input.
+- Skill package members are canonicalized to POSIX targets before target-level duplicate checks. Empty/root aliases, slash and dot aliases, absolute/backslash/traversal paths, and file/directory target conflicts fail closed; only sorted canonical members enter materialized bytes.
+- `CandidateLiveAuthorities` injects the memory root, skill install target, policy root, persona root, and code worktree into adapters. Skill validation uses the injected installer target rather than cwd. Five-domain tests use separate live memory/persona SQLite data plus real skill, policy, persona, and worktree roots, repeat after close/reopen, and verify both authority-tree and isolated-cwd digests remain unchanged.
+
+Second-review TDD evidence:
+
+```text
+Initial focused RED: 8 failed, 4 warnings in 1.00s
+Artifact TOCTOU RED: independent publish succeeded; final shared path was missing
+Artifact TOCTOU GREEN: 1 passed, 4 warnings in 2.39s
+Persona focused GREEN: 3 passed, 4 warnings in 0.29s
+Skill canonical-path focused GREEN: 3 passed, 4 warnings in 0.29s
+Live-authority focused GREEN: 6 passed, 52 deselected, 4 warnings in 0.60s
+```
+
+Fresh second-review verification:
+
+```text
+Candidate plus Evidence: 182 passed, 4 warnings in 16.26s
+Skills/installer: 208 passed, 4 warnings in 1.93s
+Task 2 brief: 536 passed, 4 warnings in 29.76s
+Task 1 regression: 118 passed, 4 warnings in 0.72s
+ruff check: All checks passed
+ruff format --check: 13 files already formatted
+mypy: Success, no issues found in 11 source files
+lint-imports: 2 kept, 0 broken
+git diff --check: clean
+```
+
+No Task 3 gate, allocation, promotion, web, live activation, or `uv.lock` behavior was added. The four warnings remain the pre-existing third-party `lark_oapi` and `websockets` deprecations.

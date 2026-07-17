@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import multiprocessing
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -11,6 +13,36 @@ from tianshu.evidence.service import (
 )
 from tianshu.storage import Storage
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
+
+
+def _publish_shared_artifact(
+    database: str,
+    root: str,
+    data: bytes,
+    start: Any,
+    attempted: Any,
+    done: Any,
+    result: Any,
+) -> None:
+    start.wait()
+    attempted.set()
+    storage = Storage(database)
+    try:
+        storage.init_db()
+        ArtifactStore(
+            Path(root),
+            storage.artifact_repo,
+            storage.unit_of_work,
+            max_object_bytes=1024,
+            max_total_bytes=4096,
+        ).put_bytes(data, media_type="text/plain", redaction="safe")
+    except BaseException as exc:
+        result.put(repr(exc))
+    else:
+        result.put(None)
+    finally:
+        storage.close()
+        done.set()
 
 
 def _store(
@@ -111,3 +143,51 @@ def test_failed_commit_never_deletes_preexisting_shared_digest(
     monkeypatch.setattr(SqliteUnitOfWork, "commit", original_commit)
     assert shared_path.read_bytes() == b"shared artifact"
     assert artifacts.get_bytes(shared.digest) == b"shared artifact"
+
+
+def test_cleanup_serializes_with_independent_process_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = tmp_path / "shared.db"
+    root = tmp_path / "artifacts"
+    storage = Storage(str(database))
+    storage.init_db()
+    artifacts = _store(storage, root)
+    data = b"shared replacement artifact"
+    with storage.unit_of_work() as unit_of_work:
+        receipt = artifacts.put_bytes_tracked_current(
+            unit_of_work.connection,
+            data,
+            media_type="text/plain",
+            redaction="safe",
+        )
+        unit_of_work.rollback()
+
+    context = multiprocessing.get_context("spawn")
+    start = context.Event()
+    attempted = context.Event()
+    done = context.Event()
+    result = context.Queue()
+    process = context.Process(
+        target=_publish_shared_artifact,
+        args=(str(database), str(root), data, start, attempted, done, result),
+    )
+    original_read = artifacts._read_verified
+
+    def open_cleanup_window(artifact: object) -> bytes:
+        verified = original_read(artifact)  # type: ignore[arg-type]
+        start.set()
+        assert attempted.wait(5)
+        done.wait(2)
+        return verified
+
+    monkeypatch.setattr(artifacts, "_read_verified", open_cleanup_window)
+    process.start()
+    artifacts.discard_uncommitted([receipt])
+    process.join(10)
+
+    assert process.exitcode == 0
+    assert result.get(timeout=1) is None
+    path = root / receipt.artifact.digest[:2] / receipt.artifact.digest
+    assert path.read_bytes() == data
+    storage.close()

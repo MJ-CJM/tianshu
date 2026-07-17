@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import stat
 import tempfile
@@ -63,6 +64,25 @@ class _Reject(Exception):
         super().__init__(reason)
         self.reason = reason
         self.findings = findings
+
+
+def canonical_skill_package_member_path(value: str) -> str:
+    """Return one safe POSIX target for an in-memory package member."""
+
+    path = PurePosixPath(value)
+    if (
+        not value
+        or path.is_absolute()
+        or "\\" in value
+        or re.match(r"^[A-Za-z]:", value) is not None
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        or ".." in value.split("/")
+    ):
+        raise ValueError("skill package member path is invalid")
+    canonical = path.as_posix()
+    if canonical in {"", "."}:
+        raise ValueError("skill package member cannot target package root")
+    return canonical
 
 
 class SkillInstaller:
@@ -153,11 +173,26 @@ class SkillInstaller:
             raise _Reject(f"成员数超限: {len(members)} > {self._max_members}")
         paths: set[str] = set()
         total = 0
-        normalized = tuple(sorted(members, key=lambda member: member.path))
-        for member in normalized:
-            if member.path in paths:
+        canonical_members: list[SkillPackageMember] = []
+        for member in members:
+            try:
+                canonical_path = canonical_skill_package_member_path(member.path)
+            except ValueError as exc:
+                raise _Reject("技能包成员路径不规范") from exc
+            if canonical_path in paths:
                 raise _Reject("技能包含重复成员路径")
-            paths.add(member.path)
+            paths.add(canonical_path)
+            if canonical_path != member.path:
+                raise _Reject("技能包成员路径不规范")
+            canonical_members.append(
+                SkillPackageMember(
+                    path=canonical_path,
+                    kind=member.kind,
+                    content=member.content,
+                )
+            )
+        normalized = tuple(sorted(canonical_members, key=lambda member: member.path))
+        for member in normalized:
             target = self._safe_target(staging, member.path)
             if member.kind in {"symlink_file", "symlink_directory"}:
                 raise _Reject("拒绝 symlink 成员")

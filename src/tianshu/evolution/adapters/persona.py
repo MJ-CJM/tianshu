@@ -1,5 +1,6 @@
 """Persona candidate source validation."""
 
+import re
 from collections.abc import Mapping
 from pathlib import PurePosixPath
 
@@ -14,12 +15,16 @@ from tianshu.persona.model import AgentPersona
 def _portable_path(value: str | None) -> str | None:
     if value is None:
         return None
+    segments = value.split("/")
     path = PurePosixPath(value)
     if (
         not value
-        or value.startswith("/")
+        or path.is_absolute()
         or "\\" in value
-        or any(part in {"", ".", ".."} for part in path.parts)
+        or re.match(r"^[A-Za-z]:", value) is not None
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        or any(part in {"", ".", ".."} for part in segments)
+        or path.as_posix() != value
     ):
         raise ValueError("persona paths must be portable relative paths")
     return value

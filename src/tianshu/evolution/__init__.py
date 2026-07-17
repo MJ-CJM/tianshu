@@ -7,6 +7,7 @@ from tianshu.evolution.adapters.base import (
 )
 from tianshu.evolution.candidate_service import (
     CandidateIdentityConflict,
+    CandidateLiveAuthorities,
     CandidateNotFound,
     CandidateProposalV1,
     CandidateService,
@@ -18,6 +19,7 @@ from tianshu.evolution.candidate_service import (
 __all__ = [
     "ActivationReceiptV1",
     "CandidateIdentityConflict",
+    "CandidateLiveAuthorities",
     "CandidateNotFound",
     "CandidateProposalV1",
     "CandidateService",

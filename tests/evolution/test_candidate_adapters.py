@@ -13,6 +13,7 @@ import pytest
 import tianshu.evolution.candidate_service as candidate_service_module
 from tianshu.evidence.service import ArtifactStore
 from tianshu.evolution import (
+    CandidateLiveAuthorities,
     CandidateProposalV1,
     CandidateService,
     CandidateSourceV1,
@@ -255,11 +256,13 @@ def test_propose_binds_all_canonical_inputs_and_builds_diff(
 
 
 @pytest.mark.parametrize("kind", tuple(CandidateKind))
-def test_wrong_adapter_fails_closed(kind: CandidateKind, artifacts: ArtifactStore) -> None:
+def test_wrong_adapter_fails_closed(
+    kind: CandidateKind, artifacts: ArtifactStore, tmp_path: Path
+) -> None:
     wrong_kind = next(
         candidate_kind for candidate_kind in CandidateKind if candidate_kind is not kind
     )
-    adapter = ADAPTERS[kind](artifacts)
+    adapter = ADAPTERS[kind](artifacts, live_root=tmp_path / "live")
 
     with pytest.raises(AdapterKindMismatch, match="adapter kind"):
         adapter.validate_source(_proposal(wrong_kind))
@@ -267,10 +270,10 @@ def test_wrong_adapter_fails_closed(kind: CandidateKind, artifacts: ArtifactStor
 
 @pytest.mark.parametrize("kind", tuple(CandidateKind))
 def test_adapter_activation_and_rollback_are_explicitly_unavailable(
-    kind: CandidateKind, storage: Storage, artifacts: ArtifactStore
+    kind: CandidateKind, storage: Storage, artifacts: ArtifactStore, tmp_path: Path
 ) -> None:
     candidate = CandidateService(storage, artifacts, clock=lambda: NOW).propose(_proposal(kind))
-    adapter = ADAPTERS[kind](artifacts)
+    adapter = ADAPTERS[kind](artifacts, live_root=tmp_path / "live")
 
     with pytest.raises(AdapterOperationUnavailable, match="promotion service"):
         adapter.activate(candidate)
@@ -357,6 +360,24 @@ def test_persona_rejects_host_absolute_paths_without_echoing_them(
         CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
 
     assert private_path not in str(captured.value)
+
+
+@pytest.mark.parametrize(
+    "private_path",
+    ["C:/Users/reviewer/private/SOUL.md", ".", "personas/\x00private/SOUL.md"],
+    ids=["windows-drive", "dot-root", "nul-control"],
+)
+def test_persona_rejects_noncanonical_portable_paths(
+    private_path: str, storage: Storage, artifacts: ArtifactStore
+) -> None:
+    proposal = _proposal(CandidateKind.PERSONA)
+    payload = {**proposal.candidate.payload, "soul_path": private_path}
+    proposal = proposal.model_copy(
+        update={"candidate": CandidateSourceV1(version="candidate-v1", payload=payload)}
+    )
+
+    with pytest.raises(AdapterError, match="persona source validation failed"):
+        CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
 
 
 def test_skill_accepts_a_complete_canonical_package(
@@ -472,7 +493,7 @@ def test_stage_failure_does_not_delete_preexisting_shared_receipt(
 ) -> None:
     service = CandidateService(storage, artifacts, clock=lambda: NOW)
     proposed = service.propose(_proposal(CandidateKind.CODE))
-    adapter = CodeCandidateAdapter(artifacts)
+    adapter = CodeCandidateAdapter(artifacts, live_root=tmp_path / "worktree")
     staged_envelope = proposed.model_copy(update={"lifecycle": CandidateLifecycle.STAGED})
     shared = adapter.stage(staged_envelope).staged_artifact
     shared_path = tmp_path / "artifacts" / shared.digest[:2] / shared.digest
@@ -561,6 +582,61 @@ def test_skill_package_security_boundaries_fail_closed(
         CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
 
 
+@pytest.mark.parametrize(
+    "attack_members",
+    [
+        (
+            {"path": "assets", "kind": "directory", "content": None},
+            {"path": "assets/", "kind": "directory", "content": None},
+        ),
+        ({"path": "a//b", "kind": "file", "content": "alias"},),
+        ({"path": "a/./b", "kind": "file", "content": "alias"},),
+    ],
+    ids=["trailing-slash-alias", "empty-segment", "dot-segment"],
+)
+def test_skill_rejects_noncanonical_or_aliased_member_paths(
+    attack_members: tuple[dict[str, object], ...],
+    storage: Storage,
+    artifacts: ArtifactStore,
+) -> None:
+    proposal = _proposal(CandidateKind.SKILL)
+    package = {
+        "name": "review-helper",
+        "trust_source": "workspace",
+        "members": [
+            {
+                "path": "SKILL.md",
+                "kind": "file",
+                "content": "---\nname: review-helper\ndescription: safe\n---\nbody",
+            },
+            *attack_members,
+        ],
+    }
+    proposal = proposal.model_copy(
+        update={
+            "base": CandidateSourceV1(version="champion-v1", payload=package),
+            "candidate": CandidateSourceV1(version="candidate-v1", payload=package),
+        }
+    )
+
+    with pytest.raises(AdapterError, match="skill source validation failed"):
+        CandidateService(storage, artifacts, clock=lambda: NOW).propose(proposal)
+
+
+def test_candidate_service_requires_explicit_live_authority_injection(
+    storage: Storage, artifacts: ArtifactStore
+) -> None:
+    authority_type = getattr(candidate_service_module, "CandidateLiveAuthorities", None)
+    assert authority_type is not None
+    service = CandidateService(
+        storage,
+        artifacts,
+        live_authorities=authority_type(),
+        clock=lambda: NOW,
+    )
+    service.propose(_proposal(CandidateKind.MEMORY))
+
+
 def test_skill_package_rejects_oversize_member(storage: Storage, artifacts: ArtifactStore) -> None:
     proposal = _proposal(CandidateKind.SKILL)
     package = {
@@ -603,7 +679,9 @@ def test_domain_source_extras_fail_closed_without_secret_echo(
 
 
 def _open_candidate_runtime(
-    database: Path, artifact_root: Path
+    database: Path,
+    artifact_root: Path,
+    live_authorities: CandidateLiveAuthorities | None = None,
 ) -> tuple[Storage, ArtifactStore, CandidateService]:
     storage = Storage(str(database))
     storage.init_db()
@@ -615,7 +693,16 @@ def _open_candidate_runtime(
         max_total_bytes=32 * 1024 * 1024,
         clock=lambda: NOW,
     )
-    return storage, artifacts, CandidateService(storage, artifacts, clock=lambda: NOW)
+    return (
+        storage,
+        artifacts,
+        CandidateService(
+            storage,
+            artifacts,
+            live_authorities=live_authorities,
+            clock=lambda: NOW,
+        ),
+    )
 
 
 def _tree_digest(root: Path) -> str:
@@ -626,10 +713,12 @@ def _tree_digest(root: Path) -> str:
     return digest.hexdigest()
 
 
-def _prepare_live_resource(kind: CandidateKind, storage: Storage, root: Path) -> None:
+def _prepare_live_resource(kind: CandidateKind, root: Path) -> None:
     root.mkdir(parents=True)
     if kind is CandidateKind.MEMORY:
-        storage.save_memory_entry(
+        live_storage = Storage(str(root / "memory.db"))
+        live_storage.init_db()
+        live_storage.save_memory_entry(
             MemoryEntry(
                 id="live-memory",
                 persona_id="ducha",
@@ -639,6 +728,7 @@ def _prepare_live_resource(kind: CandidateKind, storage: Storage, root: Path) ->
                 created_at=NOW,
             )
         )
+        live_storage.close()
         return
     if kind is CandidateKind.SKILL:
         skill = root / "skills" / "review-helper"
@@ -656,7 +746,9 @@ def _prepare_live_resource(kind: CandidateKind, storage: Storage, root: Path) ->
         persona.mkdir(parents=True)
         (persona / "SOUL.md").write_text("live soul", encoding="utf-8")
         (persona / "ROLE.md").write_text("live role", encoding="utf-8")
-        storage.save_persona(
+        live_storage = Storage(str(root / "personas.db"))
+        live_storage.init_db()
+        live_storage.save_persona(
             {
                 "id": "live-persona",
                 "name": "Live Persona",
@@ -665,6 +757,7 @@ def _prepare_live_resource(kind: CandidateKind, storage: Storage, root: Path) ->
                 "role_path": "personas/ducha/ROLE.md",
             }
         )
+        live_storage.close()
     else:
         worktree = root / "worktree"
         (worktree / ".git").mkdir(parents=True)
@@ -672,39 +765,49 @@ def _prepare_live_resource(kind: CandidateKind, storage: Storage, root: Path) ->
         (worktree / "app.py").write_text("print('live champion')\n", encoding="utf-8")
 
 
-def _live_resource_digest(kind: CandidateKind, storage: Storage, root: Path) -> str:
-    if kind is CandidateKind.MEMORY:
-        return canonical_sha256(
-            [entry.model_dump(mode="json") for entry in storage.list_memory_by_persona("ducha")]
-        )
-    if kind is CandidateKind.PERSONA:
-        return canonical_sha256(
-            {"row": storage.get_persona("live-persona"), "files": _tree_digest(root)}
-        )
-    return _tree_digest(root)
+def _live_authorities(root: Path) -> CandidateLiveAuthorities:
+    return CandidateLiveAuthorities(
+        memory_root=root,
+        skill_target=root / "skills",
+        policy_root=root,
+        persona_root=root,
+        code_worktree=root / "worktree",
+    )
 
 
 @pytest.mark.parametrize("kind", tuple(CandidateKind))
 def test_real_live_resources_remain_unchanged_across_reopen_and_retry(
-    kind: CandidateKind, tmp_path: Path
+    kind: CandidateKind, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     database = tmp_path / f"{kind.value}.db"
     artifact_root = tmp_path / f"{kind.value}-artifacts"
     live_root = tmp_path / f"{kind.value}-live"
-    storage, _artifacts, service = _open_candidate_runtime(database, artifact_root)
-    _prepare_live_resource(kind, storage, live_root)
-    before = _live_resource_digest(kind, storage, live_root)
+    cwd = tmp_path / f"{kind.value}-cwd"
+    cwd.mkdir()
+    (cwd / "sentinel").write_text("unchanged", encoding="utf-8")
+    monkeypatch.chdir(cwd)
+    _prepare_live_resource(kind, live_root)
+    authorities = _live_authorities(live_root)
+    before = _tree_digest(live_root)
+    cwd_before = _tree_digest(cwd)
+    storage, _artifacts, service = _open_candidate_runtime(database, artifact_root, authorities)
+    assert service._adapter(kind)._live_root == authorities.for_kind(kind)
+    if kind is CandidateKind.SKILL:
+        assert service._adapter(kind)._installer._target_root == authorities.skill_target
     proposed = service.propose(_proposal(kind))
     staged = service.stage(proposed.candidate_id)
     storage.close()
 
-    reopened, reopened_artifacts, restarted = _open_candidate_runtime(database, artifact_root)
+    reopened, reopened_artifacts, restarted = _open_candidate_runtime(
+        database, artifact_root, authorities
+    )
     repeated = restarted.propose(_proposal(kind))
     restaged = restarted.stage(proposed.candidate_id)
 
     assert repeated == staged.candidate
     assert restaged == staged
-    assert _live_resource_digest(kind, reopened, live_root) == before
+    assert _tree_digest(live_root) == before
+    assert _tree_digest(cwd) == cwd_before
     assert reopened._conn.execute("SELECT COUNT(*) FROM evolution_candidates").fetchone()[0] == 1
     assert (
         reopened._conn.execute("SELECT COUNT(*) FROM evolution_lifecycle_journal").fetchone()[0]
