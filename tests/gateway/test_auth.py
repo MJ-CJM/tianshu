@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.config import TianshuSettings
 from tianshu.models.principal import (
     AuthContext,
@@ -824,6 +825,7 @@ def test_authenticated_edict_submitter_and_idempotency_ignore_forged_body(
     app.state.settings = settings
     app.state.storage = storage
     app.state.event_bus = EventBus()
+    app.state.edict_application_service = EdictApplicationService(storage)
     app.state.config_manager = config_manager
     app.state.auth_service = __import__(
         "tianshu.gateway.auth", fromlist=["AuthService"]

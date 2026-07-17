@@ -19,9 +19,14 @@ from tianshu.models.evolution_candidate import (
 )
 from tianshu.models.run_assignment import (
     EffectiveEvolutionOverlayV1,
+    LegacyRunAssignmentV1,
     RunAssignmentV1,
 )
 from tianshu.storage.decision_repo import DecisionDecodeError, DecisionRepository
+
+_LEGACY_ASSIGNMENT_MARKER = {"mode": "legacy_unmanaged"}
+_LEGACY_ASSIGNMENT_MARKER_JSON = canonical_json_bytes(_LEGACY_ASSIGNMENT_MARKER).decode("utf-8")
+_LEGACY_ASSIGNMENT_MARKER_DIGEST = canonical_sha256(_LEGACY_ASSIGNMENT_MARKER)
 
 
 class EvolutionRepositoryError(RuntimeError):
@@ -294,7 +299,13 @@ class EvolutionRepository:
 
     def get_assignment(
         self, connection: sqlite3.Connection, memorial_id: str
-    ) -> tuple[RunAssignmentV1, EffectiveEvolutionOverlayV1] | None:
+    ) -> (
+        tuple[
+            RunAssignmentV1 | LegacyRunAssignmentV1,
+            EffectiveEvolutionOverlayV1 | None,
+        ]
+        | None
+    ):
         row = connection.execute(
             "SELECT * FROM run_evolution_assignments WHERE memorial_id=?",
             (memorial_id,),
@@ -310,14 +321,35 @@ class EvolutionRepository:
             ) from exc
         if decoded is None or canonical_sha256(decoded) != row["assignment_hash"]:
             raise EvolutionRepositoryDecodeError("persisted assignment hash does not match")
+        assignment_type = (
+            LegacyRunAssignmentV1
+            if isinstance(decoded, dict) and decoded.get("mode") == "legacy_unmanaged"
+            else RunAssignmentV1
+        )
         try:
-            assignment = RunAssignmentV1.model_validate_json(raw)
+            assignment = assignment_type.model_validate_json(raw)
         except (ValidationError, TypeError, ValueError) as exc:
             raise EvolutionRepositoryDecodeError(
                 "persisted run assignment violates the v1 contract"
             ) from exc
         if canonical_json_bytes(assignment).decode("utf-8") != raw:
             raise EvolutionRepositoryDecodeError("assignment_json is not canonical JSON")
+        if isinstance(assignment, LegacyRunAssignmentV1):
+            if (
+                row["assignment_id"] != assignment.assignment_id
+                or row["memorial_id"] != assignment.memorial_id
+                or row["candidate_id"] is not None
+                or row["routing_version"] != 1
+                or row["bucket"] != 0
+                or row["champion_ref_json"] != _LEGACY_ASSIGNMENT_MARKER_JSON
+                or row["selected_ref_json"] != _LEGACY_ASSIGNMENT_MARKER_JSON
+                or row["overlay_digest"] != _LEGACY_ASSIGNMENT_MARKER_DIGEST
+                or row["created_at"] != assignment.created_at.isoformat()
+            ):
+                raise EvolutionRepositoryDecodeError(
+                    "legacy assignment columns conflict with assignment_json"
+                )
+            return assignment, None
         if (
             row["assignment_id"] != assignment.assignment_id
             or row["memorial_id"] != assignment.memorial_id
@@ -331,29 +363,64 @@ class EvolutionRepository:
             or row["created_at"] != assignment.created_at.isoformat()
         ):
             raise EvolutionRepositoryDecodeError("assignment columns conflict with assignment_json")
-        kind: CandidateKind | None = None
-        subject_key: str | None = None
-        if assignment.candidate_id is not None:
-            candidate = self.get_candidate(connection, assignment.candidate_id)
-            if (
-                candidate is None
-                or candidate.base != assignment.champion_ref
-                or assignment.selected_ref not in {candidate.base, candidate.candidate}
-            ):
-                raise EvolutionRepositoryDecodeError("assignment candidate attribution conflicts")
-            if assignment.selected_ref == candidate.candidate:
-                kind = candidate.kind
-                subject_key = candidate.subject_key
+        candidate = self.get_candidate(connection, assignment.candidate_id)
+        if (
+            candidate is None
+            or candidate.base != assignment.champion_ref
+            or assignment.selected_ref not in {candidate.base, candidate.candidate}
+        ):
+            raise EvolutionRepositoryDecodeError("assignment candidate attribution conflicts")
         overlay = EffectiveEvolutionOverlayV1(
             assignment_id=assignment.assignment_id,
-            kind=kind,
-            subject_key=subject_key,
+            kind=candidate.kind,
+            subject_key=candidate.subject_key,
             artifact_digest=assignment.selected_ref.artifact_digest,
             canonical_digest=assignment.selected_ref.canonical_digest,
         )
         if row["overlay_digest"] != canonical_sha256(overlay):
             raise EvolutionRepositoryDecodeError("assignment overlay digest conflicts")
         return assignment, overlay
+
+    def insert_legacy_assignment(
+        self,
+        connection: sqlite3.Connection,
+        assignment: LegacyRunAssignmentV1,
+    ) -> LegacyRunAssignmentV1:
+        existing = self.get_assignment(connection, assignment.memorial_id)
+        if existing is not None:
+            if existing != (assignment, None):
+                raise EvolutionAssignmentConflict("Memorial assignment is immutable")
+            assert isinstance(existing[0], LegacyRunAssignmentV1)
+            return existing[0]
+        raw = canonical_json_bytes(assignment).decode("utf-8")
+        try:
+            connection.execute(
+                """INSERT INTO run_evolution_assignments (
+                       assignment_id, memorial_id, candidate_id, routing_version, bucket,
+                       champion_ref_json, selected_ref_json, overlay_digest,
+                       assignment_json, assignment_hash, created_at
+                   ) VALUES (?, ?, NULL, 1, 0, ?, ?, ?, ?, ?, ?)""",
+                (
+                    assignment.assignment_id,
+                    assignment.memorial_id,
+                    _LEGACY_ASSIGNMENT_MARKER_JSON,
+                    _LEGACY_ASSIGNMENT_MARKER_JSON,
+                    _LEGACY_ASSIGNMENT_MARKER_DIGEST,
+                    raw,
+                    canonical_sha256(assignment),
+                    assignment.created_at.isoformat(),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            replay = self.get_assignment(connection, assignment.memorial_id)
+            if replay == (assignment, None):
+                assert isinstance(replay[0], LegacyRunAssignmentV1)
+                return replay[0]
+            raise EvolutionAssignmentConflict("Memorial assignment identity conflict") from exc
+        durable = self.get_assignment(connection, assignment.memorial_id)
+        if durable is None or not isinstance(durable[0], LegacyRunAssignmentV1):
+            raise EvolutionAssignmentConflict("Memorial assignment disappeared")
+        return durable[0]
 
     def insert_assignment(
         self,
@@ -397,10 +464,13 @@ class EvolutionRepository:
         except sqlite3.IntegrityError as exc:
             replay = self.get_assignment(connection, assignment.memorial_id)
             if replay is not None and replay == (assignment, overlay):
+                assert isinstance(replay[0], RunAssignmentV1)
                 return replay[0]
             raise EvolutionAssignmentConflict("Memorial assignment identity conflict") from exc
         durable = self.get_assignment(connection, assignment.memorial_id)
-        if durable is None:  # pragma: no cover - successful insert preserves the identity
+        if durable is None or not isinstance(
+            durable[0], RunAssignmentV1
+        ):  # pragma: no cover - successful insert preserves the identity
             raise EvolutionAssignmentConflict("Memorial assignment disappeared")
         return durable[0]
 

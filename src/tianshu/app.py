@@ -196,6 +196,12 @@ async def lifespan(app: FastAPI):
         startup_stops.append(app.state.workspace_service.shutdown)
         app.state.auth_service = AuthService(app.state.storage, settings)
 
+        bootstrap.wire_evolution_services(
+            app,
+            settings,
+            skill_target=bootstrap.runtime_skills_target(),
+        )
+
         tools = await bootstrap.wire_tools(app, settings)
         startup_stops.append(app.state.mcp_manager.shutdown)
         startup_stops.append(_task_stop(app.state._mcp_start_task))

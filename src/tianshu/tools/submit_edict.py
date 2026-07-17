@@ -53,7 +53,9 @@ def register_submit_edict(
 ) -> None:
     """注册 submit_edict tool 到 ToolRegistry。"""
     del event_bus
-    edict_application = edict_application_service or EdictApplicationService(storage)
+    if edict_application_service is None:
+        raise ValueError("edict_application_service is required")
+    edict_application = edict_application_service
 
     async def submit_edict(
         goal: str,

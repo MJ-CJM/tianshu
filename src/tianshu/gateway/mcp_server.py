@@ -41,7 +41,6 @@ def _memorial_brief(m: Any) -> dict:
 
 def build_mcp_server(app: FastAPI) -> FastMCP:
     """构造天枢 MCP server;tools 经闭包在请求时读取 app.state(届时已完成装配)。"""
-    from tianshu.application.edicts import EdictApplicationService
 
     settings = app.state.settings
     if settings.security_mode == "secure-remote":
@@ -114,7 +113,7 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
             requested_contract=requested_contract_for_edict(edict),
             extra_payload={"via": "mcp"},
         )
-        result = EdictApplicationService(app.state.storage).submit(
+        result = app.state.edict_application_service.submit(
             command,
             auth=auth_context,
             producer=f"mcp:{auth_context.principal.id}",

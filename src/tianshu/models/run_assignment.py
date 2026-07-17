@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -37,7 +37,7 @@ class RunAssignmentV1(_StrictModel):
 
     assignment_id: str
     memorial_id: str
-    candidate_id: str | None
+    candidate_id: str
     champion_ref: CandidateVersionRefV1
     selected_ref: CandidateVersionRefV1
     routing_version: int = Field(ge=1)
@@ -45,14 +45,20 @@ class RunAssignmentV1(_StrictModel):
     created_at: datetime
 
     _validate_ids = field_validator("assignment_id", "memorial_id")(_non_blank)
-    _validate_candidate_id = field_validator("candidate_id")(_optional_non_blank)
+    _validate_candidate_id = field_validator("candidate_id")(_non_blank)
     _normalize_created_at = field_validator("created_at")(_utc)
 
-    @model_validator(mode="after")
-    def validate_selection(self) -> Self:
-        if self.candidate_id is None and self.selected_ref != self.champion_ref:
-            raise ValueError("champion assignment must select the champion ref")
-        return self
+
+class LegacyRunAssignmentV1(_StrictModel):
+    """Durable proof that a run began outside governed candidate routing."""
+
+    mode: Literal["legacy_unmanaged"] = "legacy_unmanaged"
+    assignment_id: str
+    memorial_id: str
+    created_at: datetime
+
+    _validate_ids = field_validator("assignment_id", "memorial_id")(_non_blank)
+    _normalize_created_at = field_validator("created_at")(_utc)
 
 
 class EffectiveEvolutionOverlayV1(_StrictModel):
@@ -79,7 +85,7 @@ class EvolutionRunEvidenceV1(_StrictModel):
 
     assignment: RunAssignmentV1
     overlay: EffectiveEvolutionOverlayV1
-    candidate_id: str | None
+    candidate_id: str
     routing_version: int = Field(ge=1)
 
     @model_validator(mode="after")
@@ -98,5 +104,6 @@ class EvolutionRunEvidenceV1(_StrictModel):
 __all__ = [
     "EffectiveEvolutionOverlayV1",
     "EvolutionRunEvidenceV1",
+    "LegacyRunAssignmentV1",
     "RunAssignmentV1",
 ]

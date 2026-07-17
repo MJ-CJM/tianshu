@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
@@ -65,6 +66,7 @@ def secure_mcp(storage):
     app.state.storage = storage
     app.state.event_bus = EventBus()
     app.state.auth_service = AuthService(storage, settings)
+    app.state.edict_application_service = EdictApplicationService(storage)
     app.state.public_webhook_paths = set()
     holder["mcp"] = build_mcp_server(app)
     app.mount("/mcp", holder["mcp"].streamable_http_app())

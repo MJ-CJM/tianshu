@@ -817,6 +817,12 @@ class SecurityBoundaryMiddleware:
 
     @staticmethod
     def _required_scopes(method: str, path: str) -> frozenset[str]:
+        if (
+            method in {"GET", "HEAD"}
+            and path.startswith("/api/evolution/runs/")
+            and path.endswith("/assignment")
+        ):
+            return frozenset({"api", "admin"})
         if path == "/api/mcp" or path.startswith("/api/mcp/"):
             if method in {"POST", "PUT", "PATCH", "DELETE"}:
                 return frozenset({"admin"})

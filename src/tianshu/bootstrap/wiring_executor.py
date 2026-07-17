@@ -103,6 +103,7 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         event_bus=event_bus,
         storage=storage,
         session_rule_store=session_rule_store,
+        edict_application_service=app.state.edict_application_service,
         decision_service=app.state.decision_service,
     )
     event_bus.on(

@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tianshu.application.edicts import SubmitEdictResult
+from tianshu.application.edicts import EdictApplicationService, SubmitEdictResult
 from tianshu.bus.event_bus import EventBus
 from tianshu.config import TianshuSettings
 from tianshu.gateway.auth import SecurityBoundaryMiddleware
@@ -22,6 +22,7 @@ def _app(storage, config_manager) -> FastAPI:
     app.state.event_bus = EventBus()
     app.state.config_manager = config_manager
     app.state.persona_loader = None
+    app.state.edict_application_service = EdictApplicationService(storage)
     app.state.public_webhook_paths = set()
     app.include_router(edicts_router, prefix="/api")
     app.add_middleware(SecurityBoundaryMiddleware, settings=settings)

@@ -86,6 +86,7 @@ def wire_persona(app: FastAPI, settings: TianshuSettings, tools: ToolRegistry) -
         storage=storage,
         event_bus=event_bus,
         persona_loader=persona_loader,
+        edict_application_service=app.state.edict_application_service,
     )
 
     # list_personas（T0 只读）—— 让 LLM 能查 DB 实际注册的官员名册。

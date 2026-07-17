@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.gateway.feishu import FeishuBot
 from tianshu.gateway.feishu.dispatcher import FeishuCardAction, FeishuMessage
@@ -66,6 +67,7 @@ def bot(storage):
         persona_loader=persona_loader,
         provider_manager=None,
         cost_manager=None,
+        edict_application_service=EdictApplicationService(storage),
     )
     # 把 outbound.send_text 替换成 mock，避免 lark client 调用
     fb._outbound.send_text = AsyncMock(return_value="m1")

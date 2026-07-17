@@ -45,6 +45,7 @@ class TianshuSettings(BaseSettings):
     artifact_dir: str = "~/.tianshu/artifacts"
     artifact_max_bytes: int = 100 * 1024 * 1024
     artifact_quota_bytes: int = 5 * 1024 * 1024 * 1024
+    evolution_routing_secret: str = ""
     host: str = "127.0.0.1"
     port: int = 8000
     security_mode: Literal["trusted-local", "secure-remote"] = "trusted-local"

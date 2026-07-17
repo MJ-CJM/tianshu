@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.models.common import TaskStatus
 from tianshu.tools.registry import ToolRegistry
@@ -16,7 +17,12 @@ from tianshu.tools.submit_edict import register_submit_edict
 def setup(storage):
     bus = EventBus()
     registry = ToolRegistry()
-    register_submit_edict(registry, storage=storage, event_bus=bus)
+    register_submit_edict(
+        registry,
+        storage=storage,
+        event_bus=bus,
+        edict_application_service=EdictApplicationService(storage),
+    )
     return registry, storage, bus
 
 
@@ -88,7 +94,13 @@ async def test_submit_edict_validates_persona_when_loader_provided(storage):
     registry = ToolRegistry()
     loader = MagicMock()
     loader.get.return_value = None  # persona 不存在
-    register_submit_edict(registry, storage=storage, event_bus=bus, persona_loader=loader)
+    register_submit_edict(
+        registry,
+        storage=storage,
+        event_bus=bus,
+        persona_loader=loader,
+        edict_application_service=EdictApplicationService(storage),
+    )
     _, func = registry._tools["submit_edict"]
     result = await func(goal="x", assigned_persona_id="ghost_persona")
     assert result.is_error is True
@@ -103,7 +115,13 @@ async def test_submit_edict_accepts_known_persona(storage):
     persona = MagicMock()
     persona.id = "bingbu"
     loader.get.return_value = persona
-    register_submit_edict(registry, storage=storage, event_bus=bus, persona_loader=loader)
+    register_submit_edict(
+        registry,
+        storage=storage,
+        event_bus=bus,
+        persona_loader=loader,
+        edict_application_service=EdictApplicationService(storage),
+    )
     _, func = registry._tools["submit_edict"]
     result = await func(goal="部署灰度", assigned_persona_id="bingbu")
     assert result.is_error is False

@@ -32,6 +32,7 @@ from tianshu.models.common import EdictStatus
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+    from tianshu.application.edicts import EdictApplicationService
     from tianshu.bus.event_bus import EventBus
     from tianshu.cost.manager import CostManager
     from tianshu.executor.approvals import ApprovalManager
@@ -56,6 +57,7 @@ class FeishuBot:
         executor: Executor,
         notifier: Notifier,
         settings: FeishuSettings,
+        edict_application_service: EdictApplicationService | None = None,
         persona_loader: PersonaLoader | None = None,
         provider_manager: ProviderManager | None = None,
         cost_manager: CostManager | None = None,
@@ -83,6 +85,7 @@ class FeishuBot:
             executor=executor,
             anchor=self._anchor,
             instance_id=instance_id,
+            edict_application_service=edict_application_service,
         )
         self._outbound = FeishuOutbound(
             settings=settings,

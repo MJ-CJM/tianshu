@@ -22,6 +22,7 @@ from tianshu.models.events import make_event
 from tianshu.notifier.notifier import Notifier
 from tianshu.planner.planner import Planner
 from tianshu.storage.outbox_repo import OutboxRepository
+from tianshu.universe.router import ChallengerRouter
 
 
 class TestFullEventChain:
@@ -82,15 +83,21 @@ class TestFullEventChain:
             storage.attempt_repo,
             runner,
         )
+        challenger_router = ChallengerRouter(storage)
         dispatcher = RunDispatcher(
             storage.attempt_repo,
             runner,
             owner_id="test-full-chain",
             completer=completer,
             exit_cleanup=runner.discard_projection,
+            challenger_router=challenger_router,
         )
         reconciler = RunReconciler(storage.attempt_repo, dispatcher)
-        ingress = ManagedRunIngress(storage, reconciler)
+        ingress = ManagedRunIngress(
+            storage,
+            reconciler,
+            challenger_router=challenger_router,
+        )
         executor.set_fenced_completion(fenced_completion)
         executor.set_managed_run_ingress(ingress)
 

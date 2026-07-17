@@ -86,7 +86,9 @@ def register_schedule_edict(
     edict_application_service: EdictApplicationService | None = None,
 ) -> None:
     """注册 schedule_edict tool 到 ToolRegistry。"""
-    edict_application = edict_application_service or EdictApplicationService(storage)
+    if edict_application_service is None:
+        raise ValueError("edict_application_service is required")
+    edict_application = edict_application_service
 
     async def _create(
         goal: str | None,

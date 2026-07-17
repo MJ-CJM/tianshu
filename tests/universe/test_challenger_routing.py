@@ -18,6 +18,8 @@ from tianshu.evolution.adapters.memory import MemoryCandidateAdapter
 from tianshu.evolution.adapters.persona import PersonaCandidateAdapter
 from tianshu.evolution.adapters.policy import PolicyCandidateAdapter
 from tianshu.evolution.adapters.skill import SkillCandidateAdapter
+from tianshu.evolution.candidate_service import CandidateLiveAuthorities, CandidateService
+from tianshu.evolution.runtime_context import current_evolution_runtime
 from tianshu.models import Edict, Memorial
 from tianshu.models.canonical import canonical_json_bytes, canonical_sha256
 from tianshu.models.evolution_candidate import (
@@ -41,8 +43,10 @@ from tianshu.models.principal import (
     PrincipalKind,
 )
 from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1, RunAssignmentV1
+from tianshu.persona.prompt_builder import PromptBuilder
 from tianshu.skills.loader import SkillsLoader
 from tianshu.storage.evolution_repo import EvolutionRepository
+from tianshu.tools.skill_tools import _skill_list, _skill_view
 from tianshu.universe.router import ChallengerRouter, allocation_bucket, selects_challenger
 
 NOW = datetime(2026, 7, 18, 9, tzinfo=UTC)
@@ -75,7 +79,27 @@ def _default_artifact_reader(_connection, digest: str) -> bytes:
 
 
 def _router(storage, **kwargs) -> ChallengerRouter:
-    return ChallengerRouter(storage, artifact_reader=_default_artifact_reader, **kwargs)
+    def resolve(connection, selected_ref, overlay):
+        del connection, overlay
+        return json.loads(_default_artifact_reader(None, selected_ref.artifact_digest))
+
+    kwargs.setdefault("allocation_secret", b"fixed-secret")
+    kwargs.setdefault("payload_resolver", resolve)
+    return ChallengerRouter(storage, **kwargs)
+
+
+def _candidate_service(storage, artifacts: ArtifactStore, root: Path) -> CandidateService:
+    return CandidateService(
+        storage,
+        artifacts,
+        live_authorities=CandidateLiveAuthorities(
+            memory_root=root / "memory",
+            skill_target=root / "skills",
+            policy_root=root / "policies",
+            persona_root=root / "personas",
+            code_worktree=root / "code",
+        ),
+    )
 
 
 def _contract(kind: CandidateKind, subject_key: str) -> EvolutionContractV1:
@@ -231,7 +255,7 @@ def test_assignment_contracts_are_strict_frozen_and_timezone_aware() -> None:
     assignment = RunAssignmentV1(
         assignment_id="assignment-1",
         memorial_id="memorial-1",
-        candidate_id=None,
+        candidate_id="candidate-1",
         champion_ref=ref,
         selected_ref=ref,
         routing_version=1,
@@ -261,7 +285,7 @@ def test_assignment_contracts_are_strict_frozen_and_timezone_aware() -> None:
 
 
 def test_bucket_uses_exact_hmac_algorithm_and_allocation_boundaries(storage) -> None:
-    assert allocation_bucket("memorial-1", "seed-v1", b"fixed-secret") == 2944
+    assert allocation_bucket("memorial-1", "seed-v1", b"fixed-secret") == 4941
     _seed_canary(storage, allocation=1_000)
 
     challenger_router = _router(storage, bucket_calculator=lambda *_: 999)
@@ -276,6 +300,13 @@ def test_bucket_uses_exact_hmac_algorithm_and_allocation_boundaries(storage) -> 
     assert challenger.selected_ref != challenger.champion_ref
     assert champion.candidate_id == "candidate-1"
     assert champion.selected_ref == champion.champion_ref
+
+
+def test_bucket_identity_is_unambiguous_for_colons_and_unicode() -> None:
+    secret = b"fixed-secret"
+
+    assert allocation_bucket("b:c", "a", secret) != allocation_bucket("c", "a:b", secret)
+    assert allocation_bucket("奏折:一", "种子:甲", secret) == 4685
 
 
 @pytest.mark.parametrize("allocation", [0, 1_000])
@@ -328,7 +359,8 @@ def test_concurrent_assignment_produces_one_immutable_row(storage) -> None:
     )
 
 
-def test_selected_skill_overlay_changes_real_loader_behavior(storage, tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_selected_skill_overlay_changes_real_loader_behavior(storage, tmp_path: Path) -> None:
     champion_package = {
         "name": "review-helper",
         "state": "present",
@@ -347,7 +379,10 @@ def test_selected_skill_overlay_changes_real_loader_behavior(storage, tmp_path: 
             {
                 "path": "SKILL.md",
                 "kind": "file",
-                "content": "---\nname: review-helper\ndescription: review\n---\n\nCHALLENGER-SENTINEL",
+                "content": (
+                    "---\nname: review-helper\ndescription: challenger review\n"
+                    "metadata:\n  openclaw:\n    always: true\n---\n\nCHALLENGER-SENTINEL"
+                ),
             }
         ],
     }
@@ -375,9 +410,11 @@ def test_selected_skill_overlay_changes_real_loader_behavior(storage, tmp_path: 
         allocation=1_000,
     )
     _seed_memorial(storage)
+    service = _candidate_service(storage, artifacts, tmp_path)
     router = ChallengerRouter(
         storage,
-        artifact_reader=artifacts.get_bytes_current,
+        allocation_secret=b"fixed-secret",
+        payload_resolver=service.resolve_effective_payload_current,
         bucket_calculator=lambda *_: 0,
     )
     loader = SkillsLoader(tmp_path / "builtin")
@@ -385,10 +422,218 @@ def test_selected_skill_overlay_changes_real_loader_behavior(storage, tmp_path: 
     assignment = router.assign("memorial-1")
     with router.bind_runtime("memorial-1"):
         resolved = loader.get_skill("review-helper")
+        metadata = loader.list_all_metadata()
+        index = loader.load_index()
+        always = loader.load_always()
+        all_skills = loader.load_all()
+        listed = await _skill_list(loader)
+        viewed = await _skill_view(loader, "review-helper")
+        prompt = await PromptBuilder(
+            tmp_path / "personas",
+            loader,
+            memory_dir=tmp_path / "memory",
+        ).build(Edict(id="edict-prompt", goal="inspect", submitter="principal-1"))
 
     assert assignment.selected_ref.artifact_digest != assignment.champion_ref.artifact_digest
     assert resolved is not None
     assert "CHALLENGER-SENTINEL" in resolved["content"]
+    assert metadata == [
+        {
+            "name": "review-helper",
+            "description": "challenger review",
+            "source": "evolution-overlay",
+            "always": True,
+            "tool_tier": None,
+            "path": "",
+            "content_length": len("CHALLENGER-SENTINEL"),
+        }
+    ]
+    assert "review-helper: challenger review" in index
+    assert "CHALLENGER-SENTINEL" in always and "CHALLENGER-SENTINEL" in all_skills
+    assert json.loads(listed.content)[0]["source"] == "evolution-overlay"
+    assert "CHALLENGER-SENTINEL" in viewed.content
+    assert "review-helper: challenger review" in prompt
+    assert "CHALLENGER-SENTINEL" in prompt
+    assert loader.get_skill("review-helper") is None
+
+
+@pytest.mark.asyncio
+async def test_absent_skill_overlay_is_hidden_everywhere_and_restores_live(
+    storage,
+    tmp_path: Path,
+) -> None:
+    live_root = tmp_path / "skills"
+    live_skill = live_root / "review-helper"
+    live_skill.mkdir(parents=True)
+    (live_skill / "SKILL.md").write_text(
+        "---\nname: review-helper\ndescription: live\n---\n\nLIVE-SKILL",
+        encoding="utf-8",
+    )
+    champion = {
+        "name": "review-helper",
+        "state": "present",
+        "trust_source": "workspace",
+        "members": [
+            {
+                "path": "SKILL.md",
+                "kind": "file",
+                "content": "---\nname: review-helper\ndescription: live\n---\n\nLIVE-SKILL",
+            }
+        ],
+    }
+    absent = {
+        "name": "review-helper",
+        "state": "absent",
+        "trust_source": "workspace",
+        "members": [],
+    }
+    artifacts = ArtifactStore(
+        tmp_path / "artifacts",
+        storage.artifact_repo,
+        storage.unit_of_work,
+        max_object_bytes=1024 * 1024,
+        max_total_bytes=10 * 1024 * 1024,
+    )
+    for payload in (champion, absent):
+        artifacts.put_bytes(
+            canonical_json_bytes(payload),
+            media_type="application/vnd.tianshu.evolution.skill+json",
+            redaction="governed_candidate",
+        )
+    _seed_canary(storage, base_payload=champion, candidate_payload=absent, allocation=1_000)
+    _seed_memorial(storage)
+    service = _candidate_service(storage, artifacts, tmp_path)
+    router = ChallengerRouter(
+        storage,
+        allocation_secret=b"fixed-secret",
+        payload_resolver=service.resolve_effective_payload_current,
+        bucket_calculator=lambda *_: 0,
+    )
+    loader = SkillsLoader(tmp_path / "builtin", user_dir=live_root)
+    router.assign("memorial-1")
+
+    with router.bind_runtime("memorial-1"):
+        assert loader.list_all_metadata() == []
+        assert loader.load_index() == ""
+        assert loader.load_always() == ""
+        assert loader.load_all() == ""
+        assert loader.get_skill("review-helper") is None
+        assert json.loads((await _skill_list(loader)).content) == []
+        assert (await _skill_view(loader, "review-helper")).is_error
+
+    assert "LIVE-SKILL" in loader.get_skill("review-helper")["content"]
+
+
+def test_candidate_champion_replays_frozen_selected_payload_after_live_mutation(
+    storage,
+    tmp_path: Path,
+) -> None:
+    live_root = tmp_path / "skills"
+    skill_root = live_root / "review-helper"
+    skill_root.mkdir(parents=True)
+    live_file = skill_root / "SKILL.md"
+    live_file.write_text(
+        "---\nname: review-helper\ndescription: live\n---\n\nLIVE-BEFORE",
+        encoding="utf-8",
+    )
+    champion_package = {
+        "name": "review-helper",
+        "state": "present",
+        "trust_source": "workspace",
+        "members": [
+            {
+                "path": "SKILL.md",
+                "kind": "file",
+                "content": (
+                    "---\nname: review-helper\ndescription: frozen champion\n"
+                    "metadata:\n  openclaw:\n    always: true\n---\n\nCHAMPION-SNAPSHOT"
+                ),
+            }
+        ],
+    }
+    challenger_package = {
+        **champion_package,
+        "members": [
+            {
+                "path": "SKILL.md",
+                "kind": "file",
+                "content": (
+                    "---\nname: review-helper\ndescription: challenger\n---\n\nCHALLENGER-SNAPSHOT"
+                ),
+            }
+        ],
+    }
+    artifacts = ArtifactStore(
+        tmp_path / "artifacts",
+        storage.artifact_repo,
+        storage.unit_of_work,
+        max_object_bytes=1024 * 1024,
+        max_total_bytes=10 * 1024 * 1024,
+    )
+    for payload in (champion_package, challenger_package):
+        artifacts.put_bytes(
+            canonical_json_bytes(payload),
+            media_type="application/vnd.tianshu.evolution.skill+json",
+            redaction="governed_candidate",
+        )
+    _seed_canary(
+        storage,
+        base_payload=champion_package,
+        candidate_payload=challenger_package,
+        allocation=1_000,
+    )
+    _seed_memorial(storage)
+    service = _candidate_service(storage, artifacts, tmp_path)
+    router = ChallengerRouter(
+        storage,
+        allocation_secret=b"fixed-secret",
+        bucket_calculator=lambda *_: 1_000,
+        payload_resolver=service.resolve_effective_payload_current,
+    )
+    loader = SkillsLoader(tmp_path / "builtin", user_dir=live_root)
+    assignment = router.assign("memorial-1")
+    live_file.write_text(
+        "---\nname: review-helper\ndescription: live\n---\n\nLIVE-MUTATED",
+        encoding="utf-8",
+    )
+    restarted = ChallengerRouter(
+        storage,
+        allocation_secret=b"rotated-secret",
+        bucket_calculator=lambda *_: 0,
+        payload_resolver=service.resolve_effective_payload_current,
+    )
+
+    with restarted.bind_runtime("memorial-1") as runtime:
+        frozen = loader.get_skill("review-helper")
+
+    assert assignment.selected_ref == assignment.champion_ref
+    assert runtime.overlay.kind is CandidateKind.SKILL
+    assert runtime.overlay.subject_key == "skill:review-helper"
+    assert runtime.selected_payload is not None
+    assert frozen is not None and "CHAMPION-SNAPSHOT" in frozen["content"]
+    assert "LIVE-MUTATED" in loader.get_skill("review-helper")["content"]
+    with (
+        pytest.raises(RuntimeError, match="consumer failed"),
+        restarted.bind_runtime("memorial-1") as rebound,
+    ):
+        assert current_evolution_runtime() is rebound
+        raise RuntimeError("consumer failed")
+    assert current_evolution_runtime() is None
+
+
+def test_no_canary_persists_truthful_legacy_marker_without_overlay(storage) -> None:
+    from tianshu.models.run_assignment import LegacyRunAssignmentV1
+
+    _seed_memorial(storage)
+    router = ChallengerRouter(storage, allocation_secret=b"fixed-secret")
+
+    assignment = router.assign("memorial-1")
+
+    assert isinstance(assignment, LegacyRunAssignmentV1)
+    assert assignment.mode == "legacy_unmanaged"
+    assert router.overlay_for("memorial-1") is None
+    _seed_canary(storage, allocation=1_000)
+    assert router.assign("memorial-1") == assignment
 
 
 def test_all_adapters_share_the_authoritative_overlay_resolution_boundary(
@@ -503,14 +748,7 @@ def test_all_adapters_share_the_authoritative_overlay_resolution_boundary(
             artifact_digest=canonical_sha256(normalized),
             canonical_digest=canonical_sha256(normalized),
         )
-        assert (
-            adapter.resolve_effective_payload(
-                {"marker": "champion"},
-                overlay=overlay,
-                candidate_payload=candidate_payload,
-            )
-            == normalized
-        )
+        assert adapter.resolve_effective_payload(candidate_payload, overlay=overlay) == normalized
 
 
 def test_assignment_failure_rolls_back_memorial_edict_and_outbox(storage) -> None:
@@ -550,6 +788,59 @@ def test_unavailable_selected_overlay_fails_before_submission_side_effects(stora
     command = SubmitEdictCommand(
         edict=edict,
         idempotency_key="routing-overlay-unavailable",
+        requested_contract=LegacyEdictGovernanceMapper.from_edict(edict),
+        extra_payload={},
+    )
+
+    with pytest.raises(ValueError, match="candidate_overlay_unavailable"):
+        EdictApplicationService(storage, challenger_router=router).submit(
+            command,
+            auth=_auth(),
+            producer="test",
+            correlation_id="routing-test",
+        )
+
+    for table in ("edicts", "memorials", "run_evolution_assignments", "outbox_events"):
+        assert storage._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0  # noqa: S608, SLF001
+
+
+def test_wrong_candidate_artifact_metadata_rolls_back_submission(storage, tmp_path: Path) -> None:
+    champion = {"marker": "champion"}
+    challenger = {"marker": "challenger"}
+    artifacts = ArtifactStore(
+        tmp_path / "artifacts",
+        storage.artifact_repo,
+        storage.unit_of_work,
+        max_object_bytes=1024 * 1024,
+        max_total_bytes=10 * 1024 * 1024,
+    )
+    artifacts.put_bytes(
+        canonical_json_bytes(champion),
+        media_type="application/vnd.tianshu.evolution.skill+json",
+        redaction="governed_candidate",
+    )
+    artifacts.put_bytes(
+        canonical_json_bytes(challenger),
+        media_type="application/json",
+        redaction="governed_candidate",
+    )
+    _seed_canary(
+        storage,
+        base_payload=champion,
+        candidate_payload=challenger,
+        allocation=1_000,
+    )
+    service = _candidate_service(storage, artifacts, tmp_path)
+    router = ChallengerRouter(
+        storage,
+        allocation_secret=b"fixed-secret",
+        bucket_calculator=lambda *_: 0,
+        payload_resolver=service.resolve_effective_payload_current,
+    )
+    edict = Edict(id="edict-wrong-media", goal="route", submitter="principal-1")
+    command = SubmitEdictCommand(
+        edict=edict,
+        idempotency_key="routing-wrong-media",
         requested_contract=LegacyEdictGovernanceMapper.from_edict(edict),
         extra_payload={},
     )

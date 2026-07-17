@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.gateway.core.edict_bridge import EdictBridge
 from tianshu.gateway.core.session_anchor import SessionAnchor as FeishuSessionAnchor
@@ -18,7 +19,14 @@ def _bridge(storage, **kw):
     executor = MagicMock()
     executor.execute_edict = AsyncMock()
     executor.running_tasks = set()
-    return EdictBridge(storage=storage, event_bus=bus, executor=executor, anchor=anchor, **kw)
+    return EdictBridge(
+        storage=storage,
+        event_bus=bus,
+        executor=executor,
+        anchor=anchor,
+        edict_application_service=EdictApplicationService(storage),
+        **kw,
+    )
 
 
 @pytest.mark.asyncio
@@ -37,6 +45,7 @@ async def test_same_source_identity_is_isolated_by_bot_instance(storage, channel
         channel=channel,
         instance_id=f"{channel}-first",
         user_meta_key=user_meta_key,
+        edict_application_service=EdictApplicationService(storage),
     )
     second = EdictBridge(
         storage=storage,
@@ -46,6 +55,7 @@ async def test_same_source_identity_is_isolated_by_bot_instance(storage, channel
         channel=channel,
         instance_id=f"{channel}-second",
         user_meta_key=user_meta_key,
+        edict_application_service=EdictApplicationService(storage),
     )
     request = {
         "chat_id": "shared-chat",

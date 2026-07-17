@@ -116,6 +116,7 @@ async def wire_channel_bots(app: FastAPI, settings: TianshuSettings) -> None:
         cost_manager=cost_manager,
         env_settings=settings,
         app=app,
+        edict_application_service=app.state.edict_application_service,
     )
     app.state.bot_manager = bot_manager
     # EVAL_MODE：沙箱评估时不启动 bot（Feishu/Telegram），避免真实消息推送副作用

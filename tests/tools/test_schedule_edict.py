@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.tools.registry import ToolRegistry
 from tianshu.tools.schedule_edict import register_schedule_edict
 
@@ -50,7 +51,12 @@ class FakeScheduler:
 def setup(storage):
     sched = FakeScheduler()
     registry = ToolRegistry()
-    register_schedule_edict(registry, storage=storage, scheduler=sched)
+    register_schedule_edict(
+        registry,
+        storage=storage,
+        scheduler=sched,
+        edict_application_service=EdictApplicationService(storage),
+    )
     _, func = registry._tools["schedule_edict"]
     return func, storage, sched
 
@@ -161,6 +167,7 @@ async def test_create_rejects_unknown_persona(storage):
         storage=storage,
         scheduler=sched,
         persona_loader=loader,
+        edict_application_service=EdictApplicationService(storage),
     )
     _, func = registry._tools["schedule_edict"]
     result = await func(
@@ -287,7 +294,12 @@ async def test_deliver_explicit_overrides_origin(setup):
 async def test_schema_and_tier(setup):
     func, _, _ = setup
     registry = ToolRegistry()
-    register_schedule_edict(registry, storage=MagicMock(), scheduler=FakeScheduler())
+    register_schedule_edict(
+        registry,
+        storage=MagicMock(),
+        scheduler=FakeScheduler(),
+        edict_application_service=MagicMock(),
+    )
     defn = registry.get_definition("schedule_edict")
     assert defn.tier == 2  # T2_NETWORK
     assert defn.side_effect is True

@@ -38,7 +38,7 @@ def submit_new_edict(
     idempotency_key: str | None = None,
     auth: AuthContext | None = None,
     correlation_id: str | None = None,
-    edict_application_service: EdictApplicationService | None = None,
+    edict_application_service: EdictApplicationService,
 ) -> Memorial:
     """Delegate to the durable application service without owning persistence."""
     del event_bus
@@ -65,8 +65,7 @@ def submit_new_edict(
         ),
         extra_payload=extra_payload or {},
     )
-    service = edict_application_service or EdictApplicationService(storage)
-    return service.submit(
+    return edict_application_service.submit(
         command,
         auth=ingress_auth,
         producer=producer,

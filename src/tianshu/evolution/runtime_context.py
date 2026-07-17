@@ -17,7 +17,7 @@ class EvolutionRuntimeContext(BaseModel):
 
     assignment: RunAssignmentV1
     overlay: EffectiveEvolutionOverlayV1
-    candidate_payload: dict[str, JsonValue] | None
+    selected_payload: dict[str, JsonValue]
 
 
 _CURRENT: ContextVar[EvolutionRuntimeContext | None] = ContextVar(

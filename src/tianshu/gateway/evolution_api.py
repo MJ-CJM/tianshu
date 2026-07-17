@@ -66,7 +66,8 @@ def get_run_evolution_assignment(memorial_id: str, request: Request) -> dict[str
                WHERE memorial.id=?""",
             (memorial_id,),
         ).fetchone()
-        if owner is None or owner["submitter"] != context.principal.id:
+        is_admin = "admin" in context.principal.scopes
+        if owner is None or (not is_admin and owner["submitter"] != context.principal.id):
             raise HTTPException(
                 404,
                 {
@@ -88,7 +89,7 @@ def get_run_evolution_assignment(memorial_id: str, request: Request) -> dict[str
     return {
         "data": {
             "assignment": assignment.model_dump(mode="json"),
-            "effective_overlay": overlay.model_dump(mode="json"),
+            "effective_overlay": overlay.model_dump(mode="json") if overlay is not None else None,
         },
         "correlation_id": context.correlation_id,
     }

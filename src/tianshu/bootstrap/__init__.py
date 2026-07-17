@@ -42,6 +42,7 @@ from tianshu.bootstrap.wiring_scheduler import (
     wire_scheduling,
 )
 from tianshu.bootstrap.wiring_skills import (
+    runtime_skills_target,
     wire_evolution_services,
     wire_skill_curator,
     wire_skill_tools,
@@ -61,6 +62,7 @@ __all__ = [
     "wire_digest",
     "wire_executor",
     "wire_evolution_services",
+    "runtime_skills_target",
     "wire_hook_registrations",
     "wire_llm_config",
     "wire_memory_manager",

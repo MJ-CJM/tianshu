@@ -98,24 +98,21 @@ class BaseCandidateAdapter:
 
     def resolve_effective_payload(
         self,
-        champion_payload: Mapping[str, object],
+        selected_payload: Mapping[str, object],
         *,
-        overlay: EffectiveEvolutionOverlayV1 | None,
-        candidate_payload: Mapping[str, object] | None,
+        overlay: EffectiveEvolutionOverlayV1,
     ) -> dict[str, JsonValue]:
         """Resolve through one verified overlay without mutating the live resource."""
 
-        if overlay is None or overlay.kind is None:
-            return self._normalize_domain(champion_payload)
+        if overlay.kind is None:
+            raise AdapterOperationUnavailable("governed overlay kind is unavailable")
         self._require_kind(overlay.kind)
-        if candidate_payload is None:
-            raise AdapterOperationUnavailable("candidate overlay payload is unavailable")
-        normalized = self._normalize_domain(candidate_payload)
+        normalized = self._normalize_domain(selected_payload)
         if (
             canonical_sha256(normalized) != overlay.canonical_digest
             or canonical_sha256(normalized) != overlay.artifact_digest
         ):
-            raise AdapterError("candidate overlay digest mismatch")
+            raise AdapterError("selected overlay digest mismatch")
         return normalized
 
     def _materialize(self, payload: Mapping[str, object], *, media_type: str) -> ArtifactRefV1:

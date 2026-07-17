@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tianshu.application.edict_detail import EdictDetailNotFound, EdictDetailUnavailable
 from tianshu.application.edicts import (
-    EdictApplicationService,
     IdempotencyConflict,
     SubmitEdictCommand,
     validate_idempotency_key,
@@ -386,9 +385,7 @@ async def create_edict(body: EdictCreateRequest, request: Request, response: Res
         edict.assigned_persona_id,
     )
 
-    service = getattr(request.app.state, "edict_application_service", None)
-    if service is None:
-        service = EdictApplicationService(storage)
+    service = request.app.state.edict_application_service
     command = SubmitEdictCommand(
         edict=edict,
         idempotency_key=idempotency_key,

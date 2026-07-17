@@ -104,12 +104,36 @@ def _governed_lifecycle_write_sites(source: str, *, path: str) -> list[str]:
 
 
 def _writes_candidate_lifecycle_sql(source: str) -> bool:
-    tokens = re.findall(r"[a-z_]+", source.lower())
-    for index in range(len(tokens) - 2):
-        if tokens[index : index + 3] != ["update", "evolution_candidates", "set"]:
+    return any(
+        target == "evolution_candidates" and "lifecycle" in re.findall(r"[a-z_]+", sql.lower())
+        for sql, target in _sql_writes(source)
+    )
+
+
+def _sql_writes(source: str) -> list[tuple[str, str]]:
+    """Return concrete SQL write statements and their exact target table."""
+
+    writes: list[tuple[str, str]] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            sql = node.value
+        elif isinstance(node, ast.JoinedStr):
+            sql = "".join(
+                value.value
+                for value in node.values
+                if isinstance(value, ast.Constant) and isinstance(value.value, str)
+            )
+        else:
             continue
-        return "lifecycle" in tokens[index + 3 :]
-    return False
+        match = re.search(
+            r"\b(?:insert(?:\s+or\s+\w+)?\s+into|update|delete\s+from)\s+"
+            r"(?:[a-z_][a-z0-9_]*\.)?[`\"\[]?([a-z_][a-z0-9_]*)",
+            sql,
+            flags=re.IGNORECASE,
+        )
+        if match is not None:
+            writes.append((sql, match.group(1).lower()))
+    return writes
 
 
 def test_lifecycle_writer_scanner_detects_aliased_model_copy_save_bypass() -> None:
@@ -144,6 +168,26 @@ def test_sql_writer_scanner_normalizes_tokens_and_whitespace() -> None:
             lifecycle = ?
         WHERE candidate_id = ?""")'''
     assert _writes_candidate_lifecycle_sql(bypass) is True
+
+
+def test_sql_writer_scanner_does_not_join_unrelated_statements() -> None:
+    source = """
+ROUTING_READ = "SELECT * FROM evolution_routing_allocations"
+OTHER_WRITE = "UPDATE evolution_candidates SET updated_at=? WHERE candidate_id=?"
+"""
+    assert not any(target == "evolution_routing_allocations" for _, target in _sql_writes(source))
+
+
+def test_sql_writer_scanner_detects_raw_aliased_and_formatted_routing_writes() -> None:
+    variants = (
+        'SQL = r"INSERT INTO evolution_routing_allocations(candidate_id) VALUES (?)"',
+        'statement = "UPDATE main.evolution_routing_allocations AS routing SET version=?"',
+        'statement = f"DELETE FROM evolution_routing_allocations WHERE candidate_id={value}"',
+    )
+    assert all(
+        any(target == "evolution_routing_allocations" for _, target in _sql_writes(source))
+        for source in variants
+    )
 
 
 def test_only_promotion_service_builds_governed_lifecycle_transitions() -> None:
@@ -203,10 +247,8 @@ def test_promotion_service_is_the_only_application_writer_of_routing_allocations
     writers: list[str] = []
     for path in (ROOT / "src/tianshu").rglob("*.py"):
         source = path.read_text(encoding="utf-8")
-        if (
-            path.name != "migrations.py"
-            and "evolution_routing_allocations" in source
-            and any(token in source.upper() for token in ("INSERT INTO", "UPDATE ", "DELETE FROM"))
+        if path.name != "migrations.py" and any(
+            target == "evolution_routing_allocations" for _, target in _sql_writes(source)
         ):
             writers.append(str(path.relative_to(ROOT)))
     assert writers == ["src/tianshu/evolution/promotion.py"]

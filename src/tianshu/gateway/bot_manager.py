@@ -26,6 +26,7 @@ from tianshu.gateway.instance import ChannelInstance, default_instance_id
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+    from tianshu.application.edicts import EdictApplicationService
     from tianshu.bus.event_bus import EventBus
     from tianshu.cost.manager import CostManager
     from tianshu.executor.approvals import ApprovalManager
@@ -56,6 +57,7 @@ class ChannelBotManager:
         cost_manager: CostManager | None,
         env_settings,
         app: FastAPI | None,
+        edict_application_service: EdictApplicationService | None = None,
     ) -> None:
         self._storage = storage
         self._event_bus = event_bus
@@ -63,6 +65,7 @@ class ChannelBotManager:
         self._executor = executor
         self._notifier = notifier
         self._persona_loader = persona_loader
+        self._edict_application_service = edict_application_service
         self._provider_manager = provider_manager
         self._cost_manager = cost_manager
         self._env_settings = env_settings
@@ -223,6 +226,7 @@ class ChannelBotManager:
             cost_manager=self._cost_manager,
             settings=inst.settings,
             instance_id=inst.instance_id,
+            edict_application_service=self._edict_application_service,
         )
         if inst.channel_type == "feishu":
             try:

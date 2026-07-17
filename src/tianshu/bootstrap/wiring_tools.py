@@ -74,6 +74,7 @@ async def wire_tools(app: FastAPI, settings: TianshuSettings) -> ToolRegistry:
         storage=storage,
         event_bus=event_bus,
         execution_gateway=execution_gateway,
+        edict_application_service=app.state.edict_application_service,
     )
 
     # --- MCP（藏兵阁外挂）：fire-and-forget 启动，不阻塞 lifespan ---

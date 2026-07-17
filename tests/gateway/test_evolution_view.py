@@ -14,6 +14,7 @@ from tianshu.app import create_app
 from tianshu.config import TianshuSettings
 from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.models import Edict, Memorial
+from tianshu.models.principal import Principal, PrincipalKind
 from tianshu.storage import Storage
 from tianshu.universe.router import ChallengerRouter
 
@@ -369,23 +370,54 @@ def test_assignment_endpoint_is_owner_scoped_and_disclosure_safe(tmp_path) -> No
         assignment = ChallengerRouter(storage).assign(owner_memorial.id)
         ChallengerRouter(storage).assign(other_memorial.id)
 
+        owner_token = app.state.auth_service.issue_pat(
+            Principal(
+                id="user:owner",
+                kind=PrincipalKind.HUMAN,
+                display_name="Owner",
+                scopes=frozenset({"api"}),
+            ),
+            label="evolution-owner",
+            scopes=frozenset({"api"}),
+        ).raw_token
+        admin_token = app.state.auth_service.issue_pat(
+            Principal(
+                id="service:evolution-admin",
+                kind=PrincipalKind.SERVICE,
+                display_name="Evolution Admin",
+                scopes=frozenset({"admin"}),
+            ),
+            label="evolution-admin",
+            scopes=frozenset({"admin"}),
+        ).raw_token
         with TestClient(app, base_url=BASE_URL, client=("127.0.0.1", 41000)) as client:
             owner = client.get(
                 f"/api/evolution/runs/{owner_memorial.id}/assignment",
-                headers=HEADERS,
+                headers={"Authorization": f"Bearer {owner_token}"},
             )
             outsider = client.get(
                 f"/api/evolution/runs/{other_memorial.id}/assignment",
-                headers=HEADERS,
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+            admin = client.get(
+                f"/api/evolution/runs/{other_memorial.id}/assignment",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+            admin_missing = client.get(
+                "/api/evolution/runs/memorial-missing/assignment",
+                headers={"Authorization": f"Bearer {admin_token}"},
             )
 
         assert owner.status_code == 200
         assert owner.json()["data"]["assignment"] == assignment.model_dump(mode="json")
-        assert "effective_overlay" in owner.json()["data"]
+        assert owner.json()["data"]["effective_overlay"] is None
         assert "secret" not in owner.text.lower()
         assert "host_path" not in owner.text
         assert outsider.status_code == 404
         assert outsider.json()["detail"]["code"] == "run_assignment_not_found"
+        assert admin.status_code == 200
+        assert admin_missing.status_code == 404
+        assert admin_missing.json()["detail"]["code"] == outsider.json()["detail"]["code"]
     finally:
         storage.close()
 

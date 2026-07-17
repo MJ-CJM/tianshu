@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,23 +12,25 @@ from pathlib import Path
 from typing import Protocol
 
 from tianshu.evidence.service import ArtifactStore, ArtifactWriteReceipt
-from tianshu.evolution.adapters.base import BaseCandidateAdapter, StagedCandidateV1
+from tianshu.evolution.adapters.base import AdapterError, BaseCandidateAdapter, StagedCandidateV1
 from tianshu.evolution.adapters.code import CodeCandidateAdapter
 from tianshu.evolution.adapters.memory import MemoryCandidateAdapter
 from tianshu.evolution.adapters.persona import PersonaCandidateAdapter
 from tianshu.evolution.adapters.policy import PolicyCandidateAdapter
 from tianshu.evolution.adapters.skill import SkillCandidateAdapter
-from tianshu.models.canonical import canonical_sha256
+from tianshu.models.canonical import JsonValue, canonical_json_bytes, canonical_sha256
 from tianshu.models.evolution_candidate import (
     CandidateKind,
     CandidateLifecycle,
     CandidateProposalV1,
     CandidateSourceV1,
+    CandidateVersionRefV1,
     EvolutionCandidateV1,
     EvolutionProvenanceV1,
     ProvenanceInputV1,
     RollbackSpecV1,
 )
+from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1
 from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
 
@@ -41,6 +45,10 @@ class CandidateNotFound(CandidateServiceError):
 
 class CandidateIdentityConflict(CandidateServiceError):
     """A deterministic command identity is already bound differently."""
+
+
+class CandidateOverlayUnavailable(CandidateServiceError):
+    """The selected immutable artifact cannot be safely consumed."""
 
 
 class _Storage(Protocol):
@@ -98,6 +106,51 @@ class CandidateService:
             self._artifacts,
             live_root=self._live_authorities.for_kind(kind),
         )
+
+    def resolve_effective_payload_current(
+        self,
+        connection: sqlite3.Connection,
+        selected_ref: CandidateVersionRefV1,
+        overlay: EffectiveEvolutionOverlayV1,
+    ) -> dict[str, JsonValue]:
+        """Verify metadata and bytes, then normalize once at the owning adapter boundary."""
+
+        if overlay.kind is None or overlay.subject_key is None:
+            raise CandidateOverlayUnavailable("candidate_overlay_unavailable")
+        if (
+            overlay.artifact_digest != selected_ref.artifact_digest
+            or overlay.canonical_digest != selected_ref.canonical_digest
+        ):
+            raise CandidateOverlayUnavailable("candidate_overlay_unavailable")
+        try:
+            artifact, raw = self._artifacts.get_verified_current(
+                connection, selected_ref.artifact_digest
+            )
+            expected_media_type = f"application/vnd.tianshu.evolution.{overlay.kind.value}+json"
+            if (
+                artifact.media_type != expected_media_type
+                or artifact.redaction != "governed_candidate"
+                or artifact.digest != selected_ref.artifact_digest
+                or hashlib.sha256(raw).hexdigest() != selected_ref.artifact_digest
+            ):
+                raise CandidateOverlayUnavailable("candidate_overlay_unavailable")
+            decoded = json.loads(raw)
+            if not isinstance(decoded, dict) or canonical_json_bytes(decoded) != raw:
+                raise CandidateOverlayUnavailable("candidate_overlay_unavailable")
+            normalized = self._adapter(overlay.kind).resolve_effective_payload(
+                decoded,
+                overlay=overlay,
+            )
+            if (
+                canonical_json_bytes(normalized) != raw
+                or canonical_sha256(normalized) != selected_ref.canonical_digest
+            ):
+                raise CandidateOverlayUnavailable("candidate_overlay_unavailable")
+            return normalized
+        except CandidateOverlayUnavailable:
+            raise
+        except (AdapterError, LookupError, RuntimeError, TypeError, ValueError) as exc:
+            raise CandidateOverlayUnavailable("candidate_overlay_unavailable") from exc
 
     @staticmethod
     def _candidate_id(
@@ -243,6 +296,7 @@ __all__ = [
     "CandidateIdentityConflict",
     "CandidateLiveAuthorities",
     "CandidateNotFound",
+    "CandidateOverlayUnavailable",
     "CandidateProposalV1",
     "CandidateService",
     "CandidateServiceError",

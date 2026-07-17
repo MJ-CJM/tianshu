@@ -40,6 +40,7 @@ from tianshu.models.common import EdictStatus
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+    from tianshu.application.edicts import EdictApplicationService
     from tianshu.bus.event_bus import EventBus
     from tianshu.cost.manager import CostManager
     from tianshu.executor.approvals import ApprovalManager
@@ -64,6 +65,7 @@ class TelegramBot:
         executor: Executor,
         notifier: Notifier,
         settings: TelegramSettings,
+        edict_application_service: EdictApplicationService | None = None,
         persona_loader: PersonaLoader | None = None,
         provider_manager: ProviderManager | None = None,
         cost_manager: CostManager | None = None,
@@ -91,6 +93,7 @@ class TelegramBot:
             instance_id=instance_id,
             user_meta_key="telegram_user",
             chat_title_prefix="Telegram 助手对话",
+            edict_application_service=edict_application_service,
         )
         self._outbound = TelegramOutbound(
             settings=settings,

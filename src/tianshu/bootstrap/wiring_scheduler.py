@@ -237,6 +237,7 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         storage=storage,
         scheduler=scheduler,
         persona_loader=persona_loader,
+        edict_application_service=app.state.edict_application_service,
     )
     feishu_channel_cfg = storage.get_channel_config("feishu")
     if not (feishu_channel_cfg and feishu_channel_cfg.get("enable_edict_submission")):

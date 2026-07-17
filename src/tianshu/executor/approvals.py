@@ -88,7 +88,7 @@ class ApprovalManager:
         self._bus = event_bus
         self._storage = storage
         self._session_rule_store = session_rule_store
-        self._edict_application = edict_application_service or EdictApplicationService(storage)
+        self._edict_application = edict_application_service
         self._decision_service = decision_service
         self._outbox = OutboxRepository()
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -1474,6 +1474,8 @@ class ApprovalManager:
                     "decree_id": decree.id,
                 },
             )
+            if self._edict_application is None:
+                raise RuntimeError("edict_application_service_required")
             self._edict_application.submit(
                 command,
                 auth=make_ingress_auth_context(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import math
 from collections.abc import Callable, Coroutine
-from contextlib import nullcontext, suppress
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -17,7 +17,7 @@ from tianshu.models.attempt import (
 )
 from tianshu.models.canonical import RedactedError
 from tianshu.storage.attempt_ledger import AttemptFenceLost
-from tianshu.universe.router import ChallengerRouter
+from tianshu.universe.router import ChallengerRouter, EvolutionRuntimeUnavailable
 
 
 class RunShutdownTimeout(TimeoutError):
@@ -144,6 +144,8 @@ class RunDispatcher:
 
     async def dispatch(self, memorial_id: str) -> bool:
         """Claim and start one due root attempt, returning whether this process won."""
+        if self._challenger_router is None:
+            raise RuntimeError("challenger_router_required")
         if self._stop_requested:
             return False
         if memorial_id in self._memorial_tasks:
@@ -211,21 +213,20 @@ class RunDispatcher:
             raise RunShutdownTimeout("supervised run did not stop before shutdown deadline")
 
     async def _execute(self, authority: AttemptAuthority) -> None:
-        runtime_scope = (
-            self._challenger_router.bind_runtime(authority.memorial_id)
-            if self._challenger_router is not None
-            else nullcontext()
-        )
-        with runtime_scope:
-            runner_task: asyncio.Task[AttemptRunResult] = asyncio.create_task(
-                self._runner(authority),
-                name=f"run-body-{authority.attempt_id}",
-            )
-            heartbeat_task = asyncio.create_task(
-                self._heartbeat(authority),
-                name=f"run-heartbeat-{authority.attempt_id}",
-            )
-            try:
+        if self._challenger_router is None:
+            raise RuntimeError("challenger_router_required")
+        runner_task: asyncio.Task[AttemptRunResult] | None = None
+        heartbeat_task: asyncio.Task[None] | None = None
+        try:
+            with self._challenger_router.bind_runtime(authority.memorial_id):
+                runner_task = asyncio.create_task(
+                    self._runner(authority),
+                    name=f"run-body-{authority.attempt_id}",
+                )
+                heartbeat_task = asyncio.create_task(
+                    self._heartbeat(authority),
+                    name=f"run-heartbeat-{authority.attempt_id}",
+                )
                 done, _ = await asyncio.wait(
                     {runner_task, heartbeat_task},
                     return_when=asyncio.FIRST_COMPLETED,
@@ -245,15 +246,38 @@ class RunDispatcher:
                 outcome = result.to_outcome(completed_at=self._clock())
                 if not self._completer(authority, outcome):
                     raise AttemptFenceLost("attempt completion lost its fence")
-            finally:
+        except (EvolutionRuntimeUnavailable, LookupError) as exc:
+            failure_code = (
+                "candidate_overlay_unavailable"
+                if isinstance(exc, EvolutionRuntimeUnavailable)
+                else "run_assignment_unavailable"
+            )
+            outcome = AttemptOutcomeV1(
+                disposition=AttemptDisposition.FAILED,
+                completed_at=self._clock(),
+                failure=RedactedError(
+                    code=failure_code,
+                    message="governed evolution runtime is unavailable",
+                    retryable=False,
+                    details_hash=None,
+                ),
+                retry_at=None,
+            )
+            if not self._completer(authority, outcome):
+                raise AttemptFenceLost("attempt completion lost its fence") from exc
+        finally:
+            if heartbeat_task is not None:
                 heartbeat_task.cancel()
+            if runner_task is not None:
                 runner_task.cancel()
+            if heartbeat_task is not None:
                 with suppress(asyncio.CancelledError):
                     await heartbeat_task
+            if runner_task is not None:
                 with suppress(asyncio.CancelledError):
                     await runner_task
-                if self._exit_cleanup is not None:
-                    self._exit_cleanup(authority)
+            if self._exit_cleanup is not None:
+                self._exit_cleanup(authority)
 
     def _complete_with_repository(
         self,

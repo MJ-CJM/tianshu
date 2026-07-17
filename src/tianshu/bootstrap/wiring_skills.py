@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -45,6 +46,11 @@ from tianshu.tools.skill_tools import register_skill_tools
 from tianshu.universe.router import ChallengerRouter
 
 logger = logging.getLogger(__name__)
+
+
+def runtime_skills_target() -> Path:
+    override = os.environ.get("TIANSHU_RUNTIME_SKILLS_DIR")
+    return Path(override or "~/.tianshu/skills").expanduser()
 
 
 def wire_evolution_services(
@@ -105,7 +111,8 @@ def wire_evolution_services(
     )
     challenger_router = ChallengerRouter(
         app.state.storage,
-        artifact_reader=app.state.artifact_store.get_bytes_current,
+        allocation_secret=settings.evolution_routing_secret.encode() or None,
+        payload_resolver=candidates.resolve_effective_payload_current,
     )
     app.state.challenger_router = challenger_router
     app.state.edict_application_service = EdictApplicationService(
@@ -135,12 +142,10 @@ def wire_skills(app: FastAPI, settings: TianshuSettings) -> tuple[SkillsLoader, 
         Path(settings.workspace_dir).resolve() if settings.workspace_dir != "." else None
     )
     # 修撰效果门(迭代 6,ADR-0007)配对评估:子进程经此 env 重定向到变体技能库(同 personas 机制)
-    import os
-
-    _skills_override = os.environ.get("TIANSHU_RUNTIME_SKILLS_DIR")
-    user_skills_dir = Path(_skills_override or "~/.tianshu/skills").expanduser()
+    user_skills_dir = runtime_skills_target()
     user_skills_dir.mkdir(parents=True, exist_ok=True)
-    wire_evolution_services(app, settings, skill_target=user_skills_dir)
+    if not hasattr(app.state, "challenger_router"):
+        wire_evolution_services(app, settings, skill_target=user_skills_dir)
     skills = SkillsLoader(
         builtin_dir=builtin_skills_dir,
         workspace_dir=workspace_path,

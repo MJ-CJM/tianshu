@@ -20,8 +20,19 @@ from tianshu.models import Edict, Memorial
 from tianshu.models.attempt import AttemptDisposition
 from tianshu.storage import Storage
 from tianshu.storage.attempt_ledger import AttemptFenceLost
+from tianshu.universe.router import EvolutionRuntimeUnavailable
 
 _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
+
+
+class _PassthroughRouter:
+    @contextmanager
+    def bind_runtime(self, memorial_id: str):
+        del memorial_id
+        yield None
+
+
+_ROUTER = _PassthroughRouter()
 
 
 class _ProbeRepository:
@@ -55,6 +66,63 @@ async def _unused_runner(authority: AttemptAuthority) -> AttemptRunResult:
 
 
 @pytest.mark.asyncio
+async def test_missing_router_rejects_before_claim_or_runner() -> None:
+    dispatcher = RunDispatcher(_ProbeRepository(), _unused_runner, owner_id="worker")
+
+    with pytest.raises(RuntimeError, match="challenger_router_required"):
+        await dispatcher.dispatch("memorial-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "failure_code"),
+    [
+        (
+            EvolutionRuntimeUnavailable("candidate_overlay_unavailable"),
+            "candidate_overlay_unavailable",
+        ),
+        (LookupError("run assignment not found"), "run_assignment_unavailable"),
+    ],
+)
+async def test_runtime_bind_failure_completes_claimed_attempt_and_cleans_projection(
+    error: Exception,
+    failure_code: str,
+) -> None:
+    class FailingRouter:
+        @contextmanager
+        def bind_runtime(self, memorial_id: str):
+            del memorial_id
+            raise error
+            yield  # pragma: no cover
+
+    authority = AttemptAuthority(
+        attempt_id="attempt-overlay-failure",
+        memorial_id="memorial-overlay-failure",
+        owner_id="worker",
+        fencing_token=7,
+    )
+    outcomes = []
+    cleaned = []
+    dispatcher = RunDispatcher(
+        _ProbeRepository(),
+        _unused_runner,
+        owner_id="worker",
+        challenger_router=FailingRouter(),
+        completer=lambda actual, outcome: outcomes.append((actual, outcome)) or True,
+        exit_cleanup=cleaned.append,
+        clock=lambda: _NOW,
+    )
+
+    await dispatcher._execute(authority)  # noqa: SLF001
+
+    assert len(outcomes) == 1
+    assert outcomes[0][0] == authority
+    assert outcomes[0][1].disposition is AttemptDisposition.FAILED
+    assert outcomes[0][1].failure.code == failure_code
+    assert cleaned == [authority]
+
+
+@pytest.mark.asyncio
 async def test_false_injected_completion_is_an_explicit_fence_loss() -> None:
     repository = _ProbeRepository()
 
@@ -80,6 +148,7 @@ async def test_false_injected_completion_is_an_explicit_fence_loss() -> None:
         owner_id="worker",
         clock=lambda: _NOW,
         completer=completer,
+        challenger_router=_ROUTER,
     )
 
     with pytest.raises(AttemptFenceLost, match="completion"):
@@ -108,6 +177,7 @@ async def test_every_dispatch_exit_clears_authority_projection_buffer() -> None:
         owner_id="worker",
         completer=lambda _authority, _outcome: False,
         exit_cleanup=cleaned.append,
+        challenger_router=_ROUTER,
     )
 
     with pytest.raises(AttemptFenceLost):
@@ -240,6 +310,7 @@ async def test_shutdown_is_bounded_cancels_remainder_and_leaves_lease(tmp_path: 
         clock=lambda: _NOW,
         heartbeat_interval_seconds=29,
         shutdown_timeout_seconds=0.04,
+        challenger_router=_ROUTER,
     )
     try:
         assert await dispatcher.dispatch("memorial-1")
@@ -280,6 +351,7 @@ async def test_stop_reaps_fast_runner_done_before_tracking_callback(tmp_path: Pa
         quick_runner,
         owner_id="worker",
         clock=lambda: _NOW,
+        challenger_router=_ROUTER,
     )
     callback_deferred = asyncio.Event()
     captured: list[tuple[str, str, asyncio.Task[None]]] = []
@@ -335,6 +407,7 @@ async def test_stop_observes_done_runner_exception_when_callback_is_deferred(
         failing_runner,
         owner_id="worker",
         clock=lambda: _NOW,
+        challenger_router=_ROUTER,
     )
     callback_deferred = asyncio.Event()
     captured: list[asyncio.Task[None]] = []

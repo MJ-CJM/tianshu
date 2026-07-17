@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from tianshu.models.run_assignment import RunAssignmentV1
 from tianshu.universe.model import Universe, UniverseOrigin, UniverseStatus
 from tianshu.universe.router import ChallengerRouter
 from tianshu.universe.store import UniverseStore
@@ -58,9 +59,15 @@ class UniverseManager:
         """Return only the legacy Universe projection for an already assigned run."""
         if self._challenger_router is None:
             raise RuntimeError("challenger_router_required")
-        if self._challenger_router.overlay_for(memorial_id) is None:
+        assignment = self._challenger_router.get(memorial_id)
+        if assignment is None:
             raise LookupError("run assignment not found")
-        return self.champion_id()
+        if (
+            isinstance(assignment, RunAssignmentV1)
+            and assignment.selected_ref == assignment.champion_ref
+        ):
+            return self.champion_id()
+        return None
 
     def list(self, *, include_archived: bool = True) -> list[dict]:
         return self._storage.list_universes(include_archived=include_archived)

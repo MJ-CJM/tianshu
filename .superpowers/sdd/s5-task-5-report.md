@@ -135,3 +135,53 @@ Task 5 file's inserted runtime-overlay code).
 
 The four warnings in test runs are existing third-party deprecations from Lark SDK and
 websockets.
+
+## Review remediation (2026-07-18)
+
+The Task 5 review findings were remediated with a second RED/GREEN cycle. No Task 6
+distribution or rollback work was added.
+
+- Governed assignments now always carry a real candidate identity. Both champion and
+  challenger arms persist the candidate kind and subject, verify the selected immutable
+  artifact on every attempt, and consume only the normalized frozen payload. Champion
+  execution has no live-resource fallback.
+- Runs submitted without an active canary persist a strict, truthful
+  `legacy_unmanaged` marker. The marker contains no fabricated candidate references or
+  evidence and prevents a later canary from retroactively rerouting the Memorial.
+- Artifact reads return and validate the complete `ArtifactRefV1` contract: digest,
+  canonical digest, exact kind media type, redaction marker, and canonical bytes. The
+  owning adapter is the single normalization boundary.
+- Skill overlays affect metadata, index, always-load, list/view, `load_all()`, and
+  `get()`. An absent overlay hides the Skill from every surface, and ContextVar exit
+  restores the live view without mutating shared caches.
+- All production Edict ingress paths receive the same application service and router
+  from `app.state`; no production constructor creates a bare fallback service. The
+  routing secret is explicitly injected from settings. A dispatcher without a router
+  rejects before claim, while a post-claim binding failure is fenced to a stable,
+  non-retryable failed outcome and performs cleanup exactly once.
+- The Universe compatibility facade never reports the champion for a challenger arm.
+  The SQL architecture scanner evaluates each concrete statement and exact write table.
+  Assignment reads accept API or admin scope; API tokens are owner-scoped, admin tokens
+  bypass ownership, and absent/non-owner reads are disclosure-safe 404 responses.
+- Bucketing uses collision-free versioned canonical JSON input and reads an existing
+  assignment before evaluating current routing configuration or secret material.
+
+Fresh remediation verification:
+
+```text
+required Task 5 suite:                         154 passed, 4 warnings
+gateway suite (known stale Task 3 deselected): 642 passed, 1 deselected, 4 warnings
+application/claim/recovery/integration:         203 passed, 4 warnings
+evolution/authority/migrations:                 258 passed, 4 warnings
+skills plus submit/schedule tools:              278 passed, 4 warnings
+```
+
+Final static gates:
+
+- Ruff check and format: 50 changed Python files passed.
+- Mypy: 12 affected core modules passed; the changed Skill overlay passed separately
+  while disabling only the seven documented pre-existing `attr-defined` errors in the
+  watcher/metrics portions of that historical file.
+- Import Linter: 480 files and 1,737 dependencies analyzed; 2 contracts kept, 0 broken.
+- `git diff --check`: passed.
+- `uv.lock`: unchanged.

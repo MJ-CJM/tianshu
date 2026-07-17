@@ -148,19 +148,13 @@ def test_evidence_does_not_create_a_missing_assignment(storage, tmp_path) -> Non
     )
 
 
-def test_evidence_includes_an_existing_assignment(storage, tmp_path) -> None:
+def test_evidence_excludes_an_existing_legacy_unmanaged_marker(storage, tmp_path) -> None:
     _, memorial = seed_closed_run(storage)
     service = evidence_service(storage, tmp_path / "artifacts")
     assignment = ChallengerRouter(storage).assign(memorial.id)
     attributed = service.build_open(memorial.id)
-    evolution_artifact = next(
-        artifact
+    assert assignment.mode == "legacy_unmanaged"
+    assert not any(
+        artifact.media_type == "application/vnd.tianshu.evolution.assignment.v1+json"
         for artifact in attributed.snapshot.artifacts
-        if artifact.media_type == "application/vnd.tianshu.evolution.assignment.v1+json"
     )
-    payload = json.loads(service._artifacts.get_bytes(evolution_artifact.digest))  # noqa: SLF001
-
-    assert payload["assignment"] == assignment.model_dump(mode="json")
-    assert payload["overlay"]["assignment_id"] == assignment.assignment_id
-    assert payload["candidate_id"] == assignment.candidate_id
-    assert payload["routing_version"] == assignment.routing_version

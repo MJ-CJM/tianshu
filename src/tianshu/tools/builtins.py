@@ -26,6 +26,7 @@ from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
 if TYPE_CHECKING:
+    from tianshu.application.edicts import EdictApplicationService
     from tianshu.bus.event_bus import EventBus
     from tianshu.persona.loader import PersonaLoader
 
@@ -37,6 +38,7 @@ def register_builtins(
     event_bus: EventBus | None = None,
     persona_loader: PersonaLoader | None = None,
     execution_gateway: ExecutionGateway | None = None,
+    edict_application_service: EdictApplicationService | None = None,
 ) -> None:
     workspace = Path(workspace_dir).resolve()
     process_gateway = execution_gateway or ExecutionGateway()
@@ -285,6 +287,7 @@ def register_builtins(
             storage=storage,
             event_bus=event_bus,
             persona_loader=persona_loader,
+            edict_application_service=edict_application_service,
         )
     if storage is not None:
         from tianshu.tools.edict_query import register_edict_query

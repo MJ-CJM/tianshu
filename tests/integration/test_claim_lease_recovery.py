@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -21,6 +22,16 @@ from tianshu.storage import Storage
 from tianshu.storage.attempt_ledger import AttemptConflict
 
 _NOW = datetime(2026, 7, 15, 8, tzinfo=UTC)
+
+
+class _PassthroughRouter:
+    @contextmanager
+    def bind_runtime(self, memorial_id: str):
+        del memorial_id
+        yield None
+
+
+_ROUTER = _PassthroughRouter()
 
 
 class _Clock:
@@ -95,6 +106,7 @@ async def test_direct_child_claim_fails_before_runner_even_if_attempt_was_inject
         storage.attempt_repo,
         runner,
         owner_id="worker",
+        challenger_router=_ROUTER,
         clock=_Clock(),
     )
     try:
@@ -132,12 +144,14 @@ async def test_two_dispatchers_execute_one_due_attempt_once(tmp_path: Path) -> N
         first.attempt_repo,
         runner("worker-a"),
         owner_id="worker-a",
+        challenger_router=_ROUTER,
         clock=_Clock(),
     )
     dispatcher_b = RunDispatcher(
         second.attempt_repo,
         runner("worker-b"),
         owner_id="worker-b",
+        challenger_router=_ROUTER,
         clock=_Clock(),
     )
     try:
@@ -184,6 +198,7 @@ async def test_restart_waits_for_expiry_then_dispatches_attempt_two(tmp_path: Pa
         first.attempt_repo,
         abandoned_runner,
         owner_id="worker-old",
+        challenger_router=_ROUTER,
         clock=first_clock,
         lease_seconds=30,
         heartbeat_interval_seconds=29,
@@ -208,6 +223,7 @@ async def test_restart_waits_for_expiry_then_dispatches_attempt_two(tmp_path: Pa
         restarted.attempt_repo,
         recovered_runner,
         owner_id="worker-new",
+        challenger_router=_ROUTER,
         clock=restart_clock,
     )
     reconciler = RunReconciler(
@@ -263,6 +279,7 @@ async def test_local_runner_exits_after_exact_expiry_before_attempt_two_starts(
         storage.attempt_repo,
         runner,
         owner_id="worker",
+        challenger_router=_ROUTER,
         clock=clock,
         lease_seconds=1,
         heartbeat_interval_seconds=0.01,
@@ -329,6 +346,7 @@ async def test_expired_max_attempt_is_dead_lettered_once_and_never_run(tmp_path:
         storage.attempt_repo,
         runner,
         owner_id="new-worker",
+        challenger_router=_ROUTER,
         clock=clock,
     )
     reconciler = RunReconciler(storage.attempt_repo, dispatcher, clock=clock)
@@ -385,6 +403,7 @@ async def test_heartbeat_loss_cancels_runner_without_false_success(tmp_path: Pat
         repository,
         runner,
         owner_id="worker",
+        challenger_router=_ROUTER,
         clock=_Clock(),
         heartbeat_interval_seconds=0.01,
     )
@@ -454,6 +473,7 @@ async def test_runner_result_maps_to_exact_durable_outcome(
         storage.attempt_repo,
         runner,
         owner_id="worker",
+        challenger_router=_ROUTER,
         clock=_Clock(),
     )
     try:

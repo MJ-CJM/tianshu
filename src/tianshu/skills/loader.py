@@ -9,6 +9,7 @@ import shutil
 import tempfile
 from collections import OrderedDict
 from pathlib import Path
+from typing import TypedDict, cast
 
 import frontmatter
 
@@ -22,6 +23,12 @@ _MAX_RESOURCE_BYTES = 1024 * 1024  # 1 MiB per resource file
 _SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
 
 
+class _RuntimeSkillMember(TypedDict):
+    path: str
+    kind: str
+    content: str | None
+
+
 def _runtime_skill_overlay() -> tuple[str, dict | None] | None:
     from tianshu.evolution.runtime_context import current_evolution_runtime
 
@@ -31,34 +38,23 @@ def _runtime_skill_overlay() -> tuple[str, dict | None] | None:
         or runtime.overlay.kind is None
         or runtime.overlay.kind.value != "skill"
         or runtime.overlay.subject_key is None
-        or runtime.candidate_payload is None
     ):
         return None
     name = runtime.overlay.subject_key.removeprefix("skill:")
-    if runtime.overlay.subject_key != f"skill:{name}":
-        raise ValueError("skill overlay subject is invalid")
-    validate_skill_name(name)
-    package = runtime.candidate_payload
-    if package.get("name") != name:
-        raise ValueError("skill overlay package does not match its subject")
+    package = runtime.selected_payload
     if package.get("state") == "absent":
         return name, None
-    members = package.get("members")
-    if not isinstance(members, list):
-        raise ValueError("skill overlay members are invalid")
+    members = cast(list[_RuntimeSkillMember], package["members"])
     skill_member = next(
         (
             member
             for member in members
-            if isinstance(member, dict)
-            and member.get("path") == "SKILL.md"
-            and member.get("kind") == "file"
+            if member.get("path") == "SKILL.md" and member.get("kind") == "file"
         ),
         None,
     )
-    if skill_member is None or not isinstance(skill_member.get("content"), str):
-        raise ValueError("skill overlay has no SKILL.md")
-    post = frontmatter.loads(skill_member["content"])
+    assert skill_member is not None
+    post = frontmatter.loads(cast(str, skill_member["content"]))
     metadata = post.metadata or {}
     openclaw = metadata.get("metadata", {}).get("openclaw", {})
     return name, {
@@ -401,10 +397,10 @@ class SkillsLoader:
     def list_all_metadata(self) -> list[dict]:
         """Return structured metadata for all skills (builtin + workspace + injected)."""
         if self._workspace_writes_only:
-            return self._list_overlay_metadata()
+            return self._with_runtime_metadata(self._list_overlay_metadata())
         # L2: Check if file stats match cached snapshot
         if self._l2_metadata is not None and self._l2_stats_valid():
-            return self._l2_metadata
+            return self._with_runtime_metadata(self._l2_metadata)
 
         # L3: Full disk scan
         result: list[dict] = []
@@ -437,7 +433,18 @@ class SkillsLoader:
         # Populate L2
         self._l2_metadata = result
         self._l2_stats = new_stats
-        return result
+        return self._with_runtime_metadata(result)
+
+    @staticmethod
+    def _with_runtime_metadata(metadata: list[dict]) -> list[dict]:
+        runtime_overlay = _runtime_skill_overlay()
+        if runtime_overlay is None:
+            return list(metadata)
+        name, skill = runtime_overlay
+        visible = [item for item in metadata if item["name"] != name]
+        if skill is not None:
+            visible.append({key: value for key, value in skill.items() if key != "content"})
+        return visible
 
     def _list_overlay_metadata(self) -> list[dict]:
         result: list[dict] = []

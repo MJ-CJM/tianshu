@@ -111,7 +111,7 @@ class EdictBridge:
         self._instance_id = instance_id
         self._user_meta_key = user_meta_key
         self._chat_title_prefix = chat_title_prefix
-        self._edict_application = edict_application_service or EdictApplicationService(storage)
+        self._edict_application = edict_application_service
 
     async def continue_or_create(
         self,
@@ -198,6 +198,8 @@ class EdictBridge:
                 "chat_id": chat_id,
             },
         )
+        if self._edict_application is None:
+            raise RuntimeError("edict_application_service_required")
         result = self._edict_application.submit(
             command,
             auth=make_ingress_auth_context(

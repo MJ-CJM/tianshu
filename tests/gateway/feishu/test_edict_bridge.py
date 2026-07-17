@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.gateway.core.edict_bridge import EdictBridge, EdictBusyError
 from tianshu.gateway.core.session_anchor import SessionAnchor
@@ -33,6 +34,7 @@ def bridge(storage):
             event_bus=bus,
             executor=executor,
             anchor=anchor,
+            edict_application_service=EdictApplicationService(storage),
         ),
         bus,
         anchor,

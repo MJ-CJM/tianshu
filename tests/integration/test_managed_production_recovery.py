@@ -39,6 +39,7 @@ from tianshu.skills.loader import SkillsLoader
 from tianshu.storage import Storage
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ok_result
+from tianshu.universe.router import ChallengerRouter
 
 _NOW = datetime(2026, 7, 17, 8, tzinfo=UTC)
 
@@ -399,6 +400,7 @@ async def test_actual_l3_close_reopen_resolution_and_reconciler_redispatch(
     path = tmp_path / f"production-l3-{max_attempts}.db"
     storage = _open(path)
     stale = _seed_l3(storage, max_attempts=max_attempts)
+    ChallengerRouter(storage).assign(stale.memorial_id)
     runner = _l3_runner(
         storage,
         tmp_path / f"skills-l3-{max_attempts}",
@@ -487,6 +489,7 @@ async def test_actual_l3_close_reopen_resolution_and_reconciler_redispatch(
             clock=lambda: _NOW + timedelta(seconds=6),
             lease_seconds=60,
             heartbeat_interval_seconds=10,
+            challenger_router=ChallengerRouter(reopened),
         )
         reconciler = RunReconciler(
             reopened.attempt_repo,
