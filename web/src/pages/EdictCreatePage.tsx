@@ -25,6 +25,7 @@ export function EdictCreationForm({
     try {
       const res = await createEdict(values);
       if (res.success && res.data) {
+        await queryClient.cancelQueries({ queryKey: ONBOARDING_QUERY_KEY, exact: true });
         queryClient.setQueryData<OnboardingState>(ONBOARDING_QUERY_KEY, (current) =>
           current ? { ...current, required: false } : current,
         );

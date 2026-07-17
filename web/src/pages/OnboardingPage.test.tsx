@@ -26,6 +26,7 @@ vi.mock("../api/edicts", () => edictsApi);
 vi.mock("../hooks/usePersonas", () => ({ usePersonas: () => ({ data: [] }) }));
 
 import OnboardingPage from "./OnboardingPage";
+import { EdictCreationForm } from "./EdictCreatePage";
 
 const PERSONAS: PersonaInfo[] = [
   ["bingbu", "兵部"],
@@ -104,6 +105,14 @@ function LocationProbe() {
   return <output>{useLocation().pathname}</output>;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function renderPage(
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -122,6 +131,23 @@ function renderPage(
     </QueryClientProvider>,
   );
   return { ...view, queryClient };
+}
+
+function renderCreationForm(queryClient: QueryClient) {
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/create"]}>
+        <LocationProbe />
+        <Routes>
+          <Route
+            path="/create"
+            element={<EdictCreationForm governanceConfirmation="always" />}
+          />
+          <Route path="/edicts/:edictId" element={<h1>敕令详情</h1>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
 beforeEach(() => {
@@ -274,5 +300,35 @@ describe("first-run onboarding", () => {
     expect(await screen.findByText("/edicts/edict-new")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "敕令详情" })).toBeInTheDocument();
     expect(queryClient.getQueryData<OnboardingState>(ONBOARDING_QUERY_KEY)?.required).toBe(false);
+  });
+
+  it("prevents a late onboarding request from restoring required after successful creation", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(ONBOARDING_QUERY_KEY, FRESH_STATE);
+    const lateOnboarding = deferred<OnboardingState>();
+    const lateFetch = queryClient
+      .fetchQuery({
+        queryKey: ONBOARDING_QUERY_KEY,
+        queryFn: () => lateOnboarding.promise,
+      })
+      .catch((error: unknown) => error);
+    renderCreationForm(queryClient);
+
+    fireEvent.change(screen.getByLabelText("敕令旨意"), {
+      target: { value: "完成首次治理任务" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: /颁发敕令/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "确认契约并下发" }));
+
+    expect(await screen.findByText("/edicts/edict-new")).toBeInTheDocument();
+    expect(queryClient.getQueryData<OnboardingState>(ONBOARDING_QUERY_KEY)?.required).toBe(false);
+
+    lateOnboarding.resolve(FRESH_STATE);
+    await lateFetch;
+
+    expect(queryClient.getQueryData<OnboardingState>(ONBOARDING_QUERY_KEY)?.required).toBe(false);
+    expect(screen.getByText("/edicts/edict-new")).toBeInTheDocument();
   });
 });
