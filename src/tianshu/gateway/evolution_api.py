@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import NoReturn
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,6 +12,14 @@ from tianshu.application.evolution_view import (
     EvolutionCenterUnavailable,
 )
 from tianshu.evolution.gates import GateEvaluator
+from tianshu.evolution.promotion import (
+    PromoteCommand,
+    PromotionAuthorizationError,
+    PromotionConflict,
+    PromotionService,
+    RollbackCommand,
+    StartCanaryCommand,
+)
 from tianshu.gateway.auth import get_auth_context
 from tianshu.storage.evolution_repo import EvolutionRepositoryConflict
 
@@ -88,6 +98,67 @@ def evaluate_evolution_gate(
         "data": report.model_dump(mode="json"),
         "correlation_id": context.correlation_id,
     }
+
+
+def _promotion_service(request: Request) -> PromotionService:
+    service = getattr(request.app.state, "promotion_service", None)
+    if not isinstance(service, PromotionService):
+        raise HTTPException(503, {"code": "promotion_service_unavailable"})
+    return service
+
+
+def _promotion_response(receipt: BaseModel, correlation_id: str) -> dict[str, object]:
+    return {"data": receipt.model_dump(mode="json"), "correlation_id": correlation_id}
+
+
+def _raise_promotion_error(exc: Exception) -> NoReturn:
+    if isinstance(exc, PromotionAuthorizationError):
+        raise HTTPException(403, {"code": str(exc)}) from exc
+    if isinstance(exc, PromotionConflict):
+        raise HTTPException(409, {"code": str(exc)}) from exc
+    raise exc
+
+
+@evolution_router.post("/candidates/{candidate_id}/canary")
+def start_candidate_canary(
+    candidate_id: str,
+    body: StartCanaryCommand,
+    request: Request,
+) -> dict[str, object]:
+    context = get_auth_context(request)
+    try:
+        receipt = _promotion_service(request).start_canary(candidate_id, body, auth=context)
+    except (PromotionAuthorizationError, PromotionConflict) as exc:
+        _raise_promotion_error(exc)
+    return _promotion_response(receipt, context.correlation_id)
+
+
+@evolution_router.post("/candidates/{candidate_id}/promote")
+def promote_candidate(
+    candidate_id: str,
+    body: PromoteCommand,
+    request: Request,
+) -> dict[str, object]:
+    context = get_auth_context(request)
+    try:
+        receipt = _promotion_service(request).promote(candidate_id, body, auth=context)
+    except (PromotionAuthorizationError, PromotionConflict) as exc:
+        _raise_promotion_error(exc)
+    return _promotion_response(receipt, context.correlation_id)
+
+
+@evolution_router.post("/candidates/{candidate_id}/rollback")
+def rollback_candidate(
+    candidate_id: str,
+    body: RollbackCommand,
+    request: Request,
+) -> dict[str, object]:
+    context = get_auth_context(request)
+    try:
+        receipt = _promotion_service(request).rollback(candidate_id, body, auth=context)
+    except (PromotionAuthorizationError, PromotionConflict) as exc:
+        _raise_promotion_error(exc)
+    return _promotion_response(receipt, context.correlation_id)
 
 
 __all__ = ["evolution_router"]

@@ -28,6 +28,11 @@ from fastapi import FastAPI
 from tianshu.config import TianshuSettings
 from tianshu.evolution.candidate_service import CandidateLiveAuthorities, CandidateService
 from tianshu.evolution.gates import GateEvaluator
+from tianshu.evolution.promotion import (
+    PromotionService,
+    SkillPromotionAdapter,
+    UnavailablePromotionAdapter,
+)
 from tianshu.models.evolution_candidate import CandidateKind, EvolutionContractV1, GateName
 from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.curator import SkillCurator
@@ -77,9 +82,24 @@ def wire_evolution_services(
         )
 
     app.state.candidate_service = candidates
-    app.state.evolution_gate_evaluator = GateEvaluator(
+    gate_evaluator = GateEvaluator(
         app.state.storage,
         artifact_verifier=app.state.artifact_store,
+    )
+    app.state.evolution_gate_evaluator = gate_evaluator
+    skill_promotion = SkillPromotionAdapter(
+        app.state.artifact_store,
+        live_root=authorities.skill_target,
+    )
+    unavailable_promotion = UnavailablePromotionAdapter()
+    promotion_adapters = {
+        kind: (skill_promotion if kind is CandidateKind.SKILL else unavailable_promotion)
+        for kind in CandidateKind
+    }
+    app.state.promotion_service = PromotionService(
+        app.state.storage,
+        gate_evaluator,
+        adapter_resolver=promotion_adapters.__getitem__,
     )
     app.state.skill_install_service = SkillInstallService(
         candidates,

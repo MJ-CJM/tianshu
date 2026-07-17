@@ -259,21 +259,10 @@ class UniverseEvolver:
                             result.retired.append(child["id"])
                         elif paired["delta"] >= margin and samples >= min_samples:
                             result.promotion_recommended = child["id"]
-                            if getattr(cfg, "universe_auto_promote", False):
-                                self._mgr.switch(child["id"])
-                                await self._emit(
-                                    "universe.promoted",
-                                    {
-                                        "universe_id": child["id"],
-                                        "auto": True,
-                                        "delta": paired["delta"],
-                                    },
-                                )
-                            else:
-                                payload = await self._on_promotion_recommended(
-                                    child, paired["delta"], samples
-                                )
-                                await self._emit("universe.promotion_recommended", payload)
+                            payload = await self._on_promotion_recommended(
+                                child, paired["delta"], samples
+                            )
+                            await self._emit("universe.promotion_recommended", payload)
 
             await self._emit("universe.evolved", result.to_dict())
             return result

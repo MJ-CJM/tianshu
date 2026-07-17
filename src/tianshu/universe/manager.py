@@ -158,72 +158,21 @@ class UniverseManager:
     # --- promote code variant ---
 
     def promote_code_variant(self, universe_id: str) -> dict:
-        """人工批准晋升代码变体：翻状态为冠军 + 暂存 deploy 指针（不自动重启；重启是单独受控步骤）。"""
-        if not self._deployer:
-            raise RuntimeError("deployer not configured")
-        target = self._storage.get_universe(universe_id)
-        if not target:
-            raise ValueError(f"universe not found: {universe_id}")
-        if not target.get("code_ref"):
-            raise ValueError("not a code variant universe")
-        prev = self.champion()
-        if prev and prev["id"] != universe_id:
-            self._storage.set_universe_status(prev["id"], UniverseStatus.CHALLENGER.value)
-        self._storage.set_universe_status(universe_id, UniverseStatus.CHAMPION.value)
-        worktree = str(self._code_store.worktree_dir(universe_id)) if self._code_store else None
-        self._deployer.stage(ref=target["code_ref"], worktree=worktree)
-        self._emit(
-            "universe.promoted", {"universe_id": universe_id, "code_ref": target["code_ref"]}
-        )
-        return self._storage.get_universe(universe_id)
+        """Reject the retired unauthenticated promotion mutation boundary."""
+        del universe_id
+        raise RuntimeError("promotion_service_required")
 
     # --- switch / rollback ---
 
     def switch(self, universe_id: str) -> dict:
-        """把目标位面置为冠军、原冠军降级，并重定向运行态。"""
-        target = self._storage.get_universe(universe_id)
-        if not target:
-            raise ValueError(f"universe not found: {universe_id}")
-        if target.get("code_ref"):
-            raise ValueError(
-                "code variant switch/promotion requires the Deployer (Phase 2 increment 2d)"
-            )
-        if target["status"] == UniverseStatus.ARCHIVED.value:
-            raise ValueError("cannot switch to an archived universe")
-        if not self._store.exists(universe_id):
-            raise FileNotFoundError(f"universe dir missing: {universe_id}")
+        """Reject the retired unauthenticated live-universe mutation boundary."""
+        del universe_id
+        raise RuntimeError("promotion_service_required")
 
-        prev = self.champion()
-        if prev and prev["id"] == universe_id:
-            return target  # 已是冠军，no-op
-
-        # 切走前持久化原冠军的 live 漂移（git 式：冠军是工作副本）
-        if prev:
-            self._store.snapshot_live(prev["id"], self._config_snapshot())
-
-        # 还原运行态目录 + 取回 config 快照
-        manifest = self._store.restore_to_live(universe_id)
-        # live 目录路径固定；restore_to_live 已就地覆盖其内容，
-        # 这两行让 loader 清缓存并从磁盘重新加载新内容。
-        self._personas.repoint_runtime(self._personas.runtime_dir)
-        self._skills.repoint_user_dir(self._skills_user_dir())
-        self._config_apply(manifest)
-
-        # 翻转状态（先降原冠军，避免 partial-unique 冲突）
-        if prev:
-            self._storage.set_universe_status(prev["id"], UniverseStatus.CHALLENGER.value)
-        self._storage.set_universe_status(universe_id, UniverseStatus.CHAMPION.value)
-        self._emit(
-            "universe.switched",
-            {
-                "from": prev["id"] if prev else None,
-                "to": universe_id,
-            },
-        )
-        return self._storage.get_universe(universe_id)
-
-    # rollback 语义等同 switch 到历史位面
-    rollback = switch
+    def rollback(self, universe_id: str) -> dict:
+        """Reject legacy rollback; governed rollback requires PromotionService."""
+        del universe_id
+        raise RuntimeError("promotion_service_required")
 
     # --- delete ---
 

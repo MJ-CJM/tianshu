@@ -230,56 +230,117 @@ class GateEvaluator:
 
     def get_current_report(self, candidate_id: str) -> EvolutionGateReportV1 | None:
         with self._storage.unit_of_work() as unit_of_work:
-            candidate = self._repository.get_candidate(unit_of_work.connection, candidate_id)
-            if candidate is None or candidate.gate_snapshot_version == 0:
-                unit_of_work.commit()
-                return None
-            row = unit_of_work.connection.execute(
-                """SELECT snapshot_json, snapshot_hash
-                   FROM evolution_gate_snapshots
-                   WHERE candidate_id=? AND gate_snapshot_version=?""",
-                (candidate_id, candidate.gate_snapshot_version),
-            ).fetchone()
-            if row is None or not isinstance(row["snapshot_json"], str):
-                raise EvolutionRepositoryConflict("current gate snapshot is missing")
-            snapshot_json = row["snapshot_json"]
-            if hashlib.sha256(snapshot_json.encode()).hexdigest() != row["snapshot_hash"]:
-                raise EvolutionRepositoryConflict("current gate snapshot hash mismatch")
-            try:
-                report = EvolutionGateReportV1.model_validate_json(snapshot_json)
-            except (TypeError, ValueError, ValidationError) as exc:
-                raise EvolutionRepositoryConflict("current gate snapshot is corrupt") from exc
-            if (
-                report.candidate_version != candidate.version
-                or report.candidate_digest != candidate.candidate.artifact_digest
-                or report.gate_snapshot_version != candidate.gate_snapshot_version
-            ):
-                raise EvolutionRepositoryConflict("current gate snapshot is stale")
-            if report.promotion_allowed:
-                bundles: list[ClosedEvidenceBundleV1] = []
-                try:
-                    for bundle_id in candidate.evidence_bundle_ids:
-                        bundle = EvidenceRepository.get_current(unit_of_work.connection, bundle_id)
-                        if not isinstance(bundle, ClosedEvidenceBundleV1):
-                            raise EvolutionRepositoryConflict(
-                                "current gate snapshot evidence is no longer valid"
-                            )
-                        bundles.append(bundle)
-                except EvidenceRepositoryError as exc:
-                    raise EvolutionRepositoryConflict(
-                        "current gate snapshot evidence is no longer valid"
-                    ) from exc
-                evidence_result = next(
-                    result for result in report.results if result.gate is GateName.EVIDENCE
-                )
-                if evidence_result.evidence_hashes != tuple(
-                    bundle.content_hash for bundle in bundles
-                ) or not self._artifacts_are_valid(unit_of_work.connection, bundles):
+            report = self.get_current_report_current(unit_of_work.connection, candidate_id)
+            unit_of_work.commit()
+            return report
+
+    def get_current_report_current(
+        self, connection: sqlite3.Connection, candidate_id: str
+    ) -> EvolutionGateReportV1 | None:
+        """Validate the current candidate-bound snapshot inside the caller's UoW."""
+
+        candidate = self._repository.get_candidate(connection, candidate_id)
+        if candidate is None or candidate.gate_snapshot_version == 0:
+            return None
+        report = self._load_bound_report_current(
+            connection,
+            candidate_id,
+            gate_snapshot_version=candidate.gate_snapshot_version,
+        )
+        if (
+            report.candidate_version != candidate.version
+            or report.candidate_digest != candidate.candidate.artifact_digest
+            or report.gate_snapshot_version != candidate.gate_snapshot_version
+        ):
+            raise EvolutionRepositoryConflict("current gate snapshot is stale")
+        self._validate_green_evidence_current(connection, candidate, report)
+        return report
+
+    def validate_bound_green_report_current(
+        self,
+        connection: sqlite3.Connection,
+        candidate_id: str,
+        *,
+        candidate_version: int,
+        gate_snapshot_version: int,
+        candidate_digest: str,
+        report_hash: str,
+    ) -> EvolutionGateReportV1:
+        """Revalidate a pre-canary green binding without minting a new snapshot."""
+
+        candidate = self._repository.get_candidate(connection, candidate_id)
+        if candidate is None:
+            raise EvolutionRepositoryConflict("bound gate candidate is missing")
+        report = self._load_bound_report_current(
+            connection,
+            candidate_id,
+            gate_snapshot_version=gate_snapshot_version,
+        )
+        if (
+            not report.promotion_allowed
+            or report.candidate_version != candidate_version
+            or report.candidate_digest != candidate_digest
+            or report.gate_snapshot_version != gate_snapshot_version
+            or report.report_hash != report_hash
+            or candidate.candidate.artifact_digest != candidate_digest
+            or candidate.gate_snapshot_version != gate_snapshot_version
+            or candidate.evidence_bundle_ids != report.evidence_bundle_ids
+        ):
+            raise EvolutionRepositoryConflict("bound green gate snapshot is stale")
+        self._validate_green_evidence_current(connection, candidate, report)
+        return report
+
+    @staticmethod
+    def _load_bound_report_current(
+        connection: sqlite3.Connection,
+        candidate_id: str,
+        *,
+        gate_snapshot_version: int,
+    ) -> EvolutionGateReportV1:
+        row = connection.execute(
+            """SELECT snapshot_json, snapshot_hash
+               FROM evolution_gate_snapshots
+               WHERE candidate_id=? AND gate_snapshot_version=?""",
+            (candidate_id, gate_snapshot_version),
+        ).fetchone()
+        if row is None or not isinstance(row["snapshot_json"], str):
+            raise EvolutionRepositoryConflict("current gate snapshot is missing")
+        snapshot_json = row["snapshot_json"]
+        if hashlib.sha256(snapshot_json.encode()).hexdigest() != row["snapshot_hash"]:
+            raise EvolutionRepositoryConflict("current gate snapshot hash mismatch")
+        try:
+            return EvolutionGateReportV1.model_validate_json(snapshot_json)
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise EvolutionRepositoryConflict("current gate snapshot is corrupt") from exc
+
+    def _validate_green_evidence_current(
+        self,
+        connection: sqlite3.Connection,
+        candidate: EvolutionCandidateV1,
+        report: EvolutionGateReportV1,
+    ) -> None:
+        if not report.promotion_allowed:
+            return
+        bundles: list[ClosedEvidenceBundleV1] = []
+        try:
+            for bundle_id in candidate.evidence_bundle_ids:
+                bundle = EvidenceRepository.get_current(connection, bundle_id)
+                if not isinstance(bundle, ClosedEvidenceBundleV1):
                     raise EvolutionRepositoryConflict(
                         "current gate snapshot evidence is no longer valid"
                     )
-            unit_of_work.commit()
-            return report
+                bundles.append(bundle)
+        except EvidenceRepositoryError as exc:
+            raise EvolutionRepositoryConflict(
+                "current gate snapshot evidence is no longer valid"
+            ) from exc
+        evidence_result = next(
+            result for result in report.results if result.gate is GateName.EVIDENCE
+        )
+        if evidence_result.evidence_hashes != tuple(
+            bundle.content_hash for bundle in bundles
+        ) or not self._artifacts_are_valid(connection, bundles):
+            raise EvolutionRepositoryConflict("current gate snapshot evidence is no longer valid")
 
     def _now(self) -> datetime:
         value = self._clock()

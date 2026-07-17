@@ -23,6 +23,9 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
 
 SYSTEM_AUDIT_METADATA_KEYS: dict[str, frozenset[str]] = {
     "evolution.gate.evaluated": frozenset({"blocking_gate_count", "gate_snapshot_version"}),
+    "evolution.promotion.start_canary": frozenset(),
+    "evolution.promotion.promote": frozenset(),
+    "evolution.promotion.rollback": frozenset(),
     "skill.candidate.proposed": frozenset({"candidate_version", "source_channel"}),
     "skill.candidate.staged": frozenset({"candidate_version", "source_channel"}),
     "auth.token.issued": frozenset({"scope_count", "token_type"}),

@@ -66,13 +66,14 @@ def test_list_returns_genesis(mgr: UniverseManager):
     assert len(universes) == 1
 
 
-def test_branch_then_switch_keeps_single_champion(mgr: UniverseManager):
+def test_branch_then_legacy_switch_is_stably_rejected(mgr: UniverseManager):
     g = mgr.ensure_genesis()
     ch = mgr.branch(g["id"], "exp")
     assert ch["status"] == "challenger"
-    mgr.switch(ch["id"])
+    with pytest.raises(RuntimeError, match="promotion_service_required"):
+        mgr.switch(ch["id"])
     champs = [u for u in mgr.list() if u["status"] == "champion"]
-    assert len(champs) == 1 and champs[0]["id"] == ch["id"]
+    assert len(champs) == 1 and champs[0]["id"] == g["id"]
 
 
 def test_branch_has_correct_parent(mgr: UniverseManager):
@@ -94,40 +95,35 @@ def test_can_archive_challenger(mgr: UniverseManager):
     assert archived["status"] == "archived"
 
 
-def test_switch_to_self_is_noop(mgr: UniverseManager):
+def test_switch_to_self_still_requires_promotion_service(mgr: UniverseManager):
     g = mgr.ensure_genesis()
-    result = mgr.switch(g["id"])
-    assert result["id"] == g["id"]
-    # Still champion, still only one
+    with pytest.raises(RuntimeError, match="promotion_service_required"):
+        mgr.switch(g["id"])
     champs = [u for u in mgr.list() if u["status"] == "champion"]
     assert len(champs) == 1
 
 
-def test_switch_archived_raises(mgr: UniverseManager):
+def test_switch_archived_is_stably_rejected(mgr: UniverseManager):
     g = mgr.ensure_genesis()
     ch = mgr.branch(g["id"], "exp")
     mgr.archive(ch["id"])
-    with pytest.raises(ValueError, match="archived"):
+    with pytest.raises(RuntimeError, match="promotion_service_required"):
         mgr.switch(ch["id"])
 
 
-def test_rollback_restores_historical_state(mgr: UniverseManager, tmp_path: Path):
+def test_legacy_rollback_is_stably_rejected(mgr: UniverseManager, tmp_path: Path):
     g = mgr.ensure_genesis()
     ch = mgr.branch(g["id"], "exp")
-    mgr.switch(ch["id"])
-    # Drift live while ch is champion
     (tmp_path / "personas" / "bingbu" / "SOUL.md").write_text("v2")
-    ch2 = mgr.branch(ch["id"], "exp2")
-    # Rollback to g
-    mgr.switch(g["id"])
-    assert (tmp_path / "personas" / "bingbu" / "SOUL.md").read_text() == "v1"
-    diff = mgr.diff(g["id"], ch2["id"])
-    assert "bingbu/SOUL.md" in diff["personas"]["changed"]
+    with pytest.raises(RuntimeError, match="promotion_service_required"):
+        mgr.rollback(g["id"])
+    assert (tmp_path / "personas" / "bingbu" / "SOUL.md").read_text() == "v2"
+    assert ch["status"] == "challenger"
 
 
 def test_switch_nonexistent_raises(mgr: UniverseManager):
     mgr.ensure_genesis()
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(RuntimeError, match="promotion_service_required"):
         mgr.switch("ghost-id")
 
 
