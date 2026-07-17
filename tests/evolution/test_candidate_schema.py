@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
@@ -9,6 +10,12 @@ import pytest
 from pydantic import ValidationError
 
 from tianshu.models.canonical import canonical_sha256
+from tianshu.models.decision import (
+    DecisionKind,
+    DecisionRequestV1,
+    DecisionResolutionV1,
+    DecisionStatus,
+)
 from tianshu.models.evolution_candidate import (
     CandidateKind,
     CandidateLifecycle,
@@ -22,6 +29,7 @@ from tianshu.models.evolution_candidate import (
     RoutingPolicyV1,
     validate_lifecycle_transition,
 )
+from tianshu.storage.decision_repo import DecisionRepository
 from tianshu.storage.evolution_repo import (
     EvolutionRepository,
     EvolutionRepositoryConflict,
@@ -101,6 +109,98 @@ def _candidate(
         created_at=NOW,
         updated_at=updated_at,
     )
+
+
+def _code_candidate_at_canary(
+    connection: sqlite3.Connection,
+) -> tuple[EvolutionRepository, EvolutionCandidateV1]:
+    repository = EvolutionRepository()
+    current = repository.insert_candidate(connection, _candidate(kind=CandidateKind.CODE))
+    for lifecycle in (
+        CandidateLifecycle.STAGED,
+        CandidateLifecycle.EVALUATING,
+        CandidateLifecycle.READY,
+        CandidateLifecycle.CANARY,
+    ):
+        current = repository.save_candidate(
+            connection,
+            current.model_copy(
+                update={
+                    "lifecycle": lifecycle,
+                    "updated_at": current.updated_at + timedelta(seconds=1),
+                }
+            ),
+            expected_version=current.version,
+        )
+    return repository, current
+
+
+def _insert_decision_roots(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "INSERT INTO edicts (id, goal, created_at) VALUES (?, ?, ?)",
+        ("edict-code-promote", "review code promotion", NOW.isoformat()),
+    )
+    connection.execute(
+        "INSERT INTO memorials (id, edict_id, status, created_at) VALUES (?, ?, ?, ?)",
+        ("memorial-code-promote", "edict-code-promote", "submitted", NOW.isoformat()),
+    )
+
+
+def _promotion_decision_payload(candidate: EvolutionCandidateV1) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "candidate_id": candidate.candidate_id,
+        "candidate_version": candidate.version,
+        "candidate_artifact_digest": candidate.candidate.artifact_digest,
+        "gate_snapshot_version": candidate.gate_snapshot_version,
+        "action": "promote",
+        "risk_tier": "high",
+    }
+
+
+def _persist_promotion_decision(
+    connection: sqlite3.Connection,
+    candidate: EvolutionCandidateV1,
+    *,
+    payload_updates: dict[str, object] | None = None,
+    resolve_action: str | None = "approve",
+) -> str:
+    _insert_decision_roots(connection)
+    payload = {**_promotion_decision_payload(candidate), **(payload_updates or {})}
+    now = candidate.updated_at
+    request = DecisionRequestV1(
+        decision_request_id="decision-code-promote",
+        kind=DecisionKind.GOVERNED_APPLY,
+        edict_id="edict-code-promote",
+        memorial_id="memorial-code-promote",
+        request_key="candidate-1:promote:5",
+        payload=payload,
+        payload_hash=canonical_sha256(payload),
+        requested_by="principal-1",
+        expires_at=now + timedelta(minutes=10),
+        status=DecisionStatus.PENDING,
+        version=1,
+        created_at=now,
+        updated_at=now,
+    )
+    repository = DecisionRepository()
+    repository.add_or_get(connection, request)
+    if resolve_action is not None:
+        repository.resolve(
+            connection,
+            DecisionResolutionV1(
+                decision_request_id=request.decision_request_id,
+                action=resolve_action,
+                reason="current high-risk code promotion reviewed",
+                payload={"schema_version": 1},
+                actor_principal_id="principal-reviewer",
+                actor_display_name="Reviewer",
+                resolved_at=now + timedelta(seconds=1),
+            ),
+            expected_version=1,
+            now=now + timedelta(seconds=1),
+        )
+    return request.decision_request_id
 
 
 @pytest.fixture
@@ -219,24 +319,7 @@ def test_repository_rejects_stale_version_and_provenance_rewrite(
 def test_code_promote_requires_a_bound_resolved_high_risk_decision(
     connection: sqlite3.Connection,
 ) -> None:
-    repository = EvolutionRepository()
-    current = repository.insert_candidate(connection, _candidate(kind=CandidateKind.CODE))
-    for lifecycle in (
-        CandidateLifecycle.STAGED,
-        CandidateLifecycle.EVALUATING,
-        CandidateLifecycle.READY,
-        CandidateLifecycle.CANARY,
-    ):
-        current = repository.save_candidate(
-            connection,
-            current.model_copy(
-                update={
-                    "lifecycle": lifecycle,
-                    "updated_at": current.updated_at + timedelta(seconds=1),
-                }
-            ),
-            expected_version=current.version,
-        )
+    repository, current = _code_candidate_at_canary(connection)
 
     with pytest.raises(EvolutionRepositoryConflict, match="high-risk Decision"):
         repository.save_candidate(
@@ -248,6 +331,179 @@ def test_code_promote_requires_a_bound_resolved_high_risk_decision(
                 }
             ),
             expected_version=current.version,
+        )
+
+
+def test_code_promote_accepts_only_a_current_canonical_high_risk_decision(
+    connection: sqlite3.Connection,
+) -> None:
+    repository, current = _code_candidate_at_canary(connection)
+    decision_request_id = _persist_promotion_decision(connection, current)
+
+    saved = repository.save_candidate(
+        connection,
+        current.model_copy(
+            update={
+                "lifecycle": CandidateLifecycle.PROMOTED,
+                "updated_at": current.updated_at + timedelta(seconds=2),
+            }
+        ),
+        expected_version=current.version,
+        high_risk_decision_request_id=decision_request_id,
+    )
+
+    assert saved.lifecycle is CandidateLifecycle.PROMOTED
+    assert saved.version == current.version + 1
+
+
+@pytest.mark.parametrize(
+    "payload_updates",
+    [
+        {"candidate_version": 1},
+        {"candidate_artifact_digest": DIGEST_A},
+        {"gate_snapshot_version": 999},
+    ],
+    ids=("stale-version", "wrong-digest", "wrong-gate-snapshot"),
+)
+def test_code_promote_rejects_a_stale_or_mismatched_decision_binding(
+    connection: sqlite3.Connection,
+    payload_updates: dict[str, object],
+) -> None:
+    repository, current = _code_candidate_at_canary(connection)
+    decision_request_id = _persist_promotion_decision(
+        connection, current, payload_updates=payload_updates
+    )
+
+    with pytest.raises(EvolutionRepositoryConflict, match="high-risk Decision"):
+        repository.save_candidate(
+            connection,
+            current.model_copy(
+                update={
+                    "lifecycle": CandidateLifecycle.PROMOTED,
+                    "updated_at": current.updated_at + timedelta(seconds=2),
+                }
+            ),
+            expected_version=current.version,
+            high_risk_decision_request_id=decision_request_id,
+        )
+
+
+@pytest.mark.parametrize(
+    ("payload_updates", "resolve_action"),
+    [
+        ({"action": "start_canary"}, "approve"),
+        ({"risk_tier": "medium"}, "approve"),
+        ({}, None),
+        ({}, "reject"),
+    ],
+    ids=("wrong-action", "wrong-risk", "pending", "rejected-resolution"),
+)
+def test_code_promote_rejects_wrong_request_or_resolution_state(
+    connection: sqlite3.Connection,
+    payload_updates: dict[str, object],
+    resolve_action: str | None,
+) -> None:
+    repository, current = _code_candidate_at_canary(connection)
+    decision_request_id = _persist_promotion_decision(
+        connection,
+        current,
+        payload_updates=payload_updates,
+        resolve_action=resolve_action,
+    )
+
+    with pytest.raises(EvolutionRepositoryConflict, match="high-risk Decision"):
+        repository.save_candidate(
+            connection,
+            current.model_copy(
+                update={
+                    "lifecycle": CandidateLifecycle.PROMOTED,
+                    "updated_at": current.updated_at + timedelta(seconds=2),
+                }
+            ),
+            expected_version=current.version,
+            high_risk_decision_request_id=decision_request_id,
+        )
+
+
+@pytest.mark.parametrize("corruption", ["payload", "hash"])
+def test_code_promote_rejects_a_corrupt_decision_payload_or_hash(
+    connection: sqlite3.Connection,
+    corruption: str,
+) -> None:
+    repository, current = _code_candidate_at_canary(connection)
+    decision_request_id = _persist_promotion_decision(connection, current)
+    if corruption == "payload":
+        corrupt_payload = {**_promotion_decision_payload(current), "candidate_version": 1}
+        connection.execute(
+            "UPDATE decision_requests SET payload_json = ? WHERE decision_request_id = ?",
+            (
+                json.dumps(corrupt_payload, separators=(",", ":"), sort_keys=True),
+                decision_request_id,
+            ),
+        )
+    else:
+        connection.execute(
+            "UPDATE decision_requests SET payload_hash = ? WHERE decision_request_id = ?",
+            (DIGEST_A, decision_request_id),
+        )
+
+    with pytest.raises(EvolutionRepositoryConflict, match="high-risk Decision"):
+        repository.save_candidate(
+            connection,
+            current.model_copy(
+                update={
+                    "lifecycle": CandidateLifecycle.PROMOTED,
+                    "updated_at": current.updated_at + timedelta(seconds=2),
+                }
+            ),
+            expected_version=current.version,
+            high_risk_decision_request_id=decision_request_id,
+        )
+
+
+def test_code_promote_rejects_a_corrupt_resolution_payload(
+    connection: sqlite3.Connection,
+) -> None:
+    repository, current = _code_candidate_at_canary(connection)
+    decision_request_id = _persist_promotion_decision(connection, current, resolve_action=None)
+    resolved_at = current.updated_at + timedelta(seconds=1)
+    connection.execute(
+        """
+        INSERT INTO decision_resolutions (
+            decision_request_id, action, reason, payload_json,
+            actor_principal_id, actor_display_name, resolved_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            decision_request_id,
+            "approve",
+            "invalid resolution payload",
+            '{"schema_version":2}',
+            "principal-reviewer",
+            "Reviewer",
+            resolved_at.isoformat(),
+        ),
+    )
+    connection.execute(
+        """
+        UPDATE decision_requests
+        SET status = 'resolved', version = 2, updated_at = ?
+        WHERE decision_request_id = ?
+        """,
+        (resolved_at.isoformat(), decision_request_id),
+    )
+
+    with pytest.raises(EvolutionRepositoryConflict, match="high-risk Decision"):
+        repository.save_candidate(
+            connection,
+            current.model_copy(
+                update={
+                    "lifecycle": CandidateLifecycle.PROMOTED,
+                    "updated_at": current.updated_at + timedelta(seconds=2),
+                }
+            ),
+            expected_version=current.version,
+            high_risk_decision_request_id=decision_request_id,
         )
 
 

@@ -5,17 +5,19 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from typing import cast
+from typing import Literal, cast
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tianshu.models.canonical import canonical_json_bytes, canonical_sha256
+from tianshu.models.decision import DecisionKind, DecisionStatus
 from tianshu.models.evolution_candidate import (
     CandidateKind,
     CandidateLifecycle,
     EvolutionCandidateV1,
     validate_lifecycle_transition,
 )
+from tianshu.storage.decision_repo import DecisionDecodeError, DecisionRepository
 
 
 class EvolutionRepositoryError(RuntimeError):
@@ -28,6 +30,18 @@ class EvolutionRepositoryConflict(EvolutionRepositoryError):
 
 class EvolutionRepositoryDecodeError(EvolutionRepositoryError):
     """A durable candidate row violates the v1 contract."""
+
+
+class _CodePromotionDecisionBindingV1(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    schema_version: Literal[1]
+    candidate_id: str
+    candidate_version: int = Field(ge=1)
+    candidate_artifact_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    gate_snapshot_version: int = Field(ge=0)
+    action: Literal["promote"]
+    risk_tier: Literal["high"]
 
 
 _SELECT_CANDIDATE = """
@@ -156,44 +170,32 @@ def _append_lifecycle_journal(
 def _require_high_risk_code_promotion_decision(
     connection: sqlite3.Connection,
     *,
-    candidate_id: str,
+    candidate: EvolutionCandidateV1,
     decision_request_id: str | None,
 ) -> None:
     if decision_request_id is None or not decision_request_id.strip():
         raise EvolutionRepositoryConflict(
             "code promotion requires an explicit resolved high-risk Decision"
         )
-    row = connection.execute(
-        """
-        SELECT request.kind, request.status, request.payload_json, resolution.action
-        FROM decision_requests AS request
-        LEFT JOIN decision_resolutions AS resolution
-          ON resolution.decision_request_id = request.decision_request_id
-        WHERE request.decision_request_id = ?
-        """,
-        (decision_request_id,),
-    ).fetchone()
-    if row is None:
-        raise EvolutionRepositoryConflict(
-            "code promotion requires an explicit resolved high-risk Decision"
-        )
     try:
-        payload = json.loads(row["payload_json"])
-    except (json.JSONDecodeError, TypeError) as exc:
+        record = DecisionRepository().get(connection, decision_request_id)
+        if record is None or record.resolution is None:
+            raise ValueError("decision is missing or unresolved")
+        binding = _CodePromotionDecisionBindingV1.model_validate(record.request.payload)
+        if (
+            record.request.kind is not DecisionKind.GOVERNED_APPLY
+            or record.request.status is not DecisionStatus.RESOLVED
+            or record.resolution.action != "approve"
+            or binding.candidate_id != candidate.candidate_id
+            or binding.candidate_version != candidate.version
+            or binding.candidate_artifact_digest != candidate.candidate.artifact_digest
+            or binding.gate_snapshot_version != candidate.gate_snapshot_version
+        ):
+            raise ValueError("decision is not bound to the current candidate")
+    except (DecisionDecodeError, ValidationError, TypeError, ValueError) as exc:
         raise EvolutionRepositoryConflict(
             "code promotion requires an explicit resolved high-risk Decision"
         ) from exc
-    if not isinstance(payload, dict) or (
-        row["kind"] != "governed_apply"
-        or row["status"] != "resolved"
-        or row["action"] != "approve"
-        or payload.get("risk_tier") != "high"
-        or payload.get("action") != "promote"
-        or payload.get("candidate_id") != candidate_id
-    ):
-        raise EvolutionRepositoryConflict(
-            "code promotion requires an explicit resolved high-risk Decision"
-        )
 
 
 def _require_immutable_core(current: EvolutionCandidateV1, candidate: EvolutionCandidateV1) -> None:
@@ -315,7 +317,7 @@ class EvolutionRepository:
             ):
                 _require_high_risk_code_promotion_decision(
                     connection,
-                    candidate_id=candidate.candidate_id,
+                    candidate=current,
                     decision_request_id=high_risk_decision_request_id,
                 )
         saved = candidate.model_copy(update={"version": expected_version + 1})
