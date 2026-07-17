@@ -9,7 +9,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GovernanceContractPreview, PersonaInfo, SkillInfo } from "../api/types";
-import type { OnboardingState } from "../api/onboarding";
+import { ONBOARDING_QUERY_KEY, type OnboardingState } from "../api/onboarding";
 
 const onboardingApi = vi.hoisted(() => ({ getOnboardingState: vi.fn() }));
 const edictsApi = vi.hoisted(() => ({
@@ -104,11 +104,12 @@ function LocationProbe() {
   return <output>{useLocation().pathname}</output>;
 }
 
-function renderPage() {
-  const queryClient = new QueryClient({
+function renderPage(
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return render(
+  }),
+) {
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/onboarding"]}>
         <LocationProbe />
@@ -120,6 +121,7 @@ function renderPage() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...view, queryClient };
 }
 
 beforeEach(() => {
@@ -193,6 +195,26 @@ describe("first-run onboarding", () => {
     expect(screen.getByRole("heading", { name: "中枢总览" })).toBeInTheDocument();
   });
 
+  it("does not redirect from cached configured state when the current refresh fails", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
+    });
+    queryClient.setQueryData(ONBOARDING_QUERY_KEY, { ...FRESH_STATE, required: false });
+    onboardingApi.getOnboardingState.mockRejectedValue({
+      status: 503,
+      code: "onboarding-readiness-unavailable",
+      message: "",
+      correlationId: null,
+      retryable: true,
+    });
+
+    renderPage(queryClient);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("服务暂不可用");
+    expect(screen.getByText("/onboarding")).toBeInTheDocument();
+    expect(onboardingApi.getOnboardingState).toHaveBeenCalledOnce();
+  });
+
   it("shows exactly the packaged resources and requires an explicit demo acknowledgement by keyboard", async () => {
     onboardingApi.getOnboardingState.mockResolvedValue(FRESH_STATE);
     renderPage();
@@ -222,7 +244,7 @@ describe("first-run onboarding", () => {
 
   it("previews requested/effective truth, omits browser actors, and opens the real Edict", async () => {
     onboardingApi.getOnboardingState.mockResolvedValue(FRESH_STATE);
-    renderPage();
+    const { queryClient } = renderPage();
     await userEvent.click(await screen.findByRole("radio", { name: /演示配置/ }));
     fireEvent.change(await screen.findByLabelText("敕令旨意"), {
       target: { value: "完成首次治理任务" },
@@ -251,5 +273,6 @@ describe("first-run onboarding", () => {
     expect(submitted).toHaveProperty("governance_contract", governancePreview().requested_contract);
     expect(await screen.findByText("/edicts/edict-new")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "敕令详情" })).toBeInTheDocument();
+    expect(queryClient.getQueryData<OnboardingState>(ONBOARDING_QUERY_KEY)?.required).toBe(false);
   });
 });

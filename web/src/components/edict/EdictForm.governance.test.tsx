@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import "@testing-library/jest-dom/vitest";
+
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -209,7 +211,7 @@ describe("edict governance confirmation", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /颁发敕令/ }));
 
-    expect(await screen.findByText(/durable_resume/)).not.toBeNull();
+    expect(await screen.findAllByText(/durable_resume/)).not.toHaveLength(0);
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByText("生效契约摘要")).not.toBeNull();
     expect(screen.getByText(/tianshu\.native\.v1/)).not.toBeNull();
@@ -232,15 +234,71 @@ describe("edict governance confirmation", () => {
     preview.advisory_gaps = [];
     preview.requested_contract = {
       ...preview.requested_contract,
+      permissions: {
+        ...(preview.requested_contract.permissions as Record<string, unknown>),
+        allowed_paths: ["requested/path"],
+        review_policy: "always",
+      },
+      network: {
+        ...(preview.requested_contract.network as Record<string, unknown>),
+        mode: "allowlist",
+        allowed_hosts: ["requested.example"],
+      },
       workspace: {
         ...(preview.requested_contract.workspace as Record<string, unknown>),
-        source_id: "workspace-main",
-        base_revision: "HEAD",
+        source_id: "workspace-requested",
+        base_revision: "requested-rev",
+      },
+      budget: {
+        ...(preview.requested_contract.budget as Record<string, unknown>),
+        token_limit: 2000,
+        wall_clock_seconds: 300,
+      },
+      acceptance: {
+        ...(preview.requested_contract.acceptance as Record<string, unknown>),
+        checks: [{ name: "requested-check" }],
+        deadline_seconds: 600,
+      },
+      recovery: {
+        ...(preview.requested_contract.recovery as Record<string, unknown>),
+        require_restore_point: true,
+        failure_cleanup: "required",
       },
     };
     preview.effective_contract = {
       ...preview.effective_contract!,
-      workspace: preview.requested_contract.workspace,
+      permissions: {
+        ...(preview.effective_contract!.permissions as Record<string, unknown>),
+        allowed_paths: ["effective/path"],
+        review_policy: "on_failure",
+      },
+      network: {
+        ...(preview.effective_contract!.network as Record<string, unknown>),
+        mode: "deny",
+        allowed_hosts: [],
+      },
+      workspace: {
+        ...(preview.effective_contract!.workspace as Record<string, unknown>),
+        source_id: "workspace-policy",
+        base_revision: "policy-rev",
+      },
+      resolved_source_id: "workspace-effective",
+      resolved_base_revision: "effective-rev",
+      budget: {
+        ...(preview.effective_contract!.budget as Record<string, unknown>),
+        token_limit: 1000,
+        wall_clock_seconds: 120,
+      },
+      acceptance: {
+        ...(preview.effective_contract!.acceptance as Record<string, unknown>),
+        checks: [{ name: "effective-check" }],
+        deadline_seconds: 300,
+      },
+      recovery: {
+        ...(preview.effective_contract!.recovery as Record<string, unknown>),
+        require_restore_point: false,
+        failure_cleanup: "best_effort",
+      },
       unsupported_advisory: [],
     };
     edictsApi.previewEdictGovernance.mockResolvedValue(preview);
@@ -260,13 +318,31 @@ describe("edict governance confirmation", () => {
 
     const requested = await screen.findByRole("region", { name: "请求契约" });
     expect(within(requested).getByText("native")).not.toBeNull();
-    expect(within(requested).getByText("workspace-main")).not.toBeNull();
-    expect(within(requested).getByText("HEAD")).not.toBeNull();
-    expect(within(requested).getByText("deny")).not.toBeNull();
+    expect(within(requested).getByText("workspace-requested")).not.toBeNull();
+    expect(within(requested).getByText("requested-rev")).not.toBeNull();
+    expect(within(requested).getByText("allowlist")).not.toBeNull();
+    expect(requested).toHaveTextContent("requested/path");
+    expect(requested).toHaveTextContent("requested.example");
+    expect(requested).toHaveTextContent("2000");
+    expect(requested).toHaveTextContent("requested-check");
+    expect(requested).toHaveTextContent("600");
+    expect(requested).toHaveTextContent("required");
 
     const effective = screen.getByRole("region", { name: "生效契约" });
     expect(within(effective).getByText("tianshu.native.v1")).not.toBeNull();
     expect(within(effective).getByText("contained")).not.toBeNull();
+    expect(effective).toHaveTextContent("workspace-effective");
+    expect(effective).toHaveTextContent("effective-rev");
+    expect(effective).toHaveTextContent("effective/path");
+    expect(effective).toHaveTextContent("on_failure");
+    expect(effective).toHaveTextContent("deny");
+    expect(effective).toHaveTextContent("1000");
+    expect(effective).toHaveTextContent("effective-check");
+    expect(effective).toHaveTextContent("300");
+    expect(effective).toHaveTextContent("best_effort");
+    expect(effective).toHaveTextContent(/workspace_control.*best_effort/);
+    expect(effective).toHaveTextContent(/network_control.*observed/);
+    expect(effective).toHaveTextContent(/budget_enforcement.*unsupported/);
     expect(onSubmit).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "确认契约并下发" }));
@@ -275,5 +351,30 @@ describe("edict governance confirmation", () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ governance_contract: preview.requested_contract }),
     );
+  });
+
+  it("fails closed when a compatible preview omits the effective contract", async () => {
+    const preview = advisoryPreview();
+    preview.compatible = true;
+    preview.effective_contract = null;
+    preview.advisory_gaps = [];
+    edictsApi.previewEdictGovernance.mockResolvedValue(preview);
+    const onSubmit = vi.fn();
+    render(
+      <EdictForm
+        onSubmit={onSubmit}
+        loading={false}
+        governanceConfirmation="always"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("敕令旨意"), {
+      target: { value: "拒绝不完整预检" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /颁发敕令/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("生效契约");
+    expect(screen.queryByRole("button", { name: "确认契约并下发" })).toBeNull();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

@@ -21,6 +21,7 @@ vi.mock("../api/onboarding", async (importOriginal) => ({
 }));
 
 import AppRoutes, { RouteErrorBoundary } from "./AppRoutes";
+import { ONBOARDING_QUERY_KEY } from "../api/onboarding";
 
 function NavigationProbe() {
   const location = useLocation();
@@ -32,10 +33,12 @@ function suppressExpectedBoundaryError(event: ErrorEvent) {
   event.preventDefault();
 }
 
-function renderAppRoutes(initialEntry: string) {
-  const queryClient = new QueryClient({
+function renderAppRoutes(
+  initialEntry: string,
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  });
+  }),
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
@@ -99,6 +102,63 @@ describe("desktop application routes", () => {
     expect(screen.getByText("/:POP")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "中枢总览" })).not.toBeInTheDocument();
   });
+
+  it("does not redirect from cached onboarding data when the current refresh fails", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
+    });
+    queryClient.setQueryData(ONBOARDING_QUERY_KEY, {
+      required: false,
+      readiness: "ready",
+      profile: "demo",
+      packagedPersonas: [],
+      builtinSkills: [],
+    });
+    onboardingApi.getOnboardingState.mockRejectedValue({
+      status: 503,
+      code: "onboarding-readiness-unavailable",
+      message: "",
+      correlationId: null,
+      retryable: true,
+    });
+
+    renderAppRoutes("/", queryClient);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("服务暂不可用");
+    expect(screen.getByText("/:POP")).toBeInTheDocument();
+    expect(onboardingApi.getOnboardingState).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [true, false, "/onboarding:REPLACE"],
+    [false, true, "/control:REPLACE"],
+  ] as const)(
+    "uses current required=%s over cached required=%s",
+    async (currentRequired, cachedRequired, destination) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
+      });
+      queryClient.setQueryData(ONBOARDING_QUERY_KEY, {
+        required: cachedRequired,
+        readiness: "ready",
+        profile: "demo",
+        packagedPersonas: [],
+        builtinSkills: [],
+      });
+      onboardingApi.getOnboardingState.mockResolvedValue({
+        required: currentRequired,
+        readiness: "ready",
+        profile: "demo",
+        packagedPersonas: [],
+        builtinSkills: [],
+      });
+
+      renderAppRoutes("/", queryClient);
+
+      expect(await screen.findByText(destination)).toBeInTheDocument();
+      expect(onboardingApi.getOnboardingState).toHaveBeenCalledOnce();
+    },
+  );
 
   it("keeps approvals as the canonical Royal Study route", async () => {
     renderAppRoutes("/approvals");

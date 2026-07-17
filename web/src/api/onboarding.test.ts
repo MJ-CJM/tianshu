@@ -117,6 +117,33 @@ describe("onboarding state composition", () => {
     });
   });
 
+  it("rejects an extra persona because the catalog exposes no authoritative source marker", async () => {
+    apiMocks.listPersonas.mockResolvedValue({
+      success: true,
+      data: [
+        ...personas,
+        { id: "custom", name: "自定义官员", department: "bingbu" },
+      ],
+    });
+
+    await expect(getOnboardingState()).rejects.toMatchObject({
+      status: 503,
+      code: "onboarding-resources-unavailable",
+    });
+  });
+
+  it("rejects a duplicate packaged persona id instead of collapsing it", async () => {
+    apiMocks.listPersonas.mockResolvedValue({
+      success: true,
+      data: [...personas, { ...personas[0] }],
+    });
+
+    await expect(getOnboardingState()).rejects.toMatchObject({
+      status: 503,
+      code: "onboarding-resources-unavailable",
+    });
+  });
+
   it("requires exactly the two builtin skills while ignoring user overlays", async () => {
     apiMocks.listSkills.mockResolvedValue({
       success: true,

@@ -38,6 +38,10 @@ function unavailable(code: string): ApiProblem {
 }
 
 function exactPackagedPersonas(personas: PersonaInfo[]): PersonaInfo[] {
+  const ids = personas.map((persona) => persona.id);
+  if (personas.length !== PACKAGED_PERSONAS.length || new Set(ids).size !== ids.length) {
+    throw unavailable("onboarding-resources-unavailable");
+  }
   const byId = new Map(personas.map((persona) => [persona.id, persona]));
   const packaged = PACKAGED_PERSONAS.map((expected) => byId.get(expected.id));
   const valid = packaged.every((persona, index) => {

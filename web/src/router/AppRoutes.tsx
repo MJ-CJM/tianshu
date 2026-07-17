@@ -36,6 +36,7 @@ function OnboardingEntryRoute() {
   const query = useQuery({
     queryKey: ONBOARDING_QUERY_KEY,
     queryFn: getOnboardingState,
+    refetchOnMount: "always",
   });
   const problem = query.error
     ? isApiProblem(query.error)
@@ -43,13 +44,14 @@ function OnboardingEntryRoute() {
       : toApiProblem(query.error)
     : null;
 
-  if (query.data) {
+  const hasCurrentSuccess = query.isFetchedAfterMount && !query.isFetching && !problem;
+  if (hasCurrentSuccess && query.data) {
     return <Navigate to={query.data.required ? "/onboarding" : "/control"} replace />;
   }
 
   return (
     <PageDataState
-      status={query.isPending ? "loading" : problem ? problemPageStatus(problem) : "error"}
+      status={problem ? problemPageStatus(problem) : "loading"}
       data={null}
       problem={problem}
       isEmpty={() => false}

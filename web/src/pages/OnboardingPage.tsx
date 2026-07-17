@@ -90,6 +90,7 @@ export default function OnboardingPage() {
   const query = useQuery({
     queryKey: ONBOARDING_QUERY_KEY,
     queryFn: getOnboardingState,
+    refetchOnMount: "always",
   });
   const problem = query.error
     ? isApiProblem(query.error)
@@ -97,17 +98,16 @@ export default function OnboardingPage() {
       : toApiProblem(query.error)
     : null;
 
-  if (query.data && !query.data.required) {
+  const hasCurrentSuccess = query.isFetchedAfterMount && !query.isFetching && !problem;
+  if (hasCurrentSuccess && query.data && !query.data.required) {
     return <Navigate to="/control" replace />;
   }
 
-  const status = query.isPending
-    ? "loading"
-    : query.data && problem
-      ? "stale"
-      : problem
-        ? problemPageStatus(problem)
-        : "success-data";
+  const status = problem
+    ? problemPageStatus(problem)
+    : hasCurrentSuccess
+      ? "success-data"
+      : "loading";
 
   return (
     <PageContainer title={t("page.onboarding.title")}>
