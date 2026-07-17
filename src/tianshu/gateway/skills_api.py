@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from tianshu.gateway.auth import get_auth_context
 from tianshu.models import ApiResponse
+from tianshu.models.canonical import canonical_sha256
 from tianshu.models.evolution_candidate import CandidateSourceChannel
 from tianshu.skills.install_service import (
     ProposedSkillMemberV1,
     ProposeSkillCommand,
     SkillInstallService,
 )
+from tianshu.skills.installer import SkillPackageSnapshotError, snapshot_skill_package
 from tianshu.storage import Storage
 
 skills_router = APIRouter(tags=["skills"])
@@ -86,12 +89,20 @@ async def update_skill(name: str, request: Request):
     current = loader.get_skill(name)
     if current is None:
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found") from None
+    try:
+        snapshot = snapshot_skill_package(Path(str(current.get("path", ""))), expected_name=name)
+    except SkillPackageSnapshotError:
+        raise HTTPException(status_code=409, detail="skill_package_snapshot_invalid") from None
+    base_members = tuple(
+        ProposedSkillMemberV1(path=member.path, kind=member.kind, content=member.content)
+        for member in snapshot
+    )
     service: SkillInstallService = request.app.state.skill_install_service
     auth = get_auth_context(request)
     candidate = service.propose(
         _inline_command(
             name=name,
-            base_content=str(current["content"]),
+            base_members=base_members,
             content=str(content),
             source_channel=CandidateSourceChannel.API,
             correlation_id=auth.correlation_id,
@@ -135,12 +146,21 @@ async def create_skill(request: Request):
     content = body.get("content", "")
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
+    from tianshu.skills.loader import SkillsLoader
+
+    loader: SkillsLoader = request.app.state.skills_loader
+    try:
+        current = loader.get_skill(str(name))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid_skill_name") from None
+    if current is not None:
+        raise HTTPException(status_code=409, detail="skill_already_exists")
     service: SkillInstallService = request.app.state.skill_install_service
     auth = get_auth_context(request)
     candidate = service.propose(
         _inline_command(
             name=str(name),
-            base_content=None,
+            base_members=None,
             content=str(content),
             source_channel=CandidateSourceChannel.API,
             correlation_id=auth.correlation_id,
@@ -184,32 +204,34 @@ def delete_skill(name: str, request: Request):
 def _inline_command(
     *,
     name: str,
-    base_content: str | None,
+    base_members: tuple[ProposedSkillMemberV1, ...] | None,
     content: str,
     source_channel: CandidateSourceChannel,
     correlation_id: str,
 ) -> ProposeSkillCommand:
     identity = hashlib.sha256(f"{correlation_id}:{name}:{content}".encode()).hexdigest()
+    candidate_members = [ProposedSkillMemberV1(path="SKILL.md", kind="file", content=content)]
+    if base_members is not None:
+        candidate_members.extend(member for member in base_members if member.path != "SKILL.md")
+    base_digest = (
+        None
+        if base_members is None
+        else canonical_sha256(
+            {"members": [member.model_dump(mode="json") for member in base_members]}
+        )
+    )
     return ProposeSkillCommand(
         command_id=f"skill-api-{identity}",
         name=name,
         version=f"candidate-{identity[:16]}",
-        base_version=(
-            "absent"
-            if base_content is None
-            else f"base-{hashlib.sha256(base_content.encode()).hexdigest()[:16]}"
-        ),
-        base_state="absent" if base_content is None else "present",
+        base_version=("absent" if base_digest is None else f"base-{base_digest[:16]}"),
+        base_state="absent" if base_members is None else "present",
         source_channel=source_channel,
-        base_members=(
-            ()
-            if base_content is None
-            else (ProposedSkillMemberV1(path="SKILL.md", kind="file", content=base_content),)
-        ),
-        members=(ProposedSkillMemberV1(path="SKILL.md", kind="file", content=content),),
+        base_members=(() if base_members is None else base_members),
+        members=tuple(candidate_members),
         evidence_bundle_ids=(),
         restore_point_ref=(
-            f"skill:{name}:absent" if base_content is None else f"skill:{name}:current"
+            f"skill:{name}:absent" if base_members is None else f"skill:{name}:current"
         ),
     )
 

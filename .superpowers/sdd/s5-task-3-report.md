@@ -21,9 +21,12 @@ routing, or allocation mutation.
   mutate live skills. The legacy `SkillInstaller.install()` immediately returns the
   stable `governed_skill_service_required` refusal without reading the source, creating
   the target, or staging inside the live tree.
-- Skill creation uses an explicit absent base package; updates retain a present base
-  bound to the actual current skill. Create proposals therefore have distinct base and
-  candidate digests and a truthful absent restore point.
+- Skill creation uses an explicit absent base package and rejects any same-name loader
+  hit before persistence. Updates snapshot the loader-selected raw `SKILL.md` plus all
+  ordinary files and directories under `scripts`, `references`, `assets`, and
+  `templates`; the candidate preserves those resources while replacing `SKILL.md`.
+  Symlinks, non-ordinary files, illegal paths, unsafe loader identities, concurrent
+  changes, and size/member limits fail closed before proposal persistence.
 - Proposal contracts were placed in `models` and the skill service depends on a port
   protocol, preserving the repository's import-layer contract.
 - The composition root wires candidate, gate, and skill-install services during the real
@@ -59,6 +62,15 @@ The implementation was developed through observed RED/GREEN cycles:
 9. The API create-stage test exposed identical base/candidate digests. An explicit
    absent base state was added and the test now proves distinct digests, truthful
    rollback binding, and no live write.
+10. The update API remediation test exposed that loader `content` excludes frontmatter,
+    causing the current base to fail validation and omitting all resource members. The
+    skills-layer package snapshot now safely rereads the loader's authoritative path,
+    and the real API test proves the exact complete base digest and unchanged live tree.
+11. The duplicate-create remediation test exposed that a same-name live skill entered
+    proposal validation. The API now returns stable `skill_already_exists` before the
+    service call; artifact, candidate, lifecycle, audit, and outbox counts remain
+    unchanged. Snapshot errors similarly return stable
+    `skill_package_snapshot_invalid` with no filesystem path disclosure or persistence.
 
 ## Verification
 
@@ -73,6 +85,14 @@ The implementation was developed through observed RED/GREEN cycles:
 - Mypy: no issues in the 6 remediation-touched source files.
 - Import-linter: 476 files / 1694 dependencies; 2 contracts kept, 0 broken.
 - `git diff --check`: clean.
+- Authoritative-package remediation: `326 passed, 4 warnings in 9.03s` across the
+  skills, installer, skill gate, candidate adapter, and real API suites; the final
+  API/snapshot check passed `9 passed, 4 warnings in 4.12s`.
+- Remediation static checks: Ruff passed; mypy reported no issues in the two modified
+  source files; import-linter analyzed 476 files / 1696 dependencies with both
+  contracts kept.
+- `uv.lock` is unchanged from `HEAD`; validation uses the existing virtual environment
+  directly so verification does not rewrite dependency metadata.
 
 The four pytest warnings are third-party deprecations from `lark_oapi` and `websockets`;
 no Task 3 warning was introduced. Per controller direction, no unrelated full-repository

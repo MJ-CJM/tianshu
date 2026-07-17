@@ -32,6 +32,7 @@ from tianshu.skills.validator import SkillValidator, ValidationFinding
 _DEFAULT_MAX_TOTAL_BYTES = 10 * 1024 * 1024  # 解压后总字节上限:10 MiB
 _DEFAULT_MAX_MEMBERS = 512  # 成员数上限
 _DEFAULT_MAX_FILE_BYTES = 4 * 1024 * 1024  # 单文件上限:4 MiB
+_SKILL_RESOURCE_DIRS = ("scripts", "references", "assets", "templates")
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,10 @@ class SkillPackageMember:
     path: str
     kind: Literal["file", "directory", "symlink_file", "symlink_directory"]
     content: str | None = None
+
+
+class SkillPackageSnapshotError(ValueError):
+    """The loader-selected live package cannot be safely snapshotted."""
 
 
 @dataclass(frozen=True)
@@ -85,6 +90,179 @@ def canonical_skill_package_member_path(value: str) -> str:
     if canonical in {"", "."}:
         raise ValueError("skill package member cannot target package root")
     return canonical
+
+
+def snapshot_skill_package(
+    skill_file: Path,
+    *,
+    expected_name: str,
+    max_total_bytes: int = _DEFAULT_MAX_TOTAL_BYTES,
+    max_members: int = _DEFAULT_MAX_MEMBERS,
+    max_file_bytes: int = _DEFAULT_MAX_FILE_BYTES,
+) -> tuple[SkillPackageMember, ...]:
+    """Read one loader-selected live skill and its allowed resource trees safely."""
+
+    source = Path(skill_file)
+    root = source.parent
+    if source.name != "SKILL.md" or root.name != expected_name:
+        raise SkillPackageSnapshotError("loader skill identity does not match requested skill")
+    if root.is_symlink():
+        raise SkillPackageSnapshotError("skill root cannot be a symlink")
+    try:
+        if not root.is_dir():
+            raise SkillPackageSnapshotError("skill root is not a directory")
+        resolved_root = root.resolve(strict=True)
+        resolved_source = source.resolve(strict=True)
+    except OSError as exc:
+        raise SkillPackageSnapshotError("loader skill path cannot be resolved") from exc
+    if resolved_source.parent != resolved_root:
+        raise SkillPackageSnapshotError("loader skill path escapes its package root")
+
+    members: list[SkillPackageMember] = []
+    total_bytes = 0
+
+    def append(member: SkillPackageMember, *, byte_count: int = 0) -> None:
+        nonlocal total_bytes
+        if len(members) >= max_members:
+            raise SkillPackageSnapshotError("skill package member count exceeds limit")
+        total_bytes += byte_count
+        if total_bytes > max_total_bytes:
+            raise SkillPackageSnapshotError("skill package total size exceeds limit")
+        members.append(member)
+
+    skill_content, skill_size = _read_snapshot_file(source, max_file_bytes=max_file_bytes)
+    append(
+        SkillPackageMember(path="SKILL.md", kind="file", content=skill_content),
+        byte_count=skill_size,
+    )
+
+    def visit_directory(directory: Path, relative: str) -> None:
+        try:
+            before = os.lstat(directory)
+        except OSError as exc:
+            raise SkillPackageSnapshotError("skill resource directory cannot be read") from exc
+        if stat.S_ISLNK(before.st_mode):
+            raise SkillPackageSnapshotError("skill package contains a symlink directory")
+        if not stat.S_ISDIR(before.st_mode):
+            raise SkillPackageSnapshotError("skill resource root is not a directory")
+        try:
+            canonical = canonical_skill_package_member_path(relative)
+        except ValueError as exc:
+            raise SkillPackageSnapshotError("skill package contains an illegal path") from exc
+        if canonical != relative:
+            raise SkillPackageSnapshotError("skill package contains an illegal path")
+        append(SkillPackageMember(path=relative, kind="directory"))
+        try:
+            with os.scandir(directory) as iterator:
+                entries = sorted(iterator, key=lambda entry: entry.name)
+        except OSError as exc:
+            raise SkillPackageSnapshotError("skill resource directory cannot be read") from exc
+        for entry in entries:
+            child_relative = f"{relative}/{entry.name}"
+            try:
+                canonical_child = canonical_skill_package_member_path(child_relative)
+                child_stat = entry.stat(follow_symlinks=False)
+            except ValueError as exc:
+                raise SkillPackageSnapshotError("skill package contains an illegal path") from exc
+            except OSError as exc:
+                raise SkillPackageSnapshotError("skill resource member cannot be read") from exc
+            if canonical_child != child_relative:
+                raise SkillPackageSnapshotError("skill package contains an illegal path")
+            child = Path(entry.path)
+            if stat.S_ISLNK(child_stat.st_mode):
+                raise SkillPackageSnapshotError("skill package contains a symlink member")
+            if stat.S_ISDIR(child_stat.st_mode):
+                visit_directory(child, child_relative)
+                continue
+            if not stat.S_ISREG(child_stat.st_mode):
+                raise SkillPackageSnapshotError("skill package contains a non-ordinary member")
+            content, size = _read_snapshot_file(
+                child,
+                max_file_bytes=max_file_bytes,
+                expected_stat=child_stat,
+            )
+            append(
+                SkillPackageMember(path=child_relative, kind="file", content=content),
+                byte_count=size,
+            )
+        try:
+            after = os.lstat(directory)
+        except OSError as exc:
+            raise SkillPackageSnapshotError(
+                "skill resource directory changed during snapshot"
+            ) from exc
+        if (before.st_dev, before.st_ino, before.st_mtime_ns) != (
+            after.st_dev,
+            after.st_ino,
+            after.st_mtime_ns,
+        ):
+            raise SkillPackageSnapshotError("skill resource directory changed during snapshot")
+
+    for resource_name in _SKILL_RESOURCE_DIRS:
+        resource = root / resource_name
+        if os.path.lexists(resource):
+            visit_directory(resource, resource_name)
+    return tuple(sorted(members, key=lambda member: member.path))
+
+
+def _read_snapshot_file(
+    path: Path,
+    *,
+    max_file_bytes: int,
+    expected_stat: os.stat_result | None = None,
+) -> tuple[str, int]:
+    """Read a stable ordinary UTF-8 file descriptor without following symlinks."""
+
+    try:
+        before = expected_stat or os.lstat(path)
+    except OSError as exc:
+        raise SkillPackageSnapshotError("skill package file cannot be read") from exc
+    if stat.S_ISLNK(before.st_mode):
+        raise SkillPackageSnapshotError("skill package contains a symlink file")
+    if not stat.S_ISREG(before.st_mode):
+        raise SkillPackageSnapshotError("skill package contains a non-ordinary file")
+    if before.st_size > max_file_bytes:
+        raise SkillPackageSnapshotError("skill package file size exceeds limit")
+    no_follow = getattr(os, "O_NOFOLLOW", None)
+    if no_follow is None:
+        raise SkillPackageSnapshotError("safe no-follow file reads are unavailable")
+    flags = os.O_RDONLY | no_follow | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise SkillPackageSnapshotError("skill package file cannot be safely opened") from exc
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or (before.st_dev, before.st_ino) != (
+            opened.st_dev,
+            opened.st_ino,
+        ):
+            raise SkillPackageSnapshotError("skill package file changed during snapshot")
+        chunks: list[bytes] = []
+        byte_count = 0
+        while True:
+            chunk = os.read(descriptor, min(64 * 1024, max_file_bytes - byte_count + 1))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            byte_count += len(chunk)
+            if byte_count > max_file_bytes:
+                raise SkillPackageSnapshotError("skill package file size exceeds limit")
+        finished = os.fstat(descriptor)
+        if (opened.st_size, opened.st_mtime_ns) != (finished.st_size, finished.st_mtime_ns):
+            raise SkillPackageSnapshotError("skill package file changed during snapshot")
+    finally:
+        os.close(descriptor)
+    try:
+        after = os.lstat(path)
+    except OSError as exc:
+        raise SkillPackageSnapshotError("skill package file changed during snapshot") from exc
+    if (opened.st_dev, opened.st_ino) != (after.st_dev, after.st_ino):
+        raise SkillPackageSnapshotError("skill package file changed during snapshot")
+    try:
+        return b"".join(chunks).decode("utf-8"), byte_count
+    except UnicodeDecodeError as exc:
+        raise SkillPackageSnapshotError("skill package file is not UTF-8") from exc
 
 
 class SkillInstaller:
