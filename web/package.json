@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest"
+    "test": "vitest",
+    "e2e": "playwright test",
+    "e2e:update": "playwright test e2e/visual-core.spec.ts --update-snapshots"
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",

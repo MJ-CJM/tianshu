@@ -39,6 +39,29 @@ jobs:
       - run: npm test -- --run
       - run: npm run build
 
+  web-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen --python 3.12 --all-extras
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - run: npm run e2e
+        working-directory: web
+
   # 发行物正确性：backend job 的 `-m "not slow"` 把 wheel manifest 与黑盒全部排除在外，
   # 于是"干净检出构建出的 wheel 没有 Web 界面"这类回归 CI 永远发现不了。这个 job 从
   # 干净检出走完整的发行链路（前端构建 → wheel）并断言归档内容。

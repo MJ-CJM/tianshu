@@ -23,4 +23,14 @@ export default tseslint.config(
       "react-hooks/immutability": "warn",
     },
   },
+  {
+    files: ["e2e/**/*.ts", "playwright.config.ts"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/immutability": "off",
+      "react-refresh/only-export-components": "off",
+      "no-empty-pattern": "off",
+    },
+  },
 );

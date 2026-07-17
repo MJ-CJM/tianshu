@@ -1,8 +1,11 @@
-import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
+  test: {
+    exclude: [...configDefaults.exclude, "e2e/**"],
+  },
   server: {
     port: 7999,
     proxy: {

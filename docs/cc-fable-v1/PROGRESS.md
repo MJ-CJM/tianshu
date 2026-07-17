@@ -160,3 +160,16 @@ Gate history: planned focused filenames were rebound to the actual durable Decis
 Boundary: passed only for managed Native durable governance, tracked effect semantics, Evidence Bundle v1, durable internal notification and single-node SQLite; full OTel/SLO, external notification delivery, PostgreSQL/K8s/multi-replica, external CLI internal governance, container and publication remain deferred/not claimed
 Report: docs/cc-fable-v1/reports/s3-core-governance-report.md
 Next: S4 Core
+
+=== S4 / Core Web Gate (2026-07-17) ===
+S4.1-S4.7 + Lean S4.12: automation_passed; visual/interaction user_approval_pending
+Core surfaces: truthful Control Center, authoritative governed Edict detail, and pre-S5 disabled Evolution Center are implemented on real read contracts (`6ccf90a`, `81c3125`)
+Browser-found product fixes: `e69f50a` (onboarding navigation ordering; durable Decision timestamp decoding; WCAG contrast/focus; 200% shell/Edict responsiveness; valid PolicyTimeline control semantics)
+Real-stack Playwright Gate: 39 passed in 30.5s = 9 accessibility + 24 visual + 6 governed journey/contract/performance checks; zero serious/critical axe findings on all three core routes; keyboard and 200% equivalent checks passed
+Visual matrix: user-facing `zh-classic`; 3 routes × 2 viewports × 2 themes × 2 sidebar states = 24 committed PNG baselines; fresh-stack comparison 24/24 passed; SHA-256 manifest verified; user visual/interaction approval remains pending and is not collapsed into automation status
+Web verification: lint 0 errors/35 retained warnings; typecheck passed; 35 unit files/186 tests passed; production build passed; Control 5.48kB/1.77 gzip and initial-load network proof excludes DAG/EdictDetail/Persona/System deferred chunks; inherited shared antd >500k warning remains disclosed
+Evidence regression: 3 passed; focused Ruff check/format passed
+CI: separate `web-e2e` job (Node 20 + frozen Python 3.12/all-extras + production build + Chromium + real-stack suite)
+Boundary: S4.8-S4.11 department depth deferred; VoiceOver/manual cross-browser accessibility external_pending; no wheel/container/publication/OIDC/mobile/S5 claim
+Report: docs/cc-fable-v1/reports/s4-core-web-report.md
+Next: user visual/interaction approval, then S5 Core

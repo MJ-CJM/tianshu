@@ -18,6 +18,9 @@ node_modules/
 src/tianshu/web/static/
 web/*.local
 web/tsconfig.tsbuildinfo
+web/playwright-report/
+web/test-results/
+web/blob-report/
 .idea/workspace.xml
 .idea/modules.xml
 .codegraph/
