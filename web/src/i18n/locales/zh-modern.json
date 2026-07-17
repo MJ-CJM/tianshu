@@ -1,6 +1,7 @@
 {
   "nav": {
     "control": "中枢总览",
+    "evolution": "演化中心",
     "edictCreate": "新建任务",
     "approvals": "裁决中心",
     "cabinet": "规划中心",
@@ -142,10 +143,19 @@
   "evolutionUi": {
     "title": "演化门禁",
     "blockingGates": "阻断门禁",
-    "realTraffic": "已接入真实流量",
-    "noRealTraffic": "未接入真实流量",
-    "evidence": "证据",
-    "promote": "晋升"
+    "version": "版本",
+    "artifactHash": "制品哈希",
+    "promotionAllowed": "允许晋升",
+    "promotionBlocked": "晋升受阻",
+    "rollbackState": "回滚状态",
+    "routingTitle": "权威分流",
+    "routingVersion": "分流版本",
+    "routingUnavailable": "暂无分流记录",
+    "allocation": "挑战者流量",
+    "championAssignments": "冠军分配数",
+    "challengerAssignments": "挑战者分配数",
+    "evidenceHash": "证据哈希",
+    "viewEvidence": "查看门禁证据"
   },
   "auth": {
     "loading": "正在核验身份…",
@@ -477,6 +487,16 @@
       "evidenceOpen": "生成中",
       "downloadEvidence": "下载证据",
       "evidenceAwaitingClose": "等待封存"
+    },
+    "evolutionCenter": {
+      "notEnabledTitle": "尚未启用",
+      "notEnabledReason": "S5 受治理演化尚未启用；当前没有候选、分流或门禁结果。",
+      "reasonCode": "原因码",
+      "statusTitle": "演化状态",
+      "enabled": "已启用",
+      "degraded": "降级",
+      "lastGateHash": "最近门禁哈希",
+      "candidatesTitle": "演化候选"
     },
     "edictDetail": {
       "title": "任务详情",

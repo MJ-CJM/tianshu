@@ -196,7 +196,7 @@ describe("S4 desktop brand shell contract", () => {
     const rootItems = Array.from(container.querySelector(".ant-menu-root")?.children ?? []).filter(
       (node) => node.classList.contains("ant-menu-item"),
     );
-    expect(rootItems[0]?.textContent?.trim()).toBe("中枢总览");
+    expect(rootItems.map((item) => item.textContent?.trim())).toEqual(["中枢总览", "演化中心"]);
     expect(renderedStructure).toEqual(DEPARTMENT_STRUCTURE);
     expect(renderedStructure).toHaveLength(4);
     expect(renderedStructure.flatMap(({ departments }) => departments)).toHaveLength(14);
@@ -211,6 +211,7 @@ describe("S4 desktop brand shell contract", () => {
     expect(screen.getByRole("button", { name: "切换浅色" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "展开" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "中枢总览" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "演化中心" })).toBeInTheDocument();
   });
 
   it("restores the persisted collapsed sidebar without losing controls", async () => {

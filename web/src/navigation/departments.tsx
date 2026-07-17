@@ -36,6 +36,12 @@ export const CONTROL_ITEM: DepartmentDefinition = {
   icon: <DashboardOutlined aria-hidden />,
 };
 
+export const EVOLUTION_ITEM: DepartmentDefinition = {
+  path: "/evolution",
+  labelKey: "nav.evolution",
+  icon: <ExperimentOutlined aria-hidden />,
+};
+
 export const DEPARTMENT_GROUPS: readonly DepartmentGroupDefinition[] = [
   {
     key: "group-edict",
@@ -106,6 +112,11 @@ export function buildSidebarItems(t: TFunction, reviewCount: number): MenuProps[
       key: CONTROL_ITEM.path,
       icon: CONTROL_ITEM.icon,
       label: t(CONTROL_ITEM.labelKey),
+    },
+    {
+      key: EVOLUTION_ITEM.path,
+      icon: EVOLUTION_ITEM.icon,
+      label: t(EVOLUTION_ITEM.labelKey),
     },
     ...DEPARTMENT_GROUPS.map((group) => ({
       key: group.key,

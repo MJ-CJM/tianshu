@@ -1,6 +1,7 @@
 {
   "nav": {
     "control": "Control Center",
+    "evolution": "Evolution Center",
     "edictCreate": "New Task",
     "approvals": "Decisions",
     "cabinet": "Planning",
@@ -142,10 +143,19 @@
   "evolutionUi": {
     "title": "Evolution Gate",
     "blockingGates": "Blocking gates",
-    "realTraffic": "Real traffic enabled",
-    "noRealTraffic": "No real traffic",
-    "evidence": "Evidence",
-    "promote": "Promote"
+    "version": "Version",
+    "artifactHash": "Artifact hash",
+    "promotionAllowed": "Promotion allowed",
+    "promotionBlocked": "Promotion blocked",
+    "rollbackState": "Rollback state",
+    "routingTitle": "Authoritative routing",
+    "routingVersion": "Routing version",
+    "routingUnavailable": "No routing record",
+    "allocation": "Challenger allocation",
+    "championAssignments": "Champion assignments",
+    "challengerAssignments": "Challenger assignments",
+    "evidenceHash": "Evidence hash",
+    "viewEvidence": "View gate evidence"
   },
   "auth": {
     "loading": "Verifying identity…",
@@ -477,6 +487,16 @@
       "evidenceOpen": "Generating",
       "downloadEvidence": "Download evidence",
       "evidenceAwaitingClose": "Awaiting closure"
+    },
+    "evolutionCenter": {
+      "notEnabledTitle": "Not enabled",
+      "notEnabledReason": "Governed evolution is not enabled before S5; there are no candidates, routing assignments, or gate results.",
+      "reasonCode": "Reason code",
+      "statusTitle": "Evolution status",
+      "enabled": "Enabled",
+      "degraded": "Degraded",
+      "lastGateHash": "Last gate hash",
+      "candidatesTitle": "Evolution candidates"
     },
     "edictDetail": {
       "title": "Task Detail",

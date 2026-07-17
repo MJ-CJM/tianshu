@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from tianshu import bootstrap
 from tianshu.application.control_center import ControlCenterQueryService
 from tianshu.application.edict_detail import EdictDetailQueryService
+from tianshu.application.evolution_view import EvolutionCenterQueryService
 from tianshu.config import TianshuSettings
 from tianshu.gateway import gateway_router
 from tianshu.gateway.audit_api import audit_router
@@ -28,6 +29,7 @@ from tianshu.gateway.edicts_api import edicts_router
 from tianshu.gateway.estop_api import estop_router
 from tianshu.gateway.evals_api import evals_router
 from tianshu.gateway.evidence_api import evidence_router
+from tianshu.gateway.evolution_api import evolution_router
 from tianshu.gateway.execution_api import execution_router
 from tianshu.gateway.hongluisi_api import hongluisi_router
 from tianshu.gateway.keqing_api import keqing_router
@@ -331,6 +333,7 @@ async def lifespan(app: FastAPI):
             readiness_status=lambda: _assess_app_readiness(app.state).status,
         )
         app.state.edict_detail_service = EdictDetailQueryService(app.state.storage)
+        app.state.evolution_center_service = EvolutionCenterQueryService()
         logger.info("Tianshu started on %s:%s", settings.host, settings.port)
     except BaseException:
         await _cleanup_started()
@@ -411,6 +414,7 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     app.include_router(decisions_router, prefix="/api")
     app.include_router(edicts_router, prefix="/api")
     app.include_router(evidence_router, prefix="/api")
+    app.include_router(evolution_router, prefix="/api")
     app.include_router(estop_router, prefix="/api")
     app.include_router(evals_router, prefix="/api")
     app.include_router(execution_router, prefix="/api")

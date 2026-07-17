@@ -31,6 +31,7 @@ const UniversePage = lazy(() => import("../pages/UniversePage"));
 const EvalsPage = lazy(() => import("../pages/EvalsPage"));
 const DagBattleMapPage = lazy(() => import("../pages/DagBattleMapPage"));
 const OnboardingPage = lazy(() => import("../pages/OnboardingPage"));
+const EvolutionCenterPage = lazy(() => import("../pages/EvolutionCenterPage"));
 
 function OnboardingEntryRoute() {
   const query = useQuery({
@@ -160,6 +161,7 @@ export default function AppRoutes() {
             <Route path="/" element={<OnboardingEntryRoute />} />
             <Route path="/onboarding" element={<OnboardingPage />} />
             <Route path="/control" element={<ControlCenterPage />} />
+            <Route path="/evolution" element={<EvolutionCenterPage />} />
             <Route path="/edicts/create" element={<EdictCreatePage />} />
             <Route path="/edicts/:edictId" element={<EdictDetailPage />} />
             <Route path="/approvals" element={<RoyalStudyPage />} />
