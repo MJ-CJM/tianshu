@@ -13,7 +13,7 @@ def test_v17_appends_delivery_without_drifting_v1_to_v16() -> None:
     connection.execute("PRAGMA foreign_keys=ON")
     frozen = [(item.version, item.name, item.checksum) for item in MIGRATIONS[:16]]
     assert apply_migrations(connection, MIGRATIONS[:16]) == tuple(range(1, 17))
-    assert apply_migrations(connection, MIGRATIONS) == (17,)
+    assert apply_migrations(connection, MIGRATIONS[:17]) == (17,)
     assert [(item.version, item.name, item.checksum) for item in MIGRATIONS[:16]] == frozen
     assert MIGRATIONS[16].name == "0017_internal_notification_delivery"
 

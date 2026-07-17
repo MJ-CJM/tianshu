@@ -30,6 +30,7 @@ _EXECUTION_ATTEMPT_LEDGER_MIGRATION_NAME = "0014_execution_attempt_ledger"
 _SIDE_EFFECT_JOURNAL_MIGRATION_NAME = "0015_side_effect_journal"
 _ARTIFACTS_EVIDENCE_MIGRATION_NAME = "0016_artifacts_evidence"
 _INTERNAL_NOTIFICATION_DELIVERY_MIGRATION_NAME = "0017_internal_notification_delivery"
+_GOVERNED_EVOLUTION_MIGRATION_NAME = "0018_governed_evolution_candidates"
 _COMPLETE_MIGRATION_LEDGER = [
     (1, _BASELINE_NAME),
     (2, _AUTH_MIGRATION_NAME),
@@ -48,6 +49,7 @@ _COMPLETE_MIGRATION_LEDGER = [
     (15, _SIDE_EFFECT_JOURNAL_MIGRATION_NAME),
     (16, _ARTIFACTS_EVIDENCE_MIGRATION_NAME),
     (17, _INTERNAL_NOTIFICATION_DELIVERY_MIGRATION_NAME),
+    (18, _GOVERNED_EVOLUTION_MIGRATION_NAME),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -73,6 +75,12 @@ _POST_BASELINE_TABLES = {
     "artifact_records",
     "evidence_bundles",
     "internal_notification_deliveries",
+    "evolution_candidates",
+    "evolution_gate_snapshots",
+    "evolution_lifecycle_journal",
+    "evolution_promotion_journal",
+    "evolution_routing_allocations",
+    "run_evolution_assignments",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -103,6 +111,17 @@ _POST_BASELINE_INDEXES = {
     "idx_evidence_bundles_edict",
     "idx_internal_notification_delivery_claim",
     "idx_internal_notification_delivery_correlation",
+    "idx_evolution_candidates_lifecycle",
+}
+_EVOLUTION_IMMUTABLE_TRIGGERS = {
+    "evolution_gate_snapshots_no_update",
+    "evolution_gate_snapshots_no_delete",
+    "evolution_lifecycle_journal_no_update",
+    "evolution_lifecycle_journal_no_delete",
+    "evolution_promotion_journal_no_update",
+    "evolution_promotion_journal_no_delete",
+    "run_evolution_assignments_no_update",
+    "run_evolution_assignments_no_delete",
 }
 _V042_OWNED_TABLE_MANIFEST = (
     48,
@@ -652,6 +671,7 @@ def test_fresh_storage_creates_complete_schema_and_records_baseline_once(tmp_pat
         "system_audit_events_no_update",
         "system_audit_events_no_delete",
     } <= triggers
+    assert triggers >= _EVOLUTION_IMMUTABLE_TRIGGERS
     assert [(row["version"], row["name"]) for row in first_ledger] == _COMPLETE_MIGRATION_LEDGER
     assert all(len(row["checksum"]) == 64 for row in first_ledger)
     storage.close()

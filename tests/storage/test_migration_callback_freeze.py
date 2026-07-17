@@ -81,6 +81,10 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0017_internal_notification_delivery": (
         "dbd30a6b7a981abc1d9c5f071a2e81276ad87f4ffa38f43f388ce8f2017450fb"
     ),
+    # v18 appends governed candidate, gate, lifecycle, promotion, routing and assignment state.
+    "0018_governed_evolution_candidates": (
+        "b064609eb8d0ba0b5dc7d50d43512a0f3aa56bff1d1badcb7f861d650b5bef42"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

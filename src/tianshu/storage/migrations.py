@@ -3307,7 +3307,7 @@ def _internal_notification_delivery_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
-MIGRATIONS = (
+_PRE_EVOLUTION_MIGRATIONS = (
     Migration(
         version=1,
         name="0001_adopt_v042_baseline",
@@ -3409,6 +3409,255 @@ MIGRATIONS = (
         name="0017_internal_notification_delivery",
         checksum=_INTERNAL_DELIVERY_CHECKSUM,
         upgrade=_internal_notification_delivery_upgrade,
+    ),
+)
+
+
+# --- Live tail + 1: governed evolution candidate persistence ---
+
+_EVOLUTION_CANDIDATE_MIGRATION_VERSION = _PRE_EVOLUTION_MIGRATIONS[-1].version + 1
+_EVOLUTION_CANDIDATE_MIGRATION_NAME = (
+    f"{_EVOLUTION_CANDIDATE_MIGRATION_VERSION:04d}_governed_evolution_candidates"
+)
+_EVOLUTION_CANDIDATE_STATEMENTS = (
+    """
+    CREATE TABLE evolution_candidates (
+        candidate_id TEXT PRIMARY KEY CHECK (length(trim(candidate_id)) BETWEEN 1 AND 256),
+        schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+        kind TEXT NOT NULL CHECK (kind IN ('memory','skill','policy','persona','code')),
+        subject_key TEXT NOT NULL CHECK (length(trim(subject_key)) BETWEEN 1 AND 512),
+        provenance_json TEXT NOT NULL CHECK (
+            json_valid(provenance_json) AND json_type(provenance_json) = 'object'
+        ),
+        provenance_hash TEXT NOT NULL CHECK (length(provenance_hash) = 64),
+        base_json TEXT NOT NULL CHECK (json_valid(base_json) AND json_type(base_json) = 'object'),
+        candidate_ref_json TEXT NOT NULL CHECK (
+            json_valid(candidate_ref_json) AND json_type(candidate_ref_json) = 'object'
+        ),
+        diff_artifact_digest TEXT NOT NULL CHECK (length(diff_artifact_digest) = 64),
+        evolution_contract_json TEXT NOT NULL CHECK (
+            json_valid(evolution_contract_json) AND json_type(evolution_contract_json) = 'object'
+        ),
+        evolution_contract_hash TEXT NOT NULL CHECK (length(evolution_contract_hash) = 64),
+        gate_snapshot_version INTEGER NOT NULL DEFAULT 0 CHECK (gate_snapshot_version >= 0),
+        evidence_bundle_ids_json TEXT NOT NULL CHECK (
+            json_valid(evidence_bundle_ids_json)
+            AND json_type(evidence_bundle_ids_json) = 'array'
+        ),
+        routing_json TEXT CHECK (
+            routing_json IS NULL OR (
+                json_valid(routing_json) AND json_type(routing_json) = 'object'
+            )
+        ),
+        rollback_json TEXT NOT NULL CHECK (
+            json_valid(rollback_json) AND json_type(rollback_json) = 'object'
+        ),
+        lifecycle TEXT NOT NULL CHECK (
+            lifecycle IN (
+                'proposed','staged','evaluating','blocked','ready','canary','promoted',
+                'rejected','rollback_pending','rolled_back','archived'
+            )
+        ),
+        version INTEGER NOT NULL CHECK (version > 0),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        updated_at TEXT NOT NULL CHECK (length(trim(updated_at)) > 0),
+        UNIQUE (kind, subject_key, candidate_id)
+    )
+    """,
+    "CREATE INDEX idx_evolution_candidates_lifecycle ON evolution_candidates(lifecycle, updated_at)",
+    """
+    CREATE TABLE evolution_gate_snapshots (
+        gate_snapshot_id TEXT PRIMARY KEY CHECK (length(trim(gate_snapshot_id)) BETWEEN 1 AND 256),
+        candidate_id TEXT NOT NULL REFERENCES evolution_candidates(candidate_id) ON DELETE RESTRICT,
+        candidate_version INTEGER NOT NULL CHECK (candidate_version > 0),
+        gate_snapshot_version INTEGER NOT NULL CHECK (gate_snapshot_version > 0),
+        snapshot_json TEXT NOT NULL CHECK (
+            json_valid(snapshot_json) AND json_type(snapshot_json) = 'object'
+        ),
+        snapshot_hash TEXT NOT NULL CHECK (length(snapshot_hash) = 64),
+        evidence_bundle_ids_json TEXT NOT NULL CHECK (
+            json_valid(evidence_bundle_ids_json)
+            AND json_type(evidence_bundle_ids_json) = 'array'
+        ),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        UNIQUE (candidate_id, gate_snapshot_version)
+    )
+    """,
+    """
+    CREATE TABLE evolution_lifecycle_journal (
+        journal_id TEXT PRIMARY KEY CHECK (length(trim(journal_id)) BETWEEN 1 AND 256),
+        candidate_id TEXT NOT NULL REFERENCES evolution_candidates(candidate_id) ON DELETE RESTRICT,
+        candidate_version INTEGER NOT NULL CHECK (candidate_version > 0),
+        from_lifecycle TEXT,
+        to_lifecycle TEXT NOT NULL CHECK (
+            to_lifecycle IN (
+                'proposed','staged','evaluating','blocked','ready','canary','promoted',
+                'rejected','rollback_pending','rolled_back','archived'
+            )
+        ),
+        decision_request_id TEXT REFERENCES decision_requests(decision_request_id) ON DELETE RESTRICT,
+        entry_json TEXT NOT NULL CHECK (json_valid(entry_json) AND json_type(entry_json) = 'object'),
+        entry_hash TEXT NOT NULL CHECK (length(entry_hash) = 64),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        CHECK (
+            from_lifecycle IS NULL OR from_lifecycle IN (
+                'proposed','staged','evaluating','blocked','ready','canary','promoted',
+                'rejected','rollback_pending','rolled_back','archived'
+            )
+        ),
+        UNIQUE (candidate_id, candidate_version)
+    )
+    """,
+    """
+    CREATE TABLE evolution_promotion_journal (
+        promotion_journal_id TEXT PRIMARY KEY CHECK (
+            length(trim(promotion_journal_id)) BETWEEN 1 AND 256
+        ),
+        command_key TEXT NOT NULL CHECK (length(trim(command_key)) BETWEEN 1 AND 256),
+        candidate_id TEXT NOT NULL REFERENCES evolution_candidates(candidate_id) ON DELETE RESTRICT,
+        candidate_version INTEGER NOT NULL CHECK (candidate_version > 0),
+        gate_snapshot_version INTEGER NOT NULL CHECK (gate_snapshot_version > 0),
+        action TEXT NOT NULL CHECK (action IN ('start_canary','promote','rollback')),
+        status TEXT NOT NULL CHECK (
+            status IN ('intended','applied','denied','rollback_pending','completed','failed')
+        ),
+        decision_request_id TEXT REFERENCES decision_requests(decision_request_id) ON DELETE RESTRICT,
+        entry_json TEXT NOT NULL CHECK (json_valid(entry_json) AND json_type(entry_json) = 'object'),
+        entry_hash TEXT NOT NULL CHECK (length(entry_hash) = 64),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        UNIQUE (command_key, status)
+    )
+    """,
+    """
+    CREATE TABLE evolution_routing_allocations (
+        candidate_id TEXT PRIMARY KEY REFERENCES evolution_candidates(candidate_id) ON DELETE RESTRICT,
+        routing_version INTEGER NOT NULL CHECK (routing_version > 0),
+        allocation_basis_points INTEGER NOT NULL CHECK (
+            allocation_basis_points BETWEEN 0 AND 10000
+        ),
+        allocation_seed_id TEXT NOT NULL CHECK (length(trim(allocation_seed_id)) BETWEEN 1 AND 256),
+        routing_json TEXT NOT NULL CHECK (json_valid(routing_json) AND json_type(routing_json) = 'object'),
+        routing_hash TEXT NOT NULL CHECK (length(routing_hash) = 64),
+        version INTEGER NOT NULL CHECK (version > 0),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+        updated_at TEXT NOT NULL CHECK (length(trim(updated_at)) > 0)
+    )
+    """,
+    """
+    CREATE TABLE run_evolution_assignments (
+        assignment_id TEXT PRIMARY KEY CHECK (length(trim(assignment_id)) BETWEEN 1 AND 256),
+        memorial_id TEXT NOT NULL UNIQUE REFERENCES memorials(id) ON DELETE RESTRICT,
+        candidate_id TEXT REFERENCES evolution_candidates(candidate_id) ON DELETE RESTRICT,
+        routing_version INTEGER NOT NULL CHECK (routing_version > 0),
+        bucket INTEGER NOT NULL CHECK (bucket BETWEEN 0 AND 9999),
+        champion_ref_json TEXT NOT NULL CHECK (
+            json_valid(champion_ref_json) AND json_type(champion_ref_json) = 'object'
+        ),
+        selected_ref_json TEXT NOT NULL CHECK (
+            json_valid(selected_ref_json) AND json_type(selected_ref_json) = 'object'
+        ),
+        overlay_digest TEXT NOT NULL CHECK (length(overlay_digest) = 64),
+        assignment_json TEXT NOT NULL CHECK (
+            json_valid(assignment_json) AND json_type(assignment_json) = 'object'
+        ),
+        assignment_hash TEXT NOT NULL CHECK (length(assignment_hash) = 64),
+        created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0)
+    )
+    """,
+    """
+    CREATE TRIGGER evolution_gate_snapshots_no_update
+    BEFORE UPDATE ON evolution_gate_snapshots BEGIN
+        SELECT RAISE(ABORT, 'evolution gate snapshot is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER evolution_gate_snapshots_no_delete
+    BEFORE DELETE ON evolution_gate_snapshots BEGIN
+        SELECT RAISE(ABORT, 'evolution gate snapshot is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER evolution_lifecycle_journal_no_update
+    BEFORE UPDATE ON evolution_lifecycle_journal BEGIN
+        SELECT RAISE(ABORT, 'evolution lifecycle journal is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER evolution_lifecycle_journal_no_delete
+    BEFORE DELETE ON evolution_lifecycle_journal BEGIN
+        SELECT RAISE(ABORT, 'evolution lifecycle journal is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER evolution_promotion_journal_no_update
+    BEFORE UPDATE ON evolution_promotion_journal BEGIN
+        SELECT RAISE(ABORT, 'evolution promotion journal is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER evolution_promotion_journal_no_delete
+    BEFORE DELETE ON evolution_promotion_journal BEGIN
+        SELECT RAISE(ABORT, 'evolution promotion journal is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER run_evolution_assignments_no_update
+    BEFORE UPDATE ON run_evolution_assignments BEGIN
+        SELECT RAISE(ABORT, 'evolution assignment is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER run_evolution_assignments_no_delete
+    BEFORE DELETE ON run_evolution_assignments BEGIN
+        SELECT RAISE(ABORT, 'evolution assignment is immutable');
+    END
+    """,
+)
+_EVOLUTION_CANDIDATE_CHECKSUM = hashlib.sha256(
+    (
+        _EVOLUTION_CANDIDATE_MIGRATION_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _EVOLUTION_CANDIDATE_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+_EVOLUTION_CANDIDATE_OBJECT_NAMES = tuple(
+    statement.split()[2]
+    for statement in _EVOLUTION_CANDIDATE_STATEMENTS
+    if statement.lstrip().startswith(("CREATE TABLE", "CREATE INDEX", "CREATE TRIGGER"))
+)
+
+
+def _governed_evolution_candidates_upgrade(conn: MigrationConnection) -> None:
+    placeholders = ",".join("?" for _ in _EVOLUTION_CANDIDATE_OBJECT_NAMES)
+    rows = conn.execute(
+        f"SELECT name, sql FROM sqlite_master WHERE name IN ({placeholders})",
+        _EVOLUTION_CANDIDATE_OBJECT_NAMES,
+    ).fetchall()
+    if rows:
+        actual = {str(row[0]): " ".join(str(row[1]).split()) for row in rows}
+        expected = {
+            name: " ".join(statement.split())
+            for name, statement in zip(
+                _EVOLUTION_CANDIDATE_OBJECT_NAMES,
+                _EVOLUTION_CANDIDATE_STATEMENTS,
+                strict=True,
+            )
+        }
+        if actual != expected:
+            raise SchemaCompatibilityError(
+                "existing governed evolution schema does not match the live migration"
+            )
+        return
+    for statement in _EVOLUTION_CANDIDATE_STATEMENTS:
+        conn.execute(statement)
+
+
+MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
+    Migration(
+        version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
+        name=_EVOLUTION_CANDIDATE_MIGRATION_NAME,
+        checksum=_EVOLUTION_CANDIDATE_CHECKSUM,
+        upgrade=_governed_evolution_candidates_upgrade,
     ),
 )
 
