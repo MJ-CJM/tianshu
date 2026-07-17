@@ -375,9 +375,14 @@ class SkillPromotionAdapter:
         subject_digest = hashlib.sha256(candidate.subject_key.encode()).hexdigest()
         return self._live_root / f".rollback-authority-{subject_digest}.json"
 
+    def _rollback_quarantine_path(self, candidate: EvolutionCandidateV1) -> Path:
+        identity = f"{candidate.subject_key}\0{candidate.candidate_id}".encode()
+        command_digest = hashlib.sha256(identity).hexdigest()
+        return self._live_root / f".rollback-quarantine-{command_digest}.tmp"
+
     def _write_rollback_marker(self, candidate: EvolutionCandidateV1) -> None:
         marker = self._rollback_marker_path(candidate)
-        temporary = marker.with_suffix(".tmp")
+        temporary = self._rollback_quarantine_path(candidate)
         if temporary.is_symlink():
             raise AdapterError("skill rollback marker write failed")
         payload = canonical_json_bytes(
@@ -389,7 +394,6 @@ class SkillPromotionAdapter:
             }
         )
         temporary_identity: tuple[int, int] | None = None
-        replace_attempted = False
         try:
             descriptor = os.open(
                 temporary,
@@ -413,7 +417,6 @@ class SkillPromotionAdapter:
                 expected_identity=temporary_identity,
                 sync=False,
             )
-            replace_attempted = True
             os.replace(temporary, marker)
             self._verify_marker_file(
                 marker,
@@ -423,23 +426,7 @@ class SkillPromotionAdapter:
             )
             self._sync_live_root()
         except (AdapterError, OSError, TypeError, ValueError) as exc:
-            cleanup_error: Exception | None = None
-            if temporary_identity is not None:
-                try:
-                    self._remove_marker_residue(
-                        temporary,
-                        expected_identity=temporary_identity,
-                    )
-                except (AdapterError, OSError, TypeError, ValueError) as residue_exc:
-                    cleanup_error = residue_exc
-            if replace_attempted and temporary_identity is not None:
-                try:
-                    self._remove_marker_residue(
-                        marker, expected_identity=temporary_identity, valid_payload=payload
-                    )
-                except (AdapterError, OSError, TypeError, ValueError) as residue_exc:
-                    cleanup_error = residue_exc
-            raise AdapterError("skill rollback marker write failed") from (cleanup_error or exc)
+            raise AdapterError("skill rollback marker write failed") from exc
 
     @staticmethod
     def _write_all(descriptor: int, payload: bytes) -> None:
@@ -489,35 +476,6 @@ class SkillPromotionAdapter:
             details.st_ino,
         ):
             raise AdapterError("skill rollback marker verification failed")
-
-    def _remove_marker_residue(
-        self,
-        path: Path,
-        *,
-        expected_identity: tuple[int, int],
-        valid_payload: bytes | None = None,
-    ) -> None:
-        try:
-            details = path.lstat()
-        except FileNotFoundError:
-            return
-        if expected_identity != (details.st_dev, details.st_ino):
-            return
-        if valid_payload is not None:
-            try:
-                self._verify_marker_file(
-                    path,
-                    valid_payload,
-                    expected_identity=expected_identity,
-                    sync=False,
-                )
-            except (AdapterError, OSError, TypeError, ValueError):
-                pass
-            else:
-                return
-        if stat.S_ISREG(details.st_mode) or stat.S_ISLNK(details.st_mode):
-            path.unlink()
-            self._sync_live_root()
 
     def _sync_live_root(self) -> None:
         directory = os.open(self._live_root, os.O_RDONLY)

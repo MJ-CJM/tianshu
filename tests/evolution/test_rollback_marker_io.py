@@ -123,10 +123,15 @@ def test_zero_byte_marker_write_fails_before_effect_and_does_not_fence_future_ca
 
     _assert_failed_before_effect(storage, service, current.candidate_id)
     assert not tuple(live_root.glob(".rollback-authority-*"))
+    quarantine = tuple(live_root.glob(".rollback-quarantine-*"))
+    assert len(quarantine) == 1
+    with pytest.raises(PromotionConflict, match="rollback_restore_failed"):
+        service.rollback(current.candidate_id, command, auth=_auth())
+    assert tuple(live_root.glob(".rollback-quarantine-*")) == quarantine
     adapter.activate(_future_candidate(canary_candidate))
 
 
-def test_truncated_final_marker_fails_before_effect_and_is_removed(
+def test_truncated_final_marker_is_retained_and_fails_closed(
     storage, tmp_path, monkeypatch
 ) -> None:
     (
@@ -152,8 +157,10 @@ def test_truncated_final_marker_fails_before_effect_and_is_removed(
         service.rollback(current.candidate_id, command, auth=_auth())
 
     _assert_failed_before_effect(storage, service, current.candidate_id)
-    assert not tuple(live_root.glob(".rollback-authority-*"))
-    adapter.activate(_future_candidate(canary_candidate))
+    marker = next(live_root.glob(".rollback-authority-*.json"))
+    assert marker.read_bytes() == _marker_payload(canary_candidate)[:-1]
+    with pytest.raises(AdapterError):
+        adapter.activate(_future_candidate(canary_candidate))
 
 
 def test_final_marker_identity_drift_fails_closed_without_deleting_external_replacement(
@@ -233,6 +240,59 @@ def test_replace_return_identity_drift_preserves_external_marker_and_fails_close
     assert marker.read_bytes() == external_payload
     with pytest.raises(AdapterError):
         adapter.activate(_future_candidate(canary_candidate))
+
+
+def test_cleanup_never_unlinks_canonical_marker_and_retry_self_heals(
+    storage, tmp_path, monkeypatch
+) -> None:
+    (
+        live_root,
+        _live_skill,
+        _base_text,
+        _changed_text,
+        current,
+        canary_candidate,
+        adapter,
+        service,
+        command,
+    ) = _real_skill_rollback_case(storage, tmp_path)
+    original_replace = promotion_module.os.replace
+    original_unlink = Path.unlink
+    external_source = live_root / ".external-cleanup-marker"
+    external_payload = b"external replacement at unlink boundary"
+    external_source.write_bytes(external_payload)
+    canonical_unlink_calls = 0
+
+    def replace_then_truncate(source: Path, destination: Path) -> None:
+        original_replace(source, destination)
+        if destination.name.startswith(".rollback-authority-"):
+            destination.write_bytes(destination.read_bytes()[:-1])
+
+    def swap_external_then_unlink(path: Path, *, missing_ok: bool = False) -> None:
+        nonlocal canonical_unlink_calls
+        if path.name.startswith(".rollback-authority-") and path.suffix == ".json":
+            canonical_unlink_calls += 1
+            original_replace(external_source, path)
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(promotion_module.os, "replace", replace_then_truncate)
+    monkeypatch.setattr(Path, "unlink", swap_external_then_unlink)
+    with pytest.raises(PromotionConflict, match="rollback_restore_failed"):
+        service.rollback(current.candidate_id, command, auth=_auth())
+
+    _assert_failed_before_effect(storage, service, current.candidate_id)
+    assert canonical_unlink_calls == 0
+    marker = next(live_root.glob(".rollback-authority-*.json"))
+    assert marker.read_bytes() == _marker_payload(canary_candidate)[:-1]
+    assert external_source.read_bytes() == external_payload
+
+    monkeypatch.setattr(promotion_module.os, "replace", original_replace)
+    monkeypatch.setattr(Path, "unlink", original_unlink)
+    receipt = service.rollback(current.candidate_id, command, auth=_auth())
+
+    assert receipt.lifecycle is CandidateLifecycle.ROLLED_BACK
+    assert marker.read_bytes() == _marker_payload(canary_candidate)
+    adapter.activate(_future_candidate(canary_candidate))
 
 
 def test_complete_marker_rejects_old_candidate_but_allows_new_candidate(storage, tmp_path) -> None:

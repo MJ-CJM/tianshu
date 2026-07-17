@@ -57,7 +57,9 @@ The generic adapter protocol remains limited to activation and rollback. Automat
 
 Rollback marker creation now loops until every payload byte is written and rejects zero- or negative-progress writes. The expected inode identity comes only from the open temporary descriptor before rename. After fsync, the temporary marker is checked as a regular non-symlink file with that identity and bytes exactly equal to the canonical payload. Rename on the same filesystem preserves the inode, so the final marker must open with that same identity, survive fsync and exact-byte read, and still have the same path identity after the read, all under the promotion lock before any restore effect or `applied` journal write.
 
-Fault injection proves that recoverable short writes complete with the exact marker, while a zero-byte write or truncated final marker fails before the effect boundary. A review reproduction also replaces the final marker with an external inode inside `os.replace` before it returns; the original temporary identity detects that drift without trusting a post-rename `lstat`. Those failures leave allocation zero, lifecycle `rollback_pending`, readiness degraded, and no `applied`/`completed` entry. Invalid marker residue is removed only while its inode identity still matches the file created by this write; an externally replaced path is retained and fails closed, including for future activation. This avoids deleting an unrelated writer's file, while ordinary write corruption does not permanently fence a future candidate for the same subject. A complete marker rejects the rolled-back candidate while allowing a distinct later candidate.
+Fault injection proves that recoverable short writes complete with the exact marker, while a zero-byte write or truncated final marker fails before the effect boundary. Review reproductions replace the final marker both before verification and inside the former cleanup `Path.unlink` boundary. Because no sequence of path checks can make pathname unlink atomic with identity verification, failure handling never unlinks the canonical final marker. It retains the observed marker and fails closed, including for future activation, leaving allocation zero, lifecycle `rollback_pending`, readiness degraded, and no `applied`/`completed` entry. A retry writes a fresh governed marker and atomically replaces the retained final, then completes rollback; the resulting marker rejects the rolled-back candidate while allowing a distinct later candidate.
+
+Pre-rename failures retain one fixed, candidate-scoped `.rollback-quarantine-*` file instead of unlinking it. The quarantine is not an activation authority and the next attempt reuses the same path, so repeated failures do not create one residue per attempt. Successful rename consumes that quarantine. Automated cleanup of externally mutable residues is deferred until an atomic deletion mechanism can prove the path still names the owned inode.
 
 ## Production composition and readiness
 
@@ -71,11 +73,11 @@ Fault injection proves that recoverable short writes complete with the exact mar
 ## Verification
 
 - Task 6 brief set: 32 passed.
-- Rollback marker I/O fault injection: 6 passed.
+- Rollback marker I/O fault injection: 7 passed.
 - Task 4 rollback/fail-closed authority set: 45 passed.
 - Task 4/5 authority, dispatcher, evidence, readiness/health, and migration regression set: 361 passed.
 - Evolution production composition plus readiness/health: 77 passed (3 composition tests plus 74 tests already included in the regression set).
-- Total distinct tests exercised: 386 (521 executions including overlap).
+- Total distinct tests exercised: 387 (522 executions including overlap).
 - Ruff check: passed; Ruff format check: passed.
 - mypy on changed production modules: passed.
 - import-linter: 2 contracts kept, 0 broken.
