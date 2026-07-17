@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import sqlite3
+import stat
 import sys
 import tempfile
 from collections.abc import Callable
@@ -378,7 +379,7 @@ class SkillPromotionAdapter:
         marker = self._rollback_marker_path(candidate)
         temporary = marker.with_suffix(".tmp")
         if temporary.is_symlink():
-            raise ValueError("rollback marker temporary path is not canonical")
+            raise AdapterError("skill rollback marker write failed")
         payload = canonical_json_bytes(
             {
                 "schema_version": 1,
@@ -387,17 +388,112 @@ class SkillPromotionAdapter:
                 "base_digest": candidate.base.artifact_digest,
             }
         )
-        descriptor = os.open(
-            temporary,
-            os.O_CREAT | os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
-        )
+        temporary_identity: tuple[int, int] | None = None
+        replacement_identity: tuple[int, int] | None = None
         try:
-            os.write(descriptor, payload)
-            os.fsync(descriptor)
+            descriptor = os.open(
+                temporary,
+                os.O_CREAT | os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+            try:
+                details = os.fstat(descriptor)
+                if not stat.S_ISREG(details.st_mode):
+                    raise AdapterError("skill rollback marker write failed")
+                temporary_identity = (details.st_dev, details.st_ino)
+                self._write_all(descriptor, payload)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            self._verify_marker_file(temporary, payload, sync=False)
+            os.replace(temporary, marker)
+            replacement_identity = self._path_identity(marker)
+            if replacement_identity is None:
+                raise AdapterError("skill rollback marker verification failed")
+            self._verify_marker_file(marker, payload, sync=True)
+            self._sync_live_root()
+        except (AdapterError, OSError, TypeError, ValueError) as exc:
+            cleanup_error: Exception | None = None
+            if temporary_identity is not None:
+                try:
+                    self._remove_marker_residue(
+                        temporary,
+                        expected_identity=temporary_identity,
+                    )
+                except (AdapterError, OSError, TypeError, ValueError) as residue_exc:
+                    cleanup_error = residue_exc
+            if replacement_identity is not None:
+                try:
+                    self._remove_marker_residue(
+                        marker, expected_identity=replacement_identity, valid_payload=payload
+                    )
+                except (AdapterError, OSError, TypeError, ValueError) as residue_exc:
+                    cleanup_error = residue_exc
+            raise AdapterError("skill rollback marker write failed") from (cleanup_error or exc)
+
+    @staticmethod
+    def _write_all(descriptor: int, payload: bytes) -> None:
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0 or written > len(remaining):
+                raise OSError(errno.EIO, "rollback marker write made no progress")
+            remaining = remaining[written:]
+
+    @staticmethod
+    def _verify_marker_file(path: Path, payload: bytes, *, sync: bool) -> None:
+        if path.is_symlink():
+            raise AdapterError("skill rollback marker verification failed")
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise AdapterError("skill rollback marker verification failed")
+            if sync:
+                os.fsync(descriptor)
+            raw = bytearray()
+            while len(raw) <= len(payload):
+                chunk = os.read(descriptor, len(payload) + 1 - len(raw))
+                if not chunk:
+                    break
+                raw.extend(chunk)
         finally:
             os.close(descriptor)
-        os.replace(temporary, marker)
+        if bytes(raw) != payload:
+            raise AdapterError("skill rollback marker verification failed")
+
+    @staticmethod
+    def _path_identity(path: Path) -> tuple[int, int] | None:
+        try:
+            details = path.lstat()
+        except FileNotFoundError:
+            return None
+        return details.st_dev, details.st_ino
+
+    def _remove_marker_residue(
+        self,
+        path: Path,
+        *,
+        expected_identity: tuple[int, int],
+        valid_payload: bytes | None = None,
+    ) -> None:
+        try:
+            details = path.lstat()
+        except FileNotFoundError:
+            return
+        if expected_identity != (details.st_dev, details.st_ino):
+            return
+        if valid_payload is not None:
+            try:
+                self._verify_marker_file(path, valid_payload, sync=False)
+            except (AdapterError, OSError, TypeError, ValueError):
+                pass
+            else:
+                return
+        if stat.S_ISREG(details.st_mode) or stat.S_ISLNK(details.st_mode):
+            path.unlink()
+            self._sync_live_root()
+
+    def _sync_live_root(self) -> None:
         directory = os.open(self._live_root, os.O_RDONLY)
         try:
             os.fsync(directory)

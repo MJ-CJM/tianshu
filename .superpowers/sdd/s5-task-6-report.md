@@ -53,6 +53,12 @@ The second race begins with an existing `applied` receipt and verifies the same 
 
 The generic adapter protocol remains limited to activation and rollback. Automatic reconciliation accepts either the explicit linearizable rollback guard or an explicit idempotency declaration; adapters with neither remain pending/degraded.
 
+### Review fix: durable rollback marker writes
+
+Rollback marker creation now loops until every payload byte is written and rejects zero- or negative-progress writes. After fsync, the temporary marker is checked as a regular non-symlink file with bytes exactly equal to the canonical payload; after rename, the final marker is fsynced and checked again under the same promotion lock before any restore effect or `applied` journal write.
+
+Fault injection proves that recoverable short writes complete with the exact marker, while a zero-byte write or truncated final marker fails before the effect boundary. Those failures leave allocation zero, lifecycle `rollback_pending`, readiness degraded, and no `applied`/`completed` entry. Invalid marker residue is removed only while its inode identity still matches the file created by this write; an externally replaced path is retained and fails closed. This avoids deleting an unrelated writer's file, while ordinary write corruption does not permanently fence a future candidate for the same subject. A complete marker rejects the rolled-back candidate while allowing a distinct later candidate.
+
 ## Production composition and readiness
 
 - `app.state.evolution_reconciler` is wired beside the one production `PromotionService`.
@@ -65,9 +71,11 @@ The generic adapter protocol remains limited to activation and rollback. Automat
 ## Verification
 
 - Task 6 brief set: 32 passed.
+- Rollback marker I/O fault injection: 5 passed.
+- Task 4 rollback/fail-closed authority set: 45 passed.
 - Task 4/5 authority, dispatcher, evidence, readiness/health, and migration regression set: 361 passed.
 - Evolution production composition plus readiness/health: 77 passed (3 composition tests plus 74 tests already included in the regression set).
-- Total distinct tests exercised: 380 (470 executions including overlap).
+- Total distinct tests exercised: 385 (520 executions including overlap).
 - Ruff check: passed; Ruff format check: passed.
 - mypy on changed production modules: passed.
 - import-linter: 2 contracts kept, 0 broken.
