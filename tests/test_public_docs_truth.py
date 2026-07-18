@@ -8,8 +8,11 @@ wording are updated together.
 from __future__ import annotations
 
 import json
+import platform
 import re
+import shlex
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -375,6 +378,40 @@ def test_lean_preview_guide_bootstraps_every_referenced_environment_and_tool() -
             )
 
         assigned_variables.update(assignments)
+
+
+def test_documented_environment_fingerprint_matches_evidence_canonical_sha256() -> None:
+    from tianshu.models.canonical import canonical_sha256
+
+    guide = _read("docs/usage/lean-developer-preview.md")
+    assignment = re.search(
+        r'ENVIRONMENT_FINGERPRINT="\$\(\{\n.*?\n\} \| shasum -a 256 \| awk '
+        r"'\{print \$1\}'\)\"",
+        guide,
+        flags=re.DOTALL,
+    )
+    assert assignment is not None, "documented environment fingerprint command is required"
+    command = assignment.group(0).replace(
+        ".preview-venv/bin/python", shlex.quote(sys.executable), 1
+    )
+    executed = subprocess.run(
+        ["bash", "-c", f'{command}\nprintf "%s" "$ENVIRONMENT_FINGERPRINT"'],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert executed.returncode == 0, executed.stderr
+
+    scenario_environment = {
+        "architecture": platform.machine() or "unknown",
+        "dependency_lock_hash": "0" * 64,
+        "platform": platform.system() or "unknown",
+        "python_version": platform.python_version(),
+        "tianshu_version": "0.4.2",
+        "workspace_base_revision": None,
+    }
+    assert executed.stdout == canonical_sha256(scenario_environment)
 
 
 def test_active_docs_use_decision_language_and_current_channel_contracts() -> None:

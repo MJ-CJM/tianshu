@@ -90,7 +90,7 @@ git -C "$DEMO_WORKSPACE" commit --allow-empty -q -m "golden demo baseline"
 TOKEN="replace-with-a-local-random-token"
 TOKEN_HASH="$(printf '%s' "$TOKEN" | shasum -a 256 | awk '{print $1}')"
 ENVIRONMENT_FINGERPRINT="$({
-  .preview-venv/bin/python -c 'import json,os,platform; print(json.dumps({"architecture":os.uname().machine,"dependency_lock_hash":"0"*64,"platform":os.uname().sysname,"python_version":platform.python_version(),"tianshu_version":"0.4.2","workspace_base_revision":None},sort_keys=True,separators=(",",":")))'
+  .preview-venv/bin/python -c 'import json,platform,sys; sys.stdout.buffer.write(json.dumps({"architecture":platform.machine() or "unknown","dependency_lock_hash":"0"*64,"platform":platform.system() or "unknown","python_version":platform.python_version(),"tianshu_version":"0.4.2","workspace_base_revision":None},ensure_ascii=False,allow_nan=False,sort_keys=True,separators=(",",":")).encode("utf-8"))'
 } | shasum -a 256 | awk '{print $1}')"
 
 export HOME="$DEMO_HOME"

@@ -190,3 +190,45 @@ The truth test checks capability-to-state proximity in every Task 4 document and
 - `git diff --check`: passed.
 - `uv.lock`: zero diff; no `uv` command was run.
 - No publication, UI/mobile implementation, migration, dependency, or release action was taken.
+
+## Final fingerprint-command remediation after `1740337`
+
+Review found that the documented environment-fingerprint producer used `print(json.dumps(...))`.
+Although the JSON fields and ordering matched `EvidenceService`, `print()` appended a newline before
+the `shasum` pipe. A 13-step run using that command would therefore record a caller fingerprint
+different from the canonical environment fingerprint inside the Evidence Bundle, and the mandatory
+verifier would reject the otherwise complete batch.
+
+### Semantic TDD proof
+
+The new test extracts the complete `ENVIRONMENT_FINGERPRINT` assignment from the Markdown guide,
+substitutes the test interpreter only for the documented preview interpreter, executes the actual
+Bash/`shasum` pipeline, and compares its output with `canonical_sha256` over the same scenario
+environment facts.
+
+- RED documented digest:
+  `641ea5be5156ccb4de773cfa2058a2cd4fb5ff39c15b9e94bddf1de7834406f2`.
+- Evidence canonical digest:
+  `692e3e262a9b6478793b224c52a5667b5f1ac9ecda52b21b169605ce570590b1`.
+- GREEN: the extracted command now returns the Evidence canonical digest exactly.
+- Full documentation Gate after the new semantic assertion: `19 passed, 4 warnings`.
+
+The documented producer now writes exact canonical UTF-8 bytes with
+`sys.stdout.buffer.write(...)`, `ensure_ascii=False`, `allow_nan=False`, sorted keys, and compact
+separators. It emits no trailing newline before SHA-256 calculation and matches
+`tianshu.models.canonical.canonical_json_bytes` for the scenario's JSON-compatible facts.
+
+### Final scoped verification
+
+- Markdown-extracted semantic fingerprint command: passed against `canonical_sha256`.
+- All documented Bash fences: `bash -n` passed.
+- Strict retained evidence verifier:
+  `Lean Preview evidence verified: 20260718T072917Z-b27f525fe4ef`.
+- Ruff check and format check: passed.
+- `git diff --check`: passed.
+- `uv.lock`: zero diff; no `uv` command was run.
+
+A new full immutable Wheel batch was not created for this docs-only correction. The focused test
+executes the exact faulty/corrected pipeline against the same environment fact schema, while the
+retained exact-Wheel report was independently reverified. No product code, dependency, release
+artifact, publication state, UI, or mobile surface changed.
