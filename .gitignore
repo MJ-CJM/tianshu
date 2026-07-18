@@ -23,6 +23,7 @@ web/test-results/
 web/blob-report/
 .idea/workspace.xml
 .idea/modules.xml
+/.idea/
 .codegraph/
 # 本地实验/演示脚本(保留本地,不入库)
 /test_demo.py
