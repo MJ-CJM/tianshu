@@ -155,6 +155,24 @@ async def test_demo_planner_and_audit_payloads_parse_with_production_models(no_n
     assert result.verdict == "pass"
 
 
+async def test_demo_rubric_payload_is_strict_deterministic_and_zero_network(no_network):
+    client = _demo_client()
+    prompt = (
+        "Rubric:\nThe deterministic gate must pass.\n\n"
+        "Output to evaluate:\n[DEMO] candidate output\n\n"
+        'Reply with JSON only (no extra text): {"score": <0.0-1.0 float>, '
+        '"reasoning": "<short string>"}'
+    )
+
+    response = await client.chat([{"role": "user", "content": prompt}])
+    payload = json.loads(response.content or "")
+
+    assert payload["score"] == 1.0
+    assert DEMO_MARK in payload["reasoning"]
+    assert response.usage.total_tokens == 0
+    assert response.usage.cost_cny == 0.0
+
+
 async def test_live_provider_error_never_falls_through_to_demo(monkeypatch):
     import litellm
 
@@ -228,6 +246,7 @@ def test_demo_shape_markers_bind_to_production_prompts():
     """守卫: demo 形状识别标记必须存在于生产 prompt 源文本中; 生产文案漂移时
     本测试红, 提示同步 demo 标记, 防止静默错配。"""
     import tianshu.auditor.reviewer as reviewer_mod
+    import tianshu.executor.orchestrator.checks as checks_mod
     import tianshu.planner.prompts as planner_prompts
     from tianshu.providers import demo
 
@@ -236,6 +255,8 @@ def test_demo_shape_markers_bind_to_production_prompts():
         assert marker in planner_src, f"planner prompt 已不含 demo 标记 {marker!r}"
     reviewer_src = Path(reviewer_mod.__file__).read_text(encoding="utf-8")
     assert demo._AUDIT_MARKER in reviewer_src, "auditor prompt 已不含 demo audit 标记"
+    checks_src = Path(checks_mod.__file__).read_text(encoding="utf-8")
+    assert demo._RUBRIC_MARKER in checks_src, "rubric prompt 已不含 demo rubric 标记"
 
 
 def test_demo_get_config_preserves_existence_semantics(tmp_path):

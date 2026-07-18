@@ -639,6 +639,15 @@ def test_runner_uses_only_stdlib_and_public_http_surfaces(tmp_path: Path) -> Non
         "require_clean_source": False,
     }
     assert candidate_evidence_contract["acceptance"] == candidate_evidence_body["acceptance"]
+    checks = _mapping(candidate_evidence_contract["acceptance"])["checks"]
+    assert isinstance(checks, list) and checks
+    assert all(
+        isinstance(check, dict)
+        and check.get("kind") == "rubric"
+        and "command" not in check
+        and isinstance(check.get("rubric"), str)
+        for check in checks
+    )
     EdictCreateRequest.model_validate(candidate_evidence_body)
     gate_calls = [call for call in transport.calls if call[1].endswith("/gate/evaluate")]
     assert [call[1] for call in gate_calls] == [

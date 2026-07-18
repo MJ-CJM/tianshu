@@ -690,18 +690,22 @@ def run_demo(
             maximum=2**31 - 1,
         )
         candidate_checks = [
-            {"kind": "bash", "name": f"evolution.gate.{name}", "command": "true"}
+            {
+                "kind": "rubric",
+                "name": f"evolution.gate.{name}",
+                "rubric": f"Pass the deterministic Lean Preview {name} gate evidence.",
+            }
             for name in _REQUIRED_GATE_NAMES
             if name != "evidence"
         ]
         candidate_checks.append(
             {
-                "kind": "bash",
+                "kind": "rubric",
                 "name": (
                     f"evolution.candidate.{candidate_id}.{version}."
                     f"{candidate_ref['artifact_digest']}"
                 ),
-                "command": "true",
+                "rubric": "Pass the bound deterministic Lean Preview candidate evidence.",
             }
         )
         candidate_evidence_payload = dict(edict)
