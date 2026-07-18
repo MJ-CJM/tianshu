@@ -9,6 +9,8 @@ from typing import Literal, Protocol, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tianshu.evidence.models import ClosedEvidenceBundleV1, EvidenceVerificationV1
+from tianshu.evolution.gates import EvolutionGateReportV1
 from tianshu.models.canonical import JsonValue
 from tianshu.models.events import make_event
 from tianshu.models.evolution_candidate import (
@@ -26,6 +28,7 @@ from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.skills.installer import (
     canonical_skill_package_member_path,
 )
+from tianshu.storage.artifact_repo import EvidenceRepository, EvidenceRepositoryError
 from tianshu.storage.evolution_repo import EvolutionRepository
 from tianshu.storage.outbox_repo import OutboxRepository
 from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
@@ -37,6 +40,14 @@ class SkillInstallServiceError(RuntimeError):
 
 class SkillInstallAuthorizationError(SkillInstallServiceError):
     """The authenticated principal cannot perform the requested skill write."""
+
+
+class SkillEvidenceNotFound(SkillInstallServiceError):
+    """Requested evidence is absent or outside the authenticated owner boundary."""
+
+
+class SkillEvidenceInvalid(SkillInstallServiceError):
+    """Requested evidence is open, corrupt, or otherwise unverifiable."""
 
 
 class StagedCandidateV1(Protocol):
@@ -58,6 +69,20 @@ class _CandidateAuthority(Protocol):
         *,
         on_persist: Callable[[sqlite3.Connection, EvolutionCandidateV1], None] | None = None,
     ) -> object: ...
+
+
+class _EvidenceVerifier(Protocol):
+    def verify(self, bundle_id: str) -> EvidenceVerificationV1: ...
+
+
+class _GateAuthority(Protocol):
+    def evaluate(
+        self,
+        candidate_id: str,
+        *,
+        expected_version: int,
+        additional_evidence_bundle_ids: tuple[str, ...] = (),
+    ) -> EvolutionGateReportV1: ...
 
 
 class _StrictModel(BaseModel):
@@ -95,6 +120,13 @@ class ProposeSkillCommand(_StrictModel):
     def parse_source_channel(cls, value: object) -> object:
         return CandidateSourceChannel(value) if isinstance(value, str) else value
 
+    @field_validator("evidence_bundle_ids")
+    @classmethod
+    def validate_evidence_bundle_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not value.strip() for value in values) or len(values) != len(set(values)):
+            raise ValueError("evidence_bundle_ids must be unique non-blank values")
+        return values
+
     @model_validator(mode="after")
     def validate_member_paths(self) -> Self:
         if self.base_state == "absent" and self.base_members:
@@ -111,6 +143,19 @@ class ProposeSkillCommand(_StrictModel):
         return self
 
 
+class EvaluateSkillGateCommand(_StrictModel):
+    schema_version: Literal[1] = 1
+    expected_version: int = Field(ge=1)
+    evidence_bundle_ids: tuple[str, ...] = Field(min_length=1)
+
+    @field_validator("evidence_bundle_ids")
+    @classmethod
+    def validate_evidence_bundle_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not value.strip() for value in values) or len(values) != len(set(values)):
+            raise ValueError("evidence_bundle_ids must be unique non-blank values")
+        return values
+
+
 class SkillInstallService:
     def __init__(
         self,
@@ -118,15 +163,20 @@ class SkillInstallService:
         storage: object,
         *,
         contract_factory: Callable[[str], EvolutionContractV1],
+        evidence_verifier: _EvidenceVerifier,
+        gate_evaluator: _GateAuthority,
     ) -> None:
         self._candidates = candidates
         self._storage = storage
         self._contract_factory = contract_factory
+        self._evidence_verifier = evidence_verifier
+        self._gate_evaluator = gate_evaluator
         self._repository = EvolutionRepository()
         self._outbox = OutboxRepository()
 
     def propose(self, command: ProposeSkillCommand, *, auth: AuthContext) -> EvolutionCandidateV1:
         self._authorize(command, auth)
+        self._validate_evidence(command.evidence_bundle_ids, auth=auth)
         contract = self._contract_factory(command.name)
         if contract.kind is not CandidateKind.SKILL or contract.subject_key != (
             f"skill:{command.name}"
@@ -170,6 +220,28 @@ class SkillInstallService:
                 auth=auth,
                 action="skill.candidate.proposed",
             ),
+        )
+
+    def evaluate_gate(
+        self,
+        candidate_id: str,
+        command: EvaluateSkillGateCommand,
+        *,
+        auth: AuthContext,
+    ) -> EvolutionGateReportV1:
+        self._require_scope(auth)
+        with self._storage.unit_of_work() as unit_of_work:  # type: ignore[attr-defined]
+            candidate = self._repository.get_candidate(unit_of_work.connection, candidate_id)
+            unit_of_work.commit()
+        if candidate is None or candidate.kind is not CandidateKind.SKILL:
+            raise SkillEvidenceNotFound("skill candidate was not found")
+        if candidate.provenance.actor_principal_id != auth.principal.id:
+            raise SkillEvidenceNotFound("skill candidate was not found")
+        self._validate_evidence(command.evidence_bundle_ids, auth=auth)
+        return self._gate_evaluator.evaluate(
+            candidate_id,
+            expected_version=command.expected_version,
+            additional_evidence_bundle_ids=command.evidence_bundle_ids,
         )
 
     def stage(self, candidate_id: str, *, auth: AuthContext) -> StagedCandidateV1:
@@ -235,6 +307,32 @@ class SkillInstallService:
         if auth.principal.scopes.isdisjoint({"api", "admin"}):
             raise SkillInstallAuthorizationError("skill write scope is required")
 
+    def _validate_evidence(
+        self, evidence_bundle_ids: tuple[str, ...], *, auth: AuthContext
+    ) -> None:
+        if not evidence_bundle_ids:
+            return
+        try:
+            with self._storage.unit_of_work() as unit_of_work:  # type: ignore[attr-defined]
+                connection = unit_of_work.connection
+                bundles = []
+                for bundle_id in evidence_bundle_ids:
+                    owner = EvidenceRepository.submitter_for_bundle_current(connection, bundle_id)
+                    if owner != auth.principal.id:
+                        raise SkillEvidenceNotFound("evidence bundle was not found")
+                    bundle = EvidenceRepository.get_current(connection, bundle_id)
+                    if bundle is None:
+                        raise SkillEvidenceNotFound("evidence bundle was not found")
+                    if not isinstance(bundle, ClosedEvidenceBundleV1):
+                        raise SkillEvidenceInvalid("evidence bundle is not closed")
+                    bundles.append(bundle)
+                unit_of_work.commit()
+        except EvidenceRepositoryError as exc:
+            raise SkillEvidenceInvalid("evidence bundle is invalid") from exc
+        for bundle in bundles:
+            if not self._evidence_verifier.verify(bundle.bundle_id).verified:
+                raise SkillEvidenceInvalid("evidence bundle is invalid")
+
     def _record(
         self,
         connection: sqlite3.Connection,
@@ -277,9 +375,12 @@ class SkillInstallService:
 
 
 __all__ = [
+    "EvaluateSkillGateCommand",
     "ProposeSkillCommand",
     "ProposedSkillMemberV1",
     "SkillInstallAuthorizationError",
+    "SkillEvidenceInvalid",
+    "SkillEvidenceNotFound",
     "SkillInstallService",
     "SkillInstallServiceError",
 ]

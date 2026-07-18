@@ -132,8 +132,26 @@ class _FakeTransport:
         self.principal_id = "user:owner"
         self.calls: list[tuple[str, str, dict[str, str], object | None]] = []
         evidence = _s5_evidence()
-        self.bundle = _strict_json(ClosedEvidenceBundleV1, evidence["gate_bundle"]).model_dump(
-            mode="json"
+        self.candidate_bundle = _strict_json(
+            ClosedEvidenceBundleV1, evidence["gate_bundle"]
+        ).model_dump(mode="json")
+        self.bundle = copy.deepcopy(self.candidate_bundle)
+        self.bundle["bundle_id"] = "evidence:initial-governed-run"
+        self.bundle["edict_id"] = "edict:initial-governed-run"
+        self.bundle["memorial_id"] = "memorial:initial-governed-run"
+        self.bundle.pop("content_hash")
+        self.bundle["content_hash"] = _canonical_hash(self.bundle)
+        self.candidate_staged = _strict_json(
+            EvolutionCandidateV1, evidence["ready_candidate"]
+        ).model_dump(mode="json")
+        self.candidate_staged.update(
+            {
+                "lifecycle": "staged",
+                "version": 2,
+                "gate_snapshot_version": 0,
+                "evidence_bundle_ids": [],
+                "updated_at": "2026-07-18T09:00:01Z",
+            }
         )
         self.candidate_ready = _strict_json(
             EvolutionCandidateV1, evidence["ready_candidate"]
@@ -187,6 +205,7 @@ class _FakeTransport:
         ).model_dump(mode="json")
         if candidate_is_code:
             for candidate in (
+                self.candidate_staged,
                 self.candidate_ready,
                 self.candidate_canary,
                 self.candidate_final,
@@ -206,6 +225,15 @@ class _FakeTransport:
         self.initial_memorial = Memorial(
             id=self.bundle["memorial_id"],
             edict_id=self.bundle["edict_id"],
+            status=TaskStatus.COMPLETED,
+        ).model_dump(mode="json")
+        self.candidate_evidence_edict = Edict(
+            id=self.candidate_bundle["edict_id"],
+            goal="Lean Preview candidate evidence run",
+        ).model_dump(mode="json")
+        self.candidate_evidence_memorial = Memorial(
+            id=self.candidate_bundle["memorial_id"],
+            edict_id=self.candidate_bundle["edict_id"],
             status=TaskStatus.COMPLETED,
         ).model_dump(mode="json")
         self.canary_edict = Edict(id="edict:canary", goal="Lean Preview canary run").model_dump(
@@ -261,15 +289,22 @@ class _FakeTransport:
             self.served_post_overlay["assignment_id"] = "assignment:other"
         self.rolled_back = False
         self.canary_started = False
+        self.gate_evaluated = False
 
     @property
     def edicts(self) -> tuple[dict[str, object], ...]:
-        return self.initial_edict, self.canary_edict, self.post_edict
+        return (
+            self.initial_edict,
+            self.candidate_evidence_edict,
+            self.canary_edict,
+            self.post_edict,
+        )
 
     @property
     def memorials(self) -> dict[str, dict[str, object]]:
         return {
             str(self.initial_edict["id"]): self.initial_memorial,
+            str(self.candidate_evidence_edict["id"]): self.candidate_evidence_memorial,
             str(self.canary_edict["id"]): self.canary_memorial,
             str(self.post_edict["id"]): self.post_memorial,
         }
@@ -342,9 +377,24 @@ class _FakeTransport:
                 ],
                 "correlation_id": correlation,
             }
+        elif path == f"/api/edicts/{self.candidate_evidence_edict['id']}/evidence":
+            payload = {
+                "items": [
+                    {
+                        "bundle_id": self.candidate_bundle["bundle_id"],
+                        "memorial_id": self.candidate_bundle["memorial_id"],
+                        "status": "closed",
+                        "content_hash": self.candidate_bundle["content_hash"],
+                    }
+                ],
+                "correlation_id": correlation,
+            }
         elif path == f"/api/evidence/{self.bundle['bundle_id']}/download":
             payload = self.served_bundle
             response_headers["etag"] = f'"{self.served_bundle["content_hash"]}"'
+        elif path == f"/api/evidence/{self.candidate_bundle['bundle_id']}/download":
+            payload = self.candidate_bundle
+            response_headers["etag"] = f'"{self.candidate_bundle["content_hash"]}"'
         elif path == "/api/skills" and method == "POST":
             payload = {
                 "success": True,
@@ -372,12 +422,16 @@ class _FakeTransport:
                     else self.candidate_canary
                     if self.canary_started
                     else self.candidate_ready
+                    if self.gate_evaluated
+                    else self.candidate_staged
                 ),
                 "correlation_id": correlation,
             }
-        elif path == (
-            f"/api/evolution/candidates/{self.candidate_ready['candidate_id']}/gate/evaluate"
-        ):
+        elif path == f"/api/skills/candidates/{self.candidate_ready['candidate_id']}/gate/evaluate":
+            assert isinstance(body, dict)
+            assert body["expected_version"] == self.candidate_staged["version"]
+            assert body["evidence_bundle_ids"] == [self.candidate_bundle["bundle_id"]]
+            self.gate_evaluated = True
             payload = {
                 "data": self.served_gate,
                 "correlation_id": correlation,
@@ -430,7 +484,7 @@ class _FakeTransport:
         if (
             isinstance(payload, dict)
             and "correlation_id" not in payload
-            and path != f"/api/evidence/{self.bundle['bundle_id']}/download"
+            and not path.startswith("/api/evidence/")
         ):
             payload = {**payload, "correlation_id": correlation}
         return self._module.HttpResponse(200, response_headers, _canonical_bytes(payload))
@@ -520,6 +574,14 @@ def test_runner_uses_only_stdlib_and_public_http_surfaces(tmp_path: Path) -> Non
     }
     _strict_json(Memorial, observed_by_step["observe_completed_run"]["memorial"])
     _strict_json(ClosedEvidenceBundleV1, observed_by_step["verify_evidence_bundle"]["bundle"])
+    _strict_json(
+        EvolutionCandidateV1,
+        observed_by_step["evaluate_candidate_gate"]["candidate_before_gate"],
+    )
+    _strict_json(
+        ClosedEvidenceBundleV1,
+        observed_by_step["evaluate_candidate_gate"]["candidate_evidence"]["bundle"],
+    )
     _strict_json(EvolutionCandidateV1, observed_by_step["evaluate_candidate_gate"]["candidate"])
     _strict_json(EvolutionGateReportV1, observed_by_step["evaluate_candidate_gate"]["gate_report"])
     _strict_json(PromotionReceiptV1, observed_by_step["start_skill_canary"]["promotion_receipt"])
@@ -540,6 +602,19 @@ def test_runner_uses_only_stdlib_and_public_http_surfaces(tmp_path: Path) -> Non
         EvolutionCandidateV1, observed_by_step["verify_new_run_uses_champion"]["candidate"]
     )
     assert observed_by_step["doctor_ready"]["principal_id"] == transport.principal_id
+    before_gate = observed_by_step["evaluate_candidate_gate"]["candidate_before_gate"]
+    ready = observed_by_step["evaluate_candidate_gate"]["candidate"]
+    assert before_gate["lifecycle"] == "staged"
+    assert before_gate["version"] == 2
+    assert before_gate["gate_snapshot_version"] == 0
+    assert ready["lifecycle"] == "ready"
+    assert ready["version"] == 4
+    assert ready["gate_snapshot_version"] == 1
+    assert ready["evidence_bundle_ids"] == [transport.candidate_bundle["bundle_id"]]
+    gate_calls = [call for call in transport.calls if call[1].endswith("/gate/evaluate")]
+    assert [call[1] for call in gate_calls] == [
+        f"/api/skills/candidates/{ready['candidate_id']}/gate/evaluate"
+    ]
     for step_id, action in (
         ("start_skill_canary", "start_canary"),
         ("rollback_candidate", "rollback"),

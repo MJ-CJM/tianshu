@@ -9,8 +9,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from tianshu.evidence.service import ArtifactStore
+from tianshu.evidence.service import ArtifactStore, EvidenceService
 from tianshu.evolution.candidate_service import CandidateLiveAuthorities, CandidateService
+from tianshu.evolution.gates import GateEvaluator
 from tianshu.models.evolution_candidate import (
     CandidateKind,
     CandidateLifecycle,
@@ -25,7 +26,9 @@ from tianshu.models.principal import (
     PrincipalKind,
 )
 from tianshu.skills.install_service import (
+    EvaluateSkillGateCommand,
     ProposeSkillCommand,
+    SkillEvidenceNotFound,
     SkillInstallAuthorizationError,
     SkillInstallService,
 )
@@ -163,7 +166,18 @@ def install_service(tmp_path: Path, storage: Storage) -> SkillInstallService:
             rollback_slo_seconds=30,
         )
 
-    return SkillInstallService(candidates, storage, contract_factory=contract)
+    evidence = EvidenceService(storage, artifacts, clock=lambda: NOW)
+    return SkillInstallService(
+        candidates,
+        storage,
+        contract_factory=contract,
+        evidence_verifier=evidence,
+        gate_evaluator=GateEvaluator(
+            storage,
+            artifact_verifier=artifacts,
+            clock=lambda: NOW,
+        ),
+    )
 
 
 def _auth(*, scopes: frozenset[str] = frozenset({"api"})) -> AuthContext:
@@ -326,6 +340,25 @@ def test_stage_rejects_cross_principal_bola(
 
     with pytest.raises(SkillInstallAuthorizationError, match="principal mismatch"):
         install_service.stage(candidate.candidate_id, auth=_other_auth())
+
+
+def test_gate_binding_rejects_cross_principal_bola(
+    install_service: SkillInstallService,
+) -> None:
+    candidate = install_service.propose(_command(), auth=_auth())
+    staged = install_service.stage(candidate.candidate_id, auth=_auth())
+
+    with pytest.raises(SkillEvidenceNotFound, match="candidate was not found"):
+        install_service.evaluate_gate(
+            candidate.candidate_id,
+            EvaluateSkillGateCommand(
+                expected_version=staged.candidate.version,
+                evidence_bundle_ids=("evidence:unreachable",),
+            ),
+            auth=_other_auth(),
+        )
+
+    assert install_service._gate_evaluator.get_candidate(candidate.candidate_id) == staged.candidate
 
 
 def test_retries_are_idempotent_and_do_not_duplicate_audit_or_outbox(

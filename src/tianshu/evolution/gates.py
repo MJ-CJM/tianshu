@@ -171,7 +171,13 @@ class GateEvaluator:
         self._repository = EvolutionRepository()
         self._outbox = OutboxRepository()
 
-    def evaluate(self, candidate_id: str, *, expected_version: int) -> EvolutionGateReportV1:
+    def evaluate(
+        self,
+        candidate_id: str,
+        *,
+        expected_version: int,
+        additional_evidence_bundle_ids: tuple[str, ...] = (),
+    ) -> EvolutionGateReportV1:
         with self._storage.unit_of_work() as unit_of_work:
             connection = unit_of_work.connection
             current = self._repository.get_candidate(connection, candidate_id)
@@ -183,12 +189,23 @@ class GateEvaluator:
                 CandidateLifecycle.EVALUATING,
             }:
                 raise EvolutionRepositoryConflict("candidate is not gate-evaluable")
+            if (
+                additional_evidence_bundle_ids
+                and current.lifecycle is CandidateLifecycle.EVALUATING
+            ):
+                raise EvolutionRepositoryConflict(
+                    "evidence can only bind while entering gate evaluation"
+                )
+            evidence_bundle_ids = current.evidence_bundle_ids + additional_evidence_bundle_ids
+            if len(evidence_bundle_ids) != len(set(evidence_bundle_ids)):
+                raise EvolutionRepositoryConflict("candidate evidence bundle ids must be unique")
             evaluating = current
             if current.lifecycle is not CandidateLifecycle.EVALUATING:
                 evaluating = self._repository.save_candidate(
                     connection,
                     current.model_copy(
                         update={
+                            "evidence_bundle_ids": evidence_bundle_ids,
                             "lifecycle": CandidateLifecycle.EVALUATING,
                             "updated_at": self._now(),
                         }

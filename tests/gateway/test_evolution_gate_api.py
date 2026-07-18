@@ -104,7 +104,7 @@ def test_composition_wires_candidate_gate_and_skill_install_services(tmp_path) -
     storage = Storage(settings.db_path)
     storage.init_db()
     app.state.storage = storage
-    from tianshu.evidence.service import ArtifactStore
+    from tianshu.evidence.service import ArtifactStore, EvidenceService
 
     app.state.artifact_store = ArtifactStore(
         settings.artifact_dir,
@@ -113,6 +113,7 @@ def test_composition_wires_candidate_gate_and_skill_install_services(tmp_path) -
         max_object_bytes=settings.artifact_max_bytes,
         max_total_bytes=settings.artifact_quota_bytes,
     )
+    app.state.evidence_service = EvidenceService(storage, app.state.artifact_store)
     try:
         wire_evolution_services(app, settings, skill_target=tmp_path / "skills")
         assert app.state.candidate_service is not None

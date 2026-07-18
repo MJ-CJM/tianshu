@@ -125,6 +125,8 @@ def wire_evolution_services(
         candidates,
         app.state.storage,
         contract_factory=skill_contract,
+        evidence_verifier=app.state.evidence_service,
+        gate_evaluator=gate_evaluator,
     )
 
 

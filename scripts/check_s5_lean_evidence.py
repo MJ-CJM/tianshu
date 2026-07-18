@@ -81,7 +81,11 @@ from tianshu.models.run_state import (
     RunPhase,
     RunStateV1,
 )
-from tianshu.skills.install_service import ProposeSkillCommand, SkillInstallService
+from tianshu.skills.install_service import (
+    EvaluateSkillGateCommand,
+    ProposeSkillCommand,
+    SkillInstallService,
+)
 from tianshu.storage import Storage
 from tianshu.storage.decision_repo import DecisionRepository
 from tianshu.storage.evolution_repo import EvolutionRepository
@@ -459,10 +463,22 @@ def generate_evidence_artifact(*, work_dir: Path, output: Path) -> Path:
     try:
         artifacts = _artifact_store(storage, artifact_root, now=_NOW)
         candidates = _candidate_service(storage, artifacts, work_dir)
+        evidence_service = EvidenceService(
+            storage,
+            artifacts,
+            clock=lambda: _NOW + timedelta(seconds=2),
+        )
+        evaluator = GateEvaluator(
+            storage,
+            artifact_verifier=artifacts,
+            clock=lambda: _NOW + timedelta(seconds=3),
+        )
         installer = SkillInstallService(
             candidates,
             storage,
             contract_factory=_contract,
+            evidence_verifier=evidence_service,
+            gate_evaluator=evaluator,
         )
         gate_memorial_id = "memorial:s5-gate"
         proposed = installer.propose(
@@ -485,7 +501,7 @@ def generate_evidence_artifact(*, work_dir: Path, output: Path) -> Path:
                         ),
                     },
                 ),
-                evidence_bundle_ids=(_bundle_id(gate_memorial_id),),
+                evidence_bundle_ids=(),
                 restore_point_ref="absent-skill",
             ),
             auth=auth,
@@ -524,19 +540,16 @@ def generate_evidence_artifact(*, work_dir: Path, output: Path) -> Path:
                     "completed_at": (_NOW + timedelta(seconds=1)).isoformat(),
                 },
             )
-        evidence_service = EvidenceService(
-            storage,
-            artifacts,
-            clock=lambda: _NOW + timedelta(seconds=2),
-        )
         evidence_service.build_open(gate_memorial.id)
         gate_bundle = evidence_service.close(gate_memorial.id, expected_version=1)
-        evaluator = GateEvaluator(
-            storage,
-            artifact_verifier=artifacts,
-            clock=lambda: _NOW + timedelta(seconds=3),
+        gate_report = installer.evaluate_gate(
+            staged.candidate_id,
+            EvaluateSkillGateCommand(
+                expected_version=staged.version,
+                evidence_bundle_ids=(gate_bundle.bundle_id,),
+            ),
+            auth=auth,
         )
-        gate_report = evaluator.evaluate(staged.candidate_id, expected_version=staged.version)
         ready = evaluator.get_candidate(staged.candidate_id)
         if ready is None or ready.lifecycle is not CandidateLifecycle.READY:
             raise GateEvidenceError("production candidate did not reach ready")

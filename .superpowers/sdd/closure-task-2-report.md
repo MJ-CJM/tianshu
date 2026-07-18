@@ -84,3 +84,43 @@ verify the private journal entry body, its stored `request_hash`, or other non-p
   `--help` invocation.
 - Focused Ruff and format checks passed; `.venv/bin/mypy` reported no issues in 132 source files;
   `git diff --check` passed.
+
+## Production public-path temporal closure
+
+- `POST /api/skills` now accepts a strict optional `evidence_bundle_ids` array and preserves it in
+  the immutable proposal. Missing or cross-owner bundles return the same not-found boundary; open,
+  corrupt, or unverifiable bundles fail closed. Duplicate, blank, and unknown request fields are
+  rejected before persistence.
+- A new owner-scoped public skill gate route binds one or more already-closed Evidence Bundles while
+  the candidate enters evaluation. The binding and `staged -> evaluating` transition occur in the
+  same candidate compare-and-swap. The route never writes the live skill tree and cannot promote a
+  candidate.
+- The real runner no longer treats the pre-evaluation staged row as the gate result. It records the
+  staged candidate at version 2/snapshot 0, submits a separate candidate-specific governed run
+  through `POST /api/edicts`, downloads and verifies that run's closed bundle, calls the public
+  owner-scoped bind/evaluate route, and refetches the ready candidate at version 4/snapshot 1.
+- The gate report and offline verifier are bound to the refetched ready candidate and to the new
+  candidate-specific bundle. The verifier also requires that the bundle closed after staging and
+  contains the exact passed check
+  `evolution.candidate.<candidate_id>.<staged_version>.<candidate_artifact_digest>`.
+- The initial governed run remains independently bound to the report's top-level Evidence Bundle;
+  it is no longer misrepresented as candidate-specific gate evidence.
+
+### Temporal remediation TDD and final gates
+
+- Public API RED: the first real gateway file run produced `7 failed, 5 passed`; the corrected
+  safety subset retained `5 failed`. The first implementation GREEN was `12 passed`, including the
+  real proposal/stage/candidate-specific Evidence/bind/evaluate path and all initial missing,
+  cross-owner, open, corrupt, and unknown-field cases.
+- Runner temporal RED: the focused production-path fake produced `1 failed`; focused GREEN was
+  `1 passed`. The full temporal runner file then passed `20 passed`.
+- Additional owner/BOLA, bind-time invalid-evidence, and malformed-ID coverage brings the public
+  gateway plus service security suite to `40 passed`.
+- Relevant evolution, gateway, service, and runner regression: `271 passed`; full launch plus public
+  documentation truth regression: `136 passed`. The four warnings are unchanged third-party
+  deprecations from `lark_oapi` and `websockets`.
+- Static gates: Ruff check passed; Ruff format reported `889 files already formatted`; mypy reported
+  `Success: no issues found in 132 source files`; import-linter analyzed 483 files / 1,750
+  dependencies with 2 contracts kept and 0 broken; `git diff --check` passed.
+- No UI/mobile files, `uv`, or `uv.lock` were changed, and no private runner/service access, direct
+  production database mutation, automatic promotion, push, or live skill materialization was used.

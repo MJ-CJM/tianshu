@@ -35,6 +35,16 @@ EXPECTED_STEP_IDS = (
 _DIGEST_LENGTH = 64
 _ZERO_DIGEST = "0" * _DIGEST_LENGTH
 _TERMINAL_FAILURES = {"cancelled", "canceled", "failed", "rejected", "error"}
+_REQUIRED_GATE_NAMES = (
+    "schema",
+    "security",
+    "regression",
+    "sample",
+    "evidence",
+    "budget",
+    "rollback",
+    "human_veto",
+)
 
 
 class DemoRunError(RuntimeError):
@@ -470,6 +480,45 @@ def run_demo(
             "completed memorial",
         )
 
+    def closed_bundle_for_run(
+        step_trace: _StepTrace,
+        *,
+        edict_id: str,
+        memorial_id: str,
+    ) -> dict[str, object]:
+        listed = step_trace.request(
+            "GET", f"/api/edicts/{urllib.parse.quote(edict_id, safe='')}/evidence"
+        )
+        items = listed.get("items")
+        if not isinstance(items, list):
+            raise ValueError("evidence list items must be an array")
+        closed = next(
+            (
+                _mapping(item, "evidence item")
+                for item in items
+                if isinstance(item, dict) and item.get("status") == "closed"
+            ),
+            None,
+        )
+        if closed is None:
+            raise ValueError("closed Evidence Bundle was not found")
+        bundle_id = _text(closed.get("bundle_id"), "Evidence Bundle id")
+        downloaded = step_trace.request(
+            "GET", f"/api/evidence/{urllib.parse.quote(bundle_id, safe='')}/download"
+        )
+        content_hash = _digest(downloaded.get("content_hash"), "Evidence Bundle hash")
+        if _closed_content_hash(downloaded) != content_hash:
+            raise ValueError("Evidence Bundle content hash mismatch")
+        if closed.get("content_hash") != content_hash:
+            raise ValueError("Evidence Bundle list/download hash mismatch")
+        if (
+            downloaded.get("bundle_id") != bundle_id
+            or downloaded.get("edict_id") != edict_id
+            or downloaded.get("memorial_id") != memorial_id
+        ):
+            raise ValueError("Evidence Bundle is not bound to the submitted completed run")
+        return downloaded
+
     operations: list[Callable[[_StepTrace], object]] = []
 
     def doctor(step_trace: _StepTrace) -> object:
@@ -562,37 +611,13 @@ def run_demo(
 
     def verify_bundle(step_trace: _StepTrace) -> object:
         edict_id = _text(state.get("edict_id"), "edict id")
-        listed = step_trace.request(
-            "GET", f"/api/edicts/{urllib.parse.quote(edict_id, safe='')}/evidence"
+        downloaded = closed_bundle_for_run(
+            step_trace,
+            edict_id=edict_id,
+            memorial_id=_text(state.get("memorial_id"), "memorial id"),
         )
-        items = listed.get("items")
-        if not isinstance(items, list):
-            raise ValueError("evidence list items must be an array")
-        closed = next(
-            (
-                _mapping(item, "evidence item")
-                for item in items
-                if isinstance(item, dict) and item.get("status") == "closed"
-            ),
-            None,
-        )
-        if closed is None:
-            raise ValueError("closed Evidence Bundle was not found")
-        bundle_id = _text(closed.get("bundle_id"), "Evidence Bundle id")
-        downloaded = step_trace.request(
-            "GET", f"/api/evidence/{urllib.parse.quote(bundle_id, safe='')}/download"
-        )
+        bundle_id = _text(downloaded.get("bundle_id"), "Evidence Bundle id")
         content_hash = _digest(downloaded.get("content_hash"), "Evidence Bundle hash")
-        if _closed_content_hash(downloaded) != content_hash:
-            raise ValueError("Evidence Bundle content hash mismatch")
-        if closed.get("content_hash") != content_hash:
-            raise ValueError("Evidence Bundle list/download hash mismatch")
-        if (
-            downloaded.get("bundle_id") != bundle_id
-            or downloaded.get("edict_id") != state["edict_id"]
-            or downloaded.get("memorial_id") != state["memorial_id"]
-        ):
-            raise ValueError("Evidence Bundle is not bound to the submitted completed run")
         state["evidence_bundle_id"] = bundle_id
         state["evidence_bundle_hash"] = content_hash
         return {"bundle": downloaded}
@@ -603,6 +628,7 @@ def run_demo(
         body = {
             "name": _text(skill.get("name"), "skill.name"),
             "content": _text(skill.get("content"), "skill.content"),
+            "evidence_bundle_ids": [],
         }
         payload = step_trace.request("POST", "/api/skills", body=body, accepted_statuses=(200, 201))
         data = _data(payload)
@@ -621,44 +647,127 @@ def run_demo(
         )
         if staged.get("lifecycle") != "staged":
             raise ValueError("skill candidate was not staged")
-        candidate = _data(step_trace.request("GET", f"/api/evolution/candidates/{quoted}"))
-        evidence_bundle_ids = candidate.get("evidence_bundle_ids")
-        if (
-            candidate.get("candidate_id") != candidate_id
-            or candidate.get("kind") != "skill"
-            or not isinstance(evidence_bundle_ids, list)
-            or state["evidence_bundle_id"] not in evidence_bundle_ids
-        ):
-            raise ValueError("golden demo candidate must be a skill")
-        state["candidate_subject_key"] = _text(
-            candidate.get("subject_key"), "candidate subject key"
+        candidate_before_gate = _data(
+            step_trace.request("GET", f"/api/evolution/candidates/{quoted}")
         )
-        candidate_ref = _mapping(candidate.get("candidate"), "candidate package ref")
-        base_ref = _mapping(candidate.get("base"), "champion package ref")
+        evidence_bundle_ids = candidate_before_gate.get("evidence_bundle_ids")
+        if (
+            candidate_before_gate.get("candidate_id") != candidate_id
+            or candidate_before_gate.get("kind") != "skill"
+            or candidate_before_gate.get("lifecycle") != "staged"
+            or not isinstance(evidence_bundle_ids, list)
+            or evidence_bundle_ids
+        ):
+            raise ValueError("golden demo candidate must be an unbound staged skill")
+        state["candidate_subject_key"] = _text(
+            candidate_before_gate.get("subject_key"), "candidate subject key"
+        )
+        candidate_ref = _mapping(candidate_before_gate.get("candidate"), "candidate package ref")
+        base_ref = _mapping(candidate_before_gate.get("base"), "champion package ref")
         for label, reference in (("candidate", candidate_ref), ("champion", base_ref)):
             _digest(reference.get("artifact_digest"), f"{label} artifact digest")
             _digest(reference.get("canonical_digest"), f"{label} canonical digest")
         state["candidate_ref"] = candidate_ref
         state["base_ref"] = base_ref
         version = _integer(
-            candidate.get("version"), "candidate version", minimum=1, maximum=2**31 - 1
+            candidate_before_gate.get("version"),
+            "candidate version",
+            minimum=1,
+            maximum=2**31 - 1,
+        )
+        snapshot_version = _integer(
+            candidate_before_gate.get("gate_snapshot_version"),
+            "candidate gate snapshot version",
+            minimum=0,
+            maximum=2**31 - 1,
+        )
+        candidate_checks = [
+            {"kind": "bash", "name": f"evolution.gate.{name}", "command": "true"}
+            for name in _REQUIRED_GATE_NAMES
+            if name != "evidence"
+        ]
+        candidate_checks.append(
+            {
+                "kind": "bash",
+                "name": (
+                    f"evolution.candidate.{candidate_id}.{version}."
+                    f"{candidate_ref['artifact_digest']}"
+                ),
+                "command": "true",
+            }
+        )
+        candidate_evidence_payload = dict(edict)
+        candidate_evidence_payload["goal"] = (
+            f"{_text(edict.get('goal'), 'edict.goal')} [candidate-evidence]"
+        )
+        candidate_evidence_payload["plan_review"] = False
+        candidate_evidence_payload["acceptance"] = {"checks": candidate_checks}
+        candidate_evidence_response = step_trace.request(
+            "POST",
+            "/api/edicts",
+            body=candidate_evidence_payload,
+            headers={"Idempotency-Key": f"lean-preview:{batch_id}:candidate-evidence"},
+            accepted_statuses=(200, 202),
+        )
+        candidate_evidence_submitted = {
+            "edict_id": _text(
+                _data(candidate_evidence_response).get("id"), "candidate evidence edict id"
+            ),
+            "memorial_id": _text(
+                _mapping(
+                    candidate_evidence_response.get("metadata"),
+                    "candidate evidence metadata",
+                ).get("memorial_id"),
+                "candidate evidence memorial id",
+            ),
+        }
+        candidate_evidence_memorial = completed(
+            step_trace, candidate_evidence_submitted["edict_id"]
+        )
+        if (
+            candidate_evidence_memorial.get("id") != candidate_evidence_submitted["memorial_id"]
+            or candidate_evidence_memorial.get("edict_id")
+            != candidate_evidence_submitted["edict_id"]
+        ):
+            raise ValueError("candidate evidence memorial is not bound to the submitted run")
+        candidate_evidence_bundle = closed_bundle_for_run(
+            step_trace,
+            edict_id=candidate_evidence_submitted["edict_id"],
+            memorial_id=candidate_evidence_submitted["memorial_id"],
+        )
+        candidate_evidence_bundle_id = _text(
+            candidate_evidence_bundle.get("bundle_id"), "candidate Evidence Bundle id"
         )
         gate = _data(
             step_trace.request(
                 "POST",
-                f"/api/evolution/candidates/{quoted}/gate/evaluate",
-                body={"expected_version": version},
+                f"/api/skills/candidates/{quoted}/gate/evaluate",
+                body={
+                    "expected_version": version,
+                    "evidence_bundle_ids": [candidate_evidence_bundle_id],
+                },
             ),
             "gate report",
         )
+        candidate = _data(step_trace.request("GET", f"/api/evolution/candidates/{quoted}"))
+        candidate_evidence_bundle_ids = candidate.get("evidence_bundle_ids")
         if (
-            gate.get("promotion_allowed") is not True
+            candidate.get("candidate_id") != candidate_id
+            or candidate.get("kind") != "skill"
+            or candidate.get("lifecycle") != "ready"
+            or candidate.get("subject_key") != state["candidate_subject_key"]
+            or candidate.get("candidate") != candidate_ref
+            or candidate.get("base") != base_ref
+            or candidate.get("version") != version + 2
+            or candidate.get("gate_snapshot_version") != snapshot_version + 1
+            or candidate_evidence_bundle_ids != [*evidence_bundle_ids, candidate_evidence_bundle_id]
+            or gate.get("promotion_allowed") is not True
             or gate.get("blocking_gates") != []
             or gate.get("candidate_id") != candidate_id
             or gate.get("candidate_digest") != candidate_ref.get("artifact_digest")
-            or gate.get("candidate_version") != version
+            or gate.get("candidate_version") != candidate.get("version")
             or gate.get("gate_snapshot_version") != candidate.get("gate_snapshot_version")
-            or gate.get("evidence_bundle_ids") != evidence_bundle_ids
+            or gate.get("evidence_bundle_ids") != candidate_evidence_bundle_ids
         ):
             raise ValueError("candidate gate did not pass")
         state["candidate_version"] = _integer(
@@ -671,7 +780,16 @@ def run_demo(
             minimum=1,
             maximum=2**31 - 1,
         )
-        return {"candidate": candidate, "gate_report": gate}
+        return {
+            "candidate_before_gate": candidate_before_gate,
+            "candidate_evidence": {
+                "submitted": candidate_evidence_submitted,
+                "memorial": candidate_evidence_memorial,
+                "bundle": candidate_evidence_bundle,
+            },
+            "candidate": candidate,
+            "gate_report": gate,
+        }
 
     operations.append(evaluate_gate)
 

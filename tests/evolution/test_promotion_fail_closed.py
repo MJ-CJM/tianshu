@@ -55,7 +55,7 @@ from tianshu.models.principal import (
     Principal,
     PrincipalKind,
 )
-from tianshu.skills.install_service import ProposeSkillCommand
+from tianshu.skills.install_service import EvaluateSkillGateCommand, ProposeSkillCommand
 from tianshu.storage import Storage
 from tianshu.storage.decision_repo import DecisionRepository
 from tianshu.storage.evolution_repo import EvolutionRepository, EvolutionRepositoryConflict
@@ -1334,7 +1334,6 @@ async def test_create_app_real_skill_candidate_promotes_and_rolls_back_live_tree
         candidate_text = (
             "---\nname: promotion-golden-demo\ndescription: governed demo\n---\ncandidate body"
         )
-        evidence_id = f"evidence:{sha256(b'memorial-evidence').hexdigest()[:32]}"
         proposed = app.state.skill_install_service.propose(
             ProposeSkillCommand(
                 command_id="golden-demo-proposal",
@@ -1345,7 +1344,7 @@ async def test_create_app_real_skill_candidate_promotes_and_rolls_back_live_tree
                 source_channel=CandidateSourceChannel.API,
                 base_members=(),
                 members=({"path": "SKILL.md", "kind": "file", "content": candidate_text},),
-                evidence_bundle_ids=(evidence_id,),
+                evidence_bundle_ids=(),
                 restore_point_ref="absent-skill",
             ),
             auth=auth,
@@ -1368,6 +1367,7 @@ async def test_create_app_real_skill_candidate_promotes_and_rolls_back_live_tree
         _edict, memorial = seed_closed_run(
             app.state.storage,
             acceptance=AcceptancePolicyV1(checks=tuple(checks)),
+            submitter=auth.principal.id,
         )
         for check in checks:
             app.state.storage.append_event(
@@ -1383,10 +1383,14 @@ async def test_create_app_real_skill_candidate_promotes_and_rolls_back_live_tree
                 },
             )
         app.state.evidence_service.build_open(memorial.id)
-        app.state.evidence_service.close(memorial.id, expected_version=1)
-        gate_report = app.state.evolution_gate_evaluator.evaluate(
+        evidence_bundle = app.state.evidence_service.close(memorial.id, expected_version=1)
+        gate_report = app.state.skill_install_service.evaluate_gate(
             staged.candidate_id,
-            expected_version=staged.version,
+            EvaluateSkillGateCommand(
+                expected_version=staged.version,
+                evidence_bundle_ids=(evidence_bundle.bundle_id,),
+            ),
+            auth=auth,
         )
         assert gate_report.promotion_allowed is True
         ready = app.state.evolution_gate_evaluator.get_candidate(staged.candidate_id)

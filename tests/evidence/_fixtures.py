@@ -34,6 +34,7 @@ def seed_closed_run(
     acceptance: AcceptancePolicyV1 | None = None,
     side_effect_cursor: int = 0,
     correlation_id: str | None = None,
+    submitter: str | None = None,
 ) -> tuple[Edict, Memorial]:
     requested = RequestedGovernanceContractV1(
         objective=ObjectiveV1(goal="produce independently verifiable evidence"),
@@ -45,6 +46,7 @@ def seed_closed_run(
         id="edict-evidence",
         goal=requested.objective.goal,
         governance_contract=requested,
+        submitter=submitter,
     )
     memorial = Memorial(
         id="memorial-evidence",

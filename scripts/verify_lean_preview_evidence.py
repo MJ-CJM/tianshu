@@ -570,21 +570,80 @@ def verify_demo_evidence(
         raise EvidenceVerificationError("Evidence Bundle is not submitted-run-bound")
 
     gate_observed = observed_by_step["evaluate_candidate_gate"]
+    candidate_before_gate_model = _strict_model(
+        EvolutionCandidateV1,
+        gate_observed.get("candidate_before_gate"),
+        "staged candidate",
+    )
     candidate_model = _strict_model(
         EvolutionCandidateV1, gate_observed.get("candidate"), "evaluated candidate"
+    )
+    candidate_evidence = _mapping(gate_observed.get("candidate_evidence"), "candidate evidence")
+    candidate_evidence_submitted = _mapping(
+        candidate_evidence.get("submitted"), "candidate evidence submission"
+    )
+    candidate_evidence_edict_id = _text(
+        candidate_evidence_submitted.get("edict_id"), "candidate evidence edict id"
+    )
+    candidate_evidence_memorial_id = _text(
+        candidate_evidence_submitted.get("memorial_id"), "candidate evidence memorial id"
+    )
+    candidate_evidence_memorial = _strict_model(
+        Memorial,
+        candidate_evidence.get("memorial"),
+        "candidate evidence Memorial",
+    )
+    candidate_bundle_model = _strict_model(
+        ClosedEvidenceBundleV1,
+        candidate_evidence.get("bundle"),
+        "candidate Evidence Bundle",
     )
     gate_model = _strict_model(
         EvolutionGateReportV1, gate_observed.get("gate_report"), "gate report"
     )
-    if not isinstance(candidate_model, EvolutionCandidateV1) or not isinstance(
-        gate_model, EvolutionGateReportV1
+    if not (
+        isinstance(candidate_before_gate_model, EvolutionCandidateV1)
+        and isinstance(candidate_model, EvolutionCandidateV1)
+        and isinstance(candidate_evidence_memorial, Memorial)
+        and isinstance(candidate_bundle_model, ClosedEvidenceBundleV1)
+        and isinstance(gate_model, EvolutionGateReportV1)
     ):  # pragma: no cover
         raise TypeError("strict gate parser returned the wrong type")
-    if candidate_model.kind is not CandidateKind.SKILL:
-        raise EvidenceVerificationError("golden demo candidate must be a skill")
     if (
-        candidate_model.candidate_id != demo_model.candidate_id
-        or bundle_model.bundle_id not in candidate_model.evidence_bundle_ids
+        candidate_before_gate_model.kind is not CandidateKind.SKILL
+        or candidate_model.kind is not CandidateKind.SKILL
+    ):
+        raise EvidenceVerificationError("golden demo candidate must be a skill")
+    binding_check_name = (
+        f"evolution.candidate.{candidate_before_gate_model.candidate_id}."
+        f"{candidate_before_gate_model.version}."
+        f"{candidate_before_gate_model.candidate.artifact_digest}"
+    )
+    if (
+        candidate_before_gate_model.candidate_id != demo_model.candidate_id
+        or candidate_before_gate_model.lifecycle is not CandidateLifecycle.STAGED
+        or candidate_before_gate_model.gate_snapshot_version != 0
+        or candidate_before_gate_model.evidence_bundle_ids
+        or candidate_model.candidate_id != candidate_before_gate_model.candidate_id
+        or candidate_model.subject_key != candidate_before_gate_model.subject_key
+        or candidate_model.base != candidate_before_gate_model.base
+        or candidate_model.candidate != candidate_before_gate_model.candidate
+        or candidate_model.lifecycle is not CandidateLifecycle.READY
+        or candidate_model.version != candidate_before_gate_model.version + 2
+        or candidate_model.gate_snapshot_version
+        != candidate_before_gate_model.gate_snapshot_version + 1
+        or candidate_model.evidence_bundle_ids
+        != (*candidate_before_gate_model.evidence_bundle_ids, candidate_bundle_model.bundle_id)
+        or candidate_evidence_memorial.id != candidate_evidence_memorial_id
+        or candidate_evidence_memorial.edict_id != candidate_evidence_edict_id
+        or candidate_evidence_memorial.status is not TaskStatus.COMPLETED
+        or candidate_bundle_model.edict_id != candidate_evidence_edict_id
+        or candidate_bundle_model.memorial_id != candidate_evidence_memorial_id
+        or candidate_bundle_model.closed_at < candidate_before_gate_model.updated_at
+        or not any(
+            check.name == binding_check_name and check.status == "passed"
+            for check in candidate_bundle_model.snapshot.checks
+        )
         or candidate_model.candidate == candidate_model.base
         or gate_model.candidate_id != candidate_model.candidate_id
         or gate_model.candidate_version != candidate_model.version
@@ -595,7 +654,8 @@ def verify_demo_evidence(
         or not gate_model.promotion_allowed
         or gate_model.blocking_gates
         or any(
-            bundle_model.content_hash not in result.evidence_hashes for result in gate_model.results
+            candidate_bundle_model.content_hash not in result.evidence_hashes
+            for result in gate_model.results
         )
     ):
         raise EvidenceVerificationError("candidate gate is not candidate/evidence-bound")

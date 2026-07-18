@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from typing import NoReturn
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tianshu.gateway.auth import get_auth_context
 from tianshu.models import ApiResponse
 from tianshu.models.canonical import canonical_sha256
 from tianshu.models.evolution_candidate import CandidateSourceChannel
 from tianshu.skills.install_service import (
+    EvaluateSkillGateCommand,
     ProposedSkillMemberV1,
     ProposeSkillCommand,
+    SkillEvidenceInvalid,
+    SkillEvidenceNotFound,
     SkillInstallService,
 )
 from tianshu.skills.installer import (
@@ -24,8 +28,46 @@ from tianshu.skills.installer import (
     snapshot_skill_package,
 )
 from tianshu.storage import Storage
+from tianshu.storage.evolution_repo import EvolutionRepositoryConflict
 
 skills_router = APIRouter(tags=["skills"])
+
+
+class _CreateSkillRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    name: str
+    content: str = ""
+    evidence_bundle_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("evidence_bundle_ids")
+    @classmethod
+    def validate_evidence_bundle_ids(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() for value in values) or len(values) != len(set(values)):
+            raise ValueError("evidence_bundle_ids must be unique non-blank values")
+        return values
+
+
+class _EvaluateSkillGateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    expected_version: int = Field(ge=1)
+    evidence_bundle_ids: list[str] = Field(min_length=1)
+
+    @field_validator("evidence_bundle_ids")
+    @classmethod
+    def validate_evidence_bundle_ids(cls, values: list[str]) -> list[str]:
+        if any(not value.strip() for value in values) or len(values) != len(set(values)):
+            raise ValueError("evidence_bundle_ids must be unique non-blank values")
+        return values
+
+
+def _raise_skill_evidence_error(exc: Exception) -> NoReturn:
+    if isinstance(exc, SkillEvidenceNotFound):
+        raise HTTPException(404, {"code": "evidence_bundle_not_found"}) from exc
+    if isinstance(exc, (SkillEvidenceInvalid, EvolutionRepositoryConflict)):
+        raise HTTPException(409, {"code": str(exc)}) from exc
+    raise exc
 
 
 @skills_router.post("/skills/curate")
@@ -159,37 +201,62 @@ async def pin_skill(name: str, request: Request):
 
 
 @skills_router.post("/skills", response_model=ApiResponse, status_code=201)
-async def create_skill(request: Request):
-    body = await request.json()
-    name = body.get("name")
-    content = body.get("content", "")
-    if not name:
+def create_skill(body: _CreateSkillRequest, request: Request):
+    if not body.name.strip():
         raise HTTPException(status_code=400, detail="name is required")
     from tianshu.skills.loader import SkillsLoader
 
     loader: SkillsLoader = request.app.state.skills_loader
     try:
-        current = loader.get_skill(str(name))
+        current = loader.get_skill(body.name)
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid_skill_name") from None
     if current is not None:
         raise HTTPException(status_code=409, detail="skill_already_exists")
     service: SkillInstallService = request.app.state.skill_install_service
     auth = get_auth_context(request)
-    candidate = service.propose(
-        _inline_command(
-            name=str(name),
-            base_members=None,
-            content=str(content),
-            source_channel=CandidateSourceChannel.API,
-            correlation_id=auth.correlation_id,
-        ),
-        auth=auth,
-    )
+    try:
+        candidate = service.propose(
+            _inline_command(
+                name=body.name,
+                base_members=None,
+                content=body.content,
+                source_channel=CandidateSourceChannel.API,
+                correlation_id=auth.correlation_id,
+                evidence_bundle_ids=tuple(body.evidence_bundle_ids),
+            ),
+            auth=auth,
+        )
+    except (SkillEvidenceInvalid, SkillEvidenceNotFound) as exc:
+        _raise_skill_evidence_error(exc)
     return ApiResponse(
         success=True,
         data={"candidate_id": candidate.candidate_id, "lifecycle": candidate.lifecycle},
     )
+
+
+@skills_router.post(
+    "/skills/candidates/{candidate_id}/gate/evaluate",
+    response_model=ApiResponse,
+)
+def evaluate_skill_candidate_gate(
+    candidate_id: str,
+    body: _EvaluateSkillGateRequest,
+    request: Request,
+):
+    service: SkillInstallService = request.app.state.skill_install_service
+    try:
+        report = service.evaluate_gate(
+            candidate_id,
+            EvaluateSkillGateCommand(
+                expected_version=body.expected_version,
+                evidence_bundle_ids=tuple(body.evidence_bundle_ids),
+            ),
+            auth=get_auth_context(request),
+        )
+    except (SkillEvidenceInvalid, SkillEvidenceNotFound, EvolutionRepositoryConflict) as exc:
+        _raise_skill_evidence_error(exc)
+    return ApiResponse(success=True, data=report.model_dump(mode="json"))
 
 
 @skills_router.post("/skills/candidates/{candidate_id}/stage", response_model=ApiResponse)
@@ -227,8 +294,12 @@ def _inline_command(
     content: str,
     source_channel: CandidateSourceChannel,
     correlation_id: str,
+    evidence_bundle_ids: tuple[str, ...] = (),
 ) -> ProposeSkillCommand:
-    identity = hashlib.sha256(f"{correlation_id}:{name}:{content}".encode()).hexdigest()
+    evidence_identity = ",".join(evidence_bundle_ids)
+    identity = hashlib.sha256(
+        f"{correlation_id}:{name}:{content}:{evidence_identity}".encode()
+    ).hexdigest()
     candidate_members = [ProposedSkillMemberV1(path="SKILL.md", kind="file", content=content)]
     if base_members is not None:
         candidate_members.extend(member for member in base_members if member.path != "SKILL.md")
@@ -248,7 +319,7 @@ def _inline_command(
         source_channel=source_channel,
         base_members=(() if base_members is None else base_members),
         members=tuple(candidate_members),
-        evidence_bundle_ids=(),
+        evidence_bundle_ids=evidence_bundle_ids,
         restore_point_ref=(
             f"skill:{name}:absent" if base_members is None else f"skill:{name}:current"
         ),
