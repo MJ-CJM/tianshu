@@ -692,7 +692,7 @@ export async function assertZoomHasNoPrimaryHorizontalTrap(page: Page): Promise<
     if (path === "/control") {
       await expect(page.getByRole("heading", { name: "Control Center" })).toBeVisible();
     } else {
-      await expect(page.getByRole("heading", { name: "Not enabled" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Evolution Center" })).toBeVisible();
     }
     if (page.url() !== originalUrl) {
       await page.goto(originalUrl);
@@ -700,7 +700,7 @@ export async function assertZoomHasNoPrimaryHorizontalTrap(page: Page): Promise<
       const heading = originalPath === "/control"
         ? "Control Center"
         : originalPath === "/evolution"
-          ? "Not enabled"
+          ? "Evolution Center"
           : "Governance Contract";
       await expect(page.getByRole("heading", { name: heading })).toBeVisible();
     }
