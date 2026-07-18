@@ -526,7 +526,7 @@ def run_demo(
     def observe_initial_completed(step_trace: _StepTrace) -> object:
         memorial = completed(step_trace, _text(state.get("edict_id"), "edict id"))
         state["memorial_id"] = _text(memorial.get("id"), "memorial id")
-        return {"memorial_id": state["memorial_id"], "status": "completed"}
+        return {"memorial": memorial}
 
     operations.append(observe_initial_completed)
 
@@ -603,7 +603,7 @@ def run_demo(
             gate.get("candidate_version"), "gate candidate version", minimum=1, maximum=2**31 - 1
         )
         state["gate_hash"] = _canonical_hash(gate)
-        return {"gate_report": gate}
+        return {"candidate": candidate, "gate_report": gate}
 
     operations.append(evaluate_gate)
 
@@ -644,10 +644,7 @@ def run_demo(
             minimum=1,
             maximum=2**31 - 1,
         )
-        return {
-            "candidate_version": state["candidate_version"],
-            "allocation_basis_points": receipt["allocation_basis_points"],
-        }
+        return {"promotion_receipt": receipt}
 
     operations.append(start_canary)
 
@@ -679,7 +676,11 @@ def run_demo(
         if overlay.get("artifact_digest") != selected_ref.get("artifact_digest"):
             raise ValueError("effective candidate overlay is not assignment-bound")
         state["assignment_id"] = _text(assignment.get("assignment_id"), "assignment id")
-        return {"assignment": assignment, "effective_overlay": overlay}
+        return {
+            "memorial": memorial,
+            "assignment": assignment,
+            "effective_overlay": overlay,
+        }
 
     operations.append(verify_candidate_overlay)
 
@@ -747,7 +748,13 @@ def run_demo(
             or candidate.get("lifecycle") != "rolled_back"
         ):
             raise ValueError("post-rollback candidate does not prove zero allocation")
-        return {"assignment": assignment, "effective_overlay": overlay, "candidate": candidate}
+        return {
+            "submitted": submitted,
+            "memorial": memorial,
+            "assignment": assignment,
+            "effective_overlay": overlay,
+            "candidate": candidate,
+        }
 
     operations.append(verify_post_rollback)
 

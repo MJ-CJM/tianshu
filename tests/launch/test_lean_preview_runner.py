@@ -5,18 +5,30 @@ import copy
 import hashlib
 import importlib.util
 import json
+import urllib.parse
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from tianshu.evidence.models import ClosedEvidenceBundleV1
+from tianshu.evolution.gates import EvolutionGateReportV1
+from tianshu.evolution.promotion import PromotionReceiptV1, RollbackReceiptV1
+from tianshu.models import Edict, Memorial, TaskStatus
+from tianshu.models.evolution_candidate import EvolutionCandidateV1
 from tianshu.models.lean_preview import LeanPreviewDemoReportV1
+from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1, RunAssignmentV1
 
 ROOT = Path(__file__).parents[2]
 RUNNER_PATH = ROOT / "scripts" / "run_lean_preview_demo.py"
 VERIFIER_PATH = ROOT / "scripts" / "verify_lean_preview_evidence.py"
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
+S5_EVIDENCE_PATH = ROOT / "docs" / "cc-fable-v1" / "evidence" / "s5-lean-evolution.json"
+
+
+def _s5_evidence() -> dict[str, object]:
+    return json.loads(S5_EVIDENCE_PATH.read_text(encoding="utf-8"))
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -31,6 +43,15 @@ def _canonical_bytes(value: object) -> bytes:
 
 def _canonical_hash(value: object) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
+def _mapping(value: object) -> dict[str, object]:
+    assert isinstance(value, dict)
+    return value
+
+
+def _strict_json(model_type, value: object):
+    return model_type.model_validate_json(json.dumps(value))
 
 
 def _module():
@@ -50,12 +71,13 @@ def _verifier_module():
 
 
 def _scenario() -> dict[str, object]:
+    bundle = _strict_json(ClosedEvidenceBundleV1, _s5_evidence()["gate_bundle"])
     return {
         "schema_version": 1,
         "provenance": {
             "source_commit": "1" * 40,
             "wheel_sha256": DIGEST_A,
-            "environment_fingerprint": DIGEST_B,
+            "environment_fingerprint": bundle.snapshot.environment.environment_fingerprint,
             "fixture": True,
         },
         "polling": {
@@ -87,35 +109,93 @@ def _scenario() -> dict[str, object]:
     }
 
 
-def _bundle() -> dict[str, object]:
-    payload: dict[str, object] = {
-        "schema_version": "1.0",
-        "bundle_id": "bundle-1",
-        "edict_id": "edict-1",
-        "memorial_id": "memorial-1",
-        "status": "closed",
-        "snapshot": {"checks": [], "artifacts": []},
-        "version": 2,
-        "created_at": "2026-07-18T00:00:00Z",
-        "closed_at": "2026-07-18T00:00:01Z",
-    }
-    payload["content_hash"] = _canonical_hash(payload)
-    return payload
-
-
-def _ref(version: str, digest: str) -> dict[str, str]:
-    return {"version": version, "artifact_digest": digest, "canonical_digest": digest}
-
-
 class _FakeTransport:
     def __init__(self, module, *, decision_never_ready: bool = False) -> None:
         self._module = module
         self.decision_never_ready = decision_never_ready
         self.calls: list[tuple[str, str, dict[str, str], object | None]] = []
-        self.bundle = _bundle()
-        self.champion = _ref("champion-v1", DIGEST_A)
-        self.candidate = _ref("candidate-v1", DIGEST_B)
-        self.candidate_version = 2
+        evidence = _s5_evidence()
+        self.bundle = _strict_json(ClosedEvidenceBundleV1, evidence["gate_bundle"]).model_dump(
+            mode="json"
+        )
+        self.candidate_ready = _strict_json(
+            EvolutionCandidateV1, evidence["ready_candidate"]
+        ).model_dump(mode="json")
+        self.candidate_final = _strict_json(
+            EvolutionCandidateV1, evidence["final_candidate"]
+        ).model_dump(mode="json")
+        self.gate = _strict_json(EvolutionGateReportV1, evidence["gate_report"]).model_dump(
+            mode="json"
+        )
+        promotion = _mapping(evidence["promotion_actions"])
+        self.canary_receipt = _strict_json(
+            PromotionReceiptV1, promotion["start_receipt"]
+        ).model_dump(mode="json")
+        self.rollback_receipt = _strict_json(
+            RollbackReceiptV1, promotion["rollback_receipt"]
+        ).model_dump(mode="json")
+        assignment_evidence = _mapping(evidence["assignment_evidence"])
+        self.canary_assignment = _strict_json(
+            RunAssignmentV1, assignment_evidence["assignment"]
+        ).model_dump(mode="json")
+        self.canary_overlay = _strict_json(
+            EffectiveEvolutionOverlayV1, assignment_evidence["overlay"]
+        ).model_dump(mode="json")
+        final_candidate = _strict_json(EvolutionCandidateV1, evidence["final_candidate"])
+        self.post_assignment = RunAssignmentV1(
+            assignment_id="assignment:post-rollback",
+            memorial_id="memorial:post-rollback",
+            candidate_id=final_candidate.candidate_id,
+            champion_ref=final_candidate.base,
+            selected_ref=final_candidate.base,
+            routing_version=final_candidate.routing.routing_version,
+            bucket=9999,
+            created_at=final_candidate.updated_at,
+        ).model_dump(mode="json")
+        self.post_overlay = EffectiveEvolutionOverlayV1(
+            assignment_id=self.post_assignment["assignment_id"],
+            kind=final_candidate.kind,
+            subject_key=final_candidate.subject_key,
+            artifact_digest=final_candidate.base.artifact_digest,
+            canonical_digest=final_candidate.base.canonical_digest,
+        ).model_dump(mode="json")
+        self.initial_edict = Edict(
+            id=self.bundle["edict_id"], goal="Lean Preview governed run"
+        ).model_dump(mode="json")
+        self.initial_memorial = Memorial(
+            id=self.bundle["memorial_id"],
+            edict_id=self.bundle["edict_id"],
+            status=TaskStatus.COMPLETED,
+        ).model_dump(mode="json")
+        self.canary_edict = Edict(id="edict:canary", goal="Lean Preview canary run").model_dump(
+            mode="json"
+        )
+        self.canary_memorial = Memorial(
+            id=self.canary_assignment["memorial_id"],
+            edict_id=self.canary_edict["id"],
+            status=TaskStatus.COMPLETED,
+        ).model_dump(mode="json")
+        self.post_edict = Edict(
+            id="edict:post-rollback", goal="Lean Preview post-rollback run"
+        ).model_dump(mode="json")
+        self.post_memorial = Memorial(
+            id=self.post_assignment["memorial_id"],
+            edict_id=self.post_edict["id"],
+            status=TaskStatus.COMPLETED,
+        ).model_dump(mode="json")
+        self.rolled_back = False
+
+    @property
+    def edicts(self) -> tuple[dict[str, object], ...]:
+        return self.initial_edict, self.canary_edict, self.post_edict
+
+    @property
+    def memorials(self) -> dict[str, dict[str, object]]:
+        return {
+            str(self.initial_edict["id"]): self.initial_memorial,
+            str(self.canary_edict["id"]): self.canary_memorial,
+            str(self.post_edict["id"]): self.post_memorial,
+        }
 
     def __call__(
         self,
@@ -126,19 +206,22 @@ class _FakeTransport:
         timeout: float,
     ):
         del timeout
-        path = url.removeprefix("http://127.0.0.1:7998")
+        path = urllib.parse.unquote(url.removeprefix("http://127.0.0.1:7998"))
         self.calls.append((method, path, headers, copy.deepcopy(body)))
         correlation = f"corr-{len(self.calls)}"
         response_headers = {"x-correlation-id": correlation}
+        payload: dict[str, object]
 
         if path == "/health/ready":
             payload = {"schema_version": "1", "status": "ready"}
         elif path == "/api/edicts" and method == "POST":
             number = sum(call[1] == "/api/edicts" for call in self.calls)
+            edict = self.edicts[number - 1]
+            memorial = self.memorials[str(edict["id"])]
             payload = {
                 "success": True,
-                "data": {"id": f"edict-{number}"},
-                "metadata": {"memorial_id": f"memorial-{number}"},
+                "data": edict,
+                "metadata": {"memorial_id": memorial["id"]},
             }
         elif path.startswith("/api/decisions?"):
             payload = (
@@ -148,7 +231,7 @@ class _FakeTransport:
                     "items": [
                         {
                             "decision_request_id": "decision-1",
-                            "edict_id": "edict-1",
+                            "edict_id": self.initial_edict["id"],
                             "status": "pending",
                             "version": 1,
                         }
@@ -159,122 +242,81 @@ class _FakeTransport:
         elif path == "/api/decisions/decision-1/resolve":
             payload = {"status": "resolved", "correlation_id": correlation}
         elif path.startswith("/api/edicts/") and path.endswith("/memorial"):
-            number = path.split("/")[3].split("-")[-1]
+            edict_id = path.removeprefix("/api/edicts/").removesuffix("/memorial")
             payload = {
                 "success": True,
-                "data": {"id": f"memorial-{number}", "status": "completed"},
+                "data": self.memorials[edict_id],
             }
-        elif path == "/api/edicts/edict-1/evidence":
+        elif path == f"/api/edicts/{self.initial_edict['id']}/evidence":
             payload = {
                 "items": [
                     {
-                        "bundle_id": "bundle-1",
+                        "bundle_id": self.bundle["bundle_id"],
+                        "memorial_id": self.bundle["memorial_id"],
                         "status": "closed",
                         "content_hash": self.bundle["content_hash"],
                     }
                 ],
                 "correlation_id": correlation,
             }
-        elif path == "/api/evidence/bundle-1/download":
+        elif path == f"/api/evidence/{self.bundle['bundle_id']}/download":
             payload = self.bundle
             response_headers["etag"] = f'"{self.bundle["content_hash"]}"'
         elif path == "/api/skills" and method == "POST":
             payload = {
                 "success": True,
-                "data": {"candidate_id": "candidate-1", "lifecycle": "proposed"},
+                "data": {
+                    "candidate_id": self.candidate_ready["candidate_id"],
+                    "lifecycle": "proposed",
+                },
             }
-        elif path == "/api/skills/candidates/candidate-1/stage":
+        elif path == f"/api/skills/candidates/{self.candidate_ready['candidate_id']}/stage":
             payload = {
                 "success": True,
-                "data": {"candidate_id": "candidate-1", "lifecycle": "staged"},
+                "data": {
+                    "candidate_id": self.candidate_ready["candidate_id"],
+                    "lifecycle": "staged",
+                },
             }
-        elif path == "/api/evolution/candidates/candidate-1" and method == "GET":
+        elif (
+            path == f"/api/evolution/candidates/{self.candidate_ready['candidate_id']}"
+            and method == "GET"
+        ):
+            payload = {
+                "data": self.candidate_final if self.rolled_back else self.candidate_ready,
+                "correlation_id": correlation,
+            }
+        elif path == (
+            f"/api/evolution/candidates/{self.candidate_ready['candidate_id']}/gate/evaluate"
+        ):
+            payload = {
+                "data": self.gate,
+                "correlation_id": correlation,
+            }
+        elif path == f"/api/evolution/candidates/{self.candidate_ready['candidate_id']}/canary":
+            payload = {
+                "data": self.canary_receipt,
+                "correlation_id": correlation,
+            }
+        elif path == f"/api/evolution/runs/{self.canary_assignment['memorial_id']}/assignment":
             payload = {
                 "data": {
-                    "candidate_id": "candidate-1",
-                    "kind": "skill",
-                    "version": self.candidate_version,
-                    "lifecycle": "rolled_back" if self.candidate_version > 3 else "staged",
-                    "base": self.champion,
-                    "candidate": self.candidate,
-                    "routing": {
-                        "allocation_basis_points": 0 if self.candidate_version > 3 else 1000,
-                        "allocation_seed_id": "lean-preview-v1",
-                        "routing_version": 2,
-                    },
+                    "assignment": self.canary_assignment,
+                    "effective_overlay": self.canary_overlay,
                 },
                 "correlation_id": correlation,
             }
-        elif path == "/api/evolution/candidates/candidate-1/gate/evaluate":
+        elif path == (f"/api/evolution/candidates/{self.candidate_ready['candidate_id']}/rollback"):
+            self.rolled_back = True
             payload = {
-                "data": {
-                    "candidate_id": "candidate-1",
-                    "candidate_version": 3,
-                    "candidate_digest": DIGEST_B,
-                    "gate_snapshot_version": 1,
-                    "promotion_allowed": True,
-                    "blocking_gates": [],
-                },
+                "data": self.rollback_receipt,
                 "correlation_id": correlation,
             }
-        elif path == "/api/evolution/candidates/candidate-1/canary":
-            self.candidate_version = 3
+        elif path == f"/api/evolution/runs/{self.post_assignment['memorial_id']}/assignment":
             payload = {
                 "data": {
-                    "action": "start_canary",
-                    "status": "completed",
-                    "candidate_id": "candidate-1",
-                    "candidate_version": 3,
-                    "allocation_basis_points": 1000,
-                },
-                "correlation_id": correlation,
-            }
-        elif path == "/api/evolution/runs/memorial-2/assignment":
-            payload = {
-                "data": {
-                    "assignment": {
-                        "assignment_id": "assignment-canary",
-                        "memorial_id": "memorial-2",
-                        "candidate_id": "candidate-1",
-                        "champion_ref": self.champion,
-                        "selected_ref": self.candidate,
-                    },
-                    "effective_overlay": {
-                        "assignment_id": "assignment-canary",
-                        "artifact_digest": DIGEST_B,
-                        "canonical_digest": DIGEST_B,
-                    },
-                },
-                "correlation_id": correlation,
-            }
-        elif path == "/api/evolution/candidates/candidate-1/rollback":
-            self.candidate_version = 4
-            payload = {
-                "data": {
-                    "action": "rollback",
-                    "status": "completed",
-                    "candidate_id": "candidate-1",
-                    "candidate_version": 4,
-                    "allocation_basis_points": 0,
-                    "effect_artifact_digest": DIGEST_A,
-                },
-                "correlation_id": correlation,
-            }
-        elif path == "/api/evolution/runs/memorial-3/assignment":
-            payload = {
-                "data": {
-                    "assignment": {
-                        "assignment_id": "assignment-post-rollback",
-                        "memorial_id": "memorial-3",
-                        "candidate_id": "candidate-1",
-                        "champion_ref": self.champion,
-                        "selected_ref": self.champion,
-                    },
-                    "effective_overlay": {
-                        "assignment_id": "assignment-post-rollback",
-                        "artifact_digest": DIGEST_A,
-                        "canonical_digest": DIGEST_A,
-                    },
+                    "assignment": self.post_assignment,
+                    "effective_overlay": self.post_overlay,
                 },
                 "correlation_id": correlation,
             }
@@ -284,7 +326,7 @@ class _FakeTransport:
         if (
             isinstance(payload, dict)
             and "correlation_id" not in payload
-            and path != "/api/evidence/bundle-1/download"
+            and path != f"/api/evidence/{self.bundle['bundle_id']}/download"
         ):
             payload = {**payload, "correlation_id": correlation}
         return self._module.HttpResponse(200, response_headers, _canonical_bytes(payload))
@@ -350,7 +392,7 @@ def test_runner_uses_only_stdlib_and_public_http_surfaces(tmp_path: Path) -> Non
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert [step["step_id"] for step in report["steps"]] == list(module.EXPECTED_STEP_IDS)
     assert {step["status"] for step in report["steps"]} == {"passed"}
-    assert report["assignment_id"] == "assignment-canary"
+    assert report["assignment_id"] == transport.canary_assignment["assignment_id"]
     assert report["fixture"] is False
     assert report["evidence_bundle_hash"] == transport.bundle["content_hash"]
     assert report["content_hash"] == _canonical_hash(
@@ -362,6 +404,36 @@ def test_runner_uses_only_stdlib_and_public_http_surfaces(tmp_path: Path) -> Non
         report_path.parent / "artifacts",
         expected_source_commit="1" * 40,
         expected_wheel_sha256=DIGEST_A,
+    )
+
+    observed_by_step = {
+        step_id: json.loads(
+            (report_path.parent / "artifacts" / f"{index:02d}-{step_id}.json").read_text(
+                encoding="utf-8"
+            )
+        )["observed"]
+        for index, step_id in enumerate(module.EXPECTED_STEP_IDS, 1)
+    }
+    _strict_json(Memorial, observed_by_step["observe_completed_run"]["memorial"])
+    _strict_json(ClosedEvidenceBundleV1, observed_by_step["verify_evidence_bundle"]["bundle"])
+    _strict_json(EvolutionCandidateV1, observed_by_step["evaluate_candidate_gate"]["candidate"])
+    _strict_json(EvolutionGateReportV1, observed_by_step["evaluate_candidate_gate"]["gate_report"])
+    _strict_json(PromotionReceiptV1, observed_by_step["start_skill_canary"]["promotion_receipt"])
+    _strict_json(Memorial, observed_by_step["verify_real_candidate_overlay"]["memorial"])
+    _strict_json(RunAssignmentV1, observed_by_step["verify_real_candidate_overlay"]["assignment"])
+    _strict_json(
+        EffectiveEvolutionOverlayV1,
+        observed_by_step["verify_real_candidate_overlay"]["effective_overlay"],
+    )
+    _strict_json(RollbackReceiptV1, observed_by_step["rollback_candidate"]["rollback_receipt"])
+    _strict_json(Memorial, observed_by_step["verify_new_run_uses_champion"]["memorial"])
+    _strict_json(RunAssignmentV1, observed_by_step["verify_new_run_uses_champion"]["assignment"])
+    _strict_json(
+        EffectiveEvolutionOverlayV1,
+        observed_by_step["verify_new_run_uses_champion"]["effective_overlay"],
+    )
+    _strict_json(
+        EvolutionCandidateV1, observed_by_step["verify_new_run_uses_champion"]["candidate"]
     )
 
     artifacts = sorted((report_path.parent / "artifacts").glob("*.json"))

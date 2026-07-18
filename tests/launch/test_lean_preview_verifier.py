@@ -10,6 +10,7 @@ import pytest
 
 ROOT = Path(__file__).parents[2]
 VERIFIER_PATH = ROOT / "scripts" / "verify_lean_preview_evidence.py"
+RUNNER_TEST_PATH = ROOT / "tests" / "launch" / "test_lean_preview_runner.py"
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
 STEP_IDS = (
@@ -77,142 +78,29 @@ def _ref(version: str, digest: str) -> dict[str, str]:
 
 
 def _write_demo(root: Path) -> tuple[Path, Path, dict[str, object]]:
-    artifact_root = root / "artifacts"
-    artifact_root.mkdir(parents=True)
-    champion = _ref("champion-v1", DIGEST_A)
-    candidate = _ref("candidate-v1", DIGEST_B)
-    bundle: dict[str, object] = {
-        "schema_version": "1.0",
-        "bundle_id": "bundle-1",
-        "edict_id": "edict-1",
-        "memorial_id": "memorial-1",
-        "status": "closed",
-        "snapshot": {"checks": [], "artifacts": []},
-        "version": 2,
-        "created_at": "2026-07-18T00:00:00Z",
-        "closed_at": "2026-07-18T00:00:01Z",
-    }
-    bundle["content_hash"] = _canonical_hash(bundle)
-    gate = {
-        "candidate_id": "candidate-1",
-        "candidate_version": 3,
-        "candidate_digest": DIGEST_B,
-        "gate_snapshot_version": 1,
-        "promotion_allowed": True,
-        "blocking_gates": [],
-    }
-    rollback = {
-        "action": "rollback",
-        "status": "completed",
-        "candidate_id": "candidate-1",
-        "candidate_version": 4,
-        "allocation_basis_points": 0,
-        "effect_artifact_digest": DIGEST_A,
-    }
-    canary_assignment = {
-        "assignment_id": "assignment-canary",
-        "memorial_id": "memorial-2",
-        "candidate_id": "candidate-1",
-        "champion_ref": champion,
-        "selected_ref": candidate,
-    }
-    post_assignment = {
-        "assignment_id": "assignment-post-rollback",
-        "memorial_id": "memorial-3",
-        "candidate_id": "candidate-1",
-        "champion_ref": champion,
-        "selected_ref": champion,
-    }
-    observed: dict[str, object] = {
-        "doctor_ready": {"status": "ready"},
-        "submit_governed_edict": {"edict_id": "edict-1", "memorial_id": "memorial-1"},
-        "observe_decision_required": {
-            "decision_request_id": "decision-1",
-            "edict_id": "edict-1",
-            "status": "pending",
-            "version": 1,
+    spec = importlib.util.spec_from_file_location("lean_preview_runner_fixture", RUNNER_TEST_PATH)
+    assert spec is not None and spec.loader is not None
+    fixture_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture_module)
+    runner = fixture_module._module()
+    scenario_path = root / "scenario.json"
+    root.mkdir(parents=True, exist_ok=True)
+    scenario_path.write_text(json.dumps(fixture_module._scenario()), encoding="utf-8")
+    report_path = runner.run_demo(
+        base_url="http://127.0.0.1:7998",
+        scenario_path=scenario_path,
+        batch_id="batch-verifier",
+        output_root=root,
+        transport=fixture_module._FakeTransport(runner),
+        clock=fixture_module._Clock(),
+        sleeper=lambda _seconds: None,
+        environ={
+            "TIANSHU_BOOTSTRAP_TOKEN": "secret",
+            "TIANSHU_LEAN_FIXTURE": "false",
         },
-        "resolve_decision_with_reason": {"status": "resolved"},
-        "observe_completed_run": {"memorial_id": "memorial-1", "status": "completed"},
-        "verify_evidence_bundle": {"bundle": bundle},
-        "propose_skill_candidate": {"candidate_id": "candidate-1", "lifecycle": "proposed"},
-        "evaluate_candidate_gate": {"gate_report": gate},
-        "start_skill_canary": {"candidate_version": 3, "allocation_basis_points": 1000},
-        "submit_canary_eligible_run": {
-            "edict_id": "edict-2",
-            "memorial_id": "memorial-2",
-        },
-        "verify_real_candidate_overlay": {
-            "assignment": canary_assignment,
-            "effective_overlay": {
-                "assignment_id": "assignment-canary",
-                "artifact_digest": DIGEST_B,
-                "canonical_digest": DIGEST_B,
-            },
-        },
-        "rollback_candidate": {"rollback_receipt": rollback},
-        "verify_new_run_uses_champion": {
-            "assignment": post_assignment,
-            "effective_overlay": {
-                "assignment_id": "assignment-post-rollback",
-                "artifact_digest": DIGEST_A,
-                "canonical_digest": DIGEST_A,
-            },
-            "candidate": {
-                "candidate_id": "candidate-1",
-                "lifecycle": "rolled_back",
-                "routing": {"allocation_basis_points": 0},
-            },
-        },
-    }
-    steps: list[dict[str, object]] = []
-    for index, step_id in enumerate(STEP_IDS, 1):
-        artifact = {
-            "schema_version": 1,
-            "step_id": step_id,
-            "requests": [
-                {
-                    "method": "GET",
-                    "path": "/health/ready" if index == 1 else "/api/public",
-                    "body_sha256": None,
-                }
-            ],
-            "correlation_ids": [f"corr-{index}"],
-            "response_hashes": [_canonical_hash({"ok": True, "index": index})],
-            "observed": observed[step_id],
-        }
-        path = artifact_root / f"{index:02d}-{step_id}.json"
-        path.write_bytes(_canonical_bytes(artifact))
-        steps.append(
-            {
-                "step_id": step_id,
-                "status": "passed",
-                "started_at": f"2026-07-18T00:00:{index - 1:02d}Z",
-                "completed_at": f"2026-07-18T00:00:{index:02d}Z",
-                "evidence_hashes": [hashlib.sha256(path.read_bytes()).hexdigest()],
-                "observed_state_hash": _canonical_hash(observed[step_id]),
-            }
-        )
-    report: dict[str, object] = {
-        "schema_version": 1,
-        "batch_id": "batch-verifier",
-        "source_commit": "1" * 40,
-        "wheel_sha256": DIGEST_A,
-        "environment_fingerprint": DIGEST_B,
-        "fixture": False,
-        "steps": steps,
-        "evidence_bundle_id": "bundle-1",
-        "evidence_bundle_hash": bundle["content_hash"],
-        "candidate_id": "candidate-1",
-        "gate_hash": _canonical_hash(gate),
-        "assignment_id": "assignment-canary",
-        "rollback_receipt_hash": _canonical_hash(rollback),
-        "external_pending": ["voiceover"],
-    }
-    report["content_hash"] = _canonical_hash(report)
-    report_path = root / "demo-report.json"
-    report_path.write_text(json.dumps(report), encoding="utf-8")
-    return report_path, artifact_root, report
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    return report_path, report_path.parent / "artifacts", report
 
 
 def _rehash_report(path: Path, report: dict[str, object]) -> None:
@@ -220,6 +108,31 @@ def _rehash_report(path: Path, report: dict[str, object]) -> None:
     report.pop("content_hash", None)
     report["content_hash"] = _canonical_hash(report)
     path.write_text(json.dumps(report), encoding="utf-8")
+
+
+def _rewrite_step(
+    report_path: Path,
+    artifact_root: Path,
+    report: dict[str, object],
+    step_index: int,
+) -> tuple[Path, dict[str, object]]:
+    step_id = STEP_IDS[step_index]
+    path = artifact_root / f"{step_index + 1:02d}-{step_id}.json"
+    artifact = json.loads(path.read_text(encoding="utf-8"))
+    return path, artifact
+
+
+def _save_step(
+    report_path: Path,
+    report: dict[str, object],
+    step_index: int,
+    path: Path,
+    artifact: dict[str, object],
+) -> None:
+    path.write_bytes(_canonical_bytes(artifact))
+    report["steps"][step_index]["evidence_hashes"] = [hashlib.sha256(path.read_bytes()).hexdigest()]
+    report["steps"][step_index]["observed_state_hash"] = _canonical_hash(artifact["observed"])
+    _rehash_report(report_path, report)
 
 
 def test_verifier_recomputes_all_demo_hashes_and_semantic_bindings(tmp_path: Path) -> None:
@@ -239,6 +152,82 @@ def test_verifier_recomputes_all_demo_hashes_and_semantic_bindings(tmp_path: Pat
 @pytest.mark.parametrize(
     ("case", "message"),
     [
+        ("bundle_run_splice", "submitted-run-bound"),
+        ("gate_digest_splice", "candidate/evidence-bound"),
+        ("canary_memorial_splice", "canary-run-bound"),
+        ("post_memorial_splice", "rollback-run-bound"),
+    ],
+)
+def test_verifier_rejects_rehashed_cross_run_splices(
+    tmp_path: Path, case: str, message: str
+) -> None:
+    module = _module()
+    report_path, artifact_root, report = _write_demo(tmp_path)
+    step_index = {
+        "bundle_run_splice": 5,
+        "gate_digest_splice": 7,
+        "canary_memorial_splice": 10,
+        "post_memorial_splice": 12,
+    }[case]
+    path, artifact = _rewrite_step(report_path, artifact_root, report, step_index)
+    if case == "bundle_run_splice":
+        bundle = artifact["observed"]["bundle"]
+        bundle["edict_id"] = "edict:spliced"
+        bundle["memorial_id"] = "memorial:spliced"
+        bundle.pop("content_hash")
+        bundle["content_hash"] = _canonical_hash(bundle)
+        report["evidence_bundle_hash"] = bundle["content_hash"]
+    elif case == "gate_digest_splice":
+        gate = artifact["observed"]["gate_report"]
+        gate["candidate_digest"] = DIGEST_A
+        report["gate_hash"] = _canonical_hash(gate)
+    elif case == "canary_memorial_splice":
+        artifact["observed"]["assignment"]["memorial_id"] = "memorial:spliced"
+    else:
+        artifact["observed"]["assignment"]["memorial_id"] = "memorial:spliced"
+    _save_step(report_path, report, step_index, path, artifact)
+
+    with pytest.raises(module.EvidenceVerificationError, match=message):
+        module.verify_demo_evidence(
+            report_path,
+            artifact_root,
+            expected_source_commit="1" * 40,
+            expected_wheel_sha256=DIGEST_A,
+        )
+
+
+def test_verifier_uses_strict_demo_schema_and_confined_real_artifacts(tmp_path: Path) -> None:
+    module = _module()
+    report_path, artifact_root, report = _write_demo(tmp_path / "strict")
+    report["fixture"] = True
+    report["external_pending"] = []
+    _rehash_report(report_path, report)
+    with pytest.raises(module.EvidenceVerificationError, match="strict public contract"):
+        module.verify_demo_evidence(report_path, artifact_root)
+
+    report_path, artifact_root, _report = _write_demo(tmp_path / "root-link-target")
+    linked_root = tmp_path / "linked-artifacts"
+    linked_root.symlink_to(artifact_root, target_is_directory=True)
+    with pytest.raises(module.EvidenceVerificationError, match="real directory"):
+        module.verify_demo_evidence(report_path, linked_root)
+
+    path = artifact_root / "01-doctor_ready.json"
+    outside = tmp_path / "outside-artifact.json"
+    path.rename(outside)
+    path.symlink_to(outside)
+    with pytest.raises(module.EvidenceVerificationError, match="symlink"):
+        module.verify_demo_evidence(report_path, artifact_root)
+
+
+def test_verifier_cli_requires_expected_build_identity() -> None:
+    module = _module()
+    with pytest.raises(SystemExit):
+        module._parser().parse_args(["--report", "report.json", "--artifact-root", "artifacts"])
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
         ("wrong_commit", "source commit"),
         ("wrong_wheel", "Wheel"),
         ("corrupt_artifact", "artifact hash"),
@@ -246,7 +235,7 @@ def test_verifier_recomputes_all_demo_hashes_and_semantic_bindings(tmp_path: Pat
         ("failed_step", "step status"),
         ("corrupt_bundle", "Evidence Bundle"),
         ("champion_only", "candidate overlay"),
-        ("rollback_allocation", "allocation"),
+        ("rollback_allocation", "rollback receipt"),
         ("post_rollback_challenger", "post-rollback champion"),
         ("rollback_receipt", "rollback receipt"),
     ],
@@ -320,8 +309,22 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
 
     phase_paths: dict[str, Path] = {}
     for phase_id in module.REQUIRED_PHASE_REPORT_IDS:
-        path = tmp_path / f"{phase_id}.report"
-        path.write_text(f"verified {phase_id}\n", encoding="utf-8")
+        source_path = tmp_path / "reports" / f"{phase_id}.md"
+        source_path.parent.mkdir(exist_ok=True)
+        source_path.write_text(f"verified {phase_id}\n", encoding="utf-8")
+        phase: dict[str, object] = {
+            "schema_version": 1,
+            "phase_id": phase_id,
+            "gate_id": module._PHASE_GATE_IDS[phase_id],
+            "status": "passed",
+            "source_commit": "1" * 40,
+            "report_ref": f"reports/{phase_id}.md",
+            "report_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+            "external_pending": [],
+        }
+        phase["content_hash"] = _canonical_hash(phase)
+        path = tmp_path / f"{phase_id}.json"
+        path.write_bytes(_canonical_bytes(phase))
         phase_paths[phase_id] = path
     wheel = tmp_path / "candidate.whl"
     sdist = tmp_path / "candidate.tar.gz"
@@ -337,10 +340,10 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
         "schema_version": 1,
         "source_commit": "1" * 40,
         "phase_report_hashes": {
-            phase_id: hashlib.sha256(path.read_bytes()).hexdigest()
+            phase_id: json.loads(path.read_text(encoding="utf-8"))["content_hash"]
             for phase_id, path in phase_paths.items()
         },
-        "demo_report_ref": "demo/demo-report.json",
+        "demo_report_ref": "demo/batch-verifier/demo-report.json",
         "demo_report_hash": demo["content_hash"],
         "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
         "sdist_sha256": hashlib.sha256(sdist.read_bytes()).hexdigest(),
@@ -358,6 +361,7 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
 
     module.verify_candidate_report(
         candidate_path,
+        artifact_root=tmp_path,
         demo_report_path=report_path,
         phase_report_paths=phase_paths,
         wheel_path=wheel,
@@ -365,13 +369,46 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
         capability_matrix_path=matrix,
     )
 
+    linked_root = tmp_path.parent / f"{tmp_path.name}-linked-root"
+    linked_root.symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(module.EvidenceVerificationError, match="real directory"):
+        module.verify_candidate_report(
+            linked_root / "candidate.json",
+            artifact_root=linked_root,
+            demo_report_path=linked_root / "demo/batch-verifier/demo-report.json",
+            phase_report_paths={
+                phase_id: linked_root / path.name for phase_id, path in phase_paths.items()
+            },
+            wheel_path=linked_root / wheel.name,
+            sdist_path=linked_root / sdist.name,
+            capability_matrix_path=linked_root / matrix.name,
+        )
+
+    phase_path = phase_paths["s1_g1_5"]
+    outside_phase = tmp_path.parent / f"{tmp_path.name}-outside-phase.json"
+    phase_path.rename(outside_phase)
+    phase_path.symlink_to(outside_phase)
+    with pytest.raises(module.EvidenceVerificationError, match="symlink"):
+        module.verify_candidate_report(
+            candidate_path,
+            artifact_root=tmp_path,
+            demo_report_path=report_path,
+            phase_report_paths=phase_paths,
+            wheel_path=wheel,
+            sdist_path=sdist,
+            capability_matrix_path=matrix,
+        )
+    phase_path.unlink()
+    outside_phase.rename(phase_path)
+
     candidate["deferred_work_ids"] = list(DEFERRED_IDS[:-1])
     candidate.pop("content_hash")
     candidate["content_hash"] = _canonical_hash(candidate)
     candidate_path.write_text(json.dumps(candidate), encoding="utf-8")
-    with pytest.raises(module.EvidenceVerificationError, match="deferred work IDs"):
+    with pytest.raises(module.EvidenceVerificationError, match="strict public contract"):
         module.verify_candidate_report(
             candidate_path,
+            artifact_root=tmp_path,
             demo_report_path=report_path,
             phase_report_paths=phase_paths,
             wheel_path=wheel,
@@ -387,6 +424,145 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
     with pytest.raises(module.EvidenceVerificationError, match="phase report hash"):
         module.verify_candidate_report(
             candidate_path,
+            artifact_root=tmp_path,
+            demo_report_path=report_path,
+            phase_report_paths=phase_paths,
+            wheel_path=wheel,
+            sdist_path=sdist,
+            capability_matrix_path=matrix,
+        )
+
+    candidate["phase_report_hashes"]["s3_core"] = json.loads(
+        phase_paths["s3_core"].read_text(encoding="utf-8")
+    )["content_hash"]
+    approval: dict[str, object] = {
+        "schema_version": 1,
+        "approval_id": "approval-1",
+        "approval_kind": "explicit_user_review",
+        "decision": "approved",
+        "approved_by": "preview-owner",
+        "approved_at": "2026-07-18T12:00:00Z",
+        "source_commit": "1" * 40,
+        "demo_report_hash": demo["content_hash"],
+    }
+    approval["content_hash"] = _canonical_hash(approval)
+    approval_path = tmp_path / "approval.json"
+    approval_path.write_bytes(_canonical_bytes(approval))
+    candidate["visual_status"] = "user_approved"
+    candidate["visual_approval_record_ref"] = "approval.json"
+    candidate["visual_approval_record_hash"] = approval["content_hash"]
+    candidate.pop("content_hash")
+    candidate["content_hash"] = _canonical_hash(candidate)
+    candidate_path.write_bytes(_canonical_bytes(candidate))
+    module.verify_candidate_report(
+        candidate_path,
+        artifact_root=tmp_path,
+        demo_report_path=report_path,
+        phase_report_paths=phase_paths,
+        wheel_path=wheel,
+        sdist_path=sdist,
+        capability_matrix_path=matrix,
+    )
+
+    approval_path.unlink()
+    with pytest.raises(module.EvidenceVerificationError, match="approval record"):
+        module.verify_candidate_report(
+            candidate_path,
+            artifact_root=tmp_path,
+            demo_report_path=report_path,
+            phase_report_paths=phase_paths,
+            wheel_path=wheel,
+            sdist_path=sdist,
+            capability_matrix_path=matrix,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("arbitrary_text", "structured phase report"),
+        ("wrong_gate", "gate identity"),
+        ("wrong_commit", "source commit"),
+        ("external_pending", "external_pending"),
+    ],
+)
+def test_candidate_verifier_requires_structured_passed_phase_evidence(
+    tmp_path: Path, mutation: str, message: str
+) -> None:
+    module = _module()
+    report_path, _artifact_root, demo = _write_demo(tmp_path / "demo")
+    wheel = tmp_path / "candidate.whl"
+    sdist = tmp_path / "candidate.tar.gz"
+    matrix = tmp_path / "capability-matrix.md"
+    wheel.write_bytes(b"exact wheel")
+    sdist.write_bytes(b"exact sdist")
+    matrix.write_text("verified matrix\n", encoding="utf-8")
+    demo["wheel_sha256"] = hashlib.sha256(wheel.read_bytes()).hexdigest()
+    _rehash_report(report_path, demo)
+    demo = json.loads(report_path.read_text(encoding="utf-8"))
+
+    phase_paths: dict[str, Path] = {}
+    phase_hashes: dict[str, str] = {}
+    for phase_id in module.REQUIRED_PHASE_REPORT_IDS:
+        source_path = tmp_path / "reports" / f"{phase_id}.md"
+        source_path.parent.mkdir(exist_ok=True)
+        source_path.write_text(f"verified {phase_id}\n", encoding="utf-8")
+        phase: dict[str, object] = {
+            "schema_version": 1,
+            "phase_id": phase_id,
+            "gate_id": module._PHASE_GATE_IDS[phase_id],
+            "status": "passed",
+            "source_commit": "1" * 40,
+            "report_ref": f"reports/{phase_id}.md",
+            "report_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+            "external_pending": [],
+        }
+        phase["content_hash"] = _canonical_hash(phase)
+        path = tmp_path / f"{phase_id}.json"
+        path.write_bytes(_canonical_bytes(phase))
+        phase_paths[phase_id] = path
+        phase_hashes[phase_id] = str(phase["content_hash"])
+
+    target = phase_paths["s3_core"]
+    if mutation == "arbitrary_text":
+        target.write_text("passed\n", encoding="utf-8")
+    else:
+        phase = json.loads(target.read_text(encoding="utf-8"))
+        if mutation == "wrong_gate":
+            phase["gate_id"] = "S4 Automation"
+        elif mutation == "wrong_commit":
+            phase["source_commit"] = "2" * 40
+        else:
+            phase["external_pending"] = ["unverified external evidence"]
+        phase.pop("content_hash")
+        phase["content_hash"] = _canonical_hash(phase)
+        target.write_bytes(_canonical_bytes(phase))
+        phase_hashes["s3_core"] = phase["content_hash"]
+
+    candidate: dict[str, object] = {
+        "schema_version": 1,
+        "source_commit": "1" * 40,
+        "phase_report_hashes": phase_hashes,
+        "demo_report_ref": "demo/batch-verifier/demo-report.json",
+        "demo_report_hash": demo["content_hash"],
+        "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+        "sdist_sha256": hashlib.sha256(sdist.read_bytes()).hexdigest(),
+        "capability_matrix_hash": hashlib.sha256(matrix.read_bytes()).hexdigest(),
+        "automation_status": "passed",
+        "visual_status": "user_approval_pending",
+        "visual_approval_record_ref": None,
+        "visual_approval_record_hash": None,
+        "publication_status": "not_authorized",
+        "deferred_work_ids": list(DEFERRED_IDS),
+    }
+    candidate["content_hash"] = _canonical_hash(candidate)
+    candidate_path = tmp_path / "candidate.json"
+    candidate_path.write_bytes(_canonical_bytes(candidate))
+
+    with pytest.raises(module.EvidenceVerificationError, match=message):
+        module.verify_candidate_report(
+            candidate_path,
+            artifact_root=tmp_path,
             demo_report_path=report_path,
             phase_report_paths=phase_paths,
             wheel_path=wheel,

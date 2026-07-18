@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strictly verify Lean Preview demo and candidate evidence using only stdlib."""
+"""Strictly verify Lean Preview demo and candidate evidence."""
 
 from __future__ import annotations
 
@@ -10,6 +10,21 @@ import sys
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
+
+from pydantic import BaseModel, ValidationError
+
+from tianshu.evidence.models import ClosedEvidenceBundleV1
+from tianshu.evolution.gates import EvolutionGateReportV1
+from tianshu.evolution.promotion import PromotionReceiptV1, RollbackReceiptV1
+from tianshu.models import Memorial, TaskStatus
+from tianshu.models.canonical import canonical_sha256
+from tianshu.models.evolution_candidate import CandidateLifecycle, EvolutionCandidateV1
+from tianshu.models.lean_preview import (
+    LeanPreviewCandidateReportV1,
+    LeanPreviewDemoReportV1,
+    resolve_lean_preview_candidate_artifacts,
+)
+from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1, RunAssignmentV1
 
 EXPECTED_STEP_IDS = (
     "doctor_ready",
@@ -57,23 +72,6 @@ REQUIRED_DEFERRED_WORK_IDS = (
     "P4-E5",
 )
 
-_DEMO_FIELDS = {
-    "schema_version",
-    "batch_id",
-    "source_commit",
-    "wheel_sha256",
-    "environment_fingerprint",
-    "fixture",
-    "steps",
-    "evidence_bundle_id",
-    "evidence_bundle_hash",
-    "candidate_id",
-    "gate_hash",
-    "assignment_id",
-    "rollback_receipt_hash",
-    "external_pending",
-    "content_hash",
-}
 _STEP_FIELDS = {
     "step_id",
     "status",
@@ -91,22 +89,23 @@ _ARTIFACT_FIELDS = {
     "observed",
 }
 _REQUEST_FIELDS = {"method", "path", "body_sha256"}
-_CANDIDATE_FIELDS = {
+_PHASE_REPORT_FIELDS = {
     "schema_version",
+    "phase_id",
+    "gate_id",
+    "status",
     "source_commit",
-    "phase_report_hashes",
-    "demo_report_ref",
-    "demo_report_hash",
-    "wheel_sha256",
-    "sdist_sha256",
-    "capability_matrix_hash",
-    "automation_status",
-    "visual_status",
-    "visual_approval_record_ref",
-    "visual_approval_record_hash",
-    "publication_status",
-    "deferred_work_ids",
+    "report_ref",
+    "report_sha256",
+    "external_pending",
     "content_hash",
+}
+_PHASE_GATE_IDS = {
+    "s1_g1_5": "G1.5",
+    "s2_lean": "S2 Lean",
+    "s3_core": "S3 Core",
+    "s4_automation": "S4 Automation",
+    "s5_lean_core": "S5 Lean Core",
 }
 
 
@@ -148,6 +147,48 @@ def _load_json(path: Path, label: str) -> dict[str, object]:
     if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
         raise EvidenceVerificationError(f"{label} must be a JSON object")
     return value
+
+
+def _strict_model(model_type: type[BaseModel], value: object, label: str) -> BaseModel:
+    try:
+        return model_type.model_validate_json(_canonical_bytes(value))
+    except ValidationError as exc:
+        raise EvidenceVerificationError(f"{label} violates its strict public contract") from exc
+
+
+def _real_directory(path: Path, label: str) -> Path:
+    if path.is_symlink() or not path.is_dir():
+        raise EvidenceVerificationError(f"{label} must be a real directory")
+    try:
+        return path.resolve(strict=True)
+    except OSError as exc:
+        raise EvidenceVerificationError(f"{label} must exist") from exc
+
+
+def _confined_file(root: Path, relative: Path, label: str) -> Path:
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise EvidenceVerificationError(f"{label} escapes its artifact root")
+    cursor = root
+    for part in relative.parts:
+        cursor /= part
+        if cursor.is_symlink():
+            raise EvidenceVerificationError(f"{label} must not contain symlinks")
+    try:
+        resolved = cursor.resolve(strict=True)
+    except OSError as exc:
+        raise EvidenceVerificationError(f"missing {label}: {cursor}") from exc
+    if not resolved.is_relative_to(root) or not resolved.is_file():
+        raise EvidenceVerificationError(f"{label} escapes its artifact root")
+    return resolved
+
+
+def _supplied_confined_file(root: Path, path: Path, label: str) -> Path:
+    lexical = path.absolute()
+    try:
+        relative = lexical.relative_to(root)
+    except ValueError as exc:
+        raise EvidenceVerificationError(f"{label} escapes its artifact root") from exc
+    return _confined_file(root, relative, label)
 
 
 def _exact_fields(value: Mapping[str, object], expected: set[str], label: str) -> None:
@@ -265,54 +306,35 @@ def _verify_artifact(
     return _mapping(observed, f"{step_id} observed state")
 
 
-def _verify_bundle(report: dict[str, object], observed: dict[str, object]) -> None:
-    bundle = _mapping(observed.get("bundle"), "Evidence Bundle")
-    if bundle.get("status") != "closed":
-        raise EvidenceVerificationError("Evidence Bundle is not closed")
-    bundle_id = _text(bundle.get("bundle_id"), "Evidence Bundle id")
-    if bundle_id != report.get("evidence_bundle_id"):
-        raise EvidenceVerificationError("Evidence Bundle id mismatch")
-    content_hash = _digest(bundle.get("content_hash"), "Evidence Bundle hash")
-    unhashed = dict(bundle)
-    unhashed.pop("content_hash", None)
-    if _canonical_hash(unhashed) != content_hash:
-        raise EvidenceVerificationError("Evidence Bundle content hash mismatch")
-    if content_hash != report.get("evidence_bundle_hash"):
-        raise EvidenceVerificationError("Evidence Bundle report hash mismatch")
+def _memorial(observed: dict[str, object], label: str) -> Memorial:
+    model = _strict_model(Memorial, observed.get("memorial"), label)
+    if not isinstance(model, Memorial):  # pragma: no cover - type narrowing
+        raise TypeError("strict Memorial parser returned the wrong type")
+    if model.status is not TaskStatus.COMPLETED:
+        raise EvidenceVerificationError(f"{label} is not completed")
+    return model
 
 
-def _ref(value: object, label: str) -> dict[str, object]:
-    result = _mapping(value, label)
-    _text(result.get("version"), f"{label} version")
-    _digest(result.get("artifact_digest"), f"{label} artifact digest")
-    _digest(result.get("canonical_digest"), f"{label} canonical digest")
-    return result
-
-
-def _verify_assignment(
-    report: dict[str, object], observed: dict[str, object], *, candidate_expected: bool
-) -> None:
-    label = "candidate overlay" if candidate_expected else "post-rollback champion"
-    assignment = _mapping(observed.get("assignment"), f"{label} assignment")
-    overlay = _mapping(observed.get("effective_overlay"), f"{label} effective overlay")
-    assignment_id = _text(assignment.get("assignment_id"), f"{label} assignment id")
-    champion = _ref(assignment.get("champion_ref"), f"{label} champion ref")
-    selected = _ref(assignment.get("selected_ref"), f"{label} selected ref")
-    if overlay.get("assignment_id") != assignment_id:
-        raise EvidenceVerificationError(f"{label} overlay assignment mismatch")
-    if overlay.get("artifact_digest") != selected.get("artifact_digest") or overlay.get(
-        "canonical_digest"
-    ) != selected.get("canonical_digest"):
+def _assignment(
+    observed: dict[str, object], label: str
+) -> tuple[RunAssignmentV1, EffectiveEvolutionOverlayV1]:
+    assignment = _strict_model(RunAssignmentV1, observed.get("assignment"), f"{label} assignment")
+    overlay = _strict_model(
+        EffectiveEvolutionOverlayV1,
+        observed.get("effective_overlay"),
+        f"{label} effective overlay",
+    )
+    if not isinstance(assignment, RunAssignmentV1) or not isinstance(
+        overlay, EffectiveEvolutionOverlayV1
+    ):  # pragma: no cover - type narrowing
+        raise TypeError("strict assignment parser returned the wrong type")
+    if (
+        overlay.assignment_id != assignment.assignment_id
+        or overlay.artifact_digest != assignment.selected_ref.artifact_digest
+        or overlay.canonical_digest != assignment.selected_ref.canonical_digest
+    ):
         raise EvidenceVerificationError(f"{label} effective overlay mismatch")
-    if assignment.get("candidate_id") != report.get("candidate_id"):
-        raise EvidenceVerificationError(f"{label} candidate identity mismatch")
-    if candidate_expected:
-        if assignment_id != report.get("assignment_id"):
-            raise EvidenceVerificationError("candidate overlay report assignment mismatch")
-        if selected == champion:
-            raise EvidenceVerificationError("candidate overlay did not differ from champion")
-    elif selected != champion:
-        raise EvidenceVerificationError("post-rollback champion was not selected")
+    return assignment, overlay
 
 
 def verify_demo_evidence(
@@ -325,14 +347,11 @@ def verify_demo_evidence(
     """Verify a complete 13-step demo report and all bound artifacts."""
 
     report = _load_json(report_path, "demo report")
-    _exact_fields(report, _DEMO_FIELDS, "demo report")
-    if report.get("schema_version") != 1:
-        raise EvidenceVerificationError("demo report schema_version must be 1")
-    source_commit = _commit(report.get("source_commit"), "demo source commit")
-    wheel_sha256 = _digest(report.get("wheel_sha256"), "demo Wheel hash")
-    _digest(report.get("environment_fingerprint"), "environment fingerprint")
-    if not isinstance(report.get("fixture"), bool):
-        raise EvidenceVerificationError("demo fixture must be boolean")
+    demo_model = _strict_model(LeanPreviewDemoReportV1, report, "demo report")
+    if not isinstance(demo_model, LeanPreviewDemoReportV1):  # pragma: no cover
+        raise TypeError("strict demo parser returned the wrong type")
+    source_commit = demo_model.source_commit
+    wheel_sha256 = demo_model.wheel_sha256
     if expected_source_commit is not None and source_commit != _commit(
         expected_source_commit, "expected source commit"
     ):
@@ -341,12 +360,9 @@ def verify_demo_evidence(
         expected_wheel_sha256, "expected Wheel hash"
     ):
         raise EvidenceVerificationError("demo Wheel hash does not match expected Wheel")
-    _content_hash(report, "demo report")
-
+    artifact_root = _real_directory(artifact_root, "artifact root")
     steps = _sequence(report.get("steps"), "demo steps")
-    if len(steps) != len(EXPECTED_STEP_IDS):
-        raise EvidenceVerificationError("demo steps are missing or duplicated")
-    artifacts = sorted(path.name for path in artifact_root.glob("*.json"))
+    artifacts = sorted(path.name for path in artifact_root.iterdir() if path.suffix == ".json")
     expected_artifacts = [
         _artifact_filename(index, step_id) for index, step_id in enumerate(EXPECTED_STEP_IDS, 1)
     ]
@@ -370,52 +386,163 @@ def verify_demo_evidence(
         if completed_at < started_at:
             raise EvidenceVerificationError(f"{step_id} completed before it started")
         observed_by_step[step_id] = _verify_artifact(
-            artifact_root / _artifact_filename(index, step_id),
+            _confined_file(
+                artifact_root,
+                Path(_artifact_filename(index, step_id)),
+                f"{step_id} artifact",
+            ),
             step=step,
             step_id=step_id,
         )
 
     if observed_by_step["doctor_ready"].get("status") not in {"ready", "degraded"}:
         raise EvidenceVerificationError("doctor readiness proof is invalid")
-    _verify_bundle(report, observed_by_step["verify_evidence_bundle"])
-    gate = _mapping(observed_by_step["evaluate_candidate_gate"].get("gate_report"), "gate report")
-    if gate.get("promotion_allowed") is not True or gate.get("blocking_gates") != []:
-        raise EvidenceVerificationError("candidate gate is not green")
-    if _canonical_hash(gate) != report.get("gate_hash"):
-        raise EvidenceVerificationError("candidate gate report hash mismatch")
-    if gate.get("candidate_id") != report.get("candidate_id"):
-        raise EvidenceVerificationError("candidate gate identity mismatch")
-    _verify_assignment(
-        report,
-        observed_by_step["verify_real_candidate_overlay"],
-        candidate_expected=True,
-    )
 
-    rollback = _mapping(
-        observed_by_step["rollback_candidate"].get("rollback_receipt"), "rollback receipt"
+    initial = observed_by_step["submit_governed_edict"]
+    initial_edict_id = _text(initial.get("edict_id"), "submitted governed edict id")
+    initial_memorial_id = _text(initial.get("memorial_id"), "submitted governed memorial id")
+    initial_memorial = _memorial(
+        observed_by_step["observe_completed_run"], "completed governed Memorial"
     )
+    if initial_memorial.id != initial_memorial_id or initial_memorial.edict_id != initial_edict_id:
+        raise EvidenceVerificationError("completed governed Memorial is not submitted-run-bound")
+
+    bundle_model = _strict_model(
+        ClosedEvidenceBundleV1,
+        observed_by_step["verify_evidence_bundle"].get("bundle"),
+        "Evidence Bundle",
+    )
+    if not isinstance(bundle_model, ClosedEvidenceBundleV1):  # pragma: no cover
+        raise TypeError("strict Evidence Bundle parser returned the wrong type")
     if (
-        rollback.get("action") != "rollback"
-        or rollback.get("status") != "completed"
-        or rollback.get("candidate_id") != report.get("candidate_id")
-        or rollback.get("allocation_basis_points") != 0
+        bundle_model.edict_id != initial_edict_id
+        or bundle_model.memorial_id != initial_memorial_id
+        or bundle_model.bundle_id != demo_model.evidence_bundle_id
+        or bundle_model.content_hash != demo_model.evidence_bundle_hash
+        or bundle_model.snapshot.environment.environment_fingerprint
+        != demo_model.environment_fingerprint
+        or bundle_model.snapshot.auditor.verdict != "pass"
+        or bundle_model.snapshot.auditor.missing_evidence
     ):
-        raise EvidenceVerificationError("rollback receipt does not prove allocation zero")
-    if _canonical_hash(rollback) != report.get("rollback_receipt_hash"):
-        raise EvidenceVerificationError("rollback receipt hash mismatch")
+        raise EvidenceVerificationError("Evidence Bundle is not submitted-run-bound")
+
+    gate_observed = observed_by_step["evaluate_candidate_gate"]
+    candidate_model = _strict_model(
+        EvolutionCandidateV1, gate_observed.get("candidate"), "evaluated candidate"
+    )
+    gate_model = _strict_model(
+        EvolutionGateReportV1, gate_observed.get("gate_report"), "gate report"
+    )
+    if not isinstance(candidate_model, EvolutionCandidateV1) or not isinstance(
+        gate_model, EvolutionGateReportV1
+    ):  # pragma: no cover
+        raise TypeError("strict gate parser returned the wrong type")
+    if (
+        candidate_model.candidate_id != demo_model.candidate_id
+        or bundle_model.bundle_id not in candidate_model.evidence_bundle_ids
+        or candidate_model.candidate == candidate_model.base
+        or gate_model.candidate_id != candidate_model.candidate_id
+        or gate_model.candidate_version != candidate_model.version
+        or gate_model.candidate_digest != candidate_model.candidate.artifact_digest
+        or gate_model.gate_snapshot_version != candidate_model.gate_snapshot_version
+        or gate_model.evidence_bundle_ids != candidate_model.evidence_bundle_ids
+        or gate_model.report_hash != demo_model.gate_hash
+        or not gate_model.promotion_allowed
+        or gate_model.blocking_gates
+        or any(
+            bundle_model.content_hash not in result.evidence_hashes for result in gate_model.results
+        )
+    ):
+        raise EvidenceVerificationError("candidate gate is not candidate/evidence-bound")
+
+    promotion_model = _strict_model(
+        PromotionReceiptV1,
+        observed_by_step["start_skill_canary"].get("promotion_receipt"),
+        "canary promotion receipt",
+    )
+    if not isinstance(promotion_model, PromotionReceiptV1):  # pragma: no cover
+        raise TypeError("strict promotion parser returned the wrong type")
+    _digest(promotion_model.journal_id, "canary journal id")
+    if (
+        promotion_model.action != "start_canary"
+        or promotion_model.candidate_id != candidate_model.candidate_id
+        or promotion_model.candidate_version <= gate_model.candidate_version
+        or promotion_model.gate_snapshot_version != gate_model.gate_snapshot_version
+        or promotion_model.gate_report_hash != gate_model.report_hash
+        or promotion_model.lifecycle is not CandidateLifecycle.CANARY
+        or promotion_model.allocation_basis_points <= 0
+    ):
+        raise EvidenceVerificationError("canary receipt is not gate/journal-bound")
+
+    canary_submit = observed_by_step["submit_canary_eligible_run"]
+    canary_edict_id = _text(canary_submit.get("edict_id"), "canary edict id")
+    canary_memorial_id = _text(canary_submit.get("memorial_id"), "canary memorial id")
+    canary_observed = observed_by_step["verify_real_candidate_overlay"]
+    canary_memorial = _memorial(canary_observed, "completed canary Memorial")
+    canary_assignment, _canary_overlay = _assignment(canary_observed, "candidate overlay")
+    if (
+        canary_memorial.id != canary_memorial_id
+        or canary_memorial.edict_id != canary_edict_id
+        or canary_assignment.memorial_id != canary_memorial.id
+        or canary_assignment.assignment_id != demo_model.assignment_id
+        or canary_assignment.candidate_id != candidate_model.candidate_id
+        or canary_assignment.routing_version != promotion_model.routing_version
+        or canary_assignment.champion_ref != candidate_model.base
+        or canary_assignment.selected_ref != candidate_model.candidate
+    ):
+        raise EvidenceVerificationError("candidate overlay assignment is not canary-run-bound")
+
+    rollback_model = _strict_model(
+        RollbackReceiptV1,
+        observed_by_step["rollback_candidate"].get("rollback_receipt"),
+        "rollback receipt",
+    )
+    if not isinstance(rollback_model, RollbackReceiptV1):  # pragma: no cover
+        raise TypeError("strict rollback parser returned the wrong type")
+    _digest(rollback_model.journal_id, "rollback journal id")
+    if (
+        rollback_model.candidate_id != candidate_model.candidate_id
+        or rollback_model.candidate_version <= promotion_model.candidate_version
+        or rollback_model.routing_version <= promotion_model.routing_version
+        or rollback_model.effect_artifact_digest != candidate_model.base.artifact_digest
+        or canonical_sha256(rollback_model) != demo_model.rollback_receipt_hash
+    ):
+        raise EvidenceVerificationError("rollback receipt is not candidate/journal-bound")
 
     post = observed_by_step["verify_new_run_uses_champion"]
-    _verify_assignment(report, post, candidate_expected=False)
-    candidate = _mapping(post.get("candidate"), "post-rollback candidate")
-    routing = _mapping(candidate.get("routing"), "post-rollback routing")
-    if candidate.get("lifecycle") != "rolled_back" or routing.get("allocation_basis_points") != 0:
-        raise EvidenceVerificationError("post-rollback allocation is not zero")
+    post_submitted = _mapping(post.get("submitted"), "post-rollback submitted run")
+    post_memorial = _memorial(post, "completed post-rollback Memorial")
+    post_assignment, _post_overlay = _assignment(post, "post-rollback champion")
+    final_candidate = _strict_model(
+        EvolutionCandidateV1, post.get("candidate"), "post-rollback candidate"
+    )
+    if not isinstance(final_candidate, EvolutionCandidateV1):  # pragma: no cover
+        raise TypeError("strict candidate parser returned the wrong type")
+    if (
+        post_memorial.id != post_submitted.get("memorial_id")
+        or post_memorial.edict_id != post_submitted.get("edict_id")
+        or post_assignment.memorial_id != post_memorial.id
+        or post_assignment.candidate_id != candidate_model.candidate_id
+        or post_assignment.routing_version != rollback_model.routing_version
+        or post_assignment.champion_ref != candidate_model.base
+        or post_assignment.selected_ref != candidate_model.base
+        or final_candidate.candidate_id != candidate_model.candidate_id
+        or final_candidate.base != candidate_model.base
+        or final_candidate.candidate != candidate_model.candidate
+        or final_candidate.lifecycle is not CandidateLifecycle.ROLLED_BACK
+        or final_candidate.version != rollback_model.candidate_version
+        or final_candidate.routing is None
+        or final_candidate.routing.routing_version != rollback_model.routing_version
+        or final_candidate.routing.allocation_basis_points != 0
+    ):
+        raise EvidenceVerificationError("post-rollback champion proof is not rollback-run-bound")
     return report
 
 
 def verify_candidate_report(
     candidate_report_path: Path,
     *,
+    artifact_root: Path,
     demo_report_path: Path,
     phase_report_paths: Mapping[str, Path],
     wheel_path: Path,
@@ -424,68 +551,78 @@ def verify_candidate_report(
 ) -> dict[str, object]:
     """Recompute every candidate phase and release-artifact binding."""
 
+    artifact_root = _real_directory(artifact_root, "candidate artifact root")
+    candidate_report_path = _supplied_confined_file(
+        artifact_root, candidate_report_path, "candidate report"
+    )
     report = _load_json(candidate_report_path, "candidate report")
-    _exact_fields(report, _CANDIDATE_FIELDS, "candidate report")
-    if report.get("schema_version") != 1:
-        raise EvidenceVerificationError("candidate report schema_version must be 1")
-    _content_hash(report, "candidate report")
-    source_commit = _commit(report.get("source_commit"), "candidate source commit")
-    phase_hashes = _mapping(report.get("phase_report_hashes"), "phase report hashes")
+    candidate_model = _strict_model(LeanPreviewCandidateReportV1, report, "candidate report")
+    if not isinstance(candidate_model, LeanPreviewCandidateReportV1):  # pragma: no cover
+        raise TypeError("strict candidate parser returned the wrong type")
+    source_commit = candidate_model.source_commit
+    phase_hashes = candidate_model.phase_report_hashes
     if set(phase_hashes) != set(REQUIRED_PHASE_REPORT_IDS) or set(phase_report_paths) != set(
         REQUIRED_PHASE_REPORT_IDS
     ):
         raise EvidenceVerificationError("phase report bindings are incomplete or noncanonical")
     for phase_id in REQUIRED_PHASE_REPORT_IDS:
-        expected = _digest(phase_hashes.get(phase_id), f"{phase_id} phase report hash")
-        if _file_hash(phase_report_paths[phase_id]) != expected:
+        phase_path = _supplied_confined_file(
+            artifact_root,
+            phase_report_paths[phase_id],
+            f"{phase_id} structured phase report",
+        )
+        try:
+            phase = _load_json(phase_path, f"{phase_id} structured phase report")
+        except EvidenceVerificationError as exc:
+            raise EvidenceVerificationError(
+                f"{phase_id} must be a structured phase report"
+            ) from exc
+        _exact_fields(phase, _PHASE_REPORT_FIELDS, f"{phase_id} structured phase report")
+        if phase.get("schema_version") != 1 or phase.get("phase_id") != phase_id:
+            raise EvidenceVerificationError(f"{phase_id} phase identity mismatch")
+        if phase.get("gate_id") != _PHASE_GATE_IDS[phase_id]:
+            raise EvidenceVerificationError(f"{phase_id} gate identity mismatch")
+        if phase.get("status") != "passed":
+            raise EvidenceVerificationError(f"{phase_id} phase status is not passed")
+        if phase.get("source_commit") != source_commit:
+            raise EvidenceVerificationError(f"{phase_id} source commit mismatch")
+        pending = _sequence(phase.get("external_pending"), f"{phase_id} external_pending")
+        if pending:
+            raise EvidenceVerificationError(f"{phase_id} external_pending cannot count as passed")
+        phase_content_hash = _content_hash(phase, f"{phase_id} structured phase report")
+        if phase_content_hash != phase_hashes[phase_id]:
             raise EvidenceVerificationError(f"phase report hash mismatch: {phase_id}")
+        report_reference = Path(
+            _text(phase.get("report_ref"), f"{phase_id} source report reference")
+        )
+        source_report = _confined_file(artifact_root, report_reference, f"{phase_id} source report")
+        if _file_hash(source_report) != _digest(
+            phase.get("report_sha256"), f"{phase_id} source report hash"
+        ):
+            raise EvidenceVerificationError(f"{phase_id} source report hash mismatch")
 
-    demo = _load_json(demo_report_path, "bound demo report")
-    demo_hash = _content_hash(demo, "bound demo report")
-    if demo_hash != report.get("demo_report_hash"):
-        raise EvidenceVerificationError("candidate demo report hash mismatch")
-    if demo.get("fixture") is not False:
-        raise EvidenceVerificationError("fixture demo cannot qualify candidate evidence")
-    if demo.get("source_commit") != source_commit:
-        raise EvidenceVerificationError("candidate/demo source commit mismatch")
-    reference = Path(_text(report.get("demo_report_ref"), "demo report reference"))
-    if reference.is_absolute() or ".." in reference.parts:
-        raise EvidenceVerificationError("demo report reference escapes candidate root")
-    expected_demo_path = (candidate_report_path.parent / reference).resolve()
-    if expected_demo_path != demo_report_path.resolve():
+    demo_report_path = _supplied_confined_file(artifact_root, demo_report_path, "bound demo report")
+    expected_demo_path = _confined_file(
+        artifact_root, Path(candidate_model.demo_report_ref), "candidate demo report"
+    )
+    if expected_demo_path != demo_report_path:
         raise EvidenceVerificationError("demo report reference does not resolve to supplied report")
+    try:
+        resolve_lean_preview_candidate_artifacts(candidate_model, artifact_root)
+    except ValueError as exc:
+        raise EvidenceVerificationError(f"candidate artifact resolution failed: {exc}") from exc
 
     release_bindings = (
-        ("wheel_sha256", wheel_path, "Wheel"),
-        ("sdist_sha256", sdist_path, "sdist"),
-        ("capability_matrix_hash", capability_matrix_path, "capability matrix"),
+        (candidate_model.wheel_sha256, wheel_path, "Wheel"),
+        (candidate_model.sdist_sha256, sdist_path, "sdist"),
+        (candidate_model.capability_matrix_hash, capability_matrix_path, "capability matrix"),
     )
-    for field, path, label in release_bindings:
-        expected = _digest(report.get(field), f"candidate {label} hash")
-        if _file_hash(path) != expected:
+    for expected, path, label in release_bindings:
+        resolved_path = _supplied_confined_file(artifact_root, path, f"candidate {label}")
+        if _file_hash(resolved_path) != expected:
             raise EvidenceVerificationError(f"candidate {label} hash mismatch")
-    if report.get("wheel_sha256") != demo.get("wheel_sha256"):
-        raise EvidenceVerificationError("candidate Wheel is not the demo Wheel")
-    if report.get("automation_status") != "passed":
+    if candidate_model.automation_status != "passed":
         raise EvidenceVerificationError("candidate automation status is not passed")
-    if report.get("publication_status") != "not_authorized":
-        raise EvidenceVerificationError("candidate publication status is not authorized")
-    deferred = report.get("deferred_work_ids")
-    if not isinstance(deferred, list) or tuple(deferred) != REQUIRED_DEFERRED_WORK_IDS:
-        raise EvidenceVerificationError(
-            "candidate deferred work IDs are incomplete or noncanonical"
-        )
-    visual_status = report.get("visual_status")
-    approval_ref = report.get("visual_approval_record_ref")
-    approval_hash = report.get("visual_approval_record_hash")
-    if visual_status == "user_approval_pending":
-        if approval_ref is not None or approval_hash is not None:
-            raise EvidenceVerificationError("pending visual status cannot bind an approval record")
-    elif visual_status == "user_approved":
-        _text(approval_ref, "visual approval record reference")
-        _digest(approval_hash, "visual approval record hash")
-    else:
-        raise EvidenceVerificationError("candidate visual status is invalid")
     return report
 
 
@@ -493,8 +630,8 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", required=True, type=Path)
     parser.add_argument("--artifact-root", required=True, type=Path)
-    parser.add_argument("--expected-source-commit")
-    parser.add_argument("--expected-wheel-sha256")
+    parser.add_argument("--expected-source-commit", required=True)
+    parser.add_argument("--expected-wheel-sha256", required=True)
     return parser
 
 
