@@ -68,7 +68,7 @@
       "type": "string"
     },
     "source_commit": {
-      "pattern": "^[0-9a-f]{40,64}$",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
       "title": "Source Commit",
       "type": "string"
     },
@@ -87,10 +87,150 @@
       "type": "boolean"
     },
     "steps": {
-      "items": {
-        "$ref": "#/$defs/LeanPreviewStepResultV1"
-      },
-      "minItems": 1,
+      "allOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/LeanPreviewStepResultV1"
+          }
+        },
+        {
+          "items": false,
+          "maxItems": 13,
+          "minItems": 13,
+          "prefixItems": [
+            {
+              "properties": {
+                "step_id": {
+                  "const": "doctor_ready"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "submit_governed_edict"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "observe_decision_required"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "resolve_decision_with_reason"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "observe_completed_run"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "verify_evidence_bundle"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "propose_skill_candidate"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "evaluate_candidate_gate"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "start_skill_canary"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "submit_canary_eligible_run"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "verify_real_candidate_overlay"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "rollback_candidate"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "verify_new_run_uses_champion"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            }
+          ]
+        }
+      ],
       "title": "Steps",
       "type": "array"
     },
@@ -157,5 +297,29 @@
   "title": "LeanPreviewDemoReportV1",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://tianshu.dev/schemas/lean-preview-demo-report-v1.schema.json"
+  "$id": "https://tianshu.dev/schemas/lean-preview-demo-report-v1.schema.json",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "fixture": {
+            "const": true
+          }
+        },
+        "required": [
+          "fixture"
+        ]
+      },
+      "then": {
+        "properties": {
+          "external_pending": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "external_pending"
+        ]
+      }
+    }
+  ]
 }

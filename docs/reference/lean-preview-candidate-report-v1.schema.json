@@ -8,19 +8,50 @@
       "type": "integer"
     },
     "source_commit": {
-      "pattern": "^[0-9a-f]{40,64}$",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
       "title": "Source Commit",
       "type": "string"
     },
     "phase_report_hashes": {
-      "additionalProperties": {
-        "pattern": "^[0-9a-f]{64}$",
-        "type": "string"
-      },
+      "additionalProperties": false,
       "maxProperties": 5,
       "minProperties": 5,
+      "properties": {
+        "s1_g1_5": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "s2_lean": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "s3_core": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "s4_automation": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "s5_lean_core": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "s1_g1_5",
+        "s2_lean",
+        "s3_core",
+        "s4_automation",
+        "s5_lean_core"
+      ],
       "title": "Phase Report Hashes",
       "type": "object"
+    },
+    "demo_report_ref": {
+      "minLength": 1,
+      "title": "Demo Report Ref",
+      "type": "string"
     },
     "demo_report_hash": {
       "pattern": "^[0-9a-f]{64}$",
@@ -58,6 +89,18 @@
       "title": "Visual Status",
       "type": "string"
     },
+    "visual_approval_record_ref": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Visual Approval Record Ref"
+    },
     "visual_approval_record_hash": {
       "anyOf": [
         {
@@ -76,12 +119,68 @@
       "type": "string"
     },
     "deferred_work_ids": {
-      "items": {
-        "minLength": 1,
-        "type": "string"
-      },
+      "items": false,
       "maxItems": 19,
       "minItems": 19,
+      "prefixItems": [
+        {
+          "const": "P2-A1"
+        },
+        {
+          "const": "P2-A2"
+        },
+        {
+          "const": "P2-A3"
+        },
+        {
+          "const": "P2-A4"
+        },
+        {
+          "const": "P2-A5"
+        },
+        {
+          "const": "P2-B1"
+        },
+        {
+          "const": "P2-B2"
+        },
+        {
+          "const": "P2-C1"
+        },
+        {
+          "const": "P2-C2"
+        },
+        {
+          "const": "P2-C3"
+        },
+        {
+          "const": "P3-D1"
+        },
+        {
+          "const": "P3-D2"
+        },
+        {
+          "const": "P3-D3"
+        },
+        {
+          "const": "P3-D4"
+        },
+        {
+          "const": "P4-E1"
+        },
+        {
+          "const": "P4-E2"
+        },
+        {
+          "const": "P4-E3"
+        },
+        {
+          "const": "P4-E4"
+        },
+        {
+          "const": "P4-E5"
+        }
+      ],
       "title": "Deferred Work Ids",
       "type": "array"
     },
@@ -94,12 +193,14 @@
   "required": [
     "source_commit",
     "phase_report_hashes",
+    "demo_report_ref",
     "demo_report_hash",
     "wheel_sha256",
     "sdist_sha256",
     "capability_matrix_hash",
     "automation_status",
     "visual_status",
+    "visual_approval_record_ref",
     "visual_approval_record_hash",
     "publication_status",
     "deferred_work_ids",
@@ -108,5 +209,49 @@
   "title": "LeanPreviewCandidateReportV1",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://tianshu.dev/schemas/lean-preview-candidate-report-v1.schema.json"
+  "$id": "https://tianshu.dev/schemas/lean-preview-candidate-report-v1.schema.json",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "visual_status": {
+            "const": "user_approved"
+          }
+        },
+        "required": [
+          "visual_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "visual_approval_record_ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "visual_approval_record_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "visual_approval_record_ref",
+          "visual_approval_record_hash"
+        ]
+      },
+      "else": {
+        "properties": {
+          "visual_approval_record_ref": {
+            "type": "null"
+          },
+          "visual_approval_record_hash": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "visual_approval_record_ref",
+          "visual_approval_record_hash"
+        ]
+      }
+    }
+  ]
 }

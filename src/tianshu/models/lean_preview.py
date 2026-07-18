@@ -4,15 +4,35 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Annotated, Literal, Self
+from pathlib import Path, PurePosixPath
+from typing import Annotated, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from tianshu.models.canonical import canonical_sha256
 
-Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
-GitCommit = Annotated[str, Field(pattern=r"^[0-9a-f]{40,64}$")]
+_DIGEST_PATTERN = r"^[0-9a-f]{64}$"
+_GIT_COMMIT_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+
+Digest = Annotated[str, Field(pattern=_DIGEST_PATTERN)]
+GitCommit = Annotated[str, Field(pattern=_GIT_COMMIT_PATTERN)]
 NonBlankText = Annotated[str, Field(min_length=1)]
+
+REQUIRED_DEMO_STEP_IDS = (
+    "doctor_ready",
+    "submit_governed_edict",
+    "observe_decision_required",
+    "resolve_decision_with_reason",
+    "observe_completed_run",
+    "verify_evidence_bundle",
+    "propose_skill_candidate",
+    "evaluate_candidate_gate",
+    "start_skill_canary",
+    "submit_canary_eligible_run",
+    "verify_real_candidate_overlay",
+    "rollback_candidate",
+    "verify_new_run_uses_champion",
+)
 
 REQUIRED_PHASE_REPORT_IDS = (
     "s1_g1_5",
@@ -65,6 +85,12 @@ class LeanPreviewStepResultV1(_StrictModel):
 
     _normalize_times = field_validator("started_at", "completed_at")(_utc)
 
+    @model_validator(mode="after")
+    def validate_time_order(self) -> Self:
+        if self.completed_at < self.started_at:
+            raise ValueError("completed_at must not precede started_at")
+        return self
+
 
 class LeanPreviewDemoReportV1(_StrictModel):
     schema_version: Literal[1] = 1
@@ -73,7 +99,10 @@ class LeanPreviewDemoReportV1(_StrictModel):
     wheel_sha256: Digest
     environment_fingerprint: Digest
     fixture: bool
-    steps: tuple[LeanPreviewStepResultV1, ...] = Field(min_length=1)
+    steps: tuple[LeanPreviewStepResultV1, ...] = Field(
+        min_length=len(REQUIRED_DEMO_STEP_IDS),
+        max_length=len(REQUIRED_DEMO_STEP_IDS),
+    )
     evidence_bundle_id: NonBlankText
     evidence_bundle_hash: Digest
     candidate_id: NonBlankText
@@ -85,13 +114,32 @@ class LeanPreviewDemoReportV1(_StrictModel):
 
     @model_validator(mode="after")
     def validate_report(self) -> Self:
-        step_ids = tuple(step.step_id for step in self.steps)
-        if len(set(step_ids)) != len(step_ids):
-            raise ValueError("step IDs must be unique")
+        if tuple(step.step_id for step in self.steps) != REQUIRED_DEMO_STEP_IDS:
+            raise ValueError("Lean Preview demo steps must be complete, unique, and canonical")
         if self.fixture and not self.external_pending:
             raise ValueError("fixture demo must keep external evidence pending")
         if lean_preview_content_hash(self) != self.content_hash:
             raise ValueError("Lean Preview demo content hash mismatch")
+        return self
+
+
+class LeanPreviewVisualApprovalRecordV1(_StrictModel):
+    schema_version: Literal[1] = 1
+    approval_id: NonBlankText
+    approval_kind: Literal["explicit_user_review"]
+    decision: Literal["approved"]
+    approved_by: NonBlankText
+    approved_at: datetime
+    source_commit: GitCommit
+    demo_report_hash: Digest
+    content_hash: Digest
+
+    _normalize_approved_at = field_validator("approved_at")(_utc)
+
+    @model_validator(mode="after")
+    def validate_content_hash(self) -> Self:
+        if lean_preview_content_hash(self) != self.content_hash:
+            raise ValueError("Lean Preview approval record content hash mismatch")
         return self
 
 
@@ -102,12 +150,14 @@ class LeanPreviewCandidateReportV1(_StrictModel):
         min_length=len(REQUIRED_PHASE_REPORT_IDS),
         max_length=len(REQUIRED_PHASE_REPORT_IDS),
     )
+    demo_report_ref: NonBlankText
     demo_report_hash: Digest
     wheel_sha256: Digest
     sdist_sha256: Digest
     capability_matrix_hash: Digest
     automation_status: Literal["passed", "failed"]
     visual_status: Literal["user_approval_pending", "user_approved"]
+    visual_approval_record_ref: NonBlankText | None
     visual_approval_record_hash: Digest | None
     publication_status: Literal["not_authorized"]
     deferred_work_ids: tuple[NonBlankText, ...] = Field(
@@ -132,11 +182,22 @@ class LeanPreviewCandidateReportV1(_StrictModel):
 
     @model_validator(mode="after")
     def validate_report(self) -> Self:
-        if self.visual_status == "user_approved" and self.visual_approval_record_hash is None:
-            raise ValueError("user_approved requires a separate user approval record")
+        approval_values = (
+            self.visual_approval_record_ref,
+            self.visual_approval_record_hash,
+        )
+        if self.visual_status == "user_approval_pending" and approval_values != (None, None):
+            raise ValueError("pending visual approval must not carry an approval record")
+        if self.visual_status == "user_approved" and None in approval_values:
+            raise ValueError("user_approved requires a resolvable user approval record")
         if lean_preview_content_hash(self) != self.content_hash:
             raise ValueError("Lean Preview candidate content hash mismatch")
         return self
+
+
+class ResolvedLeanPreviewCandidateArtifactsV1(_StrictModel):
+    demo_report: LeanPreviewDemoReportV1
+    visual_approval_record: LeanPreviewVisualApprovalRecordV1 | None
 
 
 def lean_preview_content_hash(value: BaseModel | Mapping[str, object]) -> str:
@@ -147,11 +208,212 @@ def lean_preview_content_hash(value: BaseModel | Mapping[str, object]) -> str:
     return canonical_sha256(payload)
 
 
+def _schema_for(model: type[BaseModel], filename: str) -> dict[str, object]:
+    schema = model.model_json_schema(mode="serialization")
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["$id"] = f"https://tianshu.dev/schemas/{filename}"
+    return schema
+
+
+def lean_preview_demo_report_schema() -> dict[str, object]:
+    """Return the deterministic behavioral JSON Schema for demo reports."""
+
+    schema = _schema_for(
+        LeanPreviewDemoReportV1,
+        "lean-preview-demo-report-v1.schema.json",
+    )
+    properties = cast(dict[str, object], schema["properties"])
+    properties["steps"] = {
+        "allOf": [
+            {
+                "items": {"$ref": "#/$defs/LeanPreviewStepResultV1"},
+            },
+            {
+                "items": False,
+                "maxItems": len(REQUIRED_DEMO_STEP_IDS),
+                "minItems": len(REQUIRED_DEMO_STEP_IDS),
+                "prefixItems": [
+                    {
+                        "properties": {"step_id": {"const": step_id}},
+                        "required": ["step_id"],
+                    }
+                    for step_id in REQUIRED_DEMO_STEP_IDS
+                ],
+            },
+        ],
+        "title": "Steps",
+        "type": "array",
+    }
+    schema["allOf"] = [
+        {
+            "if": {
+                "properties": {"fixture": {"const": True}},
+                "required": ["fixture"],
+            },
+            "then": {
+                "properties": {"external_pending": {"minItems": 1}},
+                "required": ["external_pending"],
+            },
+        }
+    ]
+    return schema
+
+
+def lean_preview_candidate_report_schema() -> dict[str, object]:
+    """Return the deterministic behavioral JSON Schema for candidate reports."""
+
+    schema = _schema_for(
+        LeanPreviewCandidateReportV1,
+        "lean-preview-candidate-report-v1.schema.json",
+    )
+    properties = cast(dict[str, object], schema["properties"])
+    properties["phase_report_hashes"] = {
+        "additionalProperties": False,
+        "maxProperties": len(REQUIRED_PHASE_REPORT_IDS),
+        "minProperties": len(REQUIRED_PHASE_REPORT_IDS),
+        "properties": {
+            phase_id: {"pattern": _DIGEST_PATTERN, "type": "string"}
+            for phase_id in REQUIRED_PHASE_REPORT_IDS
+        },
+        "required": list(REQUIRED_PHASE_REPORT_IDS),
+        "title": "Phase Report Hashes",
+        "type": "object",
+    }
+    properties["deferred_work_ids"] = {
+        "items": False,
+        "maxItems": len(REQUIRED_DEFERRED_WORK_IDS),
+        "minItems": len(REQUIRED_DEFERRED_WORK_IDS),
+        "prefixItems": [{"const": work_id} for work_id in REQUIRED_DEFERRED_WORK_IDS],
+        "title": "Deferred Work Ids",
+        "type": "array",
+    }
+    schema["allOf"] = [
+        {
+            "if": {
+                "properties": {"visual_status": {"const": "user_approved"}},
+                "required": ["visual_status"],
+            },
+            "then": {
+                "properties": {
+                    "visual_approval_record_ref": {"minLength": 1, "type": "string"},
+                    "visual_approval_record_hash": {
+                        "pattern": _DIGEST_PATTERN,
+                        "type": "string",
+                    },
+                },
+                "required": [
+                    "visual_approval_record_ref",
+                    "visual_approval_record_hash",
+                ],
+            },
+            "else": {
+                "properties": {
+                    "visual_approval_record_ref": {"type": "null"},
+                    "visual_approval_record_hash": {"type": "null"},
+                },
+                "required": [
+                    "visual_approval_record_ref",
+                    "visual_approval_record_hash",
+                ],
+            },
+        }
+    ]
+    return schema
+
+
+def _resolve_json_artifact(
+    artifact_root: Path,
+    reference: str,
+    label: str,
+    model: type[BaseModel],
+) -> BaseModel:
+    root = artifact_root
+    relative = PurePosixPath(reference)
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError(f"{label} artifact root must be a real directory")
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise ValueError(f"{label} reference must stay inside the artifact root")
+    path = root.joinpath(*relative.parts)
+    cursor = root
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise ValueError(f"{label} reference must not contain symlinks")
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved_path = path.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(f"{label} artifact does not exist") from exc
+    if not resolved_path.is_relative_to(resolved_root) or not resolved_path.is_file():
+        raise ValueError(f"{label} reference must resolve to a regular file")
+    try:
+        return model.model_validate_json(resolved_path.read_bytes())
+    except (OSError, ValidationError) as exc:
+        raise ValueError(f"{label} artifact is invalid") from exc
+
+
+def resolve_lean_preview_candidate_artifacts(
+    candidate: LeanPreviewCandidateReportV1,
+    artifact_root: Path,
+) -> ResolvedLeanPreviewCandidateArtifactsV1:
+    """Resolve and verify the demo and optional explicit user-approval artifacts."""
+
+    demo = _resolve_json_artifact(
+        artifact_root,
+        candidate.demo_report_ref,
+        "demo report",
+        LeanPreviewDemoReportV1,
+    )
+    if not isinstance(demo, LeanPreviewDemoReportV1):  # pragma: no cover - type narrowing
+        raise TypeError("resolved demo report has the wrong model type")
+    if demo.fixture:
+        raise ValueError("demo report fixture cannot qualify a Lean Preview candidate")
+    if demo.content_hash != candidate.demo_report_hash:
+        raise ValueError("demo report hash does not match candidate")
+    if demo.source_commit != candidate.source_commit:
+        raise ValueError("demo report source commit does not match candidate")
+    if demo.wheel_sha256 != candidate.wheel_sha256:
+        raise ValueError("demo report Wheel hash does not match candidate")
+
+    approval: LeanPreviewVisualApprovalRecordV1 | None = None
+    if candidate.visual_status == "user_approved":
+        reference = candidate.visual_approval_record_ref
+        expected_hash = candidate.visual_approval_record_hash
+        if reference is None or expected_hash is None:  # guarded by model validation
+            raise ValueError("approval record reference and hash are required")
+        resolved_approval = _resolve_json_artifact(
+            artifact_root,
+            reference,
+            "approval record",
+            LeanPreviewVisualApprovalRecordV1,
+        )
+        if not isinstance(resolved_approval, LeanPreviewVisualApprovalRecordV1):
+            raise TypeError("resolved approval record has the wrong model type")
+        approval = resolved_approval
+        if approval.content_hash != expected_hash:
+            raise ValueError("approval record hash does not match candidate")
+        if approval.source_commit != candidate.source_commit:
+            raise ValueError("approval record source commit does not match candidate")
+        if approval.demo_report_hash != candidate.demo_report_hash:
+            raise ValueError("approval record demo hash does not match candidate")
+
+    return ResolvedLeanPreviewCandidateArtifactsV1(
+        demo_report=demo,
+        visual_approval_record=approval,
+    )
+
+
 __all__ = [
     "REQUIRED_DEFERRED_WORK_IDS",
+    "REQUIRED_DEMO_STEP_IDS",
     "REQUIRED_PHASE_REPORT_IDS",
     "LeanPreviewCandidateReportV1",
     "LeanPreviewDemoReportV1",
     "LeanPreviewStepResultV1",
+    "LeanPreviewVisualApprovalRecordV1",
+    "ResolvedLeanPreviewCandidateArtifactsV1",
+    "lean_preview_candidate_report_schema",
     "lean_preview_content_hash",
+    "lean_preview_demo_report_schema",
+    "resolve_lean_preview_candidate_artifacts",
 ]
