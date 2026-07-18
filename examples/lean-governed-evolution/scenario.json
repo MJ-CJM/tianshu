@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "source_commit": "0000000000000000000000000000000000000000",
+    "wheel_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "environment_fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+    "fixture": true
+  },
+  "polling": {
+    "interval_seconds": 0.25,
+    "max_attempts": 40,
+    "request_timeout_seconds": 5.0
+  },
+  "auth_token_env": "TIANSHU_BOOTSTRAP_TOKEN",
+  "edict": {
+    "goal": "Create the deterministic Lean Preview governed artifact",
+    "plan_review": true
+  },
+  "decision": {
+    "action": "approve",
+    "reason": "Approved for the bounded offline Lean Preview demonstration",
+    "payload": {
+      "schema_version": 1
+    }
+  },
+  "skill": {
+    "name": "lean-preview-helper",
+    "content": "---\nname: lean-preview-helper\ndescription: Deterministic Lean Preview helper\n---\n\nUse the governed demo artifact as the only input and report its verified digest."
+  },
+  "canary": {
+    "allocation_basis_points": 1000,
+    "allocation_seed_id": "lean-preview-v1",
+    "reason": "Run the bounded Lean Preview skill canary"
+  },
+  "rollback": {
+    "reason": "Complete the golden demo rollback proof"
+  },
+  "external_pending": [
+    "managed_external_executor",
+    "manual_voiceover_review"
+  ]
+}
