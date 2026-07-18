@@ -1,0 +1,112 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "source_commit": {
+      "pattern": "^[0-9a-f]{40,64}$",
+      "title": "Source Commit",
+      "type": "string"
+    },
+    "phase_report_hashes": {
+      "additionalProperties": {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "maxProperties": 5,
+      "minProperties": 5,
+      "title": "Phase Report Hashes",
+      "type": "object"
+    },
+    "demo_report_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Demo Report Hash",
+      "type": "string"
+    },
+    "wheel_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Wheel Sha256",
+      "type": "string"
+    },
+    "sdist_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sdist Sha256",
+      "type": "string"
+    },
+    "capability_matrix_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Capability Matrix Hash",
+      "type": "string"
+    },
+    "automation_status": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Automation Status",
+      "type": "string"
+    },
+    "visual_status": {
+      "enum": [
+        "user_approval_pending",
+        "user_approved"
+      ],
+      "title": "Visual Status",
+      "type": "string"
+    },
+    "visual_approval_record_hash": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Visual Approval Record Hash"
+    },
+    "publication_status": {
+      "const": "not_authorized",
+      "title": "Publication Status",
+      "type": "string"
+    },
+    "deferred_work_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 19,
+      "minItems": 19,
+      "title": "Deferred Work Ids",
+      "type": "array"
+    },
+    "content_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Content Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_commit",
+    "phase_report_hashes",
+    "demo_report_hash",
+    "wheel_sha256",
+    "sdist_sha256",
+    "capability_matrix_hash",
+    "automation_status",
+    "visual_status",
+    "visual_approval_record_hash",
+    "publication_status",
+    "deferred_work_ids",
+    "content_hash"
+  ],
+  "title": "LeanPreviewCandidateReportV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/lean-preview-candidate-report-v1.schema.json"
+}

@@ -1,0 +1,161 @@
+{
+  "$defs": {
+    "LeanPreviewStepResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "blocked",
+            "decision_required"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        },
+        "evidence_hashes": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Evidence Hashes",
+          "type": "array"
+        },
+        "observed_state_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Observed State Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_id",
+        "status",
+        "started_at",
+        "completed_at",
+        "evidence_hashes",
+        "observed_state_hash"
+      ],
+      "title": "LeanPreviewStepResultV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "batch_id": {
+      "minLength": 1,
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "source_commit": {
+      "pattern": "^[0-9a-f]{40,64}$",
+      "title": "Source Commit",
+      "type": "string"
+    },
+    "wheel_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Wheel Sha256",
+      "type": "string"
+    },
+    "environment_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Environment Fingerprint",
+      "type": "string"
+    },
+    "fixture": {
+      "title": "Fixture",
+      "type": "boolean"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/LeanPreviewStepResultV1"
+      },
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    },
+    "evidence_bundle_id": {
+      "minLength": 1,
+      "title": "Evidence Bundle Id",
+      "type": "string"
+    },
+    "evidence_bundle_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Evidence Bundle Hash",
+      "type": "string"
+    },
+    "candidate_id": {
+      "minLength": 1,
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "gate_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Gate Hash",
+      "type": "string"
+    },
+    "assignment_id": {
+      "minLength": 1,
+      "title": "Assignment Id",
+      "type": "string"
+    },
+    "rollback_receipt_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Rollback Receipt Hash",
+      "type": "string"
+    },
+    "external_pending": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "External Pending",
+      "type": "array"
+    },
+    "content_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Content Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "batch_id",
+    "source_commit",
+    "wheel_sha256",
+    "environment_fingerprint",
+    "fixture",
+    "steps",
+    "evidence_bundle_id",
+    "evidence_bundle_hash",
+    "candidate_id",
+    "gate_hash",
+    "assignment_id",
+    "rollback_receipt_hash",
+    "external_pending",
+    "content_hash"
+  ],
+  "title": "LeanPreviewDemoReportV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/lean-preview-demo-report-v1.schema.json"
+}
