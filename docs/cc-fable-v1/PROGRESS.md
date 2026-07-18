@@ -175,10 +175,10 @@ Report: docs/cc-fable-v1/reports/s4-core-web-report.md
 Next: user visual/interaction approval, then S5 Core
 
 === S5 / Lean Core Evolution Gate (2026-07-18) ===
-S5 Lean Core Gate: passed (focused candidate/gate/promotion/routing/rollback/authority: 259 passed / 0 failed / 4 warnings in 15.74s; final non-slow: 4182 passed / 2 skipped / 24 deselected / 0 failed / 6 warnings in 714.38s)
-Evolution Center: real candidate, current gate blockers, current-version allocation/assignment counts, last gate hash, and rollback state are exposed through the S4 read contract; guarded mutations remain PromotionService-only and require reason/expected version
-Static Gates: Ruff check passed; Ruff format 875 files clean; mypy 131 source files clean; import-linter 481 files / 1745 dependencies / 2 contracts kept / 0 broken
-Web verification: Evolution Center 13 passed; typecheck passed; production build passed; inherited antd >500k chunk warning remains disclosed
-Evidence: repository-bound candidate/gate/promotion/assignment/rollback/Decision artifacts were recomputed by the Lean checker; missing/corrupt evidence, authority bypass, label-only challenger, routing/distribution/restart drift, rollback traffic reopening, automatic code promotion, missing high-risk Decision, and inflated deferred claims are rejected
+S5 Lean Core Gate: passed (focused candidate/gate/promotion/routing/rollback/authority: 329 passed / 0 failed / 4 warnings in 22.34s; final non-slow: 4178 passed / 2 skipped / 24 deselected / 0 failed / 7 warnings in 714.16s)
+Evolution Center: real candidate, current gate blockers, current-version allocation/assignment counts, last gate hash, and rollback state are exposed through the S4 read contract; an immutable compatible green gate remains visible across real canary/promote/rollback lifecycle advances; guarded mutations remain PromotionService-only and require reason/expected version
+Static Gates: Ruff check passed; Ruff format 881 files clean; mypy 131 source files clean; import-linter 481 files / 1745 dependencies / 2 contracts kept / 0 broken
+Web verification: Evolution Center 14 passed; typecheck passed; production build passed; inherited antd >500k chunk warning remains disclosed
+Evidence: a deterministic production harness exercised CandidateService/SkillInstallService, two closed Evidence Bundles, GateEvaluator, three resolved action-bound Decisions, seven immutable PromotionService journal rows and receipts, 10,000 durable ChallengerRouter assignments (1,029 challenger / 10.29%), reopened-storage assignment stability, promote, and rollback traffic closure; strict unknown fields, forbidden deferred/full-G4 claims, missing Decisions, stale versions, corrupt bundles/assignments, and journal/receipt drift are rejected
 Boundary: this closes only the Lean Core Gate; OpenHands, executor compatibility, ROI, cost calibration/enforcement, and full G4 remain external_pending; S4 visual/interaction approval remains user_approval_pending
 Report: docs/cc-fable-v1/reports/s5-lean-evolution-report.md

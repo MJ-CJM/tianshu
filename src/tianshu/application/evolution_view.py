@@ -32,7 +32,7 @@ class _Storage(Protocol):
 
 
 class _GateReader(Protocol):
-    def get_current_report_current(
+    def get_latest_compatible_report_current(
         self, connection: sqlite3.Connection, candidate_id: str
     ) -> EvolutionGateReportV1 | None: ...
 
@@ -112,7 +112,7 @@ class EvolutionCenterQueryService:
                     continue
                 try:
                     report = (
-                        self._gate_reader.get_current_report_current(
+                        self._gate_reader.get_latest_compatible_report_current(
                             connection, candidate.candidate_id
                         )
                         if candidate.gate_snapshot_version > 0

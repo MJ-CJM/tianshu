@@ -2,18 +2,31 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
+import scripts.check_s5_lean_evidence as checker
 from scripts.check_s5_lean_evidence import (
     GateEvidenceError,
     render_report,
     validate_evidence,
 )
-from tests.evolution.test_gate_evaluator import NOW, _staged_candidate
+from tests.evolution.test_gate_evaluator import (
+    NOW,
+    _evidence_id,
+    _seed_gate_evidence,
+    _staged_candidate,
+)
 
 from tianshu.application.evolution_view import EvolutionCenterQueryService
 from tianshu.evolution.gates import GateEvaluator
+from tianshu.evolution.promotion import (
+    PromotionService,
+    StartCanaryCommand,
+    UnavailablePromotionAdapter,
+)
 from tianshu.models import Edict, Memorial
 from tianshu.models.principal import (
     AuthContext,
@@ -24,106 +37,42 @@ from tianshu.models.principal import (
 )
 from tianshu.storage.facade import Storage
 
-_ROLES = ("candidate", "gate", "promotion", "assignment", "rollback", "decision")
+
+@pytest.fixture(scope="module")
+def production_evidence(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, object]]:
+    root = tmp_path_factory.mktemp("s5-production-evidence")
+    path = root / "s5-lean-evidence.json"
+    checker.generate_evidence_artifact(work_dir=root / "runtime", output=path)
+    return path, json.loads(path.read_text(encoding="utf-8"))
 
 
-def _digest(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
+def test_production_harness_emits_strict_real_execution_evidence(
+    production_evidence: tuple[Path, dict[str, object]],
+) -> None:
+    path, raw = production_evidence
+    validated = checker.validate_evidence_file(path)
+
+    assert raw["schema_version"] == "s5-lean-core-gate-v2"
+    assert validated["assignment_total"] == 10_000
+    assert validated["challenger_assignments"] == 1_029
+    assert 0.09 <= validated["distribution_rate"] <= 0.11
+    assert validated["restart_stable"] is True
+    assert validated["rollback_closed_traffic"] is True
+    assert validated["evidence_bundle_count"] == 2
+    snapshots = raw["snapshots"]
+    assert snapshots["canary"]["candidates"][0]["lifecycle"] == "canary"  # type: ignore[index]
+    assert snapshots["promoted"]["candidates"][0]["lifecycle"] == "promoted"  # type: ignore[index]
+    assert snapshots["rolled_back"]["candidates"][0]["lifecycle"] == "rolled_back"  # type: ignore[index]
 
 
-def _good_evidence(tmp_path: Path) -> dict[str, object]:
-    artifacts: dict[str, dict[str, str]] = {}
-    for role in _ROLES:
-        path = tmp_path / f"{role}.json"
-        payload = f"{role}-contract-v1\n".encode()
-        path.write_bytes(payload)
-        artifacts[role] = {"path": path.name, "sha256": _digest(payload)}
-
-    candidate_digest = artifacts["candidate"]["sha256"]
-    champion_digest = "a" * 64
-    assignment_hash = artifacts["assignment"]["sha256"]
-    assignment = {
-        "assignment_id": "assignment:lean-1",
-        "candidate_id": "candidate:lean-1",
-        "routing_version": 2,
-        "arm": "challenger",
-        "champion_digest": champion_digest,
-        "selected_digest": candidate_digest,
-        "effective_overlay_digest": candidate_digest,
-        "evidence_candidate_digest": candidate_digest,
-        "assignment_hash": assignment_hash,
-        "persisted_before_dispatch": True,
-    }
-    return {
-        "schema_version": "s5-lean-core-gate-v1",
-        "gate_name": "Lean Core Gate",
-        "gate_status": "passed",
-        "artifacts": artifacts,
-        "candidate": {
-            "candidate_id": "candidate:lean-1",
-            "kind": "skill",
-            "candidate_digest": candidate_digest,
-            "automatic_promotion": False,
-        },
-        "gate": {
-            "candidate_id": "candidate:lean-1",
-            "report_hash": artifacts["gate"]["sha256"],
-            "evidence_bundle_id": "evidence:lean-1",
-            "evidence_hash": artifacts["assignment"]["sha256"],
-            "promotion_allowed": True,
-            "blocking_gates": [],
-        },
-        "promotion": {
-            "authority": "PromotionService",
-            "action": "start_canary",
-            "candidate_id": "candidate:lean-1",
-            "expected_version": 4,
-            "reason": "bounded Lean challenger proof",
-            "routing_version": 2,
-            "allocation_basis_points": 1_000,
-            "decision": {"status": "not_required", "risk_tier": "standard"},
-        },
-        "assignment": assignment,
-        "resumed_assignment": copy.deepcopy(assignment),
-        "distribution": {"total": 10_000, "challenger": 1_000},
-        "rollback": {
-            "routing_version_before": 2,
-            "routing_version_after": 3,
-            "allocation_basis_points_after": 0,
-            "new_run_arm": "champion",
-            "state": "rolled_back",
-            "restore_verified": True,
-        },
-        "deferred": {
-            "openhands": "external_pending",
-            "compatibility": "external_pending",
-            "roi": "external_pending",
-            "cost": "external_pending",
-            "full_g4": "external_pending",
-        },
-    }
-
-
-def _mutated(
-    evidence: dict[str, object],
-    *path: str,
-    value: object,
-) -> dict[str, object]:
-    changed = copy.deepcopy(evidence)
-    target: dict[str, object] = changed
-    for part in path[:-1]:
-        target = target[part]  # type: ignore[assignment]
-    target[path[-1]] = value
-    return changed
-
-
-def test_complete_lean_evidence_is_recomputed_and_report_is_bounded(tmp_path: Path) -> None:
-    evidence = _good_evidence(tmp_path)
-
-    validated = validate_evidence(evidence, root=tmp_path)
+def test_complete_lean_evidence_is_recomputed_and_report_is_bounded(
+    production_evidence: tuple[Path, dict[str, object]],
+) -> None:
+    _path, raw = production_evidence
+    validated = validate_evidence(raw)
     report = render_report(validated)
 
-    assert validated["distribution_rate"] == 0.1
+    assert validated["distribution_rate"] == pytest.approx(0.1029)
     assert report.startswith("# S5 Lean Core Gate\n")
     assert "Lean Core Gate `passed`" in report
     assert "G4 passed" not in report
@@ -131,55 +80,49 @@ def test_complete_lean_evidence_is_recomputed_and_report_is_bounded(tmp_path: Pa
 
 
 @pytest.mark.parametrize(
-    ("path", "value", "message"),
-    [
-        (("gate", "evidence_hash"), "0" * 64, "Evidence hash"),
-        (("promotion", "authority"), "UniverseManager", "PromotionService"),
-        (("assignment", "selected_digest"), "a" * 64, "challenger overlay"),
-        (("assignment", "routing_version"), 3, "routing version"),
-        (("distribution", "challenger"), 899, "9%-11%"),
-        (("distribution", "challenger"), 1_101, "9%-11%"),
-        (("resumed_assignment", "assignment_id"), "assignment:reassigned", "reassigned"),
-        (("rollback", "allocation_basis_points_after"), 100, "reopen"),
-        (("rollback", "new_run_arm"), "challenger", "reopen"),
-        (("candidate", "automatic_promotion"), True, "auto-promote"),
-        (("deferred", "full_g4"), "passed", "full G4"),
-        (("deferred", "openhands"), "passed", "OpenHands"),
-        (("deferred", "roi"), "passed", "ROI"),
-        (("deferred", "cost"), "passed", "cost"),
-    ],
+    "mutation",
+    (
+        "unknown_claim",
+        "unknown_nested_field",
+        "arbitrary_action",
+        "missing_decision",
+        "mismatched_expected_version",
+        "assignment_hash",
+        "restart_assignment",
+        "rollback_traffic",
+        "evidence_bundle",
+        "deferred_claim",
+    ),
 )
-def test_lean_gate_rejects_bypass_corruption_and_unbounded_claims(
-    tmp_path: Path,
-    path: tuple[str, ...],
-    value: object,
-    message: str,
+def test_lean_gate_rejects_forgeable_corrupt_or_unbound_artifacts(
+    production_evidence: tuple[Path, dict[str, object]],
+    mutation: str,
 ) -> None:
-    with pytest.raises(GateEvidenceError, match=message):
-        validate_evidence(_mutated(_good_evidence(tmp_path), *path, value=value), root=tmp_path)
+    _path, original = production_evidence
+    evidence = copy.deepcopy(original)
+    if mutation == "unknown_claim":
+        evidence["unreviewed_claim"] = "G4 passed; OpenHands passed; ROI passed"
+    elif mutation == "unknown_nested_field":
+        evidence["promotion_actions"]["promote_receipt"]["claimed_safe"] = True  # type: ignore[index]
+    elif mutation == "arbitrary_action":
+        evidence["promotion_journal"][0]["action"] = "direct_universe_switch"  # type: ignore[index]
+    elif mutation == "missing_decision":
+        del evidence["decisions"]["promote"]  # type: ignore[index]
+    elif mutation == "mismatched_expected_version":
+        evidence["promotion_actions"]["promote_command"]["expected_version"] = 999_999  # type: ignore[index]
+    elif mutation == "assignment_hash":
+        evidence["assignments"]["assignment_hashes"][0] = "0" * 64  # type: ignore[index]
+    elif mutation == "restart_assignment":
+        evidence["restart_after"]["assignment_id"] = "assignment:reassigned"  # type: ignore[index]
+    elif mutation == "rollback_traffic":
+        evidence["final_routing"]["allocation_basis_points"] = 100  # type: ignore[index]
+    elif mutation == "evidence_bundle":
+        evidence["assignment_bundle"]["content_hash"] = "0" * 64  # type: ignore[index]
+    else:
+        evidence["deferred"]["full_g4"] = "passed"  # type: ignore[index]
 
-
-def test_lean_gate_rejects_missing_evidence_artifact(tmp_path: Path) -> None:
-    evidence = _good_evidence(tmp_path)
-    (tmp_path / "assignment.json").unlink()
-
-    with pytest.raises(GateEvidenceError, match="Evidence artifact"):
-        validate_evidence(evidence, root=tmp_path)
-
-
-def test_code_promotion_requires_current_high_risk_decision(tmp_path: Path) -> None:
-    evidence = _good_evidence(tmp_path)
-    evidence = _mutated(evidence, "candidate", "kind", value="code")
-    evidence = _mutated(evidence, "promotion", "action", value="promote")
-
-    with pytest.raises(GateEvidenceError, match="Decision"):
-        validate_evidence(evidence, root=tmp_path)
-
-    decision = {"status": "resolved", "risk_tier": "high", "resolution": "approve"}
-    validate_evidence(
-        _mutated(evidence, "promotion", "decision", value=decision),
-        root=tmp_path,
-    )
+    with pytest.raises(GateEvidenceError):
+        validate_evidence(evidence)
 
 
 def test_real_evolution_snapshot_reads_candidates_blockers_and_last_gate_hash(
@@ -216,6 +159,67 @@ def test_real_evolution_snapshot_reads_candidates_blockers_and_last_gate_hash(
         assert {gate.code for gate in summary.gates if gate.blocking} == {
             item.value for item in report.blocking_gates
         }
+    finally:
+        storage.close()
+
+
+def test_real_evolution_snapshot_keeps_bound_gate_after_start_canary(tmp_path: Path) -> None:
+    storage = Storage(str(tmp_path / "evolution-canary-view.db"))
+    storage.init_db()
+    try:
+        staged = _staged_candidate(storage, evidence_bundle_ids=(_evidence_id(),))
+        evidence = _seed_gate_evidence(
+            storage,
+            tmp_path / "evolution-canary-artifacts",
+            staged,
+            close=True,
+            bind_candidate=True,
+            evidence_time=NOW + timedelta(seconds=1),
+        )
+        evaluator = GateEvaluator(
+            storage,
+            artifact_verifier=evidence._artifacts,
+            clock=lambda: NOW + timedelta(seconds=2),
+        )
+        report = evaluator.evaluate(staged.candidate_id, expected_version=staged.version)
+        ready = evaluator.get_candidate(staged.candidate_id)
+        assert ready is not None
+        auth = AuthContext(
+            principal=Principal(
+                id="principal-1",
+                kind=PrincipalKind.HUMAN,
+                display_name="Reviewer",
+                scopes=frozenset({"api"}),
+            ),
+            source=AuthenticationSource.TRUSTED_LOCAL,
+            client_kind=ClientKind.API,
+            correlation_id="corr-real-canary-view",
+        )
+        PromotionService(
+            storage,
+            evaluator,
+            adapter_resolver=lambda _kind: UnavailablePromotionAdapter(),
+            clock=lambda: NOW + timedelta(seconds=3),
+        ).start_canary(
+            ready.candidate_id,
+            StartCanaryCommand(
+                expected_version=ready.version,
+                idempotency_key="real-canary-view",
+                reason="verify compatible gate read",
+                allocation_basis_points=500,
+                allocation_seed_id="real-canary-view-seed",
+            ),
+            auth=auth,
+        )
+
+        snapshot = EvolutionCenterQueryService(storage, evaluator).get_snapshot(auth)
+
+        assert snapshot.status == "enabled"
+        assert snapshot.reason_code == "enabled"
+        assert snapshot.last_gate_hash == report.report_hash
+        assert snapshot.candidates[0].lifecycle == "canary"
+        assert snapshot.candidates[0].promotion_allowed is True
+        assert all(gate.status == "passed" for gate in snapshot.candidates[0].gates)
     finally:
         storage.close()
 

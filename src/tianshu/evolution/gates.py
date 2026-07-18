@@ -19,6 +19,7 @@ from tianshu.models.evolution_candidate import (
     CandidateLifecycle,
     EvolutionCandidateV1,
     GateName,
+    validate_lifecycle_transition,
 )
 from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.storage.artifact_repo import (
@@ -144,6 +145,16 @@ class EvolutionGateReportV1(_StrictModel):
         )
 
 
+class _LifecycleJournalEntryV1(_StrictModel):
+    schema_version: Literal[1]
+    candidate_id: str
+    candidate_version: int = Field(ge=1)
+    from_lifecycle: CandidateLifecycle | None
+    to_lifecycle: CandidateLifecycle
+    decision_request_id: str | None
+    created_at: datetime
+
+
 class GateEvaluator:
     """Re-derive and persist one current fail-closed gate snapshot."""
 
@@ -255,6 +266,109 @@ class GateEvaluator:
             raise EvolutionRepositoryConflict("current gate snapshot is stale")
         self._validate_green_evidence_current(connection, candidate, report)
         return report
+
+    def get_latest_compatible_report_current(
+        self, connection: sqlite3.Connection, candidate_id: str
+    ) -> EvolutionGateReportV1 | None:
+        """Read the immutable gate that governs the current lifecycle lineage."""
+
+        candidate = self._repository.get_candidate(connection, candidate_id)
+        if candidate is None or candidate.gate_snapshot_version == 0:
+            return None
+        report = self._load_bound_report_current(
+            connection,
+            candidate_id,
+            gate_snapshot_version=candidate.gate_snapshot_version,
+        )
+        if (
+            report.candidate_id != candidate.candidate_id
+            or report.candidate_digest != candidate.candidate.artifact_digest
+            or report.gate_snapshot_version != candidate.gate_snapshot_version
+            or report.evidence_bundle_ids != candidate.evidence_bundle_ids
+            or report.candidate_version > candidate.version
+        ):
+            raise EvolutionRepositoryConflict("compatible gate snapshot is stale")
+        if report.candidate_version != candidate.version:
+            self._validate_lifecycle_lineage_current(connection, candidate, report)
+        self._validate_green_evidence_current(connection, candidate, report)
+        return report
+
+    @staticmethod
+    def _validate_lifecycle_lineage_current(
+        connection: sqlite3.Connection,
+        candidate: EvolutionCandidateV1,
+        report: EvolutionGateReportV1,
+    ) -> None:
+        if not report.promotion_allowed:
+            raise EvolutionRepositoryConflict("blocked gate cannot govern a later lifecycle")
+        rows = connection.execute(
+            """SELECT journal_id, candidate_id, candidate_version, from_lifecycle,
+                      to_lifecycle, decision_request_id, entry_json, entry_hash, created_at
+               FROM evolution_lifecycle_journal
+               WHERE candidate_id=? AND candidate_version BETWEEN ? AND ?
+               ORDER BY candidate_version""",
+            (candidate.candidate_id, report.candidate_version, candidate.version),
+        ).fetchall()
+        expected_versions = tuple(range(report.candidate_version, candidate.version + 1))
+        if tuple(row["candidate_version"] for row in rows) != expected_versions:
+            raise EvolutionRepositoryConflict("compatible gate lifecycle lineage is incomplete")
+        previous: CandidateLifecycle | None = None
+        for index, row in enumerate(rows):
+            raw = row["entry_json"]
+            if (
+                not isinstance(raw, str)
+                or hashlib.sha256(raw.encode()).hexdigest() != row["entry_hash"]
+            ):
+                raise EvolutionRepositoryConflict("compatible gate lifecycle journal is corrupt")
+            try:
+                entry = _LifecycleJournalEntryV1.model_validate_json(raw)
+            except (TypeError, ValueError, ValidationError) as exc:
+                raise EvolutionRepositoryConflict(
+                    "compatible gate lifecycle journal is corrupt"
+                ) from exc
+            expected_id = hashlib.sha256(
+                f"{entry.candidate_id}:{entry.candidate_version}:{entry.to_lifecycle.value}".encode()
+            ).hexdigest()
+            canonical_entry = entry.model_dump(mode="json")
+            canonical_entry["created_at"] = entry.created_at.isoformat()
+            if (
+                canonical_json_bytes(canonical_entry).decode("utf-8") != raw
+                or row["journal_id"] != expected_id
+                or row["candidate_id"] != entry.candidate_id
+                or row["candidate_version"] != entry.candidate_version
+                or row["from_lifecycle"]
+                != (entry.from_lifecycle.value if entry.from_lifecycle is not None else None)
+                or row["to_lifecycle"] != entry.to_lifecycle.value
+                or row["decision_request_id"] != entry.decision_request_id
+                or row["created_at"] != entry.created_at.isoformat()
+            ):
+                raise EvolutionRepositoryConflict("compatible gate lifecycle journal conflicts")
+            if index == 0:
+                if (
+                    entry.from_lifecycle is not CandidateLifecycle.EVALUATING
+                    or entry.to_lifecycle is not CandidateLifecycle.READY
+                ):
+                    raise EvolutionRepositoryConflict(
+                        "compatible gate does not begin at ready lifecycle"
+                    )
+                try:
+                    validate_lifecycle_transition(entry.from_lifecycle, entry.to_lifecycle)
+                except ValueError as exc:
+                    raise EvolutionRepositoryConflict(
+                        "compatible gate lifecycle lineage is illegal"
+                    ) from exc
+            else:
+                if entry.from_lifecycle is not previous:
+                    raise EvolutionRepositoryConflict("compatible gate lifecycle lineage conflicts")
+                try:
+                    validate_lifecycle_transition(entry.from_lifecycle, entry.to_lifecycle)
+                except ValueError as exc:
+                    raise EvolutionRepositoryConflict(
+                        "compatible gate lifecycle lineage is illegal"
+                    ) from exc
+            previous = entry.to_lifecycle
+        if previous is not candidate.lifecycle:
+            raise EvolutionRepositoryConflict("compatible gate lifecycle does not reach candidate")
 
     def validate_bound_green_report_current(
         self,

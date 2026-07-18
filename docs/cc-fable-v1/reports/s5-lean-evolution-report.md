@@ -2,58 +2,26 @@
 
 Status: Lean Core Gate `passed`.
 
-This bounded Gate covers the unified candidate, current fail-closed gate, PromotionService authority, durable challenger assignment/effective overlay, restart-stable 9%-11% distribution contract, and rollback traffic closure.
+This bounded Gate was recomputed from a real CandidateService/SkillInstallService candidate, closed Evidence Bundles, a GateEvaluator report, resolved action-bound Decisions, PromotionService journals and receipts, 10,000 immutable ChallengerRouter assignments, a reopened-storage assignment, and a completed rollback receipt.
 
 It does not close complete G4. OpenHands, executor compatibility, ROI, cost calibration/enforcement, and full G4 remain `external_pending`.
 
-## Recomputed evidence
+## Recomputed evidence summary
 
 ```json
 {
-  "artifacts": {
-    "assignment": {
-      "path": "tests/universe/test_challenger_routing.py",
-      "sha256": "0de656171ab40686f9b8cfe6ffb0227a64cd861d57c92596817f041751793229"
-    },
-    "candidate": {
-      "path": "tests/evolution/test_candidate_schema.py",
-      "sha256": "1a7b960522596f46d88056d8b45fd1bfb9707c6436e0f9cadeffa6b0412f9b83"
-    },
-    "decision": {
-      "path": "tests/architecture/test_promotion_authority.py",
-      "sha256": "b83425dee563a231dbea56d406bc233499bf2641949fe6714081a8a2afc7cde9"
-    },
-    "gate": {
-      "path": "tests/evolution/test_gate_evaluator.py",
-      "sha256": "776720571325061759f5381ea339ec83c88f3b7096568638406cf2cf1cd7010d"
-    },
-    "promotion": {
-      "path": "tests/evolution/test_promotion_fail_closed.py",
-      "sha256": "628776f009e504a7f1b1534b2d3c72de197db6fc1afe8a1f61fd31b91fe384a0"
-    },
-    "rollback": {
-      "path": "tests/evolution/test_rollback_fault_matrix.py",
-      "sha256": "7a00bc640186c696260970d277c13af5f0704650d4297435c6fd72e9aa7fa8c8"
-    }
-  },
-  "assignment": {
-    "arm": "challenger",
-    "assignment_hash": "0de656171ab40686f9b8cfe6ffb0227a64cd861d57c92596817f041751793229",
-    "assignment_id": "assignment:lean-contract-v1",
-    "candidate_id": "candidate:lean-contract-v1",
-    "champion_digest": "2e95ab1d9452217133ac00386a4b04448645da0648f1f0b21c7c60af3d48da05",
-    "effective_overlay_digest": "1a7b960522596f46d88056d8b45fd1bfb9707c6436e0f9cadeffa6b0412f9b83",
-    "evidence_candidate_digest": "1a7b960522596f46d88056d8b45fd1bfb9707c6436e0f9cadeffa6b0412f9b83",
-    "persisted_before_dispatch": true,
-    "routing_version": 2,
-    "selected_digest": "1a7b960522596f46d88056d8b45fd1bfb9707c6436e0f9cadeffa6b0412f9b83"
-  },
-  "candidate": {
-    "automatic_promotion": false,
-    "candidate_digest": "1a7b960522596f46d88056d8b45fd1bfb9707c6436e0f9cadeffa6b0412f9b83",
-    "candidate_id": "candidate:lean-contract-v1",
-    "kind": "skill"
-  },
+  "assignment_evidence_bundle_id": "evidence:a3d7f4624f1351ffd1a8bfc58ee6cad3",
+  "assignment_evidence_content_hash": "6ccb07158109ce93eecff9ac4fe626a142af21664f07ee842b0a8e33c229ebf8",
+  "assignment_root_hash": "cef31ffe75282262ba36a9f1012dc8e2df8758fe3c9addaac94dc3a8ca21b2d4",
+  "assignment_total": 10000,
+  "candidate_digest": "5563144a7ce5d5c496bf5916214da5e7876a967d7417db96bf4b6a092483c614",
+  "candidate_id": "evolution-c80fa28e0cbb7a7d00eb018ec5da9b4628fbbd0c1a138e62492ce768029aecb8",
+  "challenger_assignments": 1029,
+  "decision_request_ids": [
+    "decision:s5:start_canary",
+    "decision:s5:promote",
+    "decision:s5:rollback"
+  ],
   "deferred": {
     "compatibility": "external_pending",
     "cost": "external_pending",
@@ -61,54 +29,19 @@ It does not close complete G4. OpenHands, executor compatibility, ROI, cost cali
     "openhands": "external_pending",
     "roi": "external_pending"
   },
-  "distribution": {
-    "challenger": 1000,
-    "total": 10000
-  },
-  "distribution_rate": 0.1,
-  "gate": {
-    "blocking_gates": [],
-    "candidate_id": "candidate:lean-contract-v1",
-    "evidence_bundle_id": "evidence:s5-lean-contract-v1",
-    "evidence_hash": "0de656171ab40686f9b8cfe6ffb0227a64cd861d57c92596817f041751793229",
-    "promotion_allowed": true,
-    "report_hash": "776720571325061759f5381ea339ec83c88f3b7096568638406cf2cf1cd7010d"
-  },
+  "distribution_rate": 0.1029,
+  "evidence_artifact_hash": "31ee032ab46dac95364165dd1f5a87efb7bdda0b4e12e84b028568c60b06a329",
+  "evidence_bundle_count": 2,
+  "gate_evidence_bundle_id": "evidence:f988b6262a6edc32ee6e9e11463cd506",
+  "gate_evidence_content_hash": "5ef8291262d6a3f34894d98ebbb496480a2a1e232c2f54ffbb4e487374e49f86",
   "gate_name": "Lean Core Gate",
+  "gate_report_hash": "aadddd39a47020ccb547f56a18da36705c5614a5d4aab3af7682d63bc89c10fd",
   "gate_status": "passed",
-  "promotion": {
-    "action": "start_canary",
-    "allocation_basis_points": 1000,
-    "authority": "PromotionService",
-    "candidate_id": "candidate:lean-contract-v1",
-    "decision": {
-      "risk_tier": "standard",
-      "status": "not_required"
-    },
-    "expected_version": 4,
-    "reason": "bounded Lean candidate contract proof",
-    "routing_version": 2
-  },
-  "resumed_assignment": {
-    "arm": "challenger",
-    "assignment_hash": "0de656171ab40686f9b8cfe6ffb0227a64cd861d57c92596817f041751793229",
-    "assignment_id": "assignment:lean-contract-v1",
-    "candidate_id": "candidate:lean-contract-v1",
-    "champion_digest": "2e95ab1d9452217133ac00386a4b04448645da0648f1f0b21c7c60af3d48da05",
-    "effective_overlay_digest": "1a7b960522596f46d88056d8b45fd1bfb9707c6436e0f9cadeffa6b0412f9b83",
-    "evidence_candidate_digest": "1a7b960522596f46d88056d8b45fd1bfb9707c6436e0f9cadeffa6b0412f9b83",
-    "persisted_before_dispatch": true,
-    "routing_version": 2,
-    "selected_digest": "1a7b960522596f46d88056d8b45fd1bfb9707c6436e0f9cadeffa6b0412f9b83"
-  },
-  "rollback": {
-    "allocation_basis_points_after": 0,
-    "new_run_arm": "champion",
-    "restore_verified": true,
-    "routing_version_after": 3,
-    "routing_version_before": 2,
-    "state": "rolled_back"
-  },
-  "schema_version": "s5-lean-core-gate-v1"
+  "promotion_journal_rows": 7,
+  "restart_assignment_hash": "26f05c0e6904d166cad87fd0954faf62c5d3fd86ccfeba693d397addf1c6b98f",
+  "restart_stable": true,
+  "rollback_closed_traffic": true,
+  "rollback_receipt_hash": "5bd4e750e6dd825adf59d078c098b967b1cb765c82c3058685e6c9262589e090",
+  "schema_version": "s5-lean-core-gate-v2"
 }
 ```
