@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import pytest
 
+from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.config_manager import ConfigManager, LLMConfigState
+from tianshu.executor.managed_tools import bind_managed_attempt_authority
 from tianshu.models import Edict, TaskStatus
 from tianshu.providers.demo import DEMO_MARK, DEMO_MODEL, demo_llm_config_state
 from tianshu.providers.manager import ProviderManager
@@ -17,6 +19,12 @@ from tianshu.skills.loader import SkillsLoader
 from tianshu.storage import Storage
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.registry import ToolRegistry
+
+
+class _ManagedEffectPassthrough:
+    async def execute(self, *, invoke, invocation_id, **_kwargs):
+        assert invocation_id is not None
+        return await invoke(invocation_id)
 
 
 @pytest.fixture
@@ -50,6 +58,7 @@ async def test_governed_demo_edict_uses_normal_agent_tool_path(tmp_path, no_netw
 
     registry = ToolRegistry()
     register_builtins(registry, workspace_dir=str(workspace), storage=storage)
+    registry.set_managed_effect_executor(_ManagedEffectPassthrough())
     skills = SkillsLoader(builtin_dir=tmp_path / "skills", char_budget=1000)
 
     agent = Agent(
@@ -59,7 +68,14 @@ async def test_governed_demo_edict_uses_normal_agent_tool_path(tmp_path, no_netw
         provider_manager=provider_manager,
     )
     edict = Edict(goal="write the demo artifact")
-    memorial = await agent.execute(edict)
+    authority = AttemptAuthority(
+        attempt_id="attempt-demo",
+        memorial_id="memorial-demo",
+        owner_id="worker-demo",
+        fencing_token=1,
+    )
+    with bind_managed_attempt_authority(authority):
+        memorial = await agent.execute(edict)
 
     assert memorial.status == TaskStatus.COMPLETED
     assert DEMO_MARK in (memorial.result or "")

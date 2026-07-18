@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.executor.capabilities import (
     native_manifest,
     probe_host_capabilities,
@@ -17,6 +18,7 @@ from tianshu.executor.capabilities import (
 )
 from tianshu.executor.execution_gateway import ExecutionContext, bind_execution_context
 from tianshu.executor.execution_gateway import grants as gateway_grants
+from tianshu.executor.managed_tools import bind_managed_attempt_authority
 from tianshu.executor.policy_hook import PolicyHook
 from tianshu.executor.workspace_context import BoundWorkspace, bind_workspace
 from tianshu.lsp import diagnostics as lsp_module
@@ -37,6 +39,12 @@ from tianshu.tools.skill_tools import register_skill_tools
 from tianshu.tools.types import ToolTier, ok_result
 
 _SHA = "a" * 40
+
+
+class _ManagedEffectPassthrough:
+    async def execute(self, *, invoke, invocation_id, **_kwargs):
+        assert invocation_id is not None
+        return await invoke(invocation_id)
 
 
 def _effective():
@@ -229,17 +237,30 @@ async def test_builtin_file_tools_resolve_staging_root_per_call(
     bound = _bound(staging, source)
     registry = ToolRegistry()
     register_builtins(registry, workspace_dir=str(source))
+    registry.set_managed_effect_executor(_ManagedEffectPassthrough())
     monkeypatch.setattr(
         "tianshu.tools.grep.process_boundary.resolve_system_adapter_executable",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr("tianshu.lsp.diagnostics.is_enabled", lambda: False)
 
-    with bind_execution_context(_execution_context(bound)), bind_workspace(bound):
+    authority = AttemptAuthority(
+        attempt_id="attempt-workspace",
+        memorial_id="memorial-workspace",
+        owner_id="worker-workspace",
+        fencing_token=1,
+    )
+    with (
+        bind_execution_context(_execution_context(bound)),
+        bind_workspace(bound),
+    ):
         read = await registry.execute("read_file", {"path": "marker.txt"})
-        written = await registry.execute(
-            "write_file", {"path": "created.txt", "content": "created in staging"}
-        )
+        with bind_managed_attempt_authority(authority):
+            written = await registry.execute(
+                "write_file",
+                {"path": "created.txt", "content": "created in staging"},
+                invocation_id="workspace-write-1",
+            )
         edited = await registry.execute(
             "edit_file",
             {"path": "marker.txt", "old_text": "staging", "new_text": "edited"},
