@@ -23,6 +23,7 @@ from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1, RunAssign
 ROOT = Path(__file__).parents[2]
 RUNNER_PATH = ROOT / "src" / "tianshu" / "lean_preview_demo.py"
 VERIFIER_PATH = ROOT / "scripts" / "verify_lean_preview_evidence.py"
+SCENARIO_PATH = ROOT / "examples" / "lean-governed-evolution" / "scenario.json"
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
 S5_EVIDENCE_PATH = ROOT / "docs" / "cc-fable-v1" / "evidence" / "s5-lean-evolution.json"
@@ -30,6 +31,12 @@ S5_EVIDENCE_PATH = ROOT / "docs" / "cc-fable-v1" / "evidence" / "s5-lean-evoluti
 
 def _s5_evidence() -> dict[str, object]:
     return json.loads(S5_EVIDENCE_PATH.read_text(encoding="utf-8"))
+
+
+def test_checked_in_canary_allocation_respects_skill_contract_limit():
+    scenario = json.loads(SCENARIO_PATH.read_text(encoding="utf-8"))
+
+    assert scenario["canary"]["allocation_basis_points"] <= 500
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -107,7 +114,7 @@ def _scenario() -> dict[str, object]:
             "content": "---\nname: lean-preview-helper\ndescription: Demo helper\n---\n\nCandidate.",
         },
         "canary": {
-            "allocation_basis_points": 1000,
+            "allocation_basis_points": 500,
             "allocation_seed_id": "lean-preview-v1",
             "reason": "Bounded deterministic canary",
         },
@@ -449,6 +456,10 @@ class _FakeTransport:
             assert isinstance(body, dict)
             self.canary_started = True
             receipt = copy.deepcopy(self.canary_receipt)
+            receipt["allocation_basis_points"] = body["allocation_basis_points"]
+            self.candidate_canary["routing"]["allocation_basis_points"] = body[
+                "allocation_basis_points"
+            ]
             key = str(body["idempotency_key"])
             if self.receipt_key_mismatch == "canary":
                 key = f"{key}:spliced"

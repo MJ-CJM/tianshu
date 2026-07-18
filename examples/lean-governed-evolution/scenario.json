@@ -28,7 +28,7 @@
     "content": "---\nname: lean-preview-helper\ndescription: Deterministic Lean Preview helper\n---\n\nUse the governed demo artifact as the only input and report its verified digest."
   },
   "canary": {
-    "allocation_basis_points": 1000,
+    "allocation_basis_points": 500,
     "allocation_seed_id": "lean-preview-v1",
     "reason": "Run the bounded Lean Preview skill canary"
   },
