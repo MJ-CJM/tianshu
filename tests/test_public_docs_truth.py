@@ -16,10 +16,23 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VERSION = "0.4.2"
+PUBLIC_PREVIEW_DOCS = (
+    "README.md",
+    "README.en.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "docs/launch/README.md",
+    "docs/launch/capability-matrix.md",
+    "docs/launch/checklist.md",
+    "docs/launch/demo-storyboards.md",
+    "docs/usage/lean-developer-preview.md",
+)
 
 
 def _read(relative_path: str) -> str:
-    return (ROOT / relative_path).read_text(encoding="utf-8")
+    path = ROOT / relative_path
+    assert path.is_file(), f"required public truth file is missing: {relative_path}"
+    return path.read_text(encoding="utf-8")
 
 
 def _json(relative_path: str) -> dict[str, object]:
@@ -167,10 +180,10 @@ def test_readmes_do_not_overclaim_current_governance_or_evolution() -> None:
     assert "continuously growing self-evolving Agent OS" not in readme_en
     assert "docs/launch/capability-matrix.md" in readme_zh
     assert "docs/launch/capability-matrix.md" in readme_en
-    assert "可信本地" in readme_zh and "不得直接暴露到不可信网络" in readme_zh
-    assert (
-        "trusted local" in readme_en and "must not be exposed to an untrusted network" in readme_en
-    )
+    assert "Ubuntu + Python 3.12" in readme_zh
+    assert "Ubuntu + Python 3.12" in readme_en
+    assert "单机、单节点" in readme_zh and "宿主机管理员" in readme_zh
+    assert "single-host, single-node" in readme_en and "host administrator" in readme_en
 
     banned_zh = (
         "能力强，但始终受控",
@@ -224,32 +237,31 @@ def test_canonical_context_separates_long_term_language_from_v042_facts() -> Non
         assert stale_current_claim not in context
 
 
-def test_public_setup_docs_keep_v042_on_a_trusted_local_boundary() -> None:
+def test_public_setup_docs_expose_only_source_and_exact_wheel_installation() -> None:
     readme_zh = _read("README.md")
     readme_en = _read("README.en.md")
-    getting_started = _read("docs/usage/getting-started.md")
-    frontend_dev = _read("docs/usage/frontend-dev.md")
+    guide_path = ROOT / "docs/usage/lean-developer-preview.md"
 
-    assert "最终镜像只含 Python 运行时 + 前端静态文件" not in readme_zh
-    assert "两阶段构建会移除运行时中的 Node.js 和 node_modules" in readme_zh
-    assert "`~/.tianshu/tianshu.db`" in readme_zh
-    assert "has not yet been measured" in readme_en
-    assert "Typical monthly cost range and the measurement method are in" not in readme_en
+    assert guide_path.is_file(), "the Lean Developer Preview usage guide is required"
+    guide = guide_path.read_text(encoding="utf-8")
+    combined = readme_zh + readme_en + guide
 
-    assert "http://localhost:7999" in getting_started
-    assert "http://localhost:3000" not in getting_started
-    assert getting_started.count("-p 127.0.0.1:8000:8000") >= 2
-    assert "-p 8000:8000" not in getting_started
-    assert "v0.4.2 无统一鉴权" in getting_started
-    assert "最终镜像只包含 Python 运行时 + 前端静态文件" not in getting_started
-    assert "| `TIANSHU_DB_PATH` | `~/.tianshu/tianshu.db` |" in getting_started
+    assert "源码安装" in guide and "Source checkout" in guide
+    assert "exact Wheel" in guide
+    assert ".venv/bin/python -m build --wheel --outdir dist/lean-preview" in guide
+    assert "--only-binary=:all:" in guide
+    assert "uv build" not in guide
+    assert "Ubuntu + Python 3.12" in guide
+    assert "Darwin/arm64/Python 3.12.12" in guide
+    assert "首个正式支持目标" in guide
+    assert "本地验证环境" in guide
 
-    assert "--host 127.0.0.1" in frontend_dev
-    assert "--host 0.0.0.0" not in frontend_dev
-    assert "v0.4.2 无统一鉴权" in frontend_dev
-    assert "禁止使用公网隧道" in frontend_dev
-    for public_tunnel_marker in ("cloudflared", "ngrok", "trycloudflare.com"):
-        assert public_tunnel_marker not in frontend_dev
+    for unsupported_distribution in (
+        "docker build -t tianshu",
+        "pip install tianshu",
+        "ghcr.io/",
+    ):
+        assert unsupported_distribution not in combined
 
 
 def test_active_docs_use_decision_language_and_current_channel_contracts() -> None:
@@ -302,19 +314,125 @@ def test_strategy_index_is_an_archived_snapshot_not_a_current_product_claim() ->
         assert stale_claim not in strategy_index
 
 
-def test_docker_example_defaults_to_loopback_and_requires_secure_remote_for_remote_access() -> None:
-    readme_zh = _read("README.md")
-    docker_section = readme_zh.split("### Docker 部署", maxsplit=1)[1].split("\n### ", maxsplit=1)[
-        0
-    ]
+def test_lean_preview_golden_demo_has_one_installed_runner_and_strict_verifier() -> None:
+    guide = _read("docs/usage/lean-developer-preview.md")
+    all_public_preview_docs = "\n".join(_read(path) for path in PUBLIC_PREVIEW_DOCS)
 
-    assert "-p 127.0.0.1:8000:8000" in docker_section
-    assert "-p 8000:8000" not in docker_section
-    assert "默认 `trusted-local` 仅信任回环入口" in docker_section
-    assert "`secure-remote`" in docker_section
-    assert "匿名 REST、WebSocket 与 MCP 会在统一入口被拒绝" in docker_section
-    assert "需要远程访问时必须显式启用" in docker_section
-    assert "配置 HTTPS 公共地址、精确 Host/Origin、可信反代 CIDR" in docker_section
+    assert all_public_preview_docs.count("tianshu-lean-demo \\") == 1
+    assert guide.count("tianshu-lean-demo \\") == 1
+    assert ".preview-venv/bin/tianshu-lean-demo" in guide
+    assert "scripts/verify_lean_preview_evidence.py" in guide
+    assert '--expected-source-commit "$SOURCE_COMMIT"' in guide
+    assert '--expected-wheel-sha256 "$WHEEL_SHA256"' in guide
+    assert "20260718T072917Z-b27f525fe4ef" in guide
+    assert "b27f525fe4eff52a24f0c7769125bc158097e7de" in guide
+    assert "81ec17b9818e67ac6046fb0e1ab62d13606fcaa5af14141ae4d311179bc10fef" in guide
+
+
+def test_lean_preview_public_docs_use_evidence_states_and_current_capabilities() -> None:
+    matrix = _read("docs/launch/capability-matrix.md")
+    launch_index = _read("docs/launch/README.md")
+    checklist = _read("docs/launch/checklist.md")
+    storyboard = _read("docs/launch/demo-storyboards.md")
+    guide = _read("docs/usage/lean-developer-preview.md")
+    security = _read("SECURITY.md")
+    contributing = _read("CONTRIBUTING.md")
+    combined = "\n".join((matrix, launch_index, checklist, storyboard, guide))
+
+    for state in (
+        "implemented",
+        "disabled",
+        "deferred",
+        "experimental",
+        "external_pending",
+        "user_approval_pending",
+    ):
+        assert f"`{state}`" in combined
+
+    for implemented_capability in (
+        "SystemAudit",
+        "MCP persisted secret mappings",
+        "durable governance",
+        "Evidence Bundle v1",
+        "中枢总览",
+        "敕令详情",
+        "演化中心",
+        "Lean Core evolution",
+    ):
+        assert implemented_capability in combined
+
+    for deferred_capability in (
+        "remote MCP",
+        "open stdio MCP",
+        "official container",
+        "PyPI",
+        "GHCR",
+        "OpenHands",
+        "ROI",
+        "cost calibration",
+        "full G4",
+        "full G5",
+    ):
+        assert deferred_capability in combined
+
+    assert "`publication_status`: `not_authorized`" in combined
+    assert "single-node SQLite" in security
+    assert "host administrator" in security
+    assert "remote MCP" in security and "`disabled`" in security
+    assert "open stdio MCP" in security and "`disabled`" in security
+    assert "TDD" in contributing
+    assert "migration freeze" in contributing
+    assert "truth states" in contributing
+    assert "no-mock UI" in contributing
+
+
+def test_lean_preview_public_docs_preserve_exact_desktop_brand_facts() -> None:
+    guide = _read("docs/usage/lean-developer-preview.md")
+    storyboard = _read("docs/launch/demo-storyboards.md")
+    readme_zh = _read("README.md")
+    readme_en = _read("README.en.md")
+    combined = "\n".join((guide, storyboard, readme_zh, readme_en))
+
+    assert "天枢是一个可治理、可验证、持续成长的自进化 Agent OS。" in combined
+    assert "web/public/brand.png" in combined
+    assert "3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799" in combined
+    assert "成功只有一个——按照自己的方式，去度过人生。" in combined
+    assert "彩蛋 / 通用 / English / 实时 / 通政" in combined
+    assert "十四部门" in combined
+    assert "desktop Web only" in combined
+    assert "mobile" in combined and "`deferred`" in combined
+
+
+def test_lean_preview_public_docs_do_not_make_release_or_safety_overclaims() -> None:
+    combined = "\n".join(_read(path) for path in PUBLIC_PREVIEW_DOCS)
+
+    for prohibited in (
+        "1.0 ready",
+        "exactly once",
+        "exactly-once",
+        "secure sandbox",
+        "市场唯一",
+        "同类唯一",
+        "the only Agent OS",
+        "unique Agent OS",
+    ):
+        assert prohibited.casefold() not in combined.casefold()
+
+
+def test_lean_preview_public_document_links_resolve_locally() -> None:
+    for relative_path in PUBLIC_PREVIEW_DOCS:
+        document_path = ROOT / relative_path
+        assert document_path.is_file(), f"missing public document: {relative_path}"
+        document = document_path.read_text(encoding="utf-8")
+        for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", document):
+            if "://" in target or target.startswith(("mailto:", "#")):
+                continue
+            local_target = target.split("#", maxsplit=1)[0]
+            if not local_target:
+                continue
+            assert (document_path.parent / local_target).exists(), (
+                f"broken local link in {relative_path}: {target}"
+            )
 
 
 def test_keqing_tooltips_state_the_contained_experimental_boundary() -> None:
@@ -345,7 +463,7 @@ def test_keqing_tooltips_state_the_contained_experimental_boundary() -> None:
     assert "no pre-tool interception, hard cost cap, or pre-run restore point" in tooltips[2]
 
 
-def test_launch_materials_describe_only_currently_demoable_channels() -> None:
+def test_launch_materials_describe_only_the_verified_desktop_golden_story() -> None:
     checklist = _read("docs/launch/checklist.md")
     storyboard = _read("docs/launch/demo-storyboards.md")
     launch_index = _read("docs/launch/README.md")
@@ -355,14 +473,16 @@ def test_launch_materials_describe_only_currently_demoable_channels() -> None:
     decisions = _read("docs/strategy/DECISIONS.md")
 
     assert "当前版本：0.4.2" in checklist
-    assert "G1 Developer Preview" in checklist
+    assert "Lean Developer Preview Candidate" in checklist
     assert "G5 正式宣发" in checklist
     assert "v0.3.0" not in checklist
     assert "年末 v0.4" not in checklist
 
-    assert "飞书：命令回复" in storyboard
-    assert "Telegram：按钮" in storyboard
-    assert "contained + experimental" in storyboard
+    assert "桌面 Web" in storyboard
+    assert "13 步" in storyboard
+    assert "tianshu-lean-demo" not in storyboard
+    assert "飞书" not in storyboard
+    assert "Telegram" not in storyboard
     assert "手机" not in storyboard
     assert "飞书弹出" not in storyboard
     assert "飞书机器人配好、能收审批卡片" not in storyboard

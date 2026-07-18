@@ -1,63 +1,37 @@
-# v0.4.2 诚实演示分镜 · Demo Storyboards
+# Lean Developer Preview · 单一黄金 Demo 分镜
 
-> 本文件用于 G0 能力核验，不是正式宣发脚本。当前只录制桌面 Web、终端与真实 IM 渠道；画面必须与[能力事实矩阵](capability-matrix.md)一致。正式产品演示等待 G3，演化闭环演示等待 G4。
+> 本分镜是本地 desktop Web only 的候选验收说明，不是公开宣传脚本。唯一 runner 命令
+> 只放在 [使用指南](../usage/lean-developer-preview.md)，避免出现多个互相漂移的入口。
 
-## 渠道边界
+## 冻结产品壳层
 
-- **Web：**桌面裁决面板与事件时间线。
-- **飞书：命令回复**，不伪装成交互按钮卡片。
-- **Telegram：按钮**，用于当前进程内受支持的裁决动作。
-- IM 渠道只是入口，不表述为天枢自有客户端；等待中的裁决当前不耐进程重启。
+- 生产品牌资产：[`web/public/brand.png`](../../web/public/brand.png)，SHA-256
+  `3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`。
+- 格言：“成功只有一个——按照自己的方式，去度过人生。”
+- 右上五项：“彩蛋 / 通用 / English / 实时 / 通政”。
+- 左侧保留四组十四部门导航、深浅主题与收起控制。
+- 深度承诺仅覆盖中枢总览、敕令详情、演化中心三张核心真实页。
 
-## 镜头 A · Native 工具事前裁决
+## 一条 13 步证据故事
 
-目标：证明 Native 路径的真实治理边界，不把能力外推到 external CLI。
-
-| 帧 | 画面 | 要点 |
+| 镜头 | 画面 | 必须说明的事实 |
 |---|---|---|
-| 0–4s | 桌面 Web 下达会调用已注册高风险工具的 Edict | 标注 `executor=native` |
-| 4–8s | 裁决面板显示动作、风险与证据，执行等待 | 事前策略只保证 Native 已注册工具 |
-| 8–12s | 输入裁决依据并作出决定；可另录飞书命令回复或 Telegram 按钮 | 渠道能力分别呈现，不混为同一种 UI |
-| 12–15s | Native 执行继续，时间线出现对应决定与后续结果 | 只展示实际落库的受支持事件 |
+| 1. 就绪 | 本地桌面 Web 与已认证主体 | exact Wheel、fresh HOME、loopback；源码与 Wheel hash 已绑定 |
+| 2. 敕令 | 提交受治理敕令 | 用户术语为“敕令”；不是聊天记录或 mock 卡片 |
+| 3. 裁决 | 观察待裁决并附理由解决 | 持久 Decision 权威；空理由会被拒绝 |
+| 4. 运行与 Evidence | 奏折完成并下载 closed Evidence Bundle v1 | 展示 bundle/content hash，不用单一 success badge 替代证据 |
+| 5. 技能候选与门禁 | 提议技能候选并完成 evidence-bound Gate | 只展示技能候选；代码候选不晋升 |
+| 6. 分流 | canary-eligible run 获得真实 candidate overlay | assignment 在 dispatch 前持久化；不是永远返回 champion 的假分流 |
+| 7. 回滚 | 新流量归零，新 run 使用 champion | 保留回滚 receipt 与既有 assignment 证据 |
+| 8. 严格校验 | verifier 重算 report/artifact hash 与 provenance | 13 步全部 passed 才接受批次；失败批次不可覆盖 |
 
-录制前验证：重启耐久尚属 G2 规划，因此本镜头不得在等待过程中重启服务。
+## 状态与禁区
 
-## 镜头 B · 成本记录与人工急停
-
-目标：展示已观测成本的归因和急停，不伪造成硬成本上限。
-
-| 帧 | 画面 | 要点 |
-|---|---|---|
-| 0–5s | 运行一个可重复的小任务，打开成本与事件视图 | 说明数字来自 provider 已上报用量 |
-| 5–10s | 成本条目按模型、任务或官员归因 | 展示账本，不承诺执行前精确预测 |
-| 10–15s | 手工触发急停并查看状态变化 | budget check 是 best-effort，可能超调 |
-
-## 镜头 C · Keqing 外围约束
-
-目标：准确展示 external Claude Code/Codex CLI 的 `contained + experimental` 状态。
-
-| 帧 | 画面 | 要点 |
-|---|---|---|
-| 0–5s | Web 选择 `executor=keqing:claude-code` 并下达小任务 | 显示实验标签 |
-| 5–10s | 终端显示独立工作目录、clean-env 与外围 timeout 配置 | 这些是当前可验证保证 |
-| 10–15s | CLI 结束后查看归一后的最终结果、已捕获工具事件和已上报成本 | 只展示外围可见证据，不声称 CLI 内部完整审计 |
-
-镜头内必须同时说明：天枢当前看不到 CLI 内部完整工具流，不保证事前工具拦截、硬成本上限、运行前恢复点、网络隔离或耐重启。若运行后实际生成影子快照，可以作为事后文件状态展示；不得剪辑成执行前已经存在的恢复点。
-
-## 镜头 D · Universe 人工比较
-
-目标：展示“会成长”的当前证据载体，而非伪造在线自进化。
-
-| 帧 | 画面 | 要点 |
-|---|---|---|
-| 0–5s | 查看 champion 与候选的快照/diff | 当前是实验能力 |
-| 5–10s | 展示评估报告与失败分类 | 本地子进程不是安全沙箱 |
-| 10–15s | 人工查看或切换；若门禁不足则保持阻断 | 当前没有真实 challenger 流量或可信自动晋升 |
-
-## 录制 Gate
-
-- [ ] 使用真实 v0.4.2 环境；测试数据和剪辑点有记录
-- [ ] Native 与 Keqing 镜头明确标注不同保证
-- [ ] 飞书与 Telegram 分别按真实交互录制
-- [ ] 成本数字来自实际运行，并说明 best-effort 边界
-- [ ] G0 仅保留内部验收素材；G3/G4 未通过前不作为正式产品演示发布
+- 黄金路径为 `implemented`；S5 整体仍是 `experimental` Lean Core。
+- 自动化视觉通过，但用户终审是 `user_approval_pending`；VoiceOver 是
+  `external_pending`。
+- remote MCP/open stdio MCP 为 `disabled`；official container/PyPI/GHCR 为
+  `deferred`。
+- OpenHands、ROI、cost calibration、full G4/full G5 为 `external_pending` 或
+  `deferred`。
+- 不录制外部渠道、移动端或十四部门伪深度；不展示 mock 数字；不暗示外部发布已授权。

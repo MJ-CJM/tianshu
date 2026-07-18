@@ -1,131 +1,77 @@
 <div align="center">
 
-<img src="docs/launch/assets/logo.png" alt="Tianshu" width="220">
+<img src="web/public/brand.png" alt="Tianshu" width="128">
 
 # Tianshu
 
 **Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously.**
 
-*[中文 README](README.md) · Tianshu (天枢) is the first star of the Big Dipper — the pivot the sky turns around.*
-
-[![CI](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml/badge.svg)](https://github.com/MJ-CJM/tianshu/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/MJ-CJM/tianshu?style=flat&logo=github&label=Star&color=CDA95C)](https://github.com/MJ-CJM/tianshu/stargazers)
+[中文](README.md) · [Lean Preview guide](docs/usage/lean-developer-preview.md) · [Capability matrix](docs/launch/capability-matrix.md)
 
 </div>
 
----
+## Lean Developer Preview Candidate
 
-## What is this
+Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously. The
+Candidate composes one local, reproducible path from Edict through Decision, run, Evidence, skill
+candidate, evidence-bound gate, canary assignment, and rollback.
 
-Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously. You issue an **Edict** via Web, API, CLI, Feishu, or Telegram; the system turns that goal into a schedulable, decision-aware, auditable execution chain and records execution results, a timeline, cost entries, memory, and supervision reports.
+- **Governance:** managed Native runs use durable Decision and RunState authority, attempt
+  leases/fencing, and declared effect intent/receipt records inside the documented boundary.
+- **Verification:** the SystemAudit hash chain, content-addressed ArtifactStore, and Evidence
+  Bundle v1 bind behavior, decisions, artifacts, and limits. The strict verifier recomputes hashes
+  and checks source/exact-Wheel provenance.
+- **Lean evolution:** a skill candidate reaches a real candidate overlay only after its evidence
+  gate, and rollback closes new candidate traffic. This is Lean Core evidence, not full G4.
+- **Desktop product:** Control Center, Edict detail, and Evolution Center consume authoritative
+  APIs without mock product data. Automation passed; final visual/interaction approval remains
+  `user_approval_pending`.
 
-Its organizing metaphor is the six-ministry bureaucracy of Ming-dynasty China: the system is a set of **officials (Personas)**, each with a job — the **Cabinet** plans, the **Ministry of War** executes, the **Censorate** audits, the **Bureau of Transmission** notifies, the **Library** holds memory, the **Ministry of Revenue** tracks cost. The metaphor is just a shell; in code it's cleanly decoupled modules.
+The retained golden batch passed all 13 steps and strict verification. See the
+[usage guide](docs/usage/lean-developer-preview.md) and its
+[immutable report](docs/cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json).
 
-```text
-Edict → Scheduler → Planner → Agent/DAG/long-task loop
-   → Auditor → Notifier → Memory / Profile / Skill growth
-```
+## Supported boundary
 
-> **Current v0.4.2 boundary:** Tianshu is for a **trusted local**, single-node environment. Native execution has pre-tool policy and decision hooks. Claude Code/Codex through Keqing is only `contained + experimental`. The local HTTP, WebSocket, and MCP surfaces do not yet have unified authentication and **must not be exposed to an untrusted network**. See the [capability matrix](docs/launch/capability-matrix.md) for verified guarantees and explicit non-guarantees.
->
-> Unlike a chat-style "ask-and-answer" agent, Tianshu targets async, long-horizon work where supported milestones can be inspected after execution.
+- The first official target is **Ubuntu + Python 3.12**, serving local desktop Web only.
+- The retained exact-Wheel batch was verified locally on `Darwin/arm64/Python 3.12.12`; it is not
+  evidence that the Ubuntu external validation has already run.
+- Persistence is single-host, single-node SQLite. A host administrator can read the database,
+  master key, process memory, and local artifacts and is outside this threat boundary.
+- The official local installation paths are a source checkout and an exact Wheel built from that
+  checkout. An official container, PyPI, GHCR, signing, and release provenance are `deferred`.
+- Persisted MCP env/header mappings are ciphertext. remote MCP and open stdio MCP remain
+  `disabled` in the Candidate support surface; their full admission work is `deferred`.
+- managed OpenHands, executor compatibility, ROI, cost calibration, full G4, and full G5 remain
+  `external_pending` or `deferred`.
 
-## Positioning: the supervising office above Claude Code
+`publication_status`: `not_authorized`. This private-branch Candidate is not permission to push,
+tag, release, publish packages or images, make the repository public, or announce a final release.
 
-Claude Code is the knife in your hand when you're at the keyboard. Tianshu is an office that can coordinate work around it, in two paths with different maturity boundaries:
+## Install and verify locally
 
-- **An MCP host can issue an Edict** — the local MCP server can submit work, check status, and read supported results. It is not an authenticated public endpoint in v0.4.2.
-- **Keqing can dispatch an external CLI** — Claude Code or Codex runs in an independent workspace with clean-env and an outer timeout; captured final results and tool events are normalized for the outer chain. This adapter is `contained + experimental`: internal event completeness and Native pre-tool controls are not guaranteed.
+Follow the [Lean Developer Preview guide](docs/usage/lean-developer-preview.md) for source and
+exact-Wheel installation, the one golden demo, and strict provenance verification. The legacy
+Dockerfile is not an official distribution path for this Candidate.
 
-The two directions are intentionally not presented as equivalent until the external executor contract is verified at G4.
+## Evidence states
 
-## Product direction: governance × evidence-backed growth
+Public documentation keeps these states distinct: `implemented`, `disabled`, `deferred`,
+`experimental`, `external_pending`, and `user_approval_pending`. See the
+[capability matrix](docs/launch/capability-matrix.md) for each capability's default, supported
+scope, verified guarantee, explicit non-guarantees, and evidence. Recovery conditions for deferred
+work are in the [deferred roadmap](docs/cc-fable-v1/06-deferred-work-backlog.md).
 
-Tianshu is being built around the intersection of two concerns:
+## Brand and desktop shell
 
-- **Governance with explicit boundaries** — Native tool tiers, policy and human Decision hooks, outbound redaction, clean-env, and emergency stop are implemented for the documented local scope.
-- **Growth that must earn promotion** — memory, personas, skill candidates, Universe snapshots, and paired evaluation exist at experimental maturity. Online challenger routing and trusted automatic promotion are planned, not current behavior.
+The production desktop Web uses [`web/public/brand.png`](web/public/brand.png), whose SHA-256 is
+`3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`. The frozen motto is
+“成功只有一个——按照自己的方式，去度过人生。” and the five right-side labels are
+“彩蛋 / 通用 / English / 实时 / 通政”. The fourteen-department navigation remains, while this
+Candidate makes deep product claims only for the three core pages.
 
-This direction is the intended differentiation; the repository does not claim unsupported market uniqueness or a completed self-evolution loop.
+## Contributing, security, and license
 
-## Current safeguards and their limits
-
-The current safeguards are useful within the trusted-local boundary, but they are not a blanket safety guarantee:
-
-1. **Best-effort cost guardrails** — observed usage is attributed and checked, but a provider can report usage after work has already exceeded the threshold.
-2. **Decision surfaces** — Web and Telegram support current-process decisions; Feishu uses command replies. Pending decisions are not yet restart-durable.
-3. **Post-run shadow snapshots** — when a Keqing run produces a snapshot, its independent `GIT_DIR` can help inspect or revert file state. This is not a pre-run restore point.
-4. **Local emergency stop and redaction** — useful defense in depth, not container or OS isolation.
-
-## Feature highlights
-
-- **🏛️ Six ministries** — planning / execution / audit / notify / memory / cost officials, coordinating over a shared "court" context.
-- **🏛️ Local Native chain (stable within limits)** — scheduling, planning, Native execution, audit, and SQLite timeline records on one trusted node.
-- **🧠 Memory + growth candidates (experimental)** — layered memory, profile synthesis, and skill candidate records; task-level benefit still needs evidence gates.
-- **🥷 Runtime defense in depth (limited scope)** — outbound redaction, per-segment bash grading, clean-env, and tiered emergency stop. See [SECURITY.md](SECURITY.md).
-- **🌌 Universe operations (experimental)** — snapshot, branch, diff, and manual switch. Current routing remains champion-only.
-- **📏 Paired evaluation (experimental)** — historical samples run in local subprocesses with separate ports and databases. They still share host privileges and network, so this is not a security sandbox.
-- **🤝 External CLI interop (experimental)** — Keqing provides an outer process boundary, not internal tool interception, a hard cost cap, or a pre-run restore point.
-- **💸 Cost records (stable within limits)** — metering and attribution with best-effort budget checks that may overshoot.
-
-## Quick start
-
-```bash
-# Backend
-uv sync --extra all --extra dev
-cp .env.example .env   # fill in TIANSHU_LLM_API_KEY
-uv run tianshu doctor  # startup self-check
-uv run uvicorn tianshu.app:create_app --factory --reload
-
-# Frontend (separate terminal)
-cd web && npm install && npm run dev
-```
-
-Drive it from Claude Code:
-
-```bash
-claude mcp add --transport http tianshu http://localhost:8000/mcp
-```
-
-This command configures a local endpoint. Keep it on a trusted machine/network until the G1 authentication boundary is delivered.
-
-## Cost transparency
-
-A platform that sells cost governance must report its own cost. The typical monthly range has not yet been measured; [docs/launch/cost-baseline.md](docs/launch/cost-baseline.md) records the repeatable method and the evidence gate required before publishing a number. The factory daily budget guardrail is on by default, but it is a best-effort check rather than a provider-side hard limit.
-
-## Governance defaults (privacy first)
-
-| Setting | Default | Toggle |
-|---|---|---|
-| Telemetry | **off** | `TIANSHU_TELEMETRY=on` (version + startup event only, one env to disable forever) |
-| Self-evolution | **off** | experimental candidates remain subject to a manual Decision |
-| OTel tracing | **off** | set `TIANSHU_OTEL_ENDPOINT` |
-| Daily budget guardrail | **on**, ¥20 | `TIANSHU_DAILY_BUDGET_GUARDRAIL_CNY` |
-
-The full status, evidence, and target gate for every major claim is maintained in the [public capability matrix](docs/launch/capability-matrix.md).
-
-## Contributing
-
-Narrow gate during launch: issues / docs / small fixes welcome; feature PRs need an issue first to align. Best-effort 48h response, no SLA. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
-
-## ⭐ Star history
-
-If Tianshu got the job done for you, leave a Star — your star lands on the chart below and marks this project's growth.
-
-<div align="center">
-
-<a href="https://star-history.com/#MJ-CJM/tianshu&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=MJ-CJM/tianshu&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=MJ-CJM/tianshu&type=Date" />
-    <img src="https://api.star-history.com/svg?repos=MJ-CJM/tianshu&type=Date" alt="Tianshu star history" width="640">
-  </picture>
-</a>
-
-</div>
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing behavior. See [SECURITY.md](SECURITY.md)
+for vulnerability reporting and the single-node/host-administrator boundary. The license is
+[MIT](LICENSE).
