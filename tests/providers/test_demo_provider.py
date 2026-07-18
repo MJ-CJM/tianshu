@@ -56,6 +56,17 @@ def test_demo_requires_exact_opt_in_profile_and_model(monkeypatch):
     assert state.api_base == ""
 
 
+def test_demo_profile_routes_the_bounded_canary_deterministically_without_changing_live():
+    from tianshu.bootstrap.wiring_skills import _routing_bucket_calculator
+    from tianshu.universe.router import allocation_bucket
+
+    demo_bucket = _routing_bucket_calculator("demo")
+    live_bucket = _routing_bucket_calculator("live")
+
+    assert demo_bucket("memorial:any", "seed:any", b"secret") == 0
+    assert live_bucket is allocation_bucket
+
+
 async def test_demo_chat_is_deterministic_zero_cost_and_never_calls_litellm_or_socket(
     no_network,
 ):

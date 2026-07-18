@@ -44,7 +44,7 @@ from tianshu.skills.loader import SkillsLoader, SkillsWatcher
 from tianshu.skills.metrics import SkillMetricsStore
 from tianshu.tools.registry import ToolRegistry
 from tianshu.tools.skill_tools import register_skill_tools
-from tianshu.universe.router import ChallengerRouter
+from tianshu.universe.router import ChallengerRouter, allocation_bucket
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,15 @@ logger = logging.getLogger(__name__)
 def runtime_skills_target() -> Path:
     override = os.environ.get("TIANSHU_RUNTIME_SKILLS_DIR")
     return Path(override or "~/.tianshu/skills").expanduser()
+
+
+def _demo_challenger_bucket(_memorial_id: str, _seed_id: str, _secret: bytes) -> int:
+    """Select the challenger only in the explicit deterministic demo profile."""
+    return 0
+
+
+def _routing_bucket_calculator(startup_profile: str):
+    return _demo_challenger_bucket if startup_profile == "demo" else allocation_bucket
 
 
 def wire_evolution_services(
@@ -114,6 +123,7 @@ def wire_evolution_services(
     challenger_router = ChallengerRouter(
         app.state.storage,
         allocation_secret=settings.evolution_routing_secret.encode() or None,
+        bucket_calculator=_routing_bucket_calculator(settings.startup_profile),
         payload_resolver=candidates.resolve_effective_payload_current,
     )
     app.state.challenger_router = challenger_router
