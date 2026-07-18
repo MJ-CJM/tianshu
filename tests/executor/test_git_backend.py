@@ -115,8 +115,23 @@ def test_git_backend_exposes_named_operations_not_raw_execution() -> None:
         "restore_snapshot",
         "stage_all",
         "stage_paths",
+        "tracked_paths",
     } <= public_callables
     assert public_callables.isdisjoint({"argv", "command", "execute", "invoke", "run"})
+
+
+@pytest.mark.skipif(_TRUSTED_GIT is None, reason="trusted system git is unavailable")
+def test_git_backend_lists_only_tracked_paths_below_a_prefix(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _raw_git(repo, "init", "-q")
+    (repo / ".idea").mkdir()
+    (repo / ".idea" / "tracked.xml").write_text("tracked\n", encoding="utf-8")
+    (repo / ".idea" / "untracked.xml").write_text("untracked\n", encoding="utf-8")
+    (repo / "outside.txt").write_text("outside\n", encoding="utf-8")
+    _raw_git(repo, "add", "--", ".idea/tracked.xml", "outside.txt")
+
+    assert GitBackend().tracked_paths(GitLocation(repo), ".idea") == (".idea/tracked.xml",)
 
 
 def test_git_backend_validates_untrusted_tokens_before_launch(

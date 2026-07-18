@@ -25,6 +25,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -110,7 +111,7 @@ def wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """构建一次；后续全部步骤只允许消费这一个 exact wheel。"""
     out_dir = tmp_path_factory.mktemp("wheel-out")
     subprocess.run(
-        ["uv", "build", "--wheel", "--out-dir", str(out_dir)],
+        [sys.executable, "-m", "build", "--wheel", "--outdir", str(out_dir)],
         cwd=_REPO_ROOT,
         check=True,
         capture_output=True,
@@ -131,12 +132,10 @@ def installed(wheel: Path, tmp_path_factory: pytest.TempPathFactory) -> dict:
     home = root / "home"
     home.mkdir()
 
-    # 固定 3.12：项目 requires-python >=3.12 且自身 venv 就是 3.12。裸 uv venv 会挑
-    # 本机最新解释器（3.14），而 litellm 在 3.14/darwin 无预编译 wheel、回退 Rust 源码
-    # 构建即失败——那不是天枢的安装态问题，但它意味着 3.13/3.14 的可安装性**未被本
-    # 测试证明**（见文件头 evidence boundary，属 external_pending）。
+    # 固定使用仓库 Python 3.12；3.13/3.14 的可安装性未被本测试证明，仍属
+    # external_pending。
     subprocess.run(
-        ["uv", "venv", "--python", "3.12", str(venv_dir)],
+        [sys.executable, "-m", "venv", str(venv_dir)],
         check=True,
         capture_output=True,
         timeout=300,
@@ -147,11 +146,11 @@ def installed(wheel: Path, tmp_path_factory: pytest.TempPathFactory) -> dict:
     # 按绝对 file URI 装那一个 wheel（禁 editable / 禁源树 / 禁二次构建）
     subprocess.run(
         [
-            "uv",
+            str(py),
+            "-m",
             "pip",
             "install",
-            "--python",
-            str(py),
+            "--only-binary=:all:",
             f"tianshu[cli] @ {wheel.resolve().as_uri()}",
         ],
         check=True,

@@ -325,6 +325,23 @@ class GitBackend:
             index += 1
         return tuple(sorted(paths))
 
+    def tracked_paths(self, location: GitLocation, prefix: str) -> tuple[str, ...]:
+        """Return tracked paths below one validated repository-relative prefix."""
+
+        prefix = _validate_pathspec(prefix)
+        result = self._invoke(
+            "tracked_paths",
+            location,
+            ("ls-files", "-z", "--", prefix),
+        )
+        self._require_complete_output("tracked_paths", result)
+        paths = tuple(
+            sorted(os.fsdecode(value) for value in result.stdout_bytes.split(b"\0") if value)
+        )
+        if any(path != prefix and not path.startswith(f"{prefix}/") for path in paths):
+            raise GitBackendError("tracked_paths", "Git returned a path outside the prefix")
+        return paths
+
     def changed_paths_between(
         self,
         location: GitLocation,

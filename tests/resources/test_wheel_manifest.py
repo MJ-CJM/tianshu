@@ -13,6 +13,7 @@ web/static 是 vite 产物且被 gitignore：这里**硬断言**它在 wheel 里
 import hashlib
 import subprocess
 import sys
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -27,7 +28,7 @@ pytestmark = pytest.mark.slow
 
 def _build_wheel(out_dir: Path) -> Path:
     result = subprocess.run(
-        ["uv", "build", "--wheel", "--out-dir", str(out_dir)],
+        [sys.executable, "-m", "build", "--wheel", "--outdir", str(out_dir)],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
@@ -194,7 +195,7 @@ def test_wheel_import_smoke_from_repo_external_cwd(wheel_path: Path, tmp_path: P
 
 def _build_sdist(out_dir: Path) -> Path:
     result = subprocess.run(
-        ["uv", "build", "--sdist", "--out-dir", str(out_dir)],
+        [sys.executable, "-m", "build", "--sdist", "--outdir", str(out_dir)],
         cwd=_REPO_ROOT,
         capture_output=True,
         text=True,
@@ -211,11 +212,9 @@ def test_sdist_ships_the_in_tree_build_backend(tmp_path: Path) -> None:
 
     它是 pyproject 的 backend-path 指向的 in-tree PEP 517 后端；setuptools 不会
     自动收录 backend-path 目录。缺了它，从 sdist 构建 wheel 会 ModuleNotFoundError:
-    tianshu_build —— 即 `uv build`（不带 --wheel）与"从 sdist 安装"都会断掉，而
+    tianshu_build —— 即 PEP 517 sdist 构建与"从 sdist 安装"都会断掉，而
     只跑 wheel 路径的 CI 永远看不见。
     """
-    import tarfile
-
     sdist = _build_sdist(tmp_path / "sdist-out")
     with tarfile.open(sdist) as archive:
         names = {Path(*Path(name).parts[1:]).as_posix() for name in archive.getnames()}
@@ -227,10 +226,16 @@ def test_sdist_ships_the_in_tree_build_backend(tmp_path: Path) -> None:
 def test_wheel_built_from_sdist_matches_direct_build(tmp_path: Path) -> None:
     """从 sdist 构建出的 wheel 必须与直接构建的一致（发行链路两条路等价）。"""
     sdist = _build_sdist(tmp_path / "sdist-src")
+    extracted = tmp_path / "extracted"
+    extracted.mkdir()
+    with tarfile.open(sdist) as archive:
+        archive.extractall(extracted, filter="data")
+    source_roots = [path for path in extracted.iterdir() if path.is_dir()]
+    assert len(source_roots) == 1
     out = tmp_path / "from-sdist"
     result = subprocess.run(
-        ["uv", "build", "--wheel", str(sdist), "--out-dir", str(out)],
-        cwd=_REPO_ROOT,
+        [sys.executable, "-m", "build", "--wheel", "--outdir", str(out)],
+        cwd=source_roots[0],
         capture_output=True,
         text=True,
         timeout=600,
