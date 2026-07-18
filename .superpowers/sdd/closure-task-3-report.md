@@ -18,16 +18,16 @@ and an unchanged packaged-resource digest.
 ## Final immutable identities
 
 - Wheel source commit:
-  `2563d42733b2f91c2980e6b8740111959ac77fb6`
+  `b27f525fe4eff52a24f0c7769125bc158097e7de`
 - Wheel SHA-256:
-  `74f8cc416bf84a97f92bf221af0020c4972d03c1bd14148017ff216815595138`
-- Batch ID: `20260718T070101Z-2563d42733b2`
+  `81ec17b9818e67ac6046fb0e1ab62d13606fcaa5af14141ae4d311179bc10fef`
+- Batch ID: `20260718T072917Z-b27f525fe4ef`
 - Environment fingerprint:
   `692e3e262a9b6478793b224c52a5667b5f1ac9ecda52b21b169605ce570590b1`
 - Report:
-  `docs/cc-fable-v1/evidence/lean-preview/20260718T070101Z-2563d42733b2/demo-report.json`
+  `docs/cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json`
 - Artifacts:
-  `docs/cc-fable-v1/evidence/lean-preview/20260718T070101Z-2563d42733b2/artifacts/`
+  `docs/cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/artifacts/`
 
 The batch suffix, report source commit, caller-supplied source identity, current source commit at
 Wheel build time, and mandatory verifier expectation were all the same identity. Exactly one Wheel
@@ -85,8 +85,37 @@ The final retained batch passed, in order:
 The explicit verifier command, with mandatory expected source commit and Wheel SHA-256, exited 0:
 
 ```text
-Lean Preview evidence verified: 20260718T070101Z-2563d42733b2
+Lean Preview evidence verified: 20260718T072917Z-b27f525fe4ef
 ```
+
+The earlier all-green batch `20260718T070101Z-2563d42733b2` remains unchanged as historical
+evidence. It was superseded because the governance-close review correction changed the Wheel
+source after that run.
+
+## Review remediation: final governance evidence closure
+
+Review found that `audit.completed` previously trusted its event verdict and closed any passing
+audit, even when the authoritative Memorial was still `NEEDS_REVIEW/pending`. That froze an
+immutable snapshot before the human governance decision.
+
+Correction commit `b27f525fe4eff52a24f0c7769125bc158097e7de` now enforces:
+
+- A passed audit creates or retains open evidence but closes it only when the stored Memorial is
+  `COMPLETED/not_required` and the stored audit verdict is also `pass`.
+- Pending and rejected review states remain open. Direct `close()` calls are governed by the same
+  authoritative final-state check and cannot bypass it.
+- `decree.approved` has a dedicated production subscription. Closure requires a stored
+  `COMPLETED/approved` Memorial, a stored passing audit, an exact event Edict/Memorial binding, and
+  a persisted `approve` Decree for that Memorial.
+- Actor, Edict owner, and durable root-correlation values are checked when carried by the event;
+  ApprovalManager now emits all three. A wrong owner, actor, correlation, Edict, or cross-run
+  Decree is ignored without closing either run.
+- Legacy final Decrees are represented through the existing strict `DecisionEvidenceV1` snapshot
+  contract. DecisionRequest-backed Decrees are not duplicated.
+- Audit/approval delivery order, replay, concurrent handlers, and a new EvidenceService instance
+  after restart all converge on the same immutable closed bundle.
+- A mid-execution approval cannot close evidence because its authoritative Memorial is not in the
+  final approved state.
 
 ## Corrections discovered by exact-Wheel RED runs
 
@@ -118,19 +147,23 @@ binary-only fresh-install rule is covered by a committed test.
 
 ## Verification summary
 
-- Exact-Wheel fresh-install harness: `5 passed` in 90.66 seconds. This includes four focused
+- Exact-Wheel fresh-install harness: `5 passed` in 234.25 seconds. This includes four focused
   shutdown-contract cases plus the slow black-box run.
 - Independent strict verifier: passed with both expected build identities supplied.
 - `tests/launch tests/test_public_docs_truth.py`: `140 passed, 1 skipped` (the slow exact-Wheel case
   skips when its mandatory caller identities are absent).
 - Evidence/provider/orchestrator/tool/evolution/gateway focused regression: `157 passed`.
+- Governance-close RED: `11 failed, 1 passed`; GREEN after correction: `13 passed` including the
+  actual ApprovalManager-to-EventBus close path.
+- Wider evidence/auditor/decision/governance regression: `297 passed`; focused evidence/decree
+  regression after the EventBus case was added: `32 passed`.
 - Runner/verifier focused RED after the legacy-assignment test conversion: `45 failed, 21 passed`;
   focused GREEN after the correction: `66 passed`.
 - Shutdown-contract RED: `4 failed`; GREEN: `4 passed`.
-- Ruff check passed on every changed Python source/test file; Ruff format check reported all 15
-  files formatted.
+- Ruff check and format check passed on all five governance-remediation source/test files and on
+  the earlier Closure Task 3 changes.
 - Mypy: `Success: no issues found in 132 source files`.
-- Import Linter: 483 files / 1,752 dependencies, two contracts kept, zero broken.
+- Import Linter: 483 files / 1,754 dependencies, two contracts kept, zero broken.
 - `git diff --check`: passed.
 
 The pytest runs emitted four existing third-party deprecation warnings from `lark_oapi` and
