@@ -67,7 +67,7 @@ test("a stored locale survives reload instead of being overwritten by the E2E de
 test("production core route chunks stay within documented KiB ceilings", async () => {
   const staticRoot = join(process.cwd(), "..", "src", "tianshu", "web", "static");
   const manifest = JSON.parse(
-    readFileSync(join(staticRoot, ".vite", "manifest.json"), "utf8"),
+    readFileSync(join(staticRoot, "manifest.json"), "utf8"),
   ) as Record<string, ViteManifestChunk>;
 
   for (const [route, ceilings] of Object.entries(ROUTE_CHUNK_CEILINGS_KIB)) {
