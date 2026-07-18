@@ -36,6 +36,37 @@ _NETWORK_PROFILE = " ".join(
 )
 
 
+def _clean_sigterm_exit(returncode: int, shutdown_output: str) -> bool:
+    if returncode == 0:
+        return True
+    return returncode == -signal.SIGTERM and all(
+        marker in shutdown_output
+        for marker in (
+            "INFO:     Application shutdown complete.",
+            "INFO:     Finished server process",
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("returncode", "shutdown_output", "expected"),
+    [
+        (0, "", True),
+        (
+            -signal.SIGTERM,
+            "INFO:     Application shutdown complete.\nINFO:     Finished server process [123]\n",
+            True,
+        ),
+        (-signal.SIGTERM, "INFO:     Application shutdown complete.\n", False),
+        (-signal.SIGKILL, "INFO:     Finished server process [123]\n", False),
+    ],
+)
+def test_clean_sigterm_exit_requires_a_completed_server_shutdown(
+    returncode: int, shutdown_output: str, expected: bool
+) -> None:
+    assert _clean_sigterm_exit(returncode, shutdown_output) is expected
+
+
 def _run(
     argv: list[str],
     *,
@@ -373,7 +404,9 @@ def test_exact_wheel_golden_demo_from_fresh_home(tmp_path: Path) -> None:
         if server_log.is_file():
             shutdown_output = server_log.read_text(encoding="utf-8")
 
-    assert proc is not None and proc.returncode == 0
+    assert proc is not None and _clean_sigterm_exit(proc.returncode, shutdown_output), (
+        shutdown_output[-6000:]
+    )
     assert "ResourceWarning" not in shutdown_output, shutdown_output[-6000:]
     assert "unclosed" not in shutdown_output.lower(), shutdown_output[-6000:]
     with pytest.raises(ProcessLookupError):
