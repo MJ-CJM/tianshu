@@ -177,6 +177,7 @@ def test_exact_wheel_golden_demo_from_fresh_home(tmp_path: Path) -> None:
             "-m",
             "pip",
             "install",
+            "--only-binary=:all:",
             f"tianshu[cli] @ {wheel.as_uri()}",
         ],
         cwd=outside,
