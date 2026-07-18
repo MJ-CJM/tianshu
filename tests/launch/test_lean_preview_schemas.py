@@ -153,6 +153,10 @@ def _schema_errors(filename: str, payload: dict[str, object]) -> list[object]:
     return list(Draft202012Validator(_schema(filename)).iter_errors(payload))
 
 
+def _step_schema() -> dict[str, object]:
+    return _schema("lean-preview-demo-report-v1.schema.json")["$defs"]["LeanPreviewStepResultV1"]
+
+
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
@@ -292,7 +296,48 @@ def test_models_and_schemas_accept_valid_pending_and_approved_reports() -> None:
     _validate_json(module.LeanPreviewCandidateReportV1, approved)
 
 
-def test_step_rejects_reverse_time_and_normalizes_aware_times_to_utc() -> None:
+@pytest.mark.parametrize(
+    ("timestamp", "accepted"),
+    [
+        ("2026-07-18T00:00:00Z", True),
+        ("2026-07-18T08:00:00+08:00", True),
+        ("2024-02-29T23:59:59.123456-05:30", True),
+        ("not-a-date", False),
+        ("2026-07-18T00:00:00", False),
+        ("2026-7-18T00:00:00Z", False),
+        ("2026-07-18 00:00:00Z", False),
+        ("2026-02-30T00:00:00Z", False),
+        ("2025-02-29T00:00:00Z", False),
+        ("2026-04-31T00:00:00Z", False),
+        ("2026-07-18T24:00:00Z", False),
+        ("2026-07-18T00:00:60Z", False),
+        ("2026-07-18T00:00:00.1234567Z", False),
+        ("2026-07-18T00:00:00+14:01", False),
+        ("0000-01-01T00:00:00Z", False),
+        ("2026-07-18T00:00:00Z\n", False),
+    ],
+)
+def test_step_model_and_raw_schema_share_the_aware_rfc3339_contract(
+    timestamp: str, accepted: bool
+) -> None:
+    module = _module()
+    payload = copy.deepcopy(_demo_payload()["steps"][0])
+    payload["started_at"] = timestamp
+    payload["completed_at"] = timestamp
+
+    schema_valid = not list(Draft202012Validator(_step_schema()).iter_errors(payload))
+    try:
+        _validate_json(module.LeanPreviewStepResultV1, payload)
+    except ValidationError:
+        model_valid = False
+    else:
+        model_valid = True
+
+    assert schema_valid is accepted
+    assert model_valid is accepted
+
+
+def test_step_normalizes_offsets_to_utc_and_model_owns_time_order() -> None:
     module = _module()
     payload = copy.deepcopy(_demo_payload()["steps"][0])
     payload["started_at"] = "2026-07-18T08:00:00+08:00"
@@ -304,8 +349,19 @@ def test_step_rejects_reverse_time_and_normalizes_aware_times_to_utc() -> None:
     assert step.completed_at == datetime(2026, 7, 18, 0, 0, 1, tzinfo=UTC)
 
     payload["completed_at"] = "2026-07-17T23:59:59Z"
+    assert not list(Draft202012Validator(_step_schema()).iter_errors(payload))
     with pytest.raises(ValidationError, match="completed_at must not precede started_at"):
         _validate_json(module.LeanPreviewStepResultV1, payload)
+
+
+def test_visual_approval_record_uses_the_same_aware_timestamp_contract() -> None:
+    module = _module()
+    payload = _approval_payload()
+    payload["approved_at"] = "2026-07-18 08:00:00"
+    payload = _rehash(payload)
+
+    with pytest.raises(ValidationError, match="aware RFC3339"):
+        _validate_json(module.LeanPreviewVisualApprovalRecordV1, payload)
 
 
 def test_candidate_resolver_accepts_bound_non_fixture_demo(tmp_path: Path) -> None:

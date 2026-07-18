@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -13,6 +14,20 @@ from tianshu.models.canonical import canonical_sha256
 
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 _GIT_COMMIT_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+_AWARE_RFC3339_PATTERN = (
+    r"^(?:"
+    r"(?:(?!0000)[0-9]{4})-(?:"
+    r"(?:01|03|05|07|08|10|12)-(?:0[1-9]|[12][0-9]|3[01])|"
+    r"(?:04|06|09|11)-(?:0[1-9]|[12][0-9]|30)|"
+    r"02-(?:0[1-9]|1[0-9]|2[0-8])"
+    r")|"
+    r"(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26])|"
+    r"(?:0[48]|[2468][048]|[13579][26])00)-02-29"
+    r")T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
+    r"(?:\.[0-9]{1,6})?(?:Z|[+-](?:(?:0[0-9]|1[0-3]):[0-5][0-9]|14:00))"
+    r"(?![\s\S])"
+)
+_AWARE_RFC3339 = re.compile(_AWARE_RFC3339_PATTERN)
 
 Digest = Annotated[str, Field(pattern=_DIGEST_PATTERN)]
 GitCommit = Annotated[str, Field(pattern=_GIT_COMMIT_PATTERN)]
@@ -71,6 +86,14 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+def _parse_aware_rfc3339(value: object) -> object:
+    if isinstance(value, str):
+        if _AWARE_RFC3339.fullmatch(value) is None:
+            raise ValueError("timestamp must use canonical aware RFC3339 syntax")
+        return datetime.fromisoformat(value)
+    return value
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
@@ -83,6 +106,9 @@ class LeanPreviewStepResultV1(_StrictModel):
     evidence_hashes: tuple[Digest, ...]
     observed_state_hash: Digest
 
+    _validate_lexical_times = field_validator("started_at", "completed_at", mode="before")(
+        _parse_aware_rfc3339
+    )
     _normalize_times = field_validator("started_at", "completed_at")(_utc)
 
     @model_validator(mode="after")
@@ -134,6 +160,9 @@ class LeanPreviewVisualApprovalRecordV1(_StrictModel):
     demo_report_hash: Digest
     content_hash: Digest
 
+    _validate_approved_at_syntax = field_validator("approved_at", mode="before")(
+        _parse_aware_rfc3339
+    )
     _normalize_approved_at = field_validator("approved_at")(_utc)
 
     @model_validator(mode="after")
@@ -222,6 +251,12 @@ def lean_preview_demo_report_schema() -> dict[str, object]:
         LeanPreviewDemoReportV1,
         "lean-preview-demo-report-v1.schema.json",
     )
+    definitions = cast(dict[str, object], schema["$defs"])
+    step_schema = cast(dict[str, object], definitions["LeanPreviewStepResultV1"])
+    step_properties = cast(dict[str, object], step_schema["properties"])
+    for field_name in ("started_at", "completed_at"):
+        timestamp_schema = cast(dict[str, object], step_properties[field_name])
+        timestamp_schema["pattern"] = _AWARE_RFC3339_PATTERN
     properties = cast(dict[str, object], schema["properties"])
     properties["steps"] = {
         "allOf": [
