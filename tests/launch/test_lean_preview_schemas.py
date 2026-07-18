@@ -302,6 +302,8 @@ def test_models_and_schemas_accept_valid_pending_and_approved_reports() -> None:
         ("2026-07-18T00:00:00Z", True),
         ("2026-07-18T08:00:00+08:00", True),
         ("2024-02-29T23:59:59.123456-05:30", True),
+        ("0002-01-01T00:00:00+14:00", True),
+        ("9998-12-31T23:59:59-14:00", True),
         ("not-a-date", False),
         ("2026-07-18T00:00:00", False),
         ("2026-7-18T00:00:00Z", False),
@@ -314,6 +316,8 @@ def test_models_and_schemas_accept_valid_pending_and_approved_reports() -> None:
         ("2026-07-18T00:00:00.1234567Z", False),
         ("2026-07-18T00:00:00+14:01", False),
         ("0000-01-01T00:00:00Z", False),
+        ("0001-01-01T00:00:00+14:00", False),
+        ("9999-12-31T23:59:59-14:00", False),
         ("2026-07-18T00:00:00Z\n", False),
     ],
 )
@@ -352,6 +356,26 @@ def test_step_normalizes_offsets_to_utc_and_model_owns_time_order() -> None:
     assert not list(Draft202012Validator(_step_schema()).iter_errors(payload))
     with pytest.raises(ValidationError, match="completed_at must not precede started_at"):
         _validate_json(module.LeanPreviewStepResultV1, payload)
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [
+        "0001-01-01T00:00:00+14:00",
+        "9999-12-31T23:59:59-14:00",
+    ],
+)
+def test_step_model_converts_unsupported_datetime_boundaries_to_validation_errors(
+    timestamp: str,
+) -> None:
+    module = _module()
+    payload = copy.deepcopy(_demo_payload()["steps"][0])
+    payload["started_at"] = datetime.fromisoformat(timestamp)
+    payload["completed_at"] = datetime.fromisoformat(timestamp)
+    payload["evidence_hashes"] = tuple(payload["evidence_hashes"])
+
+    with pytest.raises(ValidationError, match="between 0002 and 9998"):
+        module.LeanPreviewStepResultV1.model_validate(payload)
 
 
 def test_visual_approval_record_uses_the_same_aware_timestamp_contract() -> None:

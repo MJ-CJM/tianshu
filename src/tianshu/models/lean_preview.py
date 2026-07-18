@@ -15,8 +15,8 @@ from tianshu.models.canonical import canonical_sha256
 _DIGEST_PATTERN = r"^[0-9a-f]{64}$"
 _GIT_COMMIT_PATTERN = r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
 _AWARE_RFC3339_PATTERN = (
-    r"^(?:"
-    r"(?:(?!0000)[0-9]{4})-(?:"
+    r"^(?!(?:000[01]|9999)-)(?:"
+    r"[0-9]{4}-(?:"
     r"(?:01|03|05|07|08|10|12)-(?:0[1-9]|[12][0-9]|3[01])|"
     r"(?:04|06|09|11)-(?:0[1-9]|[12][0-9]|30)|"
     r"02-(?:0[1-9]|1[0-9]|2[0-8])"
@@ -81,15 +81,20 @@ REQUIRED_DEFERRED_WORK_IDS = (
 
 
 def _utc(value: datetime) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError("timestamp must be timezone-aware")
-    return value.astimezone(UTC)
+    try:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timestamp must be timezone-aware")
+        if not 2 <= value.year <= 9998:
+            raise ValueError("timestamp year must be between 0002 and 9998")
+        return value.astimezone(UTC)
+    except OverflowError as exc:  # defensive for custom datetime/tzinfo inputs
+        raise ValueError("timestamp cannot be normalized to UTC") from exc
 
 
 def _parse_aware_rfc3339(value: object) -> object:
     if isinstance(value, str):
         if _AWARE_RFC3339.fullmatch(value) is None:
-            raise ValueError("timestamp must use canonical aware RFC3339 syntax")
+            raise ValueError("timestamp must use the supported canonical aware RFC3339 domain")
         return datetime.fromisoformat(value)
     return value
 
