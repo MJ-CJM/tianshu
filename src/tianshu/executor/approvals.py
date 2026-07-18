@@ -1393,13 +1393,20 @@ class ApprovalManager:
         memorial.status = TaskStatus.COMPLETED
         memorial.completed_at = datetime.now(UTC)
         self._storage.update_memorial(memorial)
+        edict = self._storage.get_edict(memorial.edict_id)
         await self._bus.emit(
             make_event(
                 "decree.approved",
                 edict_id=memorial.edict_id,
                 memorial_id=memorial.id,
                 producer="approval_manager",
-                payload={"decree_id": decree.id, "comment": decree.comment},
+                payload={
+                    "decree_id": decree.id,
+                    "comment": decree.comment,
+                    "actor": decree.actor,
+                    "owner_id": edict.submitter if edict is not None else None,
+                    "correlation_id": self._storage.get_core_correlation_id(memorial.id),
+                },
             )
         )
 

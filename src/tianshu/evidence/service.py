@@ -40,6 +40,7 @@ from tianshu.evidence.models import (
 )
 from tianshu.executor.capabilities import get_executor_manifest
 from tianshu.models.canonical import canonical_json_bytes
+from tianshu.models.common import TaskStatus
 from tianshu.models.events import EventEnvelope
 from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
@@ -56,6 +57,7 @@ from tianshu.storage.artifact_repo import (
     EvidenceRepository,
     EvidenceRepositoryError,
 )
+from tianshu.storage.correlation import correlation_for_memorial
 from tianshu.storage.evolution_repo import EvolutionRepository
 from tianshu.storage.run_state_repo import RunStateRepository
 from tianshu.storage.unit_of_work import SqliteUnitOfWork
@@ -477,10 +479,145 @@ class EvidenceService:
         return f"evidence:{digest}"
 
     async def handle_audit_completed(self, event: EventEnvelope) -> None:
-        """Close the audited Memorial's immutable evidence snapshot once it passes."""
-        if event.memorial_id is None or event.payload.get("verdict") != "pass":
+        """Open passed audit evidence, closing only a final no-review Memorial."""
+        if (
+            event.event_type != "audit.completed"
+            or event.edict_id is None
+            or event.memorial_id is None
+            or event.payload.get("verdict") != "pass"
+        ):
             return
-        self.close(event.memorial_id, expected_version=1)
+        with self._storage.unit_of_work() as unit_of_work:
+            connection = unit_of_work.connection
+            authority = self._governance_authority_current(connection, event.memorial_id)
+            if (
+                authority is None
+                or authority["edict_id"] != event.edict_id
+                or not self._stored_audit_passed(authority["audit_json"])
+            ):
+                unit_of_work.commit()
+                return
+            existing = self._storage.evidence_repo.get_for_memorial_current(
+                connection,
+                event.memorial_id,
+            )
+            if isinstance(existing, ClosedEvidenceBundleV1):
+                unit_of_work.commit()
+                return
+            if existing is None:
+                existing = self._build_open_current(connection, event.memorial_id)
+            if (
+                authority["status"] == TaskStatus.COMPLETED.value
+                and authority["review_status"] == "not_required"
+            ):
+                self._close_current(
+                    connection,
+                    event.memorial_id,
+                    expected_version=existing.version,
+                )
+            unit_of_work.commit()
+
+    async def handle_decree_approved(self, event: EventEnvelope) -> None:
+        """Close one final human-approved run from its durable governance state."""
+        if (
+            event.event_type != "decree.approved"
+            or event.edict_id is None
+            or event.memorial_id is None
+            or not isinstance(event.payload.get("decree_id"), str)
+        ):
+            return
+        decree_id = str(event.payload["decree_id"])
+        with self._storage.unit_of_work() as unit_of_work:
+            connection = unit_of_work.connection
+            if not self._approved_event_is_authoritative_current(
+                connection,
+                event,
+                decree_id=decree_id,
+            ):
+                unit_of_work.commit()
+                return
+            existing = self._storage.evidence_repo.get_for_memorial_current(
+                connection,
+                event.memorial_id,
+            )
+            if isinstance(existing, ClosedEvidenceBundleV1):
+                unit_of_work.commit()
+                return
+            expected_version = existing.version if isinstance(existing, EvidenceBundleV1) else 1
+            self._close_current(
+                connection,
+                event.memorial_id,
+                expected_version=expected_version,
+            )
+            unit_of_work.commit()
+
+    @staticmethod
+    def _governance_authority_current(
+        connection: sqlite3.Connection,
+        memorial_id: str,
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            """
+            SELECT memorial.edict_id, memorial.status, memorial.review_status,
+                   memorial.audit_json, edict.submitter
+            FROM memorials AS memorial
+            JOIN edicts AS edict ON edict.id=memorial.edict_id
+            WHERE memorial.id=?
+            """,
+            (memorial_id,),
+        ).fetchone()
+
+    @staticmethod
+    def _stored_audit_passed(raw: object) -> bool:
+        if not isinstance(raw, str):
+            return False
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            return False
+        return isinstance(value, dict) and value.get("verdict") == "pass"
+
+    def _approved_event_is_authoritative_current(
+        self,
+        connection: sqlite3.Connection,
+        event: EventEnvelope,
+        *,
+        decree_id: str,
+    ) -> bool:
+        if event.memorial_id is None or event.edict_id is None:
+            return False
+        authority = self._governance_authority_current(connection, event.memorial_id)
+        if (
+            authority is None
+            or authority["edict_id"] != event.edict_id
+            or authority["status"] != TaskStatus.COMPLETED.value
+            or authority["review_status"] != "approved"
+            or not self._stored_audit_passed(authority["audit_json"])
+        ):
+            return False
+        decree = connection.execute(
+            """
+            SELECT memorial_id, action, actor
+            FROM decrees
+            WHERE id=?
+            """,
+            (decree_id,),
+        ).fetchone()
+        if (
+            decree is None
+            or decree["memorial_id"] != event.memorial_id
+            or decree["action"] != "approve"
+        ):
+            return False
+        expected_fields = {
+            "actor": decree["actor"],
+            "owner_id": authority["submitter"],
+            "correlation_id": correlation_for_memorial(connection, event.memorial_id),
+        }
+        return all(
+            field not in event.payload or event.payload[field] == expected
+            for field, expected in expected_fields.items()
+        )
 
     @staticmethod
     def _json_object(raw: object, field: str) -> dict[str, object]:
@@ -610,28 +747,70 @@ class EvidenceService:
             """,
             (memorial_id,),
         ).fetchall()
-        required = tuple(str(row["decision_request_id"]) for row in rows)
-        evidence: list[DecisionEvidenceV1] = []
+        required = [str(row["decision_request_id"]) for row in rows]
+        evidence: dict[str, DecisionEvidenceV1] = {}
         for row in rows:
             if row["action"] is None:
                 continue
             reason = redact_text(str(row["reason"]))
-            evidence.append(
-                DecisionEvidenceV1.model_validate_json(
-                    json.dumps(
-                        {
-                            "decision_request_id": row["decision_request_id"],
-                            "kind": row["kind"],
-                            "action": row["action"],
-                            "actor_principal_id": row["actor_principal_id"],
-                            "reason": reason,
-                            "payload_hash": row["payload_hash"],
-                            "resolved_at": row["resolved_at"],
-                        }
-                    )
+            decision_id = str(row["decision_request_id"])
+            evidence[decision_id] = DecisionEvidenceV1.model_validate_json(
+                json.dumps(
+                    {
+                        "decision_request_id": decision_id,
+                        "kind": row["kind"],
+                        "action": row["action"],
+                        "actor_principal_id": row["actor_principal_id"],
+                        "reason": reason,
+                        "payload_hash": row["payload_hash"],
+                        "resolved_at": row["resolved_at"],
+                    }
                 )
             )
-        return required, tuple(evidence)
+        decree_rows = connection.execute(
+            """
+            SELECT id, memorial_id, action, comment, amended_goal, actor, created_at
+            FROM decrees
+            WHERE memorial_id=?
+            ORDER BY created_at, id
+            """,
+            (memorial_id,),
+        ).fetchall()
+        for row in decree_rows:
+            decree_id = str(row["id"])
+            if decree_id in evidence or decree_id in required:
+                continue
+            required.append(decree_id)
+            action = str(row["action"])
+            comment = row["comment"]
+            reason = redact_text(
+                str(comment) if comment is not None else f"governance decree {action}"
+            )
+            decree_payload = {
+                "id": decree_id,
+                "memorial_id": row["memorial_id"],
+                "action": action,
+                "comment": comment,
+                "amended_goal": row["amended_goal"],
+                "actor": row["actor"],
+                "created_at": row["created_at"],
+            }
+            evidence[decree_id] = DecisionEvidenceV1.model_validate_json(
+                json.dumps(
+                    {
+                        "decision_request_id": decree_id,
+                        "kind": "outer_loop",
+                        "action": action,
+                        "actor_principal_id": row["actor"],
+                        "reason": reason,
+                        "payload_hash": hashlib.sha256(
+                            canonical_json_bytes(decree_payload)
+                        ).hexdigest(),
+                        "resolved_at": row["created_at"],
+                    }
+                )
+            )
+        return tuple(required), tuple(evidence[key] for key in sorted(evidence))
 
     @staticmethod
     def _effects(
@@ -857,27 +1036,34 @@ class EvidenceService:
         )
         return str(row["edict_id"]), snapshot
 
+    def _build_open_current(
+        self,
+        connection: sqlite3.Connection,
+        memorial_id: str,
+    ) -> EvidenceBundleV1:
+        existing = self._storage.evidence_repo.get_for_memorial_current(
+            connection,
+            memorial_id,
+        )
+        if isinstance(existing, ClosedEvidenceBundleV1):
+            raise EvidenceServiceError("evidence bundle is already closed")
+        if isinstance(existing, EvidenceBundleV1):
+            return existing
+        edict_id, snapshot = self._snapshot_current(connection, memorial_id)
+        bundle = EvidenceBundleV1(
+            bundle_id=self._bundle_id(memorial_id),
+            edict_id=edict_id,
+            memorial_id=memorial_id,
+            snapshot=snapshot,
+            version=1,
+            created_at=self._clock(),
+        )
+        self._storage.evidence_repo.add_open_current(connection, bundle)
+        return bundle
+
     def build_open(self, memorial_id: str) -> EvidenceBundleV1:
         with self._storage.unit_of_work() as unit_of_work:
-            existing = self._storage.evidence_repo.get_for_memorial_current(
-                unit_of_work.connection,
-                memorial_id,
-            )
-            if isinstance(existing, ClosedEvidenceBundleV1):
-                raise EvidenceServiceError("evidence bundle is already closed")
-            if isinstance(existing, EvidenceBundleV1):
-                unit_of_work.commit()
-                return existing
-            edict_id, snapshot = self._snapshot_current(unit_of_work.connection, memorial_id)
-            bundle = EvidenceBundleV1(
-                bundle_id=self._bundle_id(memorial_id),
-                edict_id=edict_id,
-                memorial_id=memorial_id,
-                snapshot=snapshot,
-                version=1,
-                created_at=self._clock(),
-            )
-            self._storage.evidence_repo.add_open_current(unit_of_work.connection, bundle)
+            bundle = self._build_open_current(unit_of_work.connection, memorial_id)
             unit_of_work.commit()
             return bundle
 
@@ -958,58 +1144,81 @@ class EvidenceService:
         if missing:
             raise EvidenceIncompleteError(tuple(missing))
 
+    def _require_final_governance_current(
+        self,
+        connection: sqlite3.Connection,
+        memorial_id: str,
+    ) -> None:
+        authority = self._governance_authority_current(connection, memorial_id)
+        if authority is None:
+            raise EvidenceNotFound("Memorial does not exist")
+        if (
+            authority["status"] != TaskStatus.COMPLETED.value
+            or authority["review_status"] not in {"not_required", "approved"}
+            or not self._stored_audit_passed(authority["audit_json"])
+        ):
+            raise EvidenceServiceError("evidence governance transition is not final")
+        if authority["review_status"] == "approved":
+            approval = connection.execute(
+                """
+                SELECT 1
+                FROM decrees
+                WHERE memorial_id=? AND action='approve'
+                LIMIT 1
+                """,
+                (memorial_id,),
+            ).fetchone()
+            if approval is None:
+                raise EvidenceServiceError("approved evidence has no bound governance decree")
+
+    def _close_current(
+        self,
+        connection: sqlite3.Connection,
+        memorial_id: str,
+        *,
+        expected_version: int,
+    ) -> ClosedEvidenceBundleV1:
+        self._require_final_governance_current(connection, memorial_id)
+        existing = self._storage.evidence_repo.get_for_memorial_current(
+            connection,
+            memorial_id,
+        )
+        if isinstance(existing, ClosedEvidenceBundleV1):
+            return existing
+        if existing is None:
+            existing = self._build_open_current(connection, memorial_id)
+        if existing.version != expected_version:
+            raise EvidenceConflict("evidence close compare-and-swap conflict")
+        edict_id, snapshot = self._snapshot_current(connection, memorial_id)
+        self._require_complete(snapshot)
+        payload = {
+            "schema_version": "1.0",
+            "bundle_id": existing.bundle_id,
+            "edict_id": edict_id,
+            "memorial_id": memorial_id,
+            "status": "closed",
+            "snapshot": snapshot.model_dump(mode="json"),
+            "version": expected_version + 1,
+            "created_at": existing.created_at.isoformat().replace("+00:00", "Z"),
+            "closed_at": self._clock().astimezone(UTC).isoformat().replace("+00:00", "Z"),
+        }
+        closed_payload = {**payload, "content_hash": closed_bundle_content_hash(payload)}
+        closed = ClosedEvidenceBundleV1.model_validate_json(canonical_json_bytes(closed_payload))
+        return self._storage.evidence_repo.close_current(
+            connection,
+            closed,
+            expected_version=expected_version,
+        )
+
     def close(self, memorial_id: str, *, expected_version: int) -> ClosedEvidenceBundleV1:
         with self._storage.unit_of_work() as unit_of_work:
-            existing = self._storage.evidence_repo.get_for_memorial_current(
+            closed = self._close_current(
                 unit_of_work.connection,
                 memorial_id,
-            )
-            if isinstance(existing, ClosedEvidenceBundleV1):
-                unit_of_work.commit()
-                return existing
-            if existing is None:
-                edict_id, open_snapshot = self._snapshot_current(
-                    unit_of_work.connection,
-                    memorial_id,
-                )
-                existing = EvidenceBundleV1(
-                    bundle_id=self._bundle_id(memorial_id),
-                    edict_id=edict_id,
-                    memorial_id=memorial_id,
-                    snapshot=open_snapshot,
-                    version=1,
-                    created_at=self._clock(),
-                )
-                self._storage.evidence_repo.add_open_current(
-                    unit_of_work.connection,
-                    existing,
-                )
-            if existing.version != expected_version:
-                raise EvidenceConflict("evidence close compare-and-swap conflict")
-            edict_id, snapshot = self._snapshot_current(unit_of_work.connection, memorial_id)
-            self._require_complete(snapshot)
-            payload = {
-                "schema_version": "1.0",
-                "bundle_id": existing.bundle_id,
-                "edict_id": edict_id,
-                "memorial_id": memorial_id,
-                "status": "closed",
-                "snapshot": snapshot.model_dump(mode="json"),
-                "version": expected_version + 1,
-                "created_at": existing.created_at.isoformat().replace("+00:00", "Z"),
-                "closed_at": self._clock().astimezone(UTC).isoformat().replace("+00:00", "Z"),
-            }
-            closed_payload = {**payload, "content_hash": closed_bundle_content_hash(payload)}
-            closed = ClosedEvidenceBundleV1.model_validate_json(
-                canonical_json_bytes(closed_payload)
-            )
-            saved = self._storage.evidence_repo.close_current(
-                unit_of_work.connection,
-                closed,
                 expected_version=expected_version,
             )
             unit_of_work.commit()
-            return saved
+            return closed
 
     def export(self, bundle_id: str) -> bytes:
         bundle = self._storage.evidence_repo.get(bundle_id)

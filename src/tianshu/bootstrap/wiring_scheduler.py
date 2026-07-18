@@ -305,6 +305,12 @@ def wire_scheduling(app: FastAPI, settings: TianshuSettings) -> None:
         priority=50,
     )
     event_bus.on(
+        "decree.approved",
+        app.state.evidence_service.handle_decree_approved,
+        consumer_name="evidence.decree_approved.v1",
+        priority=50,
+    )
+    event_bus.on(
         "audit.completed",
         memory_manager.handle_audit_completed,
         consumer_name="memory.audit_completed.v1",

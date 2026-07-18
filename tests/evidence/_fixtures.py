@@ -35,6 +35,8 @@ def seed_closed_run(
     side_effect_cursor: int = 0,
     correlation_id: str | None = None,
     submitter: str | None = None,
+    edict_id: str = "edict-evidence",
+    memorial_id: str = "memorial-evidence",
 ) -> tuple[Edict, Memorial]:
     requested = RequestedGovernanceContractV1(
         objective=ObjectiveV1(goal="produce independently verifiable evidence"),
@@ -43,13 +45,13 @@ def seed_closed_run(
     manifest = get_executor_manifest("native")
     effective = resolve_governance_contract(requested, manifest, probe_host_capabilities())
     edict = Edict(
-        id="edict-evidence",
+        id=edict_id,
         goal=requested.objective.goal,
         governance_contract=requested,
         submitter=submitter,
     )
     memorial = Memorial(
-        id="memorial-evidence",
+        id=memorial_id,
         edict_id=edict.id,
         instruction=edict.goal,
         status=TaskStatus.COMPLETED,
@@ -65,7 +67,7 @@ def seed_closed_run(
             OutboxRepository().add(
                 unit_of_work.connection,
                 EventEnvelope(
-                    event_id="event-evidence",
+                    event_id=f"event:{memorial.id}",
                     event_type="edict.submitted",
                     edict_id=edict.id,
                     memorial_id=memorial.id,
