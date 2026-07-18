@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -27,6 +28,19 @@ PUBLIC_PREVIEW_DOCS = (
     "docs/launch/demo-storyboards.md",
     "docs/usage/lean-developer-preview.md",
 )
+TASK4_TRUTH_DOCS = (*PUBLIC_PREVIEW_DOCS, ".superpowers/sdd/closure-task-4-report.md")
+EXACT_CAPABILITY_STATES = {
+    "remote MCP": "disabled",
+    "open stdio MCP": "disabled",
+    "official container": "deferred",
+    "PyPI": "deferred",
+    "GHCR": "deferred",
+    "OpenHands": "external_pending",
+    "ROI": "external_pending",
+    "cost calibration": "external_pending",
+    "full G4": "external_pending",
+    "full G5": "deferred",
+}
 
 
 def _read(relative_path: str) -> str:
@@ -37,6 +51,30 @@ def _read(relative_path: str) -> str:
 
 def _json(relative_path: str) -> dict[str, object]:
     return json.loads(_read(relative_path))
+
+
+def _guide_bash_commands() -> list[str]:
+    commands: list[str] = []
+    pending = ""
+    in_bash = False
+    for raw_line in _read("docs/usage/lean-developer-preview.md").splitlines():
+        if raw_line == "```bash":
+            in_bash = True
+            continue
+        if in_bash and raw_line == "```":
+            in_bash = False
+            continue
+        if not in_bash or not raw_line.strip():
+            continue
+        line = raw_line.strip()
+        pending = f"{pending} {line}".strip()
+        if pending.endswith("\\"):
+            pending = pending[:-1].rstrip()
+            continue
+        commands.append(pending)
+        pending = ""
+    assert not pending
+    return commands
 
 
 def test_public_version_markers_match_v042() -> None:
@@ -248,7 +286,7 @@ def test_public_setup_docs_expose_only_source_and_exact_wheel_installation() -> 
 
     assert "源码安装" in guide and "Source checkout" in guide
     assert "exact Wheel" in guide
-    assert ".venv/bin/python -m build --wheel --outdir dist/lean-preview" in guide
+    assert ".build-venv/bin/python -m build --wheel --outdir dist/lean-preview" in guide
     assert "--only-binary=:all:" in guide
     assert "uv build" not in guide
     assert "Ubuntu + Python 3.12" in guide
@@ -262,6 +300,81 @@ def test_public_setup_docs_expose_only_source_and_exact_wheel_installation() -> 
         "ghcr.io/",
     ):
         assert unsupported_distribution not in combined
+
+
+def test_lean_preview_guide_bootstraps_every_referenced_environment_and_tool() -> None:
+    commands = _guide_bash_commands()
+    shell = "\n".join(commands)
+    syntax = subprocess.run(
+        ["bash", "-n"],
+        input=shell,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+    created_venvs: set[str] = set()
+    build_ready_venvs: set[str] = set()
+    exact_wheel_venvs: set[str] = set()
+    assigned_variables = {"PWD", "TMPDIR"}
+
+    for command in commands:
+        variable_references = {
+            next(part for part in match.groups() if part)
+            for match in re.finditer(
+                r"\$(?:([A-Z][A-Z0-9_]*)|\{([A-Z][A-Z0-9_]*)(?::[^}]*)?\})", command
+            )
+        }
+        assignments = {
+            match.group(1)
+            for match in re.finditer(r"(?:^|\s)(?:export\s+)?([A-Z][A-Z0-9_]*)=", command)
+        }
+        assert variable_references - assigned_variables - assignments == set(), (
+            f"shell variable referenced before assignment in: {command}"
+        )
+
+        create_match = re.search(r"python3\.12 -m venv (\.[a-z-]+venv)\b", command)
+        if create_match:
+            created_venvs.add(create_match.group(1))
+
+        referenced_venvs = set(re.findall(r"(\.[a-z-]+venv)/bin/", command))
+        assert referenced_venvs <= created_venvs, f"venv referenced before creation: {command}"
+
+        build_bootstrap = re.search(
+            r"(\.[a-z-]+venv)/bin/python -m pip install [\"']?build==[0-9]+(?:\.[0-9]+)+[\"']?",
+            command,
+        )
+        if build_bootstrap:
+            build_ready_venvs.add(build_bootstrap.group(1))
+
+        build_command = re.search(r"(\.[a-z-]+venv)/bin/python -m build\b", command)
+        if build_command:
+            assert build_command.group(1) in build_ready_venvs, (
+                f"build frontend was not bootstrapped: {command}"
+            )
+
+        exact_install = re.search(
+            r"(\.[a-z-]+venv)/bin/python -m pip install --only-binary=:all:", command
+        )
+        if exact_install:
+            exact_wheel_venvs.add(exact_install.group(1))
+
+        if "bin/tianshu-lean-demo" in command:
+            runner_venv = re.search(r"(\.[a-z-]+venv)/bin/tianshu-lean-demo", command)
+            assert runner_venv is not None
+            assert runner_venv.group(1) in exact_wheel_venvs, (
+                "public runner must use the exact-Wheel environment"
+            )
+
+        if "scripts/verify_lean_preview_evidence.py" in command:
+            verifier_venv = re.search(r"(\.[a-z-]+venv)/bin/python", command)
+            assert verifier_venv is not None
+            assert verifier_venv.group(1) in exact_wheel_venvs, (
+                "strict verifier must run from the exact-Wheel environment"
+            )
+
+        assigned_variables.update(assignments)
 
 
 def test_active_docs_use_decision_language_and_current_channel_contracts() -> None:
@@ -384,6 +497,29 @@ def test_lean_preview_public_docs_use_evidence_states_and_current_capabilities()
     assert "migration freeze" in contributing
     assert "truth states" in contributing
     assert "no-mock UI" in contributing
+
+
+def test_task4_docs_map_each_deferred_capability_to_one_exact_truth_state() -> None:
+    for relative_path in TASK4_TRUTH_DOCS:
+        normalized = " ".join(_read(relative_path).split())
+        for ambiguous in (
+            "`external_pending` or `deferred`",
+            "`deferred` or `external_pending`",
+            "`external_pending` 或 `deferred`",
+            "`deferred` 或 `external_pending`",
+            "full G4/full G5",
+            "完整 G4/G5",
+        ):
+            assert ambiguous not in normalized, f"ambiguous state in {relative_path}: {ambiguous}"
+
+        for capability, expected_state in EXACT_CAPABILITY_STATES.items():
+            if capability.casefold() not in normalized.casefold():
+                continue
+            assert re.search(
+                rf"{re.escape(capability)}.{{0,180}}`{expected_state}`",
+                normalized,
+                flags=re.IGNORECASE,
+            ), f"{capability} must map to {expected_state} in {relative_path}"
 
 
 def test_lean_preview_public_docs_preserve_exact_desktop_brand_facts() -> None:

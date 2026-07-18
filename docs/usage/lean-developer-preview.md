@@ -16,12 +16,13 @@ PyPI/GHCR、官方容器或对外宣发。
   进程内明文、工作区和本地产物，不在当前防护对象内。
 - `implemented`：SystemAudit、MCP persisted secret ciphertext、durable governance、
   Evidence Bundle v1、三张核心 desktop Web 页面自动化、Lean Core evolution 黄金路径。
-- `disabled`：remote MCP 与 open stdio MCP 的 Candidate 正式开放面。
+- remote MCP：`disabled`；open stdio MCP：`disabled`。两者的 Candidate 正式开放面关闭。
 - `experimental`：Keqing 与尚未冻结完整支持契约的 Lean evolution 扩展面。
 - `deferred`：official container、PyPI、GHCR、签名、完整 provenance、mobile 与十四部门
   全部深度产品化。
 - `external_pending`：Ubuntu 外部复验、VoiceOver、OpenHands、executor compatibility、
-  ROI、cost calibration、full G4 和 full G5。
+  ROI、cost calibration 和 full G4。
+- `deferred`：full G5；它不进入当前 Candidate 的外部复验队列。
 - `user_approval_pending`：desktop Web 视觉与交互终审。
 
 逐项证据见[能力事实矩阵](../launch/capability-matrix.md)，安全细节见
@@ -50,11 +51,13 @@ TIANSHU_STARTUP_PROFILE=demo .source-venv/bin/python -m uvicorn \
 从待验证 commit 构建；目录中必须只有一个本次 Wheel：
 
 ```bash
+python3.12 -m venv .build-venv
+.build-venv/bin/python -m pip install "build==1.5.0"
 cd web
 npm ci
 npm run build
 cd ..
-.venv/bin/python -m build --wheel --outdir dist/lean-preview
+.build-venv/bin/python -m build --wheel --outdir dist/lean-preview
 WHEEL_COUNT="$(find "$PWD/dist/lean-preview" -maxdepth 1 -name 'tianshu-*.whl' | wc -l | tr -d ' ')"
 test "$WHEEL_COUNT" -eq 1
 WHEEL="$(find "$PWD/dist/lean-preview" -maxdepth 1 -name 'tianshu-*.whl' -print -quit)"
@@ -143,7 +146,7 @@ verifier 必须同时收到调用者独立测得的 source commit 和 Wheel SHA�
 不足以接受批次。
 
 ```bash
-.venv/bin/python scripts/verify_lean_preview_evidence.py \
+.preview-venv/bin/python scripts/verify_lean_preview_evidence.py \
   --report "docs/cc-fable-v1/evidence/lean-preview/$BATCH_ID/demo-report.json" \
   --artifact-root "docs/cc-fable-v1/evidence/lean-preview/$BATCH_ID/artifacts" \
   --expected-source-commit "$SOURCE_COMMIT" \
@@ -167,8 +170,8 @@ overlay、rollback receipt、source commit 和 Wheel SHA 全部一致。任何�
 
 该批次 `fixture=false`，通过全部 13 步、严格 verifier、loopback-only descendant profile、
 清洁 SIGTERM、SQLite `quick_check=ok` 与 package resource digest 不变。它是本地
-Darwin/arm64/Python 3.12.12 证据，不是 full G4/full G5、Ubuntu 外部矩阵、OpenHands、
-ROI 或正式发布证据。
+Darwin/arm64/Python 3.12.12 证据。OpenHands、ROI、cost calibration 和 full G4 为
+`external_pending`；full G5 为 `deferred`。该批次也不是 Ubuntu 外部矩阵或正式发布证据。
 
 ## 8. 桌面品牌事实
 

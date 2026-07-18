@@ -42,8 +42,8 @@ The retained golden batch passed all 13 steps and strict verification. See the
   checkout. An official container, PyPI, GHCR, signing, and release provenance are `deferred`.
 - Persisted MCP env/header mappings are ciphertext. remote MCP and open stdio MCP remain
   `disabled` in the Candidate support surface; their full admission work is `deferred`.
-- managed OpenHands, executor compatibility, ROI, cost calibration, full G4, and full G5 remain
-  `external_pending` or `deferred`.
+- managed OpenHands, executor compatibility, ROI, cost calibration, and full G4 are
+  `external_pending`; full G5 is `deferred`.
 
 `publication_status`: `not_authorized`. This private-branch Candidate is not permission to push,
 tag, release, publish packages or images, make the repository public, or announce a final release.

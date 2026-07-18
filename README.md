@@ -41,8 +41,8 @@
   GHCR、签名和正式供应链 provenance 均为 `deferred`。
 - **MCP：**持久 env/header secret mapping 已密文落库；remote MCP 与 open stdio MCP
   在 Candidate 支持面内保持 `disabled`，完整开放安全工作为 `deferred`。
-- **演化边界：**managed OpenHands、执行器兼容套件、ROI、cost calibration、完整 G4/G5
-  均为 `external_pending` 或 `deferred`。
+- **演化边界：**managed OpenHands、执行器兼容套件、ROI、cost calibration 和 full G4
+  均为 `external_pending`；full G5 为 `deferred`。
 
 `publication_status`: `not_authorized`。本分支中的 Candidate 文档不是外部发布授权；不得据此
 push、tag、release、发布 PyPI/GHCR、公开仓库或对外宣称正式版。

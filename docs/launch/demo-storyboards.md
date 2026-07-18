@@ -32,6 +32,6 @@
   `external_pending`。
 - remote MCP/open stdio MCP 为 `disabled`；official container/PyPI/GHCR 为
   `deferred`。
-- OpenHands、ROI、cost calibration、full G4/full G5 为 `external_pending` 或
+- OpenHands、ROI、cost calibration 和 full G4 为 `external_pending`；full G5 为
   `deferred`。
 - 不录制外部渠道、移动端或十四部门伪深度；不展示 mock 数字；不暗示外部发布已授权。

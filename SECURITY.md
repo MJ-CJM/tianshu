@@ -46,7 +46,8 @@ Python 3.12 是首个正式支持目标；最终黄金批次实际在本机
 - 未进入受管 effect ledger 的外部副作用不获得去重或恢复承诺。
 - Keqing 外部 CLI 为 `experimental`；其内部工具流、网络、成本上限和恢复点不受 Native
   边界覆盖。
-- managed OpenHands、ROI、cost calibration 和完整 G4/G5 为 `external_pending`。
+- managed OpenHands、ROI、cost calibration 和 full G4 为 `external_pending`；full G5 为
+  `deferred`。
 - desktop Web 自动化不能替代 VoiceOver 与人工视觉终审；对应状态分别为
   `external_pending` 与 `user_approval_pending`。
 - `publication_status`: `not_authorized`；本文件不授权公开仓库、tag、release、PyPI、GHCR

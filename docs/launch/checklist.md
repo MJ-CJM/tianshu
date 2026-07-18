@@ -30,7 +30,7 @@
 
 ## G5 正式宣发
 
-full G5 未通过。以下均需要后续 Gate 与新的用户授权：
+full G5 为 `deferred`，尚未通过。以下均需要后续 Gate 与新的用户授权：
 
 - [ ] 三个独立外部环境与完整发行候选证据
 - [ ] official container / registry / signing / supply-chain Gate

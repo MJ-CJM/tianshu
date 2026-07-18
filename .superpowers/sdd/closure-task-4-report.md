@@ -32,15 +32,15 @@ The documentation truth/link tests were written before the documentation changes
 The tests now require:
 
 - the exact Chinese positioning and natural English positioning;
-- source and exact-Wheel local installation with `.venv` PEP 517 tooling;
+- source and exact-Wheel local installation with self-created source/build/preview environments;
 - Ubuntu + Python 3.12 as the first official target while naming the retained local environment;
 - exactly one public installed `tianshu-lean-demo` command and the strict provenance verifier;
 - all six truth states: `implemented`, `disabled`, `deferred`, `experimental`,
   `external_pending`, and `user_approval_pending`;
 - implemented SystemAudit, MCP ciphertext, durable governance, Evidence Bundle v1, three core
   desktop pages, and bounded Lean Core evolution;
-- deferred/disabled remote MCP, open stdio MCP, official container, PyPI/GHCR, OpenHands, ROI,
-  cost calibration, full G4, and full G5;
+- remote MCP and open stdio MCP `disabled`; official container, PyPI/GHCR, and full G5
+  `deferred`; OpenHands, ROI, cost calibration, and full G4 `external_pending`;
 - current desktop brand facts and local Markdown link resolution;
 - absence of release, one-time effect, sandbox, and unqualified market-uniqueness overclaims.
 
@@ -58,10 +58,11 @@ The tests now require:
   `81ec17b9818e67ac6046fb0e1ab62d13606fcaa5af14141ae4d311179bc10fef`.
 - The retained report has `fixture=false`, 13 steps, and every step is `passed`.
 
-The usage guide builds the Web payload, builds the Wheel with
-`.venv/bin/python -m build --wheel`, requires exactly one Wheel, installs it outside the source
-environment with binary dependencies, starts a fresh local demo profile, runs the one installed
-console-script command, and invokes the verifier with mandatory source and Wheel identities.
+The usage guide creates a dedicated build environment, installs a pinned PEP 517 frontend, builds
+the Web payload and Wheel with `.build-venv/bin/python -m build --wheel`, requires exactly one
+Wheel, installs it outside the source environment with binary dependencies, starts a fresh local
+demo profile, runs the one installed console-script command, and invokes the verifier with
+mandatory source and Wheel identities.
 Neither `uv` nor `uv.lock` was used or changed.
 
 ### Desktop Web and brand
@@ -83,13 +84,13 @@ Neither `uv` nor `uv.lock` was used or changed.
   read or replace the database, master key, process memory, workspace, and local artifacts and is
   outside the current threat boundary.
 - SystemAudit and persisted MCP env/header ciphertext are implemented in their named local scope.
-- remote MCP and the Candidate's open stdio MCP surface remain disabled; full admission work is
-  deferred.
+- remote MCP and the Candidate's open stdio MCP surface remain `disabled`; full admission work is
+  `deferred`.
 - S3 durable governance and Evidence are implemented for managed Native paths and declared
   ledger-tracked effects, not arbitrary external effects or distributed replicas.
 - The golden skill-candidate gate, real candidate overlay, and rollback are implemented Lean Core
-  evidence. OpenHands, executor compatibility, ROI, cost calibration, and complete G4 remain
-  `external_pending`; complete G5 remains deferred.
+  evidence. OpenHands, executor compatibility, ROI, cost calibration, and full G4 remain
+  `external_pending`; full G5 remains `deferred`.
 
 ## Files
 
@@ -128,9 +129,64 @@ configuration was changed.
 
 ## Remaining concerns and authority boundary
 
-- Ubuntu validation, VoiceOver, managed OpenHands, ROI/cost calibration, full G4, and full G5
-  remain pending in their named states; this task did not run or relabel them.
+- Ubuntu validation and VoiceOver remain `external_pending`. managed OpenHands, ROI, cost
+  calibration, and full G4 remain `external_pending`; full G5 remains `deferred`. This task did
+  not run or relabel them.
 - The repository's existing Dockerfile and release helper remain legacy/experimental inputs, not
   official Candidate distribution evidence.
 - `publication_status` remains `not_authorized`. No push, tag, release, registry upload, repository
   visibility change, PR/Issue, message, or announcement was performed.
+
+## Review remediation after `224b07a`
+
+Review found that the first guide revision depended on a repository `.venv` that a fresh checkout
+had not created and did not bootstrap the PEP 517 frontend. The verifier also used that undeclared
+environment instead of the environment containing the exact installed Wheel. A second finding
+identified mixed `external_pending`/`deferred` language that did not assign one truth state to each
+named capability.
+
+### Remediation TDD
+
+- RED: `3 failed, 15 passed, 4 warnings`. The tests rejected the undeclared build/verifier
+  environment and the mixed full-Gate state language.
+- The command simulator then caught two further pre-GREEN defects: quoted build-requirement syntax
+  was not parsed by its first matcher, and one guide sentence placed a shared state before the two
+  MCP capability names instead of mapping each capability explicitly.
+- GREEN: `18 passed, 4 warnings`.
+
+The executable documentation contract now:
+
+1. extracts and joins every Bash fence from the usage guide;
+2. executes `bash -n` on the complete command stream;
+3. tracks shell-variable assignment before reference;
+4. tracks each virtual environment's creation before any executable reference;
+5. requires a pinned `build==1.5.0` bootstrap before `.build-venv/bin/python -m build`;
+6. records the environment receiving the binary-only exact-Wheel install; and
+7. requires both the public runner and strict verifier to use that `.preview-venv` environment.
+
+No product dependency was added. The guide creates `.source-venv`, `.build-venv`, and
+`.preview-venv` explicitly. The build environment receives only the pinned frontend needed for
+PEP 517 construction; the preview environment receives the exact Wheel and its dependencies.
+
+### Exact status mapping
+
+- remote MCP: `disabled`; its reopening work remains `deferred`.
+- open stdio MCP: `disabled`; its exact-grant/executable-binding work remains `deferred`.
+- official container, PyPI, GHCR, and full G5: `deferred`.
+- OpenHands, executor compatibility, ROI, cost calibration, and full G4: `external_pending`.
+- Visual/interaction approval remains `user_approval_pending`; VoiceOver remains
+  `external_pending`.
+
+The truth test checks capability-to-state proximity in every Task 4 document and rejects mixed
+"one of two states" wording. Presence of all state words alone no longer satisfies the contract.
+
+### Remediation verification
+
+- Documentation truth/link/command simulation: `18 passed, 4 warnings`.
+- Strict retained verifier:
+  `Lean Preview evidence verified: 20260718T072917Z-b27f525fe4ef`.
+- Ruff check and format check: passed.
+- Independent usage-guide Bash extraction and `bash -n`: passed.
+- `git diff --check`: passed.
+- `uv.lock`: zero diff; no `uv` command was run.
+- No publication, UI/mobile implementation, migration, dependency, or release action was taken.

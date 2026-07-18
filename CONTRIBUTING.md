@@ -48,4 +48,5 @@ cd web && npm run lint && npm run typecheck && npm test -- --run
 
 欢迎 issue、文档和小修。特性 PR 先开 issue 对齐；单人维护，尽力 48 小时内响应，
 不承诺 SLA。`publication_status`: `not_authorized`；贡献权限不包含 push、tag、release、
-PyPI/GHCR、仓库公开或外部宣发；这些动作需要维护者另行明确授权。
+PyPI/GHCR、仓库公开或外部宣发。PyPI 和 GHCR 均为 `deferred`；这些动作需要维护者
+另行明确授权。

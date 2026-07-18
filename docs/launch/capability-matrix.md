@@ -48,4 +48,5 @@
 | S4 three pages | `implemented` automation | `user_approval_pending`; VoiceOver `external_pending` | [S4 report](../cc-fable-v1/reports/s4-core-web-report.md) |
 | S5 Lean Core evolution | `experimental` with implemented path | full G4 `external_pending` | [S5 report](../cc-fable-v1/reports/s5-lean-evolution-report.md) |
 | remote/open stdio MCP | `disabled` | reopening requires P2-A1/A2 | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |
-| official container/PyPI/GHCR/OpenHands/ROI/cost calibration/full G5 | `deferred` / `external_pending` | not in Candidate | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |
+| official container/PyPI/GHCR/full G5 | `deferred` | not in Candidate | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |
+| OpenHands/ROI/cost calibration/full G4 | `external_pending` | not in Candidate | [deferred roadmap](../cc-fable-v1/06-deferred-work-backlog.md) |
