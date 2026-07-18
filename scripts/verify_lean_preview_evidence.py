@@ -29,7 +29,11 @@ from tianshu.models.lean_preview import (
     LeanPreviewDemoReportV1,
     resolve_lean_preview_candidate_artifacts,
 )
-from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1, RunAssignmentV1
+from tianshu.models.run_assignment import (
+    EffectiveEvolutionOverlayV1,
+    LegacyRunAssignmentV1,
+    RunAssignmentV1,
+)
 
 EXPECTED_STEP_IDS = (
     "doctor_ready",
@@ -762,7 +766,13 @@ def verify_demo_evidence(
     post = observed_by_step["verify_new_run_uses_champion"]
     post_submitted = _mapping(post.get("submitted"), "post-rollback submitted run")
     post_memorial = _memorial(post, "completed post-rollback Memorial")
-    post_assignment, post_overlay = _assignment(post, "post-rollback champion")
+    post_assignment = _strict_model(
+        LegacyRunAssignmentV1,
+        post.get("assignment"),
+        "post-rollback champion assignment",
+    )
+    if not isinstance(post_assignment, LegacyRunAssignmentV1):  # pragma: no cover
+        raise TypeError("strict legacy assignment parser returned the wrong type")
     final_candidate = _strict_model(
         EvolutionCandidateV1, post.get("candidate"), "post-rollback candidate"
     )
@@ -772,14 +782,7 @@ def verify_demo_evidence(
         post_memorial.id != post_submitted.get("memorial_id")
         or post_memorial.edict_id != post_submitted.get("edict_id")
         or post_assignment.memorial_id != post_memorial.id
-        or post_assignment.candidate_id != candidate_model.candidate_id
-        or post_assignment.routing_version != rollback_model.routing_version
-        or post_assignment.champion_ref != candidate_model.base
-        or post_assignment.selected_ref != candidate_model.base
-        or post_overlay.kind is not CandidateKind.SKILL
-        or post_overlay.subject_key != candidate_model.subject_key
-        or post_overlay.artifact_digest != candidate_model.base.artifact_digest
-        or post_overlay.canonical_digest != candidate_model.base.canonical_digest
+        or post.get("effective_overlay") is not None
         or final_candidate.candidate_id != candidate_model.candidate_id
         or final_candidate.kind is not CandidateKind.SKILL
         or final_candidate.subject_key != candidate_model.subject_key

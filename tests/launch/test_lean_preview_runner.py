@@ -18,7 +18,11 @@ from tianshu.models import Edict, Memorial, TaskStatus
 from tianshu.models.api import EdictCreateRequest
 from tianshu.models.evolution_candidate import EvolutionCandidateV1
 from tianshu.models.lean_preview import LeanPreviewDemoReportV1
-from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1, RunAssignmentV1
+from tianshu.models.run_assignment import (
+    EffectiveEvolutionOverlayV1,
+    LegacyRunAssignmentV1,
+    RunAssignmentV1,
+)
 
 ROOT = Path(__file__).parents[2]
 RUNNER_PATH = ROOT / "src" / "tianshu" / "lean_preview_demo.py"
@@ -197,23 +201,12 @@ class _FakeTransport:
             EffectiveEvolutionOverlayV1, assignment_evidence["overlay"]
         ).model_dump(mode="json")
         final_candidate = _strict_json(EvolutionCandidateV1, evidence["final_candidate"])
-        self.post_assignment = RunAssignmentV1(
+        self.post_assignment = LegacyRunAssignmentV1(
             assignment_id="assignment:post-rollback",
             memorial_id="memorial:post-rollback",
-            candidate_id=final_candidate.candidate_id,
-            champion_ref=final_candidate.base,
-            selected_ref=final_candidate.base,
-            routing_version=final_candidate.routing.routing_version,
-            bucket=9999,
             created_at=final_candidate.updated_at,
         ).model_dump(mode="json")
-        self.post_overlay = EffectiveEvolutionOverlayV1(
-            assignment_id=self.post_assignment["assignment_id"],
-            kind=final_candidate.kind,
-            subject_key=final_candidate.subject_key,
-            artifact_digest=final_candidate.base.artifact_digest,
-            canonical_digest=final_candidate.base.canonical_digest,
-        ).model_dump(mode="json")
+        self.post_overlay = None
         if candidate_is_code:
             for candidate in (
                 self.candidate_staged,
@@ -227,7 +220,6 @@ class _FakeTransport:
                     candidate["evolution_contract"]
                 )
             self.canary_overlay["kind"] = "code"
-            self.post_overlay["kind"] = "code"
         if canary_overlay_subject_mismatch:
             self.canary_overlay["subject_key"] = "skill:other"
         self.initial_edict = Edict(
@@ -293,11 +285,11 @@ class _FakeTransport:
         elif adversary == "post_memorial":
             self.served_post_assignment["memorial_id"] = "memorial:other"
         elif adversary == "post_candidate":
-            self.served_post_assignment["candidate_id"] = "candidate:other"
+            self.candidate_final["candidate_id"] = "candidate:other"
         elif adversary == "post_routing":
-            self.served_post_assignment["routing_version"] += 1
+            self.candidate_final["routing"]["routing_version"] += 1
         elif adversary == "post_overlay_assignment":
-            self.served_post_overlay["assignment_id"] = "assignment:other"
+            self.served_post_overlay = copy.deepcopy(self.canary_overlay)
         self.rolled_back = False
         self.canary_started = False
         self.gate_evaluated = False
@@ -613,11 +605,11 @@ def test_runner_uses_only_stdlib_and_public_http_surfaces(tmp_path: Path) -> Non
     )
     _strict_json(RollbackReceiptV1, observed_by_step["rollback_candidate"]["rollback_receipt"])
     _strict_json(Memorial, observed_by_step["verify_new_run_uses_champion"]["memorial"])
-    _strict_json(RunAssignmentV1, observed_by_step["verify_new_run_uses_champion"]["assignment"])
     _strict_json(
-        EffectiveEvolutionOverlayV1,
-        observed_by_step["verify_new_run_uses_champion"]["effective_overlay"],
+        LegacyRunAssignmentV1,
+        observed_by_step["verify_new_run_uses_champion"]["assignment"],
     )
+    assert observed_by_step["verify_new_run_uses_champion"]["effective_overlay"] is None
     _strict_json(
         EvolutionCandidateV1, observed_by_step["verify_new_run_uses_champion"]["candidate"]
     )

@@ -295,8 +295,6 @@ def test_verifier_rejects_rehashed_valid_code_candidate_and_overlays(tmp_path: P
         candidate["kind"] = "code"
         candidate["evolution_contract"]["kind"] = "code"
         candidate["evolution_contract_hash"] = _canonical_hash(candidate["evolution_contract"])
-        if step_index == 12:
-            artifact["observed"]["effective_overlay"]["kind"] = "code"
         _save_step(report_path, report, step_index, path, artifact)
     path, artifact = _rewrite_step(report_path, artifact_root, report, 10)
     artifact["observed"]["effective_overlay"]["kind"] = "code"
@@ -311,8 +309,6 @@ def test_verifier_rejects_rehashed_valid_code_candidate_and_overlays(tmp_path: P
     [
         (10, "kind", "memory"),
         (10, "subject_key", "skill:spliced"),
-        (12, "kind", "memory"),
-        (12, "subject_key", "skill:spliced"),
     ],
 )
 def test_verifier_binds_overlay_domain_identity_to_the_skill_candidate(
@@ -394,7 +390,7 @@ def test_verifier_cli_requires_expected_build_identity() -> None:
         ("corrupt_bundle", "Evidence Bundle"),
         ("champion_only", "candidate overlay"),
         ("rollback_allocation", "rollback receipt"),
-        ("post_rollback_challenger", "post-rollback champion"),
+        ("post_rollback_overlay", "post-rollback champion"),
         ("rollback_receipt", "rollback receipt"),
     ],
 )
@@ -422,7 +418,7 @@ def test_verifier_rejects_corrupt_or_unbound_demo_evidence(
             "corrupt_bundle": 5,
             "champion_only": 10,
             "rollback_allocation": 11,
-            "post_rollback_challenger": 12,
+            "post_rollback_overlay": 12,
             "rollback_receipt": 11,
         }[case]
         step_id = STEP_IDS[step_index]
@@ -437,9 +433,14 @@ def test_verifier_rejects_corrupt_or_unbound_demo_evidence(
             artifact["observed"]["effective_overlay"]["canonical_digest"] = DIGEST_A
         elif case == "rollback_allocation":
             artifact["observed"]["rollback_receipt"]["allocation_basis_points"] = 1
-        elif case == "post_rollback_challenger":
-            assignment = artifact["observed"]["assignment"]
-            assignment["selected_ref"] = _ref("candidate-v1", DIGEST_B)
+        elif case == "post_rollback_overlay":
+            artifact["observed"]["effective_overlay"] = {
+                "assignment_id": artifact["observed"]["assignment"]["assignment_id"],
+                "kind": "skill",
+                "subject_key": "skill:spliced",
+                "artifact_digest": DIGEST_B,
+                "canonical_digest": DIGEST_B,
+            }
         else:
             report["rollback_receipt_hash"] = DIGEST_B
         if case != "rollback_receipt":

@@ -1027,11 +1027,7 @@ def run_demo(
             "post-rollback assignment",
         )
         assignment = _mapping(assignment_payload.get("assignment"), "post-rollback assignment")
-        overlay = _mapping(
-            assignment_payload.get("effective_overlay"), "post-rollback effective overlay"
-        )
-        champion_ref = _mapping(assignment.get("champion_ref"), "champion ref")
-        selected_ref = _mapping(assignment.get("selected_ref"), "selected ref")
+        overlay = assignment_payload.get("effective_overlay")
         candidate_id = _text(state.get("candidate_id"), "candidate id")
         candidate = _data(
             step_trace.request(
@@ -1041,16 +1037,14 @@ def run_demo(
         )
         routing = _mapping(candidate.get("routing"), "candidate routing")
         if (
-            assignment.get("memorial_id") != memorial_id
-            or assignment.get("candidate_id") != candidate_id
-            or assignment.get("routing_version") != state["rollback_routing_version"]
-            or overlay.get("assignment_id") != assignment.get("assignment_id")
-            or selected_ref != champion_ref
-            or champion_ref != state["base_ref"]
-            or overlay.get("kind") != "skill"
-            or overlay.get("subject_key") != state["candidate_subject_key"]
-            or overlay.get("artifact_digest") != champion_ref.get("artifact_digest")
-            or overlay.get("canonical_digest") != champion_ref.get("canonical_digest")
+            set(assignment) != {"mode", "assignment_id", "memorial_id", "created_at"}
+            or assignment.get("mode") != "legacy_unmanaged"
+            or assignment.get("memorial_id") != memorial_id
+            or not isinstance(assignment.get("assignment_id"), str)
+            or not str(assignment["assignment_id"]).strip()
+            or not isinstance(assignment.get("created_at"), str)
+            or not str(assignment["created_at"]).strip()
+            or overlay is not None
         ):
             raise ValueError("post-rollback run did not use champion")
         if (
