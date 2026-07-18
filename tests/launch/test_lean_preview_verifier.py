@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -458,6 +459,29 @@ def test_verifier_rejects_corrupt_or_unbound_demo_evidence(
             expected_source_commit=expected_commit,
             expected_wheel_sha256=expected_wheel,
         )
+
+
+@pytest.mark.parametrize(
+    "extra_entry",
+    ["regular_file", "directory", "symlink", "fifo"],
+)
+def test_verifier_rejects_every_unexpected_artifact_root_entry(
+    tmp_path: Path, extra_entry: str
+) -> None:
+    module = _module()
+    report_path, artifact_root, _report = _write_demo(tmp_path)
+    extra = artifact_root / f"extra-{extra_entry}.bin"
+    if extra_entry == "regular_file":
+        extra.write_text("unexpected", encoding="utf-8")
+    elif extra_entry == "directory":
+        extra.mkdir()
+    elif extra_entry == "symlink":
+        extra.symlink_to(artifact_root / "01-doctor_ready.json")
+    else:
+        os.mkfifo(extra)
+
+    with pytest.raises(module.EvidenceVerificationError, match="artifact|regular|entry"):
+        _verify_demo(module, report_path, artifact_root)
 
 
 def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_path: Path) -> None:

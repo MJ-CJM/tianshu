@@ -15,7 +15,7 @@ export TIANSHU_LEAN_WHEEL_SHA256="$(shasum -a 256 /absolute/path/to/tianshu.whl 
 export TIANSHU_LEAN_ENVIRONMENT_FINGERPRINT="<canonical environment digest>"
 export TIANSHU_LEAN_FIXTURE=false
 
-python scripts/run_lean_preview_demo.py \
+tianshu-lean-demo \
   --base-url http://127.0.0.1:7998 \
   --scenario examples/lean-governed-evolution/scenario.json \
   --batch-id "$BATCH_ID" \

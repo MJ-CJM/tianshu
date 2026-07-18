@@ -68,6 +68,7 @@ all = ["tianshu[feishu,telegram,web,mcp,cli,notify]"]
 
 [project.scripts]
 tianshu = "tianshu.cli.main:app"
+tianshu-lean-demo = "tianshu.lean_preview_demo:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

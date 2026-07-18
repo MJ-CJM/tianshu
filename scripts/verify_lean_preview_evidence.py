@@ -487,7 +487,18 @@ def verify_demo_evidence(
     if demo_model.batch_id != batch_root.name:
         raise EvidenceVerificationError("demo report batch id does not match its batch root")
     steps = _sequence(report.get("steps"), "demo steps")
-    artifacts = sorted(path.name for path in artifact_root.iterdir() if path.suffix == ".json")
+    artifact_entries = list(artifact_root.iterdir())
+    symlink_entries = sorted(path.name for path in artifact_entries if path.is_symlink())
+    if symlink_entries:
+        raise EvidenceVerificationError(
+            f"artifact root must not contain symlink entries: {symlink_entries}"
+        )
+    invalid_entries = sorted(path.name for path in artifact_entries if not path.is_file())
+    if invalid_entries:
+        raise EvidenceVerificationError(
+            f"artifact root entries must be regular files: {invalid_entries}"
+        )
+    artifacts = sorted(path.name for path in artifact_entries)
     expected_artifacts = [
         _artifact_filename(index, step_id) for index, step_id in enumerate(EXPECTED_STEP_IDS, 1)
     ]

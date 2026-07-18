@@ -20,7 +20,7 @@ from tianshu.models.lean_preview import LeanPreviewDemoReportV1
 from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1, RunAssignmentV1
 
 ROOT = Path(__file__).parents[2]
-RUNNER_PATH = ROOT / "scripts" / "run_lean_preview_demo.py"
+RUNNER_PATH = ROOT / "src" / "tianshu" / "lean_preview_demo.py"
 VERIFIER_PATH = ROOT / "scripts" / "verify_lean_preview_evidence.py"
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
@@ -124,6 +124,7 @@ class _FakeTransport:
         candidate_is_code: bool = False,
         receipt_key_mismatch: str | None = None,
         canary_overlay_subject_mismatch: bool = False,
+        adversary: str | None = None,
     ) -> None:
         self._module = module
         self.decision_never_ready = decision_never_ready
@@ -223,6 +224,41 @@ class _FakeTransport:
             edict_id=self.post_edict["id"],
             status=TaskStatus.COMPLETED,
         ).model_dump(mode="json")
+        self.served_bundle = copy.deepcopy(self.bundle)
+        self.served_gate = copy.deepcopy(self.gate)
+        self.served_canary_assignment = copy.deepcopy(self.canary_assignment)
+        self.served_canary_overlay = copy.deepcopy(self.canary_overlay)
+        self.served_post_assignment = copy.deepcopy(self.post_assignment)
+        self.served_post_overlay = copy.deepcopy(self.post_overlay)
+        if adversary == "bundle_other_run":
+            self.served_bundle["edict_id"] = "edict:other-run"
+            self.served_bundle["memorial_id"] = "memorial:other-run"
+            self.served_bundle.pop("content_hash")
+            self.served_bundle["content_hash"] = _canonical_hash(self.served_bundle)
+        elif adversary == "gate_candidate_id":
+            self.served_gate["candidate_id"] = "candidate:other"
+        elif adversary == "gate_digest":
+            self.served_gate["candidate_digest"] = DIGEST_A
+        elif adversary == "gate_version":
+            self.served_gate["candidate_version"] += 1
+        elif adversary == "gate_evidence_ids":
+            self.served_gate["evidence_bundle_ids"] = ["evidence:other"]
+        elif adversary == "canary_memorial":
+            self.served_canary_assignment["memorial_id"] = "memorial:other"
+        elif adversary == "canary_candidate":
+            self.served_canary_assignment["candidate_id"] = "candidate:other"
+        elif adversary == "canary_routing":
+            self.served_canary_assignment["routing_version"] += 1
+        elif adversary == "canary_overlay_assignment":
+            self.served_canary_overlay["assignment_id"] = "assignment:other"
+        elif adversary == "post_memorial":
+            self.served_post_assignment["memorial_id"] = "memorial:other"
+        elif adversary == "post_candidate":
+            self.served_post_assignment["candidate_id"] = "candidate:other"
+        elif adversary == "post_routing":
+            self.served_post_assignment["routing_version"] += 1
+        elif adversary == "post_overlay_assignment":
+            self.served_post_overlay["assignment_id"] = "assignment:other"
         self.rolled_back = False
         self.canary_started = False
 
@@ -299,16 +335,16 @@ class _FakeTransport:
                 "items": [
                     {
                         "bundle_id": self.bundle["bundle_id"],
-                        "memorial_id": self.bundle["memorial_id"],
+                        "memorial_id": self.served_bundle["memorial_id"],
                         "status": "closed",
-                        "content_hash": self.bundle["content_hash"],
+                        "content_hash": self.served_bundle["content_hash"],
                     }
                 ],
                 "correlation_id": correlation,
             }
         elif path == f"/api/evidence/{self.bundle['bundle_id']}/download":
-            payload = self.bundle
-            response_headers["etag"] = f'"{self.bundle["content_hash"]}"'
+            payload = self.served_bundle
+            response_headers["etag"] = f'"{self.served_bundle["content_hash"]}"'
         elif path == "/api/skills" and method == "POST":
             payload = {
                 "success": True,
@@ -343,7 +379,7 @@ class _FakeTransport:
             f"/api/evolution/candidates/{self.candidate_ready['candidate_id']}/gate/evaluate"
         ):
             payload = {
-                "data": self.gate,
+                "data": self.served_gate,
                 "correlation_id": correlation,
             }
         elif path == f"/api/evolution/candidates/{self.candidate_ready['candidate_id']}/canary":
@@ -362,8 +398,8 @@ class _FakeTransport:
         elif path == f"/api/evolution/runs/{self.canary_assignment['memorial_id']}/assignment":
             payload = {
                 "data": {
-                    "assignment": self.canary_assignment,
-                    "effective_overlay": self.canary_overlay,
+                    "assignment": self.served_canary_assignment,
+                    "effective_overlay": self.served_canary_overlay,
                 },
                 "correlation_id": correlation,
             }
@@ -383,8 +419,8 @@ class _FakeTransport:
         elif path == f"/api/evolution/runs/{self.post_assignment['memorial_id']}/assignment":
             payload = {
                 "data": {
-                    "assignment": self.post_assignment,
-                    "effective_overlay": self.post_overlay,
+                    "assignment": self.served_post_assignment,
+                    "effective_overlay": self.served_post_overlay,
                 },
                 "correlation_id": correlation,
             }
@@ -614,3 +650,51 @@ def test_runner_rejects_non_skill_or_request_unbound_public_responses(
             sleeper=lambda _seconds: None,
             environ={"TIANSHU_BOOTSTRAP_TOKEN": "secret"},
         )
+
+
+@pytest.mark.parametrize(
+    ("adversary", "failed_step"),
+    [
+        ("bundle_other_run", "verify_evidence_bundle"),
+        ("gate_candidate_id", "evaluate_candidate_gate"),
+        ("gate_digest", "evaluate_candidate_gate"),
+        ("gate_version", "evaluate_candidate_gate"),
+        ("gate_evidence_ids", "evaluate_candidate_gate"),
+        ("canary_memorial", "verify_real_candidate_overlay"),
+        ("canary_candidate", "verify_real_candidate_overlay"),
+        ("canary_routing", "verify_real_candidate_overlay"),
+        ("canary_overlay_assignment", "verify_real_candidate_overlay"),
+        ("post_memorial", "verify_new_run_uses_champion"),
+        ("post_candidate", "verify_new_run_uses_champion"),
+        ("post_routing", "verify_new_run_uses_champion"),
+        ("post_overlay_assignment", "verify_new_run_uses_champion"),
+    ],
+)
+def test_runner_rejects_cross_run_gate_and_assignment_splices_at_collection_time(
+    tmp_path: Path, adversary: str, failed_step: str
+) -> None:
+    module = _module()
+    scenario_path = tmp_path / "scenario.json"
+    scenario_path.write_text(json.dumps(_scenario()), encoding="utf-8")
+    batch_id = f"batch-{adversary}"
+
+    with pytest.raises(module.DemoRunError, match=failed_step):
+        module.run_demo(
+            base_url="http://127.0.0.1:7998",
+            scenario_path=scenario_path,
+            batch_id=batch_id,
+            output_root=tmp_path / "evidence",
+            transport=_FakeTransport(module, adversary=adversary),
+            clock=_Clock(),
+            sleeper=lambda _seconds: None,
+            environ={"TIANSHU_BOOTSTRAP_TOKEN": "secret"},
+        )
+
+    report_path = tmp_path / "evidence" / batch_id / "demo-report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    statuses = [step["status"] for step in report["steps"]]
+    failed_index = list(module.EXPECTED_STEP_IDS).index(failed_step)
+    assert statuses[:failed_index] == ["passed"] * failed_index
+    assert statuses[failed_index] == "failed"
+    assert statuses[failed_index + 1 :] == ["blocked"] * (12 - failed_index)
+    assert statuses != ["passed"] * 13
