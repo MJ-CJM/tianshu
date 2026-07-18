@@ -15,6 +15,7 @@ from tianshu.evidence.models import ClosedEvidenceBundleV1
 from tianshu.evolution.gates import EvolutionGateReportV1
 from tianshu.evolution.promotion import PromotionReceiptV1, RollbackReceiptV1
 from tianshu.models import Edict, Memorial, TaskStatus
+from tianshu.models.api import EdictCreateRequest
 from tianshu.models.evolution_candidate import EvolutionCandidateV1
 from tianshu.models.lean_preview import LeanPreviewDemoReportV1
 from tianshu.models.run_assignment import EffectiveEvolutionOverlayV1, RunAssignmentV1
@@ -619,6 +620,26 @@ def test_runner_uses_only_stdlib_and_public_http_surfaces(tmp_path: Path) -> Non
     assert ready["version"] == 4
     assert ready["gate_snapshot_version"] == 1
     assert ready["evidence_bundle_ids"] == [transport.candidate_bundle["bundle_id"]]
+    candidate_evidence_calls = [
+        call
+        for call in transport.calls
+        if call[0] == "POST"
+        and call[1] == "/api/edicts"
+        and isinstance(call[3], dict)
+        and str(call[3].get("goal", "")).endswith("[candidate-evidence]")
+    ]
+    assert len(candidate_evidence_calls) == 1
+    candidate_evidence_body = _mapping(candidate_evidence_calls[0][3])
+    candidate_evidence_contract = _mapping(candidate_evidence_body["governance_contract"])
+    assert candidate_evidence_contract["workspace"] == {
+        "source_id": None,
+        "base_revision": None,
+        "staging_mode": "ephemeral",
+        "apply_mode": "none",
+        "require_clean_source": False,
+    }
+    assert candidate_evidence_contract["acceptance"] == candidate_evidence_body["acceptance"]
+    EdictCreateRequest.model_validate(candidate_evidence_body)
     gate_calls = [call for call in transport.calls if call[1].endswith("/gate/evaluate")]
     assert [call[1] for call in gate_calls] == [
         f"/api/skills/candidates/{ready['candidate_id']}/gate/evaluate"

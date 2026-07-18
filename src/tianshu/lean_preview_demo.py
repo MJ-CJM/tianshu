@@ -710,6 +710,17 @@ def run_demo(
         )
         candidate_evidence_payload["plan_review"] = False
         candidate_evidence_payload["acceptance"] = {"checks": candidate_checks}
+        candidate_evidence_payload["governance_contract"] = {
+            "objective": {"goal": candidate_evidence_payload["goal"]},
+            "acceptance": candidate_evidence_payload["acceptance"],
+            "workspace": {
+                "source_id": None,
+                "base_revision": None,
+                "staging_mode": "ephemeral",
+                "apply_mode": "none",
+                "require_clean_source": False,
+            },
+        }
         candidate_evidence_response = step_trace.request(
             "POST",
             "/api/edicts",
