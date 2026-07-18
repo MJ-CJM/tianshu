@@ -33,6 +33,7 @@ DEMO_MARK = "[DEMO]"
 # 对应形状测试的解析断言失败暴露，而不是静默错配）。
 _PLANNER_MARKERS = ("规划职责", "敕令旨意：")
 _AUDIT_MARKER = "You are a quality reviewer"
+_COMPLETION_AUDIT_MARKER = "现在进入完成审计 (completion audit)"
 _RUBRIC_MARKER = "Reply with JSON only (no extra text)"
 
 
@@ -133,6 +134,14 @@ def _rubric_payload(digest: str) -> str:
     )
 
 
+def _completion_audit_payload(digest: str) -> str:
+    return json.dumps(
+        {"passed": True, "gaps": [], "demo_evidence": f"{DEMO_MARK} {digest}"},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
 def _build_response(messages: list[dict], tools: list[dict] | None) -> LLMResponse:
     # 局部导入：llm.py 在其分派点导入本模块，顶层互引会形成 import 环。
     from tianshu.llm import LLMResponse
@@ -150,6 +159,13 @@ def _build_response(messages: list[dict], tools: list[dict] | None) -> LLMRespon
     if _AUDIT_MARKER in text:
         return LLMResponse(
             content=_audit_payload(digest),
+            tool_calls=None,
+            usage=_zero_usage(),
+            finish_reason="stop",
+        )
+    if _COMPLETION_AUDIT_MARKER in text:
+        return LLMResponse(
+            content=_completion_audit_payload(digest),
             tool_calls=None,
             usage=_zero_usage(),
             finish_reason="stop",

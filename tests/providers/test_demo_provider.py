@@ -11,6 +11,7 @@ import pytest
 
 from tianshu.config import TianshuSettings
 from tianshu.config_manager import ConfigManager, LLMConfigState
+from tianshu.executor.orchestrator.audit import parse_audit_response
 from tianshu.llm import LLMClient
 from tianshu.models.common import AuditResult
 from tianshu.models.plan import PlanTask
@@ -173,6 +174,23 @@ async def test_demo_rubric_payload_is_strict_deterministic_and_zero_network(no_n
     assert response.usage.cost_cny == 0.0
 
 
+async def test_demo_completion_audit_payload_passes_with_no_gaps_and_zero_network(no_network):
+    client = _demo_client()
+    prompt = (
+        "现在进入完成审计 (completion audit)。\n\n"
+        "仅输出一段 JSON（不要其他文字、不要 markdown 包裹）：\n"
+        '{"passed": false, "gaps": []}'
+    )
+
+    response = await client.chat([{"role": "system", "content": prompt}])
+    result = parse_audit_response(response.content or "")
+
+    assert result.passed is True
+    assert result.gaps == ()
+    assert response.usage.total_tokens == 0
+    assert response.usage.cost_cny == 0.0
+
+
 async def test_live_provider_error_never_falls_through_to_demo(monkeypatch):
     import litellm
 
@@ -247,6 +265,7 @@ def test_demo_shape_markers_bind_to_production_prompts():
     本测试红, 提示同步 demo 标记, 防止静默错配。"""
     import tianshu.auditor.reviewer as reviewer_mod
     import tianshu.executor.orchestrator.checks as checks_mod
+    import tianshu.executor.orchestrator.templates as templates_mod
     import tianshu.planner.prompts as planner_prompts
     from tianshu.providers import demo
 
@@ -257,6 +276,12 @@ def test_demo_shape_markers_bind_to_production_prompts():
     assert demo._AUDIT_MARKER in reviewer_src, "auditor prompt 已不含 demo audit 标记"
     checks_src = Path(checks_mod.__file__).read_text(encoding="utf-8")
     assert demo._RUBRIC_MARKER in checks_src, "rubric prompt 已不含 demo rubric 标记"
+    completion_audit_template = (
+        Path(templates_mod.__file__).parent.parent / "templates/edict/completion_audit.md"
+    ).read_text(encoding="utf-8")
+    assert demo._COMPLETION_AUDIT_MARKER in completion_audit_template, (
+        "completion audit prompt 已不含 demo completion audit 标记"
+    )
 
 
 def test_demo_get_config_preserves_existence_semantics(tmp_path):
