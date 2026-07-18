@@ -40,6 +40,7 @@ from tianshu.evidence.models import (
 )
 from tianshu.executor.capabilities import get_executor_manifest
 from tianshu.models.canonical import canonical_json_bytes
+from tianshu.models.events import EventEnvelope
 from tianshu.models.governance_contract import (
     EffectiveGovernanceContractV1,
     RequestedGovernanceContractV1,
@@ -474,6 +475,12 @@ class EvidenceService:
     def _bundle_id(memorial_id: str) -> str:
         digest = hashlib.sha256(memorial_id.encode()).hexdigest()[:32]
         return f"evidence:{digest}"
+
+    async def handle_audit_completed(self, event: EventEnvelope) -> None:
+        """Close the audited Memorial's immutable evidence snapshot once it passes."""
+        if event.memorial_id is None or event.payload.get("verdict") != "pass":
+            return
+        self.close(event.memorial_id, expected_version=1)
 
     @staticmethod
     def _json_object(raw: object, field: str) -> dict[str, object]:

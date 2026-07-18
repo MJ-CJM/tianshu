@@ -486,22 +486,30 @@ def run_demo(
         edict_id: str,
         memorial_id: str,
     ) -> dict[str, object]:
-        listed = step_trace.request(
-            "GET", f"/api/edicts/{urllib.parse.quote(edict_id, safe='')}/evidence"
-        )
-        items = listed.get("items")
-        if not isinstance(items, list):
-            raise ValueError("evidence list items must be an array")
-        closed = next(
-            (
-                _mapping(item, "evidence item")
-                for item in items
-                if isinstance(item, dict) and item.get("status") == "closed"
+        def ready(payload: dict[str, object]) -> object | None:
+            items = payload.get("items")
+            if not isinstance(items, list):
+                raise ValueError("evidence list items must be an array")
+            return next(
+                (
+                    _mapping(item, "evidence item")
+                    for item in items
+                    if isinstance(item, dict) and item.get("status") == "closed"
+                ),
+                None,
+            )
+
+        closed = _mapping(
+            _poll(
+                step_trace,
+                path=f"/api/edicts/{urllib.parse.quote(edict_id, safe='')}/evidence",
+                ready=ready,
+                max_attempts=max_attempts,
+                interval=interval,
+                sleeper=sleeper,
             ),
-            None,
+            "closed Evidence Bundle",
         )
-        if closed is None:
-            raise ValueError("closed Evidence Bundle was not found")
         bundle_id = _text(closed.get("bundle_id"), "Evidence Bundle id")
         downloaded = step_trace.request(
             "GET", f"/api/evidence/{urllib.parse.quote(bundle_id, safe='')}/download"

@@ -17,6 +17,7 @@ from tianshu.executor.execution_gateway import (
 )
 from tianshu.executor.workspace_context import resolve_workspace_root
 from tianshu.kernel.ambient import get_current_edict
+from tianshu.models.side_effect import SideEffectSemantics
 from tianshu.security.clean_env import build_clean_env
 from tianshu.storage import Storage
 from tianshu.tools.hongluisi.engine_registry import build_engines
@@ -247,6 +248,7 @@ def register_builtins(
             },
             tier=ToolTier.T1_WORKSPACE.value,
             side_effect=True,
+            managed_effect_semantics=SideEffectSemantics.PROVIDER_IDEMPOTENT,
         ),
     )
 

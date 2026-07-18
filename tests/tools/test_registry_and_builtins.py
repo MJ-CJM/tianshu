@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from tianshu.models.side_effect import SideEffectSemantics
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ok_result
@@ -29,6 +30,13 @@ def registry(workspace_with_file):
     r = ToolRegistry()
     register_builtins(r, workspace_dir=str(workspace_with_file))
     return r
+
+
+def test_write_file_declares_replay_safe_managed_effect_semantics(registry) -> None:
+    definition = registry.get_definition("write_file")
+
+    assert definition is not None
+    assert definition.managed_effect_semantics is SideEffectSemantics.PROVIDER_IDEMPOTENT
 
 
 @pytest.mark.asyncio

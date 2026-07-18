@@ -125,10 +125,13 @@ class _FakeTransport:
         receipt_key_mismatch: str | None = None,
         canary_overlay_subject_mismatch: bool = False,
         adversary: str | None = None,
+        evidence_delay: int = 0,
     ) -> None:
         self._module = module
         self.decision_never_ready = decision_never_ready
         self.receipt_key_mismatch = receipt_key_mismatch
+        self.evidence_delay = evidence_delay
+        self.evidence_list_calls = 0
         self.principal_id = "user:owner"
         self.calls: list[tuple[str, str, dict[str, str], object | None]] = []
         evidence = _s5_evidence()
@@ -366,15 +369,20 @@ class _FakeTransport:
                 "data": self.memorials[edict_id],
             }
         elif path == f"/api/edicts/{self.initial_edict['id']}/evidence":
+            self.evidence_list_calls += 1
             payload = {
-                "items": [
-                    {
-                        "bundle_id": self.bundle["bundle_id"],
-                        "memorial_id": self.served_bundle["memorial_id"],
-                        "status": "closed",
-                        "content_hash": self.served_bundle["content_hash"],
-                    }
-                ],
+                "items": (
+                    []
+                    if self.evidence_list_calls <= self.evidence_delay
+                    else [
+                        {
+                            "bundle_id": self.bundle["bundle_id"],
+                            "memorial_id": self.served_bundle["memorial_id"],
+                            "status": "closed",
+                            "content_hash": self.served_bundle["content_hash"],
+                        }
+                    ]
+                ),
                 "correlation_id": correlation,
             }
         elif path == f"/api/edicts/{self.candidate_evidence_edict['id']}/evidence":
@@ -673,6 +681,27 @@ def test_runner_bounds_polling_and_retains_failed_batch(tmp_path: Path) -> None:
     assert statuses[:3] == ["passed", "passed", "failed"]
     assert statuses[3:] == ["blocked"] * 10
     assert (report_path.parent / "artifacts" / "03-observe_decision_required.json").is_file()
+
+
+def test_runner_polls_until_the_audited_evidence_bundle_is_closed(tmp_path: Path) -> None:
+    module = _module()
+    scenario_path = tmp_path / "scenario.json"
+    scenario_path.write_text(json.dumps(_scenario()), encoding="utf-8")
+    transport = _FakeTransport(module, evidence_delay=2)
+
+    report_path = module.run_demo(
+        base_url="http://127.0.0.1:7998",
+        scenario_path=scenario_path,
+        batch_id="batch-evidence-eventual-closure",
+        output_root=tmp_path / "evidence",
+        transport=transport,
+        clock=_Clock(),
+        sleeper=lambda _seconds: None,
+        environ={"TIANSHU_BOOTSTRAP_TOKEN": "secret"},
+    )
+
+    assert report_path.is_file()
+    assert transport.evidence_list_calls == 3
 
 
 def test_runner_refuses_to_overwrite_an_existing_batch(tmp_path: Path) -> None:
