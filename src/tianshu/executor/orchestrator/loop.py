@@ -564,6 +564,7 @@ async def _run_checks_phase(
     返回 (checks_result, 提前收工结果)；后者非 None 时 run() 应立即 return 它
     （此时 checks_result 恒为 None）。
     """
+    checks_started_at = datetime.now(UTC)
     try:
         requires_process = any(check.kind in {"bash", "lint"} for check in acceptance.checks)
         if requires_process and (
@@ -595,6 +596,22 @@ async def _run_checks_phase(
             TaskStatus.FAILED,
             last_output,
             error=f"checks 配置错: {e}",
+        )
+
+    checks_completed_at = datetime.now(UTC)
+    for outcome in checks_result.outcomes:
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "acceptance.check.completed",
+            {
+                "name": outcome.name,
+                "status": "passed" if outcome.passed else "failed",
+                "started_at": checks_started_at.isoformat(),
+                "completed_at": checks_completed_at.isoformat(),
+            },
         )
 
     return checks_result, None
