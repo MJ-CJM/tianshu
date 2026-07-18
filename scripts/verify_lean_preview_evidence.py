@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import sys
+import urllib.parse
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +19,11 @@ from tianshu.evolution.gates import EvolutionGateReportV1
 from tianshu.evolution.promotion import PromotionReceiptV1, RollbackReceiptV1
 from tianshu.models import Memorial, TaskStatus
 from tianshu.models.canonical import canonical_sha256
-from tianshu.models.evolution_candidate import CandidateLifecycle, EvolutionCandidateV1
+from tianshu.models.evolution_candidate import (
+    CandidateKind,
+    CandidateLifecycle,
+    EvolutionCandidateV1,
+)
 from tianshu.models.lean_preview import (
     LeanPreviewCandidateReportV1,
     LeanPreviewDemoReportV1,
@@ -89,6 +94,22 @@ _ARTIFACT_FIELDS = {
     "observed",
 }
 _REQUEST_FIELDS = {"method", "path", "body_sha256"}
+_CANARY_REQUEST_BINDING_FIELDS = {
+    "action",
+    "expected_version",
+    "idempotency_key",
+    "decision_request_id",
+    "allocation_basis_points",
+    "allocation_seed_id",
+    "body_sha256",
+}
+_ROLLBACK_REQUEST_BINDING_FIELDS = {
+    "action",
+    "expected_version",
+    "idempotency_key",
+    "decision_request_id",
+    "body_sha256",
+}
 _PHASE_REPORT_FIELDS = {
     "schema_version",
     "phase_id",
@@ -165,6 +186,49 @@ def _real_directory(path: Path, label: str) -> Path:
         raise EvidenceVerificationError(f"{label} must exist") from exc
 
 
+def _real_path_without_symlinks(path: Path, label: str, *, directory: bool) -> Path:
+    if ".." in path.parts:
+        raise EvidenceVerificationError(f"{label} path must not escape through '..'")
+    absolute = path.absolute()
+    cursor = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        cursor /= part
+        if cursor.is_symlink():
+            kind = "real directory" if directory else "real file"
+            raise EvidenceVerificationError(f"{label} must be a {kind} without symlinks")
+    try:
+        resolved = absolute.resolve(strict=True)
+    except OSError as exc:
+        raise EvidenceVerificationError(f"{label} path must exist") from exc
+    if (
+        resolved != absolute
+        or (directory and not resolved.is_dir())
+        or (not directory and not resolved.is_file())
+    ):
+        kind = "directory" if directory else "file"
+        raise EvidenceVerificationError(f"{label} path must resolve to a real {kind}")
+    return resolved
+
+
+def _demo_evidence_paths(report_path: Path, artifact_root: Path) -> tuple[Path, Path, Path]:
+    report_absolute = report_path.absolute()
+    artifact_absolute = artifact_root.absolute()
+    if report_absolute.name != "demo-report.json":
+        raise EvidenceVerificationError("demo report path leaf must be demo-report.json")
+    if artifact_absolute.name != "artifacts":
+        raise EvidenceVerificationError("artifact root path leaf must be artifacts")
+    if report_absolute.parent != artifact_absolute.parent:
+        raise EvidenceVerificationError("demo report and artifact root must share one batch root")
+    batch_root = _real_path_without_symlinks(
+        report_absolute.parent, "demo batch root", directory=True
+    )
+    report = _real_path_without_symlinks(report_absolute, "demo report", directory=False)
+    artifacts = _real_path_without_symlinks(artifact_absolute, "artifact root", directory=True)
+    if report.parent != batch_root or artifacts.parent != batch_root:
+        raise EvidenceVerificationError("demo evidence paths escape their exact batch root")
+    return report, artifacts, batch_root
+
+
 def _confined_file(root: Path, relative: Path, label: str) -> Path:
     if relative.is_absolute() or not relative.parts or ".." in relative.parts:
         raise EvidenceVerificationError(f"{label} escapes its artifact root")
@@ -218,6 +282,12 @@ def _text(value: object, label: str) -> str:
     return value
 
 
+def _integer(value: object, label: str, *, minimum: int = 1) -> int:
+    if type(value) is not int or value < minimum:
+        raise EvidenceVerificationError(f"{label} must be an integer >= {minimum}")
+    return value
+
+
 def _digest(value: object, label: str) -> str:
     text = _text(value, label)
     if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
@@ -264,7 +334,7 @@ def _verify_artifact(
     *,
     step: dict[str, object],
     step_id: str,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], list[dict[str, object]]]:
     evidence_hashes = _sequence(step.get("evidence_hashes"), f"{step_id} evidence hashes")
     if len(evidence_hashes) != 1:
         raise EvidenceVerificationError(f"{step_id} must bind exactly one artifact hash")
@@ -283,6 +353,7 @@ def _verify_artifact(
     response_hashes = _sequence(artifact.get("response_hashes"), f"{step_id} response hashes")
     if not requests or len(requests) != len(correlations) or len(requests) != len(response_hashes):
         raise EvidenceVerificationError(f"{step_id} request/correlation evidence is incomplete")
+    verified_requests: list[dict[str, object]] = []
     for request_value in requests:
         request = _mapping(request_value, f"{step_id} request")
         _exact_fields(request, _REQUEST_FIELDS, f"{step_id} redacted request")
@@ -294,6 +365,7 @@ def _verify_artifact(
         body_hash = request.get("body_sha256")
         if body_hash is not None:
             _digest(body_hash, f"{step_id} redacted body hash")
+        verified_requests.append(request)
     for correlation in correlations:
         _text(correlation, f"{step_id} correlation")
     for response_hash in response_hashes:
@@ -303,7 +375,62 @@ def _verify_artifact(
     expected_state_hash = _digest(step.get("observed_state_hash"), f"{step_id} observed state hash")
     if _canonical_hash(observed) != expected_state_hash:
         raise EvidenceVerificationError(f"observed state hash mismatch for {step_id}")
-    return _mapping(observed, f"{step_id} observed state")
+    return _mapping(observed, f"{step_id} observed state"), verified_requests
+
+
+def _promotion_journal_id(principal_id: str, idempotency_key: str) -> str:
+    identity = _canonical_hash({"principal_id": principal_id, "idempotency_key": idempotency_key})
+    command_key = f"promotion:{identity}"
+    return hashlib.sha256(f"{command_key}\0completed".encode()).hexdigest()
+
+
+def _promotion_request_binding(
+    observed: dict[str, object],
+    requests: list[dict[str, object]],
+    *,
+    action: str,
+    candidate_id: str,
+    expected_key: str,
+) -> dict[str, object]:
+    binding = _mapping(observed.get("request_binding"), f"{action} request binding")
+    fields = (
+        _CANARY_REQUEST_BINDING_FIELDS
+        if action == "start_canary"
+        else _ROLLBACK_REQUEST_BINDING_FIELDS
+    )
+    _exact_fields(binding, fields, f"{action} request binding")
+    quoted = urllib.parse.quote(candidate_id, safe="")
+    suffix = "canary" if action == "start_canary" else "rollback"
+    expected_path = f"/api/evolution/candidates/{quoted}/{suffix}"
+    post = requests[-1]
+    if (
+        binding.get("action") != action
+        or binding.get("idempotency_key") != expected_key
+        or binding.get("decision_request_id") is not None
+        or post.get("method") != "POST"
+        or post.get("path") != expected_path
+        or post.get("body_sha256") != binding.get("body_sha256")
+    ):
+        raise EvidenceVerificationError(f"{action} request is not batch/action-bound")
+    _integer(binding.get("expected_version"), f"{action} expected version")
+    _digest(binding.get("body_sha256"), f"{action} request body hash")
+    if action == "start_canary":
+        if len(requests) != 1:
+            raise EvidenceVerificationError("start_canary request evidence is noncanonical")
+        _integer(
+            binding.get("allocation_basis_points"),
+            "start_canary allocation basis points",
+        )
+        _text(binding.get("allocation_seed_id"), "start_canary allocation seed id")
+    else:
+        if (
+            len(requests) != 2
+            or requests[0].get("method") != "GET"
+            or requests[0].get("path") != expected_path.removesuffix("/rollback")
+            or requests[0].get("body_sha256") is not None
+        ):
+            raise EvidenceVerificationError("rollback request evidence is noncanonical")
+    return binding
 
 
 def _memorial(observed: dict[str, object], label: str) -> Memorial:
@@ -341,26 +468,24 @@ def verify_demo_evidence(
     report_path: Path,
     artifact_root: Path,
     *,
-    expected_source_commit: str | None = None,
-    expected_wheel_sha256: str | None = None,
+    expected_source_commit: str,
+    expected_wheel_sha256: str,
 ) -> dict[str, object]:
     """Verify a complete 13-step demo report and all bound artifacts."""
 
+    report_path, artifact_root, batch_root = _demo_evidence_paths(report_path, artifact_root)
     report = _load_json(report_path, "demo report")
     demo_model = _strict_model(LeanPreviewDemoReportV1, report, "demo report")
     if not isinstance(demo_model, LeanPreviewDemoReportV1):  # pragma: no cover
         raise TypeError("strict demo parser returned the wrong type")
     source_commit = demo_model.source_commit
     wheel_sha256 = demo_model.wheel_sha256
-    if expected_source_commit is not None and source_commit != _commit(
-        expected_source_commit, "expected source commit"
-    ):
+    if source_commit != _commit(expected_source_commit, "expected source commit"):
         raise EvidenceVerificationError("demo source commit does not match expected source commit")
-    if expected_wheel_sha256 is not None and wheel_sha256 != _digest(
-        expected_wheel_sha256, "expected Wheel hash"
-    ):
+    if wheel_sha256 != _digest(expected_wheel_sha256, "expected Wheel hash"):
         raise EvidenceVerificationError("demo Wheel hash does not match expected Wheel")
-    artifact_root = _real_directory(artifact_root, "artifact root")
+    if demo_model.batch_id != batch_root.name:
+        raise EvidenceVerificationError("demo report batch id does not match its batch root")
     steps = _sequence(report.get("steps"), "demo steps")
     artifacts = sorted(path.name for path in artifact_root.iterdir() if path.suffix == ".json")
     expected_artifacts = [
@@ -374,6 +499,7 @@ def verify_demo_evidence(
         raise EvidenceVerificationError(f"unexpected artifact files: {extra}")
 
     observed_by_step: dict[str, dict[str, object]] = {}
+    requests_by_step: dict[str, list[dict[str, object]]] = {}
     for index, (step_value, step_id) in enumerate(zip(steps, EXPECTED_STEP_IDS, strict=True), 1):
         step = _mapping(step_value, f"{step_id} step")
         _exact_fields(step, _STEP_FIELDS, f"{step_id} step")
@@ -385,7 +511,7 @@ def verify_demo_evidence(
         completed_at = _timestamp(step.get("completed_at"), f"{step_id} completed_at")
         if completed_at < started_at:
             raise EvidenceVerificationError(f"{step_id} completed before it started")
-        observed_by_step[step_id] = _verify_artifact(
+        observed, requests = _verify_artifact(
             _confined_file(
                 artifact_root,
                 Path(_artifact_filename(index, step_id)),
@@ -394,9 +520,15 @@ def verify_demo_evidence(
             step=step,
             step_id=step_id,
         )
+        observed_by_step[step_id] = observed
+        requests_by_step[step_id] = requests
 
     if observed_by_step["doctor_ready"].get("status") not in {"ready", "degraded"}:
         raise EvidenceVerificationError("doctor readiness proof is invalid")
+    principal_id = _text(
+        observed_by_step["doctor_ready"].get("principal_id"),
+        "authenticated principal id",
+    )
 
     initial = observed_by_step["submit_governed_edict"]
     initial_edict_id = _text(initial.get("edict_id"), "submitted governed edict id")
@@ -437,6 +569,8 @@ def verify_demo_evidence(
         gate_model, EvolutionGateReportV1
     ):  # pragma: no cover
         raise TypeError("strict gate parser returned the wrong type")
+    if candidate_model.kind is not CandidateKind.SKILL:
+        raise EvidenceVerificationError("golden demo candidate must be a skill")
     if (
         candidate_model.candidate_id != demo_model.candidate_id
         or bundle_model.bundle_id not in candidate_model.evidence_bundle_ids
@@ -462,15 +596,29 @@ def verify_demo_evidence(
     )
     if not isinstance(promotion_model, PromotionReceiptV1):  # pragma: no cover
         raise TypeError("strict promotion parser returned the wrong type")
-    _digest(promotion_model.journal_id, "canary journal id")
+    canary_key = f"lean-preview:{demo_model.batch_id}:canary"
+    canary_request = _promotion_request_binding(
+        observed_by_step["start_skill_canary"],
+        requests_by_step["start_skill_canary"],
+        action="start_canary",
+        candidate_id=candidate_model.candidate_id,
+        expected_key=canary_key,
+    )
+    canary_expected_version = _integer(
+        canary_request.get("expected_version"), "canary expected version"
+    )
     if (
         promotion_model.action != "start_canary"
+        or promotion_model.idempotency_key != canary_key
+        or promotion_model.journal_id != _promotion_journal_id(principal_id, canary_key)
         or promotion_model.candidate_id != candidate_model.candidate_id
-        or promotion_model.candidate_version <= gate_model.candidate_version
+        or canary_expected_version != gate_model.candidate_version
+        or promotion_model.candidate_version != canary_expected_version + 1
         or promotion_model.gate_snapshot_version != gate_model.gate_snapshot_version
         or promotion_model.gate_report_hash != gate_model.report_hash
         or promotion_model.lifecycle is not CandidateLifecycle.CANARY
-        or promotion_model.allocation_basis_points <= 0
+        or promotion_model.allocation_basis_points != canary_request.get("allocation_basis_points")
+        or promotion_model.effect_artifact_digest is not None
     ):
         raise EvidenceVerificationError("canary receipt is not gate/journal-bound")
 
@@ -479,7 +627,7 @@ def verify_demo_evidence(
     canary_memorial_id = _text(canary_submit.get("memorial_id"), "canary memorial id")
     canary_observed = observed_by_step["verify_real_candidate_overlay"]
     canary_memorial = _memorial(canary_observed, "completed canary Memorial")
-    canary_assignment, _canary_overlay = _assignment(canary_observed, "candidate overlay")
+    canary_assignment, canary_overlay = _assignment(canary_observed, "candidate overlay")
     if (
         canary_memorial.id != canary_memorial_id
         or canary_memorial.edict_id != canary_edict_id
@@ -489,6 +637,10 @@ def verify_demo_evidence(
         or canary_assignment.routing_version != promotion_model.routing_version
         or canary_assignment.champion_ref != candidate_model.base
         or canary_assignment.selected_ref != candidate_model.candidate
+        or canary_overlay.kind is not CandidateKind.SKILL
+        or canary_overlay.subject_key != candidate_model.subject_key
+        or canary_overlay.artifact_digest != candidate_model.candidate.artifact_digest
+        or canary_overlay.canonical_digest != candidate_model.candidate.canonical_digest
     ):
         raise EvidenceVerificationError("candidate overlay assignment is not canary-run-bound")
 
@@ -499,10 +651,37 @@ def verify_demo_evidence(
     )
     if not isinstance(rollback_model, RollbackReceiptV1):  # pragma: no cover
         raise TypeError("strict rollback parser returned the wrong type")
-    _digest(rollback_model.journal_id, "rollback journal id")
+    rollback_observed = observed_by_step["rollback_candidate"]
+    candidate_before_rollback = _strict_model(
+        EvolutionCandidateV1,
+        rollback_observed.get("candidate_before_rollback"),
+        "pre-rollback candidate",
+    )
+    if not isinstance(candidate_before_rollback, EvolutionCandidateV1):  # pragma: no cover
+        raise TypeError("strict pre-rollback parser returned the wrong type")
+    rollback_key = f"lean-preview:{demo_model.batch_id}:rollback"
+    rollback_request = _promotion_request_binding(
+        rollback_observed,
+        requests_by_step["rollback_candidate"],
+        action="rollback",
+        candidate_id=candidate_model.candidate_id,
+        expected_key=rollback_key,
+    )
+    rollback_expected_version = _integer(
+        rollback_request.get("expected_version"), "rollback expected version"
+    )
     if (
-        rollback_model.candidate_id != candidate_model.candidate_id
-        or rollback_model.candidate_version <= promotion_model.candidate_version
+        candidate_before_rollback.kind is not CandidateKind.SKILL
+        or candidate_before_rollback.candidate_id != candidate_model.candidate_id
+        or candidate_before_rollback.subject_key != candidate_model.subject_key
+        or candidate_before_rollback.base != candidate_model.base
+        or candidate_before_rollback.candidate != candidate_model.candidate
+        or candidate_before_rollback.lifecycle is not CandidateLifecycle.CANARY
+        or candidate_before_rollback.version != rollback_expected_version
+        or rollback_model.idempotency_key != rollback_key
+        or rollback_model.journal_id != _promotion_journal_id(principal_id, rollback_key)
+        or rollback_model.candidate_id != candidate_model.candidate_id
+        or rollback_model.candidate_version != rollback_expected_version + 2
         or rollback_model.routing_version <= promotion_model.routing_version
         or rollback_model.effect_artifact_digest != candidate_model.base.artifact_digest
         or canonical_sha256(rollback_model) != demo_model.rollback_receipt_hash
@@ -512,7 +691,7 @@ def verify_demo_evidence(
     post = observed_by_step["verify_new_run_uses_champion"]
     post_submitted = _mapping(post.get("submitted"), "post-rollback submitted run")
     post_memorial = _memorial(post, "completed post-rollback Memorial")
-    post_assignment, _post_overlay = _assignment(post, "post-rollback champion")
+    post_assignment, post_overlay = _assignment(post, "post-rollback champion")
     final_candidate = _strict_model(
         EvolutionCandidateV1, post.get("candidate"), "post-rollback candidate"
     )
@@ -526,7 +705,13 @@ def verify_demo_evidence(
         or post_assignment.routing_version != rollback_model.routing_version
         or post_assignment.champion_ref != candidate_model.base
         or post_assignment.selected_ref != candidate_model.base
+        or post_overlay.kind is not CandidateKind.SKILL
+        or post_overlay.subject_key != candidate_model.subject_key
+        or post_overlay.artifact_digest != candidate_model.base.artifact_digest
+        or post_overlay.canonical_digest != candidate_model.base.canonical_digest
         or final_candidate.candidate_id != candidate_model.candidate_id
+        or final_candidate.kind is not CandidateKind.SKILL
+        or final_candidate.subject_key != candidate_model.subject_key
         or final_candidate.base != candidate_model.base
         or final_candidate.candidate != candidate_model.candidate
         or final_candidate.lifecycle is not CandidateLifecycle.ROLLED_BACK

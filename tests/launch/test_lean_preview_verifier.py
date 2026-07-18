@@ -135,6 +135,15 @@ def _save_step(
     _rehash_report(report_path, report)
 
 
+def _verify_demo(module, report_path: Path, artifact_root: Path) -> dict[str, object]:
+    return module.verify_demo_evidence(
+        report_path,
+        artifact_root,
+        expected_source_commit="1" * 40,
+        expected_wheel_sha256=DIGEST_A,
+    )
+
+
 def test_verifier_recomputes_all_demo_hashes_and_semantic_bindings(tmp_path: Path) -> None:
     module = _module()
     report_path, artifact_root, _report = _write_demo(tmp_path)
@@ -203,20 +212,168 @@ def test_verifier_uses_strict_demo_schema_and_confined_real_artifacts(tmp_path: 
     report["external_pending"] = []
     _rehash_report(report_path, report)
     with pytest.raises(module.EvidenceVerificationError, match="strict public contract"):
-        module.verify_demo_evidence(report_path, artifact_root)
+        _verify_demo(module, report_path, artifact_root)
 
     report_path, artifact_root, _report = _write_demo(tmp_path / "root-link-target")
-    linked_root = tmp_path / "linked-artifacts"
-    linked_root.symlink_to(artifact_root, target_is_directory=True)
+    real_artifact_root = artifact_root.with_name("real-artifacts")
+    artifact_root.rename(real_artifact_root)
+    artifact_root.symlink_to(real_artifact_root, target_is_directory=True)
     with pytest.raises(module.EvidenceVerificationError, match="real directory"):
-        module.verify_demo_evidence(report_path, linked_root)
+        _verify_demo(module, report_path, artifact_root)
 
+    artifact_root.unlink()
+    real_artifact_root.rename(artifact_root)
     path = artifact_root / "01-doctor_ready.json"
     outside = tmp_path / "outside-artifact.json"
     path.rename(outside)
     path.symlink_to(outside)
     with pytest.raises(module.EvidenceVerificationError, match="symlink"):
+        _verify_demo(module, report_path, artifact_root)
+
+
+def test_verifier_requires_expected_build_identity_keyword_arguments(tmp_path: Path) -> None:
+    module = _module()
+    report_path, artifact_root, _report = _write_demo(tmp_path)
+
+    with pytest.raises(TypeError):
         module.verify_demo_evidence(report_path, artifact_root)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "wrong_report_leaf",
+        "unpaired_report_root",
+        "report_leaf_symlink",
+        "batch_component_symlink",
+        "batch_id_root_mismatch",
+        "wrong_artifact_leaf",
+    ],
+)
+def test_verifier_requires_exact_real_paired_demo_paths(tmp_path: Path, case: str) -> None:
+    module = _module()
+    report_path, artifact_root, _report = _write_demo(tmp_path / case)
+    supplied_report = report_path
+    supplied_artifacts = artifact_root
+    if case == "wrong_report_leaf":
+        supplied_report = report_path.with_name("renamed-report.json")
+        report_path.rename(supplied_report)
+    elif case == "unpaired_report_root":
+        other_root = report_path.parent.parent / "other-batch"
+        other_root.mkdir()
+        supplied_report = other_root / "demo-report.json"
+        supplied_report.write_bytes(report_path.read_bytes())
+    elif case == "report_leaf_symlink":
+        target = report_path.with_name("real-report.json")
+        report_path.rename(target)
+        report_path.symlink_to(target)
+    elif case == "batch_component_symlink":
+        linked_root = report_path.parent.parent / "linked-batch"
+        linked_root.symlink_to(report_path.parent, target_is_directory=True)
+        supplied_report = linked_root / "demo-report.json"
+        supplied_artifacts = linked_root / "artifacts"
+    elif case == "batch_id_root_mismatch":
+        renamed_root = report_path.parent.with_name("renamed-batch")
+        report_path.parent.rename(renamed_root)
+        supplied_report = renamed_root / "demo-report.json"
+        supplied_artifacts = renamed_root / "artifacts"
+    else:
+        supplied_artifacts = artifact_root.with_name("evidence-artifacts")
+        artifact_root.rename(supplied_artifacts)
+
+    with pytest.raises(module.EvidenceVerificationError, match="path|root|symlink|batch"):
+        _verify_demo(module, supplied_report, supplied_artifacts)
+
+
+def test_verifier_rejects_rehashed_valid_code_candidate_and_overlays(tmp_path: Path) -> None:
+    module = _module()
+    report_path, artifact_root, report = _write_demo(tmp_path)
+    for step_index in (7, 12):
+        path, artifact = _rewrite_step(report_path, artifact_root, report, step_index)
+        candidate = artifact["observed"]["candidate"]
+        candidate["kind"] = "code"
+        candidate["evolution_contract"]["kind"] = "code"
+        candidate["evolution_contract_hash"] = _canonical_hash(candidate["evolution_contract"])
+        if step_index == 12:
+            artifact["observed"]["effective_overlay"]["kind"] = "code"
+        _save_step(report_path, report, step_index, path, artifact)
+    path, artifact = _rewrite_step(report_path, artifact_root, report, 10)
+    artifact["observed"]["effective_overlay"]["kind"] = "code"
+    _save_step(report_path, report, 10, path, artifact)
+
+    with pytest.raises(module.EvidenceVerificationError, match="skill"):
+        _verify_demo(module, report_path, artifact_root)
+
+
+@pytest.mark.parametrize(
+    ("step_index", "field", "replacement"),
+    [
+        (10, "kind", "memory"),
+        (10, "subject_key", "skill:spliced"),
+        (12, "kind", "memory"),
+        (12, "subject_key", "skill:spliced"),
+    ],
+)
+def test_verifier_binds_overlay_domain_identity_to_the_skill_candidate(
+    tmp_path: Path,
+    step_index: int,
+    field: str,
+    replacement: str,
+) -> None:
+    module = _module()
+    report_path, artifact_root, report = _write_demo(tmp_path)
+    path, artifact = _rewrite_step(report_path, artifact_root, report, step_index)
+    artifact["observed"]["effective_overlay"][field] = replacement
+    _save_step(report_path, report, step_index, path, artifact)
+
+    with pytest.raises(module.EvidenceVerificationError, match="overlay|rollback-run-bound"):
+        _verify_demo(module, report_path, artifact_root)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "canary_receipt_key",
+        "rollback_receipt_key",
+        "canary_journal_id",
+        "rollback_journal_id",
+        "canary_expected_version",
+        "rollback_expected_version",
+        "canary_request_path",
+        "rollback_request_hash",
+    ],
+)
+def test_verifier_binds_public_promotion_requests_and_receipts_to_batch(
+    tmp_path: Path, case: str
+) -> None:
+    module = _module()
+    report_path, artifact_root, report = _write_demo(tmp_path)
+    step_index = 8 if case.startswith("canary") else 11
+    path, artifact = _rewrite_step(report_path, artifact_root, report, step_index)
+    observed = artifact["observed"]
+    receipt_name = "promotion_receipt" if step_index == 8 else "rollback_receipt"
+    receipt = observed[receipt_name]
+    if case.endswith("receipt_key"):
+        receipt["idempotency_key"] = f"{receipt['idempotency_key']}:spliced"
+    elif case.endswith("journal_id"):
+        receipt["journal_id"] = DIGEST_B
+    elif case.endswith("expected_version"):
+        observed["request_binding"]["expected_version"] += 1
+    elif case == "canary_request_path":
+        artifact["requests"][-1]["path"] = artifact["requests"][-1]["path"].replace(
+            "/canary", "/rollback"
+        )
+    else:
+        artifact["requests"][-1]["body_sha256"] = DIGEST_B
+    if step_index == 11 and case in {
+        "rollback_receipt_key",
+        "rollback_journal_id",
+    }:
+        report["rollback_receipt_hash"] = _canonical_hash(receipt)
+    _save_step(report_path, report, step_index, path, artifact)
+
+    with pytest.raises(module.EvidenceVerificationError, match="request|receipt|journal|batch"):
+        _verify_demo(module, report_path, artifact_root)
 
 
 def test_verifier_cli_requires_expected_build_identity() -> None:
@@ -335,7 +492,12 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
     demo["wheel_sha256"] = hashlib.sha256(wheel.read_bytes()).hexdigest()
     _rehash_report(report_path, demo)
     demo = json.loads(report_path.read_text(encoding="utf-8"))
-    module.verify_demo_evidence(report_path, artifact_root)
+    module.verify_demo_evidence(
+        report_path,
+        artifact_root,
+        expected_source_commit="1" * 40,
+        expected_wheel_sha256=hashlib.sha256(wheel.read_bytes()).hexdigest(),
+    )
     candidate: dict[str, object] = {
         "schema_version": 1,
         "source_commit": "1" * 40,

@@ -22,10 +22,14 @@ python scripts/run_lean_preview_demo.py \
   --output-root docs/cc-fable-v1/evidence/lean-preview
 ```
 
-The base URL is restricted to explicit loopback HTTP. Polling is bounded by the scenario. Request
-evidence records only method, relative public path, and the canonical request-body SHA-256; it does
-not retain authorization, decision reasons, or skill content. Server response hashes and
-correlation IDs remain available for audit.
+The base URL is restricted to explicit loopback HTTP. Polling is bounded by the scenario. The raw
+request trail records only method, relative public path, and the canonical request-body SHA-256; it
+does not retain authorization, decision reasons, promotion reasons, or skill content. Canary and
+rollback observations additionally retain non-secret action, expected-version, batch-derived
+idempotency-key, and request-hash bindings. The authenticated public principal plus those keys let
+the verifier recompute each completed receipt's deterministic journal ID. There is no public
+journal-entry read endpoint, so the verifier does not claim to inspect or verify journal entry
+bodies. Server response hashes and correlation IDs remain available for audit.
 
 Verify the retained batch against the independently measured commit and exact Wheel:
 

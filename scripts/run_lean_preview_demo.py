@@ -246,6 +246,26 @@ def _closed_content_hash(bundle: dict[str, object]) -> str:
     return _canonical_hash(payload)
 
 
+def _promotion_journal_id(principal_id: str, idempotency_key: str) -> str:
+    identity = _canonical_hash({"principal_id": principal_id, "idempotency_key": idempotency_key})
+    command_key = f"promotion:{identity}"
+    return hashlib.sha256(f"{command_key}\0completed".encode()).hexdigest()
+
+
+def _request_binding(action: str, body: dict[str, object]) -> dict[str, object]:
+    binding = {
+        "action": action,
+        "expected_version": body["expected_version"],
+        "idempotency_key": body["idempotency_key"],
+        "decision_request_id": body["decision_request_id"],
+        "body_sha256": _canonical_hash(body),
+    }
+    if action == "start_canary":
+        binding["allocation_basis_points"] = body["allocation_basis_points"]
+        binding["allocation_seed_id"] = body["allocation_seed_id"]
+    return binding
+
+
 def _artifact_path(artifact_root: Path, index: int, step_id: str) -> Path:
     return artifact_root / f"{index:02d}-{step_id}.json"
 
@@ -456,7 +476,10 @@ def run_demo(
         payload = step_trace.request("GET", "/health/ready")
         if payload.get("status") not in {"ready", "degraded"}:
             raise ValueError("server is not ready")
-        return {"status": payload["status"]}
+        identity = step_trace.request("GET", "/api/auth/me")
+        principal = _mapping(identity.get("principal"), "authenticated principal")
+        state["principal_id"] = _text(principal.get("id"), "authenticated principal id")
+        return {"status": payload["status"], "principal_id": state["principal_id"]}
 
     operations.append(doctor)
 
@@ -586,6 +609,18 @@ def run_demo(
         if staged.get("lifecycle") != "staged":
             raise ValueError("skill candidate was not staged")
         candidate = _data(step_trace.request("GET", f"/api/evolution/candidates/{quoted}"))
+        if candidate.get("kind") != "skill":
+            raise ValueError("golden demo candidate must be a skill")
+        state["candidate_subject_key"] = _text(
+            candidate.get("subject_key"), "candidate subject key"
+        )
+        candidate_ref = _mapping(candidate.get("candidate"), "candidate package ref")
+        base_ref = _mapping(candidate.get("base"), "champion package ref")
+        for label, reference in (("candidate", candidate_ref), ("champion", base_ref)):
+            _digest(reference.get("artifact_digest"), f"{label} artifact digest")
+            _digest(reference.get("canonical_digest"), f"{label} canonical digest")
+        state["candidate_ref"] = candidate_ref
+        state["base_ref"] = base_ref
         version = _integer(
             candidate.get("version"), "candidate version", minimum=1, maximum=2**31 - 1
         )
@@ -603,15 +638,27 @@ def run_demo(
             gate.get("candidate_version"), "gate candidate version", minimum=1, maximum=2**31 - 1
         )
         state["gate_hash"] = _canonical_hash(gate)
+        state["gate_snapshot_version"] = _integer(
+            gate.get("gate_snapshot_version"),
+            "gate snapshot version",
+            minimum=1,
+            maximum=2**31 - 1,
+        )
         return {"candidate": candidate, "gate_report": gate}
 
     operations.append(evaluate_gate)
 
     def start_canary(step_trace: _StepTrace) -> object:
         candidate_id = _text(state.get("candidate_id"), "candidate id")
+        expected_version = _integer(
+            state.get("candidate_version"),
+            "candidate version",
+            minimum=1,
+            maximum=2**31 - 1,
+        )
         body = {
             "schema_version": 1,
-            "expected_version": state["candidate_version"],
+            "expected_version": expected_version,
             "idempotency_key": f"lean-preview:{batch_id}:canary",
             "reason": _text(canary.get("reason"), "canary.reason"),
             "allocation_basis_points": _integer(
@@ -635,7 +682,20 @@ def run_demo(
         )
         if (
             receipt.get("status") != "completed"
+            or receipt.get("action") != "start_canary"
+            or receipt.get("idempotency_key") != body["idempotency_key"]
+            or receipt.get("journal_id")
+            != _promotion_journal_id(
+                _text(state.get("principal_id"), "authenticated principal id"),
+                str(body["idempotency_key"]),
+            )
+            or receipt.get("candidate_id") != candidate_id
+            or receipt.get("candidate_version") != expected_version + 1
+            or receipt.get("gate_snapshot_version") != state["gate_snapshot_version"]
+            or receipt.get("gate_report_hash") != state["gate_hash"]
+            or receipt.get("lifecycle") != "canary"
             or receipt.get("allocation_basis_points") != body["allocation_basis_points"]
+            or receipt.get("effect_artifact_digest") is not None
         ):
             raise ValueError("canary receipt is not bound to the request")
         state["candidate_version"] = _integer(
@@ -644,7 +704,16 @@ def run_demo(
             minimum=1,
             maximum=2**31 - 1,
         )
-        return {"promotion_receipt": receipt}
+        state["canary_routing_version"] = _integer(
+            receipt.get("routing_version"),
+            "canary routing version",
+            minimum=1,
+            maximum=2**31 - 1,
+        )
+        return {
+            "request_binding": _request_binding("start_canary", body),
+            "promotion_receipt": receipt,
+        }
 
     operations.append(start_canary)
 
@@ -673,7 +742,14 @@ def run_demo(
         selected_ref = _mapping(assignment.get("selected_ref"), "selected ref")
         if selected_ref == champion_ref:
             raise ValueError("run used champion instead of the real candidate overlay")
-        if overlay.get("artifact_digest") != selected_ref.get("artifact_digest"):
+        if (
+            selected_ref != state["candidate_ref"]
+            or champion_ref != state["base_ref"]
+            or overlay.get("kind") != "skill"
+            or overlay.get("subject_key") != state["candidate_subject_key"]
+            or overlay.get("artifact_digest") != selected_ref.get("artifact_digest")
+            or overlay.get("canonical_digest") != selected_ref.get("canonical_digest")
+        ):
             raise ValueError("effective candidate overlay is not assignment-bound")
         state["assignment_id"] = _text(assignment.get("assignment_id"), "assignment id")
         return {
@@ -686,9 +762,26 @@ def run_demo(
 
     def rollback_candidate(step_trace: _StepTrace) -> object:
         candidate_id = _text(state.get("candidate_id"), "candidate id")
+        quoted = urllib.parse.quote(candidate_id, safe="")
+        current = _data(step_trace.request("GET", f"/api/evolution/candidates/{quoted}"))
+        if (
+            current.get("candidate_id") != candidate_id
+            or current.get("kind") != "skill"
+            or current.get("subject_key") != state["candidate_subject_key"]
+            or current.get("candidate") != state["candidate_ref"]
+            or current.get("base") != state["base_ref"]
+            or current.get("lifecycle") != "canary"
+        ):
+            raise ValueError("pre-rollback candidate is not canary-bound")
+        expected_version = _integer(
+            current.get("version"),
+            "pre-rollback candidate version",
+            minimum=1,
+            maximum=2**31 - 1,
+        )
         body = {
             "schema_version": 1,
-            "expected_version": state["candidate_version"],
+            "expected_version": expected_version,
             "idempotency_key": f"lean-preview:{batch_id}:rollback",
             "reason": _text(rollback.get("reason"), "rollback.reason"),
             "decision_request_id": None,
@@ -696,12 +789,28 @@ def run_demo(
         receipt = _data(
             step_trace.request(
                 "POST",
-                f"/api/evolution/candidates/{urllib.parse.quote(candidate_id, safe='')}/rollback",
+                f"/api/evolution/candidates/{quoted}/rollback",
                 body=body,
             ),
             "rollback receipt",
         )
-        if receipt.get("status") != "completed" or receipt.get("allocation_basis_points") != 0:
+        if (
+            receipt.get("status") != "completed"
+            or receipt.get("action") != "rollback"
+            or receipt.get("idempotency_key") != body["idempotency_key"]
+            or receipt.get("journal_id")
+            != _promotion_journal_id(
+                _text(state.get("principal_id"), "authenticated principal id"),
+                str(body["idempotency_key"]),
+            )
+            or receipt.get("candidate_id") != candidate_id
+            or receipt.get("candidate_version") != expected_version + 2
+            or receipt.get("lifecycle") != "rolled_back"
+            or receipt.get("routing_version") <= state["canary_routing_version"]
+            or receipt.get("allocation_basis_points") != 0
+            or receipt.get("effect_artifact_digest")
+            != _mapping(state.get("base_ref"), "champion package ref").get("artifact_digest")
+        ):
             raise ValueError("rollback receipt does not prove zero allocation")
         state["candidate_version"] = _integer(
             receipt.get("candidate_version"),
@@ -710,7 +819,11 @@ def run_demo(
             maximum=2**31 - 1,
         )
         state["rollback_receipt_hash"] = _canonical_hash(receipt)
-        return {"rollback_receipt": receipt}
+        return {
+            "candidate_before_rollback": current,
+            "request_binding": _request_binding("rollback", body),
+            "rollback_receipt": receipt,
+        }
 
     operations.append(rollback_candidate)
 
@@ -739,8 +852,13 @@ def run_demo(
             )
         )
         routing = _mapping(candidate.get("routing"), "candidate routing")
-        if selected_ref != champion_ref or overlay.get("artifact_digest") != champion_ref.get(
-            "artifact_digest"
+        if (
+            selected_ref != champion_ref
+            or champion_ref != state["base_ref"]
+            or overlay.get("kind") != "skill"
+            or overlay.get("subject_key") != state["candidate_subject_key"]
+            or overlay.get("artifact_digest") != champion_ref.get("artifact_digest")
+            or overlay.get("canonical_digest") != champion_ref.get("canonical_digest")
         ):
             raise ValueError("post-rollback run did not use champion")
         if (

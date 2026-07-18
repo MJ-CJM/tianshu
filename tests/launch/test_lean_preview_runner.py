@@ -45,6 +45,12 @@ def _canonical_hash(value: object) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
 
 
+def _promotion_journal_id(principal_id: str, idempotency_key: str) -> str:
+    identity = _canonical_hash({"principal_id": principal_id, "idempotency_key": idempotency_key})
+    command_key = f"promotion:{identity}"
+    return hashlib.sha256(f"{command_key}\0completed".encode()).hexdigest()
+
+
 def _mapping(value: object) -> dict[str, object]:
     assert isinstance(value, dict)
     return value
@@ -110,9 +116,19 @@ def _scenario() -> dict[str, object]:
 
 
 class _FakeTransport:
-    def __init__(self, module, *, decision_never_ready: bool = False) -> None:
+    def __init__(
+        self,
+        module,
+        *,
+        decision_never_ready: bool = False,
+        candidate_is_code: bool = False,
+        receipt_key_mismatch: str | None = None,
+        canary_overlay_subject_mismatch: bool = False,
+    ) -> None:
         self._module = module
         self.decision_never_ready = decision_never_ready
+        self.receipt_key_mismatch = receipt_key_mismatch
+        self.principal_id = "user:owner"
         self.calls: list[tuple[str, str, dict[str, str], object | None]] = []
         evidence = _s5_evidence()
         self.bundle = _strict_json(ClosedEvidenceBundleV1, evidence["gate_bundle"]).model_dump(
@@ -134,6 +150,15 @@ class _FakeTransport:
         self.rollback_receipt = _strict_json(
             RollbackReceiptV1, promotion["rollback_receipt"]
         ).model_dump(mode="json")
+        self.candidate_canary = copy.deepcopy(self.candidate_ready)
+        self.candidate_canary["lifecycle"] = "canary"
+        self.candidate_canary["version"] = self.rollback_receipt["candidate_version"] - 2
+        self.candidate_canary["routing"] = {
+            "allocation_basis_points": self.canary_receipt["allocation_basis_points"],
+            "allocation_seed_id": "lean-preview-v1",
+            "routing_version": self.canary_receipt["routing_version"],
+        }
+        self.candidate_canary["updated_at"] = self.canary_receipt["completed_at"]
         assignment_evidence = _mapping(evidence["assignment_evidence"])
         self.canary_assignment = _strict_json(
             RunAssignmentV1, assignment_evidence["assignment"]
@@ -159,6 +184,21 @@ class _FakeTransport:
             artifact_digest=final_candidate.base.artifact_digest,
             canonical_digest=final_candidate.base.canonical_digest,
         ).model_dump(mode="json")
+        if candidate_is_code:
+            for candidate in (
+                self.candidate_ready,
+                self.candidate_canary,
+                self.candidate_final,
+            ):
+                candidate["kind"] = "code"
+                candidate["evolution_contract"]["kind"] = "code"
+                candidate["evolution_contract_hash"] = _canonical_hash(
+                    candidate["evolution_contract"]
+                )
+            self.canary_overlay["kind"] = "code"
+            self.post_overlay["kind"] = "code"
+        if canary_overlay_subject_mismatch:
+            self.canary_overlay["subject_key"] = "skill:other"
         self.initial_edict = Edict(
             id=self.bundle["edict_id"], goal="Lean Preview governed run"
         ).model_dump(mode="json")
@@ -184,6 +224,7 @@ class _FakeTransport:
             status=TaskStatus.COMPLETED,
         ).model_dump(mode="json")
         self.rolled_back = False
+        self.canary_started = False
 
     @property
     def edicts(self) -> tuple[dict[str, object], ...]:
@@ -214,6 +255,12 @@ class _FakeTransport:
 
         if path == "/health/ready":
             payload = {"schema_version": "1", "status": "ready"}
+        elif path == "/api/auth/me":
+            payload = {
+                "principal": {"id": self.principal_id},
+                "source": "bearer",
+                "client_kind": "api",
+            }
         elif path == "/api/edicts" and method == "POST":
             number = sum(call[1] == "/api/edicts" for call in self.calls)
             edict = self.edicts[number - 1]
@@ -283,7 +330,13 @@ class _FakeTransport:
             and method == "GET"
         ):
             payload = {
-                "data": self.candidate_final if self.rolled_back else self.candidate_ready,
+                "data": (
+                    self.candidate_final
+                    if self.rolled_back
+                    else self.candidate_canary
+                    if self.canary_started
+                    else self.candidate_ready
+                ),
                 "correlation_id": correlation,
             }
         elif path == (
@@ -294,8 +347,16 @@ class _FakeTransport:
                 "correlation_id": correlation,
             }
         elif path == f"/api/evolution/candidates/{self.candidate_ready['candidate_id']}/canary":
+            assert isinstance(body, dict)
+            self.canary_started = True
+            receipt = copy.deepcopy(self.canary_receipt)
+            key = str(body["idempotency_key"])
+            if self.receipt_key_mismatch == "canary":
+                key = f"{key}:spliced"
+            receipt["idempotency_key"] = key
+            receipt["journal_id"] = _promotion_journal_id(self.principal_id, key)
             payload = {
-                "data": self.canary_receipt,
+                "data": receipt,
                 "correlation_id": correlation,
             }
         elif path == f"/api/evolution/runs/{self.canary_assignment['memorial_id']}/assignment":
@@ -308,8 +369,15 @@ class _FakeTransport:
             }
         elif path == (f"/api/evolution/candidates/{self.candidate_ready['candidate_id']}/rollback"):
             self.rolled_back = True
+            assert isinstance(body, dict)
+            receipt = copy.deepcopy(self.rollback_receipt)
+            key = str(body["idempotency_key"])
+            if self.receipt_key_mismatch == "rollback":
+                key = f"{key}:spliced"
+            receipt["idempotency_key"] = key
+            receipt["journal_id"] = _promotion_journal_id(self.principal_id, key)
             payload = {
-                "data": self.rollback_receipt,
+                "data": receipt,
                 "correlation_id": correlation,
             }
         elif path == f"/api/evolution/runs/{self.post_assignment['memorial_id']}/assignment":
@@ -435,6 +503,20 @@ def test_runner_uses_only_stdlib_and_public_http_surfaces(tmp_path: Path) -> Non
     _strict_json(
         EvolutionCandidateV1, observed_by_step["verify_new_run_uses_champion"]["candidate"]
     )
+    assert observed_by_step["doctor_ready"]["principal_id"] == transport.principal_id
+    for step_id, action in (
+        ("start_skill_canary", "start_canary"),
+        ("rollback_candidate", "rollback"),
+    ):
+        observed = observed_by_step[step_id]
+        request_binding = observed["request_binding"]
+        receipt_name = "promotion_receipt" if action == "start_canary" else "rollback_receipt"
+        receipt = observed[receipt_name]
+        expected_key = f"lean-preview:batch-public-boundary:{'canary' if action == 'start_canary' else 'rollback'}"
+        assert request_binding["action"] == action
+        assert request_binding["idempotency_key"] == expected_key
+        assert receipt["idempotency_key"] == expected_key
+        assert receipt["journal_id"] == _promotion_journal_id(transport.principal_id, expected_key)
 
     artifacts = sorted((report_path.parent / "artifacts").glob("*.json"))
     assert len(artifacts) == 13
@@ -501,3 +583,34 @@ def test_runner_refuses_to_overwrite_an_existing_batch(tmp_path: Path) -> None:
             environ={"TIANSHU_BOOTSTRAP_TOKEN": "secret"},
         )
     assert marker.read_text(encoding="utf-8") == "retained"
+
+
+@pytest.mark.parametrize(
+    ("transport_kwargs", "failed_step"),
+    [
+        ({"candidate_is_code": True}, "evaluate_candidate_gate"),
+        ({"canary_overlay_subject_mismatch": True}, "verify_real_candidate_overlay"),
+        ({"receipt_key_mismatch": "canary"}, "start_skill_canary"),
+        ({"receipt_key_mismatch": "rollback"}, "rollback_candidate"),
+    ],
+)
+def test_runner_rejects_non_skill_or_request_unbound_public_responses(
+    tmp_path: Path,
+    transport_kwargs: dict[str, object],
+    failed_step: str,
+) -> None:
+    module = _module()
+    scenario_path = tmp_path / "scenario.json"
+    scenario_path.write_text(json.dumps(_scenario()), encoding="utf-8")
+
+    with pytest.raises(module.DemoRunError, match=failed_step):
+        module.run_demo(
+            base_url="http://127.0.0.1:7998",
+            scenario_path=scenario_path,
+            batch_id=f"batch-{failed_step}",
+            output_root=tmp_path / "evidence",
+            transport=_FakeTransport(module, **transport_kwargs),
+            clock=_Clock(),
+            sleeper=lambda _seconds: None,
+            environ={"TIANSHU_BOOTSTRAP_TOKEN": "secret"},
+        )
