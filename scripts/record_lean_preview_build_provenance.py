@@ -9,19 +9,20 @@ import importlib.metadata as metadata
 import json
 import platform
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 from tianshu.executor.git_backend import GitBackend, GitBackendError, GitLocation
 
 try:
+    from scripts._trusted_local_process import run_trusted_local_process
     from scripts.check_lean_preview_candidate import (
         SDIST_BUILD_COMMAND,
         WHEEL_BUILD_COMMAND,
         _sdist_payload,
     )
 except ModuleNotFoundError:  # direct ``python scripts/...`` execution
+    from _trusted_local_process import run_trusted_local_process
     from check_lean_preview_candidate import (
         SDIST_BUILD_COMMAND,
         WHEEL_BUILD_COMMAND,
@@ -60,14 +61,8 @@ def _hash_file(path: Path) -> str:
 
 
 def _run_build(argv: list[str], *, cwd: Path, log_path: Path, label: str) -> None:
-    completed = subprocess.run(
-        argv,
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
-    log_path.write_bytes(completed.stdout)
+    completed = run_trusted_local_process(argv, cwd=cwd)
+    log_path.write_bytes(completed.stdout + completed.stderr)
     if completed.returncode != 0:
         raise BuildRecordingError(f"{label} build failed (exit {completed.returncode})")
 

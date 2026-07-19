@@ -3,8 +3,8 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
-import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -41,15 +41,16 @@ def test_recorder_executes_fixed_gates_and_hashes_unmodified_combined_logs(
     wheel.write_bytes(b"one exact candidate Wheel\n")
     calls: list[tuple[list[str], Path, dict[str, str]]] = []
 
-    def run(argv, *, cwd, env, stdout, stderr, check):
-        assert stdout is subprocess.PIPE
-        assert stderr is subprocess.STDOUT
-        assert check is False
+    def run(argv, *, cwd, env):
         calls.append((argv, cwd, env))
         gate_id = tuple(module.GATE_COMMANDS)[len(calls) - 1]
-        return subprocess.CompletedProcess(argv, 0, stdout=f"raw {gate_id}\n".encode())
+        return SimpleNamespace(
+            returncode=0,
+            stdout=f"raw {gate_id}\n".encode(),
+            stderr=f"stderr {gate_id}\n".encode(),
+        )
 
-    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module, "run_trusted_local_process", run)
     manifest_path = module.record_gate_evidence(
         output_root=tmp_path,
         batch_id="batch-1",
@@ -71,7 +72,7 @@ def test_recorder_executes_fixed_gates_and_hashes_unmodified_combined_logs(
     assert len(calls) == len(module.GATE_COMMANDS)
     calls_by_gate = dict(zip(module.GATE_COMMANDS, calls, strict=True))
     for gate_id, record in manifest["commands"].items():
-        raw = f"raw {gate_id}\n".encode()
+        raw = f"raw {gate_id}\nstderr {gate_id}\n".encode()
         argv, cwd, actual_environment = calls_by_gate[gate_id]
         expected_environment = module.required_gate_environment(
             gate_id,
@@ -116,13 +117,13 @@ def test_recorder_stops_on_first_failure_without_writing_a_pass_manifest(
     def run(argv, **_kwargs):
         nonlocal calls
         calls += 1
-        return subprocess.CompletedProcess(
-            argv,
-            7 if calls == 2 else 0,
+        return SimpleNamespace(
+            returncode=7 if calls == 2 else 0,
             stdout=b"unaltered failure output\n" if calls == 2 else b"first passed\n",
+            stderr=b"failure stderr\n" if calls == 2 else b"",
         )
 
-    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module, "run_trusted_local_process", run)
     with pytest.raises(module.GateRecordingError, match="failed: ruff_format"):
         module.record_gate_evidence(
             output_root=tmp_path,
@@ -132,7 +133,9 @@ def test_recorder_stops_on_first_failure_without_writing_a_pass_manifest(
 
     batch = tmp_path / "batch-failed"
     assert calls == 2
-    assert (batch / "logs/ruff_format.log").read_bytes() == b"unaltered failure output\n"
+    assert (batch / "logs/ruff_format.log").read_bytes() == (
+        b"unaltered failure output\nfailure stderr\n"
+    )
     assert not (batch / "manifest.json").exists()
     assert not (batch / "logs/mypy.log").exists()
 
@@ -154,9 +157,9 @@ def test_recorder_requires_one_candidate_wheel_before_running_any_gate(
     def run(argv, **_kwargs):
         nonlocal calls
         calls += 1
-        return subprocess.CompletedProcess(argv, 0, stdout=b"unexpected Gate run\n")
+        return SimpleNamespace(returncode=0, stdout=b"unexpected Gate run\n", stderr=b"")
 
-    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module, "run_trusted_local_process", run)
     with pytest.raises(module.GateRecordingError, match="exactly one candidate Wheel"):
         module.record_gate_evidence(
             output_root=tmp_path / "evidence",

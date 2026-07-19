@@ -9,13 +9,13 @@ import json
 import os
 import re
 import shlex
-import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
 from tianshu.executor.git_backend import GitBackend, GitBackendError, GitLocation
 
 try:
+    from scripts._trusted_local_process import run_trusted_local_process
     from scripts.check_lean_preview_candidate import (
         CANDIDATE_WHEEL_DIR,
         REQUIRED_FINAL_COMMANDS,
@@ -24,6 +24,7 @@ try:
         required_gate_environment,
     )
 except ModuleNotFoundError:  # direct ``python scripts/...`` execution
+    from _trusted_local_process import run_trusted_local_process
     from check_lean_preview_candidate import (
         CANDIDATE_WHEEL_DIR,
         REQUIRED_FINAL_COMMANDS,
@@ -95,15 +96,12 @@ def record_gate_evidence(*, output_root: Path, batch_id: str, source_commit: str
                 environment.pop(name, None)
             else:
                 environment[name] = value
-        completed = subprocess.run(
+        completed = run_trusted_local_process(
             _argv(gate_id),
             cwd=ROOT / REQUIRED_GATE_CWDS[gate_id],
             env=environment,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
         )
-        raw = completed.stdout
+        raw = completed.stdout + completed.stderr
         log_ref = f"logs/{gate_id}.log"
         (batch_root / log_ref).write_bytes(raw)
         if completed.returncode != 0:

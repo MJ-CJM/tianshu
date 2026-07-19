@@ -4,10 +4,12 @@ import hashlib
 import importlib.util
 import io
 import json
-import subprocess
 import tarfile
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 ROOT = Path(__file__).parents[2]
 RECORDER_PATH = ROOT / "scripts" / "record_lean_preview_build_provenance.py"
@@ -49,26 +51,27 @@ def test_recorder_builds_wheel_from_hash_bound_extracted_sdist(tmp_path: Path, m
     monkeypatch.setattr(module.platform, "python_version", lambda: "3.12.12")
     calls: list[tuple[list[str], Path]] = []
 
-    def run(argv, *, cwd, stdout, stderr, check):
-        assert stdout is subprocess.PIPE
-        assert stderr is subprocess.STDOUT
-        assert check is False
+    def run(argv, *, cwd):
         calls.append((argv, cwd))
         if len(calls) == 1:
             target = tmp_path / "dist/lean-preview-candidate/tianshu-0.4.2.tar.gz"
             target.parent.mkdir(parents=True)
             _write_sdist(target)
-            return subprocess.CompletedProcess(
-                argv, 0, stdout=b"Successfully built tianshu-0.4.2.tar.gz\n"
+            return SimpleNamespace(
+                returncode=0,
+                stdout=b"Successfully built tianshu-0.4.2.tar.gz\n",
+                stderr=b"sdist warning\n",
             )
         target = tmp_path / "dist/lean-preview-candidate/from-sdist"
         target.mkdir(parents=True)
         _write_wheel(target / "tianshu-0.4.2-py3-none-any.whl")
-        return subprocess.CompletedProcess(
-            argv, 0, stdout=b"Successfully built tianshu-0.4.2-py3-none-any.whl\n"
+        return SimpleNamespace(
+            returncode=0,
+            stdout=b"Successfully built tianshu-0.4.2-py3-none-any.whl\n",
+            stderr=b"wheel warning\n",
         )
 
-    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(module, "run_trusted_local_process", run)
     path = module.record_build_provenance(
         output_root=tmp_path / "evidence/builds",
         batch_id="batch-1",
@@ -111,10 +114,33 @@ def test_recorder_builds_wheel_from_hash_bound_extracted_sdist(tmp_path: Path, m
         "cwd": ".",
         "exit_code": 0,
         "log_ref": "logs/sdist.log",
-        "log_sha256": hashlib.sha256(b"Successfully built tianshu-0.4.2.tar.gz\n").hexdigest(),
+        "log_sha256": hashlib.sha256(
+            b"Successfully built tianshu-0.4.2.tar.gz\nsdist warning\n"
+        ).hexdigest(),
         "sha256": sdist_hash,
     }
     assert payload["wheel"]["command"] == module.WHEEL_BUILD_COMMAND
     assert payload["wheel"]["cwd"] == extracted_root.relative_to(tmp_path).as_posix()
     assert payload["wheel"]["exit_code"] == 0
     assert payload["wheel"]["source_sdist_sha256"] == sdist_hash
+
+
+def test_run_build_keeps_stdout_and_stderr_before_raising_on_nonzero_exit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        module,
+        "run_trusted_local_process",
+        lambda argv, *, cwd: SimpleNamespace(
+            returncode=9,
+            stdout=b"build stdout\n",
+            stderr=b"build stderr\n",
+        ),
+    )
+    log_path = tmp_path / "failed.log"
+
+    with pytest.raises(module.BuildRecordingError, match=r"Wheel build failed \(exit 9\)"):
+        module._run_build(["python", "-m", "build"], cwd=tmp_path, log_path=log_path, label="Wheel")
+
+    assert log_path.read_bytes() == b"build stdout\nbuild stderr\n"
