@@ -232,3 +232,37 @@ After the minimal fixed-path/field implementation:
 The four warnings remain the same third-party `lark_oapi` and `websockets`
 deprecations. No real Wheel, Gate evidence, build provenance, demo, or Candidate was
 generated or claimed by this addendum.
+
+## Third independent-review hardening addendum
+
+The third closure review found that the build-evidence clean-tree exception introduced
+above was one directory too broad: a Gate batch could start while evidence from an
+unrelated build batch was dirty.
+
+The exception is now confined to descendants of the exact current-batch prefix
+`docs/cc-fable-v1/evidence/builds/<batch_id>/`. The batch directory itself, another batch,
+a file directly under `builds/`, source code, and every other dirty path remain rejected.
+There is no configurable allowlist.
+
+TDD reproduced the prior bug first: with `batch_id=gate-1`, the recorder incorrectly
+returned success for
+`docs/cc-fable-v1/evidence/builds/build-1/provenance.json`. The resulting four-case
+matrix now verifies:
+
+- current batch descendant: allowed;
+- other batch descendant: rejected;
+- `builds/` root-level file: rejected; and
+- source/other dirty path: rejected.
+
+Final verification after the minimal prefix correction:
+
+- focused pytest: `209 passed / 0 failed / 4 warnings`;
+- Ruff check: `All checks passed!`;
+- Ruff format check: both touched Python files formatted;
+- configured mypy: `Success: no issues found in 132 source files`;
+- Gate-recorder-specific mypy: `Success: no issues found in 1 source file`;
+- `git diff --check`: passed; and
+- `uv.lock`: zero diff.
+
+The warnings remain the same four third-party deprecations. No Gate, build, demo,
+provenance, or Candidate was generated.

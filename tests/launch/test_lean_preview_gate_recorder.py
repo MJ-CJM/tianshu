@@ -172,9 +172,11 @@ def test_recorder_requires_one_candidate_wheel_before_running_any_gate(
     ("dirty_path", "expected_exit"),
     [
         (
-            "docs/cc-fable-v1/evidence/builds/build-1/provenance.json",
+            "docs/cc-fable-v1/evidence/builds/gate-1/provenance.json",
             0,
         ),
+        ("docs/cc-fable-v1/evidence/builds/build-1/provenance.json", 1),
+        ("docs/cc-fable-v1/evidence/builds/provenance.json", 1),
         ("src/tianshu/app.py", 1),
     ],
 )

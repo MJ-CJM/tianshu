@@ -145,8 +145,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         source_commit = backend.resolve_commit(location, "HEAD")
         dirty_paths = backend.worktree_status_paths(location)
-        build_evidence_root = PurePosixPath("docs/cc-fable-v1/evidence/builds")
-        if any(not PurePosixPath(path).is_relative_to(build_evidence_root) for path in dirty_paths):
+        build_evidence_root = PurePosixPath("docs/cc-fable-v1/evidence/builds") / args.batch_id
+        if any(
+            PurePosixPath(path) == build_evidence_root
+            or not PurePosixPath(path).is_relative_to(build_evidence_root)
+            for path in dirty_paths
+        ):
             raise GateRecordingError("Gate recording requires a clean source tree")
         path = record_gate_evidence(
             output_root=args.output_root,
