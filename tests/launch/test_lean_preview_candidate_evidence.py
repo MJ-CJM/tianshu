@@ -85,7 +85,11 @@ def _write_gate_batch(
         record: dict[str, object] = {
             "command": command,
             "cwd": module.REQUIRED_GATE_CWDS[gate_id],
-            "environment": module.REQUIRED_GATE_ENVIRONMENTS[gate_id],
+            "environment": module.required_gate_environment(
+                gate_id,
+                batch_id="batch-1",
+                source_commit=SOURCE_COMMIT,
+            ),
             "exit_code": 0,
             "log_ref": f"logs/{gate_id}.log",
             "log_sha256": hashlib.sha256(raw).hexdigest(),
@@ -139,6 +143,10 @@ def test_gate_evidence_derives_results_from_hashed_raw_logs(tmp_path: Path) -> N
         ("tampered_log", "Gate log hash mismatch"),
         ("failed_exit", "required Gate failed"),
         ("playwright_40", "exactly 41 passed"),
+        ("packaging_missing_env", "command context"),
+        ("packaging_skip", "required Gate skipped"),
+        ("playwright_skipped", "0 skipped"),
+        ("playwright_duplicate", "exactly one terminal summary"),
     ],
 )
 def test_gate_evidence_rejects_unbacked_or_incomplete_passes(
@@ -150,12 +158,20 @@ def test_gate_evidence_rejects_unbacked_or_incomplete_passes(
         overrides = {"backend_non_slow": b"0 passed in 1.00s\n"}
     elif mutation == "playwright_40":
         overrides = {"web_playwright": b"40 passed, 1 failed (36.3s)\n"}
+    elif mutation == "packaging_skip":
+        overrides = {"packaging": b"27 passed, 1 skipped, 4 warnings in 600.00s\n"}
+    elif mutation == "playwright_skipped":
+        overrides = {"web_playwright": b"41 passed, 1 skipped (36.3s)\n"}
+    elif mutation == "playwright_duplicate":
+        overrides = {"web_playwright": b"41 passed (36.3s)\n40 passed (20.0s)\n"}
 
     def mutate(gate_id: str, record: dict[str, object]) -> None:
         if mutation == "fabricated_summary" and gate_id == "mypy":
             record["summary"] = "passed"
         if mutation == "failed_exit" and gate_id == "mypy":
             record["exit_code"] = 1
+        if mutation == "packaging_missing_env" and gate_id == "packaging":
+            record["environment"] = {"VIRTUAL_ENV": "unset"}
 
     manifest = _write_gate_batch(
         module,
@@ -284,6 +300,8 @@ def _write_build_provenance(root: Path, sdist: Path, wheel: Path) -> Path:
     wheel_log = b"Successfully built tianshu-0.4.2-py3-none-any.whl\n"
     (logs / "sdist.log").write_bytes(sdist_log)
     (logs / "wheel.log").write_bytes(wheel_log)
+    sdist_hash = hashlib.sha256(sdist.read_bytes()).hexdigest()
+    sdist_root = "tianshu-0.4.2"
     payload: dict[str, object] = {
         "schema_version": 1,
         "source_commit": SOURCE_COMMIT,
@@ -291,16 +309,20 @@ def _write_build_provenance(root: Path, sdist: Path, wheel: Path) -> Path:
         "frontend": {"name": "build", "version": "1.5.0"},
         "sdist": {
             "command": "python -m build --sdist --outdir dist/lean-preview-candidate",
+            "cwd": ".",
+            "exit_code": 0,
             "log_ref": "logs/sdist.log",
             "log_sha256": hashlib.sha256(sdist_log).hexdigest(),
-            "sha256": hashlib.sha256(sdist.read_bytes()).hexdigest(),
+            "sha256": sdist_hash,
         },
         "wheel": {
-            "command": ("python -m build --wheel --outdir dist/lean-preview-candidate/from-sdist"),
+            "command": "python -m build --wheel --outdir ../../../from-sdist",
+            "cwd": f"dist/lean-preview-candidate/extracted/{sdist_hash}/{sdist_root}",
+            "exit_code": 0,
             "log_ref": "logs/wheel.log",
             "log_sha256": hashlib.sha256(wheel_log).hexdigest(),
             "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
-            "source_sdist_sha256": hashlib.sha256(sdist.read_bytes()).hexdigest(),
+            "source_sdist_sha256": sdist_hash,
         },
     }
     payload["content_hash"] = _content_hash(payload)
@@ -340,7 +362,11 @@ def test_build_provenance_binds_source_sdist_wheel_and_visible_web_manifest(
         ("sdist_extra_source", "committed source"),
         ("sdist_symlink", "unsafe member"),
         ("build_command", "build command"),
+        ("build_cwd", "build cwd"),
+        ("build_exit", "build failed"),
+        ("build_error_log", "records failure"),
         ("python_version", "Python 3.12"),
+        ("evil_package", "installable payload"),
         ("hidden_manifest", "visible manifest"),
         ("second_root", "single root"),
     ],
@@ -377,9 +403,33 @@ def test_build_provenance_rejects_replaced_or_untraceable_artifacts(
         payload["wheel"]["command"] = "python -m build --wheel ."
         payload["content_hash"] = _content_hash(payload)
         provenance.write_bytes(_canonical_bytes(payload))
+    elif mutation == "build_cwd":
+        payload = json.loads(provenance.read_bytes())
+        payload["wheel"]["cwd"] = "dist/lean-preview-candidate/extracted/unbound"
+        payload["content_hash"] = _content_hash(payload)
+        provenance.write_bytes(_canonical_bytes(payload))
+    elif mutation == "build_exit":
+        payload = json.loads(provenance.read_bytes())
+        payload["sdist"]["exit_code"] = 1
+        payload["content_hash"] = _content_hash(payload)
+        provenance.write_bytes(_canonical_bytes(payload))
+    elif mutation == "build_error_log":
+        failed_log = b"Successfully built tianshu-0.4.2.tar.gz\nERROR: build failed\n"
+        provenance.parent.joinpath("logs/sdist.log").write_bytes(failed_log)
+        payload = json.loads(provenance.read_bytes())
+        payload["sdist"]["log_sha256"] = hashlib.sha256(failed_log).hexdigest()
+        payload["content_hash"] = _content_hash(payload)
+        provenance.write_bytes(_canonical_bytes(payload))
     elif mutation == "python_version":
         payload = json.loads(provenance.read_bytes())
         payload["python_version"] = "3.13.0"
+        payload["content_hash"] = _content_hash(payload)
+        provenance.write_bytes(_canonical_bytes(payload))
+    elif mutation == "evil_package":
+        with zipfile.ZipFile(wheel, "a") as archive:
+            archive.writestr("evil/__init__.py", b"EVIL = True\n")
+        payload = json.loads(provenance.read_bytes())
+        payload["wheel"]["sha256"] = hashlib.sha256(wheel.read_bytes()).hexdigest()
         payload["content_hash"] = _content_hash(payload)
         provenance.write_bytes(_canonical_bytes(payload))
     with pytest.raises(module.CandidateGateError, match=message):

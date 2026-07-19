@@ -175,21 +175,3 @@ def test_exact_packaging_gates_do_not_launch_uv() -> None:
         source = (ROOT / relative).read_text(encoding="utf-8")
         assert '["uv",' not in source
         assert "['uv'," not in source
-
-
-def test_only_the_bound_generated_demo_batch_may_follow_a_clean_source_build() -> None:
-    module = _module()
-    demo_ref = "docs/cc-fable-v1/evidence/lean-preview/batch-1/demo-report.json"
-
-    assert module.only_bound_demo_evidence_is_dirty(
-        (
-            demo_ref,
-            "docs/cc-fable-v1/evidence/lean-preview/batch-1/artifacts/01-ready.json",
-        ),
-        demo_ref,
-    )
-    assert not module.only_bound_demo_evidence_is_dirty(("src/tianshu/app.py",), demo_ref)
-    assert not module.only_bound_demo_evidence_is_dirty(
-        ("docs/cc-fable-v1/evidence/lean-preview/other/demo-report.json",),
-        demo_ref,
-    )

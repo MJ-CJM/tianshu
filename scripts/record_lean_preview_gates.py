@@ -20,12 +20,14 @@ try:
         REQUIRED_FINAL_COMMANDS,
         REQUIRED_GATE_CWDS,
         REQUIRED_GATE_ENVIRONMENTS,
+        required_gate_environment,
     )
 except ModuleNotFoundError:  # direct ``python scripts/...`` execution
     from check_lean_preview_candidate import (
         REQUIRED_FINAL_COMMANDS,
         REQUIRED_GATE_CWDS,
         REQUIRED_GATE_ENVIRONMENTS,
+        required_gate_environment,
     )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,7 +58,7 @@ def _content_hash(value: dict[str, object]) -> str:
 
 def _argv(gate_id: str) -> list[str]:
     argv = shlex.split(GATE_COMMANDS[gate_id])
-    if REQUIRED_GATE_ENVIRONMENTS[gate_id] == {"VIRTUAL_ENV": "unset"}:
+    if REQUIRED_GATE_ENVIRONMENTS[gate_id].get("VIRTUAL_ENV") == "unset":
         return argv[3:]
     return argv
 
@@ -75,9 +77,17 @@ def record_gate_evidence(*, output_root: Path, batch_id: str, source_commit: str
     logs.mkdir(parents=True)
     records: dict[str, object] = {}
     for gate_id in GATE_COMMANDS:
+        record_environment = required_gate_environment(
+            gate_id,
+            batch_id=batch_id,
+            source_commit=source_commit,
+        )
         environment = dict(os.environ)
-        if REQUIRED_GATE_ENVIRONMENTS[gate_id] == {"VIRTUAL_ENV": "unset"}:
-            environment.pop("VIRTUAL_ENV", None)
+        for name, value in record_environment.items():
+            if value == "unset":
+                environment.pop(name, None)
+            else:
+                environment[name] = value
         completed = subprocess.run(
             _argv(gate_id),
             cwd=ROOT / REQUIRED_GATE_CWDS[gate_id],
@@ -96,7 +106,7 @@ def record_gate_evidence(*, output_root: Path, batch_id: str, source_commit: str
         records[gate_id] = {
             "command": GATE_COMMANDS[gate_id],
             "cwd": REQUIRED_GATE_CWDS[gate_id],
-            "environment": REQUIRED_GATE_ENVIRONMENTS[gate_id],
+            "environment": record_environment,
             "exit_code": completed.returncode,
             "log_ref": log_ref,
             "log_sha256": hashlib.sha256(raw).hexdigest(),

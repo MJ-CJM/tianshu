@@ -118,7 +118,22 @@ REQUIRED_GATE_ENVIRONMENTS = {
     for command_id in REQUIRED_FINAL_COMMANDS
 }
 SDIST_BUILD_COMMAND = "python -m build --sdist --outdir dist/lean-preview-candidate"
-WHEEL_BUILD_COMMAND = "python -m build --wheel --outdir dist/lean-preview-candidate/from-sdist"
+WHEEL_BUILD_COMMAND = "python -m build --wheel --outdir ../../../from-sdist"
+
+
+def required_gate_environment(gate_id: str, *, batch_id: str, source_commit: str) -> dict[str, str]:
+    """Return the exact environment context that a Gate record must bind."""
+
+    environment = dict(REQUIRED_GATE_ENVIRONMENTS[gate_id])
+    if gate_id == "packaging":
+        environment.update(
+            {
+                "BATCH_ID": batch_id,
+                "TIANSHU_LEAN_WHEEL_SOURCE_COMMIT": source_commit,
+            }
+        )
+    return environment
+
 
 _CAPABILITY_FACTS = (
     "desktop Web",
@@ -266,13 +281,24 @@ def _derived_gate_result(gate_id: str, raw: bytes) -> dict[str, Any]:
         passed, summary = 1, "production build completed"
         warnings = int("Some chunks are larger than" in text)
     elif gate_id == "web_playwright":
-        passed_match = re.search(r"\b(\d+) passed\b", text)
-        failed_match = re.search(r"\b(\d+) failed\b", text)
-        passed = int(passed_match.group(1)) if passed_match else 0
-        failed = int(failed_match.group(1)) if failed_match else 0
-        if passed != 41 or failed:
-            raise CandidateGateError("Playwright Gate requires exactly 41 passed and 0 failed")
-        summary = "41 passed"
+        summaries = re.findall(r"(?m)^[^\n]*\b\d+\s+(?:passed|failed|skipped)\b[^\n]*$", text)
+        if len(summaries) != 1:
+            raise CandidateGateError("Playwright Gate requires exactly one terminal summary")
+        summary = summaries[0].strip()
+
+        def playwright_count(label: str) -> int:
+            match = re.search(rf"\b(\d+)\s+{label}\b", summary)
+            return int(match.group(1)) if match else 0
+
+        passed = playwright_count("passed")
+        failed = playwright_count("failed")
+        skipped = playwright_count("skipped")
+        if passed != 41:
+            raise CandidateGateError("Playwright Gate requires exactly 41 passed")
+        if failed:
+            raise CandidateGateError("Playwright Gate requires 0 failed")
+        if skipped:
+            raise CandidateGateError("Playwright Gate requires 0 skipped")
     if passed <= 0:
         raise CandidateGateError(f"required Gate needs a positive passed count: {gate_id}")
     return {
@@ -283,7 +309,7 @@ def _derived_gate_result(gate_id: str, raw: bytes) -> dict[str, Any]:
         "skipped": skipped,
         "deselected": deselected,
         "warnings": warnings,
-        "required_skipped": 0,
+        "required_skipped": skipped if gate_id == "packaging" else 0,
         "summary": summary,
     }
 
@@ -330,7 +356,12 @@ def load_gate_evidence(
         if (
             record["command"] != REQUIRED_FINAL_COMMANDS[gate_id]
             or record["cwd"] != REQUIRED_GATE_CWDS[gate_id]
-            or record["environment"] != REQUIRED_GATE_ENVIRONMENTS[gate_id]
+            or record["environment"]
+            != required_gate_environment(
+                gate_id,
+                batch_id=manifest["batch_id"],
+                source_commit=manifest["source_commit"],
+            )
         ):
             raise CandidateGateError(f"required Gate command context mismatch: {gate_id}")
         if record["exit_code"] != 0:
@@ -373,7 +404,7 @@ def _verified_log(batch_root: Path, record: Mapping[str, Any], label: str) -> by
     return raw
 
 
-def _sdist_payload(path: Path) -> dict[str, bytes]:
+def _sdist_payload(path: Path) -> tuple[str, dict[str, bytes]]:
     try:
         with tarfile.open(path, "r:gz") as archive:
             all_members = archive.getmembers()
@@ -401,7 +432,7 @@ def _sdist_payload(path: Path) -> dict[str, bytes]:
                 extracted = archive.extractfile(member)
                 if extracted is not None:
                     payload[relative] = extracted.read()
-            return payload
+            return root, payload
     except (OSError, tarfile.TarError) as exc:
         raise CandidateGateError("sdist is missing or corrupt") from exc
 
@@ -415,7 +446,10 @@ def _wheel_payload(path: Path) -> dict[str, bytes]:
                 if pure.is_absolute() or ".." in pure.parts:
                     raise CandidateGateError("Wheel contains an unsafe member")
                 if not name.endswith("/"):
-                    payload[pure.as_posix()] = archive.read(name)
+                    relative = pure.as_posix()
+                    if relative in payload:
+                        raise CandidateGateError("Wheel contains a duplicate member")
+                    payload[relative] = archive.read(name)
             return payload
     except (OSError, zipfile.BadZipFile) as exc:
         raise CandidateGateError("Wheel is missing or corrupt") from exc
@@ -462,7 +496,14 @@ def verify_build_provenance(
         raise CandidateGateError("build provenance is outside the artifact root")
     sdist_record = _mapping(payload["sdist"], "sdist provenance")
     wheel_record = _mapping(payload["wheel"], "Wheel provenance")
-    expected_sdist_fields = {"command", "log_ref", "log_sha256", "sha256"}
+    expected_sdist_fields = {
+        "command",
+        "cwd",
+        "exit_code",
+        "log_ref",
+        "log_sha256",
+        "sha256",
+    }
     expected_wheel_fields = expected_sdist_fields | {"source_sdist_sha256"}
     if set(sdist_record) != expected_sdist_fields or set(wheel_record) != expected_wheel_fields:
         raise CandidateGateError("artifact provenance fields are not exact")
@@ -471,9 +512,21 @@ def verify_build_provenance(
         or wheel_record["command"] != WHEEL_BUILD_COMMAND
     ):
         raise CandidateGateError("artifact build command mismatch")
-    if b"Successfully built" not in _verified_log(batch_root, sdist_record, "sdist"):
+    for label, record in (("sdist", sdist_record), ("Wheel", wheel_record)):
+        exit_code = record["exit_code"]
+        if isinstance(exit_code, bool) or not isinstance(exit_code, int) or exit_code != 0:
+            raise CandidateGateError(f"{label} build failed")
+    if sdist_record["cwd"] != ".":
+        raise CandidateGateError("sdist build cwd mismatch")
+    sdist_log = _verified_log(batch_root, sdist_record, "sdist")
+    wheel_log = _verified_log(batch_root, wheel_record, "Wheel")
+    if re.search(rb"(?im)\b(?:ERROR|FAILED)\b", sdist_log):
+        raise CandidateGateError("sdist build log records failure")
+    if re.search(rb"(?im)\b(?:ERROR|FAILED)\b", wheel_log):
+        raise CandidateGateError("Wheel build log records failure")
+    if b"Successfully built" not in sdist_log:
         raise CandidateGateError("sdist build log does not record success")
-    if b"Successfully built" not in _verified_log(batch_root, wheel_record, "Wheel"):
+    if b"Successfully built" not in wheel_log:
         raise CandidateGateError("Wheel build log does not record success")
     sdist_hash = _hash_file(sdist_path)
     wheel_hash = _hash_file(wheel_path)
@@ -481,7 +534,10 @@ def verify_build_provenance(
         raise CandidateGateError("sdist artifact hash mismatch")
     if wheel_record["source_sdist_sha256"] != sdist_hash:
         raise CandidateGateError("Wheel source sdist hash mismatch")
-    sdist_files = _sdist_payload(sdist_path)
+    sdist_root, sdist_files = _sdist_payload(sdist_path)
+    expected_wheel_cwd = f"dist/lean-preview-candidate/extracted/{sdist_hash}/{sdist_root}"
+    if wheel_record["cwd"] != expected_wheel_cwd:
+        raise CandidateGateError("Wheel build cwd mismatch")
     for relative, expected in tracked_source_files.items():
         if sdist_files.get(relative) != expected:
             raise CandidateGateError(f"sdist source payload mismatch: {relative}")
@@ -490,6 +546,16 @@ def verify_build_provenance(
     if visible not in sdist_files or hidden in sdist_files:
         raise CandidateGateError("sdist must contain the visible manifest only")
     wheel_files = _wheel_payload(wheel_path)
+    wheel_roots = {PurePosixPath(relative).parts[0] for relative in wheel_files}
+    dist_info_roots = {
+        root for root in wheel_roots if re.fullmatch(r"tianshu-[^/]+\.dist-info", root)
+    }
+    if len(dist_info_roots) != 1 or any(
+        root != "tianshu" and root not in dist_info_roots for root in wheel_roots
+    ):
+        raise CandidateGateError(
+            "Wheel package payload has installable payload outside the allowlist"
+        )
     wheel_visible = "tianshu/web/static/manifest.json"
     wheel_hidden = "tianshu/web/static/.vite/manifest.json"
     if wheel_visible not in wheel_files or wheel_hidden in wheel_files:
@@ -629,19 +695,6 @@ def _deferred_ids(root: Path) -> tuple[str, ...]:
     text = (root / "docs/cc-fable-v1/06-deferred-work-backlog.md").read_text(encoding="utf-8")
     present = tuple(work_id for work_id in REQUIRED_DEFERRED_WORK_IDS if f"| {work_id} |" in text)
     return present
-
-
-def only_bound_demo_evidence_is_dirty(dirty_paths: tuple[str, ...], demo_ref: str) -> bool:
-    """Allow generated evidence only after the source commit was built cleanly."""
-
-    reference = PurePosixPath(demo_ref)
-    if reference.name != "demo-report.json" or ".." in reference.parts:
-        return False
-    batch_root = reference.parent
-    return all(
-        (path := PurePosixPath(value)).is_relative_to(batch_root) and ".." not in path.parts
-        for value in dirty_paths
-    )
 
 
 def only_bound_candidate_evidence_is_dirty(

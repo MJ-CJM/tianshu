@@ -120,3 +120,59 @@ The four warnings are unchanged third-party deprecations from `lark_oapi` and
   as the new Candidate demo.
 - The recorder intentionally has no plugin/config framework. Changing the accepted command
   set requires a source change and review.
+
+## Independent-review hardening addendum
+
+The independent closure review requested changes to five remaining evidence boundaries.
+They are resolved in a separate follow-up commit without running the full Gate, building
+real release artifacts, or generating a Candidate:
+
+- The packaging Gate recorder now sets and records the exact dynamic `BATCH_ID` and
+  `TIANSHU_LEAN_WHEEL_SOURCE_COMMIT` values in addition to unsetting `VIRTUAL_ENV`.
+  The checker reconstructs that environment from the manifest identity and rejects a
+  missing or substituted value. Packaging's parsed skip count now feeds
+  `required_skipped`, so `27 passed, 1 skipped` fails closed.
+- Playwright evidence must contain exactly one terminal summary with exactly 41 passed,
+  zero failed, and zero skipped. An extra summary or a re-hashed skipped summary is
+  rejected.
+- Build records now require exact `command`, `cwd`, and zero `exit_code` values. The Wheel
+  cwd is the fixed extracted-sdist path
+  `dist/lean-preview-candidate/extracted/<sdist-sha256>/<sdist-root>`. Hashed logs that
+  contain an explicit `ERROR` or `FAILED` marker are rejected even if they also contain
+  `Successfully built`.
+- `scripts/record_lean_preview_build_provenance.py` is the minimal fixed generation
+  interface for the next build batch. It builds the sdist from the repository root,
+  safely extracts it below its SHA-256 directory, builds the Wheel only from that exact
+  extracted root with the fixed relative output path, and records canonical hashed logs
+  and provenance. It refuses dirty source in its CLI path and does not provide a
+  configurable command framework.
+- Wheel installable payload is now restricted to `tianshu/**` plus exactly one
+  `tianshu-*.dist-info/**` root. The obsolete demo-only dirty-path helper and its test were
+  removed; Gate recorder tests now assert every actual argv, cwd, and relevant environment
+  mutation.
+
+### Addendum TDD and verification
+
+RED was captured before implementation:
+
+- seven targeted cases failed on the missing dynamic Gate environment, missing
+  Playwright/skip constraints, and missing provenance fields;
+- the new build-provenance recorder test failed because the fixed interface did not yet
+  exist; and
+- a re-hashed Wheel case carrying `evil/__init__.py` was present in the RED suite before
+  the top-level payload allowlist implementation.
+
+After the direct boundary checks were implemented:
+
+- focused pytest: `199 passed / 0 failed / 4 warnings`;
+- Ruff check: `All checks passed!`;
+- Ruff format check: all seven touched Python files formatted;
+- configured mypy: `Success: no issues found in 132 source files`;
+- build-recorder-specific mypy: `Success: no issues found in 1 source file`;
+- `git diff --check`: passed; and
+- `uv.lock`: zero diff.
+
+The four warnings remain the same third-party `lark_oapi` and `websockets`
+deprecations. The build-recorder test uses controlled subprocess substitutes to verify
+the actual fixed argv/cwd and resulting provenance; this addendum did not generate or
+claim real build provenance.

@@ -64,10 +64,25 @@ def test_recorder_executes_fixed_gates_and_hashes_unmodified_combined_logs(
     )
     assert list(manifest["commands"]) == sorted(module.GATE_COMMANDS)
     assert len(calls) == len(module.GATE_COMMANDS)
+    calls_by_gate = dict(zip(module.GATE_COMMANDS, calls, strict=True))
     for gate_id, record in manifest["commands"].items():
         raw = f"raw {gate_id}\n".encode()
+        argv, cwd, actual_environment = calls_by_gate[gate_id]
+        expected_environment = module.required_gate_environment(
+            gate_id,
+            batch_id="batch-1",
+            source_commit=SOURCE_COMMIT,
+        )
+        assert argv == module._argv(gate_id)
+        assert cwd == module.ROOT / module.REQUIRED_GATE_CWDS[gate_id]
+        for name, value in expected_environment.items():
+            if value == "unset":
+                assert name not in actual_environment
+            else:
+                assert actual_environment[name] == value
         assert (manifest_path.parent / record["log_ref"]).read_bytes() == raw
         assert record["log_sha256"] == hashlib.sha256(raw).hexdigest()
+        assert record["environment"] == expected_environment
         assert set(record) == {
             "command",
             "cwd",
@@ -76,6 +91,11 @@ def test_recorder_executes_fixed_gates_and_hashes_unmodified_combined_logs(
             "log_ref",
             "log_sha256",
         }
+    assert manifest["commands"]["packaging"]["environment"] == {
+        "BATCH_ID": "batch-1",
+        "TIANSHU_LEAN_WHEEL_SOURCE_COMMIT": SOURCE_COMMIT,
+        "VIRTUAL_ENV": "unset",
+    }
 
 
 def test_recorder_stops_on_first_failure_without_writing_a_pass_manifest(
