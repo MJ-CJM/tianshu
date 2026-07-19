@@ -3,6 +3,10 @@
 This module proves only that a notification reaches the in-process notification
 handler. Existing Feishu, DingTalk, email, Telegram, and webhook adapters remain
 best-effort external boundaries and are deliberately not relabelled as durable.
+
+FROZEN (2026-07-20 合入评审): 本层的持久化保证止步于进程内 handler，未覆盖真正的
+外部投递边界，维护但不再扩展。外部适配器需要 durable 语义时再重新评估本层去留，
+见 docs/plan/2026-07-20-cc-fable-v1-merge-checklist.md 阶段 3。
 """
 
 from __future__ import annotations

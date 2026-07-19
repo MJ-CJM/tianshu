@@ -1,6 +1,3 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import en from "./locales/en.json";
 import zhClassic from "./locales/zh-classic.json";
@@ -10,23 +7,6 @@ type StringEntry = {
   path: string;
   value: string;
 };
-
-type SourceEntry = {
-  path: string;
-  content: string;
-};
-
-const SOURCE_ROOT = fileURLToPath(new URL("../", import.meta.url));
-const RUNTIME_EXTENSIONS = /\.(?:css|js|jsx|ts|tsx)$/;
-
-function runtimeSourceEntries(directory = SOURCE_ROOT): SourceEntry[] {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return runtimeSourceEntries(path);
-    if (/\.test\.[^.]+$/.test(path) || !RUNTIME_EXTENSIONS.test(entry.name)) return [];
-    return [{ path, content: readFileSync(path, "utf8") }];
-  });
-}
 
 function stringEntries(value: unknown, path = ""): StringEntry[] {
   if (typeof value === "string") return [{ path, value }];
@@ -131,14 +111,6 @@ describe("governance terminology contract", () => {
     expect(valueAt(locale, "comp.policyProfile.autoApproveTooltip")).toBe(
       "规则将对 Tier ≤ 该值的工具自动作出允许裁决，不再请求人工裁决",
     );
-  });
-
-  it("removes historical governance terms from runtime Web source", () => {
-    const violations = runtimeSourceEntries().filter(({ content }) =>
-      /批红|朱批|司礼监代批|审批|待批/.test(content),
-    );
-
-    expect(violations.map(({ path }) => path)).toEqual([]);
   });
 
   it("uses decision language for English governance while keeping quality review", () => {

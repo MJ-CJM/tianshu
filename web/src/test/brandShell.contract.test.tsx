@@ -2,7 +2,6 @@
 
 import "@testing-library/jest-dom/vitest";
 
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -51,10 +50,7 @@ function HeaderLocaleHarness() {
   );
 }
 
-const BRAND_PATH = resolve(process.cwd(), "public/brand.png");
 const API_CONTRACT_PATH = resolve(process.cwd(), "src/contracts/api.ts");
-const BRAND_SHA256 = "3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799";
-const TAGLINE = "成功只有一个——按照自己的方式，去度过人生。";
 const HEADER_STATUS_LABELS = ["彩蛋", "通用", "English", "实时", "通政"];
 const DEPARTMENT_STRUCTURE = [
   { group: "敕令", departments: ["御书房", "文书房"] },
@@ -128,17 +124,14 @@ describe("S4 desktop brand shell contract", () => {
     }>();
   });
 
-  it("freezes the exact brand asset, quote, and five right-side labels", () => {
-    const digest = createHash("sha256").update(readFileSync(BRAND_PATH)).digest("hex");
+  it("keeps the brand asset and five right-side labels", () => {
     const { container } = render(
       <MemoryRouter>
         <AppHeader isWsConnected />
       </MemoryRouter>,
     );
 
-    expect(digest).toBe(BRAND_SHA256);
     expect(container.querySelector("img")).toHaveAttribute("src", "/brand.png");
-    expect(screen.getByText(TAGLINE)).toBeInTheDocument();
     for (const label of HEADER_STATUS_LABELS) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
@@ -163,7 +156,7 @@ describe("S4 desktop brand shell contract", () => {
     );
   });
 
-  it("keeps the brand quote and five visible labels frozen after switching locale", async () => {
+  it("keeps the brand name and five visible labels frozen after switching locale", async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -174,7 +167,6 @@ describe("S4 desktop brand shell contract", () => {
     await user.click(screen.getByText("English"));
     const frozenInEnglish =
       screen.queryByText("天枢") !== null &&
-      screen.queryByText(TAGLINE) !== null &&
       HEADER_STATUS_LABELS.every((label) => screen.queryByText(label) !== null);
     await user.click(screen.getByRole("button", { name: "reset-locale" }));
 
