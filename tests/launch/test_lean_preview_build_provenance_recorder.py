@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import sys
 import tarfile
 import zipfile
 from pathlib import Path
@@ -144,3 +145,26 @@ def test_run_build_keeps_stdout_and_stderr_before_raising_on_nonzero_exit(
         module._run_build(["python", "-m", "build"], cwd=tmp_path, log_path=log_path, label="Wheel")
 
     assert log_path.read_bytes() == b"build stdout\nbuild stderr\n"
+
+
+def test_run_build_hashes_raw_os_merged_output_order(tmp_path: Path) -> None:
+    module = _module()
+    log_path = tmp_path / "merged.log"
+    program = (
+        "import os,time;"
+        "os.write(1,b'out1\\n');time.sleep(0.03);"
+        "os.write(2,b'err1\\n');time.sleep(0.03);"
+        "os.write(1,b'out2\\n');time.sleep(0.03);"
+        "os.write(2,b'err2\\n')"
+    )
+    expected = b"out1\nerr1\nout2\nerr2\n"
+
+    module._run_build(
+        [sys.executable, "-c", program],
+        cwd=tmp_path,
+        log_path=log_path,
+        label="ordered",
+    )
+
+    assert log_path.read_bytes() == expected
+    assert module._hash_file(log_path) == hashlib.sha256(expected).hexdigest()

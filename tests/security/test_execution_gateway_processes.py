@@ -19,6 +19,7 @@ from tianshu.executor.capabilities import (
 )
 from tianshu.executor.execution_gateway import (
     ArgvCommand,
+    AsyncioProcessBackend,
     EnvironmentPolicy,
     ExecutionContext,
     ExecutionGateway,
@@ -51,6 +52,38 @@ def effective_contract():
         native_manifest(),
         probe_host_capabilities(),
     )
+
+
+@pytest.mark.asyncio
+async def test_asyncio_backend_can_preserve_os_merged_output_order(tmp_path: Path) -> None:
+    program = (
+        "import os,time;"
+        "os.write(1,b'out1\\n');time.sleep(0.03);"
+        "os.write(2,b'err1\\n');time.sleep(0.03);"
+        "os.write(1,b'out2\\n');time.sleep(0.03);"
+        "os.write(2,b'err2\\n')"
+    )
+
+    spawned = await AsyncioProcessBackend().spawn(
+        argv=(sys.executable, "-c", program),
+        cwd=tmp_path,
+        env=dict(os.environ),
+        network=NetworkPolicy(mode="unrestricted"),
+        sandbox=SandboxRequirement(
+            trust_level="trusted-local",
+            mode="host",
+            allow_host=True,
+        ),
+        stdin_mode="null",
+        stderr_mode="stdout",
+        on_spawned=lambda _spawned: None,
+    )
+
+    stdout, stderr = await spawned.process.communicate()
+
+    assert stdout == b"out1\nerr1\nout2\nerr2\n"
+    assert stderr is None
+    assert spawned.process.returncode == 0
 
 
 def _request(

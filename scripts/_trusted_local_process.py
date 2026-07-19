@@ -12,6 +12,7 @@ from tianshu.executor.execution_gateway import (
     AsyncioProcessBackend,
     NetworkPolicy,
     SandboxRequirement,
+    SpawnedProcess,
 )
 
 
@@ -32,25 +33,38 @@ async def _run_trusted_local_process(
     cwd: Path,
     env: Mapping[str, str] | None,
 ) -> TrustedLocalProcessResult:
-    spawned = await AsyncioProcessBackend().spawn(
-        argv=tuple(argv),
-        cwd=cwd,
-        env=dict(os.environ if env is None else env),
-        network=NetworkPolicy(mode="unrestricted"),
-        sandbox=SandboxRequirement(
-            trust_level="trusted-local",
-            mode="host",
-            allow_host=True,
-        ),
-        stdin_mode="null",
-        on_spawned=lambda _spawned: None,
-    )
-    stdout, stderr = await spawned.process.communicate()
+    backend = AsyncioProcessBackend()
+    owned: SpawnedProcess | None = None
+
+    def capture_ownership(spawned: SpawnedProcess) -> None:
+        nonlocal owned
+        owned = spawned
+
+    try:
+        spawned = await backend.spawn(
+            argv=tuple(argv),
+            cwd=cwd,
+            env=dict(os.environ if env is None else env),
+            network=NetworkPolicy(mode="unrestricted"),
+            sandbox=SandboxRequirement(
+                trust_level="trusted-local",
+                mode="host",
+                allow_host=True,
+            ),
+            stdin_mode="null",
+            stderr_mode="stdout",
+            on_spawned=capture_ownership,
+        )
+        stdout, stderr = await spawned.process.communicate()
+    except asyncio.CancelledError:
+        if owned is not None:
+            await asyncio.shield(backend.terminate(owned))
+        raise
     returncode = spawned.process.returncode
     assert returncode is not None
     return TrustedLocalProcessResult(
-        stdout=stdout,
-        stderr=stderr,
+        stdout=stdout or b"",
+        stderr=stderr or b"",
         returncode=returncode,
     )
 

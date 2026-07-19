@@ -287,6 +287,7 @@ class AsyncioProcessBackend:
         network: NetworkPolicy,
         sandbox: SandboxRequirement,
         stdin_mode: Literal["null", "pipe"],
+        stderr_mode: Literal["pipe", "stdout"] = "pipe",
         on_spawned: Callable[[SpawnedProcess], None],
     ) -> SpawnedProcess:
         creation = asyncio.create_task(
@@ -298,7 +299,11 @@ class AsyncioProcessBackend:
                     asyncio.subprocess.PIPE if stdin_mode == "pipe" else asyncio.subprocess.DEVNULL
                 ),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=(
+                    asyncio.subprocess.STDOUT
+                    if stderr_mode == "stdout"
+                    else asyncio.subprocess.PIPE
+                ),
                 start_new_session=os.name != "nt",
             ),
             name="execution-process-acquisition",
@@ -321,6 +326,20 @@ class AsyncioProcessBackend:
         if cancellation is not None:
             raise cancellation
         return spawned
+
+    async def terminate(
+        self,
+        spawned: SpawnedProcess,
+        *,
+        grace_seconds: float = 1.0,
+    ) -> None:
+        """Terminate and reap a spawned process and its process group."""
+
+        await _terminate_process_tree(
+            spawned.process,
+            process_group_id=spawned.process.pid,
+            grace_seconds=grace_seconds,
+        )
 
 
 @dataclass(frozen=True)

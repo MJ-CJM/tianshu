@@ -30,9 +30,9 @@ so the final backend Gate correctly rejected both recorder launch sites.
   `AsyncioProcessBackend` for these two synchronous maintainer scripts.
 - The adapter makes its authority explicit: trusted-local execution, host mode with
   host execution allowed, and unrestricted network semantics.
-- It preserves argv, cwd, inherited or supplied environment, and collects stdout,
-  stderr, and return code. Recorder logs contain stdout followed by stderr and retain
-  their canonical SHA-256 binding.
+- It preserves argv, cwd, inherited or supplied environment, and collects output and
+  return code. Recorder stderr is redirected to stdout by the operating system, preserving
+  the prior raw combined-stream order and its canonical SHA-256 binding.
 - Both recorders retain the fixed command set, first-error stop, failed-log retention,
   no-pass-manifest behavior, cwd/environment records, and non-zero exit reporting.
 
@@ -80,9 +80,48 @@ Python 3.12.12 project environment:
 
 ## Concerns and retained boundaries
 
-- stdout and stderr are captured independently by the existing backend and appended in
-  that order to the single recorder log; bytes within each stream are unchanged and the
-  resulting exact log bytes remain hash-bound.
 - This source repair does not turn the retained failed Gate batch into passing evidence.
   A later authorized clean-source Gate run must create a new canonical batch.
 - No full Gate, real build, exact-Wheel demo, or Candidate assembly was run in this task.
+
+## Independent-review remediation
+
+An independent review found two lifecycle/evidence defects in the first boundary adapter:
+
+1. cancellation discarded the backend ownership handoff and could leave the spawned
+   process group alive; and
+2. concatenating independently captured stdout and stderr changed the ordering guaranteed
+   by the prior `stderr=STDOUT` recorder path.
+
+Both were reproduced before implementation. The real cancellation test started a process
+group leader plus a sleeping child, cancelled the helper, and observed the leader still
+alive. The real alternating-stream tests observed
+`out1, out2, err1, err2` instead of `out1, err1, out2, err2`, including in the recorder
+log/hash path.
+
+The minimal follow-up adds two supported `AsyncioProcessBackend` capabilities:
+
+- `stderr_mode="stdout"` redirects stderr to stdout at process creation. Its default
+  remains `"pipe"`, preserving every existing gateway caller's separate-stream behavior.
+- public `terminate(spawned)` delegates to the backend's existing process-group
+  termination and reap implementation.
+
+The helper now opts into merged output, captures `SpawnedProcess` in `on_spawned`, and on
+task cancellation shields backend termination before re-raising cancellation. It does not
+duplicate process-tree logic or import a private termination helper.
+
+### Follow-up TDD and verification
+
+- RED: `4 failed` for missing merged mode, reordered real output/hash bytes, and a surviving
+  real process-group leader after cancellation.
+- GREEN: the same four focused tests passed; the cancellation test verifies both leader and
+  child PIDs are gone.
+- Architecture, execution-gateway/backend lifecycle, helper, and both recorder suites:
+  `58 passed / 0 failed`; four unchanged third-party deprecations and one pre-existing
+  subprocess-transport unraisable warning from the gateway cancellation suite were shown.
+- Candidate evidence regression suites: `163 passed / 0 failed / 4 unchanged third-party
+  warnings`.
+- Ruff check/format, configured mypy, helper-specific mypy, `git diff --check`, and
+  `uv.lock` zero-diff were rerun after the follow-up.
+
+No full backend Gate, build, demo, Candidate assembly, push, tag, or publication was run.
