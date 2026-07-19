@@ -2911,6 +2911,7 @@ dependencies = [
 all = [
     { name = "aiosmtplib" },
     { name = "lark-oapi" },
+    { name = "lxml" },
     { name = "mcp" },
     { name = "python-telegram-bot" },
     { name = "rich" },
@@ -2956,6 +2957,7 @@ telegram = [
     { name = "python-telegram-bot" },
 ]
 web = [
+    { name = "lxml" },
     { name = "trafilatura" },
 ]
 
@@ -2972,6 +2974,7 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.0" },
     { name = "lark-oapi", marker = "extra == 'feishu'", specifier = ">=1.4.0" },
     { name = "litellm", specifier = ">=1.50" },
+    { name = "lxml", marker = "extra == 'web'", specifier = ">=5.3" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.27" },
