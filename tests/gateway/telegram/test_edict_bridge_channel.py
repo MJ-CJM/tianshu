@@ -6,18 +6,76 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.gateway.core.edict_bridge import EdictBridge
-from tianshu.gateway.telegram.session_anchor import SessionAnchor
+from tianshu.gateway.core.session_anchor import SessionAnchor as FeishuSessionAnchor
+from tianshu.gateway.telegram.session_anchor import SessionAnchor as TelegramSessionAnchor
 
 
 def _bridge(storage, **kw):
-    bus = EventBus(storage=storage)
-    anchor = SessionAnchor(storage)
+    bus = EventBus()
+    anchor = TelegramSessionAnchor(storage)
     executor = MagicMock()
     executor.execute_edict = AsyncMock()
     executor.running_tasks = set()
-    return EdictBridge(storage=storage, event_bus=bus, executor=executor, anchor=anchor, **kw)
+    return EdictBridge(
+        storage=storage,
+        event_bus=bus,
+        executor=executor,
+        anchor=anchor,
+        edict_application_service=EdictApplicationService(storage),
+        **kw,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["feishu", "telegram"])
+async def test_same_source_identity_is_isolated_by_bot_instance(storage, channel: str) -> None:
+    anchor_type = FeishuSessionAnchor if channel == "feishu" else TelegramSessionAnchor
+    user_meta_key = f"{channel}_user"
+    executor = MagicMock(execute_edict=AsyncMock(), running_tasks=set())
+    first_anchor = anchor_type(storage, instance_id=f"{channel}-first")
+    second_anchor = anchor_type(storage, instance_id=f"{channel}-second")
+    first = EdictBridge(
+        storage=storage,
+        event_bus=EventBus(),
+        executor=executor,
+        anchor=first_anchor,
+        channel=channel,
+        instance_id=f"{channel}-first",
+        user_meta_key=user_meta_key,
+        edict_application_service=EdictApplicationService(storage),
+    )
+    second = EdictBridge(
+        storage=storage,
+        event_bus=EventBus(),
+        executor=executor,
+        anchor=second_anchor,
+        channel=channel,
+        instance_id=f"{channel}-second",
+        user_meta_key=user_meta_key,
+        edict_application_service=EdictApplicationService(storage),
+    )
+    request = {
+        "chat_id": "shared-chat",
+        "sender_open_id": "shared-sender",
+        "goal": "shared goal",
+        "source_message_id": "shared-source",
+    }
+
+    first_result = await first.create_new(**request)
+    second_result = await second.create_new(**request)
+    first_retry = await first.create_new(**request)
+
+    assert first_result.edict_id != second_result.edict_id
+    assert first_retry == first_result
+    first_edict = storage.get_edict(first_result.edict_id)
+    second_edict = storage.get_edict(second_result.edict_id)
+    assert first_edict.metadata["instance_id"] == f"{channel}-first"
+    assert second_edict.metadata["instance_id"] == f"{channel}-second"
+    assert first_anchor.get("shared-chat") == first_result.edict_id
+    assert second_anchor.get("shared-chat") == second_result.edict_id
 
 
 @pytest.mark.asyncio
@@ -58,3 +116,53 @@ async def test_telegram_ensure_chat_edict_title(storage):
     assert edict.title.startswith("Telegram 助手对话")
     assert edict.metadata["assistant_chat"] is True
     assert edict.metadata["channel"] == "telegram"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("channel", "sender", "user_meta_key"),
+    [
+        ("feishu", "ou_verified", "feishu_user"),
+        ("telegram", "777", "telegram_user"),
+    ],
+)
+async def test_channel_created_edict_uses_verified_sender_as_submitter(
+    storage,
+    channel: str,
+    sender: str,
+    user_meta_key: str,
+) -> None:
+    bridge = _bridge(
+        storage,
+        channel=channel,
+        user_meta_key=user_meta_key,
+    )
+
+    result = await bridge.create_new(chat_id="chat", sender_open_id=sender, goal="任务")
+
+    assert storage.get_edict(result.edict_id).submitter == f"{channel}:{sender}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("channel", "sender", "user_meta_key"),
+    [
+        ("feishu", "ou_verified", "feishu_user"),
+        ("telegram", "777", "telegram_user"),
+    ],
+)
+async def test_channel_chat_edict_uses_verified_sender_as_submitter(
+    storage,
+    channel: str,
+    sender: str,
+    user_meta_key: str,
+) -> None:
+    bridge = _bridge(
+        storage,
+        channel=channel,
+        user_meta_key=user_meta_key,
+    )
+
+    edict_id = await bridge.ensure_chat_edict(chat_id="chat", sender_open_id=sender)
+
+    assert storage.get_edict(edict_id).submitter == f"{channel}:{sender}"

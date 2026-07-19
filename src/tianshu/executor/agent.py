@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 
 import litellm
@@ -15,6 +16,11 @@ from tianshu.config_manager import ConfigManager
 from tianshu.executor.compaction.auto import auto_compact, should_auto_compact
 from tianshu.executor.compaction.micro import micro_compact
 from tianshu.executor.compaction.reactive import reactive_compact
+from tianshu.executor.execution_gateway import (
+    _issue_tool_policy_decision,
+    bind_tool_policy_decision,
+    get_execution_context,
+)
 from tianshu.executor.loop_state import LoopState
 from tianshu.executor.streaming import StreamCallback
 from tianshu.kernel.ambient import bind_edict, bind_persona
@@ -70,6 +76,49 @@ ASSISTANT_ONLY_TOOLS: frozenset[str] = frozenset(
 REPEATED_FAILURE_LIMIT = 3
 
 
+def _parse_tool_arguments(arguments: object) -> dict:
+    """Return one strict JSON object for policy and execution."""
+
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except (ValueError, TypeError, RecursionError) as exc:
+            raise ValueError("tool arguments must be valid JSON") from exc
+    if not isinstance(arguments, dict):
+        raise ValueError("tool arguments must be a JSON object")
+    return arguments
+
+
+def _durable_tool_messages(
+    messages: list[dict],
+    parsed_arguments: dict[str, dict],
+) -> list[dict]:
+    """Copy provider history with tool arguments normalized to safe object boundaries."""
+
+    durable: list[dict] = []
+    for message in messages:
+        copied = dict(message)
+        tool_calls = message.get("tool_calls")
+        if isinstance(tool_calls, list):
+            copied_calls: list[dict] = []
+            for tool_call in tool_calls:
+                copied_call = dict(tool_call)
+                function = tool_call.get("function")
+                if isinstance(function, dict):
+                    copied_function = dict(function)
+                    invocation_id = tool_call.get("id")
+                    copied_function["arguments"] = (
+                        parsed_arguments[invocation_id]
+                        if isinstance(invocation_id, str) and invocation_id in parsed_arguments
+                        else _parse_tool_arguments(function.get("arguments"))
+                    )
+                    copied_call["function"] = copied_function
+                copied_calls.append(copied_call)
+            copied["tool_calls"] = copied_calls
+        durable.append(copied)
+    return durable
+
+
 @dataclass
 class _LlmCallOutcome:
     """`Agent._call_llm_with_recovery` 的返回值。
@@ -122,6 +171,7 @@ class Agent:
         persona: object | None = None,
         stream_callback: StreamCallback | None = None,
         cancellation_token: object | None = None,
+        model_override: str | None = None,
     ) -> AgentResult:
         # Read runtime config at execution start
         config_state = self._config_manager.state
@@ -135,7 +185,10 @@ class Agent:
         persona_config_name = getattr(persona, "llm_config_name", None) if persona else None
 
         if self._provider_manager and hasattr(self._provider_manager, "get_client"):
-            llm = self._provider_manager.get_client(config_name_override=persona_config_name)
+            client_kwargs = {"config_name_override": persona_config_name}
+            if model_override is not None:
+                client_kwargs["model_override"] = model_override
+            llm = self._provider_manager.get_client(**client_kwargs)
         else:
             # Direct LLMClient path: apply persona config if available
             if persona_config_name:
@@ -143,7 +196,7 @@ class Agent:
                 if named and named.enabled:
                     config_state = named
             llm = LLMClient(
-                model=config_state.model,
+                model=model_override or config_state.model,
                 api_key=config_state.api_key,
                 api_base=config_state.api_base,
                 max_retries=config_state.max_retries,
@@ -244,6 +297,7 @@ class Agent:
                 stream_callback,
                 cancellation_token,
                 _emit,
+                allow_fallback=model_override is None,
             )
             state, usage = call_outcome.state, call_outcome.usage
             if call_outcome.result is not None:
@@ -394,6 +448,8 @@ class Agent:
         stream_callback: StreamCallback | None,
         cancellation_token: object | None,
         emit: Callable[[dict], None],
+        *,
+        allow_fallback: bool,
     ) -> _LlmCallOutcome:
         """LLM 调用轮次：input hook + 取消检查 + 调用（含 context-overflow / fallback 恢复）
         + usage 累加 + output hook。
@@ -484,7 +540,7 @@ class Agent:
                 )
 
             # Attempt fallback model if configured
-            fallback_name = agent_cfg.fallback_llm_config_name
+            fallback_name = agent_cfg.fallback_llm_config_name if allow_fallback else None
             if fallback_name and "fallback" not in recovery_attempts:
                 fallback_cfg = self._config_manager.get_config(fallback_name)
                 if fallback_cfg and fallback_cfg.enabled:
@@ -628,8 +684,34 @@ class Agent:
                 assistant_msg["reasoning_content"] = response.reasoning_content
             new_messages = list(state.messages) + [assistant_msg]
 
+            parsed_calls: list[tuple[dict, dict]] = []
+            try:
+                for tool_call in response.tool_calls:
+                    parsed_calls.append((tool_call, _parse_tool_arguments(tool_call.get("args"))))
+                parsed_by_id = {tool_call["id"]: arguments for tool_call, arguments in parsed_calls}
+                durable_messages = _durable_tool_messages(new_messages, parsed_by_id)
+            except (KeyError, TypeError, ValueError) as exc:
+                reason = f"invalid tool arguments: {exc}"
+                for tool_call in response.tool_calls:
+                    new_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.get("id", "invalid-tool-call"),
+                            "content": f"Tool blocked: {reason}",
+                        }
+                    )
+                    emit(
+                        {
+                            "type": "tool.blocked",
+                            "tool": tool_call.get("name", "unknown"),
+                            "iteration": state.iteration,
+                            "reason": reason,
+                        }
+                    )
+                return state.next_turn(new_messages), repeated_failures, None
+
             # Execute each tool call sequentially
-            for tc in response.tool_calls:
+            for tc, parsed_args in parsed_calls:
                 # Tier fast-path: T0_READONLY bypasses HookRegistry at agent layer.
                 # Registry has its own T0 fast path too — defense in depth, avoids
                 # emitting noise hook events for readonly tools. Spec Section 2.
@@ -638,13 +720,17 @@ class Agent:
                 tool_defn = self._tools.get_definition(tc["name"])
                 tool_tier = tool_defn.tier if tool_defn else ToolTier.T4_DANGEROUS.value
                 is_fast_path = tool_tier == ToolTier.T0_READONLY.value
+                policy_decision = None
 
                 if self._hooks and not is_fast_path:
                     hook_result = await self._hooks.run(
                         HookType.BEFORE_TOOL_CALL,
+                        invocation_id=tc["id"],
                         tool_name=tc["name"],
-                        tool_args=tc["args"],
+                        tool_args=parsed_args,
+                        messages=list(durable_messages),
                         iteration=state.iteration,
+                        usage=usage,
                         edict=edict,
                         memorial=memorial,
                     )
@@ -656,6 +742,7 @@ class Agent:
                                 "content": f"Tool blocked: {hook_result.reason}",
                             }
                         )
+                        durable_messages.append(dict(new_messages[-1]))
                         emit(
                             {
                                 "type": "tool.blocked",
@@ -665,23 +752,38 @@ class Agent:
                             }
                         )
                         continue
+                    if (
+                        hook_result.authorization_source == "policy-engine"
+                        and get_execution_context() is not None
+                    ):
+                        policy_decision = _issue_tool_policy_decision(tc["name"], parsed_args)
 
                 logger.debug(
                     "[AGENT] Edict %s: iter %d tool=%s, args=%.200s",
                     edict.id,
                     state.iteration,
                     tc["name"],
-                    str(tc["args"])[:200],
+                    str(parsed_args)[:200],
                 )
                 if stream_callback:
                     await stream_callback.on_tool_call_start(tc["name"])
                 try:
-                    with bind_edict(edict), bind_persona(persona):
+                    from tianshu.executor.managed_tools import ManagedRunSuspended
+
+                    decision_context = (
+                        bind_tool_policy_decision(policy_decision)
+                        if policy_decision is not None
+                        else nullcontext()
+                    )
+                    with bind_edict(edict), bind_persona(persona), decision_context:
                         tool_result = await self._tools.execute(
                             tc["name"],
-                            tc["args"],
+                            parsed_args,
                             lifecycle_phase=edict.runtime.lifecycle_phase,
+                            invocation_id=tc["id"],
                         )
+                except ManagedRunSuspended:
+                    raise
                 except Exception as tool_err:
                     tool_result = ToolResult(content=f"Tool error: {tool_err}", is_error=True)
                 if stream_callback:
@@ -698,19 +800,20 @@ class Agent:
                         "content": content,
                     }
                 )
+                durable_messages.append(dict(new_messages[-1]))
 
                 if self._hooks and not is_fast_path:
                     await self._hooks.run(
                         HookType.AFTER_TOOL_CALL,
                         tool_name=tc["name"],
-                        tool_args=tc["args"],
+                        tool_args=parsed_args,
                         tool_result=tool_result,
                         iteration=state.iteration,
                         edict=edict,
                         memorial=memorial,
                     )
 
-                args_str = tc["args"] if isinstance(tc["args"], str) else json.dumps(tc["args"])
+                args_str = json.dumps(parsed_args)
                 emit(
                     {
                         "type": "tool.failed" if tool_result.is_error else "tool.completed",

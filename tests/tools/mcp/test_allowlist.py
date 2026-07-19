@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from tianshu.executor.execution_gateway import ExecutionGateway
 from tianshu.tools.mcp.manager import MCPManager
 from tianshu.tools.registry import ToolRegistry
 
 
 def _mgr(allowlist: str | None) -> MCPManager:
-    return MCPManager(ToolRegistry(), allowlist=allowlist)
+    return MCPManager(ToolRegistry(), ExecutionGateway(), allowlist=allowlist)
 
 
 class TestAllowlist:

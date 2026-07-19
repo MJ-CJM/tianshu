@@ -2,36 +2,57 @@
 
 ## 报告漏洞
 
-如发现安全漏洞,**请勿公开开 issue**。请通过邮件私报:
+请勿公开提交安全漏洞。发送邮件至 `mj-cjm@outlook.com`，主题注明
+`[SECURITY] tianshu`，并附受影响版本、复现步骤和影响评估。项目由单人维护，尽力在
+72 小时内首次响应，不承诺 SLA。
 
-- 邮箱:mj-cjm@outlook.com(主题注明 `[SECURITY] tianshu`)
+## Lean Developer Preview 信任边界
 
-单人维护,尽力 72 小时内首次响应,**不承诺 SLA**。请在报告中附:受影响版本、
-复现步骤、影响评估。修复后会在 CHANGELOG 致谢(除非你要求匿名)。
+当前支持面是 **single-host、single-node SQLite**，部署者同时承担 host administrator
+职责。宿主机管理员可以读取或替换数据库、主密钥、进程内明文、工作区和本地产物；
+本 Preview 不声称抵抗该权限主体，也不提供多节点、共识、跨副本恢复或租户隔离保证。
 
-## 运行时深防御(锦衣卫,v0.2.3+)
+当前 source checkout 与同一 checkout 产出的 exact Wheel 是正式本地安装路径。Ubuntu +
+Python 3.12 是首个正式支持目标；最终黄金批次实际在本机
+`Darwin/arm64/Python 3.12.12` 验证。官方容器、PyPI、GHCR、签名与正式 provenance
+均为 `deferred`，现有 Dockerfile 只是 legacy/experimental 开发资产。
 
-天枢在工具执行的最后一公里内建多层防护,详见
-[ADR-0010](docs/adr/0010-jinyiwei-runtime-defense-in-depth.md):
+## 已实现的边界
 
-- **出站脱敏**:WS / webhook / 通知外发前统一 redact(API key/PEM/JWT/连接串等)。默认开。
-- **bash 风险分级**:quote-aware 分段逐段判定,堵 `git log; rm -rf /` 类白名单绕过。默认开。
-- **子进程 clean-env**:`shell_exec` 白名单构造 env,不透传 `TIANSHU_*` secrets。默认开。
-- **分级急停**:三档(全停/掐网/冻结工具),工具管线入口最前检查,状态持久化、损坏 fail-closed。
-  `POST /api/estop/engage` 或 web「系统管理 → 急停」。
-- **出厂预算护栏**:默认每日全局上限,超限熔断(`TIANSHU_DAILY_BUDGET_GUARDRAIL_CNY`)。
+- **SystemAudit：**`implemented`。单节点 SQLite 内使用 canonical hash、前序 hash、
+  append-only trigger 和全链校验；它不是外部 WORM 服务。证据见
+  [S2 Lean 报告](docs/cc-fable-v1/reports/s2-lean-security-report.md)。
+- **MCP persisted secret mappings：**`implemented`。持久 env/header mapping 使用密文；
+  主密钥缺失、错误或密文损坏时 fail closed。证据见
+  [威胁模型](docs/security/lean-preview-threat-model.md)。
+- **受管 Native 恢复：**`implemented`。持久 Decision、RunState、attempt lease/fencing、
+  声明 effect 的 intent/receipt 与 Evidence Bundle v1 只在命名的单节点边界内生效。
+- **运行时纵深防护：**出站脱敏、bash 分段风险分级、clean-env 与分级急停降低风险，
+  但不构成 OS/容器隔离，也不抵抗宿主机管理员。
 
-## 密钥管理
+## 默认关闭的 MCP 路径
 
-- 凭证 Fernet 密文落库(`TIANSHU_SECRET_MASTER_KEY`)。生成:`tianshu secrets gen-key`。
-- **主密钥轮换**:`tianshu secrets rotate-master-key --new-key <key>`(旧密钥解密→新密钥
-  重加密,干跑校验+自动备份+解不开即中止)。轮换后更新 env 并重启。
-- 请勿将主密钥提交进版本库;泄漏后立即轮换。
+- **remote MCP：**`disabled`，完整开放安全为 `deferred`。在 `secure-remote` 下拒绝；
+  当前没有完整 SSRF、redirect/proxy、DNS pinning 或解析漂移保证。
+- **open stdio MCP：**`disabled`，完整准入与 executable drift binding 为 `deferred`。
+  Lean 内部窄路径只接受显式非空 `tools.include`，这不等于把任意第三方 stdio server
+  列为正式支持能力。
 
-## 已知边界(诚实声明)
+两条路径不得通过文档示例、静默降级或默认配置重新开放。恢复工作见
+[延期路线图](docs/cc-fable-v1/06-deferred-work-backlog.md#4-p2-a开放安全与发行基线)。
 
-- 脱敏/分级/急停降低泄漏与失控面,**不等于**沙箱隔离。强隔离(禁网变体容器、
-  影子快照回滚)在后续迭代。
-- 天枢 MCP server 只暴露手选 tools,**不做流量代理**;连接外部 MCP server 时受准入
-  清单治理,但不为外部 server 的行为背书。
-- 流式输出跨 chunk 切开的 secret 可能脱敏不到——已知局限。
+## 当前非保证
+
+- 未进入受管 effect ledger 的外部副作用不获得去重或恢复承诺。
+- Keqing 外部 CLI 为 `experimental`；其内部工具流、网络、成本上限和恢复点不受 Native
+  边界覆盖。
+- managed OpenHands、ROI、cost calibration 和 full G4 为 `external_pending`；full G5 为
+  `deferred`。
+- desktop Web 自动化不能替代 VoiceOver 与人工视觉终审；对应状态分别为
+  `external_pending` 与 `user_approval_pending`。
+- `publication_status`: `not_authorized`；本文件不授权公开仓库、tag、release、PyPI、GHCR
+  或对外宣发。
+
+更细的威胁/控制映射见
+[Lean Preview 威胁模型](docs/security/lean-preview-threat-model.md)，逐项成熟度见
+[能力事实矩阵](docs/launch/capability-matrix.md)。

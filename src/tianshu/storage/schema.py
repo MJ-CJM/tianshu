@@ -1,16 +1,41 @@
-"""Storage 建表 DDL —— 从 facade._create_tables 抽出，SQL 内容与拆分前完全一致。"""
+"""Canonical v0.4.2 SQLite schema and deterministic statement sequence."""
+
+from __future__ import annotations
+
+import hashlib
+import re
+import sqlite3
 
 SCHEMA_SQL_CORE = """
                 CREATE TABLE IF NOT EXISTS edicts (
                     id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL DEFAULT '',
                     goal TEXT NOT NULL,
                     context TEXT,
-                    created_at TEXT NOT NULL
+                    status TEXT NOT NULL DEFAULT 'open',
+                    created_at TEXT NOT NULL,
+                    idempotency_key TEXT,
+                    source TEXT NOT NULL DEFAULT 'api',
+                    submitter TEXT,
+                    priority TEXT NOT NULL DEFAULT 'normal',
+                    review_policy TEXT NOT NULL DEFAULT 'never',
+                    output_format TEXT,
+                    constraints_json TEXT NOT NULL DEFAULT '[]',
+                    schedule_json TEXT NOT NULL DEFAULT '{}',
+                    dispatch_json TEXT,
+                    runtime_json TEXT NOT NULL DEFAULT '{}',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    assigned_persona_id TEXT,
+                    planner_persona_id TEXT,
+                    plan_review INTEGER DEFAULT 0,
+                    acceptance_json TEXT,
+                    execution_profile TEXT NOT NULL DEFAULT 'foreground'
                 );
 
                 CREATE TABLE IF NOT EXISTS memorials (
                     id TEXT PRIMARY KEY,
                     edict_id TEXT NOT NULL REFERENCES edicts(id) ON DELETE CASCADE,
+                    instruction TEXT,
                     status TEXT NOT NULL,
                     summary TEXT,
                     result TEXT,
@@ -20,8 +45,21 @@ SCHEMA_SQL_CORE = """
                     created_at TEXT NOT NULL,
                     started_at TEXT,
                     completed_at TEXT,
+                    attempt INTEGER NOT NULL DEFAULT 1,
+                    parent_memorial_id TEXT,
+                    review_status TEXT NOT NULL DEFAULT 'not_required',
+                    audit_json TEXT,
+                    artifacts_json TEXT NOT NULL DEFAULT '[]',
+                    timeline_json TEXT NOT NULL DEFAULT '[]',
+                    dag_node_id TEXT,
+                    persona_id TEXT,
                     runtime_override_json TEXT,
-                    acceptance_override_json TEXT
+                    acceptance_override_json TEXT,
+                    reasoning_content TEXT,
+                    universe_id TEXT,
+                    feedback_score INTEGER NOT NULL DEFAULT 0,
+                    last_heartbeat_at TEXT,
+                    failure_reason TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS events (
@@ -45,6 +83,10 @@ SCHEMA_SQL_CORE = """
 
                 CREATE INDEX IF NOT EXISTS idx_memorials_edict_id
                     ON memorials(edict_id);
+                CREATE INDEX IF NOT EXISTS idx_memorials_universe_id
+                    ON memorials(universe_id);
+                CREATE INDEX IF NOT EXISTS idx_memorials_failure_reason
+                    ON memorials(failure_reason) WHERE failure_reason IS NOT NULL;
                 CREATE INDEX IF NOT EXISTS idx_events_edict_id
                     ON events(edict_id);
                 CREATE INDEX IF NOT EXISTS idx_decrees_memorial_id
@@ -93,7 +135,8 @@ SCHEMA_SQL_CORE = """
                     spent_cny REAL NOT NULL DEFAULT 0.0,
                     period TEXT NOT NULL DEFAULT 'monthly',
                     reset_at TEXT,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    period_start TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS providers (
@@ -180,11 +223,14 @@ SCHEMA_SQL_CORE = """
                     title TEXT,
                     tools_allowed TEXT DEFAULT '[]',
                     tools_denied TEXT DEFAULT '[]',
+                    skills_allowed TEXT DEFAULT '[]',
                     tool_tier_max INTEGER DEFAULT 0,
                     can_delegate INTEGER DEFAULT 0,
+                    memory_global_read INTEGER DEFAULT 0,
                     delegates_to TEXT DEFAULT '[]',
                     soul_path TEXT,
                     role_path TEXT,
+                    llm_config_name TEXT,
                     created_at TEXT,
                     updated_at TEXT
                 );
@@ -218,7 +264,9 @@ SCHEMA_SQL_CORE = """
                     state         TEXT NOT NULL DEFAULT 'active',
                     pinned        INTEGER NOT NULL DEFAULT 0,
                     archived_at   TEXT,
-                    absorbed_into TEXT
+                    absorbed_into TEXT,
+                    human_curated INTEGER NOT NULL DEFAULT 0,
+                    last_human_action TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS universes (
@@ -304,7 +352,8 @@ SCHEMA_SQL_CORE = """
 
                 CREATE INDEX IF NOT EXISTS idx_netcreds_host ON network_credentials(host_pattern);
                 CREATE INDEX IF NOT EXISTS idx_netcreds_name ON network_credentials(name);
-                -- 注意：idx_netcreds_provider 需要 provider_name 列；老库迁移在 _migrate() 后建
+                CREATE INDEX IF NOT EXISTS idx_netcreds_provider
+                    ON network_credentials(provider_name) WHERE provider_name IS NOT NULL;
 
                 CREATE TABLE IF NOT EXISTS tool_switches (
                     tool_name  TEXT PRIMARY KEY,
@@ -317,6 +366,8 @@ SCHEMA_SQL_CORE = """
                     fetch_chain     TEXT NOT NULL DEFAULT '[]',   -- JSON array, 空数组 = 不覆盖
                     search_provider TEXT,                          -- nullable, 空 = 不覆盖
                     fallback_mode   TEXT,                          -- nullable ("none" / "on_error_or_empty"), 空 = 不覆盖
+                    scrapling_dynamic_enabled INTEGER NOT NULL DEFAULT 0,
+                    scrapling_stealthy_enabled INTEGER NOT NULL DEFAULT 0,
                     updated_at      TEXT NOT NULL
                 );
 
@@ -343,6 +394,120 @@ SCHEMA_SQL_CORE = """
                     data_json   TEXT NOT NULL,
                     saved_at    TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS schedule_run (
+                    id TEXT PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    edict_id TEXT,
+                    error TEXT,
+                    started_at TEXT NOT NULL,
+                    finished_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_schedule_run_source ON schedule_run(source);
+
+                CREATE TABLE IF NOT EXISTS eval_sets (
+                    name TEXT PRIMARY KEY,
+                    goals_json TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'sampled',
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS eval_runs (
+                    id TEXT PRIMARY KEY,
+                    eval_set_name TEXT,
+                    eval_set_fingerprint TEXT NOT NULL,
+                    target TEXT NOT NULL,
+                    fitness_json TEXT NOT NULL,
+                    stats_json TEXT NOT NULL,
+                    goal_results_json TEXT,
+                    n INTEGER NOT NULL,
+                    truncated INTEGER NOT NULL DEFAULT 0,
+                    delta_vs_prev REAL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_eval_runs_fingerprint
+                    ON eval_runs(eval_set_fingerprint);
+
+                CREATE TABLE IF NOT EXISTS estop_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    kill_all INTEGER NOT NULL DEFAULT 0,
+                    network_kill INTEGER NOT NULL DEFAULT 0,
+                    frozen_tools_json TEXT NOT NULL DEFAULT '[]',
+                    updated_at TEXT,
+                    reason TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS shadow_snapshots (
+                    id TEXT PRIMARY KEY,
+                    edict_id TEXT NOT NULL,
+                    memorial_id TEXT,
+                    sha TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    work_tree TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_shadow_edict ON shadow_snapshots(edict_id);
+
+                CREATE TABLE IF NOT EXISTS kg_triples (
+                    id TEXT PRIMARY KEY,
+                    subject TEXT NOT NULL,
+                    predicate TEXT NOT NULL,
+                    object TEXT NOT NULL,
+                    scope TEXT NOT NULL DEFAULT 'court',
+                    valid_from TEXT NOT NULL,
+                    valid_to TEXT,
+                    confidence REAL NOT NULL DEFAULT 1.0,
+                    source TEXT NOT NULL DEFAULT 'agent',
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_kg_sp
+                    ON kg_triples(scope, subject, predicate);
+                CREATE INDEX IF NOT EXISTS idx_kg_valid ON kg_triples(valid_to);
+
+                CREATE TABLE IF NOT EXISTS historian_log (
+                    memorial_id TEXT PRIMARY KEY,
+                    distilled_at TEXT NOT NULL,
+                    insight_written INTEGER NOT NULL DEFAULT 0
+                );
+
+                CREATE TABLE IF NOT EXISTS pending_notifications (
+                    id TEXT PRIMARY KEY,
+                    edict_id TEXT,
+                    memorial_id TEXT,
+                    message_json TEXT NOT NULL,
+                    channels_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS pending_steers (
+                    id TEXT PRIMARY KEY,
+                    edict_id TEXT NOT NULL,
+                    note TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_steers_edict ON pending_steers(edict_id);
+
+                CREATE TABLE IF NOT EXISTS feature_flags (
+                    key TEXT PRIMARY KEY,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    rollout_pct INTEGER NOT NULL DEFAULT 100,
+                    description TEXT,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS evolution_petitions (
+                    id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    reason TEXT,
+                    plan TEXT,
+                    created_at TEXT NOT NULL,
+                    resolved_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_petitions_status
+                    ON evolution_petitions(kind, status);
 
                 CREATE TABLE IF NOT EXISTS supervision_reports (
                     edict_id          TEXT NOT NULL,
@@ -463,3 +628,54 @@ SCHEMA_SQL_CHANNELS = """
                     updated_at           TEXT NOT NULL
                 );
             """
+
+
+SCHEMA_COMPAT_REVISION = "v0.4.2-baseline-compat-1"
+
+
+def _split_statements(*scripts: str) -> tuple[str, ...]:
+    statements: list[str] = []
+    buffer = ""
+    for script in scripts:
+        for line in script.splitlines(keepends=True):
+            buffer += line
+            if not sqlite3.complete_statement(buffer):
+                continue
+            statement = buffer.strip()
+            buffer = ""
+            if statement:
+                statements.append(statement)
+    if buffer.strip():
+        raise ValueError("incomplete canonical schema SQL")
+    return tuple(statements)
+
+
+def _normalize_statement(statement: str) -> str:
+    without_comments = re.sub(r"--[^\n]*", " ", statement)
+    return " ".join(without_comments.rstrip(";").split())
+
+
+SCHEMA_V1_STATEMENTS = _split_statements(
+    SCHEMA_SQL_CORE,
+    SCHEMA_SQL_FEISHU,
+    SCHEMA_SQL_TELEGRAM,
+    SCHEMA_SQL_CHANNELS,
+)
+SCHEMA_V1_CHECKSUM = hashlib.sha256(
+    (
+        SCHEMA_COMPAT_REVISION
+        + "\n"
+        + "\n".join(_normalize_statement(statement) for statement in SCHEMA_V1_STATEMENTS)
+    ).encode()
+).hexdigest()
+
+
+__all__ = [
+    "SCHEMA_COMPAT_REVISION",
+    "SCHEMA_SQL_CHANNELS",
+    "SCHEMA_SQL_CORE",
+    "SCHEMA_SQL_FEISHU",
+    "SCHEMA_SQL_TELEGRAM",
+    "SCHEMA_V1_CHECKSUM",
+    "SCHEMA_V1_STATEMENTS",
+]

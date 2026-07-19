@@ -1,6 +1,6 @@
 # 术语表 · 古风隐喻中英对照
 
-天枢以明朝「六部」官制为隐喻组织系统。本表把**古风名 ↔ 代码标识符 ↔ 实际含义**对齐，便于读代码与读文档时互相印证。隐喻只是组织外壳，落到代码就是普通的模块与类。
+天枢以明朝「六部」官制为隐喻组织系统。本表把**古风名 ↔ 代码标识符 ↔ 实际含义**对齐，便于读代码与读文档时互相印证。隐喻只是组织外壳，落到代码就是普通的模块与类。当前能力边界只以 [v0.4.2 能力事实矩阵](../launch/capability-matrix.md) 为准。
 
 ## 领域核心对象
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | 诏令 / 敕令 | `Edict` | 用户下达的任务，整个执行链路的根对象 |
 | 题本 / 奏折 | `Memorial` | 一次执行记录；一个诏令可对应多条（初次、follow-up、DAG 节点、重试） |
-| 批红 | `Decree` | 人工批复记录（工具审批、L3 人工决策），把「人是否授权」变成可审计数据 |
+| 裁决 | `Decree`（历史代码名） | 人对待决动作作出的治理决定；公开界面统一使用“裁决”，内部 `decree`、`approval` 与 v1 API 为兼容保留 |
 | 规划 | `Plan` / `PlanTask` | 内阁规划产出的任务计划，可展开为 DAG |
 | 验收标准 | `AcceptanceCriteria` | 长任务 outer loop 的触发器与验收契约 |
 | 事件 | `EventEnvelope` / `EventBus` | 模块间主协议，带 `edict_id` 的事件落 `events` 表成时间线 |
@@ -57,7 +57,7 @@
 | 退出原因 | `ExitReason` | 显式枚举（completed / max_iterations / context_overflow / …），取代 bool+string |
 | 外层循环 | `Orchestrator` / Outer Loop | 长任务自检、critic 监督、L1/L2/L3 升级 |
 | 三层压缩 | `compaction/` | reactive（溢出触发）/ micro（每轮预防）/ auto（LLM 摘要） |
-| 工具分级 | tier | 工具按风险分级，决定是否需审批 |
+| 工具分级 | tier | 工具按风险分级，决定是否需要人工裁决 |
 | 会话规则 | `SessionRule` | 会话级 allow/deny 工具权限 |
 | 副作用拦截 | `winding_down` | 生命周期收尾阶段拦截有副作用的工具调用 |
 | 钩点 | `HookRegistry` / `HookType` | Agent 生命周期扩展点，按 priority 排序 |

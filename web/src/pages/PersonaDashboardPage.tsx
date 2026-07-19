@@ -60,6 +60,7 @@ import {
 import type { TemplateLang } from "../api/personaTemplates";
 import { useRoutingRules } from "../hooks/useOps";
 import { useConfigs } from "../hooks/useConfig";
+import { isApiProblem } from "../api/client";
 import type {
   PersonaInfo,
   PersonaCreateRequest,
@@ -741,9 +742,10 @@ function DepartmentTab({
   const handleDelete = (id: string) => {
     deleteMutation.mutate(id, {
       onSuccess: () => notification.success({ message: t("persona.toast.deptDeleted") }),
-      onError: (err: Error) => {
-        const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-        notification.error({ message: msg ?? t("persona.toast.deptDeleteFailed") });
+      onError: (err: unknown) => {
+        notification.error({
+          message: isApiProblem(err) ? err.message : t("persona.toast.deptDeleteFailed"),
+        });
       },
     });
   };

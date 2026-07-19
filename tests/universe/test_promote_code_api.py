@@ -23,7 +23,8 @@ async def client():
 
 async def test_promote_code_missing_universe(client):
     resp = await client.post("/api/universes/ghost-id/promote-code", json={})
-    assert resp.status_code == 400
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "promotion_preconditions_not_met"
 
 
 async def test_promote_code_rejects_data_universe(client):
@@ -31,4 +32,5 @@ async def test_promote_code_rejects_data_universe(client):
     listing = await client.get("/api/universes")
     champ = next(u for u in listing.json()["data"] if u["status"] == "champion")
     resp = await client.post(f"/api/universes/{champ['id']}/promote-code", json={})
-    assert resp.status_code == 400  # not a code variant universe (no code_ref)
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "promotion_preconditions_not_met"

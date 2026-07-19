@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from tianshu.models import (
+    ArtifactRef,
     AuditResult,
     DAGExecution,
     DAGNode,
@@ -18,12 +19,50 @@ from tianshu.models import (
     EdictStatus,
     Memorial,
     TaskStatus,
+    TimelineItem,
     UsageSummary,
     resolve_failure_reason,
 )
 from tianshu.models.acceptance import AcceptanceCriteria
+from tianshu.models.governance_contract import (
+    EffectiveGovernanceContractV1,
+    RequestedGovernanceContractV1,
+)
+from tianshu.models.workspace import (
+    ApplyDecision,
+    ApplyReceipt,
+    CanonicalChangeSet,
+    RestorePoint,
+    WorkspaceLease,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def row_to_workspace_lease(row: sqlite3.Row) -> WorkspaceLease:
+    return WorkspaceLease.model_validate(dict(row))
+
+
+def row_to_restore_point(row: sqlite3.Row) -> RestorePoint:
+    payload = json.loads(row["canonical_json"])
+    payload.update({"id": row["id"], "created_at": row["created_at"]})
+    return RestorePoint.model_validate(payload)
+
+
+def row_to_canonical_change_set(row: sqlite3.Row) -> CanonicalChangeSet:
+    payload = json.loads(row["canonical_json"])
+    payload.update({"id": row["id"], "sequence": row["sequence"], "created_at": row["created_at"]})
+    return CanonicalChangeSet.model_validate(payload)
+
+
+def row_to_apply_decision(row: sqlite3.Row) -> ApplyDecision:
+    return ApplyDecision.model_validate(dict(row))
+
+
+def row_to_apply_receipt(row: sqlite3.Row) -> ApplyReceipt:
+    payload = dict(row)
+    payload["evidence"] = json.loads(payload.pop("evidence_json"))
+    return ApplyReceipt.model_validate(payload)
 
 
 def _load_json_field(raw: str, loader, field: str, entity_id: str, default):
@@ -150,7 +189,10 @@ def _row_to_universe(row: sqlite3.Row) -> dict:
     }
 
 
-def _row_to_edict(row: sqlite3.Row) -> Edict:
+def _row_to_edict(
+    row: sqlite3.Row,
+    governance_contract: RequestedGovernanceContractV1 | None = None,
+) -> Edict:
     # Handle optional Phase 1 columns gracefully
     keys = row.keys()
 
@@ -237,10 +279,14 @@ def _row_to_edict(row: sqlite3.Row) -> Edict:
         dispatch=dispatch,
         runtime=runtime,
         metadata=metadata,
+        governance_contract=governance_contract,
     )
 
 
-def _row_to_memorial(row: sqlite3.Row) -> Memorial:
+def _row_to_memorial(
+    row: sqlite3.Row,
+    effective_governance_contract: EffectiveGovernanceContractV1 | None = None,
+) -> Memorial:
     keys = row.keys()
     usage_data = json.loads(row["usage_json"]) if row["usage_json"] else {}
 
@@ -252,6 +298,26 @@ def _row_to_memorial(row: sqlite3.Row) -> Memorial:
             "audit_json",
             row["id"],
             audit,
+        )
+
+    artifacts: list[ArtifactRef] = []
+    if "artifacts_json" in keys and row["artifacts_json"]:
+        artifacts = _load_json_field(
+            row["artifacts_json"],
+            lambda raw: [ArtifactRef.model_validate(item) for item in json.loads(raw)],
+            "artifacts_json",
+            row["id"],
+            artifacts,
+        )
+
+    timeline: list[TimelineItem] = []
+    if "timeline_json" in keys and row["timeline_json"]:
+        timeline = _load_json_field(
+            row["timeline_json"],
+            lambda raw: [TimelineItem.model_validate(item) for item in json.loads(raw)],
+            "timeline_json",
+            row["id"],
+            timeline,
         )
 
     return Memorial(
@@ -275,6 +341,8 @@ def _row_to_memorial(row: sqlite3.Row) -> Memorial:
         parent_memorial_id=row["parent_memorial_id"] if "parent_memorial_id" in keys else None,
         review_status=row["review_status"] if "review_status" in keys else "not_required",
         audit=audit,
+        artifacts=artifacts,
+        timeline=timeline,
         dag_node_id=row["dag_node_id"] if "dag_node_id" in keys else None,
         persona_id=row["persona_id"] if "persona_id" in keys else None,
         runtime_override=_parse_runtime_override(row, keys),
@@ -284,6 +352,7 @@ def _row_to_memorial(row: sqlite3.Row) -> Memorial:
         universe_id=row["universe_id"] if "universe_id" in keys else None,
         feedback_score=row["feedback_score"] if "feedback_score" in keys else 0,
         failure_reason=row["failure_reason"] if "failure_reason" in keys else None,
+        effective_governance_contract=effective_governance_contract,
     )
 
 

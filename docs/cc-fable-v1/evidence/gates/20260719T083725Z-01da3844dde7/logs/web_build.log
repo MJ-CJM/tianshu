@@ -1,0 +1,66 @@
+
+> tianshu-web@0.4.2 build
+> tsc -b && vite build
+
+vite v6.4.3 building for production...
+transforming...
+✓ 3720 modules transformed.
+rendering chunks...
+computing gzip size...
+../src/tianshu/web/static/index.html                                   1.27 kB │ gzip:   0.81 kB
+../src/tianshu/web/static/manifest.json                               14.83 kB │ gzip:   1.85 kB
+../src/tianshu/web/static/assets/EdictDetailPage-C6sss6SB.css          0.38 kB │ gzip:   0.21 kB
+../src/tianshu/web/static/assets/GlowCard-JvFSNqWD.css                 0.76 kB │ gzip:   0.32 kB
+../src/tianshu/web/static/assets/index-DKBzpY4l.css                    4.70 kB │ gzip:   1.49 kB
+../src/tianshu/web/static/assets/DagBattleMapPage-BZV40eAE.css        15.85 kB │ gzip:   2.65 kB
+../src/tianshu/web/static/assets/MonoText-0cd7gO2e.js                  0.22 kB │ gzip:   0.19 kB
+../src/tianshu/web/static/assets/GlowCard-BjWiWkaE.js                  0.26 kB │ gzip:   0.21 kB
+../src/tianshu/web/static/assets/network_events-DaCa4UN_.js            0.32 kB │ gzip:   0.24 kB
+../src/tianshu/web/static/assets/SemanticTag-CKF7eCBs.js               0.40 kB │ gzip:   0.28 kB
+../src/tianshu/web/static/assets/credentials-LqBzaZW2.js               0.42 kB │ gzip:   0.24 kB
+../src/tianshu/web/static/assets/evals-C1YF3wio.js                     0.42 kB │ gzip:   0.23 kB
+../src/tianshu/web/static/assets/PageContainer-_8WvpMge.js             0.52 kB │ gzip:   0.37 kB
+../src/tianshu/web/static/assets/usePersonas-DMk3P-pF.js               0.85 kB │ gzip:   0.35 kB
+../src/tianshu/web/static/assets/providers-va0hoyAb.js                 0.88 kB │ gzip:   0.40 kB
+../src/tianshu/web/static/assets/useDepartments-LRwlRHJR.js            0.89 kB │ gzip:   0.37 kB
+../src/tianshu/web/static/assets/policy-DfBB6wU3.js                    0.92 kB │ gzip:   0.37 kB
+../src/tianshu/web/static/assets/useMCP-CvE3DW_x.js                    0.98 kB │ gzip:   0.41 kB
+../src/tianshu/web/static/assets/useDag-RXAQ6Yl0.js                    1.23 kB │ gzip:   0.55 kB
+../src/tianshu/web/static/assets/useMemory-TgUYkaJQ.js                 1.42 kB │ gzip:   0.58 kB
+../src/tianshu/web/static/assets/useConfig-Byp6IYH5.js                 1.46 kB │ gzip:   0.46 kB
+../src/tianshu/web/static/assets/universe-CxWVsrjy.js                  1.48 kB │ gzip:   0.45 kB
+../src/tianshu/web/static/assets/useSystem-BQYuysDX.js                 1.52 kB │ gzip:   0.52 kB
+../src/tianshu/web/static/assets/format-CvEJY_id.js                    1.86 kB │ gzip:   1.00 kB
+../src/tianshu/web/static/assets/SchedulerPage-BEBC5vXy.js             2.10 kB │ gzip:   0.97 kB
+../src/tianshu/web/static/assets/useOps-Dyr9_qN8.js                    2.65 kB │ gzip:   0.77 kB
+../src/tianshu/web/static/assets/OnboardingPage-DblPY3M_.js            2.69 kB │ gzip:   1.10 kB
+../src/tianshu/web/static/assets/useMutation-BoR6iYWN.js               3.14 kB │ gzip:   1.29 kB
+../src/tianshu/web/static/assets/CabinetPage-BsxMkSgu.js               3.34 kB │ gzip:   1.29 kB
+../src/tianshu/web/static/assets/ConsultationPage-Cb-D38hi.js          4.85 kB │ gzip:   1.76 kB
+../src/tianshu/web/static/assets/EvalsPage-5QuKuy0g.js                 5.47 kB │ gzip:   2.00 kB
+../src/tianshu/web/static/assets/ControlCenterPage-C6EV1Wzs.js         5.48 kB │ gzip:   1.77 kB
+../src/tianshu/web/static/assets/EvolutionCenterPage-s6GJ95Vy.js       5.64 kB │ gzip:   1.82 kB
+../src/tianshu/web/static/assets/SessionRulesPage-BNWIXxDY.js          6.04 kB │ gzip:   2.16 kB
+../src/tianshu/web/static/assets/HongluisiPage-o4LV9FWS.js             8.45 kB │ gzip:   2.79 kB
+../src/tianshu/web/static/assets/UniversePage-DvP2KDM1.js             10.32 kB │ gzip:   3.92 kB
+../src/tianshu/web/static/assets/MemoryDashboardPage-CwDbBext.js      10.52 kB │ gzip:   3.31 kB
+../src/tianshu/web/static/assets/RoyalStudyPage-C9OGA0_Z.js           11.31 kB │ gzip:   4.06 kB
+../src/tianshu/web/static/assets/TongzhengPage-D6co5t40.js            11.55 kB │ gzip:   3.05 kB
+../src/tianshu/web/static/assets/CostDashboardPage-CW_AW9pW.js        12.41 kB │ gzip:   3.74 kB
+../src/tianshu/web/static/assets/PersonaDashboardPage-DxYSoA8Z.js     19.75 kB │ gzip:   5.02 kB
+../src/tianshu/web/static/assets/AuditDashboardPage-YgymXIsL.js       22.71 kB │ gzip:   5.96 kB
+../src/tianshu/web/static/assets/PersonaDetailPage-BmWfVaUq.js        25.02 kB │ gzip:   7.02 kB
+../src/tianshu/web/static/assets/EdictCreatePage-DRnpkXkL.js          33.09 kB │ gzip:   8.05 kB
+../src/tianshu/web/static/assets/SystemManagementPage-DAtRez2j.js     50.26 kB │ gzip:  12.61 kB
+../src/tianshu/web/static/assets/EdictDetailPage-Bonzmm5N.js          59.28 kB │ gzip:  16.18 kB
+../src/tianshu/web/static/assets/index-Ds68S-Se.js                   156.64 kB │ gzip:  47.22 kB
+../src/tianshu/web/static/assets/vendor-DASGyJCg.js                  164.31 kB │ gzip:  53.79 kB
+../src/tianshu/web/static/assets/DagBattleMapPage-Bchw5Ajt.js        187.43 kB │ gzip:  60.98 kB
+../src/tianshu/web/static/assets/index-C_FLRAtG.js                   330.80 kB │ gzip: 119.05 kB
+../src/tianshu/web/static/assets/antd-CmVDBzNm.js                  1,086.34 kB │ gzip: 337.50 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 2.54s

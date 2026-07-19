@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
 from tianshu.config import TianshuSettings
+from tianshu.executor.execution_gateway import ExecutionGateway
 from tianshu.tools.builtins import register_builtins
 from tianshu.tools.registry import ToolRegistry
 
@@ -26,6 +29,22 @@ if TYPE_CHECKING:
     from tianshu.tools.mcp import MCPManager
 
 logger = logging.getLogger(__name__)
+
+
+def _runtime_secret_resolver(settings: TianshuSettings):
+    setting_refs = {
+        "settings:eval_llm_api_key": settings.eval_llm_api_key,
+        "settings:llm_api_key": settings.llm_api_key,
+    }
+
+    def resolve(ref: str) -> str | None:
+        if ref in setting_refs:
+            return setting_refs[ref] or None
+        if ref.startswith("settings:"):
+            return None
+        return os.environ.get(ref)
+
+    return resolve
 
 
 async def _mcp_bg_start(mcp_manager: MCPManager) -> None:
@@ -46,12 +65,16 @@ async def wire_tools(app: FastAPI, settings: TianshuSettings) -> ToolRegistry:
     event_bus = app.state.event_bus
 
     # --- Tools ---
+    execution_gateway = ExecutionGateway(secret_resolver=_runtime_secret_resolver(settings))
+    app.state.execution_gateway = execution_gateway
     tools = ToolRegistry()
     register_builtins(
         tools,
         settings.workspace_dir,
         storage=storage,
         event_bus=event_bus,
+        execution_gateway=execution_gateway,
+        edict_application_service=app.state.edict_application_service,
     )
 
     # --- MCP（藏兵阁外挂）：fire-and-forget 启动，不阻塞 lifespan ---
@@ -59,7 +82,14 @@ async def wire_tools(app: FastAPI, settings: TianshuSettings) -> ToolRegistry:
     # 惰性导入：mcp 属可选能力，保持 import 时不加载（对应原 lifespan 的函数内导入）。
     from tianshu.tools.mcp import MCPManager
 
-    mcp_manager = MCPManager(tools, storage=storage, allowlist=settings.mcp_server_allowlist)
+    mcp_manager = MCPManager(
+        tools,
+        execution_gateway,
+        workspace_root=Path(settings.workspace_dir),
+        security_mode=settings.security_mode,
+        storage=storage,
+        allowlist=settings.mcp_server_allowlist,
+    )
     app.state.mcp_manager = mcp_manager
     try:
         mcp_manager.load_config()

@@ -5,6 +5,7 @@ from pathlib import Path
 from tianshu.persona.loader import PersonaLoader
 from tianshu.persona.model import AgentPersona
 from tianshu.persona.selector import OfficialSelector
+from tianshu.resources.overlay import packaged_defaults
 
 
 class TestAgentPersona:
@@ -39,7 +40,7 @@ class TestAgentPersona:
 
 class TestPersonaLoader:
     def test_load_all(self):
-        personas_dir = Path(__file__).parent.parent / "personas"
+        personas_dir = packaged_defaults().personas_dir()
         loader = PersonaLoader(personas_dir)
         personas = loader.load_all()
         assert "bingbu" in personas
@@ -48,7 +49,7 @@ class TestPersonaLoader:
         assert "tongzheng" in personas
 
     def test_get(self):
-        personas_dir = Path(__file__).parent.parent / "personas"
+        personas_dir = packaged_defaults().personas_dir()
         loader = PersonaLoader(personas_dir)
         loader.load_all()
         persona = loader.get("bingbu")
@@ -56,7 +57,7 @@ class TestPersonaLoader:
         assert persona.name == "兵部 (Ministry of War)"
 
     def test_get_nonexistent(self):
-        personas_dir = Path(__file__).parent.parent / "personas"
+        personas_dir = packaged_defaults().personas_dir()
         loader = PersonaLoader(personas_dir)
         loader.load_all()
         assert loader.get("nonexistent") is None
@@ -69,7 +70,7 @@ class TestPersonaLoader:
 
 class TestOfficialSelector:
     def test_select(self):
-        personas_dir = Path(__file__).parent.parent / "personas"
+        personas_dir = packaged_defaults().personas_dir()
         loader = PersonaLoader(personas_dir)
         loader.load_all()
         selector = OfficialSelector(loader)
@@ -79,7 +80,7 @@ class TestOfficialSelector:
         assert p.id == "bingbu"
 
     def test_select_plan(self):
-        personas_dir = Path(__file__).parent.parent / "personas"
+        personas_dir = packaged_defaults().personas_dir()
         loader = PersonaLoader(personas_dir)
         loader.load_all()
         selector = OfficialSelector(loader)
@@ -89,7 +90,7 @@ class TestOfficialSelector:
         assert p.id == "neige"
 
     def test_select_unknown(self):
-        personas_dir = Path(__file__).parent.parent / "personas"
+        personas_dir = packaged_defaults().personas_dir()
         loader = PersonaLoader(personas_dir)
         loader.load_all()
         selector = OfficialSelector(loader)

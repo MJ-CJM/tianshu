@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,6 +12,7 @@ from tianshu.gateway.feishu.approval_commands import (
     ApprovalCommandHandler,
     parse_approval_command,
 )
+from tianshu.models.principal import AuthenticationSource, ClientKind, PrincipalKind
 
 # --- parse_approval_command ---
 
@@ -66,32 +68,30 @@ def test_parse_id_prefix_too_short_ignored():
 # --- ApprovalCommandHandler ---
 
 
-def _decree_returning(scope: str | None):
-    """构造 mock Decree，grant_scope = 实际生效值（可能被 always→once 降级）。"""
-    d = MagicMock()
-    d.grant_scope = scope
-    return d
+def _record_returning(action: str, scope: str | None):
+    record = MagicMock()
+    record.resolution.action = action
+    record.resolution.payload = {"grant_scope": scope}
+    return record
 
 
 @pytest.fixture
 def handler_setup():
     storage = MagicMock()
-    # 模拟 storage._conn.execute(...).fetchall()
-    storage._conn = MagicMock()
     approval = MagicMock()
 
     # 默认：实际 scope 等于 input scope（无降级）
-    async def _default_decision(*, memorial_id, action, grant_scope=None, **_kw):
-        return _decree_returning(grant_scope)
+    async def _default_decision(_decision_id, *, action, grant_scope=None, **_kw):
+        return _record_returning(action, grant_scope)
 
-    approval.submit_tool_decision = AsyncMock(side_effect=_default_decision)
+    approval.resolve_tool_decision = AsyncMock(side_effect=_default_decision)
     h = ApprovalCommandHandler(storage=storage, approval_manager=approval)
     return h, storage, approval
 
 
 def _set_pending(storage: MagicMock, memorial_ids: list[str]) -> None:
     """让 _list_pending_for_chat 返回指定 memorial_id 列表。"""
-    storage._conn.execute.return_value.fetchall.return_value = [(mid,) for mid in memorial_ids]
+    storage.list_feishu_pending_for_chat.return_value = memorial_ids
 
 
 @pytest.mark.asyncio
@@ -109,12 +109,10 @@ async def test_handle_single_pending_default_approve(handler_setup):
     _set_pending(storage, ["mem_a1234567"])
     cmd = ApprovalCommand("approve", "once", None)
     reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
-    approval.submit_tool_decision.assert_awaited_once_with(
-        memorial_id="mem_a1234567",
-        action="approve",
-        grant_scope="once",
-        actor="feishu:ou_a",
-    )
+    assert approval.resolve_tool_decision.await_args.args == ("mem_a1234567",)
+    kwargs = approval.resolve_tool_decision.await_args.kwargs
+    assert kwargs["action"] == "approve" and kwargs["grant_scope"] == "once"
+    assert kwargs["auth"].principal.id == "feishu:feishu-default:ou_a"
     assert "已批准" in reply
     assert "单次" in reply
 
@@ -125,12 +123,10 @@ async def test_handle_single_pending_default_reject(handler_setup):
     _set_pending(storage, ["mem_b"])
     cmd = ApprovalCommand("reject", None, None)
     reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
-    approval.submit_tool_decision.assert_awaited_once_with(
-        memorial_id="mem_b",
-        action="reject",
-        grant_scope=None,
-        actor="feishu:ou_a",
-    )
+    assert approval.resolve_tool_decision.await_args.args == ("mem_b",)
+    kwargs = approval.resolve_tool_decision.await_args.kwargs
+    assert kwargs["action"] == "reject" and kwargs["grant_scope"] is None
+    assert kwargs["auth"].principal.id == "feishu:feishu-default:ou_a"
     assert "拒绝" in reply
 
 
@@ -140,7 +136,7 @@ async def test_handle_multi_pending_without_id_lists_them(handler_setup):
     _set_pending(storage, ["mem_x12345", "mem_y67890"])
     cmd = ApprovalCommand("approve", "once", None)
     reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
-    approval.submit_tool_decision.assert_not_awaited()
+    approval.resolve_tool_decision.assert_not_awaited()
     assert "2 个待审批" in reply
     assert "/approve" in reply
     assert "/准" in reply
@@ -152,12 +148,10 @@ async def test_handle_multi_pending_with_prefix_targets_one(handler_setup):
     _set_pending(storage, ["mem_x12345abc", "mem_y67890def"])
     cmd = ApprovalCommand("approve", "edict", "mem_x12")
     reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
-    approval.submit_tool_decision.assert_awaited_once_with(
-        memorial_id="mem_x12345abc",
-        action="approve",
-        grant_scope="edict",
-        actor="feishu:ou_a",
-    )
+    assert approval.resolve_tool_decision.await_args.args == ("mem_x12345abc",)
+    kwargs = approval.resolve_tool_decision.await_args.kwargs
+    assert kwargs["action"] == "approve" and kwargs["grant_scope"] == "edict"
+    assert kwargs["auth"].principal.id == "feishu:feishu-default:ou_a"
     assert "已批准" in reply
     assert "本敕令" in reply
 
@@ -168,7 +162,7 @@ async def test_handle_prefix_no_match(handler_setup):
     _set_pending(storage, ["mem_x12345"])
     cmd = ApprovalCommand("approve", "once", "nomatch")
     reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
-    approval.submit_tool_decision.assert_not_awaited()
+    approval.resolve_tool_decision.assert_not_awaited()
     assert "未找到" in reply
 
 
@@ -178,16 +172,16 @@ async def test_handle_prefix_ambiguous(handler_setup):
     _set_pending(storage, ["mem_x12345", "mem_x12999"])
     cmd = ApprovalCommand("approve", "once", "mem_x12")
     reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
-    approval.submit_tool_decision.assert_not_awaited()
+    approval.resolve_tool_decision.assert_not_awaited()
     assert "匹配多个" in reply
 
 
 @pytest.mark.asyncio
 async def test_handle_idempotent_when_already_resolved(handler_setup):
-    """submit_tool_decision 抛 ValueError → 友好提示已被其他通道响应。"""
+    """resolve_tool_decision 抛 ValueError → 友好提示已被其他通道响应。"""
     h, storage, approval = handler_setup
     _set_pending(storage, ["mem_z"])
-    approval.submit_tool_decision = AsyncMock(side_effect=ValueError("not pending"))
+    approval.resolve_tool_decision = AsyncMock(side_effect=ValueError("not pending"))
     cmd = ApprovalCommand("approve", "once", None)
     reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
     assert "其他通道" in reply
@@ -204,10 +198,11 @@ async def test_handle_always_downgraded_to_once_shows_real_scope(handler_setup):
     _set_pending(storage, ["mem_w12345678"])
 
     # 模拟后端把 always 降级为 once（policy_store.assert_can_grant 拒绝）
-    async def _downgrade(*, memorial_id, action, grant_scope=None, **_kw):
-        return _decree_returning("once")  # 实际生效 once
+    async def _downgrade(_decision_id, *, action, grant_scope=None, **_kw):
+        del grant_scope
+        return _record_returning(action, "once")
 
-    approval.submit_tool_decision = AsyncMock(side_effect=_downgrade)
+    approval.resolve_tool_decision = AsyncMock(side_effect=_downgrade)
 
     cmd = ApprovalCommand("approve", "always", None)  # 用户请求 always
     reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
@@ -228,3 +223,46 @@ async def test_handle_no_downgrade_no_extra_hint(handler_setup):
     reply = await h.handle(chat_id="oc_x", sender_open_id="ou_a", command=cmd)
     assert "本敕令" in reply
     assert "降级" not in reply
+
+
+@pytest.mark.asyncio
+async def test_configured_feishu_instance_namespaces_webhook_identity(handler_setup):
+    _, storage, approval = handler_setup
+    _set_pending(storage, ["01DECISIONAAAA11111111111111"])
+    first = ApprovalCommandHandler(
+        storage=storage,
+        approval_manager=approval,
+        instance_id="feishu-primary",
+    )
+    second = ApprovalCommandHandler(
+        storage=storage,
+        approval_manager=approval,
+        instance_id="feishu-secondary",
+    )
+    command = ApprovalCommand("approve", "once", None)
+
+    await first.handle(chat_id="oc_shared", sender_open_id="ou_shared", command=command)
+    await second.handle(chat_id="oc_shared", sender_open_id="ou_shared", command=command)
+
+    first_auth = approval.resolve_tool_decision.await_args_list[-2].kwargs["auth"]
+    second_auth = approval.resolve_tool_decision.await_args_list[-1].kwargs["auth"]
+    assert first_auth.principal.id == "feishu:feishu-primary:ou_shared"
+    assert second_auth.principal.id == "feishu:feishu-secondary:ou_shared"
+    assert first_auth.principal.id != second_auth.principal.id
+    assert first_auth.principal.kind is PrincipalKind.WEBHOOK
+    assert first_auth.principal.scopes == frozenset({"decision:resolve"})
+    assert first_auth.source is AuthenticationSource.WEBHOOK
+    assert first_auth.client_kind is ClientKind.WEBHOOK
+    expected_digest = hashlib.sha256(
+        "\0".join(
+            (
+                "feishu",
+                "feishu-primary",
+                "oc_shared",
+                "ou_shared",
+                "01DECISIONAAAA11111111111111",
+            )
+        ).encode()
+    ).hexdigest()[:32]
+    assert first_auth.correlation_id == f"approval-command:{expected_digest}"
+    assert first_auth.correlation_id != second_auth.correlation_id

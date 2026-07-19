@@ -4,15 +4,26 @@ from __future__ import annotations
 
 import difflib
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from tianshu.executor.workspace_context import resolve_workspace_root
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
+if TYPE_CHECKING:
+    from tianshu.executor.execution_gateway import ExecutionGateway
 
-def register_edit_file(registry: ToolRegistry, workspace: Path) -> None:
+
+def register_edit_file(
+    registry: ToolRegistry,
+    workspace: Path,
+    *,
+    execution_gateway: ExecutionGateway | None = None,
+) -> None:
     async def edit_file(path: str, old_text: str, new_text: str) -> ToolResult:
-        file_path = safe_path(workspace, path)
+        active_workspace = resolve_workspace_root(workspace)
+        file_path = safe_path(active_workspace, path)
         if not file_path.is_file():
             return error_result(f"Error: file '{path}' does not exist")
 
@@ -62,14 +73,27 @@ def register_edit_file(registry: ToolRegistry, workspace: Path) -> None:
 
         # LSP 诊断(迭代 5):编辑 .py 落盘即跑 basedpyright,类型/语义错误回灌 agent。
         # 默认关 + 优雅降级(未装/非 py/超时返回空),不阻断编辑。
-        from tianshu.lsp.diagnostics import format_diagnostics, run_diagnostics
+        from tianshu.lsp.diagnostics import format_diagnostics, run_diagnostics_async
 
-        diags = run_diagnostics(file_path)
+        diagnostic_outcome = await run_diagnostics_async(
+            file_path,
+            execution_gateway=execution_gateway,
+            workspace_root=active_workspace,
+        )
+        diags = diagnostic_outcome.diagnostics
         details: dict = {"diff": diff, "first_changed_line": first_changed_line}
         content = f"Edited {path}"
         if diags:
-            details["diagnostics"] = diags
+            details["diagnostics"] = list(diags)
             content = f"{content}\n\n{format_diagnostics(diags)}"
+        advisory = diagnostic_outcome.advisory_details()
+        if advisory is not None:
+            details["diagnostics_advisory"] = advisory
+            content = (
+                f"{content}\n\n⚠️ LSP advisory "
+                f"[{diagnostic_outcome.status}, correlation={diagnostic_outcome.correlation_id}]: "
+                f"{diagnostic_outcome.advisory}"
+            )
         return ok_result(content, details=details)
 
     registry.register(

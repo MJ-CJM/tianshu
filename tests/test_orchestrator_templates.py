@@ -121,8 +121,20 @@ def test_render_falls_back_when_template_missing(monkeypatch, tmp_path):
     # 模拟 templates 目录路径不可用
     from tianshu.executor.orchestrator import templates as tmpl_mod
 
-    monkeypatch.setattr(tmpl_mod, "_TEMPLATES_DIR", tmp_path)
+    monkeypatch.setattr(tmpl_mod, "_templates_dir", lambda: tmp_path)
     text = render_template(TemplateName.CONTINUATION, objective="g")
     assert text == TEMPLATE_FALLBACK[TemplateName.CONTINUATION].format(
         objective_block=wrap_untrusted_objective("g"),
     )
+
+
+def test_render_uses_real_packaged_template_not_fallback():
+    """守卫：正常环境下 render 必须加载打包的真实模板，而非静默降级 fallback。
+
+    G1.5 消费者切换曾漏掉 edict 子目录导致全量静默降级——此测试锁定该回归。
+    """
+    text = render_template(TemplateName.CONTINUATION, objective="probe")
+    fallback = TEMPLATE_FALLBACK[TemplateName.CONTINUATION].format(
+        objective_block=wrap_untrusted_objective("probe"),
+    )
+    assert text != fallback, "render 静默回退了 TEMPLATE_FALLBACK：打包模板未被加载"

@@ -1,5 +1,6 @@
 import { Tooltip } from "antd";
 import { useT } from "../../i18n";
+import { FROZEN_CONNECTION_LABEL } from "../../contracts/frozenShell";
 
 interface ConnectionIndicatorProps {
   isConnected: boolean;
@@ -8,12 +9,15 @@ interface ConnectionIndicatorProps {
 export default function ConnectionIndicator({ isConnected }: ConnectionIndicatorProps) {
   const t = useT();
   const color = isConnected ? "var(--ts-color-success)" : "var(--ts-color-error)";
-  const label = isConnected ? t("comp.connection.online") : t("comp.connection.offline");
   const title = isConnected ? t("comp.connection.onlineTitle") : t("comp.connection.offlineTitle");
 
   return (
     <Tooltip title={title}>
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 8 }}>
+      <span
+        role="status"
+        aria-label={title}
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, marginRight: 8 }}
+      >
         <span
           style={{
             width: 8,
@@ -24,7 +28,7 @@ export default function ConnectionIndicator({ isConnected }: ConnectionIndicator
           }}
         />
         <span style={{ fontSize: 12, color: "var(--ts-color-text-secondary)" }}>
-          {label}
+          {FROZEN_CONNECTION_LABEL}
         </span>
       </span>
     </Tooltip>

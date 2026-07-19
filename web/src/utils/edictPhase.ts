@@ -20,8 +20,8 @@ export function deriveEdictPhase(memorial: Memorial | null): EdictPhase {
 
 export const PHASE_LABELS: Record<EdictPhase, string> = {
   running: "运行中",
-  needs_review: "待朱批",
-  idle: "待批示",
+  needs_review: "待裁决",
+  idle: "待后续指令",
   no_memorial: "待启动",
 };
 

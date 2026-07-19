@@ -90,7 +90,9 @@ def _do_build(
 
     # 4. 构造 search providers
     search: dict[str, SearchEngine] = {}
-    search["duckduckgo"] = build_duckduckgo()
+    ddg = build_duckduckgo()  # lxml 未装时为 None（可选依赖，不注册而非崩启动）
+    if ddg:
+        search["duckduckgo"] = ddg
     tv = build_tavily(cred_store)
     if tv:
         search["tavily"] = tv

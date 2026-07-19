@@ -263,6 +263,12 @@ class LLMClient:
         messages: list[dict],
         tools: list[dict] | None = None,
     ) -> LLMResponse:
+        if self._model == "mock/tianshu-demo":
+            # 精确 opt-in 的确定性零网络 demo；在任何 LiteLLM/Router 调用之前分派。
+            # live 模型的错误在下方原路径中保持为错误，永不落入 demo。
+            from tianshu.providers.demo import demo_chat
+
+            return await demo_chat(messages, tools)
         if self._router is not None and self._router_model_name:
             # Router 路径:重试/降级/冷却由 Router 全权负责(llm_router.py 配置),
             # 外层不再叠加 tenacity,避免重试次数相乘。
@@ -384,6 +390,12 @@ class LLMClient:
         tools: list[dict] | None = None,
     ):
         """Streaming chat — yields LLMResponse chunks. Final chunk has full usage."""
+        if self._model == "mock/tianshu-demo":
+            from tianshu.providers.demo import demo_chat_stream
+
+            async for chunk in demo_chat_stream(messages, tools):
+                yield chunk
+            return
         model, api_base = self._resolve_model()
         messages = _apply_prompt_caching(messages, model)
 

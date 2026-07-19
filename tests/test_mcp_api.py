@@ -7,9 +7,11 @@
 from __future__ import annotations
 
 import pytest
+from cryptography.fernet import Fernet
 from httpx import ASGITransport, AsyncClient
 
 from tianshu.app import create_app, lifespan
+from tianshu.secrets.vault import reset_vault
 from tianshu.tools.mcp.config import MCPConfig, MCPServerConfig
 
 
@@ -20,33 +22,38 @@ async def client(monkeypatch):
 
     monkeypatch.setattr(mcp_client_module, "MAX_RECONNECT_ATTEMPTS", 1)
     monkeypatch.setattr(mcp_client_module, "MAX_BACKOFF_SECONDS", 0)
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", Fernet.generate_key().decode())
+    reset_vault()
 
     app = create_app()
-    async with lifespan(app):
-        # 手动喂一份 config（不真实启动 server，仅用于 API serialization 测试）
-        manager = app.state.mcp_manager
-        manager._config = MCPConfig(
-            mcp_servers={
-                "fixture": MCPServerConfig(
-                    name="fixture",
-                    transport="stdio",
-                    command="echo",
-                    args=["hi"],
-                    enabled=True,
-                    env={"TOKEN": "secret"},
-                ),
-                "remote": MCPServerConfig(
-                    name="remote",
-                    transport="streamable_http",
-                    url="https://x.example.com/mcp",
-                    enabled=False,
-                    headers={"Authorization": "Bearer xxx"},
-                ),
-            }
-        )
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
+    try:
+        async with lifespan(app):
+            # 手动喂一份 config（不真实启动 server，仅用于 API serialization 测试）
+            manager = app.state.mcp_manager
+            manager._config = MCPConfig(
+                mcp_servers={
+                    "fixture": MCPServerConfig(
+                        name="fixture",
+                        transport="stdio",
+                        command="echo",
+                        args=["hi"],
+                        enabled=True,
+                        env={"TOKEN": "secret"},
+                    ),
+                    "remote": MCPServerConfig(
+                        name="remote",
+                        transport="streamable_http",
+                        url="https://x.example.com/mcp",
+                        enabled=False,
+                        headers={"Authorization": "Bearer xxx"},
+                    ),
+                }
+            )
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                yield c
+    finally:
+        reset_vault()
 
 
 class TestListMCPServers:
@@ -190,6 +197,7 @@ class TestCreateMCPServer:
                 "command": "/bin/echo",
                 "args": ["dummy"],
                 "enabled": True,
+                "tools_include": ["health_probe"],
                 "default_tier": 0,
                 "env": {"FOO": "bar"},
                 "timeout": 5,

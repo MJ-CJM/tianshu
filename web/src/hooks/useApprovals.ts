@@ -1,12 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { listEdicts, getLatestMemorialsBatch } from "../api/edicts";
 import {
   listNeedsReview,
-  createDecree,
   fetchPendingToolCalls,
-  submitToolDecision,
 } from "../api/decrees";
-import type { DecreeCreateRequest, ToolDecisionRequest } from "../api/types";
 
 export function useNeedsReview(limit = 50) {
   return useQuery({
@@ -34,39 +31,11 @@ export function useEdictLatestMemorials(edictIds: string[], enabled = true) {
   });
 }
 
-export function useCreateDecree() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (req: DecreeCreateRequest) => createDecree(req),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["needs_review"] });
-      queryClient.invalidateQueries({ queryKey: ["edicts"] });
-      queryClient.invalidateQueries({ queryKey: ["memorials"] });
-      queryClient.invalidateQueries({ queryKey: ["memorial_latest"] });
-    },
-  });
-}
-
 export function usePendingToolCalls(enabled = true) {
   return useQuery({
     queryKey: ["approvals", "pending_tool_calls"],
     queryFn: fetchPendingToolCalls,
     refetchInterval: 5_000,
     enabled,
-  });
-}
-
-export function useSubmitToolDecision() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (req: ToolDecisionRequest) => submitToolDecision(req),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["approvals", "pending_tool_calls"],
-      });
-      queryClient.invalidateQueries({ queryKey: ["policy_events"] });
-    },
   });
 }

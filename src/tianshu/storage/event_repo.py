@@ -7,12 +7,43 @@ from datetime import UTC, datetime
 
 from ulid import ULID
 
+from tianshu.models.events import EventEnvelope
+
 
 class EventMixin:
     _conn: sqlite3.Connection
     _lock: threading.Lock
 
     # --- Events ---
+
+    def append_event_envelope(self, event: EventEnvelope) -> bool:
+        """Insert an envelope into legacy history without replacing its identity."""
+        if event.edict_id is None:
+            raise ValueError("legacy event history requires an edict_id")
+        handled_at = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """INSERT INTO events
+                   (id, edict_id, memorial_id, event_type, payload_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(id) DO NOTHING""",
+                (
+                    event.event_id,
+                    event.edict_id,
+                    event.memorial_id,
+                    event.event_type,
+                    json.dumps(event.payload, default=str),
+                    event.timestamp.isoformat(),
+                ),
+            )
+            inserted = cursor.rowcount == 1
+            if inserted and event.memorial_id:
+                self._conn.execute(
+                    "UPDATE memorials SET last_heartbeat_at = ? "
+                    "WHERE id = ? AND status IN ('running', 'planning', 'auditing')",
+                    (handled_at, event.memorial_id),
+                )
+        return inserted
 
     def append_event(
         self,

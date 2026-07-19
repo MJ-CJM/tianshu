@@ -586,7 +586,11 @@ async def trigger_profile_synthesis(persona_id: str, request: Request):
             "profile.synthesis.failed",
             "profile.synthesis.skipped",
         ]:
-            event_bus.on(et, _listener, priority=10)
+            event_bus.on_local(
+                et,
+                _listener,
+                priority=10,
+            )
 
         task = asyncio.create_task(syn.run(persona_id, trigger_source="api_manual"))
         try:
@@ -618,7 +622,7 @@ async def trigger_profile_synthesis(persona_id: str, request: Request):
                 "profile.synthesis.failed",
                 "profile.synthesis.skipped",
             ]:
-                event_bus.off(et, _listener)
+                event_bus.off_local(et, _listener)
             if not task.done():
                 task.cancel()
 

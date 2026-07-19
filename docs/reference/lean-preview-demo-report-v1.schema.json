@@ -1,0 +1,327 @@
+{
+  "$defs": {
+    "LeanPreviewStepResultV1": {
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "minLength": 1,
+          "title": "Step Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "blocked",
+            "decision_required"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string",
+          "pattern": "^(?!(?:000[01]|9999)-)(?:[0-9]{4}-(?:(?:01|03|05|07|08|10|12)-(?:0[1-9]|[12][0-9]|3[01])|(?:04|06|09|11)-(?:0[1-9]|[12][0-9]|30)|02-(?:0[1-9]|1[0-9]|2[0-8]))|(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26])|(?:0[48]|[2468][048]|[13579][26])00)-02-29)T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?(?:Z|[+-](?:(?:0[0-9]|1[0-3]):[0-5][0-9]|14:00))(?![\\s\\S])"
+        },
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string",
+          "pattern": "^(?!(?:000[01]|9999)-)(?:[0-9]{4}-(?:(?:01|03|05|07|08|10|12)-(?:0[1-9]|[12][0-9]|3[01])|(?:04|06|09|11)-(?:0[1-9]|[12][0-9]|30)|02-(?:0[1-9]|1[0-9]|2[0-8]))|(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26])|(?:0[48]|[2468][048]|[13579][26])00)-02-29)T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?(?:Z|[+-](?:(?:0[0-9]|1[0-3]):[0-5][0-9]|14:00))(?![\\s\\S])"
+        },
+        "evidence_hashes": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Evidence Hashes",
+          "type": "array"
+        },
+        "observed_state_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Observed State Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_id",
+        "status",
+        "started_at",
+        "completed_at",
+        "evidence_hashes",
+        "observed_state_hash"
+      ],
+      "title": "LeanPreviewStepResultV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "batch_id": {
+      "minLength": 1,
+      "title": "Batch Id",
+      "type": "string"
+    },
+    "source_commit": {
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+      "title": "Source Commit",
+      "type": "string"
+    },
+    "wheel_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Wheel Sha256",
+      "type": "string"
+    },
+    "environment_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Environment Fingerprint",
+      "type": "string"
+    },
+    "fixture": {
+      "title": "Fixture",
+      "type": "boolean"
+    },
+    "steps": {
+      "allOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/LeanPreviewStepResultV1"
+          }
+        },
+        {
+          "items": false,
+          "maxItems": 13,
+          "minItems": 13,
+          "prefixItems": [
+            {
+              "properties": {
+                "step_id": {
+                  "const": "doctor_ready"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "submit_governed_edict"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "observe_decision_required"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "resolve_decision_with_reason"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "observe_completed_run"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "verify_evidence_bundle"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "propose_skill_candidate"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "evaluate_candidate_gate"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "start_skill_canary"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "submit_canary_eligible_run"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "verify_real_candidate_overlay"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "rollback_candidate"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            },
+            {
+              "properties": {
+                "step_id": {
+                  "const": "verify_new_run_uses_champion"
+                }
+              },
+              "required": [
+                "step_id"
+              ]
+            }
+          ]
+        }
+      ],
+      "title": "Steps",
+      "type": "array"
+    },
+    "evidence_bundle_id": {
+      "minLength": 1,
+      "title": "Evidence Bundle Id",
+      "type": "string"
+    },
+    "evidence_bundle_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Evidence Bundle Hash",
+      "type": "string"
+    },
+    "candidate_id": {
+      "minLength": 1,
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "gate_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Gate Hash",
+      "type": "string"
+    },
+    "assignment_id": {
+      "minLength": 1,
+      "title": "Assignment Id",
+      "type": "string"
+    },
+    "rollback_receipt_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Rollback Receipt Hash",
+      "type": "string"
+    },
+    "external_pending": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "External Pending",
+      "type": "array"
+    },
+    "content_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Content Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "batch_id",
+    "source_commit",
+    "wheel_sha256",
+    "environment_fingerprint",
+    "fixture",
+    "steps",
+    "evidence_bundle_id",
+    "evidence_bundle_hash",
+    "candidate_id",
+    "gate_hash",
+    "assignment_id",
+    "rollback_receipt_hash",
+    "external_pending",
+    "content_hash"
+  ],
+  "title": "LeanPreviewDemoReportV1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tianshu.dev/schemas/lean-preview-demo-report-v1.schema.json",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "fixture": {
+            "const": true
+          }
+        },
+        "required": [
+          "fixture"
+        ]
+      },
+      "then": {
+        "properties": {
+          "external_pending": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "external_pending"
+        ]
+      }
+    }
+  ]
+}

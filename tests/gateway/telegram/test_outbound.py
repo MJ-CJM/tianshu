@@ -17,7 +17,7 @@ from ._helpers import make_settings
 
 
 def _outbound(storage, **skw):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = TelegramOutbound(settings=make_settings(**skw), storage=storage, event_bus=bus)
     bot = MagicMock()
     bot.send_message = AsyncMock(return_value=MagicMock(message_id=123))
@@ -43,7 +43,7 @@ async def test_send_text_returns_message_id(storage):
 
 @pytest.mark.asyncio
 async def test_send_text_none_when_no_bot(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     out = TelegramOutbound(settings=make_settings(), storage=storage, event_bus=bus)
     assert await out.send_text("555", "hi") is None  # 未 start，bot=None
 

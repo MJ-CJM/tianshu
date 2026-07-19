@@ -18,10 +18,13 @@
 | `diagnostician.py` | `Diagnostician` | 太医：失败 memorial + 已试假设 → 演化域内代码改进假设清单，供 `auto_propose_codes` 消费 |
 | `code_mutator.py` | `CodeMutator` | worktree 内代码改写 + 演化域 allowlist + traversal-safe |
 | `gate.py` | `Gate`、`GateResult` | 三关门禁：compileall / import / pytest |
-| `sandbox.py` | `SandboxRunner`、`SandboxHandle`、`SandboxError` | 隔离子进程拉起 + 健康检查 + 销毁 |
+| `sandbox.py` | `SandboxRunner`、`SandboxHandle`、`SandboxError` | 受管子进程拉起 + 健康检查 + wall timeout + 进程组收敛 + DB/WAL/SHM 清理 |
 | `eval_harness.py` | `EvalHarness` | 回放评估集 → `compute_fitness` 打分 |
 | `deployer.py` | `Deployer`、`DeployPointer`、`DeployRecord` | `current_ref` 指针 + re-exec + 健康检查自动回滚 |
 | `launcher.py` | `resolve_boot_plan`、`main` | 按 deploy 指针决定从哪份代码 exec uvicorn |
+
+`SandboxRunner` 是执行生命周期边界，不是强沙箱证明：`trusted-local` 不提供内存、
+CPU、文件系统或网络强隔离；`secure-remote` 没有受验证后端时 fail-closed。
 
 ## 2. 落盘布局
 

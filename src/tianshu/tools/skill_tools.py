@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Protocol
 
-from tianshu.skills.loader import SkillsLoader
+from tianshu.executor.workspace_context import get_bound_workspace
+from tianshu.skills.loader import SkillsLoader, validate_skill_name
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _MAX_CONTENT_SIZE = 256 * 1024  # 256KB
 
 # Module-level shared set for tracking which skills are active in current execution
@@ -25,6 +24,13 @@ def get_active_skills() -> set[str]:
 def clear_active_skills() -> None:
     """Clear the active skills set (call at end of agent execution)."""
     _active_skills.clear()
+
+
+def _workspace_loader(skills: SkillsLoader) -> SkillsLoader:
+    workspace = get_bound_workspace()
+    if workspace is None:
+        return skills
+    return skills.for_workspace_overlay(workspace.root)
 
 
 class MetricsStore(Protocol):
@@ -129,29 +135,7 @@ async def _handle_create(
         return error_result("'content' is required for create action")
     if len(content) > _MAX_CONTENT_SIZE:
         return error_result(f"Content exceeds {_MAX_CONTENT_SIZE} bytes limit")
-    try:
-        result = skills.create_skill(name, content)
-        if metrics_store:
-            metrics_store.ensure_exists(name, created_by="agent")
-        bus = kwargs.get("event_bus")
-        if bus is not None:
-            try:
-                from tianshu.models.events import make_event
-
-                bus.fire(
-                    make_event(
-                        event_type="skill.learned",
-                        edict_id=None,
-                        memorial_id=None,
-                        producer="skill_manage",
-                        payload={"name": name, "created_by": "agent"},
-                    )
-                )
-            except Exception:
-                pass
-        return ok_result(json.dumps({"status": "created", "skill": result}, ensure_ascii=False))
-    except ValueError as e:
-        return error_result(str(e))
+    return error_result("governed_skill_service_required")
 
 
 async def _handle_edit(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
@@ -160,11 +144,7 @@ async def _handle_edit(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolRe
         return error_result("'content' is required for edit action")
     if len(content) > _MAX_CONTENT_SIZE:
         return error_result(f"Content exceeds {_MAX_CONTENT_SIZE} bytes limit")
-    try:
-        result = skills.save_skill(name, content)
-        return ok_result(json.dumps({"status": "updated", "skill": result}, ensure_ascii=False))
-    except FileNotFoundError as e:
-        return error_result(str(e))
+    return error_result("governed_skill_service_required")
 
 
 async def _handle_patch(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
@@ -172,11 +152,7 @@ async def _handle_patch(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolR
     patch_new = kwargs.get("patch_new")
     if not patch_old or not patch_new:
         return error_result("'patch_old' and 'patch_new' are required for patch action")
-    try:
-        result = skills.patch_skill(name, patch_old, patch_new)
-        return ok_result(json.dumps({"status": "patched", "skill": result}, ensure_ascii=False))
-    except (FileNotFoundError, ValueError) as e:
-        return error_result(str(e))
+    return error_result("governed_skill_service_required")
 
 
 async def _handle_delete(
@@ -185,12 +161,7 @@ async def _handle_delete(
     metrics_store: MetricsStore | None = None,
     **kwargs: Any,
 ) -> ToolResult:
-    deleted = skills.delete_skill(name)
-    if deleted:
-        if metrics_store:
-            metrics_store.delete(name)
-        return ok_result(json.dumps({"status": "deleted", "name": name}))
-    return error_result(f"Skill '{name}' not found or is a builtin (cannot delete)")
+    return error_result("governed_skill_service_required")
 
 
 async def _handle_activate(
@@ -219,24 +190,14 @@ async def _handle_write_file(skills: SkillsLoader, name: str, **kwargs: Any) -> 
         if not SkillsGuard.should_allow(gres, TrustLevel.AGENT_CREATED):
             findings = "; ".join(f.message for f in gres.findings)
             return error_result(f"guard blocked resource: {findings}")
-    try:
-        result = skills.write_skill_file(name, file_path, file_content)
-        return ok_result(json.dumps({"status": "file_written", **result}, ensure_ascii=False))
-    except (FileNotFoundError, ValueError, OSError) as e:
-        return error_result(str(e))
+    return error_result("governed_skill_service_required")
 
 
 async def _handle_remove_file(skills: SkillsLoader, name: str, **kwargs: Any) -> ToolResult:
     file_path = kwargs.get("file_path")
     if not file_path:
         return error_result("'file_path' is required for remove_file")
-    try:
-        removed = skills.remove_skill_file(name, file_path)
-        if removed:
-            return ok_result(json.dumps({"status": "file_removed", "file": file_path}))
-        return error_result(f"File '{file_path}' not found in skill '{name}'")
-    except (FileNotFoundError, ValueError, OSError) as e:
-        return error_result(str(e))
+    return error_result("governed_skill_service_required")
 
 
 _ACTION_HANDLERS = {
@@ -264,15 +225,66 @@ async def _skill_manage(
             f"Invalid action: {action}. Must be create/edit/patch/delete/activate/write_file/remove_file"
         )
 
-    if not _NAME_RE.match(name):
-        return error_result(
-            f"Invalid skill name '{name}'. Must match: lowercase alphanumeric, "
-            "hyphens, dots, underscores; 1-64 chars; start with letter/digit."
-        )
+    try:
+        validate_skill_name(name)
+    except ValueError as exc:
+        return error_result(str(exc))
 
     if action in ("create", "delete", "activate"):
         return await handler(skills, name, metrics_store=metrics_store, **kwargs)
     return await handler(skills, name, **kwargs)
+
+
+async def _registered_skill_view(
+    skills: SkillsLoader,
+    *,
+    name: str,
+    metrics_store: MetricsStore | None,
+    active_skills_ref: set[str],
+) -> ToolResult:
+    try:
+        validate_skill_name(name)
+    except ValueError as exc:
+        return error_result(str(exc))
+    return await _skill_view(
+        _workspace_loader(skills),
+        name,
+        metrics_store=metrics_store,
+        active_skills_ref=active_skills_ref,
+    )
+
+
+async def _registered_skill_manage(
+    skills: SkillsLoader,
+    *,
+    action: str,
+    name: str,
+    metrics_store: MetricsStore | None,
+    guard_agent_created: bool,
+    event_bus: Any | None,
+    **kwargs: Any,
+) -> ToolResult:
+    if action not in _ACTION_HANDLERS:
+        return await _skill_manage(
+            skills,
+            action,
+            name,
+            metrics_store=metrics_store,
+            **kwargs,
+        )
+    try:
+        validate_skill_name(name)
+    except ValueError as exc:
+        return error_result(str(exc))
+    return await _skill_manage(
+        _workspace_loader(skills),
+        action,
+        name,
+        metrics_store=metrics_store,
+        _guard_enabled=guard_agent_created,
+        event_bus=event_bus,
+        **kwargs,
+    )
 
 
 def register_skill_tools(
@@ -286,7 +298,11 @@ def register_skill_tools(
 
     registry.register(
         "skill_list",
-        lambda **kwargs: _skill_list(skills, metrics_store=metrics_store, **kwargs),
+        lambda **kwargs: _skill_list(
+            _workspace_loader(skills),
+            metrics_store=metrics_store,
+            **kwargs,
+        ),
         ToolDefinition(
             name="skill_list",
             description=(
@@ -314,7 +330,7 @@ def register_skill_tools(
 
     registry.register(
         "skill_view",
-        lambda **kwargs: _skill_view(
+        lambda **kwargs: _registered_skill_view(
             skills,
             metrics_store=metrics_store,
             active_skills_ref=_active_skills,
@@ -342,10 +358,10 @@ def register_skill_tools(
 
     registry.register(
         "skill_manage",
-        lambda **kwargs: _skill_manage(
+        lambda **kwargs: _registered_skill_manage(
             skills,
             metrics_store=metrics_store,
-            _guard_enabled=guard_agent_created,
+            guard_agent_created=guard_agent_created,
             event_bus=event_bus,
             **kwargs,
         ),

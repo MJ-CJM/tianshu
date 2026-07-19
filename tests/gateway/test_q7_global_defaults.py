@@ -20,8 +20,13 @@ async def client():
 
 
 async def _create(client, body):
+    idempotency_key = f"q7:{body['goal']}"
     with patch("tianshu.executor.agent.LLMClient"):
-        resp = await client.post("/api/edicts", json=body)
+        resp = await client.post(
+            "/api/edicts",
+            headers={"Idempotency-Key": idempotency_key},
+            json={**body, "idempotency_key": idempotency_key},
+        )
     assert resp.status_code == 202, resp.text
     return resp.json()["data"]
 

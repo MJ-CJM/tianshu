@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { WsMessage } from "../api/types";
-
-function getWsUrl(): string {
-  const loc = window.location;
-  const protocol = loc.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${loc.host}/api/ws`;
-}
+import { sharedWebSocket } from "../api/websocket";
 
 export type WsListener = (msg: WsMessage) => void;
 
@@ -22,10 +17,6 @@ export function useWebSocket(): {
 } {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WsMessage | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const retryCountRef = useRef(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
   const listenersRef = useRef<Set<WsListener>>(new Set());
 
   const subscribe = useCallback((listener: WsListener) => {
@@ -35,65 +26,17 @@ export function useWebSocket(): {
     };
   }, []);
 
-  const connect = useCallback(() => {
-    if (!mountedRef.current) return;
-
-    const ws = new WebSocket(getWsUrl());
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      if (!mountedRef.current) return;
-      setIsConnected(true);
-      retryCountRef.current = 0;
-    };
-
-    ws.onmessage = (event) => {
-      if (!mountedRef.current) return;
-      try {
-        const msg: WsMessage = JSON.parse(event.data);
-        // 同步派发给所有 listener — 不走 React state，避免批处理丢消息
-        listenersRef.current.forEach((l) => {
-          try {
-            l(msg);
-          } catch (err) {
-            // 单个 listener 异常不影响其他 listener
-            // eslint-disable-next-line no-console
-            console.error("ws listener error:", err);
-          }
-        });
-        setLastMessage(msg);
-      } catch {
-        // ignore non-JSON messages
-      }
-    };
-
-    ws.onclose = () => {
-      if (!mountedRef.current) return;
-      setIsConnected(false);
-      // exponential backoff: 1s, 2s, 4s, ..., 30s max
-      const delay = Math.min(1000 * 2 ** retryCountRef.current, 30_000);
-      retryCountRef.current += 1;
-      timerRef.current = setTimeout(connect, delay);
-    };
-
-    ws.onerror = () => {
-      ws.close();
+  useEffect(() => {
+    const unsubscribeConnection = sharedWebSocket.subscribeConnection(setIsConnected);
+    const unsubscribeMessage = sharedWebSocket.subscribe((msg) => {
+      listenersRef.current.forEach((listener) => listener(msg));
+      setLastMessage(msg);
+    });
+    return () => {
+      unsubscribeMessage();
+      unsubscribeConnection();
     };
   }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    connect();
-
-    return () => {
-      mountedRef.current = false;
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (wsRef.current) {
-        wsRef.current.onclose = null;
-        wsRef.current.close();
-      }
-    };
-  }, [connect]);
 
   return { isConnected, lastMessage, subscribe };
 }

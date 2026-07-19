@@ -1,12 +1,11 @@
 """Tests for PromptBuilder."""
 
-from pathlib import Path
-
 import pytest
 
 from tianshu.models import Edict
 from tianshu.persona.loader import PersonaLoader
 from tianshu.persona.prompt_builder import PromptBuilder
+from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.loader import SkillsLoader
 
 
@@ -17,7 +16,7 @@ class TestPromptBuilder:
 
     @pytest.fixture
     def personas_dir(self):
-        return Path(__file__).parent.parent / "personas"
+        return packaged_defaults().personas_dir()
 
     @pytest.fixture
     def builder(self, personas_dir, skills):

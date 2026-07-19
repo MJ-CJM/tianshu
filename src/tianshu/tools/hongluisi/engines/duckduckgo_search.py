@@ -6,7 +6,6 @@ import logging
 from urllib.parse import parse_qs, quote_plus, urlparse
 
 import httpx
-import lxml.html
 
 from tianshu.tools.hongluisi.engines import SearchOutcome, SearchResult
 from tianshu.tools.hongluisi.http_client import SharedHttpClient
@@ -49,6 +48,8 @@ def _parse(html_text: str) -> list[SearchResult]:
     """
     if not html_text:
         return []
+    import lxml.html  # 惰性：lxml 是可选依赖（见 build_duckduckgo）
+
     try:
         tree = lxml.html.fromstring(html_text)
     except Exception:
@@ -92,6 +93,17 @@ def _unwrap_ddg(href: str) -> str:
     return href
 
 
-def build_duckduckgo() -> DuckDuckGoSearchEngine:
-    """无依赖、无 key，总是可注册。"""
+def build_duckduckgo() -> DuckDuckGoSearchEngine | None:
+    """无 key，但依赖 lxml —— 未安装时返回 None（引擎不注册）。
+
+    lxml 不是核心依赖（由 scrapling/web extra 传递带入）。曾在模块级无条件
+    `import lxml.html`，导致只装 `tianshu[cli]` 的发行物**连服务都起不来**
+    （engine_registry 模块级导入本模块）。沿用 build_scrapling 的既有模式：
+    构建期探测，缺失即不注册，而不是让整个进程起不来。
+    """
+    try:
+        import lxml.html  # noqa: F401
+    except ImportError:
+        logger.info("duckduckgo: lxml 未安装，跳过注册（pip install tianshu[web]）")
+        return None
     return DuckDuckGoSearchEngine()

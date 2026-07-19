@@ -29,7 +29,10 @@ class TestEdictEndpoints:
         with patch("tianshu.executor.agent.LLMClient"):
             resp = await client.post(
                 "/api/edicts",
-                json={"goal": "test goal"},
+                json={
+                    "idempotency_key": "gateway-create-edict",
+                    "goal": "test goal",
+                },
             )
         assert resp.status_code == 202
         data = resp.json()
@@ -49,7 +52,10 @@ class TestEdictEndpoints:
         with patch("tianshu.executor.agent.LLMClient"):
             create_resp = await client.post(
                 "/api/edicts",
-                json={"goal": "find me"},
+                json={
+                    "idempotency_key": "gateway-create-and-get-edict",
+                    "goal": "find me",
+                },
             )
         edict_id = create_resp.json()["data"]["id"]
 
@@ -63,6 +69,7 @@ class TestEdictEndpoints:
             resp = await client.post(
                 "/api/edicts",
                 json={
+                    "idempotency_key": "gateway-ignore-schedule-field",
                     "goal": "每天 11 点推送天气",
                     "schedule": {"type": "cron", "cron": "0 11 * * *"},
                 },
@@ -104,4 +111,4 @@ class TestDecreeEndpoints:
             "/api/decrees",
             json={"memorial_id": "nonexistent", "action": "approve"},
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 422

@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 
 tongzheng_router = APIRouter(prefix="/tongzheng", tags=["tongzheng"])
 
+_MASKED_SECRET = "***"
+_WRITE_ONLY_CONFIG_FIELDS = {
+    "feishu": ("encrypt_key", "verification_token"),
+    "telegram": ("webhook_secret",),
+}
+
 
 class FeishuChannelConfig(BaseModel):
     """飞书通道配置（写入用）。app_secret 单独提交。"""
@@ -34,11 +40,17 @@ class FeishuChannelConfig(BaseModel):
     connection_mode: str = "websocket"
     allowed_users: str = ""
     home_channel: str = ""
-    encrypt_key: str = ""
-    verification_token: str = ""
+    encrypt_key: str | None = Field(
+        default=None,
+        description="None 或 ***=不修改；空串=清空；非空=替换",
+    )
+    verification_token: str | None = Field(
+        default=None,
+        description="None 或 ***=不修改；空串=清空；非空=替换",
+    )
     bot_open_id: str = ""
     bot_name: str = ""
-    webhook_path: str = "/feishu/webhook"
+    webhook_path: str = "/channels/feishu/webhook"
     ws_reconnect_interval: int = 120
     text_batch_delay: float = 0.6
     dedup_cache_size: int = 2048
@@ -64,7 +76,7 @@ def _build_feishu_settings_from_runtime(runtime_cfg: dict):
         verification_token=runtime_cfg.get("verification_token", ""),
         bot_open_id=runtime_cfg.get("bot_open_id", ""),
         bot_name=runtime_cfg.get("bot_name", ""),
-        webhook_path=runtime_cfg.get("webhook_path", "/feishu/webhook"),
+        webhook_path=runtime_cfg.get("webhook_path", "/channels/feishu/webhook"),
         ws_reconnect_interval=int(runtime_cfg.get("ws_reconnect_interval", 120)),
         text_batch_delay=float(runtime_cfg.get("text_batch_delay", 0.6)),
         dedup_cache_size=int(runtime_cfg.get("dedup_cache_size", 2048)),
@@ -88,8 +100,8 @@ def _env_feishu_view() -> dict:
         "connection_mode": s.connection_mode,
         "allowed_users": ",".join(s.allowed_users),
         "home_channel": s.home_channel,
-        "encrypt_key": s.encrypt_key,
-        "verification_token": s.verification_token,
+        "encrypt_key": _MASKED_SECRET if s.encrypt_key else "",
+        "verification_token": _MASKED_SECRET if s.verification_token else "",
         "bot_open_id": s.bot_open_id,
         "bot_name": s.bot_name,
         "webhook_path": s.webhook_path,
@@ -130,7 +142,12 @@ async def put_feishu_channel(
     """保存飞书默认实例配置 + 触发热加载（薄封装到实例代码路径）。"""
     storage: Storage = request.app.state.storage
     instance_id = default_instance_id("feishu")
-    config_dict = body.model_dump(exclude={"app_secret"})
+    existing = storage.get_channel_instance(instance_id)
+    config_dict = _merge_write_only_config(
+        "feishu",
+        body.model_dump(exclude={"app_secret"}, exclude_none=True),
+        existing,
+    )
 
     try:
         storage.save_channel_instance(
@@ -202,8 +219,11 @@ class TelegramChannelConfig(BaseModel):
     connection_mode: str = "polling"
     allowed_users: str = ""
     home_channel: str = ""
-    webhook_path: str = "/telegram/webhook"
-    webhook_secret: str = ""
+    webhook_path: str = "/channels/telegram/webhook"
+    webhook_secret: str | None = Field(
+        default=None,
+        description="None 或 ***=不修改；空串=清空；非空=替换",
+    )
     poll_timeout: int = 30
     text_batch_delay: float = 0.6
     dedup_cache_size: int = 2048
@@ -223,7 +243,7 @@ def _build_telegram_settings_from_runtime(runtime_cfg: dict):
         connection_mode=runtime_cfg.get("connection_mode", "polling"),
         allowed_users=_parse_allowed_users(runtime_cfg.get("allowed_users") or ""),
         home_channel=runtime_cfg.get("home_channel", ""),
-        webhook_path=runtime_cfg.get("webhook_path", "/telegram/webhook"),
+        webhook_path=runtime_cfg.get("webhook_path", "/channels/telegram/webhook"),
         webhook_secret=runtime_cfg.get("webhook_secret", ""),
         poll_timeout=int(runtime_cfg.get("poll_timeout", 30)),
         text_batch_delay=float(runtime_cfg.get("text_batch_delay", 0.6)),
@@ -246,7 +266,7 @@ def _env_telegram_view() -> dict:
         "allowed_users": ",".join(str(u) for u in s.allowed_users),
         "home_channel": s.home_channel,
         "webhook_path": s.webhook_path,
-        "webhook_secret": s.webhook_secret,
+        "webhook_secret": _MASKED_SECRET if s.webhook_secret else "",
         "poll_timeout": s.poll_timeout,
         "text_batch_delay": s.text_batch_delay,
         "dedup_cache_size": s.dedup_cache_size,
@@ -280,7 +300,12 @@ async def put_telegram_channel(
     """保存 Telegram 默认实例配置 + 触发热加载（薄封装到实例代码路径）。"""
     storage: Storage = request.app.state.storage
     instance_id = default_instance_id("telegram")
-    config_dict = body.model_dump(exclude={"bot_token"})
+    existing = storage.get_channel_instance(instance_id)
+    config_dict = _merge_write_only_config(
+        "telegram",
+        body.model_dump(exclude={"bot_token"}, exclude_none=True),
+        existing,
+    )
 
     try:
         storage.save_channel_instance(
@@ -352,11 +377,30 @@ def _sync_edict_tools(request: Request) -> None:
 
 
 def _mask_instance(row: dict) -> dict:
-    """掩码实例 secret：去掉明文字段，仅暴露 _has_secret。"""
+    """掩码实例中所有凭证字段，不向配置 API 返回明文。"""
     masked = dict(row)
     masked.pop("app_secret", None)
     masked.pop("bot_token", None)
+    for field in _WRITE_ONLY_CONFIG_FIELDS.get(str(row.get("channel_type", "")), ()):
+        masked[field] = _MASKED_SECRET if row.get(field) else ""
     return masked
+
+
+def _merge_write_only_config(
+    channel_type: str,
+    incoming: dict,
+    existing: dict | None,
+) -> dict:
+    """Preserve write-only values when clients omit or round-trip their mask."""
+    merged = dict(incoming)
+    for field in _WRITE_ONLY_CONFIG_FIELDS.get(channel_type, ()):
+        if merged.get(field) not in (None, _MASKED_SECRET):
+            continue
+        if existing is not None and field in existing:
+            merged[field] = existing[field]
+        else:
+            merged.pop(field, None)
+    return merged
 
 
 async def _bring_instance_live(request: Request, instance_id: str) -> dict:
@@ -478,7 +522,11 @@ async def update_instance(
 
     enabled = body.enabled if body.enabled is not None else existing["enabled"]
     label = body.label if body.label is not None else existing.get("label", "")
-    config = body.config if body.config is not None else _strip_meta(existing)
+    config = (
+        _merge_write_only_config(existing["channel_type"], body.config, existing)
+        if body.config is not None
+        else _strip_meta(existing)
+    )
     try:
         storage.save_channel_instance(
             instance_id=instance_id,

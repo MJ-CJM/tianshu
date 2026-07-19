@@ -1,12 +1,16 @@
 import { theme } from "antd";
 import type { ThemeConfig } from "antd";
 import type { ThemeMode } from "../hooks/useTheme";
-import { palettes, presetSeeds } from "./palette";
+import { darkPresetSeeds, palettes, presetSeeds } from "./palette";
 
+// 字体一律走本地：不引入 Google Fonts 等外部 CDN(离线 wheel/容器必须可用)。
+// Noto/JetBrains 若本机已装则优先，否则降级到各平台的系统中文字体栈。
 const sharedToken = {
   fontFamily:
-    "'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  fontFamilyCode: "'JetBrains Mono', 'Fira Code', monospace",
+    "'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', " +
+    "'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif",
+  fontFamilyCode:
+    "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace",
   borderRadius: 8,
   borderRadiusLG: 12,
   borderRadiusSM: 6,
@@ -36,6 +40,7 @@ function buildTheme(mode: ThemeMode): ThemeConfig {
     algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm,
     token: {
       ...sharedToken,
+      ...(dark ? darkPresetSeeds : {}),
       // 主色 = 墨(浅)/ 米白(深):按钮保持无彩度,朱砂不做普通按钮色
       colorPrimary: p.text,
       colorBgBase: p.bgPage,
@@ -56,6 +61,9 @@ function buildTheme(mode: ThemeMode): ThemeConfig {
       colorSuccess: p.success,
       colorWarning: p.warning,
       colorError: p.error,
+      colorPrimaryBorder: p.border,
+      boxShadowSecondary:
+        dark ? "none" : `0 8px 24px color-mix(in srgb, ${p.text} 8%, transparent)`,
       // 状态淡染底/描边与 SemanticTag 同一配方(11% / 30% 混入容器底),
       // 避免算法推导出浑浊底色
       colorInfoBg: mix(p.info, p.bgContainer, dark ? 0.16 : 0.11),

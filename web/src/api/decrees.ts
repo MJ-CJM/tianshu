@@ -2,21 +2,8 @@ import apiClient from "./client";
 import type {
   ApiResponse,
   Memorial,
-  Decree,
-  DecreeCreateRequest,
   PendingToolCall,
-  ToolDecisionRequest,
 } from "./types";
-
-export async function createDecree(
-  body: DecreeCreateRequest,
-): Promise<ApiResponse<Decree>> {
-  const { data } = await apiClient.post<ApiResponse<Decree>>(
-    "/decrees",
-    body,
-  );
-  return data;
-}
 
 export async function listNeedsReview(params?: {
   limit?: number;
@@ -33,14 +20,4 @@ export async function fetchPendingToolCalls(): Promise<PendingToolCall[]> {
     ApiResponse<{ items: PendingToolCall[] }>
   >("/approvals/pending_tool_calls");
   return data.data?.items ?? [];
-}
-
-export async function submitToolDecision(
-  body: ToolDecisionRequest,
-): Promise<ApiResponse<Decree>> {
-  const { data } = await apiClient.post<ApiResponse<Decree>>(
-    "/approvals/tool_decision",
-    body,
-  );
-  return data;
 }

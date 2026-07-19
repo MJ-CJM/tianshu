@@ -1,15 +1,23 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { notification } from "antd";
+import { flushSync } from "react-dom";
 import { createEdict } from "../api/edicts";
 import EdictForm from "../components/edict/EdictForm";
 import PageContainer from "../components/common/PageContainer";
 import GlowCard from "../components/common/GlowCard";
 import { useT } from "../i18n";
 import type { EdictCreateRequest } from "../api/types";
+import { ONBOARDING_QUERY_KEY, type OnboardingState } from "../api/onboarding";
 
-export default function EdictCreatePage() {
+export function EdictCreationForm({
+  governanceConfirmation = "advisory",
+}: {
+  governanceConfirmation?: "advisory" | "always";
+}) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const t = useT();
 
@@ -18,11 +26,16 @@ export default function EdictCreatePage() {
     try {
       const res = await createEdict(values);
       if (res.success && res.data) {
+        const edictId = res.data.id;
+        await queryClient.cancelQueries({ queryKey: ONBOARDING_QUERY_KEY, exact: true });
+        flushSync(() => navigate(`/edicts/${edictId}`));
+        queryClient.setQueryData<OnboardingState>(ONBOARDING_QUERY_KEY, (current) =>
+          current ? { ...current, required: false } : current,
+        );
         notification.success({
           message: t("page.edictCreate.successTitle"),
           description: t("page.edictCreate.successDesc"),
         });
-        navigate(`/edicts/${res.data.id}`);
       }
     } finally {
       setLoading(false);
@@ -30,10 +43,21 @@ export default function EdictCreatePage() {
   };
 
   return (
+    <GlowCard style={{ maxWidth: 720 }}>
+      <EdictForm
+        onSubmit={handleSubmit}
+        loading={loading}
+        governanceConfirmation={governanceConfirmation}
+      />
+    </GlowCard>
+  );
+}
+
+export default function EdictCreatePage() {
+  const t = useT();
+  return (
     <PageContainer title={t("page.edictCreate.title")}>
-      <GlowCard style={{ maxWidth: 720 }}>
-        <EdictForm onSubmit={handleSubmit} loading={loading} />
-      </GlowCard>
+      <EdictCreationForm />
     </PageContainer>
   );
 }

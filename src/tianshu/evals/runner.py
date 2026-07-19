@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from ulid import ULID
 
+from tianshu.executor.git_backend import GitBackend, GitBackendError, GitLocation
 from tianshu.universe.eval_harness import EvalHarness
 
 if TYPE_CHECKING:
@@ -39,27 +39,28 @@ def aggregate_failure_distribution(goal_results: list[dict]) -> list[dict]:
     return [{"reason": reason, "count": count} for reason, count in counter.most_common()]
 
 
-def _describe_target(repo_root: Path) -> str:
+def _describe_target(repo_root: Path, git_backend: GitBackend) -> str:
     """评测对象标识:repo 路径 + git HEAD 短 sha(取不到就只留路径)。"""
     try:
-        sha = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=True,
-        ).stdout.strip()
+        sha = git_backend.resolve_revision(GitLocation(repo_root), "HEAD", short=True)
         return f"{repo_root}@{sha}"
-    except Exception:  # noqa: BLE001 - 非 git 环境下 target 退化为纯路径
+    except GitBackendError:  # 非 git 环境下 target 退化为纯路径
         return str(repo_root)
 
 
 class PlatformEvalRunner:
-    def __init__(self, storage: Storage, harness: EvalHarness, *, repo_root: Path) -> None:
+    def __init__(
+        self,
+        storage: Storage,
+        harness: EvalHarness,
+        *,
+        repo_root: Path,
+        git_backend: GitBackend | None = None,
+    ) -> None:
         self._storage = storage
         self._harness = harness
         self._repo_root = Path(repo_root)
+        self._git_backend = git_backend or GitBackend(timeout_seconds=5)
 
     def resolve_eval_set(
         self, *, set_name: str | None = None, size: int = 8
@@ -117,7 +118,7 @@ class PlatformEvalRunner:
             "id": str(ULID()),
             "eval_set_name": name,
             "eval_set_fingerprint": fingerprint,
-            "target": _describe_target(self._repo_root),
+            "target": _describe_target(self._repo_root, self._git_backend),
             "fitness": result["fitness"],
             "stats": result["stats"],
             "goal_results": result.get("goal_results", []),

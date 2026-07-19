@@ -97,7 +97,7 @@ def test_code_diff_on_data_universe_raises(mgr: UniverseManager):
 def test_switch_to_code_variant_raises(mgr: UniverseManager):
     g = mgr.ensure_genesis()
     cv = mgr.branch_code_variant(g["id"], "exp")
-    with pytest.raises(ValueError, match="Deployer"):
+    with pytest.raises(RuntimeError, match="promotion_service_required"):
         mgr.switch(cv["id"])
 
 
@@ -172,24 +172,16 @@ def mgr_with_deployer(tmp_path: Path):
     s.close()
 
 
-def test_promote_code_variant_flips_and_stages(mgr_with_deployer):
+def test_promote_code_variant_is_stably_rejected_without_side_effect(mgr_with_deployer):
     mgr, fake_deployer = mgr_with_deployer
     g = mgr.ensure_genesis()
     cv = mgr.branch_code_variant(g["id"], "perf-exp")
 
-    result = mgr.promote_code_variant(cv["id"])
-
-    # Variant is now champion
-    assert result["status"] == "champion"
-    # Old champion (genesis) demoted to challenger
-    demoted = mgr._storage.get_universe(g["id"])  # noqa: SLF001
-    assert demoted["status"] == "challenger"
-    # deployer.stage called exactly once with correct ref + worktree
-    assert len(fake_deployer.stage_calls) == 1
-    call = fake_deployer.stage_calls[0]
-    assert call["ref"] == cv["code_ref"]
-    expected_wt = str(mgr._code_store.worktree_dir(cv["id"]))  # noqa: SLF001
-    assert call["worktree"] == expected_wt
+    with pytest.raises(RuntimeError, match="promotion_service_required"):
+        mgr.promote_code_variant(cv["id"])
+    assert mgr._storage.get_universe(g["id"])["status"] == "champion"  # noqa: SLF001
+    assert mgr._storage.get_universe(cv["id"])["status"] == "challenger"  # noqa: SLF001
+    assert fake_deployer.stage_calls == []
 
 
 def test_promote_code_variant_requires_deployer(mgr_with_deployer):
@@ -199,7 +191,7 @@ def test_promote_code_variant_requires_deployer(mgr_with_deployer):
     g = mgr.ensure_genesis()
     cv = mgr.branch_code_variant(g["id"], "exp")
 
-    with pytest.raises(RuntimeError, match="deployer not configured"):
+    with pytest.raises(RuntimeError, match="promotion_service_required"):
         mgr.promote_code_variant(cv["id"])
 
 
@@ -207,7 +199,7 @@ def test_promote_code_variant_rejects_data_universe(mgr_with_deployer):
     mgr, _ = mgr_with_deployer
     g = mgr.ensure_genesis()
 
-    with pytest.raises(ValueError, match="code variant"):
+    with pytest.raises(RuntimeError, match="promotion_service_required"):
         mgr.promote_code_variant(g["id"])
 
 

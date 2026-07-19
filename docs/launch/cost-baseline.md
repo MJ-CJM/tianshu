@@ -1,7 +1,7 @@
 # 成本基线 · Cost Baseline
 
-> 宣发拍板(spec §七 #7):卖成本治理的平台**必须敢报自己的成本**。README 给
-> 典型月成本区间——但数字要**真实跑一周实测**得来,不能拍脑袋。
+> 成本数字必须来自真实、可重复的测量，不能拍脑袋。G5 前完成实测后，才把典型
+> 月成本区间写入公开 README。当前能力边界见[能力事实矩阵](capability-matrix.md)。
 
 ## 方法
 
@@ -24,11 +24,11 @@
 
 | 旋钮 | 省钱方向 | 落点 |
 |---|---|---|
-| 模型路由 | persona/任务 → 便宜模型解耦 | `hint:` 路由表(litellm.Router) |
+| 模型选择 | persona/任务按现有配置选择更合适的模型 | persona 与 Provider 配置 |
 | prompt cache | Anthropic cache 命中降 input 成本 | `llm.py` 自动挂 |
 | 上下文压缩 | 三层 compaction 削 token | `executor/compaction/` |
-| 预算护栏 | 出厂每日上限,超限熔断 | `TIANSHU_DAILY_BUDGET_GUARDRAIL_CNY`(默认 ¥20) |
-| 自进化开关 | 默认关;开了才有评测/变异成本 | 请旨解锁(ADR-0004) |
+| 预算护栏 | 按已上报用量做 best-effort 检查，可能超调 | `TIANSHU_DAILY_BUDGET_GUARDRAIL_CNY`(默认 ¥20) |
+| 演化开关 | 实验能力默认关；启用候选流程会增加评测/变异成本 | ADR-0004 |
 | 客卿凭证隔离 | 客卿烧它自己的额度,不烧天枢 key | `executor/keqing`(clean-env) |
 
 ## 待填(宣发前)
@@ -38,4 +38,4 @@
 - [ ] 填入 [README.md](../../README.md) 与 [README.en.md](../../README.en.md) 的「成本透明」段
 - [ ] 附一句典型任务的单次成本示例(如"一份 PR 日报 ≈ ¥X")
 
-> 出厂每日预算护栏默认开(¥20)——"对钱包放手"是放手四保险第④条。
+> 出厂每日预算护栏默认开(¥20)，但它不是预付费额度或 provider 侧硬上限；公开成本示例必须同时说明可能超调。

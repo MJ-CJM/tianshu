@@ -7,10 +7,23 @@ import json
 import logging
 import re
 import time
+from pathlib import Path
 
+from tianshu.executor.execution_gateway import (
+    EnvironmentPolicy,
+    ExecutionDenied,
+    ExecutionGateway,
+    ExecutionStartError,
+    SandboxRequirement,
+    ShellCommand,
+    issue_acceptance_command_grant,
+    request_for_current_execution,
+)
 from tianshu.executor.orchestrator.state import CheckOutcome, ChecksResult
 from tianshu.llm import LLMClient
 from tianshu.models.acceptance import CheckSpec
+from tianshu.models.governance_contract import AcceptanceCheckV1
+from tianshu.security.clean_env import build_clean_env
 
 logger = logging.getLogger(__name__)
 
@@ -19,39 +32,50 @@ class ChecksConfigError(Exception):
     """check 命令本身错（如 command not found），整个 outer loop 应 abort。"""
 
 
-async def _run_bash(spec: CheckSpec) -> CheckOutcome:
+async def _run_bash(
+    spec: CheckSpec,
+    *,
+    execution_gateway: ExecutionGateway,
+    workspace_root: Path,
+) -> CheckOutcome:
     if not spec.command:
         raise ChecksConfigError(f"check {spec.name}: kind=bash 需要 command 字段")
+    frozen_identity = AcceptanceCheckV1.model_validate(spec.model_dump())
     start = time.monotonic()
     try:
-        proc = await asyncio.create_subprocess_shell(
-            spec.command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        request = request_for_current_execution(
+            purpose="acceptance",
+            workspace_root=workspace_root,
+            cwd=".",
+            shell_command=ShellCommand(script=spec.command),
+            environment=EnvironmentPolicy(allow_names=tuple(build_clean_env())),
+            timeout_seconds=spec.timeout_seconds,
+            stdout_limit_bytes=1000,
+            stderr_limit_bytes=1000,
+            sandbox=SandboxRequirement(
+                trust_level="trusted-local",
+                mode="host",
+                allow_host=True,
+            ),
+            command_grant=issue_acceptance_command_grant(frozen_identity),
         )
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=spec.timeout_seconds,
-            )
-        except TimeoutError:
-            proc.kill()
-            await proc.wait()
-            return CheckOutcome(
-                name=spec.name,
-                passed=False,
-                detail=f"timeout after {spec.timeout_seconds}s",
-                duration_ms=int((time.monotonic() - start) * 1000),
-            )
-    except FileNotFoundError as e:
-        # command not found → 配置错，抛
-        raise ChecksConfigError(f"check {spec.name}: command not found: {e}") from e
+        execution = await execution_gateway.run(request)
+    except (ExecutionDenied, ExecutionStartError) as exc:
+        raise ChecksConfigError(f"check {spec.name}: execution denied: {exc}") from exc
+
+    if execution.receipt.status == "timed_out":
+        return CheckOutcome(
+            name=spec.name,
+            passed=False,
+            detail=f"timeout after {spec.timeout_seconds}s",
+            duration_ms=int((time.monotonic() - start) * 1000),
+        )
 
     duration_ms = int((time.monotonic() - start) * 1000)
-    passed = proc.returncode == 0
+    passed = execution.receipt.exit_code == 0
     detail = None
     if not passed:
-        detail = (stderr or stdout or b"").decode("utf-8", errors="replace")[:1000]
+        detail = (execution.stderr or execution.stdout)[:1000]
     return CheckOutcome(
         name=spec.name,
         passed=passed,
@@ -130,6 +154,9 @@ async def run_checks(
     specs: list[CheckSpec],
     actor_output: str,
     llm: LLMClient | None,
+    *,
+    execution_gateway: ExecutionGateway | None = None,
+    workspace_root: Path | None = None,
 ) -> ChecksResult:
     """并发跑所有 checks，返回汇总。配置错（command not found / 字段缺）会冒泡。
 
@@ -140,7 +167,15 @@ async def run_checks(
 
     async def _dispatch(spec: CheckSpec) -> CheckOutcome:
         if spec.kind in ("bash", "lint"):
-            return await _run_bash(spec)
+            if execution_gateway is None or workspace_root is None:
+                raise ChecksConfigError(
+                    f"check {spec.name}: ExecutionGateway and workspace root are required"
+                )
+            return await _run_bash(
+                spec,
+                execution_gateway=execution_gateway,
+                workspace_root=workspace_root,
+            )
         if spec.kind == "rubric":
             if llm is None:
                 raise ChecksConfigError(

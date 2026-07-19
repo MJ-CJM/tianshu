@@ -19,19 +19,125 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.config import TianshuSettings
+from tianshu.evolution.candidate_service import CandidateLiveAuthorities, CandidateService
+from tianshu.evolution.gates import GateEvaluator
+from tianshu.evolution.promotion import (
+    PromotionService,
+    SkillPromotionAdapter,
+    UnavailablePromotionAdapter,
+)
+from tianshu.evolution.reconciler import EvolutionRollbackReconciler
+from tianshu.models.evolution_candidate import CandidateKind, EvolutionContractV1, GateName
+from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.curator import SkillCurator
+from tianshu.skills.install_service import SkillInstallService
 from tianshu.skills.loader import SkillsLoader, SkillsWatcher
 from tianshu.skills.metrics import SkillMetricsStore
 from tianshu.tools.registry import ToolRegistry
 from tianshu.tools.skill_tools import register_skill_tools
+from tianshu.universe.router import ChallengerRouter, allocation_bucket
 
 logger = logging.getLogger(__name__)
+
+
+def runtime_skills_target() -> Path:
+    override = os.environ.get("TIANSHU_RUNTIME_SKILLS_DIR")
+    return Path(override or "~/.tianshu/skills").expanduser()
+
+
+def _demo_challenger_bucket(_memorial_id: str, _seed_id: str, _secret: bytes) -> int:
+    """Select the challenger only in the explicit deterministic demo profile."""
+    return 0
+
+
+def _routing_bucket_calculator(startup_profile: str):
+    return _demo_challenger_bucket if startup_profile == "demo" else allocation_bucket
+
+
+def wire_evolution_services(
+    app: FastAPI,
+    settings: TianshuSettings,
+    *,
+    skill_target: Path,
+) -> None:
+    """Wire the Task 3 candidate, gate, and authenticated skill proposal authorities."""
+
+    authorities = CandidateLiveAuthorities(
+        memory_root=Path(settings.memory_dir).expanduser().resolve(),
+        skill_target=Path(skill_target).expanduser().resolve(),
+        policy_root=(Path(settings.workspace_dir).expanduser().resolve() / ".tianshu/policies"),
+        persona_root=Path(settings.runtime_personas_dir).expanduser().resolve(),
+        code_worktree=Path(settings.workspace_dir).expanduser().resolve(),
+    )
+    candidates = CandidateService(
+        app.state.storage,
+        app.state.artifact_store,
+        live_authorities=authorities,
+    )
+
+    def skill_contract(name: str) -> EvolutionContractV1:
+        policy_digest = hashlib.sha256(b"tianshu.skill-gates.lean-preview.v1").hexdigest()
+        return EvolutionContractV1(
+            kind=CandidateKind.SKILL,
+            subject_key=f"skill:{name}",
+            governance_contract_hash=policy_digest,
+            required_gates=tuple(GateName),
+            regression_policy_artifact_digest=policy_digest,
+            sample_policy_artifact_digest=policy_digest,
+            budget_policy_artifact_digest=policy_digest,
+            minimum_canary_samples=10,
+            max_canary_allocation_basis_points=500,
+            rollback_slo_seconds=30,
+        )
+
+    app.state.candidate_service = candidates
+    gate_evaluator = GateEvaluator(
+        app.state.storage,
+        artifact_verifier=app.state.artifact_store,
+    )
+    app.state.evolution_gate_evaluator = gate_evaluator
+    skill_promotion = SkillPromotionAdapter(
+        app.state.artifact_store,
+        live_root=authorities.skill_target,
+    )
+    unavailable_promotion = UnavailablePromotionAdapter()
+    promotion_adapters = {
+        kind: (skill_promotion if kind is CandidateKind.SKILL else unavailable_promotion)
+        for kind in CandidateKind
+    }
+    app.state.promotion_service = PromotionService(
+        app.state.storage,
+        gate_evaluator,
+        adapter_resolver=promotion_adapters.__getitem__,
+    )
+    app.state.evolution_reconciler = EvolutionRollbackReconciler(app.state.promotion_service)
+    challenger_router = ChallengerRouter(
+        app.state.storage,
+        allocation_secret=settings.evolution_routing_secret.encode() or None,
+        bucket_calculator=_routing_bucket_calculator(settings.startup_profile),
+        payload_resolver=candidates.resolve_effective_payload_current,
+    )
+    app.state.challenger_router = challenger_router
+    app.state.edict_application_service = EdictApplicationService(
+        app.state.storage,
+        challenger_router=challenger_router,
+    )
+    app.state.skill_install_service = SkillInstallService(
+        candidates,
+        app.state.storage,
+        contract_factory=skill_contract,
+        evidence_verifier=app.state.evidence_service,
+        gate_evaluator=gate_evaluator,
+    )
 
 
 def wire_skills(app: FastAPI, settings: TianshuSettings) -> tuple[SkillsLoader, SkillMetricsStore]:
@@ -45,16 +151,15 @@ def wire_skills(app: FastAPI, settings: TianshuSettings) -> tuple[SkillsLoader, 
     storage = app.state.storage
 
     # --- Skills ---
-    builtin_skills_dir = Path(__file__).parent.parent / "skills" / "builtin"
+    builtin_skills_dir = packaged_defaults().builtin_skills_dir()
     workspace_path = (
         Path(settings.workspace_dir).resolve() if settings.workspace_dir != "." else None
     )
     # 修撰效果门(迭代 6,ADR-0007)配对评估:子进程经此 env 重定向到变体技能库(同 personas 机制)
-    import os
-
-    _skills_override = os.environ.get("TIANSHU_RUNTIME_SKILLS_DIR")
-    user_skills_dir = Path(_skills_override or "~/.tianshu/skills").expanduser()
+    user_skills_dir = runtime_skills_target()
     user_skills_dir.mkdir(parents=True, exist_ok=True)
+    if not hasattr(app.state, "challenger_router"):
+        wire_evolution_services(app, settings, skill_target=user_skills_dir)
     skills = SkillsLoader(
         builtin_dir=builtin_skills_dir,
         workspace_dir=workspace_path,
@@ -129,5 +234,5 @@ def wire_skills_watcher(app: FastAPI, settings: TianshuSettings) -> SkillsWatche
         skills_watcher.start()
     except Exception:
         logger.warning("SkillsWatcher failed to start (watchdog may not be installed)")
-        skills_watcher = None
+        return None
     return skills_watcher

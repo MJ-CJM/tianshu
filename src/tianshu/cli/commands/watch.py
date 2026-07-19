@@ -12,6 +12,8 @@ from rich.console import Console
 from rich.live import Live
 from rich.table import Table
 
+from tianshu.cli.client import auth_headers
+
 console = Console()
 
 _TERMINAL_TYPES = {"execution.completed", "execution.failed", "execution.cancelled"}
@@ -75,7 +77,7 @@ def watch(
     console.print(f"[bold]Connecting to {ws_url}...[/bold]")
 
     try:
-        with ws_client.connect(ws_url) as ws:
+        with ws_client.connect(ws_url, additional_headers=auth_headers()) as ws:
             console.print("[green]Connected. Watching...[/green]  (Ctrl+C to quit)\n")
 
             with Live(

@@ -1,9 +1,13 @@
-import { Layout, theme } from "antd";
+import { Button, Layout, Tooltip, theme } from "antd";
+import { LogoutOutlined, UserOutlined } from "@ant-design/icons";
 import HealthDot from "../common/HealthDot";
 import ConnectionIndicator from "../common/ConnectionIndicator";
 import LocaleSwitcher from "./LocaleSwitcher";
 import { useT } from "../../i18n";
-import { useLocaleMode } from "../../hooks/useLocale";
+import { useAuth } from "../../auth/AuthContext";
+import { Link } from "react-router-dom";
+import { FROZEN_BRAND_NAME, FROZEN_TAGLINE } from "../../contracts/frozenShell";
+import styles from "./AppHeader.module.css";
 
 interface AppHeaderProps {
   isWsConnected?: boolean;
@@ -11,13 +15,12 @@ interface AppHeaderProps {
 
 export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
   const t = useT();
-  const locale = useLocaleMode();
   const { token } = theme.useToken();
-  const brand = t("comp.appHeader.brand");
-  const isLatinBrand = locale === "en";
+  const { mode, principal, logout } = useAuth();
 
   return (
     <Layout.Header
+      className={styles.header}
       style={{
         display: "flex",
         alignItems: "center",
@@ -27,7 +30,12 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
         height: 56,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <Link
+        className={styles.brand}
+        to="/control"
+        aria-label="天枢中枢总览"
+        style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}
+      >
         {/* 品牌标:TS×轨道(与 README/favicon 同一枚 logo) */}
         <img
           src="/brand.png"
@@ -40,30 +48,62 @@ export default function AppHeader({ isWsConnected = false }: AppHeaderProps) {
         <span
           style={{
             color: token.colorText,
-            fontFamily: isLatinBrand ? "'Noto Serif', serif" : "'Noto Serif SC', serif",
+            fontFamily: "'Noto Serif SC', serif",
             fontWeight: 700,
             fontSize: 18,
-            letterSpacing: isLatinBrand ? 0.5 : 2,
+            letterSpacing: 2,
             lineHeight: 1,
           }}
         >
-          {brand}
+          {FROZEN_BRAND_NAME}
         </span>
-      </div>
+      </Link>
       <div
+        className={styles.tagline}
         style={{
           flex: 1,
           textAlign: "center",
           color: token.colorTextSecondary,
-          fontFamily: isLatinBrand ? "'Noto Serif', serif" : "'Noto Serif SC', serif",
+          fontFamily: "'Noto Serif SC', serif",
           fontSize: 12.5,
           letterSpacing: 2,
+          lineHeight: "56px",
         }}
       >
-        {t("comp.appHeader.tagline")}
+        {FROZEN_TAGLINE}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div
+        className={styles.statuses}
+        style={{ display: "flex", alignItems: "center", gap: 12, lineHeight: 1.5 }}
+      >
         <LocaleSwitcher />
+        {principal ? (
+          <span
+            title={`${t("auth.currentUser")}: ${principal.id}`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              color: token.colorTextSecondary,
+              fontSize: 12,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <UserOutlined />
+            {principal.display_name}
+          </span>
+        ) : null}
+        {mode === "secure-remote" ? (
+          <Tooltip title={t("auth.logout")}>
+            <Button
+              type="text"
+              size="small"
+              icon={<LogoutOutlined />}
+              aria-label={t("auth.logout")}
+              onClick={() => void logout()}
+            />
+          </Tooltip>
+        ) : null}
         <ConnectionIndicator isConnected={isWsConnected} />
         <HealthDot />
       </div>

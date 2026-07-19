@@ -3,6 +3,24 @@
 import sqlite3
 import threading
 
+from tianshu.models.system_audit import AppendSystemAuditRequest
+from tianshu.storage.system_audit_repo import _append_system_audit_unlocked
+
+
+def _save_estop_state_unlocked(conn: sqlite3.Connection, state: dict) -> None:
+    conn.execute(
+        """INSERT OR REPLACE INTO estop_state
+           (id, kill_all, network_kill, frozen_tools_json, updated_at, reason)
+           VALUES (1, ?, ?, ?, ?, ?)""",
+        (
+            1 if state.get("kill_all") else 0,
+            1 if state.get("network_kill") else 0,
+            state.get("frozen_tools_json") or "[]",
+            state.get("updated_at"),
+            state.get("reason"),
+        ),
+    )
+
 
 class SecurityMixin:
     _conn: sqlite3.Connection
@@ -51,15 +69,13 @@ class SecurityMixin:
 
     def save_estop_state(self, state: dict) -> None:
         with self._lock, self._conn:
-            self._conn.execute(
-                """INSERT OR REPLACE INTO estop_state
-                   (id, kill_all, network_kill, frozen_tools_json, updated_at, reason)
-                   VALUES (1, ?, ?, ?, ?, ?)""",
-                (
-                    1 if state.get("kill_all") else 0,
-                    1 if state.get("network_kill") else 0,
-                    state.get("frozen_tools_json") or "[]",
-                    state.get("updated_at"),
-                    state.get("reason"),
-                ),
-            )
+            _save_estop_state_unlocked(self._conn, state)
+
+    def save_estop_state_with_audit(
+        self,
+        state: dict,
+        audit: AppendSystemAuditRequest,
+    ) -> None:
+        with self._lock, self._conn:
+            _save_estop_state_unlocked(self._conn, state)
+            _append_system_audit_unlocked(self._conn, audit)

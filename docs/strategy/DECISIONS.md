@@ -2,6 +2,8 @@
 
 > 所有战略/产品决策的**唯一索引**:每项决策可从此处追到 ①分析上下文(哪轮 grilling、哪份文档)②不可逆决策的 why(ADR)③排期落点(spec §八)。
 > **状态流转**:`待验证`(自主拍板,等用户批)→ `已批准` / `已翻案`(翻案需回滚对应排期项并在此记录)。新决策一律追加至此。
+>
+> **G0 事实校正（2026-07-11）：批准或交付不等于稳定。**历史决策保留原始意图；v0.4.2 当前成熟度、保证与非保证一律以[能力事实矩阵](../launch/capability-matrix.md)为准。当前不提供手机 App，IM 只按各渠道已有交互提供入口。
 
 ## 第一批 · 战略拍板(2026-07-07/08,状态:已批准)
 
@@ -13,18 +15,18 @@
 | S2 | 单人+AI 高吞吐带宽 | — | 已批准 |
 | S3 | 两段式发布(soft launch → 9 月中宣发) | — | 已批准 |
 | S4 | 细粒度特性流(告别大 phase 分支) | — | 已批准 |
-| S5 | 客卿执行器(迭代 3.5) | [0011](../adr/0011-keqing-external-executor-shadow-snapshot.md) | 已批准 · **已交付 v0.2.4** |
+| S5 | 客卿执行器(迭代 3.5) | [0011](../adr/0011-keqing-external-executor-shadow-snapshot.md) | 已批准 · adapter 已交付；当前为 `contained + experimental`，稳定契约待 G4 |
 | S6 | 起居注·用户画像(迭代 4/6) | — | 已批准 |
 | S7 | 明制补全(司礼监/六科/实录馆/巡按/京察,迭代 7) | — | 已批准 |
 | S8 | 目标用户=重度 AI 个人用户 | [0002](../adr/0002-positioning-superior-office-of-claude-code.md) | 已批准 |
 | S9 | 定位=「Claude Code 的上级机关」 | [0002](../adr/0002-positioning-superior-office-of-claude-code.md) | 已批准 |
-| S10 | 首卖「敢放手」,自进化第二幕 | [0002](../adr/0002-positioning-superior-office-of-claude-code.md) | 已批准 |
-| S11 | 双名场面(GIF 手机批红 + 视频客卿) | — | 已批准 |
-| S12 | 放手四保险(影子快照最小版提前 3.5;出厂预算护栏) | [0003](../adr/0003-trust-defaults-telemetry-optin-budget-guardrail-on.md) | 已批准 |
+| S10 | 「敢放手」作为 G2 可靠门后的叙事；自进化闭环作为 G4 后叙事 | [0002](../adr/0002-positioning-superior-office-of-claude-code.md) | 已批准 · 当前不得作为 v0.4.2 完成态承诺 |
+| S11 | 桌面 Web 裁决 + 真实 IM 渠道 + 客卿边界演示 | — | 已批准 · 正式录制推迟到 G3/G4；不宣称自有移动端 |
+| S12 | 影子快照与预算门禁作为现有 defense-in-depth，不称完整“保险” | [0003](../adr/0003-trust-defaults-telemetry-optin-budget-guardrail-on.md) | 已批准 · 当前快照非 pre-run，预算非 hard cap；完整承诺待 G2 |
 | S13 | 首发国内,HN 留年末第二波 | — | 已批准 |
 | S14 | 成本透明:README 给数字+默认每日预算上限 | [0003](../adr/0003-trust-defaults-telemetry-optin-budget-guardrail-on.md) | 已批准 |
 | S15 | 度量:opt-in 遥测+代理指标,北极星=周活跃下旨实例 | [0003](../adr/0003-trust-defaults-telemetry-optin-budget-guardrail-on.md) | 已批准 |
-| S16 | 自进化默认关+阈值「请旨解锁」,代码层永远手动 | [0004](../adr/0004-evolution-off-by-default-unlock-by-memorial.md) | 已批准 |
+| S16 | 自进化实验能力默认关；阈值只产生解锁候选，代码级晋升保持人工决定 | [0004](../adr/0004-evolution-off-by-default-unlock-by-memorial.md) | 已批准 · Experimental，完整闭环待 G4 |
 | S17 | 「一群 AI」诚实分层:权限矩阵是本体 | — (CONTEXT.md 锚定) | 已批准 |
 | S18 | 首发期窄门贡献:先议后 PR | [0005](../adr/0005-narrow-gate-contribution.md) | 已批准 |
 | S19 | 重资产角色分层:记忆升第二幕双引擎/协作打组织新陈代谢牌/harness 走内容轨道 | [0006](../adr/0006-heavy-assets-narrative-roles.md) | 已批准 |
@@ -37,10 +39,10 @@
 
 | ID | 决策 | 判定 | 排期落点 | ADR | 状态 |
 |---|---|---|---|---|---|
-| D1 | 多入口定位「治理随身」:批红/召廷议移动端同权,IM 信号入起居注 | 强化 | 迭代 4/5 随既有项 | — | 待验证 |
+| D1 | 多入口定位「治理随身」：当前只承诺 Web 与已有 IM 入口；原生移动端同权属于规划 | 强化 | G3 后另行评估 | — | 待验证 · 非当前能力 |
 | D2 | 通政司通知三级制(紧急穿透/普通/低入 digest)+免打扰时段 | 强化 | 迭代 5 新增 | — | 待验证 |
 | D3 | 实录馆=基于既有 DigestGenerator 升级,不从零建 | 联动 | 迭代 7 表述改 | — | 待验证 |
-| D4 | 前端三视图叙事抛光(批红台/谱系树/时间线=可截宣发图) | 强化-轻 | 宣发准备期 | — | 待验证 |
+| D4 | 前端三视图叙事抛光(裁决台/谱系树/时间线=可截宣发图) | 强化-轻 | G3 | — | 待验证 |
 | D5 | `tianshu doctor` 装机自检提前 | 强化 | 迭代 1 新增 | — | 待验证 |
 | D6 | 明确不做 TUI | 维持 | 不做清单 | — | 待验证 |
 | D7 | 条件调度(cron 前置哨兵);调度域定名钦天监 | 强化-后置 | 2027H1 | — | 待验证 |
@@ -51,7 +53,7 @@
 | D12 | 泳道/checkpoint 不加功能,journal/replay 维持 P3 | 维持 | — | — | 待验证 |
 | D13 | 审计规则 YAML 化+热加载(用户自定义红线) | 强化-nice | 迭代 7 nice | — | 待验证 |
 | D14 | 太医双出口:+「太医奏折」直接建议用户,与巡按衔接 | 强化-nice | 迭代 7 nice | — | 待验证 |
-| D15 | MCP 治理三件套:准入清单+clean-env+诚实声明边界(不做流量代理) | 强化 | 迭代 3 **已交付**(v0.2.3,[ADR-0010](../adr/0010-jinyiwei-runtime-defense-in-depth.md)) | — | 待验证 |
+| D15 | MCP 入口能力有限：当前仅有准入清单/clean-env 等局部边界，不是流量代理且无统一远程鉴权 | 强化 | 局部已交付；public-safe 补齐在 G1 | [0010](../adr/0010-jinyiwei-runtime-defense-in-depth.md) | 待验证 · Limited |
 | D16 | 凭证 Fernet 密文落库已达标(核实);补主密钥轮换脚本 | 强化-小 | 迭代 3 **已交付**(v0.2.3,`tianshu secrets rotate-master-key`) | — | 待验证 |
 | D17 | EventBus 达标,OTel 复用 | 维持 | — | — | 待验证 |
 | D18 | 成本治理前四轮已拍满,不再加 | 维持 | — | — | 待验证 |

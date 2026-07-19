@@ -1,0 +1,62 @@
+.shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 18%, var(--ts-color-accent-soft), transparent 30%),
+    var(--ts-color-bg-page);
+}
+
+.card {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-sizing: border-box;
+  padding: 32px;
+  border: 1px solid var(--ts-color-border);
+  border-radius: 10px;
+  background: var(--ts-color-bg-container);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 10%);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand img {
+  display: block;
+  border-radius: 8px;
+}
+
+.brand h1 {
+  margin: 0;
+  color: var(--ts-color-text);
+  font-family: "Noto Serif SC", serif;
+  font-size: 22px;
+  letter-spacing: 0.16em;
+}
+
+.brand p,
+.tagline {
+  margin: 4px 0 0;
+  color: var(--ts-color-text-secondary);
+  font-size: 12px;
+}
+
+.rule {
+  width: 36px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ts-color-accent);
+}
+
+.tagline {
+  margin: -8px 0 0;
+  font-family: "Noto Serif SC", serif;
+  line-height: 1.8;
+  letter-spacing: 0.08em;
+}

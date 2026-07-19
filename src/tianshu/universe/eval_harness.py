@@ -5,17 +5,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
 import logging
 import shutil
 import sqlite3
-import time
-import urllib.error
-import urllib.request
 import uuid
 from pathlib import Path
+from typing import Any
+
+import httpx
 
 from tianshu.universe.fitness import compute_fitness
 
@@ -198,6 +199,35 @@ class EvalHarness:
         extra_env: dict | None = None,
         budget_cny: float | None = None,
     ) -> dict:
+        """Compatibility wrapper for offline CLI callers outside an event loop."""
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.evaluate_async(
+                    worktree,
+                    eval_set=eval_set,
+                    seed_db=seed_db,
+                    goal_timeout_s=goal_timeout_s,
+                    extra_env=extra_env,
+                    budget_cny=budget_cny,
+                )
+            )
+        raise RuntimeError(
+            "EvalHarness.evaluate() cannot run in an event loop; await evaluate_async()"
+        )
+
+    async def evaluate_async(
+        self,
+        worktree: Path,
+        *,
+        eval_set: list[str],
+        seed_db: Path | None = None,
+        goal_timeout_s: int = 300,
+        extra_env: dict | None = None,
+        budget_cny: float | None = None,
+    ) -> dict:
         """在沙箱中回放 eval_set，聚合并打分。
 
         iso_db 放在 worktree 同级目录（保持 worktree 内文件系统干净），文件名唯一化
@@ -210,27 +240,52 @@ class EvalHarness:
         iso_db = Path(worktree).parent / f"_eval-{uuid.uuid4().hex[:8]}.db"
         if seed_db is not None:
             shutil.copy(seed_db, iso_db)
+        merged_env = {**self._base_env, **(extra_env or {})} or None
+        session = self._sandbox.session(worktree, db_path=iso_db, extra_env=merged_env)
+        if hasattr(session, "__aenter__"):
+            async with session as handle:
+                return await self._evaluate_session(
+                    handle,
+                    eval_set=eval_set,
+                    goal_timeout_s=goal_timeout_s,
+                    budget_cny=budget_cny,
+                )
+        with session as handle:
+            return await self._evaluate_session(
+                handle,
+                eval_set=eval_set,
+                goal_timeout_s=goal_timeout_s,
+                budget_cny=budget_cny,
+            )
+
+    async def _evaluate_session(
+        self,
+        h,
+        *,
+        eval_set: list[str],
+        goal_timeout_s: int,
+        budget_cny: float | None,
+    ) -> dict:
         truncated = False
         ran = 0
-        merged_env = {**self._base_env, **(extra_env or {})} or None
-        with self._sandbox.session(worktree, db_path=iso_db, extra_env=merged_env) as h:
-            for goal in eval_set:
-                self._run_goal(h.base_url, goal, goal_timeout_s)
-                ran += 1
-                if (
-                    budget_cny is not None
-                    and self.aggregate_db_stats(h.db_path)["cost"] >= budget_cny
-                ):
-                    truncated = True
-                    logger.warning(
-                        "eval: budget %.2f CNY reached after %d/%d goals, truncating",
-                        budget_cny,
-                        ran,
-                        len(eval_set),
-                    )
-                    break
-            stats = self.aggregate_db_stats(h.db_path)
-            goal_results = self.collect_goal_results(h.db_path)
+        for goal in eval_set:
+            await self._run_goal(h.base_url, goal, goal_timeout_s)
+            ran += 1
+            if (
+                budget_cny is not None
+                and (await asyncio.to_thread(self.aggregate_db_stats, h.db_path))["cost"]
+                >= budget_cny
+            ):
+                truncated = True
+                logger.warning(
+                    "eval: budget %.2f CNY reached after %d/%d goals, truncating",
+                    budget_cny,
+                    ran,
+                    len(eval_set),
+                )
+                break
+        stats = await asyncio.to_thread(self.aggregate_db_stats, h.db_path)
+        goal_results = await asyncio.to_thread(self.collect_goal_results, h.db_path)
         return {
             "fitness": self.score(stats),
             "stats": stats,
@@ -257,17 +312,50 @@ class EvalHarness:
         budget_cny: float | None = None,
         cached_baseline: dict | None = None,
     ) -> dict:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.evaluate_paired_async(
+                    variant_worktree,
+                    eval_set=eval_set,
+                    baseline_worktree=baseline_worktree,
+                    variant_env=variant_env,
+                    baseline_env=baseline_env,
+                    goal_timeout_s=goal_timeout_s,
+                    budget_cny=budget_cny,
+                    cached_baseline=cached_baseline,
+                )
+            )
+        raise RuntimeError(
+            "EvalHarness.evaluate_paired() cannot run in an event loop; "
+            "await evaluate_paired_async()"
+        )
+
+    async def evaluate_paired_async(
+        self,
+        variant_worktree: Path,
+        *,
+        eval_set: list[str],
+        baseline_worktree: Path,
+        variant_env: dict | None = None,
+        baseline_env: dict | None = None,
+        goal_timeout_s: int = 300,
+        budget_cny: float | None = None,
+        cached_baseline: dict | None = None,
+    ) -> dict:
         """变体与冠军基线在同一评估集上各评一次,margin 判在配对差上。
 
         cached_baseline(同指纹的历史基线)命中时跳过基线评估,评估成本减半。
         """
-        variant = self.evaluate(
+        variant = await self.evaluate_async(
             variant_worktree,
             eval_set=eval_set,
             extra_env=variant_env,
             goal_timeout_s=goal_timeout_s,
             budget_cny=budget_cny,
         )
+        baseline: dict[str, Any]
         if cached_baseline is not None:
             baseline = (
                 cached_baseline
@@ -276,7 +364,7 @@ class EvalHarness:
             )
             baseline_cached = True
         else:
-            baseline = self.evaluate(
+            baseline = await self.evaluate_async(
                 baseline_worktree,
                 eval_set=eval_set,
                 extra_env=baseline_env,
@@ -294,7 +382,7 @@ class EvalHarness:
             "baseline_cached": baseline_cached,
         }
 
-    def _run_goal(self, base_url: str, goal: str, timeout_s: int) -> None:
+    async def _run_goal(self, base_url: str, goal: str, timeout_s: int) -> None:
         """POST 一个 edict 并轮询其 memorial 到终态（或超时放弃）。
 
         POST /api/edicts  {"goal": goal}  → data.id
@@ -302,43 +390,47 @@ class EvalHarness:
         终态：completed / approved / failed / rejected
         超时时记录 warning，不抛异常（eval 继续）。
         """
-        # --- 提交 edict ---
-        payload = json.dumps({"goal": goal}).encode()
-        req = urllib.request.Request(
-            f"{base_url}/api/edicts",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
-                body = json.loads(resp.read())
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("eval: failed to submit goal %r: %s", goal[:60], exc)
-            return
-
-        edict_id = (body.get("data") or {}).get("id")
-        if not edict_id:
-            logger.warning("eval: no edict id in response for goal %r", goal[:60])
-            return
-
-        # --- 轮询 memorial 到终态 ---
-        memorial_url = f"{base_url}/api/edicts/{edict_id}/memorial"
-        deadline = time.monotonic() + timeout_s
-        poll_interval = 2.0
-        while time.monotonic() < deadline:
-            time.sleep(poll_interval)
+        async with httpx.AsyncClient(
+            timeout=30,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
             try:
-                with urllib.request.urlopen(memorial_url, timeout=10) as resp:  # noqa: S310
-                    result = json.loads(resp.read())
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("eval: poll error for edict %s: %s", edict_id, exc)
-                continue
-            data = result.get("data") or {}
-            status = data.get("status")
-            if status in _TERMINAL_STATUSES:
-                logger.debug("eval: edict %s reached status %s", edict_id, status)
+                response = await client.post(
+                    f"{base_url}/api/edicts",
+                    json={"goal": goal},
+                )
+                response.raise_for_status()
+                body = response.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning("eval: failed to submit goal %r: %s", goal[:60], exc)
                 return
+
+            edict_id = (body.get("data") or {}).get("id") if isinstance(body, dict) else None
+            if not edict_id:
+                logger.warning("eval: no edict id in response for goal %r", goal[:60])
+                return
+
+            memorial_url = f"{base_url}/api/edicts/{edict_id}/memorial"
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + timeout_s
+            while (remaining := deadline - loop.time()) > 0:
+                await asyncio.sleep(min(2.0, remaining))
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                try:
+                    response = await client.get(memorial_url, timeout=min(10.0, remaining))
+                    response.raise_for_status()
+                    result = response.json()
+                except (httpx.HTTPError, ValueError) as exc:
+                    logger.debug("eval: poll error for edict %s: %s", edict_id, exc)
+                    continue
+                data = (result.get("data") or {}) if isinstance(result, dict) else {}
+                status = data.get("status")
+                if status in _TERMINAL_STATUSES:
+                    logger.debug("eval: edict %s reached status %s", edict_id, status)
+                    return
         logger.warning(
             "eval: timeout waiting for edict %s (goal=%r) after %ss",
             edict_id,

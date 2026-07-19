@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import tempfile
 from collections import OrderedDict
 from pathlib import Path
+from typing import TypedDict, cast
 
 import frontmatter
 
@@ -18,6 +20,78 @@ _MAX_CANDIDATES_PER_DIR = 300
 _L1_MAX_ENTRIES = 8
 _SKILL_RESOURCE_DIRS = ("scripts", "references", "assets", "templates")
 _MAX_RESOURCE_BYTES = 1024 * 1024  # 1 MiB per resource file
+_SKILL_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$", re.ASCII)
+
+
+class _RuntimeSkillMember(TypedDict):
+    path: str
+    kind: str
+    content: str | None
+
+
+def _runtime_skill_overlay() -> tuple[str, dict | None] | None:
+    from tianshu.evolution.runtime_context import current_evolution_runtime
+
+    runtime = current_evolution_runtime()
+    if (
+        runtime is None
+        or runtime.overlay.kind is None
+        or runtime.overlay.kind.value != "skill"
+        or runtime.overlay.subject_key is None
+    ):
+        return None
+    name = runtime.overlay.subject_key.removeprefix("skill:")
+    package = runtime.selected_payload
+    if package.get("state") == "absent":
+        return name, None
+    members = cast(list[_RuntimeSkillMember], package["members"])
+    skill_member = next(
+        (
+            member
+            for member in members
+            if member.get("path") == "SKILL.md" and member.get("kind") == "file"
+        ),
+        None,
+    )
+    assert skill_member is not None
+    post = frontmatter.loads(cast(str, skill_member["content"]))
+    metadata = post.metadata or {}
+    openclaw = metadata.get("metadata", {}).get("openclaw", {})
+    return name, {
+        "name": name,
+        "description": metadata.get("description", ""),
+        "source": "evolution-overlay",
+        "always": openclaw.get("always", False),
+        "tool_tier": openclaw.get("toolTier"),
+        "path": "",
+        "content_length": len(post.content),
+        "content": post.content,
+    }
+
+
+def validate_skill_name(name: str) -> str:
+    """Return a canonical ASCII skill identifier or raise ``ValueError``."""
+    if not isinstance(name, str) or _SKILL_NAME_RE.fullmatch(name) is None:
+        raise ValueError(
+            f"invalid skill name {name!r}. Must match: lowercase alphanumeric, "
+            "hyphens, dots, underscores; 1-64 chars; start with letter/digit."
+        )
+    return name
+
+
+def _validated_filter_names(filter_names: list[str] | None) -> set[str] | None:
+    if not filter_names:
+        return None
+    return {validate_skill_name(name) for name in filter_names}
+
+
+def _is_canonical_discovered_skill_name(name: str) -> bool:
+    try:
+        validate_skill_name(name)
+    except ValueError:
+        logger.warning("Skipping skill entry with invalid identifier: %r", name)
+        return False
+    return True
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -51,6 +125,9 @@ class SkillsLoader:
         self._workspace_dir = workspace_dir
         self._user_dir = user_dir  # ~/.tianshu/skills
         self._char_budget = char_budget
+        self._fallback_dirs: list[tuple[Path, str]] = []
+        self._workspace_writes_only = False
+        self._workspace_overlay_root: Path | None = None
 
         # L1: In-memory LRU cache for get_skill()
         self._l1_cache: OrderedDict[str, dict] = OrderedDict()
@@ -66,6 +143,25 @@ class SkillsLoader:
         """切换 user 技能根目录（位面切换时调用）并失效所有缓存。"""
         self._user_dir = Path(new_user_dir).expanduser()
         self.invalidate_cache()
+
+    def for_workspace_overlay(self, workspace_root: Path) -> SkillsLoader:
+        """Return a per-call view whose mutations are confined to staging /skills."""
+        lexical_root = Path(workspace_root).expanduser().absolute()
+        if lexical_root.is_symlink() or not lexical_root.is_dir():
+            raise ValueError("workspace overlay root must be a real directory")
+        resolved_root = lexical_root.resolve()
+        overlay = SkillsLoader(
+            builtin_dir=self._builtin_dir,
+            workspace_dir=resolved_root,
+            user_dir=None,
+            char_budget=self._char_budget,
+        )
+        overlay._fallback_dirs = self._search_dirs()
+        overlay._workspace_writes_only = True
+        overlay._workspace_overlay_root = resolved_root
+        if hasattr(self, "_injected_skills"):
+            overlay._injected_skills = dict(self._injected_skills)
+        return overlay
 
     def set_char_budget(self, budget: int) -> None:
         self._char_budget = budget
@@ -84,10 +180,10 @@ class SkillsLoader:
         metrics_store: object | None = None,
     ) -> str:
         """Return skill index (name + description only) for system prompt injection."""
+        filter_set = _validated_filter_names(filter_names)
         metadata = self.list_all_metadata()
 
-        if filter_names:
-            filter_set = set(filter_names)
+        if filter_set is not None:
             metadata = [m for m in metadata if m["name"] in filter_set]
 
         # Filter dormant agent-created skills (unless explicitly requested)
@@ -134,12 +230,13 @@ class SkillsLoader:
 
     def load_always(self, filter_names: list[str] | None = None) -> str:
         """Return full content of skills marked always=true."""
+        filter_set = _validated_filter_names(filter_names)
         # Use list_all_metadata (single parse) to find always-on skill names
         metadata = self.list_all_metadata()
         always_names = {m["name"] for m in metadata if m.get("always", False)}
 
-        if filter_names:
-            always_names &= set(filter_names)
+        if filter_set is not None:
+            always_names &= filter_set
 
         if not always_names:
             return ""
@@ -161,6 +258,7 @@ class SkillsLoader:
 
     def patch_skill(self, name: str, old: str, new: str) -> dict:
         """Find-and-replace within a skill's content using fuzzy matching."""
+        validate_skill_name(name)
         from tianshu.skills.fuzzy_match import fuzzy_replace
 
         skill = self.get_skill(name)
@@ -183,11 +281,13 @@ class SkillsLoader:
 
     def register_skill(self, name: str, content: str) -> None:
         """Register an externally-provided skill (from PluginApi)."""
+        validate_skill_name(name)
         if not hasattr(self, "_injected_skills"):
             self._injected_skills: dict[str, str] = {}
         self._injected_skills[name] = content
 
     def load_all(self, filter_names: list[str] | None = None) -> str:
+        filter_set = _validated_filter_names(filter_names)
         skills: dict[str, str] = {}  # name -> content
 
         # builtin (lowest priority)
@@ -207,9 +307,16 @@ class SkillsLoader:
         if hasattr(self, "_injected_skills"):
             skills.update(self._injected_skills)
 
+        runtime_overlay = _runtime_skill_overlay()
+        if runtime_overlay is not None:
+            runtime_name, runtime_skill = runtime_overlay
+            if runtime_skill is None:
+                skills.pop(runtime_name, None)
+            else:
+                skills[runtime_name] = runtime_skill["content"]
+
         # Filter by allowed names if specified
-        if filter_names:
-            filter_set = set(filter_names)
+        if filter_set is not None:
             skills = {k: v for k, v in skills.items() if k in filter_set}
 
         # Concatenate within char budget
@@ -230,11 +337,15 @@ class SkillsLoader:
             return
         candidates = sorted(base.iterdir())[:_MAX_CANDIDATES_PER_DIR]
         for entry in candidates:
+            if not _is_canonical_discovered_skill_name(entry.name):
+                continue
             skill_file = entry / "SKILL.md" if entry.is_dir() else None
             if skill_file and skill_file.is_file():
                 self._load_skill(entry.name, skill_file, skills)
 
     def _load_skill(self, name: str, path: Path, skills: dict[str, str]) -> None:
+        if not _is_canonical_discovered_skill_name(name):
+            return
         if path.stat().st_size > _MAX_FILE_SIZE:
             logger.warning("Skill '%s' exceeds max file size, skipping", name)
             return
@@ -285,9 +396,11 @@ class SkillsLoader:
 
     def list_all_metadata(self) -> list[dict]:
         """Return structured metadata for all skills (builtin + workspace + injected)."""
+        if self._workspace_writes_only:
+            return self._with_runtime_metadata(self._list_overlay_metadata())
         # L2: Check if file stats match cached snapshot
         if self._l2_metadata is not None and self._l2_stats_valid():
-            return self._l2_metadata
+            return self._with_runtime_metadata(self._l2_metadata)
 
         # L3: Full disk scan
         result: list[dict] = []
@@ -320,6 +433,47 @@ class SkillsLoader:
         # Populate L2
         self._l2_metadata = result
         self._l2_stats = new_stats
+        return self._with_runtime_metadata(result)
+
+    @staticmethod
+    def _with_runtime_metadata(metadata: list[dict]) -> list[dict]:
+        runtime_overlay = _runtime_skill_overlay()
+        if runtime_overlay is None:
+            return list(metadata)
+        name, skill = runtime_overlay
+        visible = [item for item in metadata if item["name"] != name]
+        if skill is not None:
+            visible.append({key: value for key, value in skill.items() if key != "content"})
+        return visible
+
+    def _list_overlay_metadata(self) -> list[dict]:
+        result: list[dict] = []
+        stats: dict[str, tuple[int, int]] = {}
+        seen: set[str] = set()
+        if hasattr(self, "_injected_skills"):
+            for name, content in self._injected_skills.items():
+                seen.add(name)
+                result.append(
+                    {
+                        "name": name,
+                        "description": "",
+                        "source": "injected",
+                        "always": False,
+                        "tool_tier": None,
+                        "path": "",
+                        "content_length": len(content),
+                    }
+                )
+        for base, source in self._search_dirs():
+            candidates: list[dict] = []
+            self._collect_metadata(base, source, candidates, stats)
+            for metadata in candidates:
+                name = metadata["name"]
+                if name not in seen:
+                    seen.add(name)
+                    result.append(metadata)
+        self._l2_metadata = result
+        self._l2_stats = stats
         return result
 
     def _l2_stats_valid(self) -> bool:
@@ -344,6 +498,8 @@ class SkillsLoader:
             return
         candidates = sorted(base.iterdir())[:_MAX_CANDIDATES_PER_DIR]
         for entry in candidates:
+            if not _is_canonical_discovered_skill_name(entry.name):
+                continue
             skill_file = entry / "SKILL.md" if entry.is_dir() else None
             if skill_file and skill_file.is_file():
                 try:
@@ -371,6 +527,10 @@ class SkillsLoader:
 
     def get_skill(self, name: str) -> dict | None:
         """Return full content + metadata for a single skill."""
+        validate_skill_name(name)
+        runtime_overlay = _runtime_skill_overlay()
+        if runtime_overlay is not None and runtime_overlay[0] == name:
+            return runtime_overlay[1]
         # Check injected first
         if hasattr(self, "_injected_skills") and name in self._injected_skills:
             return {
@@ -426,14 +586,51 @@ class SkillsLoader:
                 dirs.append((ws_skills, "workspace"))
         if self._user_dir and self._user_dir.is_dir():
             dirs.append((self._user_dir, "user"))
+        dirs.extend(self._fallback_dirs)
         dirs.append((self._builtin_dir, "builtin"))
-        return dirs
+        deduplicated: list[tuple[Path, str]] = []
+        seen: set[Path] = set()
+        for path, source in dirs:
+            resolved = path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                deduplicated.append((path, source))
+        return deduplicated
+
+    def _materialize_writable_skill(self, name: str) -> Path:
+        target_dir = self._validate_overlay_write_path(self._writable_skills_dir() / name)
+        target_file = self._validate_overlay_write_path(target_dir / "SKILL.md")
+        if target_file.is_file():
+            return target_file
+        for base, _source in self._search_dirs():
+            source_dir = base / name
+            if (source_dir / "SKILL.md").is_file():
+                target_dir.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(source_dir, target_dir)
+                return target_file
+        raise FileNotFoundError(f"Skill '{name}' not found")
 
     def save_skill(self, name: str, content: str) -> dict:
         """Write back skill content to its SKILL.md file. SkillsWatcher auto-reloads."""
-        for base, _source in self._search_dirs():
+        validate_skill_name(name)
+        if self._workspace_writes_only:
+            skill_file = self._materialize_writable_skill(name)
+            try:
+                post = frontmatter.load(str(skill_file))
+                post.content = content
+                _atomic_write(skill_file, frontmatter.dumps(post))
+            except Exception:
+                _atomic_write(skill_file, content)
+            self._l1_cache.pop(name, None)
+            self._l2_metadata = None
+            return self.get_skill(name)  # type: ignore[return-value]
+        for base, source in self._search_dirs():
             skill_file = base / name / "SKILL.md"
             if skill_file.is_file():
+                if source == "builtin":
+                    # Builtin skills are immutable packaged defaults: edits are
+                    # copy-on-write materialized into the writable overlay.
+                    skill_file = self._materialize_writable_skill(name)
                 # Preserve frontmatter, replace content
                 try:
                     post = frontmatter.load(str(skill_file))
@@ -451,20 +648,21 @@ class SkillsLoader:
     def _writable_skills_dir(self) -> Path:
         """Return the best writable skills directory (workspace > user)."""
         if self._workspace_dir:
-            return self._workspace_dir / "skills"
+            return self._validate_overlay_write_path(self._workspace_dir / "skills")
         if self._user_dir:
             return self._user_dir
         raise ValueError("No writable skills directory configured")
 
     def create_skill(self, name: str, content: str) -> dict:
         """Create a new skill in writable skills directory (workspace or user)."""
+        validate_skill_name(name)
         target = self._writable_skills_dir()
         target.mkdir(parents=True, exist_ok=True)
-        skill_dir = target / name
+        skill_dir = self._validate_overlay_write_path(target / name)
         if skill_dir.exists():
             raise ValueError(f"Skill '{name}' already exists")
         skill_dir.mkdir()
-        skill_file = skill_dir / "SKILL.md"
+        skill_file = self._validate_overlay_write_path(skill_dir / "SKILL.md")
         _atomic_write(skill_file, content)
         self._l2_metadata = None  # Invalidate metadata cache
         return self.get_skill(name)  # type: ignore[return-value]
@@ -486,10 +684,21 @@ class SkillsLoader:
             raise ValueError(
                 f"resource path must include a filename under the top dir: {rel_path!r}"
             )
-        for base, _src in self._search_dirs():
-            skill_dir = base / name
+        search_dirs = self._search_dirs()
+        if self._workspace_writes_only:
+            self._materialize_writable_skill(name)
+            search_dirs = [(self._writable_skills_dir(), "workspace")]
+        for base, src in search_dirs:
+            skill_dir = self._validate_overlay_write_path(base / name)
             if (skill_dir / "SKILL.md").is_file():
-                target = (skill_dir / rel_path).resolve()
+                if src == "builtin":
+                    # Resource mutations on a builtin skill operate on a
+                    # copy-on-write overlay copy; packaged bytes stay immutable.
+                    self._materialize_writable_skill(name)
+                    skill_dir = self._validate_overlay_write_path(
+                        self._writable_skills_dir() / name
+                    )
+                target = self._validate_overlay_write_path(skill_dir / rel_path).resolve()
                 if not str(target).startswith(str(skill_dir.resolve()) + "/"):
                     raise ValueError(f"resolved path escapes skill dir: {rel_path!r}")
                 return target
@@ -497,6 +706,7 @@ class SkillsLoader:
 
     def write_skill_file(self, name: str, rel_path: str, content: str) -> dict:
         """Write a resource file inside a skill dir. Invalidates caches."""
+        validate_skill_name(name)
         if len(content.encode("utf-8")) > _MAX_RESOURCE_BYTES:
             raise ValueError(f"resource exceeds {_MAX_RESOURCE_BYTES} bytes")
         target = self._resolve_skill_resource(name, rel_path)
@@ -508,6 +718,7 @@ class SkillsLoader:
 
     def remove_skill_file(self, name: str, rel_path: str) -> bool:
         """Remove a resource file inside a skill dir. Invalidates caches."""
+        validate_skill_name(name)
         target = self._resolve_skill_resource(name, rel_path)
         if target.is_file():
             target.unlink()
@@ -518,11 +729,13 @@ class SkillsLoader:
 
     def delete_skill(self, name: str) -> bool:
         """Delete a user/workspace skill. Builtin skills cannot be deleted."""
+        validate_skill_name(name)
         for base in self._writable_dirs():
-            skill_dir = base / name
+            skill_dir = self._validate_overlay_write_path(base / name)
             if skill_dir.is_dir():
                 import shutil as _shutil
 
+                self._validate_overlay_write_path(skill_dir)
                 _shutil.rmtree(skill_dir)
                 self._l1_cache.pop(name, None)
                 self._l2_metadata = None
@@ -532,10 +745,30 @@ class SkillsLoader:
     def _writable_dirs(self) -> list[Path]:
         dirs: list[Path] = []
         if self._workspace_dir:
-            dirs.append(self._workspace_dir / "skills")
-        if self._user_dir:
+            dirs.append(self._validate_overlay_write_path(self._workspace_dir / "skills"))
+        if self._user_dir and not self._workspace_writes_only:
             dirs.append(self._user_dir)
         return dirs
+
+    def _validate_overlay_write_path(self, path: Path) -> Path:
+        root = self._workspace_overlay_root
+        if root is None:
+            return path
+        if root.is_symlink() or not root.is_dir() or root.resolve() != root:
+            raise ValueError("workspace overlay root identity changed")
+        candidate = Path(path).absolute()
+        try:
+            relative = candidate.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("workspace overlay write path escapes staging root") from exc
+        current = root
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                raise ValueError("workspace overlay write path must not contain symlinks")
+        if not candidate.resolve().is_relative_to(root):
+            raise ValueError("workspace overlay write path escapes staging root")
+        return candidate
 
     def archive_skill(self, name: str) -> bool:
         """Move a user/workspace skill into a sibling ``.archive/`` dir (recoverable).
@@ -544,17 +777,21 @@ class SkillsLoader:
         dir holds no top-level SKILL.md, so archived skills are invisible to the
         scanner. Returns True if archived.
         """
+        validate_skill_name(name)
         for base in self._writable_dirs():
-            skill_dir = base / name
+            skill_dir = self._validate_overlay_write_path(base / name)
             if skill_dir.is_dir():
-                archive_root = base / ".archive"
+                archive_root = self._validate_overlay_write_path(base / ".archive")
                 archive_root.mkdir(parents=True, exist_ok=True)
-                target = archive_root / name
+                archive_root = self._validate_overlay_write_path(archive_root)
+                target = self._validate_overlay_write_path(archive_root / name)
                 if target.exists():
                     from datetime import UTC, datetime
 
                     stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
-                    target = archive_root / f"{name}__{stamp}"
+                    target = self._validate_overlay_write_path(archive_root / f"{name}__{stamp}")
+                self._validate_overlay_write_path(skill_dir)
+                self._validate_overlay_write_path(target)
                 shutil.move(str(skill_dir), str(target))
                 self._l1_cache.pop(name, None)
                 self._l2_metadata = None
@@ -564,12 +801,16 @@ class SkillsLoader:
 
     def restore_skill(self, name: str) -> bool:
         """Move a skill back out of ``.archive/`` into its writable dir."""
+        validate_skill_name(name)
         for base in self._writable_dirs():
-            src = base / ".archive" / name
+            archive_root = self._validate_overlay_write_path(base / ".archive")
+            src = self._validate_overlay_write_path(archive_root / name)
             if src.is_dir():
-                target = base / name
+                target = self._validate_overlay_write_path(base / name)
                 if target.exists():
                     return False
+                self._validate_overlay_write_path(src)
+                self._validate_overlay_write_path(target)
                 shutil.move(str(src), str(target))
                 self._l2_metadata = None
                 logger.info("Restored skill '%s' from archive", name)

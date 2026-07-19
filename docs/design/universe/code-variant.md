@@ -1,33 +1,35 @@
 # 代码变体位面（Phase 2：代码层）
 
-> 把分叉从「行为配置层」延伸到「代码层」——每个代码变体位面 = 一份可独立运行的 git worktree 变体。平台能自动产出代码级变异、在隔离沙箱里并行评估、择优晋升。本篇讲契约与边界，代码落点见 [../../impl/universe/](../../impl/universe/)。
+> 把分叉从「行为配置层」延伸到「代码层」——每个代码变体位面 = 一份可独立运行的 git worktree 变体。平台能自动产出代码级变异、在受治理的子进程中评估、择优晋升。本篇讲契约与边界，代码落点见 [../../impl/universe/](../../impl/universe/)。
 > 设计源头：`docs/superpowers/specs/2026-06-08-code-variant-universe-design.md`。
 
 ## 1. 为什么代码层「质变地更难」
 
 | 差异 | 后果 |
 |---|---|
-| Python 不能在运行中的进程里热替换代码 | 代码变体靠 worktree + 进程级隔离；`switch` = **重定向 + 重启**，而非复制文件原地切换 |
+| Python 不能在运行中的进程里热替换代码 | 代码变体靠 worktree + 受管子进程生命周期；`switch` = **重定向 + 重启**，而非复制文件原地切换 |
 | 自动生成的代码是无界风险面（崩溃/死循环/泄漏/破坏） | 必须有带门禁的评估底座，任何代码碰真实任务前都要过关 |
-| 「择优」需 fitness，但不能拿可能损坏的代码跑真实流量 | 评估期变体跑在完全隔离的 DB 副本上，绝不碰生产 DB |
+| 「择优」需 fitness，但不能拿可能损坏的代码跑真实流量 | 评估使用独立 DB 路径且不注入生产 DB；`trusted-local` 仍不能阻止恶意变体主动访问宿主资源 |
 
-本质 = **一条带门禁的、安全的自我改进代码闭环**：
+本质 = **一条带门禁、可治理且可验证的自我改进代码闭环**：
 
 ```
 在隔离 worktree 生成补丁 → 硬门禁(编译+import+测试全绿)
-  → 沙箱跑评估集回放打 fitness → 人工审核(看 diff + 评估) 晋升
+  → 受管子进程跑评估集回放打 fitness → 人工审核(看 diff + 评估) 晋升
   → git 重定向 + 重启切换 → 随时 git 回滚
 ```
 
 ## 2. 核心铁律
 
-**一个代码变体位面 = 一份 git worktree（携带变体代码）+ 共享运行态 DB（但评估期隔离）。**
+**一个代码变体位面 = 一份 git worktree（携带变体代码）+ 共享运行态 DB（评估时只注入独立 DB 路径）。**
 
 三条不变量（前两条继承 Phase 1）：
 
 1. 分叉「行为」（现含代码），共享「知识 + 历史」——记忆/edicts/memorials/cost/audit 仍是同一份 SQLite。
 2. 非 champion 冻结，champion 是工作副本。
-3. **🔑 评估期的变体跑在完全隔离的 DB 副本上，绝不碰生产 DB**——变体代码 untrusted。只有过门禁 + 人工晋升后，被信任的代码才接真实共享 DB。
+3. **🔑 评估期只向变体注入独立 DB 路径，不注入生产 DB 路径**——这降低误写风险，
+   但 `trusted-local` 无法阻止恶意变体主动查找宿主文件。只有过门禁 + 人工晋升后，
+   被信任的代码才按正常配置接共享 DB。
 
 与 Phase 1 正交：v1 里一个代码变体 = champion 的数据层 + 变体的代码，纯代码 delta → fitness 归因干净。
 
@@ -57,9 +59,13 @@
 
 ## 5. 沙箱评估与门禁
 
-### 5.1 SandboxRunner（隔离子进程）
+### 5.1 SandboxRunner（受治理子进程）
 
-从变体 worktree 拉起隔离子进程：临时端口 + 隔离 DB 副本 + 资源闸（内存 rlimit）+ `TIANSHU_EVAL_MODE=1`，等 `/health` 健康，跑完即销毁。关键：editable 安装下用 `PYTHONPATH=<worktree>/src` 前置遮蔽，确保跑的是变体代码而非主仓。并行评估 = 同时拉起多个。
+从变体 worktree 拉起受管子进程：临时端口 + 独立 DB + wall timeout +
+`TIANSHU_EVAL_MODE=1`，等 `/health` 健康，退出时收敛进程组并清理 DB 及
+WAL/SHM。关键：editable 安装下用 `PYTHONPATH=<worktree>/src` 前置遮蔽，确保
+跑的是变体代码而非主仓。当前 `trusted-local` 只是显式宿主回退，不声明内存、
+CPU、文件系统或网络强隔离；`secure-remote` 缺少受验证后端时 fail-closed。
 
 ### 5.2 Gate（三关门禁，fail-fast）
 
@@ -136,7 +142,6 @@ manager 在 branch/switch/diff/archive/restore/delete 各动作里据 `code_ref`
 | `code_variant_auto_propose` | False | 太医诊断器自主提案总开关（默认关，见 §6b） |
 | `code_variant_daily_propose_quota` | 2 | 自主提案每轮配额（诊断假设数上限） |
 | `code_variant_sandbox_timeout_s` | 900 | 沙箱门禁+评估全程超时 |
-| `code_variant_sandbox_mem_mb` | 2048 | 沙箱内存闸 |
 | `code_variant_eval_set_size` | 20 | 回放评估集规模（60% 成功 + 40% 失败混采） |
 | `code_variant_eval_budget_cny` | 20.0 | 单次沙箱评估成本闸（元），触顶截断，详见 [./eval.md](./eval.md) §9 |
 
@@ -144,7 +149,13 @@ manager 在 branch/switch/diff/archive/restore/delete 各动作里据 `code_ref`
 
 ## 10. 安全主防线
 
-自我修改代码是高风险面，控制分层：测试门禁是最强安全网；隔离 DB + `EVAL_MODE` 副作用围栏 + 资源闸把评估期变体关在沙箱里；`TIANSHU_EVAL_LLM_*`（详见 [./eval.md](./eval.md) §8）给沙箱评估配一把独立低额度 LLM 凭证，不设则沙箱沿用宿主凭证。**🔴 残余风险**：live 评估要 LLM key → untrusted 变体进程能拿到 key → 理论可外泄，可通过 `TIANSHU_EVAL_LLM_*` 压缩泄漏面（专用低额度凭证，泄了也只损失额度上限），但机制上无法彻底消除。结论：**晋升前人工审完整 diff 是主控制**，代码层 auto-promote 默认关且不推荐开。每次变异/评估/晋升/回滚发 EventBus 事件进审计面板。
+自我修改代码是高风险面，控制分层：测试门禁是最强安全网；独立 DB、
+`EVAL_MODE` 副作用围栏、wall timeout、进程组收敛与终态收据降低评估期风险，
+但不会把 `trusted-local` 变成强沙箱。`TIANSHU_EVAL_LLM_*`（详见
+[./eval.md](./eval.md) §8）可给评估配独立低额度 LLM 凭证，不设则沿用宿主凭证。
+**🔴 残余风险**：untrusted 变体拿到 key 后理论上可外泄；专用低额度凭证只缩小
+损失面，不能消除机制风险。结论：**晋升前人工审完整 diff 是主控制**，代码层
+auto-promote 默认关且不推荐开。每次变异/评估/晋升/回滚发 EventBus 事件进审计面板。
 
 ## 11. 设计 rationale：每个选择背后的「为什么」
 
@@ -166,14 +177,17 @@ Phase 1 的 mutator 只能改「行为配置层」（personas / skills / config 
 
 颠倒顺序就是浪费：先跑分钟级 pytest 去撞一个秒级 compile 就能发现的语法错，等于让最贵的关卡做最廉价关卡的活。fail-fast 让 99% 的坏变体在前两关的秒级开销内出局。三关全过才进 fitness（§5.2），**「能跑」是「跑得好」的前置**。
 
-### 11.3 worktree 隔离 + 沙箱 rlimit/networking 为何缺一不可
+### 11.3 worktree 隔离 + 受治理执行边界为何缺一不可
 
 两层隔离针对两类不同风险，是正交的：
 
 - **worktree（空间隔离 / `code_store.py`）**：每个变体 = 一条 `universe/<id>` 分支 + 一份独立工作树，git 是唯一真相源。变体的改动物理上锁在自己的 worktree 里，碰不到主仓工作副本；评估完只删工作文件、**保留分支可 restore**（gc）。难点：本仓是 editable 安装，裸 `import tianshu` 会解析回主仓 src——所以 Gate / Sandbox 全程注入 `PYTHONPATH=<worktree>/src` 前置遮蔽 + `cwd=<worktree>`，确保检的、跑的都是变体代码而非主仓。
-- **沙箱（运行时隔离 / `sandbox.py`）**：worktree 只隔离「代码在哪」，拦不住「代码运行时干什么」。`SandboxRunner` 把变体拉进**独立子进程**，套三道运行时围栏——临时随机端口（不撞生产端口）、`TIANSHU_DB_PATH` 指向隔离 DB 副本（`TIANSHU_EVAL_MODE=1` 副作用围栏，绝不碰生产 DB）、`preexec_fn` 用 `RLIMIT_AS` 设内存闸（默认 2048MB，死循环吃内存会被 OOM 而非拖垮宿主）。等 `/health` 健康才认，跑完即 `terminate`/`kill` 并删隔离 DB。
+- **沙箱（运行时边界 / `sandbox.py`）**：worktree 只隔离「代码在哪」，拦不住「代码运行时干什么」。`SandboxRunner` 统一经 `ExecutionGateway` 拉起变体，固定临时随机端口、隔离 DB 与 `TIANSHU_EVAL_MODE=1`，并在退出时收敛整个进程组、删除隔离 DB。当前 `trusted-local` 宿主执行仅为显式允许的 best-effort，收据如实记录未强隔离；`secure-remote` 没有可证明的强后端时 fail-closed，不再虚标 `RLIMIT_AS` 或容器能力。
 
-少了 worktree，变体代码会污染主仓；少了沙箱，损坏代码即便编译通过，运行时仍可能死循环 / 吃光内存 / 写脏生产 DB。两层合起来才让「拿可能损坏的代码去打 fitness」这件事变得可控。
+少了 worktree，变体代码会污染主仓；少了受治理执行边界，损坏代码即便编译
+通过，也无法获得统一的 wall timeout、进程树收敛和终态收据。两层合起来降低
+评估风险，但 `trusted-local` 仍不能阻止变体访问宿主资源；只有未来接入并证明
+强制隔离能力的后端，才可宣称内存、CPU、文件系统或网络隔离。
 
 ### 11.4 DeployPointer 自动回滚与健康检查
 

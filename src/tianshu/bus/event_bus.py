@@ -1,22 +1,48 @@
-"""In-process async EventBus with priority-ordered handlers."""
+"""In-process async EventBus with priority-ordered named consumers."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 from collections import defaultdict
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Collection, Coroutine
+from dataclasses import dataclass
 from typing import Any
 
 from tianshu.models.events import EventEnvelope
-from tianshu.storage import Storage
 
 logger = logging.getLogger(__name__)
 
 EventHandler = Callable[[EventEnvelope], Coroutine[Any, Any, None]]
 
 
+@dataclass(frozen=True, slots=True)
+class ConsumerDispatchResult:
+    """Outcome from invoking one named consumer."""
+
+    consumer_name: str
+    succeeded: bool
+    error: Exception | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DispatchReport:
+    """Every attempted consumer outcome for one event envelope."""
+
+    event_id: str
+    results: tuple[ConsumerDispatchResult, ...]
+
+
 class _HandlerEntry:
+    __slots__ = ("consumer_name", "handler", "priority")
+
+    def __init__(self, consumer_name: str, handler: EventHandler, priority: int) -> None:
+        self.consumer_name = consumer_name
+        self.handler = handler
+        self.priority = priority
+
+
+class _LocalHandlerEntry:
     __slots__ = ("handler", "priority")
 
     def __init__(self, handler: EventHandler, priority: int) -> None:
@@ -27,25 +53,50 @@ class _HandlerEntry:
 class EventBus:
     """Pure-asyncio event bus with priority ordering and exception isolation.
 
-    Supports two emission modes:
-    - emit(): await all handlers sequentially (for intra-chain ordering)
-    - fire(): schedule handlers as background task (non-blocking, no timeout nesting)
+    ``dispatch()`` reports each named consumer outcome to durable callers.
+    ``emit()`` and ``fire()`` remain best-effort compatibility paths and make
+    no persistence or redelivery guarantee.
     """
 
-    def __init__(self, storage: Storage | None = None) -> None:
+    def __init__(self) -> None:
         self._handlers: dict[str, list[_HandlerEntry]] = defaultdict(list)
-        self._storage = storage
-        self._background_tasks: set[asyncio.Task] = set()
+        self._local_handlers: dict[str, list[_LocalHandlerEntry]] = defaultdict(list)
+        self._background_tasks: set[asyncio.Task[None]] = set()
+
+    async def dispatch(
+        self,
+        event: EventEnvelope,
+        *,
+        skip_consumers: Collection[str] = (),
+    ) -> DispatchReport:
+        """Invoke unskipped named consumers and report every outcome."""
+        skipped = frozenset(skip_consumers)
+        results: list[ConsumerDispatchResult] = []
+        for entry in self._entries_for(event.event_type):
+            if entry.consumer_name in skipped:
+                continue
+            try:
+                await entry.handler(event)
+            except Exception as exc:
+                results.append(
+                    ConsumerDispatchResult(
+                        consumer_name=entry.consumer_name,
+                        succeeded=False,
+                        error=exc,
+                    )
+                )
+            else:
+                results.append(
+                    ConsumerDispatchResult(
+                        consumer_name=entry.consumer_name,
+                        succeeded=True,
+                    )
+                )
+        return DispatchReport(event_id=event.event_id, results=tuple(results))
 
     async def emit(self, event: EventEnvelope) -> None:
-        """Persist event then fan-out to handlers in priority order.
-
-        Handlers run sequentially without per-handler timeout to avoid
-        cancelling long-running LLM operations in nested emit chains.
-        """
-        self._persist(event)
-
-        entries = self._handlers.get(event.event_type, [])
+        """Best-effort sequential fan-out in priority order."""
+        entries = self._best_effort_entries_for(event.event_type)
         logger.debug(
             "[BUS] emit %s: edict=%s, memorial=%s, handlers=%d",
             event.event_type,
@@ -53,24 +104,11 @@ class EventBus:
             event.memorial_id,
             len(entries),
         )
-        for entry in entries:
-            try:
-                await entry.handler(event)
-            except Exception:
-                logger.exception(
-                    "Handler %s failed for event %s",
-                    entry.handler.__qualname__,
-                    event.event_type,
-                )
+        await self._run_handlers(event, entries)
 
     def fire(self, event: EventEnvelope) -> None:
-        """Emit event in background (fire-and-forget).
-
-        Use this in handlers that need to trigger downstream events
-        without blocking the current handler's execution.
-        """
-        self._persist(event)
-        entries = self._handlers.get(event.event_type, [])
+        """Schedule best-effort fan-out without blocking the caller."""
+        entries = self._best_effort_entries_for(event.event_type)
         logger.debug(
             "[BUS] fire %s: edict=%s, memorial=%s, handlers=%d",
             event.event_type,
@@ -78,7 +116,7 @@ class EventBus:
             event.memorial_id,
             len(entries),
         )
-        task = asyncio.create_task(self._run_handlers(event))
+        task = asyncio.create_task(self._run_handlers(event, entries))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
@@ -86,35 +124,99 @@ class EventBus:
         self,
         event_type: str,
         handler: EventHandler,
+        *,
+        consumer_name: str,
         priority: int = 100,
     ) -> None:
-        """Register a handler. Lower priority number = earlier execution."""
+        """Register one stable consumer name for an event type."""
+        if not consumer_name.strip():
+            raise ValueError("consumer_name must be non-blank")
+        if self._consumer_name_is_registered(event_type, consumer_name):
+            raise ValueError(
+                f"consumer_name {consumer_name!r} is already registered for {event_type!r}"
+            )
         entries = self._handlers[event_type]
-        entries.append(_HandlerEntry(handler, priority))
-        entries.sort(key=lambda e: e.priority)
+        entries.append(_HandlerEntry(consumer_name, handler, priority))
+        entries.sort(key=lambda entry: entry.priority)
 
     def off(self, event_type: str, handler: EventHandler) -> None:
         """Unregister a handler."""
         entries = self._handlers.get(event_type, [])
-        self._handlers[event_type] = [e for e in entries if e.handler is not handler]
+        self._handlers[event_type] = [entry for entry in entries if entry.handler is not handler]
 
-    def _persist(self, event: EventEnvelope) -> None:
-        if self._storage and event.edict_id:
-            self._storage.append_event(
-                edict_id=event.edict_id,
-                memorial_id=event.memorial_id,
-                event_type=event.event_type,
-                payload=event.payload,
+    def on_local(
+        self,
+        event_type: str,
+        handler: EventHandler,
+        *,
+        priority: int = 100,
+    ) -> None:
+        """Register an ephemeral best-effort subscriber excluded from dispatch reports."""
+        entries = self._local_handlers[event_type]
+        entries.append(_LocalHandlerEntry(handler, priority))
+        entries.sort(key=lambda entry: entry.priority)
+
+    def off_local(self, event_type: str, handler: EventHandler) -> None:
+        """Unregister one ephemeral subscriber by handler identity."""
+        entries = self._local_handlers.get(event_type, [])
+        self._local_handlers[event_type] = [
+            entry for entry in entries if entry.handler is not handler
+        ]
+
+    def local_subscriber_count(self, event_type: str) -> int:
+        """Return the number of active ephemeral subscribers for an event type."""
+        return len(self._local_handlers.get(event_type, ()))
+
+    def _consumer_name_is_registered(self, event_type: str, consumer_name: str) -> bool:
+        if event_type == "*":
+            return any(
+                entry.consumer_name == consumer_name
+                for event_entries in self._handlers.values()
+                for entry in event_entries
             )
+        return any(
+            entry.consumer_name == consumer_name
+            for entry in (
+                *self._handlers.get("*", ()),
+                *self._handlers.get(event_type, ()),
+            )
+        )
 
-    async def _run_handlers(self, event: EventEnvelope) -> None:
-        entries = self._handlers.get(event.event_type, [])
+    def _entries_for(self, event_type: str) -> list[_HandlerEntry]:
+        if event_type == "*":
+            return list(self._handlers.get(event_type, ()))
+        entries = [
+            *self._handlers.get("*", ()),
+            *self._handlers.get(event_type, ()),
+        ]
+        return sorted(entries, key=lambda entry: entry.priority)
+
+    def _best_effort_entries_for(self, event_type: str) -> list[_HandlerEntry | _LocalHandlerEntry]:
+        """Merge by priority; ties keep wildcard durable, exact durable, then local order."""
+        entries: list[_HandlerEntry | _LocalHandlerEntry] = [
+            *self._entries_for(event_type),
+            *self._local_handlers.get(event_type, ()),
+        ]
+        return sorted(entries, key=lambda entry: entry.priority)
+
+    async def _run_handlers(
+        self,
+        event: EventEnvelope,
+        entries: list[_HandlerEntry | _LocalHandlerEntry],
+    ) -> None:
         for entry in entries:
             try:
                 await entry.handler(event)
             except Exception:
-                logger.exception(
-                    "Handler %s failed for event %s",
-                    entry.handler.__qualname__,
-                    event.event_type,
-                )
+                if isinstance(entry, _HandlerEntry):
+                    logger.exception(
+                        "Consumer %s failed for event %s",
+                        entry.consumer_name,
+                        event.event_type,
+                    )
+                else:
+                    logger.exception(
+                        "Local handler %s failed for event %s",
+                        getattr(entry.handler, "__qualname__", repr(entry.handler)),
+                        event.event_type,
+                    )

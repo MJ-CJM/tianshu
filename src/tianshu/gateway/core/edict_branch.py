@@ -153,6 +153,7 @@ class EdictBranchBase:
             chat_id=msg.chat_id,
             sender_open_id=msg.sender_open_id,
             goal=goal,
+            source_message_id=msg.ingress_id,
         )
         await self._send_thinking(msg, result.edict_id, result.memorial_id, goal)
 
@@ -203,6 +204,7 @@ class EdictBranchBase:
                 chat_id=msg.chat_id,
                 sender_open_id=msg.sender_open_id,
                 text=text,
+                source_message_id=msg.ingress_id,
             )
         except EdictBusyError as exc:
             await self._reply(msg.chat_id, str(exc))

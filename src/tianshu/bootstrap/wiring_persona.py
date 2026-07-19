@@ -32,6 +32,7 @@ from tianshu.persona.profile_synthesizer import ProfileSynthesizer
 from tianshu.persona.profile_trigger import ProfileTrigger
 from tianshu.persona.selector import OfficialSelector
 from tianshu.persona.template_library import TemplateLibrary
+from tianshu.resources.overlay import packaged_defaults
 from tianshu.tools.memory_tools import register_memory_tools
 from tianshu.tools.persona_query import register_list_personas
 from tianshu.tools.registry import ToolRegistry
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 def _personas_dir() -> Path:
-    return Path(__file__).parent.parent.parent.parent / "personas"
+    return packaged_defaults().personas_dir()
 
 
 def wire_persona(app: FastAPI, settings: TianshuSettings, tools: ToolRegistry) -> None:
@@ -72,8 +73,8 @@ def wire_persona(app: FastAPI, settings: TianshuSettings, tools: ToolRegistry) -
     app.state.persona_loader = persona_loader
     app.state.runtime_personas_dir = runtime_personas_dir
 
-    # 角色模板库（vendored agency-agents，见 templates/persona/）
-    templates_dir = Path(__file__).parent.parent.parent.parent / "templates" / "persona"
+    # 角色模板库（vendored agency-agents，见 tianshu/resources/persona_templates/）
+    templates_dir = packaged_defaults().persona_templates_dir()
     template_library = TemplateLibrary(templates_dir)
     template_library.load()
     app.state.template_library = template_library
@@ -85,6 +86,7 @@ def wire_persona(app: FastAPI, settings: TianshuSettings, tools: ToolRegistry) -
         storage=storage,
         event_bus=event_bus,
         persona_loader=persona_loader,
+        edict_application_service=app.state.edict_application_service,
     )
 
     # list_personas（T0 只读）—— 让 LLM 能查 DB 实际注册的官员名册。

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from ulid import ULID
 
 from tianshu.models.acceptance import AcceptanceCriteria
 from tianshu.models.common import EdictStatus
+from tianshu.models.governance_contract import RequestedGovernanceContractV1
 
 
 class EdictSchedule(BaseModel):
@@ -72,6 +73,7 @@ class EdictRuntime(BaseModel):
     # 迭代 3.5「客卿」：执行 backend 选择。"native"=自研引擎(默认);
     # "keqing:<agent>"=派外部 CLI 客卿出工(如 keqing:claude-code / keqing:codex)。
     executor: str = "native"
+    executor_model: str | None = None
 
 
 class Edict(BaseModel):
@@ -100,6 +102,23 @@ class Edict(BaseModel):
     acceptance: AcceptanceCriteria | None = None
     execution_profile: Literal["foreground", "checkpointed", "background"] = "foreground"
     metadata: dict[str, Any] = Field(default_factory=dict)
+    governance_contract: RequestedGovernanceContractV1 | None = None
+
+    @model_validator(mode="after")
+    def validate_executor_contract_consistency(self) -> Self:
+        if (
+            self.governance_contract is not None
+            and self.runtime.executor != self.governance_contract.executor.adapter_id
+        ):
+            raise ValueError("runtime.executor conflicts with frozen governance_contract.executor")
+        if (
+            self.governance_contract is not None
+            and self.runtime.executor_model != self.governance_contract.executor.model
+        ):
+            raise ValueError(
+                "runtime.executor_model conflicts with frozen governance_contract.executor.model"
+            )
+        return self
 
 
 def title_from_goal(goal: str, title: str | None = None) -> str:

@@ -7,6 +7,7 @@ import json
 import typer
 from rich.console import Console
 from rich.table import Table
+from ulid import ULID
 
 from tianshu.cli.client import api_get, api_post
 
@@ -27,16 +28,30 @@ def submit(
     goal: str = typer.Option(..., "--goal", "-g", help="Task goal"),
     context: str = typer.Option(None, "--context", "-c", help="Additional context"),
     priority: str = typer.Option("normal", "--priority", "-p", help="Priority: urgent|normal|low"),
+    idempotency_key: str | None = typer.Option(
+        None,
+        "--idempotency-key",
+        help="Stable retry key; generated once for this command when omitted",
+    ),
     fmt: str = typer.Option("table", "--format", "-f", help="Output format: table|json"),
 ):
     """Submit a new edict (immediate execution).
 
     定时/周期任务请在对话中用 schedule_edict 工具，不再走 edict submit。
     """
-    body: dict = {"goal": goal, "context": context}
+    stable_key = idempotency_key or str(ULID())
+    body: dict = {
+        "goal": goal,
+        "context": context,
+        "idempotency_key": stable_key,
+    }
     if priority != "normal":
         body["priority"] = priority
-    data = api_post("/api/edicts", body)
+    data = api_post(
+        "/api/edicts",
+        body,
+        headers={"Idempotency-Key": stable_key},
+    )
 
     if fmt == "json":
         console.print_json(json.dumps(data))

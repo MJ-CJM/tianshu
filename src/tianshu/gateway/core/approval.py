@@ -7,7 +7,7 @@
   /approve always     /准永       总是允许（scope=always）
   /reject             /驳         拒绝
 
-多 pending 时需附带 memorial_id 前缀（≥6 字符）：
+多 pending 时需附带 decision_request_id 前缀（≥6 字符）：
   /approve <ID>       /准 <ID>
   /approve <ID> edict /准敕 <ID>（也支持反序）
   /reject  <ID>       /驳  <ID>
@@ -23,10 +23,21 @@ pending 反查与 actor 前缀由子类通过构造参数注入；ApprovalComman
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
+
+from ulid import ULID
+
+from tianshu.models.principal import (
+    AuthContext,
+    AuthenticationSource,
+    ClientKind,
+    Principal,
+    PrincipalKind,
+)
 
 if TYPE_CHECKING:
     from tianshu.executor.approvals import ApprovalManager
@@ -54,14 +65,14 @@ _MIN_PREFIX_LEN = 6
 class ApprovalCommand:
     action: ApprovalAction
     scope: ApprovalScope | None  # reject 时为 None
-    target_prefix: str | None  # memorial_id 前缀，≥6 字符；None 表示不指定
+    target_prefix: str | None  # decision_request_id 前缀，≥6 字符；None 表示不指定
 
 
 def parse_approval_command(text: str) -> ApprovalCommand | None:
     """识别审批命令，返回结构化形式；非审批命令返 None。
 
     - approve 默认 scope=once；reject 不带 scope。
-    - 任意位置（命令后 / 命令尾）允许出现 memorial_id 前缀（≥6 字符）。
+    - 任意位置（命令后 / 命令尾）允许出现 decision_request_id 前缀（≥6 字符）。
     """
     if not text or not text.startswith("/"):
         return None
@@ -115,10 +126,43 @@ class ApprovalCommandHandler:
         approval_manager: ApprovalManager,
         list_pending: Callable[[str], list[str]],
         actor_prefix: str,
+        instance_id: str,
     ) -> None:
         self._approval = approval_manager
         self._list_pending = list_pending
         self._actor_prefix = actor_prefix
+        self._instance_id = instance_id
+
+    def _pending_decision_ids(self, chat_id: str) -> list[str]:
+        references = set(self._list_pending(chat_id))
+        if not references:
+            return []
+        durable = self._approval.list_pending_tool_calls()
+        if not isinstance(durable, list):
+            return list(references)
+        return [
+            str(item["decision_request_id"])
+            for item in durable
+            if isinstance(item, dict)
+            and isinstance(item.get("decision_request_id"), str)
+            and (item["decision_request_id"] in references or item.get("memorial_id") in references)
+        ]
+
+    def _auth_context(
+        self,
+        *,
+        chat_id: str,
+        sender_open_id: str,
+        decision_request_id: str,
+    ) -> AuthContext:
+        return build_webhook_decision_auth(
+            channel=self._actor_prefix,
+            instance_id=self._instance_id,
+            chat_id=chat_id,
+            sender_id=sender_open_id,
+            decision_request_id=decision_request_id,
+            correlation_prefix="approval-command",
+        )
 
     async def handle(
         self,
@@ -127,7 +171,7 @@ class ApprovalCommandHandler:
         sender_open_id: str,
         command: ApprovalCommand,
     ) -> str:
-        pending = self._list_pending(chat_id)
+        pending = self._pending_decision_ids(chat_id)
         if not pending:
             return "🛡️ 当前 chat 无待审批工具调用。"
 
@@ -138,31 +182,44 @@ class ApprovalCommandHandler:
             if len(matches) > 1:
                 preview = ", ".join(f"#{m[:12]}" for m in matches[:5])
                 return f"前缀 '{command.target_prefix}' 匹配多个：{preview}，请用更长前缀"
-            memorial_id = matches[0]
+            decision_request_id = matches[0]
         else:
             if len(pending) > 1:
                 lines = [f"⚠️ chat 内有 {len(pending)} 个待审批，请指定短 ID："]
                 for m in pending[:10]:
                     lines.append(f"  - `/approve {m[:8]}` 或 `/准 {m[:8]}`")
                 return "\n".join(lines)
-            memorial_id = pending[0]
+            decision_request_id = pending[0]
 
         try:
-            decree = await self._approval.submit_tool_decision(
-                memorial_id=memorial_id,
+            record = await self._approval.resolve_tool_decision(
+                decision_request_id,
                 action=command.action,
                 grant_scope=command.scope if command.action == "approve" else None,
-                actor=f"{self._actor_prefix}:{sender_open_id}",
+                auth=self._auth_context(
+                    chat_id=chat_id,
+                    sender_open_id=sender_open_id,
+                    decision_request_id=decision_request_id,
+                ),
             )
-        except ValueError as exc:
+        except (ValueError, RuntimeError) as exc:
             # pending 已被 web 端响应（幂等）
             logger.info("[%s/approval] submit skipped: %s", self._actor_prefix, exc)
-            return f"敕令 #{memorial_id[:8]} 已被其他通道响应。"
+            return f"决策 #{decision_request_id[:8]} 已被其他通道响应。"
 
-        if command.action == "reject":
-            return f"❌ 已拒绝 #{memorial_id[:8]}"
-        # 用 decree 的实际 scope（可能被安全降级，如 shell_exec 的 always→once）
-        actual_scope = decree.grant_scope or "once"
+        resolution = record.resolution
+        if resolution is None:
+            return f"决策 #{decision_request_id[:8]} 尚未完成。"
+        if resolution.action != command.action:
+            return f"决策 #{decision_request_id[:8]} 已由其他通道裁决为 {resolution.action}。"
+        if resolution.action == "reject":
+            return f"❌ 已拒绝 #{decision_request_id[:8]}"
+        resolved_scope = resolution.payload.get("grant_scope")
+        actual_scope: ApprovalScope = (
+            cast(ApprovalScope, resolved_scope)
+            if isinstance(resolved_scope, str) and resolved_scope in {"once", "edict", "always"}
+            else "once"
+        )
         scope_label = {"once": "单次", "edict": "本敕令", "always": "总是"}.get(
             actual_scope, "单次"
         )
@@ -175,11 +232,56 @@ class ApprovalCommandHandler:
                 "always": "总是",
             }.get(command.scope, command.scope)
             return (
-                f"✅ 已批准 #{memorial_id[:8]}（{scope_label}，"
+                f"✅ 已批准 #{decision_request_id[:8]}（{scope_label}，"
                 f"原请求 {requested_label} 因安全策略降级 —— "
                 f"shell_exec 等高危工具不可永久放行）"
             )
-        return f"✅ 已批准 #{memorial_id[:8]}（{scope_label}）"
+        return f"✅ 已批准 #{decision_request_id[:8]}（{scope_label}）"
 
 
-__all__ = ["ApprovalCommand", "ApprovalCommandHandler", "parse_approval_command"]
+def is_canonical_decision_request_id(value: object) -> bool:
+    """Accept only the exact ULID form generated by DecisionService."""
+
+    if not isinstance(value, str) or len(value) != 26:
+        return False
+    try:
+        return str(ULID.from_str(value)) == value
+    except (TypeError, ValueError):
+        return False
+
+
+def build_webhook_decision_auth(
+    *,
+    channel: str,
+    instance_id: str,
+    chat_id: str,
+    sender_id: str,
+    decision_request_id: str,
+    correlation_prefix: str,
+) -> AuthContext:
+    """Build fixed channel authority from verified adapter context."""
+
+    identity = f"{channel}:{instance_id}:{sender_id}"
+    digest = hashlib.sha256(
+        f"{channel}\0{instance_id}\0{chat_id}\0{sender_id}\0{decision_request_id}".encode()
+    ).hexdigest()[:32]
+    return AuthContext(
+        principal=Principal(
+            id=identity,
+            kind=PrincipalKind.WEBHOOK,
+            display_name=identity,
+            scopes=frozenset({"decision:resolve"}),
+        ),
+        source=AuthenticationSource.WEBHOOK,
+        client_kind=ClientKind.WEBHOOK,
+        correlation_id=f"{correlation_prefix}:{digest}",
+    )
+
+
+__all__ = [
+    "ApprovalCommand",
+    "ApprovalCommandHandler",
+    "build_webhook_decision_auth",
+    "is_canonical_decision_request_id",
+    "parse_approval_command",
+]

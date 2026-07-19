@@ -6,10 +6,10 @@
 
 ## 1. 扩展工具（Tool）
 
-工具是 LLM 能调用的原子能力。用 `ToolDefinition` 声明 schema + 治理字段，注册进 `ToolRegistry`，之后自动经 `PolicyEngine` / 审批治理，无需自己写权限逻辑。
+工具是 LLM 能调用的原子能力。用 `ToolDefinition` 声明 schema + 治理字段，注册进 `ToolRegistry`，之后自动经 `PolicyEngine` / 人工裁决治理，无需自己写权限逻辑。
 
 - 落点：内建工具放 `src/tianshu/tools/builtins.py`；注册中心 `tools/registry.py`。
-- 治理字段：`tier`（T0-T4 风险分级，决定是否需审批）、`side_effect`（True 在 winding_down 阶段被拦）、`max_result_chars`（结果自动截断）。
+- 治理字段：`tier`（T0-T4 风险分级，决定是否需裁决）、`side_effect`（True 在 winding_down 阶段被拦）、`max_result_chars`（结果自动截断）。
 
 最小端到端（参照 builtins.py 现有 `shell_exec` / `read_file` 写法）：
 
@@ -31,7 +31,7 @@ registry.register(
             "properties": {"text": {"type": "string"}},
             "required": ["text"],
         },
-        tier=ToolTier.T0_READONLY.value,  # 只读 → 走快路径、免审批
+        tier=ToolTier.T0_READONLY.value,  # 只读 → 走快路径、免裁决
         side_effect=False,
     ),
 )

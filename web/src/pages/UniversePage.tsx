@@ -89,7 +89,7 @@ export default function UniversePage() {
   // 请求序号守卫：防止快速切换位面时，旧位面的慢响应覆盖新位面已展示的评估记录
   const evalReqRef = useRef(0);
 
-  // 晋升审批 modal state
+  // 晋升裁决 modal state
   const [promoteReviewOpen, setPromoteReviewOpen] = useState(false);
   const [promoteTarget, setPromoteTarget] = useState<Universe | null>(null);
   const [promoting, setPromoting] = useState(false);
@@ -593,9 +593,9 @@ export default function UniversePage() {
         />
       </Modal>
 
-      {/* 晋升审批 Modal：diff + 评估记录(含基线/delta) 同屏，确认后才真正晋升 */}
+      {/* 晋升裁决 Modal：diff + 评估记录(含基线/delta) 同屏，确认后才真正晋升 */}
       <Modal
-        title={`晋升审批:${promoteTarget?.name ?? ""}`}
+        title={`晋升裁决:${promoteTarget?.name ?? ""}`}
         open={promoteReviewOpen}
         onCancel={() => setPromoteReviewOpen(false)}
         width={960}

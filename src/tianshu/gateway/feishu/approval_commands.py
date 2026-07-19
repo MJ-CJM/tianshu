@@ -44,18 +44,12 @@ class ApprovalCommandHandler(_CoreApprovalCommandHandler):
             approval_manager=approval_manager,
             list_pending=self._list_pending_for_chat,
             actor_prefix="feishu",
+            instance_id=instance_id,
         )
 
     def _list_pending_for_chat(self, chat_id: str) -> list[str]:
         """从 feishu_pending_cards 反查该 chat 下尚未响应的 memorial_id。"""
-        rows = self._storage._conn.execute(
-            "SELECT approval_id FROM feishu_pending_cards "
-            "WHERE chat_id = ? AND kind = 'tool.approval_required' "
-            "AND instance_id = ? "
-            "ORDER BY created_at ASC",
-            (chat_id, self._instance_id),
-        ).fetchall()
-        return [r[0] for r in rows]
+        return self._storage.list_feishu_pending_for_chat(chat_id, self._instance_id)
 
 
 __all__ = [

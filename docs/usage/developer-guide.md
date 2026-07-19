@@ -5,7 +5,7 @@
 ## 扩展工具（Tool）
 
 - 落点：`src/tianshu/tools/builtins.py`（实现）+ `tools/registry.py`（用 `ToolDefinition` 注册到 `ToolRegistry`）。
-- 关键字段：`ToolTier`（风险分级，决定是否需人工审批）、`max_result_chars`（结果自动截断）。
+- 关键字段：`ToolTier`（风险分级，决定是否需人工裁决）、`max_result_chars`（结果自动截断）。
 - 治理：注册后自动经 `PolicyEngine` / `ApprovalManager`，无需自己写权限逻辑。
 - 详见 [../design/tools/registry.md](../design/tools/registry.md)、[../design/tools/policy.md](../design/tools/policy.md)、[../impl/tools/](../impl/tools/)。
 

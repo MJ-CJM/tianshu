@@ -8,6 +8,11 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from tianshu.bus.event_bus import EventBus
 from tianshu.models import ApiResponse
+from tianshu.resources.overlay import (
+    court_override_path,
+    reset_court_override,
+    resolve_court_read,
+)
 from tianshu.storage import Storage
 
 system_router = APIRouter(tags=["system"])
@@ -63,23 +68,21 @@ def _resolve_runtime_identity_seed(request: Request, persona_id: str) -> None:
 
 
 def _prompt_file_path(request: Request, persona_id: str, filename: str):
-    """Resolve the backing path for a prompt file.
+    """Resolve the writable backing path for a prompt file.
 
     Runtime-backed (per-persona, evolvable):
-      - SOUL.md / ROLE.md  → ~/.tianshu/personas/{pid}/
-      - MEMORY.md          → ~/.tianshu/memory/{pid}/
+      - SOUL.md / ROLE.md  → runtime_personas_dir/{pid}/
+      - MEMORY.md          → memory_dir/{pid}/
 
-    Template-backed (git-tracked, shared by department):
-      - COURT.md           → personas/{pid}/COURT.md
+    Overlay-backed (packaged default is immutable):
+      - COURT.md           → runtime_personas_dir/{pid}/COURT.md
+        (reads fall back to the packaged default when no override exists)
     """
-    personas_dir = request.app.state.personas_dir
     runtime_personas_dir = request.app.state.runtime_personas_dir
     if filename == "MEMORY.md":
         memory_manager = request.app.state.memory_manager
         return memory_manager.memory_dir / persona_id / filename
-    if filename in ("SOUL.md", "ROLE.md"):
-        return runtime_personas_dir / persona_id / filename
-    return personas_dir / persona_id / filename
+    return runtime_personas_dir / persona_id / filename
 
 
 @system_router.get("/system-prompt/files")
@@ -106,11 +109,10 @@ def list_prompt_files(request: Request):
             if md_file.name == "MEMORY.md":
                 runtime = memory_dir / persona_id / "MEMORY.md"
                 target = runtime if runtime.is_file() else md_file
-            elif md_file.name in ("SOUL.md", "ROLE.md"):
+            else:
+                # SOUL/ROLE/COURT: data overlay wins, packaged default fallback
                 runtime = runtime_personas_dir / persona_id / md_file.name
                 target = runtime if runtime.is_file() else md_file
-            else:
-                target = md_file
             stat = target.stat()
             seen_files.add(md_file.name)
             result.append(
@@ -138,14 +140,29 @@ def list_prompt_files(request: Request):
     return ApiResponse(success=True, data={"files": result, "departments": departments})
 
 
+def _require_court_persona(persona_id: str) -> None:
+    """COURT.md 是全局共享层，override 路径固定为 court/COURT.md；
+    其他 persona_id 的写入会产生永远不被读取的孤儿 override，直接拒绝。"""
+    if persona_id != "court":
+        raise HTTPException(
+            status_code=400,
+            detail="COURT.md is a shared court-level file; use persona_id 'court'",
+        )
+
+
 @system_router.get("/system-prompt/files/{persona_id}/{filename}")
 def get_prompt_file(persona_id: str, filename: str, request: Request):
     if filename not in _PROMPT_FILE_WHITELIST:
         raise HTTPException(status_code=400, detail=f"File '{filename}' is not in whitelist")
-    if filename in ("SOUL.md", "ROLE.md"):
-        # Lazy seed so reading a persona that has never been loaded still works
-        _resolve_runtime_identity_seed(request, persona_id)
-    file_path = _prompt_file_path(request, persona_id, filename)
+    if filename == "COURT.md":
+        _require_court_persona(persona_id)
+        # overlay override 优先，packaged 默认回退（单一事实源 helper）
+        file_path = resolve_court_read(request.app.state.runtime_personas_dir)
+    else:
+        if filename in ("SOUL.md", "ROLE.md"):
+            # Lazy seed so reading a persona that has never been loaded still works
+            _resolve_runtime_identity_seed(request, persona_id)
+        file_path = _prompt_file_path(request, persona_id, filename)
     if not file_path.is_file():
         raise HTTPException(status_code=404, detail=f"File not found: {persona_id}/{filename}")
     content = file_path.read_text(encoding="utf-8")
@@ -169,9 +186,13 @@ async def update_prompt_file(persona_id: str, filename: str, request: Request):
             success=True,
             data={"persona_id": persona_id, "filename": filename, "size": len(content)},
         )
-    if filename in ("SOUL.md", "ROLE.md"):
-        _resolve_runtime_identity_seed(request, persona_id)
-    file_path = _prompt_file_path(request, persona_id, filename)
+    if filename == "COURT.md":
+        _require_court_persona(persona_id)
+        file_path = court_override_path(request.app.state.runtime_personas_dir)
+    else:
+        if filename in ("SOUL.md", "ROLE.md"):
+            _resolve_runtime_identity_seed(request, persona_id)
+        file_path = _prompt_file_path(request, persona_id, filename)
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding="utf-8")
     return ApiResponse(
@@ -183,7 +204,21 @@ async def update_prompt_file(persona_id: str, filename: str, request: Request):
     "/system-prompt/files/{persona_id}/{filename}/reset", response_model=ApiResponse
 )
 def reset_prompt_file(persona_id: str, filename: str, request: Request):
-    """Reset a runtime identity file (SOUL.md / ROLE.md / MEMORY.md) to its department template."""
+    """Reset a prompt file.
+
+    - SOUL.md / ROLE.md / MEMORY.md: copy the department template into the
+      runtime file (existing semantics).
+    - COURT.md: frozen G1.5 semantics — delete the data-overlay override so
+      reads fall back to the current packaged default. Idempotent; never
+      copies packaged bytes into the overlay.
+    """
+    if filename == "COURT.md":
+        _require_court_persona(persona_id)
+        reset_court_override(request.app.state.runtime_personas_dir)
+        return ApiResponse(
+            success=True,
+            data={"persona_id": persona_id, "filename": filename, "reset": "overlay-removed"},
+        )
     if filename not in ("SOUL.md", "ROLE.md", "MEMORY.md"):
         raise HTTPException(
             status_code=400, detail=f"File '{filename}' cannot be reset (not runtime-backed)"

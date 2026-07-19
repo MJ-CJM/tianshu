@@ -4,6 +4,7 @@ import { useTools, useSetToolEnabled } from "../../hooks/useSystem";
 import type { ToolInfo } from "../../api/types";
 import { useT } from "../../i18n";
 import { monoStyle } from "./shared";
+import { isApiProblem } from "../../api/client";
 
 export default function ToolsTab() {
   const t = useT();
@@ -20,10 +21,14 @@ export default function ToolsTab() {
             message: enabled ? t("system.toast.toolEnabled", { name }) : t("system.toast.toolDisabled", { name }),
           });
         },
-        onError: (err: any) => {
+        onError: (err: unknown) => {
           notification.error({
             message: t("system.toast.actionFailed"),
-            description: String(err?.response?.data?.detail ?? err?.message ?? err),
+            description: isApiProblem(err)
+              ? err.message
+              : err instanceof Error
+                ? err.message
+                : String(err),
           });
         },
       },

@@ -10,9 +10,14 @@ import os
 import sys
 from pathlib import Path
 
+from tianshu.config import TianshuSettings
 from tianshu.universe.deployer import DeployPointer
 
 DEFAULT_POINTER = Path("~/.tianshu/universes/deploy_ptr.json").expanduser()
+
+
+class SecurityBoundaryError(RuntimeError):
+    """A selected secure-remote variant cannot prove boundary compatibility."""
 
 
 def resolve_boot_plan(
@@ -24,6 +29,10 @@ def resolve_boot_plan(
     if current is None or not current.worktree:
         return None, env
     wt = Path(current.worktree)
+    if env.get("TIANSHU_SECURITY_MODE", "trusted-local") == "secure-remote":
+        raise SecurityBoundaryError(
+            "secure-remote worktree launch is disabled until the immutable G4 boundary exists"
+        )
     src = str(wt / "src")
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = f"{src}{os.pathsep}{existing}" if existing else src
@@ -32,9 +41,14 @@ def resolve_boot_plan(
 
 def main() -> None:
     pointer = DeployPointer(DEFAULT_POINTER)
-    cwd, env = resolve_boot_plan(pointer)
-    host = env.get("TIANSHU_HOST", "0.0.0.0")
-    port = env.get("TIANSHU_PORT", "8000")
+    settings = TianshuSettings()
+    runtime_env = dict(os.environ)
+    # Pydantic also loads .env; make that resolved mode explicit before selecting code.
+    runtime_env["TIANSHU_SECURITY_MODE"] = settings.security_mode
+    runtime_env["TIANSHU_STARTUP_PROFILE"] = settings.startup_profile
+    cwd, env = resolve_boot_plan(pointer, runtime_env)
+    host = settings.host
+    port = settings.port
     if cwd:
         os.chdir(cwd)
     os.execvpe(

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from tianshu.app import create_app, lifespan
+from tianshu.bus.event_bus import EventBus
+from tianshu.gateway.personas_api import trigger_profile_synthesis
+from tianshu.models.events import make_event
 
 
 @pytest.fixture
@@ -27,13 +33,14 @@ async def test_list_departments(client):
     assert "bingbu" in ids  # 内建部门之一（注意：这是部门 id，不是 persona id）
 
 
-async def test_list_personas_empty_by_default(client):
-    # 实测：personas 表不随 _seed_departments() 预置数据，全新库下 /api/personas 为空列表
+async def test_list_personas_seeds_six_default_departments(client):
+    # G1.5 v6 迁移：全新库 seed 恰好六个内建部门（0006_seed_default_personas）
     resp = await client.get("/api/personas")
     assert resp.status_code == 200
     body = resp.json()
     assert body["success"] is True
-    assert body["data"] == []
+    ids = sorted(p["id"] for p in body["data"])
+    assert ids == ["bingbu", "ducha", "hubu", "neige", "tongzheng", "wenyuan"]
 
 
 async def test_create_update_delete_persona_roundtrip(client):
@@ -160,3 +167,63 @@ async def test_department_not_found_paths(client):
     assert resp.status_code == 404
     resp = await client.delete("/api/departments/ghost-dept")
     assert resp.status_code == 404
+
+
+async def test_two_synthesis_streams_for_same_persona_receive_local_events():
+    event_bus = EventBus()
+
+    class _Synthesizer:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.both_started = asyncio.Event()
+
+        async def run(self, persona_id: str, *, trigger_source: str) -> None:
+            assert trigger_source == "api_manual"
+            self.calls += 1
+            if self.calls == 2:
+                self.both_started.set()
+            await self.both_started.wait()
+            await event_bus.emit(
+                make_event(
+                    "profile.synthesis.completed",
+                    payload={"persona_id": persona_id},
+                )
+            )
+
+    synthesizer = _Synthesizer()
+    request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                persona_loader=SimpleNamespace(get=lambda persona_id: object()),
+                profile_synthesizer=synthesizer,
+                event_bus=event_bus,
+            )
+        )
+    )
+    first = await trigger_profile_synthesis("bingbu", request)
+    second = await trigger_profile_synthesis("bingbu", request)
+
+    async def consume(response) -> str:
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+        return "".join(chunks)
+
+    first_body, second_body = await asyncio.wait_for(
+        asyncio.gather(consume(first), consume(second)),
+        timeout=1,
+    )
+
+    assert synthesizer.calls == 2
+    assert "event: profile.synthesis.completed" in first_body
+    assert "event: profile.synthesis.completed" in second_body
+    assert all(
+        event_bus.local_subscriber_count(event_type) == 0
+        for event_type in (
+            "profile.synthesis.started",
+            "profile.synthesis.completed",
+            "profile.synthesis.degraded",
+            "profile.synthesis.failed",
+            "profile.synthesis.skipped",
+        )
+    )

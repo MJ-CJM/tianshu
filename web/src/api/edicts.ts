@@ -1,5 +1,11 @@
 import apiClient from "./client";
-import type { AcceptanceCriteria, ApiResponse, Edict, EdictCreateRequest, EdictRuntime, EdictStatus, EdictUpdateRequest, Memorial, EdictEvent, OuterLoopIteration, SupervisionReport } from "./types";
+import type { AcceptanceCriteria, ApiResponse, Edict, EdictCreateRequest, EdictRuntime, EdictStatus, EdictUpdateRequest, GovernanceContractPreview, Memorial, EdictEvent, OuterLoopIteration, SupervisionReport } from "./types";
+
+function withoutServerOwnedIdentity(body: EdictCreateRequest): EdictCreateRequest {
+  return Object.fromEntries(
+    Object.entries(body).filter(([key]) => key !== "actor" && key !== "submitter"),
+  ) as EdictCreateRequest;
+}
 
 export async function getOuterLoopIterations(edictId: string): Promise<ApiResponse<OuterLoopIteration[]>> {
   const { data } = await apiClient.get<ApiResponse<OuterLoopIteration[]>>(
@@ -9,14 +15,10 @@ export async function getOuterLoopIterations(edictId: string): Promise<ApiRespon
 }
 
 export async function getSupervisionReports(edictId: string): Promise<SupervisionReport[]> {
-  try {
-    const { data } = await apiClient.get<ApiResponse<SupervisionReport[]>>(
-      `/edicts/${edictId}/supervision-reports`,
-    );
-    return data.data ?? [];
-  } catch {
-    return [];
-  }
+  const { data } = await apiClient.get<ApiResponse<SupervisionReport[]>>(
+    `/edicts/${edictId}/supervision-reports`,
+  );
+  return data.data ?? [];
 }
 
 /** @deprecated 用 getSupervisionReports 复数版（多监督官） */
@@ -26,11 +28,24 @@ export async function getSupervisionReport(edictId: string): Promise<Supervision
 }
 
 export async function createEdict(body: EdictCreateRequest): Promise<ApiResponse<Edict>> {
+  const idempotencyKey = body.idempotency_key ?? crypto.randomUUID();
+  const safeBody = withoutServerOwnedIdentity(body);
   const { data } = await apiClient.post<ApiResponse<Edict>>(
     "/edicts",
-    body,
+    { ...safeBody, idempotency_key: idempotencyKey },
+    { headers: { "Idempotency-Key": idempotencyKey } },
   );
   return data;
+}
+
+export async function previewEdictGovernance(
+  body: EdictCreateRequest,
+): Promise<GovernanceContractPreview> {
+  const { data } = await apiClient.post<ApiResponse<GovernanceContractPreview>>(
+    "/edicts/governance/preview",
+    withoutServerOwnedIdentity(body),
+  );
+  return data.data!;
 }
 
 export async function listEdicts(params: {
@@ -89,6 +104,238 @@ export async function getEdictEvents(
   return data;
 }
 
+export type DurableDecisionKind = "tool" | "outer_loop" | "plan_review" | "governed_apply";
+export type DurableDecisionStatus = "pending" | "resolved" | "expired" | "cancelled";
+export type DurableDecisionAction =
+  | "approve"
+  | "reject"
+  | "guide"
+  | "continue"
+  | "accept_as_is"
+  | "abort"
+  | "modify_acceptance";
+
+export interface DurableDecisionRecord {
+  request: {
+    decision_request_id: string;
+    kind: DurableDecisionKind;
+    edict_id: string;
+    memorial_id: string;
+    payload: Record<string, unknown>;
+    requested_by: string;
+    expires_at: string;
+    status: DurableDecisionStatus;
+    version: number;
+    created_at: string;
+    updated_at: string;
+  };
+  resolution: {
+    action: DurableDecisionAction;
+    reason: string;
+    actor_principal_id: string;
+    actor_display_name: string;
+    resolved_at: string;
+  } | null;
+}
+
+export interface EdictRunDetailV1 {
+  memorial_id: string;
+  phase:
+    | "submitted"
+    | "planning"
+    | "executing"
+    | "waiting_decision"
+    | "paused"
+    | "auditing"
+    | "completed"
+    | "failed";
+  version: number;
+  checkpoint_present: boolean;
+  side_effect_cursor: number;
+  pending_decision_id: string | null;
+  resolved_decision_id: string | null;
+  plan_lineage: Array<{
+    revision_id: string;
+    parent_revision_id: string | null;
+    plan_hash: string;
+    reason_code: string;
+    reason_summary: string;
+    artifact_digest: string;
+    created_at: string;
+  }>;
+  effective_contract: import("./types").GovernanceEffectiveContract | null;
+  updated_at: string;
+}
+
+export interface EdictEvidenceDetailV1 {
+  bundle_id: string;
+  memorial_id: string;
+  status: "open" | "closed";
+  version: number;
+  content_hash: string | null;
+  created_at: string;
+  closed_at: string | null;
+  download_available: boolean;
+  executor: {
+    adapter_id: string;
+    display_name: string;
+    level: "managed" | "contained" | "observe-only";
+    manifest_hash: string;
+  };
+  artifacts: Array<{
+    digest: string;
+    size_bytes: number;
+    media_type: string;
+    redaction: string;
+  }>;
+  checks: Array<{
+    check_id: string;
+    name: string;
+    status: "passed" | "failed" | "unavailable" | "skipped";
+    command_fingerprint: string | null;
+    exit_code: number | null;
+    output_artifact_digest: string | null;
+    started_at: string;
+    completed_at: string;
+  }>;
+  decisions: Array<{
+    decision_request_id: string;
+    kind: DurableDecisionKind;
+    action: string;
+    actor_principal_id: string;
+    reason: string;
+    payload_hash: string;
+    resolved_at: string;
+  }>;
+  effects: Array<{
+    intent_id: string;
+    effect_id: string;
+    status: "intended" | "receipted" | "uncertain";
+    semantics: string;
+    reason_code: string | null;
+  }>;
+  cost: {
+    currency: "CNY";
+    requested_budget: string | number | null;
+    effective_budget: string | number | null;
+    actual_cost: string | number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    cache_read_tokens: number;
+  };
+  environment: {
+    tianshu_version: string;
+    python_version: string;
+    platform: string;
+    architecture: string;
+    dependency_lock_hash: string;
+    environment_fingerprint: string;
+  };
+  auditor: {
+    auditor_id: string;
+    verdict: "pass" | "fail";
+    reason: string;
+    required_evidence: string[];
+    missing_evidence: string[];
+    evaluated_at: string;
+  };
+  requirements: {
+    check_names: string[];
+    decision_request_ids: string[];
+    effect_intent_ids: string[];
+    artifact_digests: string[];
+  };
+}
+
+export interface EdictDetailSnapshotV1 {
+  schema_version: 1;
+  edict: Edict;
+  memorials: Memorial[];
+  runs: EdictRunDetailV1[];
+  decisions: DurableDecisionRecord[];
+  evidence: EdictEvidenceDetailV1[];
+}
+
+export async function getEdictDetailSnapshot(
+  edictId: string,
+): Promise<EdictDetailSnapshotV1> {
+  const { data } = await apiClient.get<{ data: EdictDetailSnapshotV1 }>(
+    `/edicts/${encodeURIComponent(edictId)}/detail`,
+  );
+  return data.data;
+}
+
+function decisionPayload(
+  kind: DurableDecisionKind,
+  action: DurableDecisionAction,
+  reason: string,
+): Record<string, unknown> {
+  if (kind === "tool" && action === "approve") {
+    return { schema_version: 1, grant_scope: "once", grant_reason: reason };
+  }
+  if (kind === "tool" && action === "guide") {
+    return { schema_version: 1, guidance: reason };
+  }
+  if (kind === "outer_loop" && action === "continue") {
+    return { schema_version: 1, feedback: reason };
+  }
+  return { schema_version: 1 };
+}
+
+export interface ResolveEdictDecisionInput {
+  decisionRequestId: string;
+  kind: DurableDecisionKind;
+  action: DurableDecisionAction;
+  reason: string;
+  expectedVersion: number;
+}
+
+export async function resolveEdictDecision(input: ResolveEdictDecisionInput) {
+  const { data } = await apiClient.post<{
+    data: {
+      action: DurableDecisionAction;
+      reason: string;
+      actor_principal_id: string;
+      resolved_at: string;
+    };
+    status: DurableDecisionStatus;
+    version: number;
+  }>(`/decisions/${encodeURIComponent(input.decisionRequestId)}/resolve`, {
+    action: input.action,
+    reason: input.reason,
+    expected_version: input.expectedVersion,
+    payload: decisionPayload(input.kind, input.action, input.reason),
+  });
+  return {
+    status: data.status,
+    version: data.version,
+    action: data.data.action,
+    reason: data.data.reason,
+    actor: data.data.actor_principal_id,
+    resolvedAt: data.data.resolved_at,
+  };
+}
+
+export interface GovernedReplaySource {
+  title: string;
+  goal: string;
+  context: string | null;
+  priority: string;
+  governanceContract: Record<string, unknown>;
+}
+
+export async function replayGovernedEdict(source: GovernedReplaySource): Promise<string> {
+  const response = await createEdict({
+    title: source.title,
+    goal: source.goal,
+    context: source.context ?? undefined,
+    priority: source.priority,
+    governance_contract: source.governanceContract,
+  });
+  if (!response.data?.id) throw new Error("governed replay did not return an Edict id");
+  return response.data.id;
+}
+
 export interface FollowUpRequest {
   instruction: string;
   context?: string;
@@ -125,20 +372,6 @@ export async function deleteEdict(
 ): Promise<ApiResponse<{ id: string }>> {
   const { data } = await apiClient.delete<ApiResponse<{ id: string }>>(
     `/edicts/${edictId}`,
-  );
-  return data;
-}
-
-export async function approvePlan(edictId: string): Promise<ApiResponse<{ status: string }>> {
-  const { data } = await apiClient.post<ApiResponse<{ status: string }>>(
-    `/edicts/${edictId}/plan/approve`,
-  );
-  return data;
-}
-
-export async function rejectPlan(edictId: string): Promise<ApiResponse<{ status: string }>> {
-  const { data } = await apiClient.post<ApiResponse<{ status: string }>>(
-    `/edicts/${edictId}/plan/reject`,
   );
   return data;
 }

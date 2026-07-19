@@ -11,7 +11,6 @@ app 引用、调用时才从 app.state 惰性取,取不到即 None(降级安全)
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import shutil
 import tempfile
@@ -40,8 +39,7 @@ class SkillEffectEvaluator:
             return None
         budget = getattr(cfg, "code_variant_eval_budget_cny", None)
         try:
-            return await asyncio.to_thread(
-                self._run_paired,
+            return await self._run_paired(
                 harness,
                 code_store.repo_root,
                 Path(live_dir),
@@ -55,7 +53,7 @@ class SkillEffectEvaluator:
             return None
 
     @staticmethod
-    def _run_paired(
+    async def _run_paired(
         harness: Any,
         repo_root: Any,
         live_dir: Path,
@@ -71,7 +69,7 @@ class SkillEffectEvaluator:
             skill_file = variant / name / "SKILL.md"
             skill_file.parent.mkdir(parents=True, exist_ok=True)
             skill_file.write_text(new_md, encoding="utf-8")
-            paired = harness.evaluate_paired(
+            paired = await harness.evaluate_paired_async(
                 repo_root,
                 eval_set=eval_set,
                 baseline_worktree=repo_root,

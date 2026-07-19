@@ -1,6 +1,6 @@
 # 长任务端到端走查
 
-一篇贯穿全程的实操手册：带验收契约下诏 → 看 L1/L2/L3 跳变 → L3 人工审批 → 读监督报告 → 失败重跑。机制与设计意图见 [../design/agent/orchestrator.md](../design/agent/orchestrator.md)，通用流程见 [user-guide.md](user-guide.md)。
+一篇贯穿全程的实操手册：带验收契约下诏 → 看 L1/L2/L3 跳变 → L3 人工裁决 → 读监督报告 → 失败重跑。机制与设计意图见 [../design/agent/orchestrator.md](../design/agent/orchestrator.md)，通用流程见 [user-guide.md](user-guide.md)。
 
 **相关实现**：[../impl/agent/](../impl/agent/)
 
@@ -82,7 +82,7 @@ curl -X POST http://localhost:8000/api/edicts \
 | `outer_loop.iteration.finished` | 本轮结束（含 verdict / issue_class） |
 | `outer_loop.escalated` | **升级跳变**，payload 里有目标 level（L1/L2/L3） |
 | `outer_loop.continued_for_optimization` | `min_outer_iterations≥2` 时 critic 已 pass 仍强制续轮 |
-| `outer_loop.approval.requested` | 升到 L3，进入等人审批（见第 4 节） |
+| `outer_loop.approval.requested` | 升到 L3，进入等待人工裁决（事件名为兼容保留，见第 4 节） |
 | `outer_loop.approval.received` | 人工决策已提交，`payload.action` |
 | `outer_loop.completed` / `outer_loop.exhausted` | 终态：达标 / 预算耗尽 |
 | `outer_loop.paused` / `outer_loop.resumed` | 暂停 / 续跑（checkpoint） |
@@ -92,13 +92,13 @@ curl -X POST http://localhost:8000/api/edicts \
 
 CLI 旁观：`tianshu watch <edict_id>` 也连 `/api/ws`，但它的状态表只识别 `execution.*` 终态事件、把 outer_loop.* 当普通事件逐条打印；要细看升级跳变直接订阅 WebSocket 或看 Web UI 更清楚。落库后的迭代记录可用 `GET /api/edicts/{id}/iterations` 回看。
 
-## 4. L3 暂停 → 审阅 → 批准
+## 4. L3 暂停 → 审阅 → 裁决
 
-升到 L3 时，loop 发 `outer_loop.approval.requested` 并**阻塞等待**人工决策（`_escalate_to_human` → `ApprovalManager.wait_for_outer_loop_decision`，默认等 `deadline_seconds` 或 24h）。
+升到 L3 时，loop 发 `outer_loop.approval.requested` 并**阻塞等待**人工裁决（`_escalate_to_human` → `ApprovalManager.wait_for_outer_loop_decision`，默认等 `deadline_seconds` 或 24h；内部 `approval` 名称为兼容保留）。
 
-**审阅**：拉待审清单 `GET /api/edicts/outer-loop/pending`（`list_outer_loop_pending` → `list_pending_outer_loop`），每项含 approval payload：`edict_id / iteration / level / best_output（当前最佳产出）/ critic_feedback（监督官意见）/ history_length`。
+**审阅**：拉待决清单 `GET /api/edicts/outer-loop/pending`（`list_outer_loop_pending` → `list_pending_outer_loop`），每项含裁决 payload：`edict_id / iteration / level / best_output（当前最佳产出）/ critic_feedback（监督官意见）/ history_length`。
 
-**批准**：`POST /api/edicts/{edict_id}/outer-loop/decide`（`submit_outer_loop_decision_api`），body 是 `OuterLoopDecisionRequest` → `HumanDecision`：
+**提交裁决**：`POST /api/edicts/{edict_id}/outer-loop/decide`（`submit_outer_loop_decision_api`），body 是 `OuterLoopDecisionRequest` → `HumanDecision`：
 
 | `action` | 行为 |
 |---|---|
@@ -126,9 +126,9 @@ curl -X POST http://localhost:8000/api/edicts/<edict_id>/outer-loop/decide \
          "critic": {"persona_ids": ["editor-in-chief"], "strictness": "lenient"} }}'
 ```
 
-提交后 loop 唤醒、发 `outer_loop.approval.received`。若没有 edict 在等审批，decide 返回 `404`。审批超时按 `on_approval_timeout`：`best_effort` 等价于 `accept_as_is`，`fail` 等价于 `abort`。
+提交后 loop 唤醒、发 `outer_loop.approval.received`。若没有 edict 在等待裁决，decide 返回 `404`。裁决等待超时按 `on_approval_timeout`：`best_effort` 等价于 `accept_as_is`，`fail` 等价于 `abort`。
 
-Web UI：御书房 / 审批队列页消费 `outer-loop/pending` 渲染审批卡片，弹出 L3 Modal 提交上述四种决策。
+Web UI：御书房 / 裁决队列页消费 `outer-loop/pending` 渲染裁决卡片，弹出 L3 Modal 提交上述四种动作。
 
 ## 5. 读监督报告
 

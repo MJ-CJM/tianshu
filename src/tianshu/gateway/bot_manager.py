@@ -15,13 +15,18 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
 from typing import TYPE_CHECKING
+
+from starlette.routing import Match
+from starlette.types import Scope
 
 from tianshu.gateway.instance import ChannelInstance, default_instance_id
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+    from tianshu.application.edicts import EdictApplicationService
     from tianshu.bus.event_bus import EventBus
     from tianshu.cost.manager import CostManager
     from tianshu.executor.approvals import ApprovalManager
@@ -52,6 +57,7 @@ class ChannelBotManager:
         cost_manager: CostManager | None,
         env_settings,
         app: FastAPI | None,
+        edict_application_service: EdictApplicationService | None = None,
     ) -> None:
         self._storage = storage
         self._event_bus = event_bus
@@ -59,11 +65,15 @@ class ChannelBotManager:
         self._executor = executor
         self._notifier = notifier
         self._persona_loader = persona_loader
+        self._edict_application_service = edict_application_service
         self._provider_manager = provider_manager
         self._cost_manager = cost_manager
         self._env_settings = env_settings
         self._app = app
         self._bots: dict[str, object] = {}
+        self._running_instances: dict[str, ChannelInstance] = {}
+        self._webhook_paths: dict[str, str] = {}
+        self._webhook_routes: dict[str, list[object]] = {}
 
     # --- 实例发现 ---
 
@@ -216,6 +226,7 @@ class ChannelBotManager:
             cost_manager=self._cost_manager,
             settings=inst.settings,
             instance_id=inst.instance_id,
+            edict_application_service=self._edict_application_service,
         )
         if inst.channel_type == "feishu":
             try:
@@ -235,6 +246,70 @@ class ChannelBotManager:
 
     # --- 生命周期 ---
 
+    def _validate_webhook_registration(
+        self,
+        inst: ChannelInstance,
+        *,
+        replacing_instance_id: str | None = None,
+    ) -> str:
+        path = inst.settings.webhook_path
+        if inst.instance_id != replacing_instance_id and (
+            inst.instance_id in self._bots or inst.instance_id in self._webhook_paths
+        ):
+            raise RuntimeError(f"channel instance is already running: {inst.instance_id}")
+        namespace = re.compile(
+            rf"^/channels/{re.escape(inst.channel_type)}/[A-Za-z0-9._~-]+"
+            r"(?:/[A-Za-z0-9._~-]+)*$"
+        )
+        if namespace.fullmatch(path) is None or any(
+            segment in {".", ".."} for segment in path.split("/")
+        ):
+            raise RuntimeError(f"webhook path must stay under /channels/{inst.channel_type}/")
+        registered_paths = {
+            registered_path
+            for instance_id, registered_path in self._webhook_paths.items()
+            if instance_id != replacing_instance_id
+        }
+        if path in registered_paths:
+            raise RuntimeError(f"webhook path is already registered: {path}")
+        if self._app is not None:
+            post_scope: Scope = {
+                "type": "http",
+                "asgi": {"version": "3.0", "spec_version": "2.3"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": path,
+                "raw_path": path.encode(),
+                "root_path": "",
+                "query_string": b"",
+                "headers": [],
+                "client": ("127.0.0.1", 0),
+                "server": ("localhost", 80),
+                "app": self._app,
+            }
+            ignored_routes = {
+                id(route) for route in self._webhook_routes.get(replacing_instance_id or "", [])
+            }
+            for route in self._app.router.routes:
+                if id(route) in ignored_routes:
+                    continue
+                match, _child_scope = route.matches(post_scope)
+                if match is Match.FULL:
+                    raise RuntimeError(f"webhook path conflicts with an existing route: {path}")
+        if (
+            self._env_settings.security_mode == "secure-remote"
+            and inst.channel_type == "feishu"
+            and not (
+                getattr(inst.settings, "encrypt_key", "")
+                or getattr(inst.settings, "verification_token", "")
+            )
+        ):
+            raise RuntimeError(
+                "secure-remote Feishu webhooks require encrypt_key or verification_token"
+            )
+        return path
+
     async def start_instance(self, inst: ChannelInstance) -> bool:
         """构造并启动单实例。失败降级（log + 返回 False），不抛。"""
         if not inst.enabled or not inst.settings.enabled:
@@ -246,13 +321,29 @@ class ChannelBotManager:
                 inst.settings.enabled,
             )
             return False
+        bot = None
+        start_attempted = False
+        reserved_webhook_path: str | None = None
+        added_routes: list[object] = []
         try:
             inst.settings.validate_or_raise()
-            bot = self._construct(inst)
-            await bot.start()
-            self._bots[inst.instance_id] = bot
             if inst.settings.connection_mode == "webhook" and self._app is not None:
+                reserved_webhook_path = self._validate_webhook_registration(inst)
+                # Reserve before the first await so concurrent starts cannot claim the same path.
+                self._webhook_paths[inst.instance_id] = reserved_webhook_path
+            bot = self._construct(inst)
+            start_attempted = True
+            await bot.start()
+            if inst.settings.connection_mode == "webhook" and self._app is not None:
+                routes_before = {id(route) for route in self._app.router.routes}
                 bot.attach_webhook_router(self._app)
+                added_routes = [
+                    route for route in self._app.router.routes if id(route) not in routes_before
+                ]
+                self._webhook_routes[inst.instance_id] = added_routes
+                self._app.state.public_webhook_paths.add(reserved_webhook_path)
+            self._bots[inst.instance_id] = bot
+            self._running_instances[inst.instance_id] = inst
             logger.info(
                 "[gateway] instance %s (%s) started (mode=%s)",
                 inst.instance_id,
@@ -261,6 +352,21 @@ class ChannelBotManager:
             )
             return True
         except Exception:
+            if reserved_webhook_path is not None:
+                self._webhook_paths.pop(inst.instance_id, None)
+                if self._app is not None:
+                    self._app.state.public_webhook_paths.discard(reserved_webhook_path)
+                    for route in added_routes:
+                        if route in self._app.router.routes:
+                            self._app.router.routes.remove(route)
+            if start_attempted and bot is not None:
+                try:
+                    await bot.stop()
+                except Exception:
+                    logger.exception(
+                        "[gateway] instance %s cleanup after failed start also failed",
+                        inst.instance_id,
+                    )
             logger.exception(
                 "[gateway] instance %s (%s) start failed; degrading (other instances unaffected)",
                 inst.instance_id,
@@ -276,6 +382,18 @@ class ChannelBotManager:
         bot = self._bots.pop(instance_id, None)
         if bot is None:
             return
+        self._running_instances.pop(instance_id, None)
+        webhook_path = self._webhook_paths.pop(instance_id, None)
+        if self._app is not None:
+            for route in self._webhook_routes.pop(instance_id, []):
+                if route in self._app.router.routes:
+                    self._app.router.routes.remove(route)
+        if (
+            webhook_path
+            and self._app is not None
+            and webhook_path not in self._webhook_paths.values()
+        ):
+            self._app.state.public_webhook_paths.discard(webhook_path)
         try:
             await bot.stop()
         except Exception:
@@ -285,7 +403,37 @@ class ChannelBotManager:
         """热加载已运行实例；若未运行（新启用）则按 DB 配置构造并启动。"""
         bot = self._bots.get(instance_id)
         if bot is not None:
+            running = self._running_instances[instance_id]
+            old_mode = getattr(running.settings, "connection_mode", "")
+            new_mode = getattr(new_settings, "connection_mode", "")
+            if "webhook" in {old_mode, new_mode}:
+                replacement = dataclasses.replace(running, settings=new_settings)
+                try:
+                    new_settings.validate_or_raise()
+                    if new_mode == "webhook" and self._app is not None:
+                        self._validate_webhook_registration(
+                            replacement,
+                            replacing_instance_id=instance_id,
+                        )
+                except Exception:
+                    logger.exception(
+                        "[gateway] instance %s replacement validation failed; keeping current bot",
+                        instance_id,
+                    )
+                    return False
+                await self.stop_instance(instance_id)
+                if await self.start_instance(replacement):
+                    return True
+                logger.error(
+                    "[gateway] instance %s replacement failed; restoring previous bot",
+                    instance_id,
+                )
+                return await self.start_instance(running)
             await bot.reload(new_settings)
+            self._running_instances[instance_id] = dataclasses.replace(
+                running,
+                settings=new_settings,
+            )
             return True
         # 未运行 → 视为新启用：从 DB 取实例配置构造并启动
         row = self._storage.get_channel_instance(instance_id)

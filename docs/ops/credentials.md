@@ -55,3 +55,22 @@ UI 编辑同一条凭证，替换 value 字段即可。`host_pattern` / `header_
 每次 `api_request` 调用的 host / method / credential_name / http_status 都会写入 `ToolResult.details.network`。credential **value** 永远不记录任何地方。
 
 Spec §9 威胁模型列出了 7 类风险及其缓解路径。
+
+## MCP 密文与旧版恢复备份
+
+MCP server override 中的 env/header 映射与其他凭证家族共用
+`TIANSHU_SECRET_MASTER_KEY`，持久层只保存密文和 key 名元数据。密钥缺失、错误、格式无效或
+密文损坏时，读取和启动 fail closed，不回退到明文或空配置。
+
+v8 明文迁移失败时，数据库旁可保留 **exactly one**
+`*.pre-migration-recovery.legacy-sensitive.bak`（**legacy-sensitive recovery backup**）。
+文件模式是 **`0600`**，但其中为恢复目的保留了旧明文，`0600` 不能把它降级为
+普通备份。运维人员必须执行 **manual protection and cleanup**：
+
+1. 以迁移异常附带的路径为准，立即确认权限仍为 `0600`；
+2. 使其远离共享、同步或自动上传目录，并按明文 secret 备份保护；
+3. 完成恢复、验证主动库与密文读取后，人工安全删除该文件。
+
+重复失败会复用/替换这一确定路径，不会为每次尝试累积新的
+`legacy-sensitive` 备份；成功启动的自动清理不取代上述人工保护/清理流程。详见
+[威胁模型](../security/lean-preview-threat-model.md#legacy-plaintext-migration-recovery-warning)。

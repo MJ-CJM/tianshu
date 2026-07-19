@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import functools
 import logging
-from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -30,7 +29,9 @@ from tianshu.config_manager import AgentConfigState, ConfigManager, LLMConfigSta
 from tianshu.cost.manager import CostManager
 from tianshu.executor.agent import Agent
 from tianshu.persona.prompt_builder import PromptBuilder
+from tianshu.providers.demo import demo_llm_config_state
 from tianshu.providers.manager import ProviderManager
+from tianshu.resources.overlay import packaged_defaults
 from tianshu.skills.loader import SkillsLoader
 from tianshu.skills.metrics import SkillMetricsStore
 from tianshu.storage import Storage
@@ -72,7 +73,18 @@ def wire_llm_config(app: FastAPI, settings: TianshuSettings) -> None:
         skills_char_budget=settings.skills_char_budget,
         parallel_universe_enabled=settings.parallel_universe_enabled,
     )
-    config_manager = ConfigManager(initial_state, agent_config=agent_config, storage=storage)
+    runtime_override = None
+    if settings.startup_profile == "demo":
+        # runtime-only 掩蔽：解析路径只见 demo，llm_configs/providers 表零改动，
+        # 退出 demo 后 live 配置原样恢复。
+        runtime_override = demo_llm_config_state()
+        logger.info("[demo] startup_profile=demo：LLM 解析已切换到零网络确定性档位")
+    config_manager = ConfigManager(
+        initial_state,
+        agent_config=agent_config,
+        storage=storage,
+        runtime_override=runtime_override,
+    )
     app.state.config_manager = config_manager
 
 
@@ -88,11 +100,16 @@ def wire_provider_and_agent(
     storage = app.state.storage
     config_manager = app.state.config_manager
     hook_registry = app.state.hook_registry
-    personas_dir = Path(__file__).parent.parent.parent.parent / "personas"
+    personas_dir = packaged_defaults().personas_dir()
 
     # --- ProviderManager ---
-    provider_manager = ProviderManager(storage=storage, config_manager=config_manager)
-    provider_manager.sync_all()
+    demo_mode = settings.startup_profile == "demo"
+    provider_manager = ProviderManager(
+        storage=storage, config_manager=config_manager, demo_mode=demo_mode
+    )
+    if not demo_mode:
+        # demo 档位绝不把 runtime 状态同步/删除到 providers 表
+        provider_manager.sync_all()
     app.state.provider_manager = provider_manager
 
     # --- Agent ---

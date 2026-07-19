@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 if TYPE_CHECKING:
@@ -41,6 +41,33 @@ def _memorial_brief(m: Any) -> dict:
 
 def build_mcp_server(app: FastAPI) -> FastMCP:
     """构造天枢 MCP server;tools 经闭包在请求时读取 app.state(届时已完成装配)。"""
+
+    settings = app.state.settings
+    if settings.security_mode == "secure-remote":
+        transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=list(settings.allowed_hosts_list),
+            allowed_origins=list(settings.allowed_origins_list),
+        )
+    else:
+        transport_security = TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[
+                "localhost",
+                "localhost:*",
+                "127.0.0.1",
+                "127.0.0.1:*",
+                "[::1]",
+                "[::1]:*",
+                *settings.allowed_hosts_list,
+            ],
+            allowed_origins=[
+                "http://localhost:*",
+                "http://127.0.0.1:*",
+                "http://[::1]:*",
+                *settings.allowed_origins_list,
+            ],
+        )
     mcp = FastMCP(
         "tianshu",
         instructions=(
@@ -51,30 +78,58 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
         stateless_http=True,
         json_response=True,
         streamable_http_path="/",
-        # DNS rebinding 防护针对"浏览器页面攻击本机服务"场景;MCP 客户端是 CLI 非浏览器,
-        # 且自托管场景常经局域网 IP/反代域名访问,默认 Host 白名单(仅 localhost)会误伤。
-        # 公网暴露时的 Host 校验属反代层职责(治理边界诚实声明,见模块 docstring)。
-        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        transport_security=transport_security,
     )
 
+    def _require_scope(scope: str):
+        from tianshu.gateway.auth import get_current_auth_context
+
+        context = get_current_auth_context()
+        if context is None:
+            raise PermissionError("MCP authentication context unavailable")
+        if scope not in context.principal.scopes:
+            raise PermissionError(f"MCP scope required: {scope}")
+        return context
+
     @mcp.tool()
-    def submit_edict(goal: str, context: str = "") -> dict:
+    def submit_edict(ctx: Context, goal: str, context: str = "") -> dict:
         """下旨:提交一道诏令(异步执行)。返回 edict_id 与 memorial_id 用于跟踪。"""
-        from tianshu.edict_ops import submit_new_edict
+        from tianshu.application.edicts import SubmitEdictCommand
+        from tianshu.application.ingress import requested_contract_for_edict
         from tianshu.models.edict import Edict, title_from_goal
 
+        auth_context = _require_scope("mcp:submit")
         edict = Edict(
             title=title_from_goal(goal, None),
             goal=goal,
             context=context or None,
-            submitter="mcp",
+            submitter=auth_context.principal.id,
         )
-        memorial = submit_new_edict(app.state.storage, app.state.event_bus, edict, producer="mcp")
-        return {"edict_id": edict.id, "memorial_id": memorial.id, "status": "submitted"}
+        request_id = ctx.request_id
+        call_id = str(request_id) if request_id is not None else auth_context.correlation_id
+        command = SubmitEdictCommand(
+            edict=edict,
+            idempotency_key=f"mcp:{call_id}",
+            requested_contract=requested_contract_for_edict(edict),
+            extra_payload={"via": "mcp"},
+        )
+        result = app.state.edict_application_service.submit(
+            command,
+            auth=auth_context,
+            producer=f"mcp:{auth_context.principal.id}",
+            correlation_id=auth_context.correlation_id,
+        )
+        return {
+            "edict_id": result.edict.id,
+            "memorial_id": result.memorial.id,
+            "status": "submitted",
+            "deduplicated": result.deduplicated,
+        }
 
     @mcp.tool()
     def get_edict_status(edict_id: str) -> dict:
         """查询诏令状态与各次执行(奏折)概要。"""
+        _require_scope("mcp:read")
         storage = app.state.storage
         edict = storage.get_edict(edict_id)
         if not edict:
@@ -90,6 +145,7 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
     @mcp.tool()
     def get_memorial(memorial_id: str) -> dict:
         """取一份奏折(执行记录)的结果全文与审计结论。"""
+        _require_scope("mcp:read")
         storage = app.state.storage
         m = storage.get_memorial(memorial_id)
         if not m:
@@ -104,6 +160,7 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
     @mcp.tool()
     def list_recent_edicts(limit: int = 10) -> dict:
         """列出最近的诏令(默认 10 条)。"""
+        _require_scope("mcp:read")
         storage = app.state.storage
         edicts, total = storage.list_edicts(limit=min(limit, 50), exclude_assistant_chat=True)
         return {
@@ -122,6 +179,7 @@ def build_mcp_server(app: FastAPI) -> FastMCP:
     @mcp.tool()
     def list_pending_approvals() -> dict:
         """列出等待人工批红的奏折(只读;批红本身请在天枢 Web/飞书端完成)。"""
+        _require_scope("mcp:read")
         storage = app.state.storage
         memorials, total = storage.list_memorials(status="needs_review", limit=20)
         return {"total": total, "pending": [_memorial_brief(m) for m in memorials]}

@@ -61,15 +61,15 @@ def test_archive_stale_reactivate(env):
         archive_after_days=90,
     )
 
-    assert counts["archived"] == 1
+    assert counts["archived"] == 0
     assert counts["marked_stale"] == 1
     assert ms.get("fresh").state == "active"
     assert ms.get("middling").state == "stale"
-    assert ms.get("ancient").state == "archived"
-    # File for ancient moved out of the live library.
+    assert ms.get("ancient").state == "active"
+    # Automatic archival is refused until the governed service is wired.
     assert _live(loader, "fresh")
-    assert not _live(loader, "ancient")
-    assert (loader._user_dir / ".archive" / "ancient" / "SKILL.md").is_file()
+    assert _live(loader, "ancient")
+    assert not (loader._user_dir / ".archive" / "ancient" / "SKILL.md").exists()
 
 
 def test_reactivate_when_used_again(env):

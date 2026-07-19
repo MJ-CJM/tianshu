@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tianshu.executor.execution_gateway import (
+    EnvironmentPolicy,
+    ExecutionDenied,
+    ExecutionGateway,
+    ExecutionStartError,
+    SandboxRequirement,
+    ShellCommand,
+    issue_shell_command_grant,
+    request_for_current_execution,
+)
+from tianshu.executor.workspace_context import resolve_workspace_root
 from tianshu.kernel.ambient import get_current_edict
+from tianshu.models.side_effect import SideEffectSemantics
 from tianshu.security.clean_env import build_clean_env
 from tianshu.storage import Storage
 from tianshu.tools.hongluisi.engine_registry import build_engines
@@ -16,6 +27,7 @@ from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
 if TYPE_CHECKING:
+    from tianshu.application.edicts import EdictApplicationService
     from tianshu.bus.event_bus import EventBus
     from tianshu.persona.loader import PersonaLoader
 
@@ -26,44 +38,67 @@ def register_builtins(
     storage: Storage | None = None,
     event_bus: EventBus | None = None,
     persona_loader: PersonaLoader | None = None,
+    execution_gateway: ExecutionGateway | None = None,
+    edict_application_service: EdictApplicationService | None = None,
 ) -> None:
     workspace = Path(workspace_dir).resolve()
+    process_gateway = execution_gateway or ExecutionGateway()
 
     async def shell_exec(command: str, cwd: str | None = None) -> ToolResult:
-        work_dir = workspace
+        active_workspace = resolve_workspace_root(workspace)
+        work_dir = active_workspace
         if cwd:
-            work_dir = safe_path(workspace, cwd)
+            work_dir = safe_path(active_workspace, cwd)
             if not work_dir.is_dir():
                 return error_result(f"Error: directory '{cwd}' does not exist")
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            cwd=str(work_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            # 锦衣卫·clean-env(迭代 3):白名单构造,不透传 TIANSHU_* 等 secrets;
-            # 业务额外变量经 TIANSHU_SHELL_ENV_PASSTHROUGH 显式声明
-            env=build_clean_env(),
-        )
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
-        except asyncio.CancelledError:
-            proc.kill()
-            await asyncio.shield(proc.communicate())
-            raise
-        except TimeoutError:
-            proc.kill()
-            await asyncio.shield(proc.communicate())
+            environment = EnvironmentPolicy(allow_names=tuple(build_clean_env()))
+            request = request_for_current_execution(
+                purpose="tool",
+                workspace_root=active_workspace,
+                cwd=cwd or ".",
+                shell_command=ShellCommand(script=command),
+                environment=environment,
+                timeout_seconds=60,
+                stdout_limit_bytes=2000,
+                stderr_limit_bytes=2000,
+                sandbox=SandboxRequirement(
+                    trust_level="trusted-local",
+                    mode="host",
+                    allow_host=True,
+                ),
+                command_grant=issue_shell_command_grant(
+                    command,
+                    cwd=cwd or ".",
+                    workspace_root=active_workspace,
+                    environment=environment,
+                ),
+            )
+            execution = await process_gateway.run(request)
+        except ExecutionDenied as exc:
+            return error_result(f"shell_exec: execution denied: {exc}")
+        except ExecutionStartError as exc:
+            return error_result(f"shell_exec: unable to start command: {exc}")
+
+        if execution.receipt.status == "timed_out":
             return error_result("shell_exec: command timed out after 60s")
-        output = stdout.decode(errors="replace")
-        if stderr:
-            output += "\nSTDERR:\n" + stderr.decode(errors="replace")
-        truncated = len(output) > 2000
+        output = execution.stdout
+        if execution.stderr:
+            output += "\nSTDERR:\n" + execution.stderr
+        truncated = (
+            len(output) > 2000
+            or execution.receipt.stdout_truncated
+            or execution.receipt.stderr_truncated
+        )
         output = output[:2000]
-        is_err = proc.returncode != 0
+        exit_code = execution.receipt.exit_code
+        if exit_code is None and execution.receipt.terminating_signal is not None:
+            exit_code = -execution.receipt.terminating_signal
+        is_err = exit_code != 0
         return ToolResult(
             content=output,
             details={
-                "exit_code": proc.returncode,
+                "exit_code": exit_code,
                 "truncated": truncated,
             },
             is_error=is_err,
@@ -107,7 +142,7 @@ def register_builtins(
         - 提供 offset/limit 时按行切片：从 offset 行开始读 limit 行
           （offset=1 表示第一行；limit=None 表示读到结尾）
         """
-        file_path = safe_path(workspace, path)
+        file_path = safe_path(resolve_workspace_root(workspace), path)
         if not file_path.is_file():
             return error_result(f"Error: file '{path}' does not exist")
 
@@ -184,7 +219,7 @@ def register_builtins(
     )
 
     async def write_file(path: str, content: str) -> ToolResult:
-        file_path = safe_path(workspace, path)
+        file_path = safe_path(resolve_workspace_root(workspace), path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
         return ok_result(
@@ -213,6 +248,7 @@ def register_builtins(
             },
             tier=ToolTier.T1_WORKSPACE.value,
             side_effect=True,
+            managed_effect_semantics=SideEffectSemantics.PROVIDER_IDEMPOTENT,
         ),
     )
 
@@ -222,9 +258,9 @@ def register_builtins(
     from tianshu.tools.grep import register_grep
     from tianshu.tools.list_dir import register_list_dir
 
-    register_edit_file(registry, workspace)
+    register_edit_file(registry, workspace, execution_gateway=process_gateway)
     register_list_dir(registry, workspace)
-    register_grep(registry, workspace)
+    register_grep(registry, workspace, execution_gateway=process_gateway)
     register_find_files(registry, workspace)
 
     # === hongluisi: 对外网络工具 ===
@@ -236,7 +272,11 @@ def register_builtins(
     # 飞书 lark-cli 透传工具（写操作经 LarkCliSafetyRule 升级审批）
     from tianshu.tools.lark_cli import register_lark_cli
 
-    register_lark_cli(registry)
+    register_lark_cli(
+        registry,
+        execution_gateway=process_gateway,
+        workspace_root=workspace,
+    )
 
     # === 敕令管理工具集：让助手 LLM 在对话中颁敕、查阅、追踪 ===
     # 默认注册到 registry，但通政司 enable_edict_submission toggle 控制启用；
@@ -249,6 +289,7 @@ def register_builtins(
             storage=storage,
             event_bus=event_bus,
             persona_loader=persona_loader,
+            edict_application_service=edict_application_service,
         )
     if storage is not None:
         from tianshu.tools.edict_query import register_edict_query

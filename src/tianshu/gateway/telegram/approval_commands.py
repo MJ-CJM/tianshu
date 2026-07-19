@@ -34,6 +34,7 @@ class TelegramApprovalCommandHandler(_CoreApprovalCommandHandler):
             approval_manager=approval_manager,
             list_pending=self._list_pending_for_chat,
             actor_prefix="telegram",
+            instance_id=instance_id,
         )
 
     def _list_pending_for_chat(self, chat_id: str) -> list[str]:

@@ -21,10 +21,9 @@ app.state，直接 service-locator 取用，不需要额外传参。
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import FastAPI
 
+from tianshu.application.continuation_recovery import ContinuationRecoveryService
 from tianshu.config import TianshuSettings
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.dag_scheduler import DAGScheduler
@@ -32,6 +31,7 @@ from tianshu.executor.executor import Executor
 from tianshu.executor.lanes import LaneManager
 from tianshu.executor.policy_hook import PolicyHook
 from tianshu.executor.worker_pool import WorkerPool
+from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.kernel.hooks import HookType
 from tianshu.skills.reviewer import SkillReviewHandler
 from tianshu.skills.validator import SkillValidator
@@ -69,6 +69,9 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
         config_manager=config_manager,
         hook_registry=hook_registry,
         session_rule_store=session_rule_store,
+        execution_gateway=app.state.execution_gateway,
+        workspace_service=app.state.workspace_service,
+        workspace_sources={WORKSPACE_MAIN_SOURCE_ID: app.state.workspace_roots.source},
     )
     executor.set_agent(agent)
     executor.set_persona_loader(persona_loader)
@@ -88,10 +91,31 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
     app.state.dag_scheduler = dag_scheduler
 
     # --- ApprovalManager ---
+    continuation_recovery = ContinuationRecoveryService(storage)
+    event_bus.on(
+        "decision.resolved",
+        continuation_recovery.handle_decision_resolved,
+        consumer_name="continuation_recovery.v1",
+    )
+    app.state.continuation_recovery = continuation_recovery
+
     approval_manager = ApprovalManager(
         event_bus=event_bus,
         storage=storage,
         session_rule_store=session_rule_store,
+        edict_application_service=app.state.edict_application_service,
+        decision_service=app.state.decision_service,
+    )
+    event_bus.on(
+        "decision.resolved",
+        approval_manager.handle_decision_resolved,
+        # Keep the stable consumer identity so upgrades do not replay old tool projections.
+        consumer_name="approval_manager.tool_decree_projection.v1",
+    )
+    event_bus.on(
+        "decision.expired",
+        approval_manager.handle_decision_expired,
+        consumer_name="approval_manager.decision_expiry_projection.v1",
     )
     app.state.approval_manager = approval_manager
 
@@ -125,7 +149,7 @@ def wire_policy(app: FastAPI, settings: TianshuSettings) -> None:
 
     policy_hook = PolicyHook(
         engine=policy_engine,
-        workspace_root=Path(settings.workspace_dir).resolve(),
+        workspace_root=app.state.workspace_roots.source,
         storage=storage,
         tool_registry=tools,
         session_rule_store=session_rule_store,

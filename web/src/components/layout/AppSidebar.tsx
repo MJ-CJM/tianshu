@@ -1,174 +1,50 @@
-import {
-  Layout,
-  Menu,
-  Button,
-  Tooltip,
-  theme,
-} from "antd";
+import { Button, Layout, Menu, Tooltip, theme } from "antd";
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  SunOutlined,
   MoonOutlined,
-  AuditOutlined,
-  ScheduleOutlined,
-  SafetyCertificateOutlined,
-  DollarOutlined,
-  BookOutlined,
-  TeamOutlined,
-  CrownOutlined,
-  ToolOutlined,
-  SafetyOutlined,
-  GlobalOutlined,
-  MessageOutlined,
-  DeploymentUnitOutlined,
-  ExperimentOutlined,
+  SunOutlined,
 } from "@ant-design/icons";
-import { useNavigate, useLocation } from "react-router-dom";
-import { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import type { KeyboardEvent } from "react";
 import { useTheme } from "../../hooks/useTheme";
 import { useNeedsReview } from "../../hooks/useApprovals";
+import { useSidebarState } from "../../hooks/useSidebarState";
 import { useT } from "../../i18n";
+import { buildSidebarItems } from "../../navigation/departments";
+
+function moveMenuFocus(event: KeyboardEvent<HTMLElement>) {
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  const items = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])'),
+  );
+  if (items.length === 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const current = items.indexOf(document.activeElement as HTMLElement);
+  const next = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? items.length - 1
+      : event.key === "ArrowDown"
+        ? (current + 1 + items.length) % items.length
+        : current < 0
+          ? items.length - 1
+          : (current - 1 + items.length) % items.length;
+  items[next]?.focus();
+}
 
 export default function AppSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
   const { mode, toggleTheme } = useTheme();
-  const [collapsed, setCollapsed] = useState(false);
+  const { collapsed, setCollapsed } = useSidebarState();
   const t = useT();
-
   const { data: reviewData } = useNeedsReview();
   const reviewCount = reviewData?.metadata?.total ?? reviewData?.data?.length ?? 0;
-
-  const menuItems = [
-    {
-      key: "group-edict",
-      type: "group" as const,
-      label: t("nav.group.edict"),
-      children: [
-        {
-          key: "/",
-          icon: <AuditOutlined />,
-          label:
-            reviewCount > 0 ? (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                {t("nav.approvals")}
-                {/* 待朱批计数:朱砂小盘 */}
-                <span
-                  style={{
-                    background: "var(--ts-color-accent)",
-                    color: "var(--ts-color-accent-text-on)",
-                    borderRadius: 9,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    lineHeight: "16px",
-                    padding: "0 6px",
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {reviewCount}
-                </span>
-              </span>
-            ) : (
-              t("nav.approvals")
-            ),
-        },
-        {
-          key: "/scheduler",
-          icon: <ScheduleOutlined />,
-          label: t("nav.scheduler"),
-        },
-      ],
-    },
-    {
-      key: "group-gov",
-      type: "group" as const,
-      label: t("nav.group.gov"),
-      children: [
-        {
-          key: "/cabinet",
-          icon: <CrownOutlined />,
-          label: t("nav.cabinet"),
-        },
-        {
-          key: "/consultation",
-          icon: <TeamOutlined />,
-          label: t("nav.consultation"),
-        },
-        {
-          key: "/audit",
-          icon: <SafetyCertificateOutlined />,
-          label: t("nav.audit"),
-        },
-        {
-          key: "/session-rules",
-          icon: <SafetyOutlined />,
-          label: t("nav.sessionRules"),
-        },
-      ],
-    },
-    {
-      key: "group-growth",
-      type: "group" as const,
-      label: t("nav.group.growth"),
-      children: [
-        {
-          key: "/personas",
-          icon: <TeamOutlined />,
-          label: t("nav.persona"),
-        },
-        {
-          key: "/memory",
-          icon: <BookOutlined />,
-          label: t("nav.knowledge"),
-        },
-        {
-          key: "/universes",
-          icon: <DeploymentUnitOutlined />,
-          label: t("nav.universe"),
-        },
-        {
-          key: "/evals",
-          icon: <ExperimentOutlined />,
-          label: t("nav.evals"),
-        },
-      ],
-    },
-    {
-      key: "group-system",
-      type: "group" as const,
-      label: t("nav.group.system"),
-      children: [
-        {
-          key: "/system",
-          icon: <ToolOutlined />,
-          label: t("nav.system"),
-        },
-        {
-          key: "/hongluisi",
-          icon: <GlobalOutlined />,
-          label: t("nav.foreign"),
-        },
-        {
-          key: "/tongzheng",
-          icon: <MessageOutlined />,
-          label: t("nav.notify"),
-        },
-        {
-          key: "/cost",
-          icon: <DollarOutlined />,
-          label: t("nav.tax"),
-        },
-      ],
-    },
-  ];
-
-  // Note: DAG battle map is accessible via edict detail "查看作战图" button,
-  // not as a direct sidebar item (it requires a dagId parameter).
-
-  // "/" 与 "/approvals" 均为御书房（合并页两个路径，避免书签失效），高亮同一菜单项
-  const selectedKey = location.pathname === "/approvals" ? "/" : location.pathname;
+  const themeAction = mode === "light" ? t("sidebar.switchToDark") : t("sidebar.switchToLight");
+  const collapseAction = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
 
   return (
     <Layout.Sider
@@ -180,20 +56,23 @@ export default function AppSidebar() {
       collapsedWidth={60}
       style={{ borderRight: `1px solid ${token.colorBorder}` }}
     >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          height: "100%",
-        }}
-      >
+      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
         <Menu
+          aria-label="Primary navigation"
+          tabIndex={0}
+          onKeyDownCapture={moveMenuFocus}
           mode="inline"
           inlineCollapsed={collapsed}
-          selectedKeys={[selectedKey]}
-          items={menuItems}
+          selectedKeys={[location.pathname]}
+          items={buildSidebarItems(t, reviewCount)}
           onClick={({ key }) => navigate(key)}
-          style={{ flex: 1, paddingTop: 12, borderRight: "none" }}
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            paddingTop: 12,
+            borderRight: "none",
+          }}
         />
 
         <div
@@ -206,12 +85,10 @@ export default function AppSidebar() {
             gap: 4,
           }}
         >
-          <Tooltip
-            title={collapsed ? (mode === "light" ? t("sidebar.darkMode") : t("sidebar.lightMode")) : ""}
-            placement="right"
-          >
+          <Tooltip title={collapsed ? themeAction : ""} placement="right">
             <Button
               type="text"
+              aria-label={themeAction}
               icon={mode === "light" ? <MoonOutlined /> : <SunOutlined />}
               onClick={toggleTheme}
               style={{
@@ -223,14 +100,12 @@ export default function AppSidebar() {
               {collapsed ? null : mode === "light" ? t("sidebar.darkMode") : t("sidebar.lightMode")}
             </Button>
           </Tooltip>
-          <Tooltip
-            title={collapsed ? t("sidebar.expand") : ""}
-            placement="right"
-          >
+          <Tooltip title={collapsed ? collapseAction : ""} placement="right">
             <Button
               type="text"
+              aria-label={collapseAction}
               icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed((v) => !v)}
+              onClick={() => setCollapsed(!collapsed)}
               style={{
                 color: token.colorTextSecondary,
                 width: collapsed ? 40 : "100%",

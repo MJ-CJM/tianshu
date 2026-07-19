@@ -6,25 +6,35 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.gateway.core.edict_bridge import EdictBridge, EdictBusyError
 from tianshu.gateway.core.session_anchor import SessionAnchor
 from tianshu.models.common import EdictStatus, TaskStatus
+from tianshu.models.memorial import Memorial
 
 
 @pytest.fixture
 def bridge(storage):
-    bus = EventBus(storage=storage)
+    from tianshu.application.managed_run_ingress import ManagedRunIngress
+
+    class Reconciler:
+        async def reconcile_once(self) -> int:
+            return 0
+
+    bus = EventBus()
     anchor = SessionAnchor(storage)
     executor = MagicMock()
     executor.execute_edict = AsyncMock()
     executor.running_tasks = set()
+    executor.managed_run_ingress = ManagedRunIngress(storage, Reconciler())
     return (
         EdictBridge(
             storage=storage,
             event_bus=bus,
             executor=executor,
             anchor=anchor,
+            edict_application_service=EdictApplicationService(storage),
         ),
         bus,
         anchor,
@@ -43,6 +53,8 @@ async def test_create_new_when_no_anchor(bridge, storage):
     edict = storage.get_edict(result.edict_id)
     assert edict is not None
     assert edict.goal == "帮我查最近 3 天天气"
+    assert edict.governance_contract is not None
+    assert edict.governance_contract.workspace.source_id == "workspace-main"
     assert edict.metadata.get("chat_id") == "oc_x"
     assert edict.metadata.get("feishu_user") == "ou_a"
     assert anchor.get("oc_x") == result.edict_id
@@ -85,13 +97,30 @@ async def test_continue_or_create_with_active_anchor_follow_up(bridge, storage):
     for m in memorials:
         m.status = TaskStatus.COMPLETED
         storage.update_memorial(m)
-    r2 = await b.continue_or_create(chat_id="oc_x", sender_open_id="ou_a", text="more")
+    storage.save_memorial(
+        Memorial(
+            edict_id=r1.edict_id,
+            instruction="DAG child",
+            status=TaskStatus.COMPLETED,
+            dag_node_id="child",
+            parent_memorial_id=r1.memorial_id,
+        )
+    )
+    r2 = await b.continue_or_create(
+        chat_id="oc_x",
+        sender_open_id="ou_a",
+        text="more",
+        source_message_id="message-follow-up-1",
+    )
     assert r2.edict_id == r1.edict_id
     assert r2.memorial_id != r1.memorial_id
     assert anchor.get("oc_x") == r1.edict_id
     # follow_up 会再加一个 SUBMITTED memorial
     memorials = storage.list_memorials_by_edict(r1.edict_id)
-    assert any(m.status == TaskStatus.SUBMITTED and m.instruction == "more" for m in memorials)
+    follow_up = next(
+        m for m in memorials if m.status == TaskStatus.SUBMITTED and m.instruction == "more"
+    )
+    assert follow_up.parent_memorial_id == r1.memorial_id
 
 
 @pytest.mark.asyncio
@@ -101,22 +130,35 @@ async def test_continue_or_create_raises_when_active_memorial(bridge, storage):
     await b.create_new(chat_id="oc_x", sender_open_id="ou_a", goal="g")
     # 不修改 memorial 状态（仍是 SUBMITTED）→ should raise
     with pytest.raises(EdictBusyError):
-        await b.continue_or_create(chat_id="oc_x", sender_open_id="ou_a", text="more")
+        await b.continue_or_create(
+            chat_id="oc_x",
+            sender_open_id="ou_a",
+            text="more",
+            source_message_id="message-busy-1",
+        )
 
 
 @pytest.mark.asyncio
-async def test_create_new_emits_edict_submitted_event(bridge, storage):
-    """create_new 应 fire edict.submitted 事件（含 chat_id）。"""
+async def test_create_new_enqueues_edict_submitted_event(bridge, storage):
+    """create_new 只落耐久 outbox，由 dispatcher 后续派发。"""
     b, bus, _ = bridge
     received: list = []
 
     async def handler(ev):
         received.append(ev)
 
-    bus.on("edict.submitted", handler, priority=200)
+    bus.on(
+        "edict.submitted",
+        handler,
+        consumer_name="test.edict_submitted.v1",
+        priority=200,
+    )
     result = await b.create_new(chat_id="oc_z", sender_open_id="ou_c", goal="x")
-    # EventBus.fire 是同步派发到 handler（asyncio.create_task），等一拍
-    import asyncio
-
-    await asyncio.sleep(0.05)
-    assert any(e.edict_id == result.edict_id for e in received)
+    row = storage._conn.execute(  # noqa: SLF001 - durable boundary proof
+        "SELECT status, payload_json FROM outbox_events WHERE edict_id = ?",
+        (result.edict_id,),
+    ).fetchone()
+    assert row is not None
+    assert row["status"] == "pending"
+    assert '"chat_id":"oc_z"' in row["payload_json"]
+    assert received == []

@@ -1,9 +1,10 @@
 import type { ApiResponse, MemoryEntry, EdictMemorialGroup } from "./types";
+import { authFetch } from "./authFetch";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${url}`, init);
+  const res = await authFetch(`${API_BASE}${url}`, init);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }

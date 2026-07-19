@@ -6,9 +6,12 @@ import asyncio
 import json
 import os
 import re
-import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from tianshu.executor import execution_gateway as process_boundary
+from tianshu.executor.workspace_context import resolve_workspace_root
+from tianshu.security.clean_env import build_clean_env
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
@@ -17,8 +20,18 @@ _SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv"}
 _MAX_LINE_LEN = 500
 _MAX_OUTPUT_BYTES = 50_000
 
+if TYPE_CHECKING:
+    from tianshu.executor.execution_gateway import ExecutionGateway
 
-def register_grep(registry: ToolRegistry, workspace: Path) -> None:
+
+def register_grep(
+    registry: ToolRegistry,
+    workspace: Path,
+    *,
+    execution_gateway: ExecutionGateway | None = None,
+) -> None:
+    process_gateway = execution_gateway or process_boundary.ExecutionGateway()
+
     async def grep(
         pattern: str,
         path: str = ".",
@@ -28,12 +41,17 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
         context: int = 0,
         limit: int = 100,
     ) -> ToolResult:
-        search_path = safe_path(workspace, path)
+        active_workspace = resolve_workspace_root(workspace)
+        search_path = safe_path(active_workspace, path)
         if not search_path.exists():
             return error_result(f"Error: path '{path}' does not exist")
 
-        rg = shutil.which("rg")
-        context = min(context, 20)
+        rg = process_boundary.resolve_system_adapter_executable(
+            "grep",
+            workspace_root=active_workspace,
+        )
+        context = max(0, min(context, 20))
+        limit = max(1, min(limit, 1000))
 
         if rg:
             return await _rg_search(
@@ -45,6 +63,7 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
                 literal,
                 context,
                 limit,
+                active_workspace,
             )
         return await asyncio.to_thread(
             _python_search,
@@ -55,6 +74,7 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
             literal,
             context,
             limit,
+            active_workspace,
         )
 
     async def _rg_search(
@@ -66,6 +86,7 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
         literal: bool,
         context: int,
         limit: int,
+        active_workspace: Path,
     ) -> ToolResult:
         cmd = [
             rg,
@@ -83,23 +104,79 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
             cmd.extend(["-C", str(context)])
         if glob_pat:
             cmd.extend(["--glob", glob_pat])
-        cmd.extend([pattern, str(search_path)])
+        cmd.extend(["--", pattern, str(search_path)])
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
         try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
-        except (TimeoutError, asyncio.CancelledError):
-            proc.kill()
-            await proc.communicate()
+            command = tuple(cmd)
+            environment = process_boundary.EnvironmentPolicy(allow_names=tuple(build_clean_env("")))
+            request = process_boundary.request_for_current_execution(
+                purpose="grep",
+                workspace_root=active_workspace,
+                cwd=".",
+                argv_command=process_boundary.ArgvCommand(argv=command),
+                environment=environment,
+                timeout_seconds=30,
+                stdout_limit_bytes=1_000_000,
+                stderr_limit_bytes=32_000,
+                sandbox=process_boundary.SandboxRequirement(
+                    trust_level="trusted-local",
+                    mode="host",
+                    allow_host=True,
+                ),
+                command_grant=process_boundary.issue_grep_command_grant(
+                    command,
+                    workspace_root=active_workspace,
+                    environment=environment,
+                ),
+            )
+            execution = await process_gateway.run(request)
+        except process_boundary.ExecutionDenied as exc:
+            if exc.guard == "network" and exc.code == "enforcement_unavailable":
+                fallback = await asyncio.to_thread(
+                    _python_search,
+                    pattern,
+                    search_path,
+                    glob_pat,
+                    ignore_case,
+                    literal,
+                    context,
+                    limit,
+                    active_workspace,
+                )
+                receipt = exc.receipt
+                advisory: dict[str, object] = {
+                    "status": "python_fallback",
+                    "guard": exc.guard,
+                    "code": exc.code,
+                    "message": exc.detail,
+                }
+                if receipt is not None:
+                    advisory["correlation_id"] = receipt.correlation_id
+                    advisory["receipt"] = receipt.model_dump(mode="json")
+                details = dict(fallback.details or {})
+                details["execution_advisory"] = advisory
+                return ToolResult(
+                    content=fallback.content,
+                    details=details,
+                    is_error=fallback.is_error,
+                )
+            return error_result(f"grep: execution denied: {exc}")
+        except process_boundary.ExecutionStartError as exc:
+            return error_result(f"grep: unable to start ripgrep: {exc}")
+
+        if execution.receipt.status == "timed_out":
             return error_result("grep: search timed out")
+        if execution.receipt.stdout_truncated or execution.receipt.stdout_incomplete:
+            return error_result("grep: search output was incomplete; narrow the path or pattern")
+        if execution.returncode not in {0, 1}:
+            detail = execution.stderr.strip() or execution.error or "ripgrep failed"
+            return error_result(f"grep: {detail}")
 
         lines_out: list[str] = []
         match_count = 0
-        for line in stdout.decode(errors="replace").splitlines():
+        for line in execution.stdout.splitlines():
+            if match_count >= limit:
+                break
             try:
                 msg = json.loads(line)
             except json.JSONDecodeError:
@@ -109,7 +186,7 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
             data = msg["data"]
             file_path = data["path"]["text"]
             try:
-                rel = os.path.relpath(file_path, workspace)
+                rel = os.path.relpath(file_path, active_workspace)
             except ValueError:
                 rel = file_path
             line_num = data["line_number"]
@@ -132,7 +209,9 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
         literal: bool,
         context: int,
         limit: int,
+        active_workspace: Path,
     ) -> ToolResult:
+        workspace_root = active_workspace.resolve()
         flags = re.IGNORECASE if ignore_case else 0
         if literal:
             compiled = re.compile(re.escape(pattern), flags)
@@ -164,6 +243,11 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
         for fp in sorted(files):
             if match_count >= limit:
                 break
+            try:
+                if fp.is_symlink() or not fp.resolve().is_relative_to(workspace_root):
+                    continue
+            except OSError:
+                continue
             try:
                 file_lines = fp.read_text(encoding="utf-8", errors="replace").splitlines()
             except (OSError, UnicodeDecodeError):
@@ -239,6 +323,8 @@ def register_grep(registry: ToolRegistry, workspace: Path) -> None:
                     },
                     "limit": {
                         "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000,
                         "description": "Maximum number of matches (default: 100)",
                         "default": 100,
                     },

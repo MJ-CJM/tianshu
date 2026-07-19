@@ -262,12 +262,14 @@ async def test_evaluate_behavior_challenger_does_not_cache_truncated_baseline(mo
     eval_harness = MagicMock()
     eval_harness.select_eval_set.return_value = ["g1"]
     eval_harness.eval_set_fingerprint.return_value = "fp-x"
-    eval_harness.evaluate_paired.return_value = {
-        "variant": {"fitness": {"score": 0.7, "samples": 20}, "stats": {"cost": 0.1}},
-        "baseline": {"fitness": {"score": 0.7, "samples": 20}, "truncated": True},
-        "delta": 0.0,
-        "baseline_cached": False,
-    }
+    eval_harness.evaluate_paired_async = AsyncMock(
+        return_value={
+            "variant": {"fitness": {"score": 0.7, "samples": 20}, "stats": {"cost": 0.1}},
+            "baseline": {"fitness": {"score": 0.7, "samples": 20}, "truncated": True},
+            "delta": 0.0,
+            "baseline_cached": False,
+        }
+    )
     code_store = MagicMock()
     code_store.repo_root = Path("/repo")
 
@@ -302,16 +304,18 @@ async def test_evaluate_behavior_challenger_propagates_truncated_flag(monkeypatc
     eval_harness = MagicMock()
     eval_harness.select_eval_set.return_value = ["g1"]
     eval_harness.eval_set_fingerprint.return_value = "fp-x"
-    eval_harness.evaluate_paired.return_value = {
-        "variant": {
-            "fitness": {"score": 0.7, "samples": 20},
-            "stats": {"cost": 0.1},
-            "truncated": True,
-        },
-        "baseline": {"fitness": {"score": 0.7, "samples": 20}, "truncated": False},
-        "delta": 0.0,
-        "baseline_cached": False,
-    }
+    eval_harness.evaluate_paired_async = AsyncMock(
+        return_value={
+            "variant": {
+                "fitness": {"score": 0.7, "samples": 20},
+                "stats": {"cost": 0.1},
+                "truncated": True,
+            },
+            "baseline": {"fitness": {"score": 0.7, "samples": 20}, "truncated": False},
+            "delta": 0.0,
+            "baseline_cached": False,
+        }
+    )
     code_store = MagicMock()
     code_store.repo_root = Path("/repo")
 

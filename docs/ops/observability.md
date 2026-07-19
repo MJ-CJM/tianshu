@@ -99,7 +99,7 @@ DB 默认位于 `~/.tianshu/`；用 `sqlite3` 直连即可。`payload_json` 是�
 ```
 edict.submitted        (gateway, fire → 202 立即返回)
 edict.scheduled        (scheduler)
-plan.completed         (planner；若免审批直接进执行)
+plan.completed         (planner；若免裁决直接进执行)
 execution.started      payload.memorial_id
 outer_loop.started     payload.max_outer
 outer_loop.iteration.started / .finished   (可能多轮)

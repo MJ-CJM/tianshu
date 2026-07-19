@@ -1,6 +1,6 @@
 # Telegram 机器人接入配置
 
-> 与飞书接入并列。Telegram 通道复用同一套敕令 / 审批 / persona 内核，只是平台层换成
+> 与飞书接入并列。Telegram 通道复用同一套敕令 / 裁决 / persona 内核，只是平台层换成
 > Telegram Bot API（`python-telegram-bot`）。两通道可同时启用，互不干扰（按 `metadata.channel` 路由隔离）。
 
 ## 1. 创建机器人，拿到 Bot Token
@@ -12,7 +12,7 @@
 ## 2. 拿到你的 user_id / chat_id
 
 - **你的 user_id**（用于 allowlist）：给 **@userinfobot** 发任意消息，它回你的数字 id。
-- **home_channel chat_id**（cron 结果 / 无源审批兜底的投递目标）：
+- **home_channel chat_id**（cron 结果 / 无来源裁决通知兜底的投递目标）：
   - 私聊：就是你的 user_id；
   - 群：把机器人拉进群，发一条消息，调用 `https://api.telegram.org/bot<TOKEN>/getUpdates` 看 `chat.id`（群为负数，如 `-1001234567890`）。
 
@@ -39,7 +39,7 @@ TIANSHU_TELEGRAM_HOME_CHANNEL=123456789           # 群为负数 -1001234567890
 TIANSHU_TELEGRAM_ASSISTANT_PERSONA_ID=tongzheng
 # webhook 模式才需要：
 # TIANSHU_TELEGRAM_WEBHOOK_SECRET=<32字节随机串>
-# TIANSHU_TELEGRAM_WEBHOOK_PATH=/telegram/webhook
+# TIANSHU_TELEGRAM_WEBHOOK_PATH=/channels/telegram/webhook
 ```
 
 > 加载优先级：**DB（通政司保存）> 环境变量 > 不启用**。`bot_token` 为空 → 整个 Telegram 机器人不启用（向后兼容，不影响飞书）。
@@ -66,7 +66,7 @@ TIANSHU_TELEGRAM_ASSISTANT_PERSONA_ID=tongzheng
 - `/budget`：成本概览
 - `/menu`：主菜单（inline 按钮）
 - `/clear`：归档当前对话、开新会话
-- 审批：工具调用待批时机器人推**审批按钮**（单次/本敕令/总是/拒绝），也可文本命令 `/approve` `/准` `/准敕` `/准永` `/reject` `/驳`
+- 裁决：工具调用等待裁决时机器人推**裁决按钮**（单次/本敕令/总是/拒绝），也可使用文本命令 `/approve` `/准` `/准敕` `/准永` `/reject` `/驳`
 
 执行完成后，结果会自动回推到发起的会话；运行中显示 `⏳ 思考中…` 占位，完成后删除并发出正文。
 

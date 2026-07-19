@@ -39,6 +39,12 @@ class WorkerPool:
         self._active_tasks: dict[str, asyncio.Task] = {}
         self._completed_count = 0
         self._failed_count = 0
+        self._closed = False
+
+    @property
+    def is_ready(self) -> bool:
+        """shutdown 后为 False（构造即可用，无显式 start 阶段）。"""
+        return not self._closed
 
     @property
     def active_count(self) -> int:
@@ -110,6 +116,7 @@ class WorkerPool:
 
     async def shutdown(self) -> None:
         """Cancel all active tasks and wait."""
+        self._closed = True
         for task in list(self._active_tasks.values()):
             task.cancel()
         if self._active_tasks:

@@ -23,6 +23,7 @@ from tianshu.memory.config import MemoryConfig
 from tianshu.memory.markdown_backend import MarkdownMemoryBackend
 from tianshu.models.edict import Edict
 from tianshu.persona.model import AgentPersona
+from tianshu.resources.overlay import resolve_court_read
 from tianshu.skills.loader import SkillsLoader
 
 if TYPE_CHECKING:
@@ -78,8 +79,13 @@ class PromptBuilder:
         drawer_store: MemoryBackend | None = None,
         memory_config: MemoryConfig | None = None,
         storage: Storage | None = None,
+        runtime_personas_dir: Path | None = None,
     ) -> None:
         self._personas_dir = personas_dir
+        # COURT overlay override 的读取根；None 时保持旧行为（直读 personas_dir）
+        self._runtime_personas_dir = (
+            Path(runtime_personas_dir).expanduser() if runtime_personas_dir is not None else None
+        )
         self._skills = skills_loader
         self._metrics_store = metrics_store
         self._drawer_store = drawer_store
@@ -98,6 +104,12 @@ class PromptBuilder:
         self._include_peer_profiles = True
         self._peer_profile_max_chars = 600
 
+    def _court_path(self) -> Path:
+        """COURT.md 读取路径：runtime overlay override 优先，回退 packaged 默认。"""
+        if self._runtime_personas_dir is not None:
+            return resolve_court_read(self._runtime_personas_dir)
+        return self._personas_dir / "court" / "COURT.md"
+
     async def build(
         self,
         edict: Edict,
@@ -111,8 +123,8 @@ class PromptBuilder:
         parts.append(_BASE_IDENTITY)
 
         if persona:
-            # Layer 2: COURT.md (shared court context) — from personas/
-            court_path = self._personas_dir / "court" / "COURT.md"
+            # Layer 2: COURT.md (shared court context) — overlay override 优先
+            court_path = self._court_path()
             court_text = self._read_file(court_path)
             if court_text:
                 parts.append(f"# Court Protocol\n\n{court_text}")
@@ -233,8 +245,8 @@ class PromptBuilder:
         )
 
         if persona:
-            # Layer 2: COURT.md
-            court_path = self._personas_dir / "court" / "COURT.md"
+            # Layer 2: COURT.md — overlay override 优先（source 反映实际读取路径）
+            court_path = self._court_path()
             court_text = self._read_file(court_path)
             layers.append(
                 {

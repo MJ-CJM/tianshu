@@ -20,6 +20,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from tianshu.executor.git_backend import GitBackend, GitBackendError, GitLocation
 from tianshu.universe.model import UniverseOrigin, UniverseStatus
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class UniverseEvolver:
         feature_flags: Any = None,
         consultation: Any = None,
         profile_provider: Any = None,
+        git_backend: GitBackend | None = None,
     ) -> None:
         self._llm = llm_client
         self._mgr = manager
@@ -109,6 +111,7 @@ class UniverseEvolver:
         self._flags = feature_flags
         self._consultation = consultation
         self._profile_provider = profile_provider
+        self._git_backend = git_backend or GitBackend(timeout_seconds=10)
 
     def attach_event_bus(self, bus: Any) -> None:
         self._bus = bus
@@ -256,21 +259,10 @@ class UniverseEvolver:
                             result.retired.append(child["id"])
                         elif paired["delta"] >= margin and samples >= min_samples:
                             result.promotion_recommended = child["id"]
-                            if getattr(cfg, "universe_auto_promote", False):
-                                self._mgr.switch(child["id"])
-                                await self._emit(
-                                    "universe.promoted",
-                                    {
-                                        "universe_id": child["id"],
-                                        "auto": True,
-                                        "delta": paired["delta"],
-                                    },
-                                )
-                            else:
-                                payload = await self._on_promotion_recommended(
-                                    child, paired["delta"], samples
-                                )
-                                await self._emit("universe.promotion_recommended", payload)
+                            payload = await self._on_promotion_recommended(
+                                child, paired["delta"], samples
+                            )
+                            await self._emit("universe.promotion_recommended", payload)
 
             await self._emit("universe.evolved", result.to_dict())
             return result
@@ -353,8 +345,7 @@ class UniverseEvolver:
         cached = self._storage.latest_baseline_fitness(fp)
         budget = getattr(cfg, "code_variant_eval_budget_cny", None)
         repo_root = self._code_store.repo_root
-        paired = await asyncio.to_thread(
-            self._eval_harness.evaluate_paired,
+        paired = await self._eval_harness.evaluate_paired_async(
             repo_root,
             eval_set=eval_set,
             baseline_worktree=repo_root,
@@ -394,18 +385,12 @@ class UniverseEvolver:
         head = "nohead"
         try:
             if self._code_store is not None:
-                import subprocess
-
-                proc = subprocess.run(
-                    ["git", "rev-parse", "--short", "HEAD"],
-                    cwd=str(self._code_store.repo_root),
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
+                head = self._git_backend.resolve_revision(
+                    GitLocation(self._code_store.repo_root),
+                    "HEAD",
+                    short=True,
                 )
-                if proc.returncode == 0:
-                    head = proc.stdout.strip()
-        except Exception:  # noqa: BLE001
+        except GitBackendError:
             pass
         return f"{champ}:{head}"
 
@@ -458,7 +443,7 @@ class UniverseEvolver:
                 self._mgr.archive(uid)
                 return {"status": "no_mutation", "universe_id": uid, "detail": m["reason"]}
 
-            g = await asyncio.to_thread(self._gate.run, worktree)
+            g = await self._gate.run_async(worktree)
             if not g.passed:
                 self._storage.save_variant_eval_run(
                     {
@@ -478,8 +463,7 @@ class UniverseEvolver:
             fp = self._eval_harness.eval_set_fingerprint(es, champion_key)
             cached = self._storage.latest_baseline_fitness(fp)
             budget = getattr(cfg, "code_variant_eval_budget_cny", None)
-            paired = await asyncio.to_thread(
-                self._eval_harness.evaluate_paired,
+            paired = await self._eval_harness.evaluate_paired_async(
                 worktree,
                 eval_set=es,
                 baseline_worktree=self._code_store.repo_root,

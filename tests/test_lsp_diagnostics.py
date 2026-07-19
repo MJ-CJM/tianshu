@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
+from tianshu.executor import execution_gateway as process_boundary
 from tianshu.lsp.diagnostics import (
+    DiagnosticOutcome,
     format_diagnostics,
     is_enabled,
     parse_diagnostics,
@@ -47,6 +51,13 @@ class TestParse:
     def test_no_diagnostics_key(self):
         assert parse_diagnostics('{"other": 1}') == []
 
+    @pytest.mark.parametrize(
+        "payload",
+        ("[]", '{"generalDiagnostics":"invalid"}', '{"generalDiagnostics":[null]}'),
+    )
+    def test_invalid_json_shapes_return_empty(self, payload):
+        assert parse_diagnostics(payload) == []
+
 
 class TestFormat:
     def test_format_readable(self):
@@ -60,22 +71,38 @@ class TestFormat:
 
 
 class TestGracefulDegrade:
-    def test_disabled_returns_empty(self, tmp_path, monkeypatch):
+    def test_disabled_returns_structured_outcome(self, tmp_path, monkeypatch):
         monkeypatch.delenv("TIANSHU_LSP_ENABLED", raising=False)
         assert not is_enabled()
         f = tmp_path / "a.py"
         f.write_text("x = 1")
-        assert run_diagnostics(f) == []  # 未启用 → 空
+        outcome = run_diagnostics(f)
+        assert isinstance(outcome, DiagnosticOutcome)
+        assert outcome.status == "disabled"
+        assert outcome.diagnostics == ()
+        assert outcome.advisory is None
+        assert outcome.correlation_id
 
-    def test_non_python_returns_empty(self, tmp_path, monkeypatch):
+    def test_non_python_is_not_applicable(self, tmp_path, monkeypatch):
         monkeypatch.setenv("TIANSHU_LSP_ENABLED", "on")
         f = tmp_path / "a.txt"
         f.write_text("hello")
-        assert run_diagnostics(f) == []  # 非 .py → 空
+        outcome = run_diagnostics(f)
+        assert outcome.status == "not_applicable"
+        assert outcome.diagnostics == ()
+        assert outcome.advisory is None
 
-    def test_enabled_but_no_basedpyright_degrades(self, tmp_path, monkeypatch):
+    def test_enabled_but_no_basedpyright_returns_advisory(self, tmp_path, monkeypatch):
         monkeypatch.setenv("TIANSHU_LSP_ENABLED", "on")
-        monkeypatch.setattr("shutil.which", lambda _: None)
+        monkeypatch.setattr(
+            process_boundary,
+            "resolve_system_adapter_executable",
+            lambda _adapter, workspace_root: None,
+        )
         f = tmp_path / "a.py"
         f.write_text("x = 1")
-        assert run_diagnostics(f) == []  # 未装 basedpyright → 优雅降级
+        outcome = run_diagnostics(f)
+        assert outcome.status == "unavailable"
+        assert outcome.diagnostics == ()
+        assert outcome.advisory
+        assert outcome.correlation_id

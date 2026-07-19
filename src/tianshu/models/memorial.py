@@ -16,6 +16,7 @@ from tianshu.models.common import (
     TimelineItem,
     UsageSummary,
 )
+from tianshu.models.governance_contract import EffectiveGovernanceContractV1
 
 
 class Memorial(BaseModel):
@@ -61,3 +62,4 @@ class Memorial(BaseModel):
     # 失败原因分类（2026-07-08 迭代 2）：status=failed 时由 models.failure 分类学
     # 在落库写路径自动填充（显式赋值优先）；非 failed 终态恒为 None。
     failure_reason: str | None = None
+    effective_governance_contract: EffectiveGovernanceContractV1 | None = None

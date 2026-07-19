@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -34,8 +34,12 @@ import {
 } from "../api/hongluisi";
 import type { ProviderSource } from "../api/hongluisi";
 import type { NetworkEventRow } from "../api/types";
+import type { ApiProblem } from "../contracts/api";
+import { isApiProblem, toApiProblem } from "../api/client";
 import { formatTime } from "../utils/format";
 import { useT } from "../i18n";
+import PageDataState from "../components/states/PageDataState";
+import { problemPageStatus } from "../components/states/problemPageStatus";
 
 const NETWORK_TOOL_NAMES = [
   "web_fetch",
@@ -61,23 +65,27 @@ const PROVIDERS_BY_TOOL: Record<string, string[]> = {
 export default function HongluisiPage() {
   const t = useT();
   const navigate = useNavigate();
-  const { data: tools = [] } = useTools();
+  const toolsQuery = useTools();
+  const tools = toolsQuery.data ?? [];
   // 权威数据：后端当前真正绑到的 provider key 来源（engine_provider CRUD 后 backend live rebuild）
-  const { data: engineStatus } = useQuery({
+  const engineStatusQuery = useQuery({
     queryKey: ["hongluisi", "engine-status"],
     queryFn: getEngineStatus,
     staleTime: 30000,
   });
+  const engineStatus = engineStatusQuery.data;
   const [recent, setRecent] = useState<NetworkEventRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [recentProblem, setRecentProblem] = useState<ApiProblem | null>(null);
 
   // 系统级引擎偏好（live 生效）
   const qc = useQueryClient();
-  const { data: prefs } = useQuery({
+  const preferencesQuery = useQuery({
     queryKey: ["hongluisi", "engine-preferences"],
     queryFn: getEnginePreferences,
     staleTime: 30000,
   });
+  const prefs = preferencesQuery.data;
   const [fetchChain, setFetchChain] = useState<string[]>([]);
   const [searchProvider, setSearchProvider] = useState<string | null>(null);
   const [fallbackMode, setFallbackMode] = useState<string | null>(null);
@@ -101,21 +109,70 @@ export default function HongluisiPage() {
       notification.success({ message: t("hongluisi.toast.saved") });
     },
     onError: (e: unknown) => {
-      const err = e as { response?: { data?: { detail?: string } }; message?: string };
       notification.error({
         message: t("hongluisi.toast.saveFailed"),
-        description: String(err?.response?.data?.detail ?? err?.message ?? e),
+        description: isApiProblem(e)
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : String(e),
       });
     },
   });
 
-  useEffect(() => {
+  const loadRecent = useCallback(() => {
     setLoading(true);
-    listNetworkEvents({ limit: 20 })
+    setRecentProblem(null);
+    void listNetworkEvents({ limit: 20 })
       .then(setRecent)
-      .catch(() => setRecent([]))
+      .catch((error: unknown) => setRecentProblem(toApiProblem(error)))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(loadRecent, [loadRecent]);
+
+  const primaryError =
+    toolsQuery.error ?? engineStatusQuery.error ?? preferencesQuery.error;
+  const primaryProblem = primaryError ? toApiProblem(primaryError) : null;
+  const primaryLoading =
+    toolsQuery.isLoading ||
+    engineStatusQuery.isLoading ||
+    preferencesQuery.isLoading;
+
+  if (primaryLoading) {
+    return (
+      <PageContainer title={t("hongluisi.title")}>
+        <PageDataState
+          status="loading"
+          data={null}
+          isEmpty={(items: unknown[]) => items.length === 0}
+        >
+          {() => null}
+        </PageDataState>
+      </PageContainer>
+    );
+  }
+
+  if (primaryProblem) {
+    const retryPrimary = () => {
+      void toolsQuery.refetch();
+      void engineStatusQuery.refetch();
+      void preferencesQuery.refetch();
+    };
+    return (
+      <PageContainer title={t("hongluisi.title")}>
+        <PageDataState
+          status={problemPageStatus(primaryProblem)}
+          data={null}
+          problem={primaryProblem}
+          isEmpty={(items: unknown[]) => items.length === 0}
+          onRetry={retryPrimary}
+        >
+          {() => null}
+        </PageDataState>
+      </PageContainer>
+    );
+  }
 
   // 既要注册、又要没被藏兵阁里 toggle 关闭，才算"已启用"
   const registered = new Set(
@@ -405,22 +462,34 @@ export default function HongluisiPage() {
             </Button>
           }
         >
-          <Table<NetworkEventRow>
-            rowKey="event_id"
-            columns={columns}
-            dataSource={recent}
-            loading={loading}
-            pagination={false}
-            size="small"
-            locale={{
-              emptyText: (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={t("hongluisi.recent.empty")}
-                />
-              ),
-            }}
-          />
+          {recentProblem ? (
+            <PageDataState
+              status={problemPageStatus(recentProblem)}
+              data={null}
+              problem={recentProblem}
+              isEmpty={(items: NetworkEventRow[]) => items.length === 0}
+              onRetry={loadRecent}
+            >
+              {() => null}
+            </PageDataState>
+          ) : (
+            <Table<NetworkEventRow>
+              rowKey="event_id"
+              columns={columns}
+              dataSource={recent}
+              loading={loading}
+              pagination={false}
+              size="small"
+              locale={{
+                emptyText: (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={t("hongluisi.recent.empty")}
+                  />
+                ),
+              }}
+            />
+          )}
         </Card>
       </Space>
     </PageContainer>

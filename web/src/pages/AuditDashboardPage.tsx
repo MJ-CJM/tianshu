@@ -31,11 +31,46 @@ import {
   REVIEW_STATUS_LABELS,
 } from "../utils/constants";
 import type { EdictUsageRow, RecentAuditRow, ReviewPolicyInfo } from "../api/types";
-import apiClient from "../api/client";
+import apiClient, { toApiProblem } from "../api/client";
 import { listNetworkEvents } from "../api/network_events";
 import { getFailureDistribution } from "../api/evals";
 import type { NetworkEventRow, FailureDistributionItem } from "../api/types";
 import { useT } from "../i18n";
+import PageDataState from "../components/states/PageDataState";
+import { problemPageStatus } from "../components/states/problemPageStatus";
+
+function QueryProblemState({
+  error,
+  onRetry,
+}: {
+  error: unknown;
+  onRetry: () => void;
+}) {
+  const problem = toApiProblem(error);
+  return (
+    <PageDataState
+      status={problemPageStatus(problem)}
+      data={null}
+      problem={problem}
+      isEmpty={(items: unknown[]) => items.length === 0}
+      onRetry={onRetry}
+    >
+      {() => null}
+    </PageDataState>
+  );
+}
+
+function QueryLoadingState() {
+  return (
+    <PageDataState
+      status="loading"
+      data={null}
+      isEmpty={(items: unknown[]) => items.length === 0}
+    >
+      {() => null}
+    </PageDataState>
+  );
+}
 
 interface HookEvent {
   id: string;
@@ -53,10 +88,11 @@ interface HookEvent {
 function FailureAttributionCard() {
   const t = useT();
   const [days, setDays] = useState<number | undefined>(30);
-  const { data } = useQuery({
+  const distributionQuery = useQuery({
     queryKey: ["evals", "failure-distribution", days],
     queryFn: () => getFailureDistribution(days),
   });
+  const data = distributionQuery.data;
   const dist = data?.data ?? [];
   const total = dist.reduce((acc, d) => acc + d.count, 0);
 
@@ -79,7 +115,14 @@ function FailureAttributionCard() {
         />
       }
     >
-      {dist.length === 0 ? (
+      {distributionQuery.isLoading ? (
+        <QueryLoadingState />
+      ) : distributionQuery.error ? (
+        <QueryProblemState
+          error={distributionQuery.error}
+          onRetry={() => void distributionQuery.refetch()}
+        />
+      ) : dist.length === 0 ? (
         <Typography.Text type="secondary">{t("audit.failure.none")}</Typography.Text>
       ) : (
         <Table<FailureDistributionItem>
@@ -124,7 +167,7 @@ function HookEventsCard() {
   const t = useT();
   const [collapsed, setCollapsed] = useState(true);
   // Fetch recent hook events from the most recent edicts
-  const { data: recentEdicts } = useQuery({
+  const recentEdictsQuery = useQuery({
     queryKey: ["edicts", "recent"],
     queryFn: async () => {
       const resp = await apiClient.get("/edicts?limit=5");
@@ -132,23 +175,20 @@ function HookEventsCard() {
     },
     staleTime: 30000,
   });
+  const recentEdicts = recentEdictsQuery.data;
 
   const edictIds: string[] = (recentEdicts ?? []).map((e: { id: string }) => e.id);
 
-  const { data: hookEvents, isLoading } = useQuery({
+  const hookEventsQuery = useQuery({
     queryKey: ["hookEvents", edictIds],
     queryFn: async () => {
       const allEvents: HookEvent[] = [];
       for (const eid of edictIds) {
-        try {
-          const resp = await apiClient.get(`/edicts/${eid}/events`);
-          const events: HookEvent[] = (resp.data?.data ?? []).filter(
-            (e: HookEvent) => e.event_type.startsWith("hook.")
-          );
-          allEvents.push(...events);
-        } catch {
-          // skip
-        }
+        const resp = await apiClient.get(`/edicts/${eid}/events`);
+        const events: HookEvent[] = (resp.data?.data ?? []).filter(
+          (e: HookEvent) => e.event_type.startsWith("hook.")
+        );
+        allEvents.push(...events);
       }
       return allEvents
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -157,8 +197,22 @@ function HookEventsCard() {
     enabled: edictIds.length > 0,
     staleTime: 15000,
   });
+  const hookEvents = hookEventsQuery.data;
+  const isLoading = recentEdictsQuery.isLoading || hookEventsQuery.isLoading;
 
   const events = hookEvents ?? [];
+  const queryError = recentEdictsQuery.error ?? hookEventsQuery.error;
+  if (queryError) {
+    const retry = () => {
+      void recentEdictsQuery.refetch();
+      void hookEventsQuery.refetch();
+    };
+    return (
+      <Card title={t("audit.hookEvents.title")} style={{ marginTop: 24 }} size="small">
+        <QueryProblemState error={queryError} onRetry={retry} />
+      </Card>
+    );
+  }
   if (events.length === 0 && !isLoading) return null;
 
   return (
@@ -214,22 +268,23 @@ function HookEventsCard() {
 }
 
 function PolicyDecisionsTab() {
-  const [stats, setStats] = useState<PolicyStats | null>(null);
+  const statsQuery = useQuery<PolicyStats>({
+    queryKey: ["policy", "stats"],
+    queryFn: fetchPolicyStats,
+    refetchInterval: 10_000,
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      fetchPolicyStats().then((s) => {
-        if (!cancelled) setStats(s);
-      });
-    };
-    load();
-    const timer = setInterval(load, 10_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
+  if (statsQuery.isLoading) return <QueryLoadingState />;
+  if (statsQuery.error) {
+    return (
+      <QueryProblemState
+        error={statsQuery.error}
+        onRetry={() => void statsQuery.refetch()}
+      />
+    );
+  }
+
+  const stats = statsQuery.data!;
 
   return (
     <Row gutter={16}>
@@ -237,7 +292,7 @@ function PolicyDecisionsTab() {
         <Card size="small">
           <Statistic
             title="Allow"
-            value={stats?.allow ?? 0}
+            value={stats.allow}
             valueStyle={{ color: "var(--ts-color-success)" }}
           />
         </Card>
@@ -246,7 +301,7 @@ function PolicyDecisionsTab() {
         <Card size="small">
           <Statistic
             title="Deny"
-            value={stats?.deny ?? 0}
+            value={stats.deny}
             valueStyle={{ color: "var(--ts-color-error)" }}
           />
         </Card>
@@ -255,19 +310,19 @@ function PolicyDecisionsTab() {
         <Card size="small">
           <Statistic
             title="Require Approval"
-            value={stats?.require_approval ?? 0}
+            value={stats.require_approval}
             valueStyle={{ color: "var(--ts-color-warning)" }}
           />
         </Card>
       </Col>
       <Col span={4}>
         <Card size="small">
-          <Statistic title="Approved" value={stats?.approved ?? 0} />
+          <Statistic title="Approved" value={stats.approved} />
         </Card>
       </Col>
       <Col span={4}>
         <Card size="small">
-          <Statistic title="Rejected" value={stats?.rejected ?? 0} />
+          <Statistic title="Rejected" value={stats.rejected} />
         </Card>
       </Col>
     </Row>
@@ -278,12 +333,14 @@ function NetworkEventsTab() {
   const t = useT();
   const [rows, setRows] = useState<NetworkEventRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [problem, setProblem] = useState<unknown>(null);
   const [tool, setTool] = useState<string | undefined>(undefined);
   const [host, setHost] = useState<string>("");
   const [status, setStatus] = useState<"ok" | "error" | undefined>(undefined);
 
   const reload = useCallback(async () => {
     setLoading(true);
+    setProblem(null);
     try {
       const data = await listNetworkEvents({
         limit: 200,
@@ -292,6 +349,8 @@ function NetworkEventsTab() {
         status,
       });
       setRows(data);
+    } catch (error: unknown) {
+      setProblem(error);
     } finally {
       setLoading(false);
     }
@@ -410,14 +469,18 @@ function NetworkEventsTab() {
         </Space>
       </Card>
 
-      <Table<NetworkEventRow>
-        rowKey="event_id"
-        columns={columns}
-        dataSource={rows}
-        loading={loading}
-        size="small"
-        pagination={{ pageSize: 50, showSizeChanger: false }}
-      />
+      {problem ? (
+        <QueryProblemState error={problem} onRetry={() => void reload()} />
+      ) : (
+        <Table<NetworkEventRow>
+          rowKey="event_id"
+          columns={columns}
+          dataSource={rows}
+          loading={loading}
+          size="small"
+          pagination={{ pageSize: 50, showSizeChanger: false }}
+        />
+      )}
     </Space>
   );
 }
@@ -425,11 +488,13 @@ function NetworkEventsTab() {
 export default function AuditDashboardPage() {
   const t = useT();
   const navigate = useNavigate();
-  const { data: stats, isLoading, refetch } = useAuditStats();
+  const statsQuery = useAuditStats();
+  const { data: stats, isLoading, refetch } = statsQuery;
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") ?? "stats";
   const setActiveTab = (key: string) => setSearchParams({ tab: key }, { replace: true });
-  const { data: rulesData } = useAuditRules();
+  const rulesQuery = useAuditRules();
+  const rulesData = rulesQuery.data;
 
   const summary = stats?.summary;
   const audited = (summary?.audit_pass ?? 0) + (summary?.audit_flag ?? 0) + (summary?.audit_block ?? 0);
@@ -568,7 +633,14 @@ export default function AuditDashboardPage() {
           {
             key: "stats",
             label: t("audit.tab.stats"),
-            children: (
+            children: statsQuery.isLoading ? (
+              <QueryLoadingState />
+            ) : statsQuery.error ? (
+              <QueryProblemState
+                error={statsQuery.error}
+                onRetry={() => void statsQuery.refetch()}
+              />
+            ) : (
               <>
                 <Row gutter={16}>
                   <Col span={6}>
@@ -687,7 +759,14 @@ export default function AuditDashboardPage() {
           {
             key: "rules",
             label: t("audit.tab.rules"),
-            children: (
+            children: rulesQuery.isLoading ? (
+              <QueryLoadingState />
+            ) : rulesQuery.error ? (
+              <QueryProblemState
+                error={rulesQuery.error}
+                onRetry={() => void rulesQuery.refetch()}
+              />
+            ) : (
               <Space direction="vertical" size="middle" style={{ width: "100%" }}>
                 <Card title={t("audit.section.auditRules")} size="small">
                   <Table

@@ -213,12 +213,11 @@ async def branch_universe(universe_id: str, request: Request):
 
 @universes_router.post("/{universe_id}/switch", response_model=ApiResponse)
 async def switch_universe(universe_id: str, request: Request):
-    mgr = request.app.state.universe_manager
-    try:
-        uni = mgr.switch(universe_id)
-    except (ValueError, FileNotFoundError) as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    return ApiResponse(success=True, data=uni)
+    del universe_id, request
+    raise HTTPException(
+        status_code=409,
+        detail={"code": "promotion_preconditions_not_met"},
+    )
 
 
 @universes_router.post("/{universe_id}/archive", response_model=ApiResponse)
@@ -243,12 +242,11 @@ async def restore_universe(universe_id: str, request: Request):
 
 @universes_router.post("/{universe_id}/promote-code", response_model=ApiResponse)
 async def promote_code_variant(universe_id: str, request: Request):
-    mgr = request.app.state.universe_manager
-    try:
-        uni = mgr.promote_code_variant(universe_id)
-    except (ValueError, RuntimeError) as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    return ApiResponse(success=True, data=uni)
+    del universe_id, request
+    raise HTTPException(
+        status_code=409,
+        detail={"code": "promotion_preconditions_not_met"},
+    )
 
 
 @universes_router.get("/{universe_id}/code-diff", response_model=ApiResponse)

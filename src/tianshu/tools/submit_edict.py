@@ -1,8 +1,7 @@
 """submit_edict tool —— 让助手 LLM 在对话中"颁敕"（立即执行）。
 
-走与 cli ``tianshu edict submit`` / web ``POST /api/edicts`` 同一执行路径：
-``save_edict`` → ``save_memorial`` → fire ``edict.submitted``，由 scheduler /
-executor 接管后续执行。
+走与 cli ``tianshu edict submit`` / web ``POST /api/edicts`` 相同的 durable
+application service，由 outbox 驱动 scheduler / executor 后续执行。
 
 颁发即立即执行一次；**需要定时/周期请改用 ``schedule_edict`` 工具**。
 
@@ -16,10 +15,21 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from tianshu.edict_ops import submit_new_edict
+from tianshu.application.edicts import EdictApplicationService, SubmitEdictCommand
+from tianshu.application.ingress import (
+    make_ingress_auth_context,
+    requested_contract_for_edict,
+)
+from tianshu.kernel.ambient import get_current_edict, get_current_tool_invocation_id
 from tianshu.models.acceptance import AcceptanceCriteria, CheckSpec
 from tianshu.models.common import VALID_EXECUTION_PROFILES, VALID_PRIORITIES
 from tianshu.models.edict import Edict, title_from_goal
+from tianshu.models.principal import (
+    AuthenticationSource,
+    ClientKind,
+    PrincipalKind,
+)
+from tianshu.models.side_effect import SideEffectSemantics
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
 
@@ -39,8 +49,13 @@ def register_submit_edict(
     storage: Storage,
     event_bus: EventBus,
     persona_loader: PersonaLoader | None = None,
+    edict_application_service: EdictApplicationService | None = None,
 ) -> None:
     """注册 submit_edict tool 到 ToolRegistry。"""
+    del event_bus
+    if edict_application_service is None:
+        raise ValueError("edict_application_service is required")
+    edict_application = edict_application_service
 
     async def submit_edict(
         goal: str,
@@ -107,11 +122,13 @@ def register_submit_edict(
         if assigned_persona_id:
             edict_kwargs["assigned_persona_id"] = assigned_persona_id
         edict = Edict(**edict_kwargs)
-        submit_new_edict(
-            storage,
-            event_bus,
-            edict,
-            producer="submit_edict_tool",
+        invocation_id = get_current_tool_invocation_id() or edict.id
+        correlation_id = f"tool:{invocation_id}"
+        caller = get_current_edict()
+        command = SubmitEdictCommand(
+            edict=edict,
+            idempotency_key=correlation_id,
+            requested_contract=requested_contract_for_edict(edict),
             extra_payload={
                 "priority": edict.priority,
                 "assigned_persona_id": edict.assigned_persona_id,
@@ -119,13 +136,26 @@ def register_submit_edict(
                 "via": "assistant_tool",
             },
         )
+        submission = edict_application.submit(
+            command,
+            auth=make_ingress_auth_context(
+                principal_id=f"tool:{caller.submitter if caller and caller.submitter else 'assistant'}",
+                principal_kind=PrincipalKind.SERVICE,
+                source=AuthenticationSource.TRUSTED_LOCAL,
+                client_kind=ClientKind.SYSTEM,
+                correlation_id=correlation_id,
+            ),
+            producer="submit_edict_tool",
+            correlation_id=correlation_id,
+        )
+        persisted_edict = submission.edict
         logger.info(
             "[tools/submit_edict] new edict=%s goal=%.60s assigned=%s priority=%s profile=%s",
-            edict.id,
-            edict.goal,
-            edict.assigned_persona_id,
-            edict.priority,
-            edict.execution_profile,
+            persisted_edict.id,
+            persisted_edict.goal,
+            persisted_edict.assigned_persona_id,
+            persisted_edict.priority,
+            persisted_edict.execution_profile,
         )
 
         profile_hint = {
@@ -134,15 +164,16 @@ def register_submit_edict(
             "background": "长任务（后台）",
         }.get(execution_profile, execution_profile)
         return ok_result(
-            f"已颁敕 #{edict.id[:8]}「{edict_title}」（{profile_hint}，立即执行）",
+            f"已颁敕 #{persisted_edict.id[:8]}「{edict_title}」（{profile_hint}，立即执行）",
             details={
-                "edict_id": edict.id,
+                "edict_id": persisted_edict.id,
+                "memorial_id": submission.memorial.id,
                 "title": edict_title,
                 "priority": priority,
                 "execution_profile": execution_profile,
-                "assigned_persona_id": edict.assigned_persona_id,
+                "assigned_persona_id": persisted_edict.assigned_persona_id,
                 "review_policy": review_policy,
-                "output_format": edict.output_format,
+                "output_format": persisted_edict.output_format,
                 "acceptance_rubric": acceptance_rubric.strip() if acceptance_rubric else None,
             },
         )
@@ -236,6 +267,7 @@ def register_submit_edict(
             tier=ToolTier.T2_NETWORK.value,
             max_result_chars=1024,
             side_effect=True,
+            managed_effect_semantics=SideEffectSemantics.PROVIDER_IDEMPOTENT,
         ),
     )
 

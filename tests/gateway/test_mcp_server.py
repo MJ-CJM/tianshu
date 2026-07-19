@@ -11,7 +11,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
+from tianshu.config import TianshuSettings
+from tianshu.gateway.auth import AuthService, SecurityBoundaryMiddleware
 from tianshu.gateway.mcp_server import build_mcp_server
 
 _HEADERS = {
@@ -45,10 +48,20 @@ def mcp_client(storage):
             yield
 
     app = FastAPI(lifespan=lifespan)
+    settings = TianshuSettings(
+        _env_file=None,
+        host="127.0.0.1",
+        allowed_hosts="testserver",
+    )
+    app.state.settings = settings
     app.state.storage = storage
     app.state.event_bus = EventBus()
+    app.state.auth_service = AuthService(storage, settings)
+    app.state.edict_application_service = EdictApplicationService(storage)
+    app.state.public_webhook_paths = set()
     mcp_holder["mcp"] = build_mcp_server(app)
     app.mount("/mcp", mcp_holder["mcp"].streamable_http_app())
+    app.add_middleware(SecurityBoundaryMiddleware, settings=settings)
 
     with TestClient(app) as client:
         yield client

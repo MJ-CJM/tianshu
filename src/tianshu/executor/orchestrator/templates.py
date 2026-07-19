@@ -12,7 +12,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates" / "edict"
+
+def _templates_dir() -> Path:
+    from tianshu.resources.overlay import packaged_defaults
+
+    return packaged_defaults().executor_templates_dir() / "edict"
 
 
 class TemplateName(str, Enum):
@@ -57,7 +61,7 @@ def wrap_untrusted_objective(objective: str) -> str:
 
 
 def _load_template_file(name: TemplateName) -> str | None:
-    path = _TEMPLATES_DIR / f"{name.value}.md"
+    path = _templates_dir() / f"{name.value}.md"
     try:
         return path.read_text(encoding="utf-8")
     except (FileNotFoundError, OSError) as e:

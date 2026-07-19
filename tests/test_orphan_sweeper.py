@@ -76,7 +76,7 @@ async def test_recover_orphan_foreground_fails(storage):
     async def _cap(ev):
         seen.append(ev.memorial_id)
 
-    bus.on("execution.failed", _cap)
+    bus.on("execution.failed", _cap, consumer_name="test.execution_failed.v1")
     sched = Scheduler(bus, storage)
     await sched._recover_orphan(m)
     assert storage.get_memorial(m.id).status == TaskStatus.FAILED
@@ -93,7 +93,7 @@ async def test_recover_orphan_checkpointed_resumes(storage):
     async def _cap(ev):
         seen.append(ev.memorial_id)
 
-    bus.on("edict.resume", _cap)
+    bus.on("edict.resume", _cap, consumer_name="test.edict_resume.v1")
     sched = Scheduler(bus, storage)
     await sched._recover_orphan(m)
     assert m.id in seen
@@ -115,8 +115,8 @@ async def test_recover_orphan_paused_skipped(storage):
     async def _cap(ev):
         seen.append(ev.memorial_id)
 
-    bus.on("edict.resume", _cap)
-    bus.on("execution.failed", _cap)
+    bus.on("edict.resume", _cap, consumer_name="test.edict_resume.v1")
+    bus.on("execution.failed", _cap, consumer_name="test.execution_failed.v1")
     sched = Scheduler(bus, storage)
     await sched._recover_orphan(m)
     assert seen == []
