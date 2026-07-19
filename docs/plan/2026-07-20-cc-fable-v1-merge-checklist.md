@@ -43,14 +43,16 @@
 
 ### 2b. 仪式化脚本归档（低风险）
 
-- [ ] 归档至 `docs/cc-fable-v1/archive-scripts/`（硬编码分支 commit SHA、未接入 CI、一次性发布仪式）：
-  - [ ] `scripts/check_lean_preview_candidate.py`（1136 行，PHASE_SPECS 硬编码 10 个 SHA）
-  - [ ] `scripts/verify_lean_preview_evidence.py`（956 行）
-  - [ ] `scripts/check_s5_lean_evidence.py`（1247 行）
-  - [ ] `scripts/check_s3_core_evidence.py`（620 行）
-  - [ ] `scripts/record_lean_preview_gates.py`（169 行）
-- [ ] 保留（可复用资产）：`scripts/build_release.sh`、`scripts/record_lean_preview_build_provenance.py`、
-  `scripts/_trusted_local_process.py`
+- [x] 归档至 `docs/cc-fable-v1/archive-scripts/`（硬编码分支 commit SHA、未接入 CI、一次性发布仪式）：
+  - [x] `scripts/check_lean_preview_candidate.py`（1136 行，PHASE_SPECS 硬编码 10 个 SHA）
+  - [x] `scripts/verify_lean_preview_evidence.py`（956 行）
+  - [x] `scripts/check_s5_lean_evidence.py`（1247 行）
+  - [x] `scripts/check_s3_core_evidence.py`（620 行）
+  - [x] `scripts/record_lean_preview_gates.py`（169 行）
+  - [x] `scripts/record_lean_preview_build_provenance.py`（执行时发现它 import 候选校验脚本、
+    输出绑定 evidence 体系，属发布仪式链一环，随之归档；原计划保留）
+  - [x] `scripts/_trusted_local_process.py`（provenance 归档后无使用者，一并归档）
+- [x] 保留（可复用资产）：`scripts/build_release.sh`
 - [ ] 同步删除测发布脚本本身的测试：`tests/launch/` 中仅针对上述归档脚本的用例
   （逐文件确认，`tests/launch` 共 4073 行，非全删——Lean Preview demo 端到端相关部分随 2d 处置）
 

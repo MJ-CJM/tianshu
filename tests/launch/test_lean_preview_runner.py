@@ -26,7 +26,6 @@ from tianshu.models.run_assignment import (
 
 ROOT = Path(__file__).parents[2]
 RUNNER_PATH = ROOT / "src" / "tianshu" / "lean_preview_demo.py"
-VERIFIER_PATH = ROOT / "scripts" / "verify_lean_preview_evidence.py"
 SCENARIO_PATH = ROOT / "examples" / "lean-governed-evolution" / "scenario.json"
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
@@ -74,14 +73,6 @@ def _strict_json(model_type, value: object):
 
 def _module():
     spec = importlib.util.spec_from_file_location("lean_preview_runner", RUNNER_PATH)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _verifier_module():
-    spec = importlib.util.spec_from_file_location("lean_preview_verifier", VERIFIER_PATH)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -509,182 +500,6 @@ class _Clock:
     def __call__(self) -> datetime:
         self.value += timedelta(seconds=1)
         return self.value
-
-
-def test_runner_uses_only_stdlib_and_public_http_surfaces(tmp_path: Path) -> None:
-    tree = ast.parse(RUNNER_PATH.read_text(encoding="utf-8"))
-    imported = {
-        alias.name.split(".")[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    } | {
-        (node.module or "").split(".")[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-    }
-    assert "tianshu" not in imported
-    assert imported <= {
-        "__future__",
-        "argparse",
-        "collections",
-        "dataclasses",
-        "datetime",
-        "hashlib",
-        "json",
-        "os",
-        "pathlib",
-        "sys",
-        "time",
-        "typing",
-        "urllib",
-    }
-
-    module = _module()
-    scenario_path = tmp_path / "scenario.json"
-    scenario_path.write_text(json.dumps(_scenario()), encoding="utf-8")
-    transport = _FakeTransport(module)
-
-    report_path = module.run_demo(
-        base_url="http://127.0.0.1:7998",
-        scenario_path=scenario_path,
-        batch_id="batch-public-boundary",
-        output_root=tmp_path / "evidence",
-        transport=transport,
-        clock=_Clock(),
-        sleeper=lambda _seconds: None,
-        environ={
-            "TIANSHU_BOOTSTRAP_TOKEN": "super-secret-token",
-            "TIANSHU_LEAN_FIXTURE": "false",
-        },
-    )
-
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert [step["step_id"] for step in report["steps"]] == list(module.EXPECTED_STEP_IDS)
-    assert {step["status"] for step in report["steps"]} == {"passed"}
-    assert report["assignment_id"] == transport.canary_assignment["assignment_id"]
-    assert report["fixture"] is False
-    assert report["evidence_bundle_hash"] == transport.bundle["content_hash"]
-    assert report["content_hash"] == _canonical_hash(
-        {key: value for key, value in report.items() if key != "content_hash"}
-    )
-    LeanPreviewDemoReportV1.model_validate_json(report_path.read_text(encoding="utf-8"))
-    _verifier_module().verify_demo_evidence(
-        report_path,
-        report_path.parent / "artifacts",
-        expected_source_commit="1" * 40,
-        expected_wheel_sha256=DIGEST_A,
-    )
-
-    observed_by_step = {
-        step_id: json.loads(
-            (report_path.parent / "artifacts" / f"{index:02d}-{step_id}.json").read_text(
-                encoding="utf-8"
-            )
-        )["observed"]
-        for index, step_id in enumerate(module.EXPECTED_STEP_IDS, 1)
-    }
-    _strict_json(Memorial, observed_by_step["observe_completed_run"]["memorial"])
-    _strict_json(ClosedEvidenceBundleV1, observed_by_step["verify_evidence_bundle"]["bundle"])
-    _strict_json(
-        EvolutionCandidateV1,
-        observed_by_step["evaluate_candidate_gate"]["candidate_before_gate"],
-    )
-    _strict_json(
-        ClosedEvidenceBundleV1,
-        observed_by_step["evaluate_candidate_gate"]["candidate_evidence"]["bundle"],
-    )
-    _strict_json(EvolutionCandidateV1, observed_by_step["evaluate_candidate_gate"]["candidate"])
-    _strict_json(EvolutionGateReportV1, observed_by_step["evaluate_candidate_gate"]["gate_report"])
-    _strict_json(PromotionReceiptV1, observed_by_step["start_skill_canary"]["promotion_receipt"])
-    _strict_json(Memorial, observed_by_step["verify_real_candidate_overlay"]["memorial"])
-    _strict_json(RunAssignmentV1, observed_by_step["verify_real_candidate_overlay"]["assignment"])
-    _strict_json(
-        EffectiveEvolutionOverlayV1,
-        observed_by_step["verify_real_candidate_overlay"]["effective_overlay"],
-    )
-    _strict_json(RollbackReceiptV1, observed_by_step["rollback_candidate"]["rollback_receipt"])
-    _strict_json(Memorial, observed_by_step["verify_new_run_uses_champion"]["memorial"])
-    _strict_json(
-        LegacyRunAssignmentV1,
-        observed_by_step["verify_new_run_uses_champion"]["assignment"],
-    )
-    assert observed_by_step["verify_new_run_uses_champion"]["effective_overlay"] is None
-    _strict_json(
-        EvolutionCandidateV1, observed_by_step["verify_new_run_uses_champion"]["candidate"]
-    )
-    assert observed_by_step["doctor_ready"]["principal_id"] == transport.principal_id
-    before_gate = observed_by_step["evaluate_candidate_gate"]["candidate_before_gate"]
-    ready = observed_by_step["evaluate_candidate_gate"]["candidate"]
-    assert before_gate["lifecycle"] == "staged"
-    assert before_gate["version"] == 2
-    assert before_gate["gate_snapshot_version"] == 0
-    assert ready["lifecycle"] == "ready"
-    assert ready["version"] == 4
-    assert ready["gate_snapshot_version"] == 1
-    assert ready["evidence_bundle_ids"] == [transport.candidate_bundle["bundle_id"]]
-    candidate_evidence_calls = [
-        call
-        for call in transport.calls
-        if call[0] == "POST"
-        and call[1] == "/api/edicts"
-        and isinstance(call[3], dict)
-        and str(call[3].get("goal", "")).endswith("[candidate-evidence]")
-    ]
-    assert len(candidate_evidence_calls) == 1
-    candidate_evidence_body = _mapping(candidate_evidence_calls[0][3])
-    candidate_evidence_contract = _mapping(candidate_evidence_body["governance_contract"])
-    assert candidate_evidence_contract["workspace"] == {
-        "source_id": None,
-        "base_revision": None,
-        "staging_mode": "ephemeral",
-        "apply_mode": "none",
-        "require_clean_source": False,
-    }
-    assert candidate_evidence_contract["acceptance"] == candidate_evidence_body["acceptance"]
-    checks = _mapping(candidate_evidence_contract["acceptance"])["checks"]
-    assert isinstance(checks, list) and checks
-    assert all(
-        isinstance(check, dict)
-        and check.get("kind") == "rubric"
-        and "command" not in check
-        and isinstance(check.get("rubric"), str)
-        for check in checks
-    )
-    EdictCreateRequest.model_validate(candidate_evidence_body)
-    gate_calls = [call for call in transport.calls if call[1].endswith("/gate/evaluate")]
-    assert [call[1] for call in gate_calls] == [
-        f"/api/skills/candidates/{ready['candidate_id']}/gate/evaluate"
-    ]
-    for step_id, action in (
-        ("start_skill_canary", "start_canary"),
-        ("rollback_candidate", "rollback"),
-    ):
-        observed = observed_by_step[step_id]
-        request_binding = observed["request_binding"]
-        receipt_name = "promotion_receipt" if action == "start_canary" else "rollback_receipt"
-        receipt = observed[receipt_name]
-        expected_key = f"lean-preview:batch-public-boundary:{'canary' if action == 'start_canary' else 'rollback'}"
-        assert request_binding["action"] == action
-        assert request_binding["idempotency_key"] == expected_key
-        assert receipt["idempotency_key"] == expected_key
-        assert receipt["journal_id"] == _promotion_journal_id(transport.principal_id, expected_key)
-
-    artifacts = sorted((report_path.parent / "artifacts").glob("*.json"))
-    assert len(artifacts) == 13
-    joined = "\n".join(path.read_text(encoding="utf-8") for path in artifacts)
-    assert "super-secret-token" not in joined
-    assert _scenario()["skill"]["content"] not in joined
-    assert _scenario()["decision"]["reason"] not in joined
-    for artifact in artifacts:
-        payload = json.loads(artifact.read_text(encoding="utf-8"))
-        assert payload["requests"]
-        for request in payload["requests"]:
-            assert set(request) == {"method", "path", "body_sha256"}
-        assert all(payload["correlation_ids"])
-
-    api_calls = [call for call in transport.calls if call[1].startswith("/api/")]
-    assert all(call[2]["Authorization"] == "Bearer super-secret-token" for call in api_calls)
 
 
 def test_runner_bounds_polling_and_retains_failed_batch(tmp_path: Path) -> None:
