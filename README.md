@@ -15,7 +15,11 @@
 ## Lean Developer Preview Candidate
 
 天枢把「敕令（Edict）→ 裁决（Decision）→ 运行 → Evidence → 技能候选 → 门禁 →
-分流 → 回滚」组织成一条可复验的本地链路。当前 Candidate 已有以下实现与证据：
+分流 → 回滚」组织成一条可复验的本地链路。当前代码与阶段证据覆盖以下能力：
+
+> 先前生成的 Candidate JSON/总报告因使用 composite summaries、未绑定 tracked raw Gate
+> logs 与 build provenance，已经 fail-closed 撤销。当前没有被接受的 Candidate；必须完成新的
+> 单次 final-source Gate、制品 provenance 与新 demo 后再由严格 checker 重建。
 
 - **可治理：**受管 Native 路径使用持久 Decision、RunState、attempt lease/fencing 和
   effect intent/receipt；已声明且进入账本的恢复边界可耐单节点重启。
@@ -24,9 +28,10 @@
 - **持续成长：**技能候选经过 evidence-bound Gate、真实 canary assignment 和 effective
   overlay，再由受控回滚把新流量归零。它是通过的 Lean Core，不等于完整 G4。
 - **真实桌面产品：**中枢总览、敕令详情、演化中心三张核心页读取权威 API，不以 mock
-  数字冒充能力；自动化门禁已通过，视觉/交互终审仍为 `user_approval_pending`。
+  数字冒充能力；阶段自动化已保留，新的 Candidate final Gate 尚待执行，视觉/交互终审仍为
+  `user_approval_pending`。
 
-最终保留的黄金批次通过全部 13 步和严格校验；详见
+历史保留的黄金批次通过全部 13 步和严格校验，但不复用为新 Candidate；详见
 [使用指南](docs/usage/lean-developer-preview.md)与
 [不可变报告](docs/cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json)。
 

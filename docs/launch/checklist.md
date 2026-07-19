@@ -2,6 +2,9 @@
 
 > **当前版本：0.4.2。** 本清单只记录私有分支中的本地 Candidate；
 > `publication_status`: `not_authorized`。
+>
+> 旧 Candidate 聚合产物已撤销；当前没有被接受的 Candidate。下方阶段证据不替代新的
+> final-source Gate、build provenance 与新 demo。
 
 ## 已完成的 Lean Core 证据
 

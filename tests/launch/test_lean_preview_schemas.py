@@ -110,6 +110,10 @@ def _candidate_payload() -> dict[str, object]:
         {
             "schema_version": 1,
             "source_commit": "1" * 40,
+            "gate_evidence_ref": "evidence/gates/batch/manifest.json",
+            "gate_evidence_hash": _DIGEST,
+            "build_provenance_ref": "evidence/builds/batch/provenance.json",
+            "build_provenance_hash": _OTHER_DIGEST,
             "phase_report_hashes": dict.fromkeys(_PHASE_REPORT_IDS, _DIGEST),
             "demo_report_ref": "demo-report.json",
             "demo_report_hash": _demo_payload()["content_hash"],
@@ -124,6 +128,36 @@ def _candidate_payload() -> dict[str, object]:
             "deferred_work_ids": list(_DEFERRED_WORK_IDS),
         }
     )
+
+
+def test_candidate_contract_requires_tracked_gate_and_build_provenance() -> None:
+    module = _module()
+    payload = _candidate_payload()
+    payload.update(
+        {
+            "gate_evidence_ref": "evidence/gates/batch/manifest.json",
+            "gate_evidence_hash": _DIGEST,
+            "build_provenance_ref": "evidence/builds/batch/provenance.json",
+            "build_provenance_hash": _OTHER_DIGEST,
+        }
+    )
+    payload = _rehash(payload)
+
+    model = _validate_json(module.LeanPreviewCandidateReportV1, payload)
+    assert model.gate_evidence_hash == _DIGEST
+    assert model.build_provenance_hash == _OTHER_DIGEST
+    assert not _schema_errors("lean-preview-candidate-report-v1.schema.json", payload)
+
+    for field in (
+        "gate_evidence_ref",
+        "gate_evidence_hash",
+        "build_provenance_ref",
+        "build_provenance_hash",
+    ):
+        missing = _rehash({key: value for key, value in payload.items() if key != field})
+        with pytest.raises(ValidationError, match=field):
+            _validate_json(module.LeanPreviewCandidateReportV1, missing)
+        assert _schema_errors("lean-preview-candidate-report-v1.schema.json", missing)
 
 
 def _approval_payload(*, demo_report_hash: str | None = None) -> dict[str, object]:

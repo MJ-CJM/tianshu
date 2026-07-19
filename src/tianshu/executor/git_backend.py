@@ -1139,6 +1139,47 @@ class GitBackend:
         self._require_complete_output("commit_timestamp", result)
         return result.stdout.strip()
 
+    def list_files_at_commit(self, location: GitLocation, sha: str) -> tuple[str, ...]:
+        """List validated repository-relative files from one immutable commit."""
+
+        sha = _validate_sha(sha)
+        result = self._invoke(
+            "list_files_at_commit",
+            location,
+            ("ls-tree", "-r", "--name-only", "-z", sha),
+            max_output_bytes=self._materialization_limit_bytes,
+        )
+        self._require_complete_output("list_files_at_commit", result)
+        try:
+            return tuple(
+                _validate_pathspec(os.fsdecode(raw))
+                for raw in result.stdout_bytes.split(b"\x00")
+                if raw
+            )
+        except (UnicodeError, ValueError) as exc:
+            raise GitBackendError(
+                "list_files_at_commit", "Git returned an invalid committed path"
+            ) from exc
+
+    def read_file_at_commit(
+        self,
+        location: GitLocation,
+        sha: str,
+        relative_path: str,
+    ) -> bytes:
+        """Read one validated committed blob with bounded output."""
+
+        sha = _validate_sha(sha)
+        relative_path = _validate_pathspec(relative_path)
+        result = self._invoke(
+            "read_file_at_commit",
+            location,
+            ("show", f"{sha}:{relative_path}"),
+            max_output_bytes=self._blob_limit_bytes,
+        )
+        self._require_complete_output("read_file_at_commit", result)
+        return result.stdout_bytes
+
     def list_log(self, location: GitLocation) -> tuple[GitLogEntry, ...]:
         result = self._invoke(
             "list_log",

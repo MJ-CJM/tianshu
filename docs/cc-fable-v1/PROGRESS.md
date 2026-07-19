@@ -184,37 +184,11 @@ Boundary: this closes only the Lean Core Gate; OpenHands, executor compatibility
 Report: docs/cc-fable-v1/reports/s5-lean-evolution-report.md
 
 === Lean Developer Preview Candidate / Closure Task 6 (2026-07-18) ===
-Candidate: automation_passed; source `ddc8520f9abd3fc5014955c9c4ed4b17eec4aec0`;
-visual/interaction `user_approval_pending`; publication `not_authorized`
-Artifacts: clean-source sdist
-`4a94cad1cdc0f66baa1ca6fef1cf7b53e587d523d89f3bd5a27f5881c1aaea35`;
-repo-external from-sdist Wheel
-`3ff6fe4217daddd6db94e35cefb66970f44b3e9780bcbdbba3a14bfed17bf1c1`;
-Python 3.12 + pinned build==1.5.0; no uv/uv.lock
-Golden demo: new non-fixture batch `20260718T142607Z-ddc8520f9abd`;
-1 passed / 4 third-party warnings / 573.80s; strict source+Wheel verifier passed;
-13/13 steps; loopback-only descendants; clean SIGTERM; SQLite quick_check=ok;
-package resource digest unchanged
-Final backend: unrestricted byte-identical e0 Gate
-4362 passed / 2 skipped / 29 deselected / 8 warnings; final-source managed shards
-4337 passed / 2 skipped; 25 DNS/loopback/process nodes covered by equivalence, not
-relabelled as fresh managed passes
-Final packaging: composite 28 passed / 0 failed / 0 required skipped / 4 warnings
-(current resources 13 + retained equivalent fresh-HOME 10 + helper 4 + current
-exact-Wheel golden 1)
-Final Web: npm ci passed; lint 0 errors/35 retained warnings; typecheck passed;
-35 files/187 unit tests passed; build passed with inherited antd advisory;
-Playwright 41-test composite closure = unrestricted 40/41 baseline + unique
-fixture remediation focused 20/20 + final manifest focus 1/1; no claim of a new
-unrestricted 41/41 run
-Audit: current offline full/prod 0; live registry audit DNS-blocked; last
-registry-backed e0 truth full=1 low dev-only / production=0
-Candidate checker: fail-closed canonical-JSON check exercised, then passed;
-five phase manifests, 24 screenshot hashes, all D8 IDs, no tracked .idea, exact
-demo/artifact/report/capability hashes verified
-Boundary: desktop Web only; VoiceOver + OpenHands + executor compatibility + ROI
-+ cost calibration + full G4 external_pending; full G5 + official container +
-PyPI + GHCR deferred; remote MCP + open stdio MCP disabled; no
-push/tag/release/upload/container/OIDC/mobile/publication
-Report: docs/cc-fable-v1/reports/lean-developer-preview-candidate.md
-Closure report: .superpowers/sdd/closure-task-6-report.md
+Status: old Candidate JSON and aggregate Markdown withdrawn fail-closed during
+hardening. They relied on composite/caller summaries and did not bind tracked raw
+Gate logs or build provenance, so they are not an accepted Candidate.
+Historical golden demo batches remain retained evidence only and must not be
+reused for the next Candidate. Reassembly requires one new final-source Gate
+batch with hashed raw logs, pinned source-to-sdist-to-Wheel provenance, and a new
+source/Wheel-bound demo. Visual/interaction remains `user_approval_pending`;
+publication remains `not_authorized`.

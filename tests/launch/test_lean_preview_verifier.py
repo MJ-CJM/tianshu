@@ -50,6 +50,22 @@ DEFERRED_IDS = (
     "P4-E4",
     "P4-E5",
 )
+PHASE_COMMITS = {
+    "s1_g1_5": (
+        "bbf84451a40f8f3450e080c939c82fba52428271",
+        "8c2303df525b05a69d1a6902c83b06c5fd50102d",
+    ),
+    "s2_lean": (
+        "bbf672e560ecd2c793a1a80d0cc262b41550a4db",
+        "66e59943b91bc708344c69b895eaa8cfc3298721",
+    ),
+    "s3_core": (
+        "60d3c45b836de44b132dba186e5c9a3672592ea3",
+        "2eb20d6dfd39b172f438c90aee5eaee507d8a227",
+    ),
+    "s4_automation": ("303787916f1004362c3f250c07a8de179aa0885d",) * 2,
+    "s5_lean_core": ("f6777b435631ab3d5fa1aeac1a96cdbf2c424774",) * 2,
+}
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -500,6 +516,8 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
             "gate_id": module._PHASE_GATE_IDS[phase_id],
             "status": "passed",
             "source_commit": "1" * 40,
+            "gate_source_commit": PHASE_COMMITS[phase_id][0],
+            "report_commit": PHASE_COMMITS[phase_id][1],
             "report_ref": f"reports/{phase_id}.md",
             "report_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
             "external_pending": [],
@@ -511,9 +529,13 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
     wheel = tmp_path / "candidate.whl"
     sdist = tmp_path / "candidate.tar.gz"
     matrix = tmp_path / "capability-matrix.md"
+    gate_evidence = tmp_path / "gate-evidence.json"
+    provenance = tmp_path / "build-provenance.json"
     wheel.write_bytes(b"exact wheel")
     sdist.write_bytes(b"exact sdist")
     matrix.write_text("verified matrix\n", encoding="utf-8")
+    gate_evidence.write_bytes(b"bound gate evidence")
+    provenance.write_bytes(b"bound build provenance")
     demo["wheel_sha256"] = hashlib.sha256(wheel.read_bytes()).hexdigest()
     _rehash_report(report_path, demo)
     demo = json.loads(report_path.read_text(encoding="utf-8"))
@@ -526,6 +548,10 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
     candidate: dict[str, object] = {
         "schema_version": 1,
         "source_commit": "1" * 40,
+        "gate_evidence_ref": "gate-evidence.json",
+        "gate_evidence_hash": hashlib.sha256(gate_evidence.read_bytes()).hexdigest(),
+        "build_provenance_ref": "build-provenance.json",
+        "build_provenance_hash": hashlib.sha256(provenance.read_bytes()).hexdigest(),
         "phase_report_hashes": {
             phase_id: json.loads(path.read_text(encoding="utf-8"))["content_hash"]
             for phase_id, path in phase_paths.items()
@@ -555,6 +581,32 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
         sdist_path=sdist,
         capability_matrix_path=matrix,
     )
+
+    gate_evidence.write_bytes(b"tampered gate evidence")
+    with pytest.raises(module.EvidenceVerificationError, match="Gate evidence hash"):
+        module.verify_candidate_report(
+            candidate_path,
+            artifact_root=tmp_path,
+            demo_report_path=report_path,
+            phase_report_paths=phase_paths,
+            wheel_path=wheel,
+            sdist_path=sdist,
+            capability_matrix_path=matrix,
+        )
+    gate_evidence.write_bytes(b"bound gate evidence")
+
+    provenance.write_bytes(b"tampered build provenance")
+    with pytest.raises(module.EvidenceVerificationError, match="build provenance hash"):
+        module.verify_candidate_report(
+            candidate_path,
+            artifact_root=tmp_path,
+            demo_report_path=report_path,
+            phase_report_paths=phase_paths,
+            wheel_path=wheel,
+            sdist_path=sdist,
+            capability_matrix_path=matrix,
+        )
+    provenance.write_bytes(b"bound build provenance")
 
     linked_root = tmp_path.parent / f"{tmp_path.name}-linked-root"
     linked_root.symlink_to(tmp_path, target_is_directory=True)
@@ -670,6 +722,8 @@ def test_candidate_verifier_recomputes_phase_and_release_artifact_hashes(tmp_pat
         ("arbitrary_text", "structured phase report"),
         ("wrong_gate", "gate identity"),
         ("wrong_commit", "source commit"),
+        ("wrong_gate_source", "gate source commit"),
+        ("wrong_report_commit", "report commit"),
         ("external_pending", "external_pending"),
     ],
 )
@@ -681,9 +735,13 @@ def test_candidate_verifier_requires_structured_passed_phase_evidence(
     wheel = tmp_path / "candidate.whl"
     sdist = tmp_path / "candidate.tar.gz"
     matrix = tmp_path / "capability-matrix.md"
+    gate_evidence = tmp_path / "gate-evidence.json"
+    provenance = tmp_path / "build-provenance.json"
     wheel.write_bytes(b"exact wheel")
     sdist.write_bytes(b"exact sdist")
     matrix.write_text("verified matrix\n", encoding="utf-8")
+    gate_evidence.write_bytes(b"bound gate evidence")
+    provenance.write_bytes(b"bound build provenance")
     demo["wheel_sha256"] = hashlib.sha256(wheel.read_bytes()).hexdigest()
     _rehash_report(report_path, demo)
     demo = json.loads(report_path.read_text(encoding="utf-8"))
@@ -700,6 +758,8 @@ def test_candidate_verifier_requires_structured_passed_phase_evidence(
             "gate_id": module._PHASE_GATE_IDS[phase_id],
             "status": "passed",
             "source_commit": "1" * 40,
+            "gate_source_commit": PHASE_COMMITS[phase_id][0],
+            "report_commit": PHASE_COMMITS[phase_id][1],
             "report_ref": f"reports/{phase_id}.md",
             "report_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
             "external_pending": [],
@@ -719,6 +779,10 @@ def test_candidate_verifier_requires_structured_passed_phase_evidence(
             phase["gate_id"] = "S4 Automation"
         elif mutation == "wrong_commit":
             phase["source_commit"] = "2" * 40
+        elif mutation == "wrong_gate_source":
+            phase["gate_source_commit"] = "4" * 40
+        elif mutation == "wrong_report_commit":
+            phase["report_commit"] = "4" * 40
         else:
             phase["external_pending"] = ["unverified external evidence"]
         phase.pop("content_hash")
@@ -729,6 +793,10 @@ def test_candidate_verifier_requires_structured_passed_phase_evidence(
     candidate: dict[str, object] = {
         "schema_version": 1,
         "source_commit": "1" * 40,
+        "gate_evidence_ref": "gate-evidence.json",
+        "gate_evidence_hash": hashlib.sha256(gate_evidence.read_bytes()).hexdigest(),
+        "build_provenance_ref": "build-provenance.json",
+        "build_provenance_hash": hashlib.sha256(provenance.read_bytes()).hexdigest(),
         "phase_report_hashes": phase_hashes,
         "demo_report_ref": "demo/batch-verifier/demo-report.json",
         "demo_report_hash": demo["content_hash"],

@@ -180,6 +180,10 @@ class LeanPreviewVisualApprovalRecordV1(_StrictModel):
 class LeanPreviewCandidateReportV1(_StrictModel):
     schema_version: Literal[1] = 1
     source_commit: GitCommit
+    gate_evidence_ref: NonBlankText
+    gate_evidence_hash: Digest
+    build_provenance_ref: NonBlankText
+    build_provenance_hash: Digest
     phase_report_hashes: dict[str, Digest] = Field(
         min_length=len(REQUIRED_PHASE_REPORT_IDS),
         max_length=len(REQUIRED_PHASE_REPORT_IDS),

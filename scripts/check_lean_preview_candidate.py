@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Assemble and fail-closed verify the local Lean Preview Candidate."""
 
-from __future__ import annotations
-
 import argparse
 import hashlib
 import json
 import re
 import sys
+import tarfile
+import zipfile
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, NamedTuple
+from typing import Any
 
 from tianshu.executor.git_backend import GitBackend, GitBackendError, GitLocation
 from tianshu.models.lean_preview import (
@@ -39,10 +40,12 @@ _EXTERNAL_AS_PASS = re.compile(
 )
 
 
-class PhaseSpec(NamedTuple):
+@dataclass(frozen=True)
+class PhaseSpec:
     gate_id: str
     report_ref: str
-    evidence_commit: str
+    gate_source_commit: str
+    report_commit: str
     pass_marker: str
 
 
@@ -51,29 +54,34 @@ PHASE_SPECS = {
         "G1.5",
         "docs/cc-fable-v1/reports/g1.5-report.md",
         "bbf84451a40f8f3450e080c939c82fba52428271",
+        "8c2303df525b05a69d1a6902c83b06c5fd50102d",
         "status: passed",
     ),
     "s2_lean": PhaseSpec(
         "S2 Lean",
         "docs/cc-fable-v1/reports/s2-lean-security-report.md",
         "bbf672e560ecd2c793a1a80d0cc262b41550a4db",
+        "66e59943b91bc708344c69b895eaa8cfc3298721",
         "- status: passed",
     ),
     "s3_core": PhaseSpec(
         "S3 Core",
         "docs/cc-fable-v1/reports/s3-core-governance-report.md",
         "60d3c45b836de44b132dba186e5c9a3672592ea3",
+        "2eb20d6dfd39b172f438c90aee5eaee507d8a227",
         "- status: passed",
     ),
     "s4_automation": PhaseSpec(
         "S4 Automation",
         "docs/cc-fable-v1/reports/s4-core-web-report.md",
         "303787916f1004362c3f250c07a8de179aa0885d",
+        "303787916f1004362c3f250c07a8de179aa0885d",
         "s4_core_web_automation: automation_passed",
     ),
     "s5_lean_core": PhaseSpec(
         "S5 Lean Core",
         "docs/cc-fable-v1/reports/s5-lean-evolution-report.md",
+        "f6777b435631ab3d5fa1aeac1a96cdbf2c424774",
         "f6777b435631ab3d5fa1aeac1a96cdbf2c424774",
         "Status: Lean Core Gate `passed`.",
     ),
@@ -99,17 +107,19 @@ REQUIRED_FINAL_COMMANDS = {
     "web_playwright": "npx playwright test",
 }
 
-_COMMAND_FIELDS = {
-    "command",
-    "exit_code",
-    "passed",
-    "failed",
-    "skipped",
-    "deselected",
-    "warnings",
-    "required_skipped",
-    "summary",
+REQUIRED_GATE_CWDS = {
+    command_id: ("web" if command_id.startswith("web_") else ".")
+    for command_id in REQUIRED_FINAL_COMMANDS
 }
+REQUIRED_GATE_ENVIRONMENTS = {
+    command_id: (
+        {"VIRTUAL_ENV": "unset"} if command_id in {"backend_non_slow", "packaging"} else {}
+    )
+    for command_id in REQUIRED_FINAL_COMMANDS
+}
+SDIST_BUILD_COMMAND = "python -m build --sdist --outdir dist/lean-preview-candidate"
+WHEEL_BUILD_COMMAND = "python -m build --wheel --outdir dist/lean-preview-candidate/from-sdist"
+
 _CAPABILITY_FACTS = (
     "desktop Web",
     "user_approval_pending",
@@ -129,6 +139,21 @@ class CandidateGateError(ValueError):
     """The supplied facts cannot support a Lean Preview Candidate."""
 
 
+@dataclass(frozen=True)
+class GateEvidence:
+    """Verified final-Gate records derived from hashed raw logs."""
+
+    content_hash: str
+    results: dict[str, dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class BuildProvenance:
+    """Verified source-to-sdist-to-Wheel provenance binding."""
+
+    content_hash: str
+
+
 class PhaseReportInput:
     def __init__(
         self,
@@ -137,13 +162,15 @@ class PhaseReportInput:
         gate_id: str,
         report_ref: str,
         report_bytes: bytes,
-        evidence_commit: str,
+        gate_source_commit: str,
+        report_commit: str,
     ) -> None:
         self.phase_id = phase_id
         self.gate_id = gate_id
         self.report_ref = report_ref
         self.report_bytes = report_bytes
-        self.evidence_commit = evidence_commit
+        self.gate_source_commit = gate_source_commit
+        self.report_commit = report_commit
 
 
 class CandidateContext:
@@ -172,35 +199,326 @@ def _canonical_bytes(value: object) -> bytes:
     ).encode()
 
 
+def _content_hash(value: Mapping[str, Any]) -> str:
+    payload = dict(value)
+    payload.pop("content_hash", None)
+    return _hash_bytes(_canonical_bytes(payload))
+
+
+def _pytest_counts(text: str) -> tuple[int, int, int, int, int, str]:
+    summaries = re.findall(
+        r"(?m)^([^\n]*?\b(?:passed|failed|skipped|deselected|warnings?)\b[^\n]*?)"
+        r"(?:\s+in\s+[0-9.]+s)?$",
+        text,
+    )
+    if not summaries:
+        raise CandidateGateError("Gate log has no pytest terminal summary")
+    summary = summaries[-1].strip()
+
+    def count(label: str) -> int:
+        match = re.search(rf"\b(\d+)\s+{label}\b", summary)
+        return int(match.group(1)) if match else 0
+
+    return (
+        count("passed"),
+        count("failed"),
+        count("skipped"),
+        count("deselected"),
+        count("warnings?"),
+        summary,
+    )
+
+
+def _derived_gate_result(gate_id: str, raw: bytes) -> dict[str, Any]:
+    text = raw.decode("utf-8", errors="replace")
+    passed = failed = skipped = deselected = warnings = 0
+    summary = ""
+    if gate_id in {"backend_non_slow", "packaging"}:
+        passed, failed, skipped, deselected, warnings, summary = _pytest_counts(text)
+    elif gate_id == "ruff_check" and "All checks passed" in text:
+        passed, summary = 1, "All checks passed"
+    elif gate_id == "ruff_format":
+        match = re.search(r"(\d+) files? already formatted", text)
+        if match:
+            passed, summary = int(match.group(1)), match.group(0)
+    elif gate_id == "mypy":
+        match = re.search(r"Success: no issues found in (\d+) source files", text)
+        if match:
+            passed, summary = int(match.group(1)), match.group(0)
+    elif gate_id == "import_linter":
+        match = re.search(r"Contracts:\s*(\d+) kept,\s*(\d+) broken", text)
+        if match:
+            passed, failed, summary = int(match.group(1)), int(match.group(2)), match.group(0)
+    elif gate_id == "web_npm_ci" and "found 0 vulnerabilities" in text:
+        passed, summary = 1, "npm ci completed; found 0 vulnerabilities"
+    elif gate_id == "web_lint":
+        match = re.search(r"\d+ problems \((\d+) errors?, (\d+) warnings?\)", text)
+        if match:
+            failed, warnings = int(match.group(1)), int(match.group(2))
+            passed, summary = (1 if failed == 0 else 0), match.group(0)
+    elif gate_id == "web_typecheck" and "tsc --noEmit" in text:
+        passed, summary = 1, "tsc --noEmit completed"
+    elif gate_id == "web_unit":
+        match = re.search(r"Tests\s+(\d+) passed", text)
+        if match:
+            passed, summary = int(match.group(1)), match.group(0)
+    elif gate_id == "web_build" and re.search(r"(?:✓|built)\s*built in|✓ built in", text):
+        passed, summary = 1, "production build completed"
+        warnings = int("Some chunks are larger than" in text)
+    elif gate_id == "web_playwright":
+        passed_match = re.search(r"\b(\d+) passed\b", text)
+        failed_match = re.search(r"\b(\d+) failed\b", text)
+        passed = int(passed_match.group(1)) if passed_match else 0
+        failed = int(failed_match.group(1)) if failed_match else 0
+        if passed != 41 or failed:
+            raise CandidateGateError("Playwright Gate requires exactly 41 passed and 0 failed")
+        summary = "41 passed"
+    if passed <= 0:
+        raise CandidateGateError(f"required Gate needs a positive passed count: {gate_id}")
+    return {
+        "command": REQUIRED_FINAL_COMMANDS[gate_id],
+        "exit_code": 0,
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+        "deselected": deselected,
+        "warnings": warnings,
+        "required_skipped": 0,
+        "summary": summary,
+    }
+
+
 def _mapping(value: object, label: str) -> dict[str, Any]:
     if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
         raise CandidateGateError(f"{label} must be an object")
     return value
 
 
-def _load_gate_manifest(path: Path) -> tuple[str, str, dict[str, dict[str, Any]]]:
+def load_gate_evidence(
+    path: Path, *, artifact_root: Path, expected_source_commit: str
+) -> GateEvidence:
     try:
         raw = path.read_bytes()
-        payload = json.loads(raw)
+        manifest = _mapping(json.loads(raw), "Gate evidence manifest")
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise CandidateGateError("final Gate manifest is missing or corrupt") from exc
-    manifest = _mapping(payload, "final Gate manifest")
-    if set(manifest) != {"schema_version", "source_commit", "demo_report_ref", "commands"}:
-        raise CandidateGateError("final Gate manifest fields are not exact")
-    if raw != _canonical_bytes(manifest):
-        raise CandidateGateError("final Gate manifest must be canonical JSON")
-    if manifest["schema_version"] != 1:
-        raise CandidateGateError("final Gate manifest schema is unsupported")
-    commands = _mapping(manifest["commands"], "final Gate commands")
-    for command_id, result in commands.items():
-        record = _mapping(result, f"final Gate command {command_id}")
-        if set(record) != _COMMAND_FIELDS:
-            raise CandidateGateError(f"final Gate command fields are not exact: {command_id}")
-    source_commit = manifest["source_commit"]
-    demo_report_ref = manifest["demo_report_ref"]
-    if not isinstance(source_commit, str) or not isinstance(demo_report_ref, str):
-        raise CandidateGateError("final Gate manifest bindings must be strings")
-    return source_commit, demo_report_ref, commands
+        raise CandidateGateError("Gate evidence manifest is missing or corrupt") from exc
+    required = {"schema_version", "batch_id", "source_commit", "commands", "content_hash"}
+    if set(manifest) != required:
+        raise CandidateGateError("Gate evidence manifest fields are not exact")
+    if raw != _canonical_bytes(manifest) or manifest.get("content_hash") != _content_hash(manifest):
+        raise CandidateGateError("Gate evidence manifest content hash mismatch")
+    if (
+        manifest.get("schema_version") != 1
+        or manifest.get("source_commit") != expected_source_commit
+    ):
+        raise CandidateGateError("Gate evidence source commit mismatch")
+    if not isinstance(manifest.get("batch_id"), str) or not manifest["batch_id"]:
+        raise CandidateGateError("Gate evidence batch id is missing")
+    commands = _mapping(manifest["commands"], "Gate evidence commands")
+    if set(commands) != set(REQUIRED_FINAL_COMMANDS):
+        raise CandidateGateError("required final Gate commands are incomplete")
+    artifact_root = artifact_root.resolve()
+    batch_root = path.parent.resolve()
+    if not batch_root.is_relative_to(artifact_root):
+        raise CandidateGateError("Gate evidence is outside the artifact root")
+    results: dict[str, dict[str, Any]] = {}
+    fields = {"command", "cwd", "environment", "exit_code", "log_ref", "log_sha256"}
+    for gate_id, value in commands.items():
+        record = _mapping(value, f"Gate evidence command {gate_id}")
+        if set(record) != fields:
+            raise CandidateGateError(f"Gate evidence command fields are not exact: {gate_id}")
+        if (
+            record["command"] != REQUIRED_FINAL_COMMANDS[gate_id]
+            or record["cwd"] != REQUIRED_GATE_CWDS[gate_id]
+            or record["environment"] != REQUIRED_GATE_ENVIRONMENTS[gate_id]
+        ):
+            raise CandidateGateError(f"required Gate command context mismatch: {gate_id}")
+        if record["exit_code"] != 0:
+            raise CandidateGateError(f"required Gate failed: {gate_id}")
+        log_ref = record["log_ref"]
+        if not isinstance(log_ref, str):
+            raise CandidateGateError("Gate log ref must be a string")
+        log_path = (batch_root / log_ref).resolve()
+        if not log_path.is_relative_to(batch_root):
+            raise CandidateGateError("Gate log ref escapes its evidence batch")
+        try:
+            log_bytes = log_path.read_bytes()
+        except OSError as exc:
+            raise CandidateGateError(f"missing Gate log: {gate_id}") from exc
+        if (
+            not _SHA256.fullmatch(str(record["log_sha256"]))
+            or _hash_bytes(log_bytes) != record["log_sha256"]
+        ):
+            raise CandidateGateError(f"Gate log hash mismatch: {gate_id}")
+        results[gate_id] = _derived_gate_result(gate_id, log_bytes)
+    _validate_command_results(results)
+    return GateEvidence(content_hash=manifest["content_hash"], results=results)
+
+
+def _verified_log(batch_root: Path, record: Mapping[str, Any], label: str) -> bytes:
+    if set(record) < {"log_ref", "log_sha256"}:
+        raise CandidateGateError(f"{label} build log binding is missing")
+    log_ref = record["log_ref"]
+    if not isinstance(log_ref, str):
+        raise CandidateGateError(f"{label} build log ref is invalid")
+    path = (batch_root / log_ref).resolve()
+    if not path.is_relative_to(batch_root.resolve()):
+        raise CandidateGateError(f"{label} build log escapes its batch")
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise CandidateGateError(f"missing {label} build log") from exc
+    if _hash_bytes(raw) != record["log_sha256"]:
+        raise CandidateGateError(f"{label} build log hash mismatch")
+    return raw
+
+
+def _sdist_payload(path: Path) -> dict[str, bytes]:
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            all_members = archive.getmembers()
+            if any(not member.isfile() and not member.isdir() for member in all_members):
+                raise CandidateGateError("sdist contains an unsafe member type")
+            members = [member for member in all_members if member.isfile()]
+            roots = {PurePosixPath(member.name).parts[0] for member in members}
+            if len(roots) != 1:
+                raise CandidateGateError("sdist must contain a single root directory")
+            root = next(iter(roots))
+            if any(
+                (pure := PurePosixPath(member.name)).is_absolute()
+                or ".." in pure.parts
+                or not pure.parts
+                or pure.parts[0] != root
+                for member in all_members
+            ):
+                raise CandidateGateError("sdist contains an unsafe member")
+            payload: dict[str, bytes] = {}
+            for member in members:
+                pure = PurePosixPath(member.name)
+                relative = PurePosixPath(*pure.parts[1:]).as_posix()
+                if relative in payload:
+                    raise CandidateGateError("sdist contains a duplicate member")
+                extracted = archive.extractfile(member)
+                if extracted is not None:
+                    payload[relative] = extracted.read()
+            return payload
+    except (OSError, tarfile.TarError) as exc:
+        raise CandidateGateError("sdist is missing or corrupt") from exc
+
+
+def _wheel_payload(path: Path) -> dict[str, bytes]:
+    try:
+        with zipfile.ZipFile(path) as archive:
+            payload: dict[str, bytes] = {}
+            for name in archive.namelist():
+                pure = PurePosixPath(name)
+                if pure.is_absolute() or ".." in pure.parts:
+                    raise CandidateGateError("Wheel contains an unsafe member")
+                if not name.endswith("/"):
+                    payload[pure.as_posix()] = archive.read(name)
+            return payload
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise CandidateGateError("Wheel is missing or corrupt") from exc
+
+
+def verify_build_provenance(
+    path: Path,
+    *,
+    artifact_root: Path,
+    expected_source_commit: str,
+    sdist_path: Path,
+    wheel_path: Path,
+    tracked_source_files: Mapping[str, bytes],
+) -> BuildProvenance:
+    try:
+        raw = path.read_bytes()
+        payload = _mapping(json.loads(raw), "build provenance")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CandidateGateError("build provenance is missing or corrupt") from exc
+    required = {
+        "schema_version",
+        "source_commit",
+        "python_version",
+        "frontend",
+        "sdist",
+        "wheel",
+        "content_hash",
+    }
+    if set(payload) != required or raw != _canonical_bytes(payload):
+        raise CandidateGateError("build provenance fields are not exact")
+    if payload["content_hash"] != _content_hash(payload):
+        raise CandidateGateError("build provenance hash mismatch")
+    if payload["schema_version"] != 1 or payload["source_commit"] != expected_source_commit:
+        raise CandidateGateError("build provenance source commit mismatch")
+    if not isinstance(payload["python_version"], str) or not re.fullmatch(
+        r"3\.12\.\d+", payload["python_version"]
+    ):
+        raise CandidateGateError("build provenance requires Python 3.12")
+    frontend = _mapping(payload["frontend"], "build frontend")
+    if frontend != {"name": "build", "version": "1.5.0"}:
+        raise CandidateGateError("build frontend is not pinned")
+    batch_root = path.parent.resolve()
+    if not batch_root.is_relative_to(artifact_root.resolve()):
+        raise CandidateGateError("build provenance is outside the artifact root")
+    sdist_record = _mapping(payload["sdist"], "sdist provenance")
+    wheel_record = _mapping(payload["wheel"], "Wheel provenance")
+    expected_sdist_fields = {"command", "log_ref", "log_sha256", "sha256"}
+    expected_wheel_fields = expected_sdist_fields | {"source_sdist_sha256"}
+    if set(sdist_record) != expected_sdist_fields or set(wheel_record) != expected_wheel_fields:
+        raise CandidateGateError("artifact provenance fields are not exact")
+    if (
+        sdist_record["command"] != SDIST_BUILD_COMMAND
+        or wheel_record["command"] != WHEEL_BUILD_COMMAND
+    ):
+        raise CandidateGateError("artifact build command mismatch")
+    if b"Successfully built" not in _verified_log(batch_root, sdist_record, "sdist"):
+        raise CandidateGateError("sdist build log does not record success")
+    if b"Successfully built" not in _verified_log(batch_root, wheel_record, "Wheel"):
+        raise CandidateGateError("Wheel build log does not record success")
+    sdist_hash = _hash_file(sdist_path)
+    wheel_hash = _hash_file(wheel_path)
+    if sdist_record["sha256"] != sdist_hash:
+        raise CandidateGateError("sdist artifact hash mismatch")
+    if wheel_record["source_sdist_sha256"] != sdist_hash:
+        raise CandidateGateError("Wheel source sdist hash mismatch")
+    sdist_files = _sdist_payload(sdist_path)
+    for relative, expected in tracked_source_files.items():
+        if sdist_files.get(relative) != expected:
+            raise CandidateGateError(f"sdist source payload mismatch: {relative}")
+    visible = "src/tianshu/web/static/manifest.json"
+    hidden = "src/tianshu/web/static/.vite/manifest.json"
+    if visible not in sdist_files or hidden in sdist_files:
+        raise CandidateGateError("sdist must contain the visible manifest only")
+    wheel_files = _wheel_payload(wheel_path)
+    wheel_visible = "tianshu/web/static/manifest.json"
+    wheel_hidden = "tianshu/web/static/.vite/manifest.json"
+    if wheel_visible not in wheel_files or wheel_hidden in wheel_files:
+        raise CandidateGateError("Wheel must contain the visible manifest only")
+    sdist_package = {
+        relative.removeprefix("src/"): content
+        for relative, content in sdist_files.items()
+        if relative.startswith("src/tianshu/")
+    }
+    committed_package_paths = {
+        relative.removeprefix("src/")
+        for relative in tracked_source_files
+        if relative.startswith("src/tianshu/")
+    }
+    if any(
+        not relative.startswith("tianshu/web/static/")
+        for relative in sdist_package.keys() - committed_package_paths
+    ):
+        raise CandidateGateError("sdist contains package source absent from the committed source")
+    wheel_package = {
+        relative: content
+        for relative, content in wheel_files.items()
+        if relative.startswith("tianshu/")
+    }
+    if wheel_package != sdist_package:
+        raise CandidateGateError("Wheel package payload does not exactly match the sdist")
+    if wheel_record["sha256"] != wheel_hash:
+        raise CandidateGateError("Wheel package payload or artifact hash mismatch")
+    return BuildProvenance(content_hash=payload["content_hash"])
 
 
 def _validate_command_results(results: Mapping[str, Mapping[str, Any]]) -> None:
@@ -247,10 +565,12 @@ def validate_candidate_context(context: CandidateContext) -> None:
             phase.phase_id != phase_id
             or phase.gate_id != spec.gate_id
             or phase.report_ref != spec.report_ref
-            or phase.evidence_commit != spec.evidence_commit
-            or spec.evidence_commit not in context.phase_commits_in_history
+            or phase.gate_source_commit != spec.gate_source_commit
+            or phase.report_commit != spec.report_commit
+            or spec.gate_source_commit not in context.phase_commits_in_history
+            or spec.report_commit not in context.phase_commits_in_history
         ):
-            raise CandidateGateError(f"phase evidence commit mismatch: {phase_id}")
+            raise CandidateGateError(f"phase commit binding mismatch: {phase_id}")
         text = phase.report_bytes.decode("utf-8")
         if spec.pass_marker not in text:
             raise CandidateGateError(f"phase report is not passed: {phase_id}")
@@ -324,17 +644,49 @@ def only_bound_demo_evidence_is_dirty(dirty_paths: tuple[str, ...], demo_ref: st
     )
 
 
+def only_bound_candidate_evidence_is_dirty(
+    dirty_paths: tuple[str, ...], evidence_refs: tuple[str, ...]
+) -> bool:
+    """Allow only the evidence batches bound into the Candidate assembly."""
+
+    batch_roots = tuple(PurePosixPath(reference).parent for reference in evidence_refs)
+    return all(
+        ".." not in (path := PurePosixPath(value)).parts
+        and any(path.is_relative_to(batch_root) for batch_root in batch_roots)
+        for value in dirty_paths
+    )
+
+
+def _tracked_evidence_ref(path: Path, label: str) -> str:
+    root = ROOT.resolve()
+    evidence_root = (ROOT / "docs/cc-fable-v1/evidence").resolve()
+    resolved = path.resolve()
+    if not resolved.is_file() or not resolved.is_relative_to(evidence_root):
+        raise CandidateGateError(f"{label} must be tracked under docs/cc-fable-v1/evidence")
+    return resolved.relative_to(root).as_posix()
+
+
 def _phase_inputs(root: Path) -> dict[str, PhaseReportInput]:
-    return {
-        phase_id: PhaseReportInput(
+    backend = GitBackend()
+    location = GitLocation(root)
+    phases: dict[str, PhaseReportInput] = {}
+    for phase_id, spec in PHASE_SPECS.items():
+        current = (root / spec.report_ref).read_bytes()
+        try:
+            historical = backend.read_file_at_commit(location, spec.report_commit, spec.report_ref)
+        except GitBackendError as exc:
+            raise CandidateGateError(f"historical phase report is unavailable: {phase_id}") from exc
+        if current != historical:
+            raise CandidateGateError(f"historical phase report bytes changed: {phase_id}")
+        phases[phase_id] = PhaseReportInput(
             phase_id=phase_id,
             gate_id=spec.gate_id,
             report_ref=spec.report_ref,
-            report_bytes=(root / spec.report_ref).read_bytes(),
-            evidence_commit=spec.evidence_commit,
+            report_bytes=current,
+            gate_source_commit=spec.gate_source_commit,
+            report_commit=spec.report_commit,
         )
-        for phase_id, spec in PHASE_SPECS.items()
-    }
+    return phases
 
 
 def _write_phase_manifests(
@@ -350,6 +702,8 @@ def _write_phase_manifests(
             "gate_id": phase.gate_id,
             "status": "passed",
             "source_commit": source_commit,
+            "gate_source_commit": phase.gate_source_commit,
+            "report_commit": phase.report_commit,
             "report_ref": phase.report_ref,
             "report_sha256": _hash_bytes(phase.report_bytes),
             "external_pending": [],
@@ -375,7 +729,7 @@ def _render_report(
             f"{result['deselected']} | {result['warnings']} |"
         )
     phase_rows = [
-        f"| `{phase_id}` | `{phase.evidence_commit}` | "
+        f"| `{phase_id}` | `{phase.gate_source_commit}` | `{phase.report_commit}` | "
         f"`{candidate.phase_report_hashes[phase_id]}` |"
         for phase_id, phase in context.phase_reports.items()
     ]
@@ -392,8 +746,8 @@ def _render_report(
             "",
             "## Immutable phase bindings",
             "",
-            "| Phase | Immutable evidence commit | Candidate manifest hash |",
-            "|---|---|---|",
+            "| Phase | Gate source commit | Report commit | Candidate manifest hash |",
+            "|---|---|---|---|",
             *phase_rows,
             "",
             "Each manifest hashes the exact report bytes in the clean Candidate source; the",
@@ -402,6 +756,10 @@ def _render_report(
             "",
             "## Exact candidate artifacts and demo",
             "",
+            f"- gate_evidence: `{candidate.gate_evidence_ref}`",
+            f"- gate_evidence_hash: `{candidate.gate_evidence_hash}`",
+            f"- build_provenance: `{candidate.build_provenance_ref}`",
+            f"- build_provenance_hash: `{candidate.build_provenance_hash}`",
             f"- demo_report: `{demo_ref}`",
             f"- demo_report_hash: `{candidate.demo_report_hash}`",
             f"- Wheel SHA-256: `{candidate.wheel_sha256}`",
@@ -427,7 +785,14 @@ def _render_report(
     )
 
 
-def assemble_candidate(*, output: Path, report: Path, gate_manifest: Path) -> None:
+def assemble_candidate(
+    *,
+    output: Path,
+    report: Path,
+    gate_evidence: Path,
+    build_provenance: Path,
+    demo_report: Path,
+) -> None:
     backend = GitBackend()
     location = GitLocation(ROOT)
     try:
@@ -437,16 +802,38 @@ def assemble_candidate(*, output: Path, report: Path, gate_manifest: Path) -> No
         tracked_idea = backend.tracked_paths(location, ".idea")
     except GitBackendError as exc:
         raise CandidateGateError("Git candidate source facts are unavailable") from exc
-    manifest_source, demo_ref, command_results = _load_gate_manifest(gate_manifest)
-    if manifest_source != source_commit:
-        raise CandidateGateError("final Gate manifest source commit mismatch")
+    gate_ref = _tracked_evidence_ref(gate_evidence, "Gate evidence")
+    provenance_ref = _tracked_evidence_ref(build_provenance, "build provenance")
+    demo_ref = _tracked_evidence_ref(demo_report, "demo report")
+    verified_gates = load_gate_evidence(
+        gate_evidence,
+        artifact_root=ROOT,
+        expected_source_commit=source_commit,
+    )
     candidate_root = ROOT / "dist/lean-preview-candidate"
     sdists = tuple(candidate_root.glob("tianshu-*.tar.gz"))
     wheels = tuple((candidate_root / "from-sdist").glob("tianshu-*.whl"))
     if len(sdists) != 1 or len(wheels) != 1:
         raise CandidateGateError("exactly one candidate sdist and from-sdist Wheel are required")
     sdist, wheel = sdists[0], wheels[0]
-    demo_path = ROOT / demo_ref
+    try:
+        committed_paths = backend.list_files_at_commit(location, source_commit)
+        tracked_source_files = {
+            relative: backend.read_file_at_commit(location, source_commit, relative)
+            for relative in committed_paths
+            if relative == "pyproject.toml" or relative.startswith("src/tianshu/")
+        }
+    except GitBackendError as exc:
+        raise CandidateGateError("committed build source is unavailable") from exc
+    verified_build = verify_build_provenance(
+        build_provenance,
+        artifact_root=ROOT,
+        expected_source_commit=source_commit,
+        sdist_path=sdist,
+        wheel_path=wheel,
+        tracked_source_files=tracked_source_files,
+    )
+    demo_path = demo_report
     demo_artifacts = demo_path.parent / "artifacts"
     try:
         demo = verify_demo_evidence(
@@ -462,7 +849,9 @@ def assemble_candidate(*, output: Path, report: Path, gate_manifest: Path) -> No
     capability_path = ROOT / "docs/launch/capability-matrix.md"
     context = CandidateContext(
         source_commit=source_commit,
-        clean_source=only_bound_demo_evidence_is_dirty(dirty_paths, demo_ref),
+        clean_source=only_bound_candidate_evidence_is_dirty(
+            dirty_paths, (gate_ref, provenance_ref, demo_ref)
+        ),
         phase_reports=phases,
         phase_commits_in_history=history,
         demo_report=demo,
@@ -473,7 +862,7 @@ def assemble_candidate(*, output: Path, report: Path, gate_manifest: Path) -> No
         observed_sdist_sha256=_hash_file(sdist),
         capability_matrix=capability_path.read_text(encoding="utf-8"),
         deferred_work_ids=_deferred_ids(ROOT),
-        command_results=command_results,
+        command_results=verified_gates.results,
         screenshot_expected=screenshot_expected,
         screenshot_observed=screenshot_observed,
         tracked_idea_paths=tracked_idea,
@@ -485,6 +874,10 @@ def assemble_candidate(*, output: Path, report: Path, gate_manifest: Path) -> No
     candidate_payload: dict[str, object] = {
         "schema_version": 1,
         "source_commit": source_commit,
+        "gate_evidence_ref": gate_ref,
+        "gate_evidence_hash": _hash_file(gate_evidence),
+        "build_provenance_ref": provenance_ref,
+        "build_provenance_hash": _hash_file(build_provenance),
         "phase_report_hashes": {
             phase_id: json.loads(path.read_bytes())["content_hash"]
             for phase_id, path in phase_paths.items()
@@ -505,6 +898,8 @@ def assemble_candidate(*, output: Path, report: Path, gate_manifest: Path) -> No
     candidate = LeanPreviewCandidateReportV1.model_validate_json(
         _canonical_bytes(candidate_payload)
     )
+    if not verified_gates.content_hash or not verified_build.content_hash:
+        raise CandidateGateError("candidate evidence content hash is missing")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(_canonical_bytes(candidate_payload))
     try:
@@ -529,10 +924,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--report", required=True, type=Path)
     parser.add_argument(
-        "--gate-manifest",
+        "--gate-evidence",
+        required=True,
         type=Path,
-        default=ROOT / "dist/lean-preview-candidate/final-gates.json",
     )
+    parser.add_argument("--build-provenance", required=True, type=Path)
+    parser.add_argument("--demo-report", required=True, type=Path)
     return parser
 
 
@@ -542,7 +939,9 @@ def main(argv: list[str] | None = None) -> int:
         assemble_candidate(
             output=args.output,
             report=args.report,
-            gate_manifest=args.gate_manifest,
+            gate_evidence=args.gate_evidence,
+            build_provenance=args.build_provenance,
+            demo_report=args.demo_report,
         )
     except (CandidateGateError, OSError, ValueError) as exc:
         print(f"Lean Preview Candidate rejected: {exc}", file=sys.stderr)

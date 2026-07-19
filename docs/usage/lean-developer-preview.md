@@ -157,7 +157,7 @@ verifier 必须同时收到调用者独立测得的 source commit 和 Wheel SHA�
 overlay、rollback receipt、source commit 和 Wheel SHA 全部一致。任何失败或缺失都返回
 非零；不得手改历史批次。
 
-## 7. 已验证保留批次
+## 7. 历史已验证保留批次
 
 - Batch：`20260718T072917Z-b27f525fe4ef`
 - Source：`b27f525fe4eff52a24f0c7769125bc158097e7de`
@@ -172,6 +172,8 @@ overlay、rollback receipt、source commit 和 Wheel SHA 全部一致。任何�
 清洁 SIGTERM、SQLite `quick_check=ok` 与 package resource digest 不变。它是本地
 Darwin/arm64/Python 3.12.12 证据。OpenHands、ROI、cost calibration 和 full G4 为
 `external_pending`；full G5 为 `deferred`。该批次也不是 Ubuntu 外部矩阵或正式发布证据。
+旧 Candidate 聚合产物已撤销，因此该批次仅作历史 retained evidence，不得复用为新
+Candidate；新 Candidate 必须绑定新的 final-source Gate、build provenance 与 demo。
 
 ## 8. 桌面品牌事实
 

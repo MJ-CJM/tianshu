@@ -12,9 +12,14 @@
 
 ## Lean Developer Preview Candidate
 
-Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously. The
-Candidate composes one local, reproducible path from Edict through Decision, run, Evidence, skill
+Tianshu is a governable, verifiable Agent OS designed to learn and evolve continuously. Its code
+and retained phase evidence compose a local path from Edict through Decision, run, Evidence, skill
 candidate, evidence-bound gate, canary assignment, and rollback.
+
+> The previous Candidate JSON and aggregate report have been withdrawn fail-closed because they
+> relied on composite summaries and did not bind tracked raw Gate logs and build provenance. No
+> Candidate is currently accepted; a new final-source Gate, artifact provenance, and demo must be
+> recorded before the strict checker can rebuild one.
 
 - **Governance:** managed Native runs use durable Decision and RunState authority, attempt
   leases/fencing, and declared effect intent/receipt records inside the documented boundary.
@@ -24,10 +29,11 @@ candidate, evidence-bound gate, canary assignment, and rollback.
 - **Lean evolution:** a skill candidate reaches a real candidate overlay only after its evidence
   gate, and rollback closes new candidate traffic. This is Lean Core evidence, not full G4.
 - **Desktop product:** Control Center, Edict detail, and Evolution Center consume authoritative
-  APIs without mock product data. Automation passed; final visual/interaction approval remains
-  `user_approval_pending`.
+  APIs without mock product data. Retained phase automation exists, while the new Candidate final
+  Gate is pending; final visual/interaction approval remains `user_approval_pending`.
 
-The retained golden batch passed all 13 steps and strict verification. See the
+The historical retained golden batch passed all 13 steps and strict verification, but it is not
+reused for a new Candidate. See the
 [usage guide](docs/usage/lean-developer-preview.md) and its
 [immutable report](docs/cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json).
 

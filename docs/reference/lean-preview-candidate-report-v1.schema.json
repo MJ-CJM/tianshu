@@ -12,6 +12,26 @@
       "title": "Source Commit",
       "type": "string"
     },
+    "gate_evidence_ref": {
+      "minLength": 1,
+      "title": "Gate Evidence Ref",
+      "type": "string"
+    },
+    "gate_evidence_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Gate Evidence Hash",
+      "type": "string"
+    },
+    "build_provenance_ref": {
+      "minLength": 1,
+      "title": "Build Provenance Ref",
+      "type": "string"
+    },
+    "build_provenance_hash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Build Provenance Hash",
+      "type": "string"
+    },
     "phase_report_hashes": {
       "additionalProperties": false,
       "maxProperties": 5,
@@ -192,6 +212,10 @@
   },
   "required": [
     "source_commit",
+    "gate_evidence_ref",
+    "gate_evidence_hash",
+    "build_provenance_ref",
+    "build_provenance_hash",
     "phase_report_hashes",
     "demo_report_ref",
     "demo_report_hash",

@@ -46,7 +46,8 @@ def _context(module):
             report_bytes=(
                 f"{spec.pass_marker}\nphase: {phase_id}\nexternal_pending: retained, not passed\n"
             ).encode(),
-            evidence_commit=spec.evidence_commit,
+            gate_source_commit=spec.gate_source_commit,
+            report_commit=spec.report_commit,
         )
         for phase_id, spec in module.PHASE_SPECS.items()
     }
@@ -55,7 +56,9 @@ def _context(module):
         clean_source=True,
         phase_reports=phase_reports,
         phase_commits_in_history=frozenset(
-            spec.evidence_commit for spec in module.PHASE_SPECS.values()
+            commit
+            for spec in module.PHASE_SPECS.values()
+            for commit in (spec.gate_source_commit, spec.report_commit)
         ),
         demo_report={
             "source_commit": "1" * 40,
@@ -98,7 +101,7 @@ def test_candidate_context_accepts_the_exact_bounded_truth() -> None:
     ("case", "message"),
     [
         ("missing_phase", "phase reports"),
-        ("wrong_phase_commit", "phase evidence commit"),
+        ("wrong_phase_commit", "phase commit binding"),
         ("wrong_source", "source commit"),
         ("corrupt_wheel", "Wheel hash"),
         ("corrupt_sdist", "sdist hash"),
@@ -145,7 +148,8 @@ def test_candidate_context_rejects_every_false_candidate_case(case: str, message
             gate_id=phase.gate_id,
             report_ref=phase.report_ref,
             report_bytes=phase.report_bytes + b"external_pending: passed\n",
-            evidence_commit=phase.evidence_commit,
+            gate_source_commit=phase.gate_source_commit,
+            report_commit=phase.report_commit,
         )
     elif case == "unverified_demo":
         context.verified_demo = False

@@ -120,6 +120,8 @@ _PHASE_REPORT_FIELDS = {
     "gate_id",
     "status",
     "source_commit",
+    "gate_source_commit",
+    "report_commit",
     "report_ref",
     "report_sha256",
     "external_pending",
@@ -131,6 +133,22 @@ _PHASE_GATE_IDS = {
     "s3_core": "S3 Core",
     "s4_automation": "S4 Automation",
     "s5_lean_core": "S5 Lean Core",
+}
+_PHASE_COMMITS = {
+    "s1_g1_5": (
+        "bbf84451a40f8f3450e080c939c82fba52428271",
+        "8c2303df525b05a69d1a6902c83b06c5fd50102d",
+    ),
+    "s2_lean": (
+        "bbf672e560ecd2c793a1a80d0cc262b41550a4db",
+        "66e59943b91bc708344c69b895eaa8cfc3298721",
+    ),
+    "s3_core": (
+        "60d3c45b836de44b132dba186e5c9a3672592ea3",
+        "2eb20d6dfd39b172f438c90aee5eaee507d8a227",
+    ),
+    "s4_automation": ("303787916f1004362c3f250c07a8de179aa0885d",) * 2,
+    "s5_lean_core": ("f6777b435631ab3d5fa1aeac1a96cdbf2c424774",) * 2,
 }
 
 
@@ -819,6 +837,21 @@ def verify_candidate_report(
     if not isinstance(candidate_model, LeanPreviewCandidateReportV1):  # pragma: no cover
         raise TypeError("strict candidate parser returned the wrong type")
     source_commit = candidate_model.source_commit
+    for reference, expected_hash, label in (
+        (
+            candidate_model.gate_evidence_ref,
+            candidate_model.gate_evidence_hash,
+            "Gate evidence",
+        ),
+        (
+            candidate_model.build_provenance_ref,
+            candidate_model.build_provenance_hash,
+            "build provenance",
+        ),
+    ):
+        bound = _confined_file(artifact_root, Path(reference), label)
+        if _file_hash(bound) != expected_hash:
+            raise EvidenceVerificationError(f"candidate {label} hash mismatch")
     phase_hashes = candidate_model.phase_report_hashes
     if set(phase_hashes) != set(REQUIRED_PHASE_REPORT_IDS) or set(phase_report_paths) != set(
         REQUIRED_PHASE_REPORT_IDS
@@ -845,6 +878,15 @@ def verify_candidate_report(
             raise EvidenceVerificationError(f"{phase_id} phase status is not passed")
         if phase.get("source_commit") != source_commit:
             raise EvidenceVerificationError(f"{phase_id} source commit mismatch")
+        expected_gate_commit, expected_report_commit = _PHASE_COMMITS[phase_id]
+        for commit_field, expected_commit in (
+            ("gate_source_commit", expected_gate_commit),
+            ("report_commit", expected_report_commit),
+        ):
+            commit = _text(phase.get(commit_field), f"{phase_id} {commit_field}")
+            if commit != expected_commit:
+                label = commit_field.replace("_", " ")
+                raise EvidenceVerificationError(f"{phase_id} {label} mismatch")
         pending = _sequence(phase.get("external_pending"), f"{phase_id} external_pending")
         if pending:
             raise EvidenceVerificationError(f"{phase_id} external_pending cannot count as passed")

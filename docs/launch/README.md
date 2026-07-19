@@ -2,6 +2,9 @@
 
 当前版本为 **0.4.2**。本目录是私有工作分支中的候选证据包，不是外部发布材料。
 
+> 旧 Candidate JSON/总报告已 fail-closed 撤销；当前没有被接受的 Candidate。历史 demo
+> 仅作 retained evidence，新 final-source Gate、provenance 与 demo 完成后才能重建 Candidate。
+
 > 天枢是一个可治理、可验证、持续成长的自进化 Agent OS。
 
 `publication_status`: `not_authorized`。不得据此公开仓库、push、tag、release、上传
@@ -13,7 +16,7 @@ PyPI/GHCR、发布官方容器或对外宣发。
 |---|---|---|
 | [能力事实矩阵](capability-matrix.md) | 默认值、支持面、保证、非保证、证据 | `implemented` truth index |
 | [Lean Preview 使用指南](../usage/lean-developer-preview.md) | source/exact Wheel、单一黄金 Demo、严格 verifier | `implemented` |
-| [最终 Demo 报告](../cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json) | 13 步、`fixture=false`、源码/Wheel/证据绑定 | verified local evidence |
+| [历史保留 Demo 报告](../cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json) | 13 步、`fixture=false`、源码/Wheel/证据绑定；不复用为新 Candidate | retained local evidence |
 | [桌面 Web 报告](../cc-fable-v1/reports/s4-core-web-report.md) | 三张核心页自动化 | `automation_passed`; `user_approval_pending` |
 | [Lean Core evolution 报告](../cc-fable-v1/reports/s5-lean-evolution-report.md) | 技能候选、门禁、分流、回滚 | `implemented`; full G4 `external_pending` |
 | [延期路线图](../cc-fable-v1/06-deferred-work-backlog.md) | 恢复条件与验收证据 | 每项使用下方唯一映射状态 |

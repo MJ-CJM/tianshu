@@ -28,8 +28,8 @@
 ## 状态与禁区
 
 - 黄金路径为 `implemented`；S5 整体仍是 `experimental` Lean Core。
-- 自动化视觉通过，但用户终审是 `user_approval_pending`；VoiceOver 是
-  `external_pending`。
+- S4 阶段自动化视觉证据已保留，但新的 Candidate final Gate 尚待执行；用户终审是
+  `user_approval_pending`，VoiceOver 是 `external_pending`。
 - remote MCP/open stdio MCP 为 `disabled`；official container/PyPI/GHCR 为
   `deferred`。
 - OpenHands、ROI、cost calibration 和 full G4 为 `external_pending`；full G5 为
