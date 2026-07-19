@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the fixed Lean Preview Gates and record hashed raw logs."""
+"""After build provenance, run fixed Lean Preview Gates against its exact Wheel."""
 
 from __future__ import annotations
 
@@ -11,12 +11,13 @@ import re
 import shlex
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from tianshu.executor.git_backend import GitBackend, GitBackendError, GitLocation
 
 try:
     from scripts.check_lean_preview_candidate import (
+        CANDIDATE_WHEEL_DIR,
         REQUIRED_FINAL_COMMANDS,
         REQUIRED_GATE_CWDS,
         REQUIRED_GATE_ENVIRONMENTS,
@@ -24,6 +25,7 @@ try:
     )
 except ModuleNotFoundError:  # direct ``python scripts/...`` execution
     from check_lean_preview_candidate import (
+        CANDIDATE_WHEEL_DIR,
         REQUIRED_FINAL_COMMANDS,
         REQUIRED_GATE_CWDS,
         REQUIRED_GATE_ENVIRONMENTS,
@@ -70,6 +72,11 @@ def record_gate_evidence(*, output_root: Path, batch_id: str, source_commit: str
         raise GateRecordingError("batch id must be one safe path component")
     if not _COMMIT.fullmatch(source_commit):
         raise GateRecordingError("source commit must be a full Git commit")
+    wheels = tuple((ROOT / CANDIDATE_WHEEL_DIR).glob("tianshu-*.whl"))
+    if len(wheels) != 1:
+        raise GateRecordingError("exactly one candidate Wheel is required before Gate recording")
+    wheel = wheels[0].resolve()
+    wheel_sha256 = hashlib.sha256(wheel.read_bytes()).hexdigest()
     batch_root = output_root / batch_id
     if batch_root.exists():
         raise GateRecordingError(f"evidence batch already exists: {batch_root}")
@@ -115,6 +122,7 @@ def record_gate_evidence(*, output_root: Path, batch_id: str, source_commit: str
         "schema_version": 1,
         "batch_id": batch_id,
         "source_commit": source_commit,
+        "wheel_sha256": wheel_sha256,
         "commands": records,
     }
     manifest["content_hash"] = _content_hash(manifest)
@@ -136,7 +144,9 @@ def main(argv: list[str] | None = None) -> int:
     location = GitLocation(ROOT)
     try:
         source_commit = backend.resolve_commit(location, "HEAD")
-        if backend.worktree_status_paths(location):
+        dirty_paths = backend.worktree_status_paths(location)
+        build_evidence_root = PurePosixPath("docs/cc-fable-v1/evidence/builds")
+        if any(not PurePosixPath(path).is_relative_to(build_evidence_root) for path in dirty_paths):
             raise GateRecordingError("Gate recording requires a clean source tree")
         path = record_gate_evidence(
             output_root=args.output_root,

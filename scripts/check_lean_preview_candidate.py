@@ -119,6 +119,7 @@ REQUIRED_GATE_ENVIRONMENTS = {
 }
 SDIST_BUILD_COMMAND = "python -m build --sdist --outdir dist/lean-preview-candidate"
 WHEEL_BUILD_COMMAND = "python -m build --wheel --outdir ../../../from-sdist"
+CANDIDATE_WHEEL_DIR = Path("dist/lean-preview-candidate/from-sdist")
 
 
 def required_gate_environment(gate_id: str, *, batch_id: str, source_commit: str) -> dict[str, str]:
@@ -160,6 +161,7 @@ class GateEvidence:
 
     content_hash: str
     results: dict[str, dict[str, Any]]
+    wheel_sha256: str
 
 
 @dataclass(frozen=True)
@@ -167,6 +169,7 @@ class BuildProvenance:
     """Verified source-to-sdist-to-Wheel provenance binding."""
 
     content_hash: str
+    wheel_sha256: str
 
 
 class PhaseReportInput:
@@ -285,20 +288,17 @@ def _derived_gate_result(gate_id: str, raw: bytes) -> dict[str, Any]:
         if len(summaries) != 1:
             raise CandidateGateError("Playwright Gate requires exactly one terminal summary")
         summary = summaries[0].strip()
-
-        def playwright_count(label: str) -> int:
-            match = re.search(rf"\b(\d+)\s+{label}\b", summary)
-            return int(match.group(1)) if match else 0
-
-        passed = playwright_count("passed")
-        failed = playwright_count("failed")
-        skipped = playwright_count("skipped")
-        if passed != 41:
-            raise CandidateGateError("Playwright Gate requires exactly 41 passed")
-        if failed:
+        passed_counts = [int(value) for value in re.findall(r"\b(\d+)\s+passed\b", summary)]
+        failed_counts = [int(value) for value in re.findall(r"\b(\d+)\s+failed\b", summary)]
+        skipped_counts = [int(value) for value in re.findall(r"\b(\d+)\s+skipped\b", summary)]
+        if passed_counts != [41]:
+            raise CandidateGateError("Playwright Gate requires exactly 41 passed once")
+        if failed_counts not in ([], [0]):
             raise CandidateGateError("Playwright Gate requires 0 failed")
-        if skipped:
+        if skipped_counts not in ([], [0]):
             raise CandidateGateError("Playwright Gate requires 0 skipped")
+        passed = 41
+        failed = skipped = 0
     if passed <= 0:
         raise CandidateGateError(f"required Gate needs a positive passed count: {gate_id}")
     return {
@@ -328,7 +328,14 @@ def load_gate_evidence(
         manifest = _mapping(json.loads(raw), "Gate evidence manifest")
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CandidateGateError("Gate evidence manifest is missing or corrupt") from exc
-    required = {"schema_version", "batch_id", "source_commit", "commands", "content_hash"}
+    required = {
+        "schema_version",
+        "batch_id",
+        "source_commit",
+        "wheel_sha256",
+        "commands",
+        "content_hash",
+    }
     if set(manifest) != required:
         raise CandidateGateError("Gate evidence manifest fields are not exact")
     if raw != _canonical_bytes(manifest) or manifest.get("content_hash") != _content_hash(manifest):
@@ -340,6 +347,8 @@ def load_gate_evidence(
         raise CandidateGateError("Gate evidence source commit mismatch")
     if not isinstance(manifest.get("batch_id"), str) or not manifest["batch_id"]:
         raise CandidateGateError("Gate evidence batch id is missing")
+    if not _SHA256.fullmatch(str(manifest.get("wheel_sha256"))):
+        raise CandidateGateError("Gate evidence Wheel SHA-256 is invalid")
     commands = _mapping(manifest["commands"], "Gate evidence commands")
     if set(commands) != set(REQUIRED_FINAL_COMMANDS):
         raise CandidateGateError("required final Gate commands are incomplete")
@@ -383,7 +392,11 @@ def load_gate_evidence(
             raise CandidateGateError(f"Gate log hash mismatch: {gate_id}")
         results[gate_id] = _derived_gate_result(gate_id, log_bytes)
     _validate_command_results(results)
-    return GateEvidence(content_hash=manifest["content_hash"], results=results)
+    return GateEvidence(
+        content_hash=manifest["content_hash"],
+        results=results,
+        wheel_sha256=manifest["wheel_sha256"],
+    )
 
 
 def _verified_log(batch_root: Path, record: Mapping[str, Any], label: str) -> bytes:
@@ -584,7 +597,10 @@ def verify_build_provenance(
         raise CandidateGateError("Wheel package payload does not exactly match the sdist")
     if wheel_record["sha256"] != wheel_hash:
         raise CandidateGateError("Wheel package payload or artifact hash mismatch")
-    return BuildProvenance(content_hash=payload["content_hash"])
+    return BuildProvenance(
+        content_hash=payload["content_hash"],
+        wheel_sha256=wheel_record["sha256"],
+    )
 
 
 def _validate_command_results(results: Mapping[str, Mapping[str, Any]]) -> None:
@@ -865,7 +881,7 @@ def assemble_candidate(
     )
     candidate_root = ROOT / "dist/lean-preview-candidate"
     sdists = tuple(candidate_root.glob("tianshu-*.tar.gz"))
-    wheels = tuple((candidate_root / "from-sdist").glob("tianshu-*.whl"))
+    wheels = tuple((ROOT / CANDIDATE_WHEEL_DIR).glob("tianshu-*.whl"))
     if len(sdists) != 1 or len(wheels) != 1:
         raise CandidateGateError("exactly one candidate sdist and from-sdist Wheel are required")
     sdist, wheel = sdists[0], wheels[0]
@@ -886,6 +902,13 @@ def assemble_candidate(
         wheel_path=wheel,
         tracked_source_files=tracked_source_files,
     )
+    candidate_wheel_sha256 = _hash_file(wheel)
+    if (
+        verified_gates.wheel_sha256 != verified_build.wheel_sha256
+        or verified_gates.wheel_sha256 != candidate_wheel_sha256
+        or verified_build.wheel_sha256 != candidate_wheel_sha256
+    ):
+        raise CandidateGateError("Gate, build provenance, and Candidate Wheel identity mismatch")
     demo_path = demo_report
     demo_artifacts = demo_path.parent / "artifacts"
     try:
@@ -893,7 +916,7 @@ def assemble_candidate(
             demo_path,
             demo_artifacts,
             expected_source_commit=source_commit,
-            expected_wheel_sha256=_hash_file(wheel),
+            expected_wheel_sha256=candidate_wheel_sha256,
         )
     except EvidenceVerificationError as exc:
         raise CandidateGateError("verified non-fixture demo evidence was rejected") from exc
@@ -909,8 +932,8 @@ def assemble_candidate(
         phase_commits_in_history=history,
         demo_report=demo,
         verified_demo=True,
-        wheel_sha256=_hash_file(wheel),
-        observed_wheel_sha256=_hash_file(wheel),
+        wheel_sha256=candidate_wheel_sha256,
+        observed_wheel_sha256=candidate_wheel_sha256,
         sdist_sha256=_hash_file(sdist),
         observed_sdist_sha256=_hash_file(sdist),
         capability_matrix=capability_path.read_text(encoding="utf-8"),

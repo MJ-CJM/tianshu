@@ -175,3 +175,10 @@ def test_exact_packaging_gates_do_not_launch_uv() -> None:
         source = (ROOT / relative).read_text(encoding="utf-8")
         assert '["uv",' not in source
         assert "['uv'," not in source
+
+
+def test_exact_wheel_gate_reads_the_candidate_from_sdist_wheel() -> None:
+    source = (ROOT / "tests/launch/test_lean_preview_fresh_wheel.py").read_text(encoding="utf-8")
+
+    assert '_ROOT / "dist" / "lean-preview-candidate" / "from-sdist"' in source
+    assert '_ROOT / "dist" / "lean-preview"' not in source

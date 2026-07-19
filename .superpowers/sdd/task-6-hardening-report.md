@@ -176,3 +176,59 @@ The four warnings remain the same third-party `lark_oapi` and `websockets`
 deprecations. The build-recorder test uses controlled subprocess substitutes to verify
 the actual fixed argv/cwd and resulting provenance; this addendum did not generate or
 claim real build provenance.
+
+## Second independent-review hardening addendum
+
+The second closure review found two remaining identity/parser gaps. Both are closed in a
+separate follow-up commit without running the full Gate, demo, or a real build batch.
+
+### One exact Wheel identity
+
+- The retained exact-Wheel packaging test now reads its sole Wheel directly from the
+  fixed Candidate path `dist/lean-preview-candidate/from-sdist/`; it no longer reads
+  `dist/lean-preview/`.
+- Gate recording refuses to start unless that fixed directory contains exactly one
+  `tianshu-*.whl`. The recorder hashes that Wheel before executing any Gate and stores the
+  SHA-256 as the canonical manifest's required `wheel_sha256` field.
+- Gate evidence validation requires the exact field and a valid SHA-256. Build provenance
+  validation now returns its verified Wheel SHA-256 as an identity, not only its content
+  hash.
+- Candidate assembly explicitly compares all three identities: Gate versus build
+  provenance, Gate versus the current sole Candidate Wheel, and build provenance versus
+  the current sole Candidate Wheel. Any mismatch fails before demo verification or
+  Candidate output.
+- The executable sequence is now fixed as **build provenance recorder -> Gate recorder ->
+  demo -> Candidate assembly**. Gate recorder permits only the generated
+  `docs/cc-fable-v1/evidence/builds/**` paths to be dirty after the clean-source build;
+  any source or other dirty path still fails closed. This makes the stated order
+  executable without weakening the source boundary.
+
+### Playwright terminal summary
+
+The single terminal-summary rule now parses all occurrences of each result label. It
+accepts only `passed == [41]`, with `failed` and `skipped` each either absent or exactly
+`[0]`. A same-line summary such as `41 passed, 40 passed` is rejected rather than using
+the first match.
+
+### Second addendum TDD and verification
+
+Before implementation, five focused tests failed for the expected missing behavior:
+same-line repeated Playwright counts were accepted; two distinct Gate/build Wheels were
+accepted by assembly; Gate recording omitted the Wheel SHA; a zero-Wheel run still
+started Gates; and the retained exact-Wheel test still named the legacy directory. A
+sixth RED demonstrated that the otherwise-required build-before-Gate sequence was
+blocked by the generated build-evidence paths.
+
+After the minimal fixed-path/field implementation:
+
+- focused pytest: `207 passed / 0 failed / 4 warnings`;
+- Ruff check: `All checks passed!`;
+- Ruff format check: all six touched Python files formatted;
+- configured mypy: `Success: no issues found in 132 source files`;
+- Gate-recorder-specific mypy: `Success: no issues found in 1 source file`;
+- `git diff --check`: passed; and
+- `uv.lock`: zero diff.
+
+The four warnings remain the same third-party `lark_oapi` and `websockets`
+deprecations. No real Wheel, Gate evidence, build provenance, demo, or Candidate was
+generated or claimed by this addendum.

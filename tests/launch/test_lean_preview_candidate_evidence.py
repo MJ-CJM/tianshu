@@ -15,6 +15,7 @@ import pytest
 ROOT = Path(__file__).parents[2]
 CHECKER_PATH = ROOT / "scripts" / "check_lean_preview_candidate.py"
 SOURCE_COMMIT = "1" * 40
+WHEEL_SHA256 = "d" * 64
 
 
 def _module():
@@ -101,6 +102,7 @@ def _write_gate_batch(
         "schema_version": 1,
         "batch_id": "batch-1",
         "source_commit": SOURCE_COMMIT,
+        "wheel_sha256": WHEEL_SHA256,
         "commands": records,
     }
     manifest["content_hash"] = _content_hash(manifest)
@@ -120,6 +122,7 @@ def test_gate_evidence_derives_results_from_hashed_raw_logs(tmp_path: Path) -> N
     )
 
     assert evidence.content_hash == json.loads(manifest.read_bytes())["content_hash"]
+    assert evidence.wheel_sha256 == WHEEL_SHA256
     assert evidence.results["backend_non_slow"] == {
         "command": module.REQUIRED_FINAL_COMMANDS["backend_non_slow"],
         "exit_code": 0,
@@ -132,6 +135,13 @@ def test_gate_evidence_derives_results_from_hashed_raw_logs(tmp_path: Path) -> N
         "summary": "4362 passed, 2 skipped, 29 deselected, 8 warnings",
     }
     assert evidence.results["web_playwright"]["passed"] == 41
+
+
+def test_playwright_rejects_repeated_passed_count_in_one_terminal_summary() -> None:
+    module = _module()
+
+    with pytest.raises(module.CandidateGateError, match="exactly 41 passed once"):
+        module._derived_gate_result("web_playwright", b"41 passed, 40 passed (36.3s)\n")
 
 
 @pytest.mark.parametrize(
@@ -147,6 +157,7 @@ def test_gate_evidence_derives_results_from_hashed_raw_logs(tmp_path: Path) -> N
         ("packaging_skip", "required Gate skipped"),
         ("playwright_skipped", "0 skipped"),
         ("playwright_duplicate", "exactly one terminal summary"),
+        ("playwright_same_line_duplicate", "exactly 41 passed once"),
     ],
 )
 def test_gate_evidence_rejects_unbacked_or_incomplete_passes(
@@ -164,6 +175,8 @@ def test_gate_evidence_rejects_unbacked_or_incomplete_passes(
         overrides = {"web_playwright": b"41 passed, 1 skipped (36.3s)\n"}
     elif mutation == "playwright_duplicate":
         overrides = {"web_playwright": b"41 passed (36.3s)\n40 passed (20.0s)\n"}
+    elif mutation == "playwright_same_line_duplicate":
+        overrides = {"web_playwright": b"41 passed, 40 passed (36.3s)\n"}
 
     def mutate(gate_id: str, record: dict[str, object]) -> None:
         if mutation == "fabricated_summary" and gate_id == "mypy":
@@ -351,6 +364,7 @@ def test_build_provenance_binds_source_sdist_wheel_and_visible_web_manifest(
     )
 
     assert result.content_hash == json.loads(provenance.read_bytes())["content_hash"]
+    assert result.wheel_sha256 == hashlib.sha256(wheel.read_bytes()).hexdigest()
 
 
 @pytest.mark.parametrize(
@@ -446,8 +460,9 @@ def test_build_provenance_rejects_replaced_or_untraceable_artifacts(
         )
 
 
-def test_candidate_assembly_consumes_tracked_gate_and_build_evidence(
-    tmp_path: Path, monkeypatch
+@pytest.mark.parametrize("different_gate_wheel", [False, True])
+def test_candidate_assembly_consumes_one_wheel_identity_across_gate_and_build(
+    tmp_path: Path, monkeypatch, different_gate_wheel: bool
 ) -> None:
     module = _module()
     monkeypatch.setattr(module, "ROOT", tmp_path)
@@ -512,11 +527,21 @@ def test_candidate_assembly_consumes_tracked_gate_and_build_evidence(
     }
     gate_hash = "a" * 64
     provenance_hash = "b" * 64
+    candidate_wheel_sha256 = hashlib.sha256(wheel.read_bytes()).hexdigest()
+    gate_wheel_sha256 = (
+        hashlib.sha256(b"different Gate Wheel").hexdigest()
+        if different_gate_wheel
+        else candidate_wheel_sha256
+    )
     monkeypatch.setattr(
         module,
         "load_gate_evidence",
         lambda path, **_kwargs: (
-            module.GateEvidence(gate_hash, results)
+            SimpleNamespace(
+                content_hash=gate_hash,
+                results=results,
+                wheel_sha256=gate_wheel_sha256,
+            )
             if path == gate_path
             else pytest.fail("assembly loaded an unexpected Gate source")
         ),
@@ -526,7 +551,10 @@ def test_candidate_assembly_consumes_tracked_gate_and_build_evidence(
     def verify_provenance(path, **kwargs):
         assert path == provenance_path
         provenance_calls.append(kwargs)
-        return module.BuildProvenance(provenance_hash)
+        return SimpleNamespace(
+            content_hash=provenance_hash,
+            wheel_sha256=candidate_wheel_sha256,
+        )
 
     monkeypatch.setattr(module, "verify_build_provenance", verify_provenance)
     monkeypatch.setattr(
@@ -534,7 +562,7 @@ def test_candidate_assembly_consumes_tracked_gate_and_build_evidence(
         "verify_demo_evidence",
         lambda *_args, **_kwargs: {
             "source_commit": SOURCE_COMMIT,
-            "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            "wheel_sha256": candidate_wheel_sha256,
             "fixture": False,
             "steps": [{"status": "passed"}] * 13,
             "content_hash": "c" * 64,
@@ -559,6 +587,17 @@ def test_candidate_assembly_consumes_tracked_gate_and_build_evidence(
 
     output = tmp_path / "candidate.json"
     report = tmp_path / "candidate.md"
+    if different_gate_wheel:
+        with pytest.raises(module.CandidateGateError, match="Wheel identity"):
+            module.assemble_candidate(
+                output=output,
+                report=report,
+                gate_evidence=gate_path,
+                build_provenance=provenance_path,
+                demo_report=demo_path,
+            )
+        assert not output.exists()
+        return
     module.assemble_candidate(
         output=output,
         report=report,

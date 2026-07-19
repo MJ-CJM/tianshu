@@ -35,6 +35,10 @@ def test_recorder_executes_fixed_gates_and_hashes_unmodified_combined_logs(
     tmp_path: Path, monkeypatch
 ) -> None:
     module = _module()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    wheel = tmp_path / "dist/lean-preview-candidate/from-sdist/tianshu-0.4.2.whl"
+    wheel.parent.mkdir(parents=True)
+    wheel.write_bytes(b"one exact candidate Wheel\n")
     calls: list[tuple[list[str], Path, dict[str, str]]] = []
 
     def run(argv, *, cwd, env, stdout, stderr, check):
@@ -63,6 +67,7 @@ def test_recorder_executes_fixed_gates_and_hashes_unmodified_combined_logs(
         ).hexdigest()
     )
     assert list(manifest["commands"]) == sorted(module.GATE_COMMANDS)
+    assert manifest["wheel_sha256"] == hashlib.sha256(wheel.read_bytes()).hexdigest()
     assert len(calls) == len(module.GATE_COMMANDS)
     calls_by_gate = dict(zip(module.GATE_COMMANDS, calls, strict=True))
     for gate_id, record in manifest["commands"].items():
@@ -102,6 +107,10 @@ def test_recorder_stops_on_first_failure_without_writing_a_pass_manifest(
     tmp_path: Path, monkeypatch
 ) -> None:
     module = _module()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    wheel = tmp_path / "dist/lean-preview-candidate/from-sdist/tianshu-0.4.2.whl"
+    wheel.parent.mkdir(parents=True)
+    wheel.write_bytes(b"one exact candidate Wheel\n")
     calls = 0
 
     def run(argv, **_kwargs):
@@ -126,3 +135,70 @@ def test_recorder_stops_on_first_failure_without_writing_a_pass_manifest(
     assert (batch / "logs/ruff_format.log").read_bytes() == b"unaltered failure output\n"
     assert not (batch / "manifest.json").exists()
     assert not (batch / "logs/mypy.log").exists()
+
+
+@pytest.mark.parametrize("wheel_count", [0, 2])
+def test_recorder_requires_one_candidate_wheel_before_running_any_gate(
+    tmp_path: Path, monkeypatch, wheel_count: int
+) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    wheel_root = tmp_path / "dist/lean-preview-candidate/from-sdist"
+    wheel_root.mkdir(parents=True)
+    for index in range(wheel_count):
+        wheel_root.joinpath(f"tianshu-0.4.{index}.whl").write_bytes(
+            f"candidate Wheel {index}".encode()
+        )
+    calls = 0
+
+    def run(argv, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return subprocess.CompletedProcess(argv, 0, stdout=b"unexpected Gate run\n")
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    with pytest.raises(module.GateRecordingError, match="exactly one candidate Wheel"):
+        module.record_gate_evidence(
+            output_root=tmp_path / "evidence",
+            batch_id="batch-no-wheel",
+            source_commit=SOURCE_COMMIT,
+        )
+
+    assert calls == 0
+    assert not tmp_path.joinpath("evidence/batch-no-wheel").exists()
+
+
+@pytest.mark.parametrize(
+    ("dirty_path", "expected_exit"),
+    [
+        (
+            "docs/cc-fable-v1/evidence/builds/build-1/provenance.json",
+            0,
+        ),
+        ("src/tianshu/app.py", 1),
+    ],
+)
+def test_recorder_cli_allows_only_prior_build_provenance_evidence(
+    tmp_path: Path, monkeypatch, dirty_path: str, expected_exit: int
+) -> None:
+    module = _module()
+
+    class Backend:
+        def resolve_commit(self, _location, _ref):
+            return SOURCE_COMMIT
+
+        def worktree_status_paths(self, _location):
+            return (dirty_path,)
+
+    recorded: list[dict[str, object]] = []
+    monkeypatch.setattr(module, "GitBackend", Backend)
+    monkeypatch.setattr(
+        module,
+        "record_gate_evidence",
+        lambda **kwargs: recorded.append(kwargs) or tmp_path / "manifest.json",
+    )
+
+    result = module.main(["--batch-id", "gate-1", "--output-root", str(tmp_path / "gates")])
+
+    assert result == expected_exit
+    assert bool(recorded) is (expected_exit == 0)

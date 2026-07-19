@@ -20,7 +20,7 @@ import pytest
 pytestmark = pytest.mark.slow
 
 _ROOT = Path(__file__).resolve().parents[2]
-_WHEEL_DIR = _ROOT / "dist" / "lean-preview"
+_WHEEL_DIR = _ROOT / "dist" / "lean-preview-candidate" / "from-sdist"
 _EVIDENCE_ROOT = _ROOT / "docs" / "cc-fable-v1" / "evidence" / "lean-preview"
 _SCENARIO = _ROOT / "examples" / "lean-governed-evolution" / "scenario.json"
 _BASE_PYTHON = _ROOT / ".venv" / "bin" / "python"
