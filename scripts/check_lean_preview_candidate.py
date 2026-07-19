@@ -113,7 +113,13 @@ REQUIRED_GATE_CWDS = {
 }
 REQUIRED_GATE_ENVIRONMENTS = {
     command_id: (
-        {"VIRTUAL_ENV": "unset"} if command_id in {"backend_non_slow", "packaging"} else {}
+        {
+            "PYTHONHOME": "unset",
+            "PYTHONPATH": "unset",
+            "VIRTUAL_ENV": "unset",
+        }
+        if command_id in {"backend_non_slow", "packaging"}
+        else {}
     )
     for command_id in REQUIRED_FINAL_COMMANDS
 }

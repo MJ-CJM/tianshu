@@ -36,6 +36,8 @@ def test_recorder_executes_fixed_gates_and_hashes_unmodified_combined_logs(
 ) -> None:
     module = _module()
     monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setenv("PYTHONPATH", "/contaminating/source-tree")
+    monkeypatch.setenv("PYTHONHOME", "/contaminating/python-home")
     wheel = tmp_path / "dist/lean-preview-candidate/from-sdist/tianshu-0.4.2.whl"
     wheel.parent.mkdir(parents=True)
     wheel.write_bytes(b"one exact candidate Wheel\n")
@@ -99,9 +101,20 @@ def test_recorder_executes_fixed_gates_and_hashes_unmodified_combined_logs(
         }
     assert manifest["commands"]["packaging"]["environment"] == {
         "BATCH_ID": "batch-1",
+        "PYTHONHOME": "unset",
+        "PYTHONPATH": "unset",
         "TIANSHU_LEAN_WHEEL_SOURCE_COMMIT": SOURCE_COMMIT,
         "VIRTUAL_ENV": "unset",
     }
+    assert manifest["commands"]["backend_non_slow"]["environment"] == {
+        "PYTHONHOME": "unset",
+        "PYTHONPATH": "unset",
+        "VIRTUAL_ENV": "unset",
+    }
+    for gate_id in ("backend_non_slow", "packaging"):
+        actual_environment = calls_by_gate[gate_id][2]
+        assert "PYTHONPATH" not in actual_environment
+        assert "PYTHONHOME" not in actual_environment
 
 
 def test_recorder_stops_on_first_failure_without_writing_a_pass_manifest(
