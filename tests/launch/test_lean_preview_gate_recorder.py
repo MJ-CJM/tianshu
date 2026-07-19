@@ -38,6 +38,7 @@ def test_recorder_executes_fixed_gates_and_hashes_unmodified_combined_logs(
     monkeypatch.setattr(module, "ROOT", tmp_path)
     monkeypatch.setenv("PYTHONPATH", "/contaminating/source-tree")
     monkeypatch.setenv("PYTHONHOME", "/contaminating/python-home")
+    monkeypatch.setenv("VIRTUAL_ENV", "/contaminating/virtual-env")
     wheel = tmp_path / "dist/lean-preview-candidate/from-sdist/tianshu-0.4.2.whl"
     wheel.parent.mkdir(parents=True)
     wheel.write_bytes(b"one exact candidate Wheel\n")
