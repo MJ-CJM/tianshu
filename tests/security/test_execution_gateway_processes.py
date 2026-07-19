@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gc
 import os
 import signal
 import sys
@@ -390,6 +391,9 @@ async def test_deadline_kills_descendant_after_process_group_leader_exits(
     assert result.receipt.status == "timed_out"
     child_pid = int(child_pid_file.read_text())
     await _assert_pid_gone(child_pid)
+    del result
+    gc.collect()
+    await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio

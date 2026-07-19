@@ -18,14 +18,22 @@ try:
     from scripts._trusted_local_process import run_trusted_local_process
     from scripts.check_lean_preview_candidate import (
         SDIST_BUILD_COMMAND,
+        WEB_BUILD_COMMAND,
+        WEB_INSTALL_COMMAND,
         WHEEL_BUILD_COMMAND,
+        _directory_payload,
+        _payload_hash,
         _sdist_payload,
     )
 except ModuleNotFoundError:  # direct ``python scripts/...`` execution
     from _trusted_local_process import run_trusted_local_process
     from check_lean_preview_candidate import (
         SDIST_BUILD_COMMAND,
+        WEB_BUILD_COMMAND,
+        WEB_INSTALL_COMMAND,
         WHEEL_BUILD_COMMAND,
+        _directory_payload,
+        _payload_hash,
         _sdist_payload,
     )
 
@@ -74,7 +82,23 @@ def _only_artifact(directory: Path, pattern: str, label: str) -> Path:
     return artifacts[0]
 
 
-def record_build_provenance(*, output_root: Path, batch_id: str, source_commit: str) -> Path:
+def _tracked_web_files(source_commit: str) -> dict[str, bytes]:
+    backend = GitBackend()
+    location = GitLocation(ROOT)
+    return {
+        relative: backend.read_file_at_commit(location, source_commit, relative)
+        for relative in backend.list_files_at_commit(location, source_commit)
+        if relative.startswith("web/")
+    }
+
+
+def record_build_provenance(
+    *,
+    output_root: Path,
+    batch_id: str,
+    source_commit: str,
+    tracked_web_files: dict[str, bytes] | None = None,
+) -> Path:
     """Run the two fixed builds and write their canonical provenance record."""
 
     if not batch_id or Path(batch_id).name != batch_id:
@@ -95,6 +119,30 @@ def record_build_provenance(*, output_root: Path, batch_id: str, source_commit: 
         raise BuildRecordingError("candidate distribution output is not empty")
     logs = batch_root / "logs"
     logs.mkdir(parents=True)
+
+    committed_web = (
+        tracked_web_files if tracked_web_files is not None else _tracked_web_files(source_commit)
+    )
+    if not committed_web:
+        raise BuildRecordingError("committed Web source is missing")
+    web_root = ROOT / "web"
+    web_install_log = logs / "web_npm_ci.log"
+    _run_build(
+        ["npm", "ci"],
+        cwd=web_root,
+        log_path=web_install_log,
+        label="Web npm clean install",
+    )
+    web_build_log = logs / "web_build.log"
+    _run_build(
+        ["npm", "run", "build"],
+        cwd=web_root,
+        log_path=web_build_log,
+        label="Web production",
+    )
+    static_payload = _directory_payload(ROOT / "src/tianshu/web/static")
+    if not static_payload:
+        raise BuildRecordingError("Web production build produced no static files")
 
     sdist_log = logs / "sdist.log"
     _run_build(
@@ -140,6 +188,24 @@ def record_build_provenance(*, output_root: Path, batch_id: str, source_commit: 
         "source_commit": source_commit,
         "python_version": platform.python_version(),
         "frontend": {"name": "build", "version": "1.5.0"},
+        "web": {
+            "source_sha256": _payload_hash(committed_web),
+            "static_sha256": _payload_hash(static_payload),
+            "npm_ci": {
+                "command": WEB_INSTALL_COMMAND,
+                "cwd": "web",
+                "exit_code": 0,
+                "log_ref": "logs/web_npm_ci.log",
+                "log_sha256": _hash_file(web_install_log),
+            },
+            "build": {
+                "command": WEB_BUILD_COMMAND,
+                "cwd": "web",
+                "exit_code": 0,
+                "log_ref": "logs/web_build.log",
+                "log_sha256": _hash_file(web_build_log),
+            },
+        },
         "sdist": {
             "command": SDIST_BUILD_COMMAND,
             "cwd": ".",

@@ -225,7 +225,7 @@ async def test_native_dag_passes_prepared_executor_to_scheduler(
     executor,
     storage,
 ) -> None:
-    scheduler = SimpleNamespace(run=AsyncMock())
+    scheduler = SimpleNamespace(run=AsyncMock(return_value=None))
     executor.set_dag_scheduler(scheduler)
     edict = _edict_with_capabilities()
     storage.save_edict(edict)

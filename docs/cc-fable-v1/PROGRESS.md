@@ -184,21 +184,12 @@ Boundary: this closes only the Lean Core Gate; OpenHands, executor compatibility
 Report: docs/cc-fable-v1/reports/s5-lean-evolution-report.md
 
 === Lean Developer Preview Candidate / Closure Task 6 (2026-07-19) ===
-Status: automated Candidate passed for source
-`ac51f3e0ecc34525d740078abc0abf31595c0e12` in batch
-`20260719T074326Z-ac51f3e0ecc3`. The new source-to-sdist-to-Wheel provenance,
-12 raw-log-backed Gates, and 13-step installed-Wheel demo are bound by canonical
-hashes and pass the strict fail-closed Candidate verifier.
-Final Gate facts: Ruff check passed; Ruff format 889 files clean; mypy 132 source
-files clean; import-linter 2 contracts kept / 0 broken; backend 4411 passed / 2
-skipped / 29 deselected / 6 warnings; exact-Wheel packaging 28 passed / 4
-warnings; npm clean install found 0 vulnerabilities; Web lint 0 errors / 35
-warnings; typecheck passed; 187 unit tests passed; production build passed;
-Playwright 41 passed. Exact Wheel SHA-256:
-`5a967cdc833f77d795dcc683d37dc85ae093acff795af7e2f3d8603b6e311695`;
-sdist SHA-256:
-`c5d34485908466f48114ca0bc6adb98c6e1ddd080d12de05ef96123afc537c48`.
-Candidate: `docs/cc-fable-v1/evidence/lean-preview-candidate.json`; report:
-`docs/cc-fable-v1/reports/lean-developer-preview-candidate.md`. Visual and
-interaction approval remains `user_approval_pending`; publication remains
-`not_authorized`; the D8 list remains deferred and is not counted as passed.
+Status: the `ac51f3e` / `20260719T074326Z-ac51f3e0ecc3` Candidate was withdrawn
+after independent review. Its actual Wheel and Web build agreed, but the
+provenance rule did not independently rebuild committed Web source, and the
+backend log retained process-lifecycle warnings. The rejected Candidate evidence
+is removed rather than retained as an accepted result. Reassembly requires a new
+source-bound build, all 12 Gates, a new 13-step installed-Wheel demo, and strict
+verification after both findings are closed. Visual and interaction approval
+remains `user_approval_pending`; publication remains `not_authorized`; the D8
+list remains deferred and is not counted as passed.

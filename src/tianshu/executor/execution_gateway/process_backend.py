@@ -445,19 +445,22 @@ async def _terminate_process_tree(
         try:
             os.killpg(process_group_id, signal.SIGTERM)
         except ProcessLookupError:
-            return
-        deadline = time.monotonic() + grace_seconds
-        while time.monotonic() < deadline:
-            try:
-                os.killpg(process_group_id, 0)
-            except (PermissionError, ProcessLookupError):
-                break
-            await asyncio.sleep(0.01)
+            pass
         else:
-            with suppress(ProcessLookupError):
-                os.killpg(process_group_id, signal.SIGKILL)
-        if process.returncode is None:
-            await process.wait()
+            deadline = time.monotonic() + grace_seconds
+            while time.monotonic() < deadline:
+                try:
+                    os.killpg(process_group_id, 0)
+                except (PermissionError, ProcessLookupError):
+                    break
+                await asyncio.sleep(0.01)
+            else:
+                with suppress(ProcessLookupError):
+                    os.killpg(process_group_id, signal.SIGKILL)
+        # Await even when asyncio has already observed the leader's return code.
+        # The wait future owns transport reaping independently of process-group
+        # cleanup, especially when descendants inherited stdout/stderr pipes.
+        await process.wait()
         return
 
     if process.returncode is not None:
@@ -621,9 +624,19 @@ class ExecutionHandle:
             tasks,
             timeout=max(self._termination_grace_seconds, 0.05),
         )
+        if pending:
+            # asyncio exposes no public Process.close(). Closing its transport is
+            # the bounded fallback that releases inherited pipe transports after
+            # the complete process group has been terminated.
+            transport = getattr(self._process, "_transport", None)
+            close_transport = getattr(transport, "close", None)
+            if callable(close_transport):
+                close_transport()
+            _, pending = await asyncio.wait(pending, timeout=0.05)
         for task in pending:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.sleep(0)
 
         def record(task: asyncio.Task[_StreamRecord]) -> _StreamRecord:
             if task.cancelled():

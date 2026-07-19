@@ -11,6 +11,7 @@ import zipfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from tianshu.executor.git_backend import GitBackend, GitBackendError, GitLocation
@@ -21,12 +22,14 @@ from tianshu.models.lean_preview import (
 )
 
 try:
+    from scripts._trusted_local_process import run_trusted_local_process
     from scripts.verify_lean_preview_evidence import (
         EvidenceVerificationError,
         verify_candidate_report,
         verify_demo_evidence,
     )
 except ModuleNotFoundError:  # direct ``python scripts/...`` execution
+    from _trusted_local_process import run_trusted_local_process
     from verify_lean_preview_evidence import (
         EvidenceVerificationError,
         verify_candidate_report,
@@ -125,6 +128,8 @@ REQUIRED_GATE_ENVIRONMENTS = {
 }
 SDIST_BUILD_COMMAND = "python -m build --sdist --outdir dist/lean-preview-candidate"
 WHEEL_BUILD_COMMAND = "python -m build --wheel --outdir ../../../from-sdist"
+WEB_INSTALL_COMMAND = "npm ci"
+WEB_BUILD_COMMAND = "npm run build"
 CANDIDATE_WHEEL_DIR = Path("dist/lean-preview-candidate/from-sdist")
 
 
@@ -221,6 +226,51 @@ def _canonical_bytes(value: object) -> bytes:
         separators=(",", ":"),
         sort_keys=True,
     ).encode()
+
+
+def _payload_hash(files: Mapping[str, bytes]) -> str:
+    """Hash both names and bytes for one deterministic file tree."""
+
+    return _hash_bytes(
+        _canonical_bytes({name: _hash_bytes(content) for name, content in sorted(files.items())})
+    )
+
+
+def _directory_payload(root: Path) -> dict[str, bytes]:
+    if not root.is_dir():
+        raise CandidateGateError(f"rebuilt Web static directory is missing: {root}")
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _rebuild_web_static(tracked_source_files: Mapping[str, bytes]) -> dict[str, bytes]:
+    """Rebuild Web assets from only the committed ``web/`` source tree."""
+
+    web_files = {
+        relative: content
+        for relative, content in tracked_source_files.items()
+        if relative.startswith("web/")
+    }
+    if not web_files:
+        raise CandidateGateError("committed Web source is missing")
+    with TemporaryDirectory(prefix="tianshu-web-provenance-") as temporary:
+        root = Path(temporary)
+        for relative, content in web_files.items():
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        web_root = root / "web"
+        for argv, label in (
+            (["npm", "ci"], "npm clean install"),
+            (["npm", "run", "build"], "Web production build"),
+        ):
+            completed = run_trusted_local_process(argv, cwd=web_root)
+            if completed.returncode != 0:
+                raise CandidateGateError(f"committed Web source {label} failed")
+        return _directory_payload(root / "src/tianshu/web/static")
 
 
 def _content_hash(value: Mapping[str, Any]) -> str:
@@ -482,6 +532,7 @@ def verify_build_provenance(
     sdist_path: Path,
     wheel_path: Path,
     tracked_source_files: Mapping[str, bytes],
+    rebuilt_web_static: Mapping[str, bytes] | None = None,
 ) -> BuildProvenance:
     try:
         raw = path.read_bytes()
@@ -493,6 +544,7 @@ def verify_build_provenance(
         "source_commit",
         "python_version",
         "frontend",
+        "web",
         "sdist",
         "wheel",
         "content_hash",
@@ -513,6 +565,33 @@ def verify_build_provenance(
     batch_root = path.parent.resolve()
     if not batch_root.is_relative_to(artifact_root.resolve()):
         raise CandidateGateError("build provenance is outside the artifact root")
+    web_record = _mapping(payload["web"], "Web build provenance")
+    web_fields = {"source_sha256", "static_sha256", "npm_ci", "build"}
+    if set(web_record) != web_fields:
+        raise CandidateGateError("Web build provenance fields are not exact")
+    tracked_web_files = {
+        relative: content
+        for relative, content in tracked_source_files.items()
+        if relative.startswith("web/")
+    }
+    if not tracked_web_files or web_record["source_sha256"] != _payload_hash(tracked_web_files):
+        raise CandidateGateError("Web build provenance source hash mismatch")
+    web_command_fields = {"command", "cwd", "exit_code", "log_ref", "log_sha256"}
+    for label, record_value, command in (
+        ("Web npm clean install", web_record["npm_ci"], WEB_INSTALL_COMMAND),
+        ("Web production build", web_record["build"], WEB_BUILD_COMMAND),
+    ):
+        record = _mapping(record_value, label)
+        if (
+            set(record) != web_command_fields
+            or record["command"] != command
+            or record["cwd"] != "web"
+            or record["exit_code"] != 0
+        ):
+            raise CandidateGateError(f"{label} command context mismatch")
+        log = _verified_log(batch_root, record, label)
+        if re.search(rb"(?im)\b(?:ERROR|FAILED)\b", log):
+            raise CandidateGateError(f"{label} log records failure")
     sdist_record = _mapping(payload["sdist"], "sdist provenance")
     wheel_record = _mapping(payload["wheel"], "Wheel provenance")
     expected_sdist_fields = {
@@ -557,13 +636,32 @@ def verify_build_provenance(
     expected_wheel_cwd = f"dist/lean-preview-candidate/extracted/{sdist_hash}/{sdist_root}"
     if wheel_record["cwd"] != expected_wheel_cwd:
         raise CandidateGateError("Wheel build cwd mismatch")
-    for relative, expected in tracked_source_files.items():
+    packaged_source_files = {
+        relative: expected
+        for relative, expected in tracked_source_files.items()
+        if relative == "pyproject.toml" or relative.startswith("src/tianshu/")
+    }
+    for relative, expected in packaged_source_files.items():
         if sdist_files.get(relative) != expected:
             raise CandidateGateError(f"sdist source payload mismatch: {relative}")
     visible = "src/tianshu/web/static/manifest.json"
     hidden = "src/tianshu/web/static/.vite/manifest.json"
     if visible not in sdist_files or hidden in sdist_files:
         raise CandidateGateError("sdist must contain the visible manifest only")
+    rebuilt_static = dict(
+        rebuilt_web_static
+        if rebuilt_web_static is not None
+        else _rebuild_web_static(tracked_source_files)
+    )
+    sdist_static = {
+        relative.removeprefix("src/tianshu/web/static/"): content
+        for relative, content in sdist_files.items()
+        if relative.startswith("src/tianshu/web/static/")
+    }
+    if not rebuilt_static or sdist_static != rebuilt_static:
+        raise CandidateGateError("sdist Web static does not match rebuilt committed Web source")
+    if web_record["static_sha256"] != _payload_hash(rebuilt_static):
+        raise CandidateGateError("Web build provenance static hash mismatch")
     wheel_files = _wheel_payload(wheel_path)
     wheel_roots = {PurePosixPath(relative).parts[0] for relative in wheel_files}
     dist_info_roots = {
@@ -896,7 +994,9 @@ def assemble_candidate(
         tracked_source_files = {
             relative: backend.read_file_at_commit(location, source_commit, relative)
             for relative in committed_paths
-            if relative == "pyproject.toml" or relative.startswith("src/tianshu/")
+            if relative == "pyproject.toml"
+            or relative.startswith("src/tianshu/")
+            or relative.startswith("web/")
         }
     except GitBackendError as exc:
         raise CandidateGateError("committed build source is unavailable") from exc

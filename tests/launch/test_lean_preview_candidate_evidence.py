@@ -44,6 +44,11 @@ def _content_hash(value: dict[str, object]) -> str:
     return hashlib.sha256(_canonical_bytes(payload)).hexdigest()
 
 
+def _payload_hash(files: dict[str, bytes]) -> str:
+    hashes = {name: hashlib.sha256(content).hexdigest() for name, content in sorted(files.items())}
+    return hashlib.sha256(_canonical_bytes(hashes)).hexdigest()
+
+
 def _gate_logs() -> dict[str, bytes]:
     return {
         "ruff_check": b"All checks passed!\n",
@@ -270,6 +275,7 @@ def _write_distributions(
     second_root: bool = False,
     extra_source: bool = False,
     unsafe_symlink: bool = False,
+    manifest_payload: bytes = b"{}",
 ) -> tuple[Path, Path]:
     sdist = root / "tianshu-0.4.2.tar.gz"
     wheel = root / "tianshu-0.4.2-py3-none-any.whl"
@@ -281,7 +287,7 @@ def _write_distributions(
     with tarfile.open(sdist, "w:gz") as archive:
         _tar_member(archive, "tianshu-0.4.2/pyproject.toml", b"[build-system]\n")
         _tar_member(archive, "tianshu-0.4.2/src/tianshu/__init__.py", b"VERSION = 1\n")
-        _tar_member(archive, f"tianshu-0.4.2/{manifest_name}", b"{}")
+        _tar_member(archive, f"tianshu-0.4.2/{manifest_name}", manifest_payload)
         if extra_source:
             _tar_member(
                 archive,
@@ -298,21 +304,31 @@ def _write_distributions(
     with zipfile.ZipFile(wheel, "w") as archive:
         archive.writestr("tianshu/__init__.py", b"VERSION = 1\n")
         wheel_manifest = manifest_name.removeprefix("src/")
-        archive.writestr(wheel_manifest, b"{}")
+        archive.writestr(wheel_manifest, manifest_payload)
         if extra_source:
             archive.writestr("tianshu/uncommitted.py", b"UNTRACKED = True\n")
         archive.writestr("tianshu-0.4.2.dist-info/WHEEL", b"Wheel-Version: 1.0\n")
     return sdist, wheel
 
 
-def _write_build_provenance(root: Path, sdist: Path, wheel: Path) -> Path:
+def _write_build_provenance(
+    root: Path,
+    sdist: Path,
+    wheel: Path,
+    *,
+    manifest_payload: bytes = b"{}",
+) -> Path:
     batch = root / "builds" / "batch-1"
     logs = batch / "logs"
     logs.mkdir(parents=True)
     sdist_log = b"Successfully built tianshu-0.4.2.tar.gz\n"
     wheel_log = b"Successfully built tianshu-0.4.2-py3-none-any.whl\n"
+    web_install_log = b"added 1 package\nfound 0 vulnerabilities\n"
+    web_build_log = b"vite build\nbuilt in 1ms\n"
     (logs / "sdist.log").write_bytes(sdist_log)
     (logs / "wheel.log").write_bytes(wheel_log)
+    (logs / "web_npm_ci.log").write_bytes(web_install_log)
+    (logs / "web_build.log").write_bytes(web_build_log)
     sdist_hash = hashlib.sha256(sdist.read_bytes()).hexdigest()
     sdist_root = "tianshu-0.4.2"
     payload: dict[str, object] = {
@@ -320,6 +336,24 @@ def _write_build_provenance(root: Path, sdist: Path, wheel: Path) -> Path:
         "source_commit": SOURCE_COMMIT,
         "python_version": "3.12.12",
         "frontend": {"name": "build", "version": "1.5.0"},
+        "web": {
+            "source_sha256": _payload_hash({"web/package.json": b"{}"}),
+            "static_sha256": _payload_hash({"manifest.json": manifest_payload}),
+            "npm_ci": {
+                "command": "npm ci",
+                "cwd": "web",
+                "exit_code": 0,
+                "log_ref": "logs/web_npm_ci.log",
+                "log_sha256": hashlib.sha256(web_install_log).hexdigest(),
+            },
+            "build": {
+                "command": "npm run build",
+                "cwd": "web",
+                "exit_code": 0,
+                "log_ref": "logs/web_build.log",
+                "log_sha256": hashlib.sha256(web_build_log).hexdigest(),
+            },
+        },
         "sdist": {
             "command": "python -m build --sdist --outdir dist/lean-preview-candidate",
             "cwd": ".",
@@ -360,7 +394,9 @@ def test_build_provenance_binds_source_sdist_wheel_and_visible_web_manifest(
         tracked_source_files={
             "pyproject.toml": b"[build-system]\n",
             "src/tianshu/__init__.py": b"VERSION = 1\n",
+            "web/package.json": b"{}",
         },
+        rebuilt_web_static={"manifest.json": b"{}"},
     )
 
     assert result.content_hash == json.loads(provenance.read_bytes())["content_hash"]
@@ -383,20 +419,28 @@ def test_build_provenance_binds_source_sdist_wheel_and_visible_web_manifest(
         ("evil_package", "installable payload"),
         ("hidden_manifest", "visible manifest"),
         ("second_root", "single root"),
+        ("static_rebuilt_mismatch", "rebuilt committed Web source"),
     ],
 )
 def test_build_provenance_rejects_replaced_or_untraceable_artifacts(
     tmp_path: Path, mutation: str, message: str
 ) -> None:
     module = _module()
+    manifest_payload = b'{"tampered":true}' if mutation == "static_rebuilt_mismatch" else b"{}"
     sdist, wheel = _write_distributions(
         tmp_path,
         hidden_manifest=mutation == "hidden_manifest",
         second_root=mutation == "second_root",
         extra_source=mutation == "sdist_extra_source",
         unsafe_symlink=mutation == "sdist_symlink",
+        manifest_payload=manifest_payload,
     )
-    provenance = _write_build_provenance(tmp_path, sdist, wheel)
+    provenance = _write_build_provenance(
+        tmp_path,
+        sdist,
+        wheel,
+        manifest_payload=manifest_payload,
+    )
     if mutation == "provenance":
         payload = json.loads(provenance.read_bytes())
         payload["frontend"]["version"] = "9.9.9"
@@ -456,7 +500,9 @@ def test_build_provenance_rejects_replaced_or_untraceable_artifacts(
             tracked_source_files={
                 "pyproject.toml": b"[build-system]\n",
                 "src/tianshu/__init__.py": b"VERSION = 1\n",
+                "web/package.json": b"{}",
             },
+            rebuilt_web_static={"manifest.json": b"{}"},
         )
 
 

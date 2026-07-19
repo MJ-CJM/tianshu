@@ -50,11 +50,27 @@ def test_recorder_builds_wheel_from_hash_bound_extracted_sdist(tmp_path: Path, m
     monkeypatch.setattr(module, "ROOT", tmp_path)
     monkeypatch.setattr(module.metadata, "version", lambda name: "1.5.0")
     monkeypatch.setattr(module.platform, "python_version", lambda: "3.12.12")
+    (tmp_path / "web").mkdir()
     calls: list[tuple[list[str], Path]] = []
 
     def run(argv, *, cwd):
         calls.append((argv, cwd))
         if len(calls) == 1:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=b"added 1 package\nfound 0 vulnerabilities\n",
+                stderr=b"",
+            )
+        if len(calls) == 2:
+            static = tmp_path / "src/tianshu/web/static"
+            static.mkdir(parents=True)
+            static.joinpath("manifest.json").write_bytes(b"{}")
+            return SimpleNamespace(
+                returncode=0,
+                stdout=b"vite build\nbuilt in 1ms\n",
+                stderr=b"",
+            )
+        if len(calls) == 3:
             target = tmp_path / "dist/lean-preview-candidate/tianshu-0.4.2.tar.gz"
             target.parent.mkdir(parents=True)
             _write_sdist(target)
@@ -77,6 +93,7 @@ def test_recorder_builds_wheel_from_hash_bound_extracted_sdist(tmp_path: Path, m
         output_root=tmp_path / "evidence/builds",
         batch_id="batch-1",
         source_commit=SOURCE_COMMIT,
+        tracked_web_files={"web/package.json": b"{}"},
     )
 
     sdist = tmp_path / "dist/lean-preview-candidate/tianshu-0.4.2.tar.gz"
@@ -85,6 +102,8 @@ def test_recorder_builds_wheel_from_hash_bound_extracted_sdist(tmp_path: Path, m
         tmp_path / "dist/lean-preview-candidate/extracted" / sdist_hash / "tianshu-0.4.2"
     )
     assert calls == [
+        (["npm", "ci"], tmp_path / "web"),
+        (["npm", "run", "build"], tmp_path / "web"),
         (
             [
                 module.sys.executable,
@@ -110,6 +129,24 @@ def test_recorder_builds_wheel_from_hash_bound_extracted_sdist(tmp_path: Path, m
     ]
     assert extracted_root.joinpath("pyproject.toml").read_bytes() == b"[build-system]\n"
     payload = json.loads(path.read_bytes())
+    assert payload["web"] == {
+        "source_sha256": module._payload_hash({"web/package.json": b"{}"}),
+        "static_sha256": module._payload_hash({"manifest.json": b"{}"}),
+        "npm_ci": {
+            "command": module.WEB_INSTALL_COMMAND,
+            "cwd": "web",
+            "exit_code": 0,
+            "log_ref": "logs/web_npm_ci.log",
+            "log_sha256": hashlib.sha256(b"added 1 package\nfound 0 vulnerabilities\n").hexdigest(),
+        },
+        "build": {
+            "command": module.WEB_BUILD_COMMAND,
+            "cwd": "web",
+            "exit_code": 0,
+            "log_ref": "logs/web_build.log",
+            "log_sha256": hashlib.sha256(b"vite build\nbuilt in 1ms\n").hexdigest(),
+        },
+    }
     assert payload["sdist"] == {
         "command": module.SDIST_BUILD_COMMAND,
         "cwd": ".",
