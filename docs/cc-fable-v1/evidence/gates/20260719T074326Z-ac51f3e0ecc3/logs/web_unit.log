@@ -1,0 +1,73 @@
+
+> tianshu-web@0.4.2 test
+> vitest --run
+
+
+ RUN  v4.1.10 /Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web
+
+(node:96446) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96448) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96443) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96449) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96451) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96447) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96444) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96456) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96455) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96445) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96450) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96498) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+Error: Not implemented: window.getComputedStyle(elt, pseudoElt)
+    at module.exports (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at window.getComputedStyle (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/jsdom/lib/jsdom/browser/Window.js:895:7)
+    at measureScrollbarSize (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/rc-util/lib/getScrollBarSize.js:35:32)
+    at getTargetScrollBarSize (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/rc-util/lib/getScrollBarSize.js:83:10)
+    at /Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/rc-table/lib/Table.js:427:71
+    at /Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/rc-util/lib/hooks/useLayoutEffect.js:18:12
+    at commitHookEffectListMount (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/react-dom/cjs/react-dom.development.js:23189:26)
+    at commitPassiveMountOnFiber (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/react-dom/cjs/react-dom.development.js:24970:11)
+    at commitPassiveMountEffects_complete (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/react-dom/cjs/react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/react-dom/cjs/react-dom.development.js:24917:7) undefined
+(node:96482) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+Error: Not implemented: window.getComputedStyle(elt, pseudoElt)
+    at module.exports (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at window.getComputedStyle (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/jsdom/lib/jsdom/browser/Window.js:895:7)
+    at measureScrollbarSize (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/rc-util/lib/getScrollBarSize.js:35:32)
+    at getTargetScrollBarSize (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/rc-util/lib/getScrollBarSize.js:83:10)
+    at /Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/rc-table/lib/Table.js:427:71
+    at /Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/rc-util/lib/hooks/useLayoutEffect.js:18:12
+    at commitHookEffectListMount (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/react-dom/cjs/react-dom.development.js:23189:26)
+    at commitPassiveMountOnFiber (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/react-dom/cjs/react-dom.development.js:24970:11)
+    at commitPassiveMountEffects_complete (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/react-dom/cjs/react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (/Users/chenjiamin/tiangong/tianshu/.claude/worktrees/tianshu-final/web/node_modules/react-dom/cjs/react-dom.development.js:24917:7) undefined
+(node:96496) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96495) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96556) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96493) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96560) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96559) Warning: `--localstorage-file` was provided without a valid path
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+ Test Files  35 passed (35)
+      Tests  187 passed (187)
+   Start at  16:07:00
+   Duration  7.51s (transform 2.87s, setup 0ms, import 60.40s, tests 13.85s, environment 8.30s)
+

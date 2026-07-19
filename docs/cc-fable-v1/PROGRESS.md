@@ -183,12 +183,22 @@ Evidence: a deterministic production harness exercised CandidateService/SkillIns
 Boundary: this closes only the Lean Core Gate; OpenHands, executor compatibility, ROI, cost calibration/enforcement, and full G4 remain external_pending; S4 visual/interaction approval remains user_approval_pending
 Report: docs/cc-fable-v1/reports/s5-lean-evolution-report.md
 
-=== Lean Developer Preview Candidate / Closure Task 6 (2026-07-18) ===
-Status: old Candidate JSON and aggregate Markdown withdrawn fail-closed during
-hardening. They relied on composite/caller summaries and did not bind tracked raw
-Gate logs or build provenance, so they are not an accepted Candidate.
-Historical golden demo batches remain retained evidence only and must not be
-reused for the next Candidate. Reassembly requires one new final-source Gate
-batch with hashed raw logs, pinned source-to-sdist-to-Wheel provenance, and a new
-source/Wheel-bound demo. Visual/interaction remains `user_approval_pending`;
-publication remains `not_authorized`.
+=== Lean Developer Preview Candidate / Closure Task 6 (2026-07-19) ===
+Status: automated Candidate passed for source
+`ac51f3e0ecc34525d740078abc0abf31595c0e12` in batch
+`20260719T074326Z-ac51f3e0ecc3`. The new source-to-sdist-to-Wheel provenance,
+12 raw-log-backed Gates, and 13-step installed-Wheel demo are bound by canonical
+hashes and pass the strict fail-closed Candidate verifier.
+Final Gate facts: Ruff check passed; Ruff format 889 files clean; mypy 132 source
+files clean; import-linter 2 contracts kept / 0 broken; backend 4411 passed / 2
+skipped / 29 deselected / 6 warnings; exact-Wheel packaging 28 passed / 4
+warnings; npm clean install found 0 vulnerabilities; Web lint 0 errors / 35
+warnings; typecheck passed; 187 unit tests passed; production build passed;
+Playwright 41 passed. Exact Wheel SHA-256:
+`5a967cdc833f77d795dcc683d37dc85ae093acff795af7e2f3d8603b6e311695`;
+sdist SHA-256:
+`c5d34485908466f48114ca0bc6adb98c6e1ddd080d12de05ef96123afc537c48`.
+Candidate: `docs/cc-fable-v1/evidence/lean-preview-candidate.json`; report:
+`docs/cc-fable-v1/reports/lean-developer-preview-candidate.md`. Visual and
+interaction approval remains `user_approval_pending`; publication remains
+`not_authorized`; the D8 list remains deferred and is not counted as passed.
