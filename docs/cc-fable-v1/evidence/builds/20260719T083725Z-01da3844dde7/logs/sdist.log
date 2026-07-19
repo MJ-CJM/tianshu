@@ -1,0 +1,1191 @@
+* Creating isolated environment: venv+pip...
+* Installing packages in isolated environment:
+  - setuptools>=75.0
+* Getting build dependencies for sdist...
+running egg_info
+writing src/tianshu.egg-info/PKG-INFO
+writing dependency_links to src/tianshu.egg-info/dependency_links.txt
+writing entry points to src/tianshu.egg-info/entry_points.txt
+writing requirements to src/tianshu.egg-info/requires.txt
+writing top-level names to src/tianshu.egg-info/top_level.txt
+reading manifest file 'src/tianshu.egg-info/SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+warning: no previously-included files matching '__pycache__' found under directory 'build_backend'
+warning: no previously-included files matching '*.pyc' found under directory 'build_backend'
+adding license file 'LICENSE'
+writing manifest file 'src/tianshu.egg-info/SOURCES.txt'
+* Building sdist...
+running sdist
+running egg_info
+writing src/tianshu.egg-info/PKG-INFO
+writing dependency_links to src/tianshu.egg-info/dependency_links.txt
+writing entry points to src/tianshu.egg-info/entry_points.txt
+writing requirements to src/tianshu.egg-info/requires.txt
+writing top-level names to src/tianshu.egg-info/top_level.txt
+reading manifest file 'src/tianshu.egg-info/SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+warning: no previously-included files matching '__pycache__' found under directory 'build_backend'
+warning: no previously-included files matching '*.pyc' found under directory 'build_backend'
+adding license file 'LICENSE'
+writing manifest file 'src/tianshu.egg-info/SOURCES.txt'
+running check
+creating tianshu-0.4.2
+creating tianshu-0.4.2/build_backend
+creating tianshu-0.4.2/src/tianshu
+creating tianshu-0.4.2/src/tianshu.egg-info
+creating tianshu-0.4.2/src/tianshu/application
+creating tianshu-0.4.2/src/tianshu/auditor
+creating tianshu-0.4.2/src/tianshu/bootstrap
+creating tianshu-0.4.2/src/tianshu/bus
+creating tianshu-0.4.2/src/tianshu/cli
+creating tianshu-0.4.2/src/tianshu/cli/commands
+creating tianshu-0.4.2/src/tianshu/consultation
+creating tianshu-0.4.2/src/tianshu/cost
+creating tianshu-0.4.2/src/tianshu/dag
+creating tianshu-0.4.2/src/tianshu/evals
+creating tianshu-0.4.2/src/tianshu/evidence
+creating tianshu-0.4.2/src/tianshu/evolution
+creating tianshu-0.4.2/src/tianshu/evolution/adapters
+creating tianshu-0.4.2/src/tianshu/executor
+creating tianshu-0.4.2/src/tianshu/executor/adapters
+creating tianshu-0.4.2/src/tianshu/executor/compaction
+creating tianshu-0.4.2/src/tianshu/executor/execution_gateway
+creating tianshu-0.4.2/src/tianshu/executor/keqing
+creating tianshu-0.4.2/src/tianshu/executor/orchestrator
+creating tianshu-0.4.2/src/tianshu/executor/templates
+creating tianshu-0.4.2/src/tianshu/executor/templates/edict
+creating tianshu-0.4.2/src/tianshu/gateway
+creating tianshu-0.4.2/src/tianshu/gateway/core
+creating tianshu-0.4.2/src/tianshu/gateway/feishu
+creating tianshu-0.4.2/src/tianshu/gateway/telegram
+creating tianshu-0.4.2/src/tianshu/governance
+creating tianshu-0.4.2/src/tianshu/kernel
+creating tianshu-0.4.2/src/tianshu/lsp
+creating tianshu-0.4.2/src/tianshu/memory
+creating tianshu-0.4.2/src/tianshu/memory/backends
+creating tianshu-0.4.2/src/tianshu/models
+creating tianshu-0.4.2/src/tianshu/notifier
+creating tianshu-0.4.2/src/tianshu/notifier/channels
+creating tianshu-0.4.2/src/tianshu/persona
+creating tianshu-0.4.2/src/tianshu/planner
+creating tianshu-0.4.2/src/tianshu/plugins
+creating tianshu-0.4.2/src/tianshu/providers
+creating tianshu-0.4.2/src/tianshu/resources
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/academic
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/design
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/finance
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/game-development
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/paid-media
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/product
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/project-management
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/sales
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/spatial-computing
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/strategy
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/support
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/en/testing
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/academic
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/design
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/finance
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/game-development
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/hr
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/legal
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/paid-media
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/product
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/project-management
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/sales
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/spatial-computing
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/strategy
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/supply-chain
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/support
+creating tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/testing
+creating tianshu-0.4.2/src/tianshu/resources/personas/bingbu
+creating tianshu-0.4.2/src/tianshu/resources/personas/court
+creating tianshu-0.4.2/src/tianshu/resources/personas/ducha
+creating tianshu-0.4.2/src/tianshu/resources/personas/hubu
+creating tianshu-0.4.2/src/tianshu/resources/personas/neige
+creating tianshu-0.4.2/src/tianshu/resources/personas/tongzheng
+creating tianshu-0.4.2/src/tianshu/resources/personas/wenyuan
+creating tianshu-0.4.2/src/tianshu/scheduler
+creating tianshu-0.4.2/src/tianshu/secrets
+creating tianshu-0.4.2/src/tianshu/security
+creating tianshu-0.4.2/src/tianshu/skills
+creating tianshu-0.4.2/src/tianshu/skills/builtin/file-ops
+creating tianshu-0.4.2/src/tianshu/skills/builtin/shell
+creating tianshu-0.4.2/src/tianshu/storage
+creating tianshu-0.4.2/src/tianshu/tools
+creating tianshu-0.4.2/src/tianshu/tools/hongluisi
+creating tianshu-0.4.2/src/tianshu/tools/hongluisi/engines
+creating tianshu-0.4.2/src/tianshu/tools/mcp
+creating tianshu-0.4.2/src/tianshu/tools/policy_rules
+creating tianshu-0.4.2/src/tianshu/universe
+creating tianshu-0.4.2/src/tianshu/web/static
+creating tianshu-0.4.2/src/tianshu/web/static/assets
+creating tianshu-0.4.2/tests
+copying files to tianshu-0.4.2...
+copying LICENSE -> tianshu-0.4.2
+copying MANIFEST.in -> tianshu-0.4.2
+copying README.md -> tianshu-0.4.2
+copying pyproject.toml -> tianshu-0.4.2
+copying build_backend/tianshu_build.py -> tianshu-0.4.2/build_backend
+copying src/tianshu/__init__.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/agent.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/app.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/config.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/config_manager.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/diagnostics.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/edict_ops.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/feature_flags.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/gateway.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/lean_preview_demo.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/llm.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/llm_router.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/logging_config.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/observability.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/py.typed -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/telemetry.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu/web.py -> tianshu-0.4.2/src/tianshu
+copying src/tianshu.egg-info/PKG-INFO -> tianshu-0.4.2/src/tianshu.egg-info
+copying src/tianshu.egg-info/SOURCES.txt -> tianshu-0.4.2/src/tianshu.egg-info
+copying src/tianshu.egg-info/dependency_links.txt -> tianshu-0.4.2/src/tianshu.egg-info
+copying src/tianshu.egg-info/entry_points.txt -> tianshu-0.4.2/src/tianshu.egg-info
+copying src/tianshu.egg-info/requires.txt -> tianshu-0.4.2/src/tianshu.egg-info
+copying src/tianshu.egg-info/top_level.txt -> tianshu-0.4.2/src/tianshu.egg-info
+copying src/tianshu/application/__init__.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/continuation_recovery.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/control_center.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/edict_detail.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/edicts.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/event_history.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/evolution_view.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/fenced_run_completion.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/ingress.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/managed_run_ingress.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/outbox.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/plan_review_lifecycle.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/run_dispatcher.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/run_execution.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/run_reconciler.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/application/scheduled_runs.py -> tianshu-0.4.2/src/tianshu/application
+copying src/tianshu/auditor/__init__.py -> tianshu-0.4.2/src/tianshu/auditor
+copying src/tianshu/auditor/auditor.py -> tianshu-0.4.2/src/tianshu/auditor
+copying src/tianshu/auditor/reviewer.py -> tianshu-0.4.2/src/tianshu/auditor
+copying src/tianshu/auditor/rules.py -> tianshu-0.4.2/src/tianshu/auditor
+copying src/tianshu/auditor/rules_config.py -> tianshu-0.4.2/src/tianshu/auditor
+copying src/tianshu/bootstrap/__init__.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/digest_cron.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/universe_hooks.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_channels.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_executor.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_llm.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_memory.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_outbox.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_persona.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_scheduler.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_skills.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_storage.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_tools.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bootstrap/wiring_universe.py -> tianshu-0.4.2/src/tianshu/bootstrap
+copying src/tianshu/bus/__init__.py -> tianshu-0.4.2/src/tianshu/bus
+copying src/tianshu/bus/event_bus.py -> tianshu-0.4.2/src/tianshu/bus
+copying src/tianshu/cli/__init__.py -> tianshu-0.4.2/src/tianshu/cli
+copying src/tianshu/cli/client.py -> tianshu-0.4.2/src/tianshu/cli
+copying src/tianshu/cli/main.py -> tianshu-0.4.2/src/tianshu/cli
+copying src/tianshu/cli/commands/__init__.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/auth.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/config.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/cost.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/dag.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/decree.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/doctor.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/edict.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/evals.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/event.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/health.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/keqing.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/memorial.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/plugin.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/provider.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/schedule.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/secrets.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/watch.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/worker.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/cli/commands/workspace.py -> tianshu-0.4.2/src/tianshu/cli/commands
+copying src/tianshu/consultation/__init__.py -> tianshu-0.4.2/src/tianshu/consultation
+copying src/tianshu/consultation/models.py -> tianshu-0.4.2/src/tianshu/consultation
+copying src/tianshu/consultation/session.py -> tianshu-0.4.2/src/tianshu/consultation
+copying src/tianshu/consultation/synthesizer.py -> tianshu-0.4.2/src/tianshu/consultation
+copying src/tianshu/cost/__init__.py -> tianshu-0.4.2/src/tianshu/cost
+copying src/tianshu/cost/budget.py -> tianshu-0.4.2/src/tianshu/cost
+copying src/tianshu/cost/manager.py -> tianshu-0.4.2/src/tianshu/cost
+copying src/tianshu/cost/models.py -> tianshu-0.4.2/src/tianshu/cost
+copying src/tianshu/cost/tracker.py -> tianshu-0.4.2/src/tianshu/cost
+copying src/tianshu/dag/__init__.py -> tianshu-0.4.2/src/tianshu/dag
+copying src/tianshu/dag/graph.py -> tianshu-0.4.2/src/tianshu/dag
+copying src/tianshu/dag/models.py -> tianshu-0.4.2/src/tianshu/dag
+copying src/tianshu/evals/__init__.py -> tianshu-0.4.2/src/tianshu/evals
+copying src/tianshu/evals/runner.py -> tianshu-0.4.2/src/tianshu/evals
+copying src/tianshu/evidence/__init__.py -> tianshu-0.4.2/src/tianshu/evidence
+copying src/tianshu/evidence/models.py -> tianshu-0.4.2/src/tianshu/evidence
+copying src/tianshu/evidence/service.py -> tianshu-0.4.2/src/tianshu/evidence
+copying src/tianshu/evolution/__init__.py -> tianshu-0.4.2/src/tianshu/evolution
+copying src/tianshu/evolution/candidate_service.py -> tianshu-0.4.2/src/tianshu/evolution
+copying src/tianshu/evolution/gates.py -> tianshu-0.4.2/src/tianshu/evolution
+copying src/tianshu/evolution/promotion.py -> tianshu-0.4.2/src/tianshu/evolution
+copying src/tianshu/evolution/reconciler.py -> tianshu-0.4.2/src/tianshu/evolution
+copying src/tianshu/evolution/runtime_context.py -> tianshu-0.4.2/src/tianshu/evolution
+copying src/tianshu/evolution/adapters/__init__.py -> tianshu-0.4.2/src/tianshu/evolution/adapters
+copying src/tianshu/evolution/adapters/base.py -> tianshu-0.4.2/src/tianshu/evolution/adapters
+copying src/tianshu/evolution/adapters/code.py -> tianshu-0.4.2/src/tianshu/evolution/adapters
+copying src/tianshu/evolution/adapters/memory.py -> tianshu-0.4.2/src/tianshu/evolution/adapters
+copying src/tianshu/evolution/adapters/persona.py -> tianshu-0.4.2/src/tianshu/evolution/adapters
+copying src/tianshu/evolution/adapters/policy.py -> tianshu-0.4.2/src/tianshu/evolution/adapters
+copying src/tianshu/evolution/adapters/skill.py -> tianshu-0.4.2/src/tianshu/evolution/adapters
+copying src/tianshu/executor/__init__.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/agent.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/ambient.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/anchored_fs.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/approvals.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/cancel.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/capabilities.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/checkpoint.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/continuation.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/dag_scheduler.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/executor.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/exit_reason.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/git_backend.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/hooks.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/lanes.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/liuke.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/loop_state.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/managed_tools.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/policy_hook.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/retry.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/shadow_snapshot.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/side_effects.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/silijian.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/streaming.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/worker.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/worker_pool.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/workspace_apply.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/workspace_context.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/workspace_policy.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/workspace_runtime.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/workspace_service.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/xunan.py -> tianshu-0.4.2/src/tianshu/executor
+copying src/tianshu/executor/adapters/__init__.py -> tianshu-0.4.2/src/tianshu/executor/adapters
+copying src/tianshu/executor/adapters/protocol.py -> tianshu-0.4.2/src/tianshu/executor/adapters
+copying src/tianshu/executor/compaction/__init__.py -> tianshu-0.4.2/src/tianshu/executor/compaction
+copying src/tianshu/executor/compaction/auto.py -> tianshu-0.4.2/src/tianshu/executor/compaction
+copying src/tianshu/executor/compaction/micro.py -> tianshu-0.4.2/src/tianshu/executor/compaction
+copying src/tianshu/executor/compaction/reactive.py -> tianshu-0.4.2/src/tianshu/executor/compaction
+copying src/tianshu/executor/compaction/token_estimator.py -> tianshu-0.4.2/src/tianshu/executor/compaction
+copying src/tianshu/executor/execution_gateway/__init__.py -> tianshu-0.4.2/src/tianshu/executor/execution_gateway
+copying src/tianshu/executor/execution_gateway/gateway.py -> tianshu-0.4.2/src/tianshu/executor/execution_gateway
+copying src/tianshu/executor/execution_gateway/grants.py -> tianshu-0.4.2/src/tianshu/executor/execution_gateway
+copying src/tianshu/executor/execution_gateway/policy_models.py -> tianshu-0.4.2/src/tianshu/executor/execution_gateway
+copying src/tianshu/executor/execution_gateway/process_backend.py -> tianshu-0.4.2/src/tianshu/executor/execution_gateway
+copying src/tianshu/executor/keqing/__init__.py -> tianshu-0.4.2/src/tianshu/executor/keqing
+copying src/tianshu/executor/keqing/adapter.py -> tianshu-0.4.2/src/tianshu/executor/keqing
+copying src/tianshu/executor/keqing/executor.py -> tianshu-0.4.2/src/tianshu/executor/keqing
+copying src/tianshu/executor/orchestrator/__init__.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/archive.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/audit.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/budget.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/checks.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/critic.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/escalation.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/human_decision.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/lifecycle.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/loop.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/persistence.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/state.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/supervision.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/orchestrator/templates.py -> tianshu-0.4.2/src/tianshu/executor/orchestrator
+copying src/tianshu/executor/templates/__init__.py -> tianshu-0.4.2/src/tianshu/executor/templates
+copying src/tianshu/executor/templates/edict/__init__.py -> tianshu-0.4.2/src/tianshu/executor/templates/edict
+copying src/tianshu/executor/templates/edict/completion_audit.md -> tianshu-0.4.2/src/tianshu/executor/templates/edict
+copying src/tianshu/executor/templates/edict/continuation.md -> tianshu-0.4.2/src/tianshu/executor/templates/edict
+copying src/tianshu/executor/templates/edict/wind_down.md -> tianshu-0.4.2/src/tianshu/executor/templates/edict
+copying src/tianshu/gateway/__init__.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/_helpers.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/audit_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/auth.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/auth_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/bot_manager.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/config_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/control_center_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/cost_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/credentials_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/decisions_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/edict_parse.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/edicts_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/estop_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/evals_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/evidence_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/evolution_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/execution_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/hongluisi_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/instance.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/keqing_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/mcp_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/mcp_server.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/memory_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/personas_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/providers_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/skills_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/system_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/system_audit_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/tongzheng_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/universes_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/workspace_api.py -> tianshu-0.4.2/src/tianshu/gateway
+copying src/tianshu/gateway/core/__init__.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/approval.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/assistant_branch.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/batcher.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/budget.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/edict_branch.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/edict_bridge.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/errors.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/markdown_compat.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/message.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/mode_router.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/outbound.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/persona_renderer.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/session_anchor.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/core/status_label.py -> tianshu-0.4.2/src/tianshu/gateway/core
+copying src/tianshu/gateway/feishu/__init__.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/approval_card.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/approval_commands.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/assistant_branch.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/bot.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/card_action_dispatcher.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/card_builder.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/connection.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/dispatcher.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/edict_branch.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/markdown_compat.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/mode_router.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/outbound.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/security.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/feishu/settings.py -> tianshu-0.4.2/src/tianshu/gateway/feishu
+copying src/tianshu/gateway/telegram/__init__.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/approval_commands.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/approval_kb.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/assistant_branch.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/bot.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/card_action_dispatcher.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/card_builder.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/connection.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/dispatcher.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/edict_branch.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/markdown_v2.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/mode_router.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/outbound.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/security.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/session_anchor.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/gateway/telegram/settings.py -> tianshu-0.4.2/src/tianshu/gateway/telegram
+copying src/tianshu/governance/__init__.py -> tianshu-0.4.2/src/tianshu/governance
+copying src/tianshu/governance/decision_service.py -> tianshu-0.4.2/src/tianshu/governance
+copying src/tianshu/kernel/__init__.py -> tianshu-0.4.2/src/tianshu/kernel
+copying src/tianshu/kernel/ambient.py -> tianshu-0.4.2/src/tianshu/kernel
+copying src/tianshu/kernel/exit_reason.py -> tianshu-0.4.2/src/tianshu/kernel
+copying src/tianshu/kernel/hooks.py -> tianshu-0.4.2/src/tianshu/kernel
+copying src/tianshu/lsp/__init__.py -> tianshu-0.4.2/src/tianshu/lsp
+copying src/tianshu/lsp/diagnostics.py -> tianshu-0.4.2/src/tianshu/lsp
+copying src/tianshu/memory/__init__.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/access_control.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/chunker.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/compactor.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/config.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/diarist.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/drawer.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/drawer_store.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/fts.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/historian.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/kg.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/layers.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/manager.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/markdown_backend.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/models.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/reflect.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/safety.py -> tianshu-0.4.2/src/tianshu/memory
+copying src/tianshu/memory/backends/__init__.py -> tianshu-0.4.2/src/tianshu/memory/backends
+copying src/tianshu/memory/backends/sqlite_backend.py -> tianshu-0.4.2/src/tianshu/memory/backends
+copying src/tianshu/models/__init__.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/acceptance.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/api.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/attempt.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/canonical.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/common.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/control_center.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/dag.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/decision.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/decree.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/edict.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/edict_detail.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/events.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/evolution_candidate.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/evolution_view.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/failure.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/governance_contract.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/lean_preview.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/memorial.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/plan.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/plan_revision.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/principal.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/run_assignment.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/run_state.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/side_effect.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/supervision.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/system_audit.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/models/workspace.py -> tianshu-0.4.2/src/tianshu/models
+copying src/tianshu/notifier/__init__.py -> tianshu-0.4.2/src/tianshu/notifier
+copying src/tianshu/notifier/channel_registry.py -> tianshu-0.4.2/src/tianshu/notifier
+copying src/tianshu/notifier/delivery_outbox.py -> tianshu-0.4.2/src/tianshu/notifier
+copying src/tianshu/notifier/digest.py -> tianshu-0.4.2/src/tianshu/notifier
+copying src/tianshu/notifier/notifier.py -> tianshu-0.4.2/src/tianshu/notifier
+copying src/tianshu/notifier/renderer.py -> tianshu-0.4.2/src/tianshu/notifier
+copying src/tianshu/notifier/channels/__init__.py -> tianshu-0.4.2/src/tianshu/notifier/channels
+copying src/tianshu/notifier/channels/base.py -> tianshu-0.4.2/src/tianshu/notifier/channels
+copying src/tianshu/notifier/channels/dingtalk.py -> tianshu-0.4.2/src/tianshu/notifier/channels
+copying src/tianshu/notifier/channels/email.py -> tianshu-0.4.2/src/tianshu/notifier/channels
+copying src/tianshu/notifier/channels/feishu.py -> tianshu-0.4.2/src/tianshu/notifier/channels
+copying src/tianshu/persona/__init__.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/evaluator.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/jingcha.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/loader.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/match.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/memory_manager.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/metrics.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/model.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/profile_io.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/profile_renderer.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/profile_schema.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/profile_synthesizer.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/profile_trigger.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/prompt_builder.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/selector.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/persona/template_library.py -> tianshu-0.4.2/src/tianshu/persona
+copying src/tianshu/planner/__init__.py -> tianshu-0.4.2/src/tianshu/planner
+copying src/tianshu/planner/planner.py -> tianshu-0.4.2/src/tianshu/planner
+copying src/tianshu/planner/prompts.py -> tianshu-0.4.2/src/tianshu/planner
+copying src/tianshu/plugins/__init__.py -> tianshu-0.4.2/src/tianshu/plugins
+copying src/tianshu/plugins/api.py -> tianshu-0.4.2/src/tianshu/plugins
+copying src/tianshu/plugins/loader.py -> tianshu-0.4.2/src/tianshu/plugins
+copying src/tianshu/plugins/manifest.py -> tianshu-0.4.2/src/tianshu/plugins
+copying src/tianshu/providers/__init__.py -> tianshu-0.4.2/src/tianshu/providers
+copying src/tianshu/providers/capabilities.py -> tianshu-0.4.2/src/tianshu/providers
+copying src/tianshu/providers/demo.py -> tianshu-0.4.2/src/tianshu/providers
+copying src/tianshu/providers/litellm_provider.py -> tianshu-0.4.2/src/tianshu/providers
+copying src/tianshu/providers/manager.py -> tianshu-0.4.2/src/tianshu/providers
+copying src/tianshu/resources/LICENSE -> tianshu-0.4.2/src/tianshu/resources
+copying src/tianshu/resources/__init__.py -> tianshu-0.4.2/src/tianshu/resources
+copying src/tianshu/resources/catalog.py -> tianshu-0.4.2/src/tianshu/resources
+copying src/tianshu/resources/overlay.py -> tianshu-0.4.2/src/tianshu/resources
+copying src/tianshu/resources/persona_templates/SOURCES.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates
+copying src/tianshu/resources/persona_templates/en/academic/academic-anthropologist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/academic
+copying src/tianshu/resources/persona_templates/en/academic/academic-geographer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/academic
+copying src/tianshu/resources/persona_templates/en/academic/academic-historian.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/academic
+copying src/tianshu/resources/persona_templates/en/academic/academic-narratologist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/academic
+copying src/tianshu/resources/persona_templates/en/academic/academic-psychologist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/academic
+copying src/tianshu/resources/persona_templates/en/design/design-brand-guardian.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/design
+copying src/tianshu/resources/persona_templates/en/design/design-image-prompt-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/design
+copying src/tianshu/resources/persona_templates/en/design/design-inclusive-visuals-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/design
+copying src/tianshu/resources/persona_templates/en/design/design-persona-walkthrough.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/design
+copying src/tianshu/resources/persona_templates/en/design/design-ui-designer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/design
+copying src/tianshu/resources/persona_templates/en/design/design-ux-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/design
+copying src/tianshu/resources/persona_templates/en/design/design-ux-researcher.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/design
+copying src/tianshu/resources/persona_templates/en/design/design-visual-storyteller.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/design
+copying src/tianshu/resources/persona_templates/en/design/design-whimsy-injector.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/design
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-ai-data-remediation-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-ai-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-autonomous-optimization-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-backend-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-cms-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-code-reviewer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-codebase-onboarding-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-data-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-database-optimizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-devops-automator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-email-intelligence-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-embedded-firmware-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-feishu-integration-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-filament-optimization-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-frontend-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-git-workflow-master.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-incident-response-commander.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-it-service-manager.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-minimal-change-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-mobile-app-builder.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-orgscript-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-prompt-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-rapid-prototyper.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-security-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-senior-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-software-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-solidity-smart-contract-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-sre.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-technical-writer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-threat-detection-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-voice-ai-integration-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/engineering/engineering-wechat-mini-program-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/engineering
+copying src/tianshu/resources/persona_templates/en/finance/finance-bookkeeper-controller.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/finance
+copying src/tianshu/resources/persona_templates/en/finance/finance-financial-analyst.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/finance
+copying src/tianshu/resources/persona_templates/en/finance/finance-fpa-analyst.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/finance
+copying src/tianshu/resources/persona_templates/en/finance/finance-investment-researcher.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/finance
+copying src/tianshu/resources/persona_templates/en/finance/finance-tax-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/finance
+copying src/tianshu/resources/persona_templates/en/game-development/game-audio-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/game-development
+copying src/tianshu/resources/persona_templates/en/game-development/game-designer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/game-development
+copying src/tianshu/resources/persona_templates/en/game-development/level-designer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/game-development
+copying src/tianshu/resources/persona_templates/en/game-development/narrative-designer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/game-development
+copying src/tianshu/resources/persona_templates/en/game-development/technical-artist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/game-development
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-aeo-foundations.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-agentic-search-optimizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-ai-citation-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-app-store-optimizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-baidu-seo-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-bilibili-content-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-book-co-author.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-carousel-growth-engine.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-china-ecommerce-operator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-china-market-localization-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-content-creator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-cross-border-ecommerce.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-douyin-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-email-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-global-podcast-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-growth-hacker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-instagram-curator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-kuaishou-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-linkedin-content-creator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-livestream-commerce-coach.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-multi-platform-publisher.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-podcast-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-pr-communications-manager.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-private-domain-operator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-reddit-community-builder.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-seo-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-short-video-editing-coach.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-social-media-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-tiktok-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-twitter-engager.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-video-optimization-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-wechat-official-account.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-weibo-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-x-twitter-intelligence-analyst.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-xiaohongshu-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/marketing/marketing-zhihu-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/marketing
+copying src/tianshu/resources/persona_templates/en/paid-media/paid-media-auditor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/paid-media
+copying src/tianshu/resources/persona_templates/en/paid-media/paid-media-creative-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/paid-media
+copying src/tianshu/resources/persona_templates/en/paid-media/paid-media-paid-social-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/paid-media
+copying src/tianshu/resources/persona_templates/en/paid-media/paid-media-ppc-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/paid-media
+copying src/tianshu/resources/persona_templates/en/paid-media/paid-media-programmatic-buyer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/paid-media
+copying src/tianshu/resources/persona_templates/en/paid-media/paid-media-search-query-analyst.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/paid-media
+copying src/tianshu/resources/persona_templates/en/paid-media/paid-media-tracking-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/paid-media
+copying src/tianshu/resources/persona_templates/en/product/product-behavioral-nudge-engine.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/product
+copying src/tianshu/resources/persona_templates/en/product/product-feedback-synthesizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/product
+copying src/tianshu/resources/persona_templates/en/product/product-manager.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/product
+copying src/tianshu/resources/persona_templates/en/product/product-sprint-prioritizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/product
+copying src/tianshu/resources/persona_templates/en/product/product-trend-researcher.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/product
+copying src/tianshu/resources/persona_templates/en/project-management/project-management-experiment-tracker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/project-management
+copying src/tianshu/resources/persona_templates/en/project-management/project-management-jira-workflow-steward.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/project-management
+copying src/tianshu/resources/persona_templates/en/project-management/project-management-meeting-notes-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/project-management
+copying src/tianshu/resources/persona_templates/en/project-management/project-management-project-shepherd.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/project-management
+copying src/tianshu/resources/persona_templates/en/project-management/project-management-studio-operations.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/project-management
+copying src/tianshu/resources/persona_templates/en/project-management/project-management-studio-producer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/project-management
+copying src/tianshu/resources/persona_templates/en/project-management/project-manager-senior.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/project-management
+copying src/tianshu/resources/persona_templates/en/sales/sales-account-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/sales
+copying src/tianshu/resources/persona_templates/en/sales/sales-coach.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/sales
+copying src/tianshu/resources/persona_templates/en/sales/sales-deal-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/sales
+copying src/tianshu/resources/persona_templates/en/sales/sales-discovery-coach.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/sales
+copying src/tianshu/resources/persona_templates/en/sales/sales-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/sales
+copying src/tianshu/resources/persona_templates/en/sales/sales-offer-lead-gen-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/sales
+copying src/tianshu/resources/persona_templates/en/sales/sales-outbound-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/sales
+copying src/tianshu/resources/persona_templates/en/sales/sales-pipeline-analyst.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/sales
+copying src/tianshu/resources/persona_templates/en/sales/sales-proposal-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/sales
+copying src/tianshu/resources/persona_templates/en/spatial-computing/macos-spatial-metal-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/spatial-computing
+copying src/tianshu/resources/persona_templates/en/spatial-computing/terminal-integration-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/spatial-computing
+copying src/tianshu/resources/persona_templates/en/spatial-computing/visionos-spatial-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/spatial-computing
+copying src/tianshu/resources/persona_templates/en/spatial-computing/xr-cockpit-interaction-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/spatial-computing
+copying src/tianshu/resources/persona_templates/en/spatial-computing/xr-immersive-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/spatial-computing
+copying src/tianshu/resources/persona_templates/en/spatial-computing/xr-interface-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/spatial-computing
+copying src/tianshu/resources/persona_templates/en/specialized/accounts-payable-agent.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/agentic-identity-trust.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/agents-orchestrator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/automation-governance-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/blockchain-security-auditor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/business-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/change-management-consultant.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/compliance-auditor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/corporate-training-designer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/customer-service.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/customer-success-manager.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/data-consolidation-agent.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/government-digital-presales-consultant.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/grant-writer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/healthcare-customer-service.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/healthcare-marketing-compliance.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/hospitality-guest-services.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/hr-onboarding.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/identity-graph-operator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/language-translator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/legal-billing-time-tracking.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/legal-client-intake.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/legal-document-review.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/loan-officer-assistant.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/lsp-index-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/medical-billing-coding-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/personal-growth-mentor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/real-estate-buyer-seller.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/recruitment-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/report-distribution-agent.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/retail-customer-returns.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/sales-data-extraction-agent.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/sales-outreach.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-chief-of-staff.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-civil-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-cultural-intelligence-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-developer-advocate.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-document-generator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-french-consulting-market.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-korean-business-navigator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-mcp-builder.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-model-qa.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-pricing-analyst.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-salesforce-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/specialized-workflow-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/study-abroad-advisor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/supply-chain-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/specialized/zk-steward.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/specialized
+copying src/tianshu/resources/persona_templates/en/strategy/EXECUTIVE-BRIEF.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/strategy
+copying src/tianshu/resources/persona_templates/en/strategy/QUICKSTART.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/strategy
+copying src/tianshu/resources/persona_templates/en/strategy/nexus-strategy.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/strategy
+copying src/tianshu/resources/persona_templates/en/support/support-analytics-reporter.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/support
+copying src/tianshu/resources/persona_templates/en/support/support-executive-summary-generator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/support
+copying src/tianshu/resources/persona_templates/en/support/support-finance-tracker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/support
+copying src/tianshu/resources/persona_templates/en/support/support-infrastructure-maintainer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/support
+copying src/tianshu/resources/persona_templates/en/support/support-legal-compliance-checker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/support
+copying src/tianshu/resources/persona_templates/en/support/support-support-responder.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/support
+copying src/tianshu/resources/persona_templates/en/testing/testing-accessibility-auditor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/testing
+copying src/tianshu/resources/persona_templates/en/testing/testing-api-tester.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/testing
+copying src/tianshu/resources/persona_templates/en/testing/testing-evidence-collector.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/testing
+copying src/tianshu/resources/persona_templates/en/testing/testing-performance-benchmarker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/testing
+copying src/tianshu/resources/persona_templates/en/testing/testing-reality-checker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/testing
+copying src/tianshu/resources/persona_templates/en/testing/testing-test-results-analyzer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/testing
+copying src/tianshu/resources/persona_templates/en/testing/testing-tool-evaluator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/testing
+copying src/tianshu/resources/persona_templates/en/testing/testing-workflow-optimizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/en/testing
+copying src/tianshu/resources/persona_templates/zh/academic/academic-anthropologist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/academic
+copying src/tianshu/resources/persona_templates/zh/academic/academic-geographer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/academic
+copying src/tianshu/resources/persona_templates/zh/academic/academic-historian.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/academic
+copying src/tianshu/resources/persona_templates/zh/academic/academic-narratologist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/academic
+copying src/tianshu/resources/persona_templates/zh/academic/academic-psychologist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/academic
+copying src/tianshu/resources/persona_templates/zh/academic/academic-study-planner.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/academic
+copying src/tianshu/resources/persona_templates/zh/design/design-brand-guardian.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/design
+copying src/tianshu/resources/persona_templates/zh/design/design-image-prompt-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/design
+copying src/tianshu/resources/persona_templates/zh/design/design-inclusive-visuals-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/design
+copying src/tianshu/resources/persona_templates/zh/design/design-ui-designer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/design
+copying src/tianshu/resources/persona_templates/zh/design/design-ux-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/design
+copying src/tianshu/resources/persona_templates/zh/design/design-ux-researcher.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/design
+copying src/tianshu/resources/persona_templates/zh/design/design-visual-storyteller.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/design
+copying src/tianshu/resources/persona_templates/zh/design/design-whimsy-injector.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/design
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-ai-data-remediation-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-ai-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-autonomous-optimization-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-backend-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-cms-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-code-reviewer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-codebase-onboarding-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-data-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-database-optimizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-devops-automator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-dingtalk-integration-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-email-intelligence-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-embedded-firmware-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-embedded-linux-driver-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-feishu-integration-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-filament-optimization-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-fpga-digital-design-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-frontend-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-git-workflow-master.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-incident-response-commander.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-iot-solution-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-mechanical-design-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-minimal-change-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-mobile-app-builder.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-pc-host-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-rapid-prototyper.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-security-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-senior-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-software-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-solidity-smart-contract-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-sre.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-technical-writer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-threat-detection-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-voice-ai-integration-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/engineering/engineering-wechat-mini-program-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/engineering
+copying src/tianshu/resources/persona_templates/zh/finance/finance-bookkeeper-controller.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/finance
+copying src/tianshu/resources/persona_templates/zh/finance/finance-financial-analyst.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/finance
+copying src/tianshu/resources/persona_templates/zh/finance/finance-financial-forecaster.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/finance
+copying src/tianshu/resources/persona_templates/zh/finance/finance-fpa-analyst.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/finance
+copying src/tianshu/resources/persona_templates/zh/finance/finance-fraud-detector.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/finance
+copying src/tianshu/resources/persona_templates/zh/finance/finance-investment-researcher.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/finance
+copying src/tianshu/resources/persona_templates/zh/finance/finance-invoice-manager.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/finance
+copying src/tianshu/resources/persona_templates/zh/finance/finance-tax-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/finance
+copying src/tianshu/resources/persona_templates/zh/game-development/game-audio-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/game-development
+copying src/tianshu/resources/persona_templates/zh/game-development/game-designer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/game-development
+copying src/tianshu/resources/persona_templates/zh/game-development/level-designer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/game-development
+copying src/tianshu/resources/persona_templates/zh/game-development/narrative-designer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/game-development
+copying src/tianshu/resources/persona_templates/zh/game-development/technical-artist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/game-development
+copying src/tianshu/resources/persona_templates/zh/hr/hr-performance-reviewer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/hr
+copying src/tianshu/resources/persona_templates/zh/hr/hr-recruiter.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/hr
+copying src/tianshu/resources/persona_templates/zh/legal/legal-contract-reviewer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/legal
+copying src/tianshu/resources/persona_templates/zh/legal/legal-policy-writer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/legal
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-agentic-search-optimizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-ai-citation-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-app-store-optimizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-baidu-seo-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-bilibili-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-book-co-author.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-carousel-growth-engine.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-china-ecommerce-operator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-china-market-localization-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-content-creator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-cross-border-ecommerce.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-daily-news-briefing.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-douyin-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-ecommerce-operator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-growth-hacker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-instagram-curator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-knowledge-commerce-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-kuaishou-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-linkedin-content-creator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-livestream-commerce-coach.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-podcast-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-private-domain-operator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-reddit-community-builder.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-seo-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-short-video-editing-coach.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-social-media-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-tiktok-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-twitter-engager.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-video-optimization-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-wechat-official-account.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-wechat-operator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-weibo-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-weixin-channels-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-xiaohongshu-operator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-xiaohongshu-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/marketing/marketing-zhihu-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/marketing
+copying src/tianshu/resources/persona_templates/zh/paid-media/paid-media-auditor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/paid-media
+copying src/tianshu/resources/persona_templates/zh/paid-media/paid-media-creative-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/paid-media
+copying src/tianshu/resources/persona_templates/zh/paid-media/paid-media-paid-social-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/paid-media
+copying src/tianshu/resources/persona_templates/zh/paid-media/paid-media-ppc-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/paid-media
+copying src/tianshu/resources/persona_templates/zh/paid-media/paid-media-programmatic-buyer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/paid-media
+copying src/tianshu/resources/persona_templates/zh/paid-media/paid-media-search-query-analyst.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/paid-media
+copying src/tianshu/resources/persona_templates/zh/paid-media/paid-media-tracking-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/paid-media
+copying src/tianshu/resources/persona_templates/zh/product/product-behavioral-nudge-engine.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/product
+copying src/tianshu/resources/persona_templates/zh/product/product-feedback-synthesizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/product
+copying src/tianshu/resources/persona_templates/zh/product/product-manager.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/product
+copying src/tianshu/resources/persona_templates/zh/product/product-sprint-prioritizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/product
+copying src/tianshu/resources/persona_templates/zh/product/product-trend-researcher.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/product
+copying src/tianshu/resources/persona_templates/zh/project-management/project-management-experiment-tracker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/project-management
+copying src/tianshu/resources/persona_templates/zh/project-management/project-management-jira-workflow-steward.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/project-management
+copying src/tianshu/resources/persona_templates/zh/project-management/project-management-project-shepherd.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/project-management
+copying src/tianshu/resources/persona_templates/zh/project-management/project-management-studio-operations.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/project-management
+copying src/tianshu/resources/persona_templates/zh/project-management/project-management-studio-producer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/project-management
+copying src/tianshu/resources/persona_templates/zh/project-management/project-manager-senior.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/project-management
+copying src/tianshu/resources/persona_templates/zh/sales/sales-account-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/sales
+copying src/tianshu/resources/persona_templates/zh/sales/sales-coach.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/sales
+copying src/tianshu/resources/persona_templates/zh/sales/sales-deal-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/sales
+copying src/tianshu/resources/persona_templates/zh/sales/sales-discovery-coach.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/sales
+copying src/tianshu/resources/persona_templates/zh/sales/sales-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/sales
+copying src/tianshu/resources/persona_templates/zh/sales/sales-outbound-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/sales
+copying src/tianshu/resources/persona_templates/zh/sales/sales-pipeline-analyst.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/sales
+copying src/tianshu/resources/persona_templates/zh/sales/sales-proposal-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/sales
+copying src/tianshu/resources/persona_templates/zh/spatial-computing/macos-spatial-metal-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/spatial-computing
+copying src/tianshu/resources/persona_templates/zh/spatial-computing/terminal-integration-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/spatial-computing
+copying src/tianshu/resources/persona_templates/zh/spatial-computing/visionos-spatial-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/spatial-computing
+copying src/tianshu/resources/persona_templates/zh/spatial-computing/xr-cockpit-interaction-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/spatial-computing
+copying src/tianshu/resources/persona_templates/zh/spatial-computing/xr-immersive-developer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/spatial-computing
+copying src/tianshu/resources/persona_templates/zh/spatial-computing/xr-interface-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/spatial-computing
+copying src/tianshu/resources/persona_templates/zh/specialized/accounts-payable-agent.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/agentic-identity-trust.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/agents-orchestrator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/automation-governance-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/blockchain-security-auditor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/compliance-auditor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/corporate-training-designer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/data-consolidation-agent.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/gaokao-college-advisor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/government-digital-presales-consultant.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/healthcare-customer-service.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/healthcare-marketing-compliance.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/hospitality-guest-services.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/hr-onboarding.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/identity-graph-operator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/language-translator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/legal-billing-time-tracking.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/legal-client-intake.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/legal-document-review.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/livestock-archive-auditor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/loan-officer-assistant.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/lsp-index-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/prompt-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/real-estate-buyer-seller.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/recruitment-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/report-distribution-agent.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/retail-customer-returns.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/sales-data-extraction-agent.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-ai-policy-writer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-chief-of-staff.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-civil-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-cultural-intelligence-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-developer-advocate.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-document-generator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-french-consulting-market.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-korean-business-navigator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-mcp-builder.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-meeting-assistant.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-model-qa.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-pricing-optimizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-risk-assessor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-salesforce-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/specialized-workflow-architect.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/study-abroad-advisor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/technical-translator-agent.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/specialized/zk-steward.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/specialized
+copying src/tianshu/resources/persona_templates/zh/strategy/EXECUTIVE-BRIEF.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/strategy
+copying src/tianshu/resources/persona_templates/zh/strategy/QUICKSTART.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/strategy
+copying src/tianshu/resources/persona_templates/zh/strategy/nexus-strategy.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/strategy
+copying src/tianshu/resources/persona_templates/zh/supply-chain/supply-chain-garment-factory-planning-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/supply-chain
+copying src/tianshu/resources/persona_templates/zh/supply-chain/supply-chain-inventory-forecaster.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/supply-chain
+copying src/tianshu/resources/persona_templates/zh/supply-chain/supply-chain-route-optimizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/supply-chain
+copying src/tianshu/resources/persona_templates/zh/supply-chain/supply-chain-strategist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/supply-chain
+copying src/tianshu/resources/persona_templates/zh/supply-chain/supply-chain-vendor-evaluator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/supply-chain
+copying src/tianshu/resources/persona_templates/zh/support/support-analytics-reporter.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/support
+copying src/tianshu/resources/persona_templates/zh/support/support-executive-summary-generator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/support
+copying src/tianshu/resources/persona_templates/zh/support/support-finance-tracker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/support
+copying src/tianshu/resources/persona_templates/zh/support/support-infrastructure-maintainer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/support
+copying src/tianshu/resources/persona_templates/zh/support/support-legal-compliance-checker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/support
+copying src/tianshu/resources/persona_templates/zh/support/support-recruitment-specialist.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/support
+copying src/tianshu/resources/persona_templates/zh/support/support-support-responder.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/support
+copying src/tianshu/resources/persona_templates/zh/testing/testing-accessibility-auditor.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/testing
+copying src/tianshu/resources/persona_templates/zh/testing/testing-api-tester.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/testing
+copying src/tianshu/resources/persona_templates/zh/testing/testing-embedded-qa-engineer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/testing
+copying src/tianshu/resources/persona_templates/zh/testing/testing-evidence-collector.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/testing
+copying src/tianshu/resources/persona_templates/zh/testing/testing-performance-benchmarker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/testing
+copying src/tianshu/resources/persona_templates/zh/testing/testing-reality-checker.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/testing
+copying src/tianshu/resources/persona_templates/zh/testing/testing-test-results-analyzer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/testing
+copying src/tianshu/resources/persona_templates/zh/testing/testing-tool-evaluator.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/testing
+copying src/tianshu/resources/persona_templates/zh/testing/testing-workflow-optimizer.md -> tianshu-0.4.2/src/tianshu/resources/persona_templates/zh/testing
+copying src/tianshu/resources/personas/bingbu/MEMORY.md -> tianshu-0.4.2/src/tianshu/resources/personas/bingbu
+copying src/tianshu/resources/personas/bingbu/ROLE.md -> tianshu-0.4.2/src/tianshu/resources/personas/bingbu
+copying src/tianshu/resources/personas/bingbu/SOUL.md -> tianshu-0.4.2/src/tianshu/resources/personas/bingbu
+copying src/tianshu/resources/personas/court/COURT.md -> tianshu-0.4.2/src/tianshu/resources/personas/court
+copying src/tianshu/resources/personas/court/MEMORY.md -> tianshu-0.4.2/src/tianshu/resources/personas/court
+copying src/tianshu/resources/personas/ducha/MEMORY.md -> tianshu-0.4.2/src/tianshu/resources/personas/ducha
+copying src/tianshu/resources/personas/ducha/ROLE.md -> tianshu-0.4.2/src/tianshu/resources/personas/ducha
+copying src/tianshu/resources/personas/ducha/SOUL.md -> tianshu-0.4.2/src/tianshu/resources/personas/ducha
+copying src/tianshu/resources/personas/hubu/MEMORY.md -> tianshu-0.4.2/src/tianshu/resources/personas/hubu
+copying src/tianshu/resources/personas/hubu/ROLE.md -> tianshu-0.4.2/src/tianshu/resources/personas/hubu
+copying src/tianshu/resources/personas/hubu/SOUL.md -> tianshu-0.4.2/src/tianshu/resources/personas/hubu
+copying src/tianshu/resources/personas/neige/MEMORY.md -> tianshu-0.4.2/src/tianshu/resources/personas/neige
+copying src/tianshu/resources/personas/neige/ROLE.md -> tianshu-0.4.2/src/tianshu/resources/personas/neige
+copying src/tianshu/resources/personas/neige/SOUL.md -> tianshu-0.4.2/src/tianshu/resources/personas/neige
+copying src/tianshu/resources/personas/tongzheng/MEMORY.md -> tianshu-0.4.2/src/tianshu/resources/personas/tongzheng
+copying src/tianshu/resources/personas/tongzheng/ROLE.md -> tianshu-0.4.2/src/tianshu/resources/personas/tongzheng
+copying src/tianshu/resources/personas/tongzheng/SOUL.md -> tianshu-0.4.2/src/tianshu/resources/personas/tongzheng
+copying src/tianshu/resources/personas/wenyuan/MEMORY.md -> tianshu-0.4.2/src/tianshu/resources/personas/wenyuan
+copying src/tianshu/resources/personas/wenyuan/ROLE.md -> tianshu-0.4.2/src/tianshu/resources/personas/wenyuan
+copying src/tianshu/resources/personas/wenyuan/SOUL.md -> tianshu-0.4.2/src/tianshu/resources/personas/wenyuan
+copying src/tianshu/scheduler/__init__.py -> tianshu-0.4.2/src/tianshu/scheduler
+copying src/tianshu/scheduler/schedule_spec.py -> tianshu-0.4.2/src/tianshu/scheduler
+copying src/tianshu/scheduler/scheduler.py -> tianshu-0.4.2/src/tianshu/scheduler
+copying src/tianshu/secrets/__init__.py -> tianshu-0.4.2/src/tianshu/secrets
+copying src/tianshu/secrets/injector.py -> tianshu-0.4.2/src/tianshu/secrets
+copying src/tianshu/secrets/models.py -> tianshu-0.4.2/src/tianshu/secrets
+copying src/tianshu/secrets/store.py -> tianshu-0.4.2/src/tianshu/secrets
+copying src/tianshu/secrets/vault.py -> tianshu-0.4.2/src/tianshu/secrets
+copying src/tianshu/security/__init__.py -> tianshu-0.4.2/src/tianshu/security
+copying src/tianshu/security/bash_analysis.py -> tianshu-0.4.2/src/tianshu/security
+copying src/tianshu/security/clean_env.py -> tianshu-0.4.2/src/tianshu/security
+copying src/tianshu/security/estop.py -> tianshu-0.4.2/src/tianshu/security
+copying src/tianshu/security/redact.py -> tianshu-0.4.2/src/tianshu/security
+copying src/tianshu/security/sensitive_payload.py -> tianshu-0.4.2/src/tianshu/security
+copying src/tianshu/skills/__init__.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/curator.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/curator_lifecycle.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/effect_gate.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/fuzzy_match.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/guard.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/install_service.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/installer.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/loader.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/metrics.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/reviewer.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/validator.py -> tianshu-0.4.2/src/tianshu/skills
+copying src/tianshu/skills/builtin/file-ops/SKILL.md -> tianshu-0.4.2/src/tianshu/skills/builtin/file-ops
+copying src/tianshu/skills/builtin/shell/SKILL.md -> tianshu-0.4.2/src/tianshu/skills/builtin/shell
+copying src/tianshu/storage/__init__.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/_base.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/artifact_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/attempt_ledger.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/auth_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/channel_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/config_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/correlation.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/cost_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/credential_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/dag_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/decision_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/edict_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/evals_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/event_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/evolution_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/facade.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/feishu_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/flag_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/kg_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/mappers.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/memorial_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/memory_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/migration_ledger.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/migrations.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/notify_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/orchestrator_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/outbox_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/persona_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/petition_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/run_state_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/scheduler_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/schema.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/security_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/side_effect_journal.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/sqlite_backup.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/system_audit_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/telegram_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/unit_of_work.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/universe_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/storage/workspace_repo.py -> tianshu-0.4.2/src/tianshu/storage
+copying src/tianshu/tools/__init__.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/builtins.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/edict_query.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/edit_file.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/find_files.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/grep.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/lark_cli.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/list_dir.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/memory_tools.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/path_utils.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/persona_query.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/policy.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/policy_profile.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/policy_store.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/registry.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/schedule_edict.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/skill_tools.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/submit_edict.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/types.py -> tianshu-0.4.2/src/tianshu/tools
+copying src/tianshu/tools/hongluisi/__init__.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi
+copying src/tianshu/tools/hongluisi/api_request.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi
+copying src/tianshu/tools/hongluisi/engine_registry.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi
+copying src/tianshu/tools/hongluisi/http_client.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi
+copying src/tianshu/tools/hongluisi/markdown_extract.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi
+copying src/tianshu/tools/hongluisi/policy.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi
+copying src/tianshu/tools/hongluisi/rate_limiter.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi
+copying src/tianshu/tools/hongluisi/router.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi
+copying src/tianshu/tools/hongluisi/ssrf_guard.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi
+copying src/tianshu/tools/hongluisi/tools.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi
+copying src/tianshu/tools/hongluisi/engines/__init__.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi/engines
+copying src/tianshu/tools/hongluisi/engines/duckduckgo_search.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi/engines
+copying src/tianshu/tools/hongluisi/engines/firecrawl.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi/engines
+copying src/tianshu/tools/hongluisi/engines/firecrawl_extract.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi/engines
+copying src/tianshu/tools/hongluisi/engines/jina_reader.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi/engines
+copying src/tianshu/tools/hongluisi/engines/jina_search.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi/engines
+copying src/tianshu/tools/hongluisi/engines/local_fetch.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi/engines
+copying src/tianshu/tools/hongluisi/engines/scrapling_fetch.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi/engines
+copying src/tianshu/tools/hongluisi/engines/tavily.py -> tianshu-0.4.2/src/tianshu/tools/hongluisi/engines
+copying src/tianshu/tools/mcp/__init__.py -> tianshu-0.4.2/src/tianshu/tools/mcp
+copying src/tianshu/tools/mcp/client.py -> tianshu-0.4.2/src/tianshu/tools/mcp
+copying src/tianshu/tools/mcp/config.py -> tianshu-0.4.2/src/tianshu/tools/mcp
+copying src/tianshu/tools/mcp/manager.py -> tianshu-0.4.2/src/tianshu/tools/mcp
+copying src/tianshu/tools/mcp/naming.py -> tianshu-0.4.2/src/tianshu/tools/mcp
+copying src/tianshu/tools/mcp/redact.py -> tianshu-0.4.2/src/tianshu/tools/mcp
+copying src/tianshu/tools/mcp/transport.py -> tianshu-0.4.2/src/tianshu/tools/mcp
+copying src/tianshu/tools/policy_rules/__init__.py -> tianshu-0.4.2/src/tianshu/tools/policy_rules
+copying src/tianshu/tools/policy_rules/approval_required_list.py -> tianshu-0.4.2/src/tianshu/tools/policy_rules
+copying src/tianshu/tools/policy_rules/bash_safety.py -> tianshu-0.4.2/src/tianshu/tools/policy_rules
+copying src/tianshu/tools/policy_rules/default_tier.py -> tianshu-0.4.2/src/tianshu/tools/policy_rules
+copying src/tianshu/tools/policy_rules/lark_cli_safety.py -> tianshu-0.4.2/src/tianshu/tools/policy_rules
+copying src/tianshu/tools/policy_rules/network_safety.py -> tianshu-0.4.2/src/tianshu/tools/policy_rules
+copying src/tianshu/tools/policy_rules/tier_escalation.py -> tianshu-0.4.2/src/tianshu/tools/policy_rules
+copying src/tianshu/tools/policy_rules/workspace_boundary.py -> tianshu-0.4.2/src/tianshu/tools/policy_rules
+copying src/tianshu/universe/__init__.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/code_mutator.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/code_store.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/deployer.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/diagnostician.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/eval_harness.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/evolver.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/execution.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/fitness.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/gate.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/launcher.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/manager.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/model.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/mutator.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/router.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/sandbox.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/sandbox_container.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/store.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/universe/unlock.py -> tianshu-0.4.2/src/tianshu/universe
+copying src/tianshu/web/static/brand.png -> tianshu-0.4.2/src/tianshu/web/static
+copying src/tianshu/web/static/favicon.png -> tianshu-0.4.2/src/tianshu/web/static
+copying src/tianshu/web/static/index.html -> tianshu-0.4.2/src/tianshu/web/static
+copying src/tianshu/web/static/manifest.json -> tianshu-0.4.2/src/tianshu/web/static
+copying src/tianshu/web/static/assets/AuditDashboardPage-YgymXIsL.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/CabinetPage-BsxMkSgu.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/ConsultationPage-Cb-D38hi.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/ControlCenterPage-C6EV1Wzs.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/CostDashboardPage-CW_AW9pW.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/DagBattleMapPage-BZV40eAE.css -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/DagBattleMapPage-Bchw5Ajt.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/EdictCreatePage-DRnpkXkL.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/EdictDetailPage-Bonzmm5N.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/EdictDetailPage-C6sss6SB.css -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/EvalsPage-5QuKuy0g.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/EvolutionCenterPage-s6GJ95Vy.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/GlowCard-BjWiWkaE.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/GlowCard-JvFSNqWD.css -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/HongluisiPage-o4LV9FWS.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/MemoryDashboardPage-CwDbBext.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/MonoText-0cd7gO2e.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/OnboardingPage-DblPY3M_.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/PageContainer-_8WvpMge.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/PersonaDashboardPage-DxYSoA8Z.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/PersonaDetailPage-BmWfVaUq.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/RoyalStudyPage-C9OGA0_Z.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/SchedulerPage-BEBC5vXy.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/SemanticTag-CKF7eCBs.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/SessionRulesPage-BNWIXxDY.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/SystemManagementPage-DAtRez2j.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/TongzhengPage-D6co5t40.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/UniversePage-DvP2KDM1.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/antd-CmVDBzNm.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/credentials-LqBzaZW2.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/evals-C1YF3wio.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/format-CvEJY_id.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/index-C_FLRAtG.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/index-DKBzpY4l.css -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/index-Ds68S-Se.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/network_events-DaCa4UN_.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/policy-DfBB6wU3.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/providers-va0hoyAb.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/universe-CxWVsrjy.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/useConfig-Byp6IYH5.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/useDag-RXAQ6Yl0.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/useDepartments-LRwlRHJR.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/useMCP-CvE3DW_x.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/useMemory-TgUYkaJQ.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/useMutation-BoR6iYWN.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/useOps-Dyr9_qN8.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/usePersonas-DMk3P-pF.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/useSystem-BQYuysDX.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying src/tianshu/web/static/assets/vendor-DASGyJCg.js -> tianshu-0.4.2/src/tianshu/web/static/assets
+copying tests/test_agent.py -> tianshu-0.4.2/tests
+copying tests/test_archive.py -> tianshu-0.4.2/tests
+copying tests/test_audit_rules_config.py -> tianshu-0.4.2/tests
+copying tests/test_auditor.py -> tianshu-0.4.2/tests
+copying tests/test_auditor_extended.py -> tianshu-0.4.2/tests
+copying tests/test_auto_compact.py -> tianshu-0.4.2/tests
+copying tests/test_backward_compat.py -> tianshu-0.4.2/tests
+copying tests/test_bootstrap_smoke.py -> tianshu-0.4.2/tests
+copying tests/test_chunker.py -> tianshu-0.4.2/tests
+copying tests/test_cli_edict.py -> tianshu-0.4.2/tests
+copying tests/test_compaction.py -> tianshu-0.4.2/tests
+copying tests/test_config_manager.py -> tianshu-0.4.2/tests
+copying tests/test_consultation.py -> tianshu-0.4.2/tests
+copying tests/test_cost_estimation.py -> tianshu-0.4.2/tests
+copying tests/test_dag.py -> tianshu-0.4.2/tests
+copying tests/test_decree.py -> tianshu-0.4.2/tests
+copying tests/test_drawer.py -> tianshu-0.4.2/tests
+copying tests/test_drawer_store.py -> tianshu-0.4.2/tests
+copying tests/test_edict_lifecycle.py -> tianshu-0.4.2/tests
+copying tests/test_escalation.py -> tianshu-0.4.2/tests
+copying tests/test_event_bus.py -> tianshu-0.4.2/tests
+copying tests/test_evolution_unlock.py -> tianshu-0.4.2/tests
+copying tests/test_evolver_iter6.py -> tianshu-0.4.2/tests
+copying tests/test_executor.py -> tianshu-0.4.2/tests
+copying tests/test_exit_reason.py -> tianshu-0.4.2/tests
+copying tests/test_failure_taxonomy.py -> tianshu-0.4.2/tests
+copying tests/test_feature_flags.py -> tianshu-0.4.2/tests
+copying tests/test_gateway.py -> tianshu-0.4.2/tests
+copying tests/test_gateway_extended.py -> tianshu-0.4.2/tests
+copying tests/test_hooks.py -> tianshu-0.4.2/tests
+copying tests/test_integration_decree.py -> tianshu-0.4.2/tests
+copying tests/test_integration_flow.py -> tianshu-0.4.2/tests
+copying tests/test_jingcha.py -> tianshu-0.4.2/tests
+copying tests/test_layers.py -> tianshu-0.4.2/tests
+copying tests/test_liuke.py -> tianshu-0.4.2/tests
+copying tests/test_llm_finish_reason.py -> tianshu-0.4.2/tests
+copying tests/test_llm_router.py -> tianshu-0.4.2/tests
+copying tests/test_long_task_integration.py -> tianshu-0.4.2/tests
+copying tests/test_loop_state.py -> tianshu-0.4.2/tests
+copying tests/test_lsp_diagnostics.py -> tianshu-0.4.2/tests
+copying tests/test_mcp_api.py -> tianshu-0.4.2/tests
+copying tests/test_memorial_override.py -> tianshu-0.4.2/tests
+copying tests/test_memory_manager.py -> tianshu-0.4.2/tests
+copying tests/test_memory_palace_integration.py -> tianshu-0.4.2/tests
+copying tests/test_models.py -> tianshu-0.4.2/tests
+copying tests/test_models_phase1.py -> tianshu-0.4.2/tests
+copying tests/test_notifier.py -> tianshu-0.4.2/tests
+copying tests/test_notifier_extended.py -> tianshu-0.4.2/tests
+copying tests/test_notify_tiers.py -> tianshu-0.4.2/tests
+copying tests/test_orchestrator_audit.py -> tianshu-0.4.2/tests
+copying tests/test_orchestrator_budget.py -> tianshu-0.4.2/tests
+copying tests/test_orchestrator_checks.py -> tianshu-0.4.2/tests
+copying tests/test_orchestrator_critic.py -> tianshu-0.4.2/tests
+copying tests/test_orchestrator_lifecycle_routing.py -> tianshu-0.4.2/tests
+copying tests/test_orchestrator_loop.py -> tianshu-0.4.2/tests
+copying tests/test_orchestrator_state.py -> tianshu-0.4.2/tests
+copying tests/test_orchestrator_templates.py -> tianshu-0.4.2/tests
+copying tests/test_orphan_sweeper.py -> tianshu-0.4.2/tests
+copying tests/test_outer_loop_resume.py -> tianshu-0.4.2/tests
+copying tests/test_pause_resume_api.py -> tianshu-0.4.2/tests
+copying tests/test_persona_loader.py -> tianshu-0.4.2/tests
+copying tests/test_persona_model.py -> tianshu-0.4.2/tests
+copying tests/test_planner.py -> tianshu-0.4.2/tests
+copying tests/test_platform_eval_runner.py -> tianshu-0.4.2/tests
+copying tests/test_plugin_api.py -> tianshu-0.4.2/tests
+copying tests/test_pricing_integration.py -> tianshu-0.4.2/tests
+copying tests/test_prompt_builder.py -> tianshu-0.4.2/tests
+copying tests/test_public_docs_truth.py -> tianshu-0.4.2/tests
+copying tests/test_reactive_compact.py -> tianshu-0.4.2/tests
+copying tests/test_schedule_run.py -> tianshu-0.4.2/tests
+copying tests/test_schedule_spec.py -> tianshu-0.4.2/tests
+copying tests/test_scheduler.py -> tianshu-0.4.2/tests
+copying tests/test_shilu_weekly.py -> tianshu-0.4.2/tests
+copying tests/test_silijian.py -> tianshu-0.4.2/tests
+copying tests/test_skill_effect_gate.py -> tianshu-0.4.2/tests
+copying tests/test_skill_installer.py -> tianshu-0.4.2/tests
+copying tests/test_storage.py -> tianshu-0.4.2/tests
+copying tests/test_storage_instance_migration.py -> tianshu-0.4.2/tests
+copying tests/test_supervision.py -> tianshu-0.4.2/tests
+copying tests/test_taiyi_memorial.py -> tianshu-0.4.2/tests
+copying tests/test_tools.py -> tianshu-0.4.2/tests
+copying tests/test_winding_down_gate.py -> tianshu-0.4.2/tests
+copying tests/test_workspace_wiring.py -> tianshu-0.4.2/tests
+copying tests/test_xunan.py -> tianshu-0.4.2/tests
+copying src/tianshu.egg-info/SOURCES.txt -> tianshu-0.4.2/src/tianshu.egg-info
+Writing tianshu-0.4.2/setup.cfg
+Creating tar archive
+removing 'tianshu-0.4.2' (and everything under it)
+Successfully built tianshu-0.4.2.tar.gz
