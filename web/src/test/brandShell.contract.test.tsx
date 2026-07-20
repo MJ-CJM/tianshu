@@ -56,7 +56,7 @@ const DEPARTMENT_STRUCTURE = [
   { group: "敕令", departments: ["御书房", "文书房"] },
   { group: "政要", departments: ["内阁", "廷议", "都察院", "权印司"] },
   { group: "百官", departments: ["百官阁", "文渊阁", "位面", "考成"] },
-  { group: "外朝", departments: ["藏兵阁", "鸿胪寺", "通政司", "户部账房"] },
+  { group: "内府", departments: ["藏兵阁", "鸿胪寺", "通政司", "户部账房"] },
 ];
 
 function memoryStorage(): Storage {
