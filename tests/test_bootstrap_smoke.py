@@ -13,12 +13,15 @@ from __future__ import annotations
 import pytest
 
 from tianshu.app import create_app, lifespan
+from tianshu.bootstrap.wiring_tools import _runtime_secret_resolver
+from tianshu.config import TianshuSettings
 
 # 全部在 lifespan() 中被赋值、且默认测试环境下保证非 None 的 app.state 键。
 NON_NULLABLE_STATE_KEYS = [
     "storage",
     "event_bus",
     "hook_registry",
+    "execution_gateway",
     "mcp_manager",
     "_mcp_start_task",
     "persona_loader",
@@ -60,6 +63,9 @@ NON_NULLABLE_STATE_KEYS = [
     "skill_curator",
     "universe_manager",
     "code_deployer",
+    "universe_execution_context_factory",
+    "code_gate",
+    "code_sandbox",
     "universe_evolver",
     "digest_generator",
     "_digest_task",
@@ -74,6 +80,15 @@ NULLABLE_STATE_KEYS = [
 ]
 
 ALL_STATE_KEYS = [*NON_NULLABLE_STATE_KEYS, *NULLABLE_STATE_KEYS]
+
+
+def test_runtime_secret_resolver_never_falls_unknown_settings_refs_back_to_environment(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("settings:private_runtime_value", "must-not-resolve")
+    resolver = _runtime_secret_resolver(TianshuSettings())
+
+    assert resolver("settings:private_runtime_value") is None
 
 
 @pytest.fixture
@@ -96,6 +111,20 @@ class TestBootstrapSmoke:
     async def test_nullable_state_key_present(self, booted_app, key):
         assert hasattr(booted_app.state, key), f"app.state.{key} 应存在（值可为 None）"
 
+    async def test_one_execution_gateway_is_injected_into_high_risk_callers(self, booted_app):
+        process_gateway = booted_app.state.execution_gateway
+        assert booted_app.state.executor._execution_gateway is process_gateway
+        assert booted_app.state.executor._keqing._execution_gateway is process_gateway
+        assert booted_app.state.orchestrator_ctx.execution_gateway is process_gateway
+        assert booted_app.state.mcp_manager._execution_gateway is process_gateway
+        assert booted_app.state.code_gate.execution_gateway is process_gateway
+        assert booted_app.state.code_sandbox.execution_gateway is process_gateway
+        assert (
+            booted_app.state.code_gate.context_factory
+            is booted_app.state.code_sandbox.context_factory
+            is booted_app.state.universe_execution_context_factory
+        )
+
     async def test_lifespan_closes_drawer_store(self):
         # 不复用 booted_app fixture：需要在 lifespan 退出*之后*断言 close 是否
         # 被调用，而 booted_app 的 teardown（lifespan __aexit__）发生在测试体
@@ -114,3 +143,47 @@ class TestBootstrapSmoke:
 
             drawer_store.close = _tracking_close
         assert calls, "lifespan 退出应调用 drawer_store.close()"
+
+    async def test_sandbox_cleanup_failure_does_not_skip_remaining_teardown(self):
+        app = create_app()
+        calls: list[str] = []
+        storage = None
+        async with lifespan(app):
+            storage = app.state.storage
+
+            async def _failing_sandbox_shutdown() -> None:
+                calls.append("sandbox")
+                raise PermissionError("sandbox cleanup failed")
+
+            original_mcp_shutdown = app.state.mcp_manager.shutdown
+
+            async def _tracking_mcp_shutdown() -> None:
+                calls.append("mcp")
+                await original_mcp_shutdown()
+
+            original_bot_stop = app.state.bot_manager.stop_all
+
+            async def _tracking_bot_stop() -> None:
+                calls.append("bots")
+                await original_bot_stop()
+
+            original_drawer_close = app.state.drawer_store.close
+
+            def _tracking_drawer_close() -> None:
+                calls.append("drawer")
+                original_drawer_close()
+
+            original_storage_close = app.state.storage.close
+
+            def _tracking_storage_close() -> None:
+                calls.append("storage")
+                original_storage_close()
+
+            app.state.code_sandbox.shutdown = _failing_sandbox_shutdown
+            app.state.mcp_manager.shutdown = _tracking_mcp_shutdown
+            app.state.bot_manager.stop_all = _tracking_bot_stop
+            app.state.drawer_store.close = _tracking_drawer_close
+            app.state.storage.close = _tracking_storage_close
+
+        assert storage is not None
+        assert calls == ["sandbox", "mcp", "bots", "drawer", "storage"]

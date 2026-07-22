@@ -5,8 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 from pydantic import ValidationError
 
+from tianshu.executor.execution_gateway import ExecutionGateway
+from tianshu.secrets.vault import reset_vault
 from tianshu.tools.mcp.config import (
     MCPConfig,
     MCPServerConfig,
@@ -15,6 +18,8 @@ from tianshu.tools.mcp.config import (
     load_config_from_yaml,
     merge_overrides,
 )
+from tianshu.tools.mcp.manager import MCPManager
+from tianshu.tools.registry import ToolRegistry
 
 _FULL_YAML = """
 mcp_servers:
@@ -274,7 +279,9 @@ class TestMergeDbOnlyServers:
         out = merge_overrides(cfg, [ov])
         assert "bad" not in out.mcp_servers
 
-    def test_partial_override_preserves_other_db_fields(self, tmp_path) -> None:
+    def test_partial_override_preserves_other_db_fields(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """PATCH enabled=False 不应该清空 transport / command / args 等其他字段。
 
         历史 bug：upsert_mcp_override 用 INSERT ON CONFLICT 暴力覆写，单字段
@@ -284,38 +291,42 @@ class TestMergeDbOnlyServers:
         from tianshu.storage import Storage
 
         db_path = tmp_path / "test.db"
+        monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", Fernet.generate_key().decode())
+        reset_vault()
         storage = Storage(str(db_path))
-        storage.init_db()
+        try:
+            storage.init_db()
 
-        # 1) 完整 create
-        storage.upsert_mcp_override(
-            "ctx7",
-            enabled=True,
-            transport="stdio",
-            command="npx",
-            args=["-y", "@upstash/context7-mcp"],
-            env={"K": "V"},
-            default_tier=0,
-        )
-        rows = storage.list_mcp_overrides()
-        assert len(rows) == 1
-        assert rows[0]["transport"] == "stdio"
-        assert rows[0]["command"] == "npx"
-        assert rows[0]["args"] == ["-y", "@upstash/context7-mcp"]
+            # 1) 完整 create
+            storage.upsert_mcp_override(
+                "ctx7",
+                enabled=True,
+                transport="stdio",
+                command="npx",
+                args=["-y", "@upstash/context7-mcp"],
+                env={"K": "V"},
+                default_tier=0,
+            )
+            rows = storage.list_mcp_overrides()
+            assert len(rows) == 1
+            assert rows[0]["transport"] == "stdio"
+            assert rows[0]["command"] == "npx"
+            assert rows[0]["args"] == ["-y", "@upstash/context7-mcp"]
 
-        # 2) 只 PATCH enabled，其他字段不传
-        storage.upsert_mcp_override("ctx7", enabled=False)
-        rows = storage.list_mcp_overrides()
-        assert len(rows) == 1
-        # 关键断言：transport / command / args / env 仍在
-        assert rows[0]["enabled"] is False
-        assert rows[0]["transport"] == "stdio"
-        assert rows[0]["command"] == "npx"
-        assert rows[0]["args"] == ["-y", "@upstash/context7-mcp"]
-        assert rows[0]["env"] == {"K": "V"}
-        assert rows[0]["default_tier"] == 0
-
-        storage.close()
+            # 2) 只 PATCH enabled，其他字段不传
+            storage.upsert_mcp_override("ctx7", enabled=False)
+            rows = storage.list_mcp_overrides()
+            assert len(rows) == 1
+            # 关键断言：transport / command / args / env 仍在
+            assert rows[0]["enabled"] is False
+            assert rows[0]["transport"] == "stdio"
+            assert rows[0]["command"] == "npx"
+            assert rows[0]["args"] == ["-y", "@upstash/context7-mcp"]
+            assert rows[0]["env"] == {"K": "V"}
+            assert rows[0]["default_tier"] == 0
+        finally:
+            storage.close()
+            reset_vault()
 
     def test_yaml_existing_uses_override_path_not_promotion(self) -> None:
         """YAML 中已有的 server 走 override 合并，不会被 DB 完整重建覆盖。"""
@@ -338,3 +349,20 @@ class TestMergeDbOnlyServers:
         assert out.mcp_servers["fs"].args == ["override-arg"]
         # 其他 YAML 字段保留
         assert out.mcp_servers["fs"].command == "npx"
+
+
+class _FailingMCPStorage:
+    def list_mcp_overrides(self) -> list[dict]:
+        raise ValueError("MCP secret vault unavailable")
+
+
+def test_manager_propagates_storage_secret_failure(tmp_path: Path) -> None:
+    manager = MCPManager(
+        ToolRegistry(),
+        ExecutionGateway(),
+        config_path=tmp_path / "missing.yaml",
+        storage=_FailingMCPStorage(),
+    )
+
+    with pytest.raises(ValueError, match="^MCP secret vault unavailable$"):
+        manager.load_config()

@@ -111,6 +111,51 @@ async def test_pass_first_try(storage, bus):
 
 
 @pytest.mark.integration
+async def test_rubric_check_completion_is_persisted_as_evidence_event(storage, bus):
+    actor = _agent(["candidate output"])
+    actor_llm = MagicMock()
+    actor_llm.chat = AsyncMock(
+        return_value=MagicMock(content=json.dumps({"score": 1.0, "reasoning": "passed"}))
+    )
+    critic_llm = MagicMock()
+    critic_llm.chat = AsyncMock(
+        side_effect=[
+            MagicMock(content=json.dumps({"verdict": "pass", "feedback": "ok"})),
+            MagicMock(content=_AUDIT_PASS_JSON),
+        ]
+    )
+    ctx = OrchestratorContext(
+        agent=actor,
+        storage=storage,
+        bus=bus,
+        actor_llm=actor_llm,
+        critic_llm=critic_llm,
+    )
+    e = _edict(
+        checks=[CheckSpec(kind="rubric", name="candidate.gate", rubric="Pass the candidate")]
+    )
+    memorial = _memorial(e.id)
+    storage.save_edict(e)
+
+    result = await run(e, memorial, ctx)
+
+    assert result.status == TaskStatus.COMPLETED
+    evidence_events = [
+        event
+        for event in storage.get_events(e.id)
+        if event["event_type"] == "acceptance.check.completed"
+    ]
+    assert len(evidence_events) == 1
+    assert evidence_events[0]["memorial_id"] == memorial.id
+    assert evidence_events[0]["payload"] == {
+        "name": "candidate.gate",
+        "status": "passed",
+        "started_at": evidence_events[0]["payload"]["started_at"],
+        "completed_at": evidence_events[0]["payload"]["completed_at"],
+    }
+
+
+@pytest.mark.integration
 async def test_l0_to_l1_on_same_issue(storage, bus):
     ctx = _make_ctx(
         storage,

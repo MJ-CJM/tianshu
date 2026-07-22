@@ -23,8 +23,10 @@ def _build_runner():
     import tianshu
     from tianshu.config import TianshuSettings
     from tianshu.evals import PlatformEvalRunner
+    from tianshu.executor.execution_gateway import ExecutionGateway
     from tianshu.storage import Storage
     from tianshu.universe.eval_harness import EvalHarness
+    from tianshu.universe.execution import UniverseExecutionContextFactory
     from tianshu.universe.sandbox import SandboxRunner
 
     settings = TianshuSettings()
@@ -32,13 +34,37 @@ def _build_runner():
     storage.init_db()
     eval_base_env: dict[str, str] = {}
     if settings.eval_llm_api_key:
-        eval_base_env["TIANSHU_LLM_API_KEY"] = settings.eval_llm_api_key
-        if settings.eval_llm_api_base:
-            eval_base_env["TIANSHU_LLM_API_BASE"] = settings.eval_llm_api_base
-        if settings.eval_llm_model:
-            eval_base_env["TIANSHU_LLM_MODEL"] = settings.eval_llm_model
-    harness = EvalHarness(storage, SandboxRunner(), base_env=eval_base_env)
-    repo_root = Path(tianshu.__file__).resolve().parents[2]
+        eval_base_env["TIANSHU_LLM_API_KEY"] = "${settings:eval_llm_api_key}"
+    elif settings.llm_api_key:
+        eval_base_env["TIANSHU_LLM_API_KEY"] = "${settings:llm_api_key}"
+    api_base = settings.eval_llm_api_base or settings.llm_api_base
+    model = settings.eval_llm_model or settings.llm_model
+    if api_base:
+        eval_base_env["TIANSHU_LLM_API_BASE"] = api_base
+    if model:
+        eval_base_env["TIANSHU_LLM_MODEL"] = model
+    setting_secrets = {
+        "settings:eval_llm_api_key": settings.eval_llm_api_key,
+        "settings:llm_api_key": settings.llm_api_key,
+    }
+    gateway = ExecutionGateway(
+        secret_resolver=lambda ref: setting_secrets.get(ref) or None,
+    )
+    sandbox = SandboxRunner(
+        gateway,
+        context_factory=UniverseExecutionContextFactory(security_mode=settings.security_mode),
+    )
+    harness = EvalHarness(storage, sandbox, base_env=eval_base_env)
+    if settings.eval_repo_root:
+        repo_root = Path(settings.eval_repo_root).expanduser()
+    else:
+        # 开发模式回退：源码树根。wheel 部署下应显式配置 TIANSHU_EVAL_REPO_ROOT。
+        repo_root = Path(tianshu.__file__).resolve().parents[2]
+        if not (repo_root / ".git").exists():
+            console.print(
+                f"[yellow]警告[/yellow]: eval_repo_root 未配置且推断路径 {repo_root} "
+                "不是 git 仓库；wheel 部署下请设置 TIANSHU_EVAL_REPO_ROOT"
+            )
     return PlatformEvalRunner(storage, harness, repo_root=repo_root), storage, settings
 
 

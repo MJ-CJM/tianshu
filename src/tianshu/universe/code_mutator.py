@@ -7,8 +7,9 @@ allowlist 强制（演化域外的目标直接拒绝），traversal-safe（只�
 from __future__ import annotations
 
 import logging
-import subprocess
 from pathlib import Path
+
+from tianshu.executor.git_backend import GitBackend, GitIdentity, GitLocation
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +61,16 @@ def _strip_code_fence(text: str) -> str:
 
 
 class CodeMutator:
-    def __init__(self, llm_client, *, evolvable_paths: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        llm_client,
+        *,
+        evolvable_paths: tuple[str, ...],
+        git_backend: GitBackend | None = None,
+    ) -> None:
         self._llm = llm_client
         self._evolvable = tuple(evolvable_paths)
+        self._git_backend = git_backend or GitBackend()
 
     def is_within_evolvable(self, rel_path: str) -> bool:
         return _within_evolvable(rel_path, self._evolvable)
@@ -123,19 +131,13 @@ class CodeMutator:
 
         try:
             abs_target.write_text(new, encoding="utf-8")
-            self._git(wt, "add", target_path)
-            self._git(
-                wt,
-                "-c",
-                "user.email=evolver@tianshu",
-                "-c",
-                "user.name=evolver",
-                "commit",
-                "-q",
-                "-m",
+            location = GitLocation(wt)
+            self._git_backend.stage_paths(location, (target_path,))
+            sha = self._git_backend.commit(
+                location,
                 f"evolve: {hypothesis[:60]}",
+                identity=GitIdentity("evolver", "evolver@tianshu"),
             )
-            sha = self._git(wt, "rev-parse", "HEAD").strip()
         except Exception as e:  # noqa: BLE001
             logger.warning("code mutate write/commit failed: %s", e)
             return {
@@ -164,15 +166,3 @@ class CodeMutator:
         )
         raw = (getattr(resp, "content", None) or "").strip()
         return _strip_code_fence(raw) if raw else ""
-
-    @staticmethod
-    def _git(wt: Path, *args: str) -> str:
-        proc = subprocess.run(
-            ["git", *args],
-            cwd=str(wt),
-            capture_output=True,
-            text=True,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
-        return proc.stdout

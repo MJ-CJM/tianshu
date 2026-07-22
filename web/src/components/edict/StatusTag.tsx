@@ -9,7 +9,7 @@ interface StatusTagProps {
 
 export default function StatusTag({ status }: StatusTagProps) {
   const isRunning = status === "running";
-  // 「待朱批」是全屏唯一的实色标签:朱砂底,等主上落笔
+  // 「待裁决」是全屏唯一的实色标签：朱砂底，提示需要人工介入
   const isNeedsReview = status === "needs_review";
 
   return (

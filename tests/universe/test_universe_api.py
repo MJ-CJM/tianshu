@@ -73,27 +73,26 @@ async def test_branch_nonexistent_parent(client):
     assert resp.status_code == 400
 
 
-async def test_switch_makes_challenger_champion(client):
+async def test_switch_is_stably_rejected_without_champion_mutation(client):
     mgr = client._transport.app.state.universe_manager
     g = mgr.ensure_genesis()
     ch = mgr.branch(g["id"], "exp")
 
     resp = await client.post(f"/api/universes/{ch['id']}/switch")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["success"] is True
-    assert body["data"]["status"] == "champion"
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "promotion_preconditions_not_met"
 
     # Old champion should now be challenger
     all_universes = (await client.get("/api/universes")).json()["data"]
     statuses = {u["id"]: u["status"] for u in all_universes}
-    assert statuses[g["id"]] == "challenger"
-    assert statuses[ch["id"]] == "champion"
+    assert statuses[g["id"]] == "champion"
+    assert statuses[ch["id"]] == "challenger"
 
 
 async def test_switch_nonexistent_universe(client):
     resp = await client.post("/api/universes/ghost-id/switch")
-    assert resp.status_code == 400
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "promotion_preconditions_not_met"
 
 
 async def test_archive_champion_returns_400(client):

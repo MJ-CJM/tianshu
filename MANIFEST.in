@@ -1,0 +1,6 @@
+# build_backend/ 是 pyproject 的 backend-path 指向的 in-tree PEP 517 后端。
+# setuptools 不会自动把它收进 sdist —— 缺了它，从 sdist 构建 wheel 会直接
+# ModuleNotFoundError: tianshu_build（`uv build` 不带 --wheel、以及从 sdist 安装
+# 都会失败）。这不是可选的打包细节，是发行链路的必要条件。
+include build_backend/tianshu_build.py
+recursive-exclude build_backend __pycache__ *.pyc

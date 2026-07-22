@@ -3,9 +3,104 @@
 import json
 import sqlite3
 import threading
+from datetime import UTC, datetime
 
 from tianshu.models import Edict
+from tianshu.models.governance_contract import (
+    LegacyEdictGovernanceMapper,
+    RequestedGovernanceContractV1,
+)
 from tianshu.storage.mappers import _row_to_edict
+
+
+def _insert_requested_governance_contract(
+    conn: sqlite3.Connection,
+    edict: Edict,
+) -> RequestedGovernanceContractV1:
+    explicit = edict.governance_contract is not None
+    contract = edict.governance_contract or LegacyEdictGovernanceMapper.from_edict(
+        edict,
+        default_workspace_id=str(edict.metadata.get("workspace_id") or "legacy-default"),
+    )
+    conn.execute(
+        """
+        INSERT INTO requested_governance_contracts
+            (edict_id, schema_version, contract_json, contract_hash, source, created_at)
+        VALUES (?, '1', ?, ?, ?, ?)
+        """,
+        (
+            edict.id,
+            contract.canonical_json(),
+            contract.content_hash,
+            "explicit" if explicit else "legacy_derived",
+            datetime.now(UTC).isoformat(),
+        ),
+    )
+    return contract
+
+
+def _insert_edict(
+    conn: sqlite3.Connection,
+    edict: Edict,
+) -> RequestedGovernanceContractV1:
+    acceptance_json = edict.acceptance.model_dump_json() if edict.acceptance else None
+    conn.execute(
+        """INSERT INTO edicts
+           (id, title, goal, context, status, created_at,
+            idempotency_key, source, submitter, priority, review_policy,
+            output_format, constraints_json, schedule_json, dispatch_json,
+            runtime_json, metadata_json, assigned_persona_id,
+            planner_persona_id, plan_review, acceptance_json, execution_profile)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            edict.id,
+            edict.title,
+            edict.goal,
+            edict.context,
+            edict.status.value,
+            edict.created_at.isoformat(),
+            edict.idempotency_key,
+            edict.source,
+            edict.submitter,
+            edict.priority,
+            edict.review_policy,
+            edict.output_format,
+            json.dumps(edict.constraints),
+            edict.schedule.model_dump_json(),
+            edict.dispatch.model_dump_json() if edict.dispatch else None,
+            edict.runtime.model_dump_json(),
+            json.dumps(edict.metadata, default=str),
+            edict.assigned_persona_id,
+            edict.planner_persona_id,
+            int(edict.plan_review),
+            acceptance_json,
+            edict.execution_profile,
+        ),
+    )
+    return _insert_requested_governance_contract(conn, edict)
+
+
+def get_edict_current(conn: sqlite3.Connection, edict_id: str) -> Edict | None:
+    """Load one Edict and its requested contract on the caller-owned transaction."""
+
+    row = conn.execute(
+        """
+        SELECT edict.*, requested.contract_json AS requested_contract_json,
+               requested.contract_hash AS requested_contract_hash
+        FROM edicts AS edict
+        LEFT JOIN requested_governance_contracts AS requested ON requested.edict_id = edict.id
+        WHERE edict.id = ?
+        """,
+        (edict_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    contract = None
+    if row["requested_contract_json"] is not None:
+        contract = RequestedGovernanceContractV1.model_validate_json(row["requested_contract_json"])
+        if contract.content_hash != row["requested_contract_hash"]:
+            raise ValueError(f"requested governance contract hash mismatch for {edict_id}")
+    return _row_to_edict(row, governance_contract=contract)
 
 
 class EdictMixin:
@@ -14,47 +109,48 @@ class EdictMixin:
 
     # --- Edict ---
 
+    def _save_requested_governance_contract_unlocked(
+        self,
+        edict: Edict,
+    ) -> RequestedGovernanceContractV1:
+        return _insert_requested_governance_contract(self._conn, edict)
+
+    def get_requested_governance_contract_record(self, edict_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT schema_version, contract_json, contract_hash, source, created_at
+                FROM requested_governance_contracts WHERE edict_id = ?
+                """,
+                (edict_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        contract = RequestedGovernanceContractV1.model_validate_json(row["contract_json"])
+        if contract.content_hash != row["contract_hash"]:
+            raise ValueError(f"requested governance contract hash mismatch for {edict_id}")
+        return {
+            "schema_version": row["schema_version"],
+            "contract": contract,
+            "contract_hash": row["contract_hash"],
+            "source": row["source"],
+            "created_at": row["created_at"],
+        }
+
     def save_edict(self, edict: Edict) -> None:
-        acceptance_json = edict.acceptance.model_dump_json() if edict.acceptance else None
         with self._lock, self._conn:
-            self._conn.execute(
-                """INSERT INTO edicts
-                   (id, title, goal, context, status, created_at,
-                    idempotency_key, source, submitter, priority, review_policy,
-                    output_format, constraints_json, schedule_json, dispatch_json,
-                    runtime_json, metadata_json, assigned_persona_id,
-                    planner_persona_id, plan_review, acceptance_json, execution_profile)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    edict.id,
-                    edict.title,
-                    edict.goal,
-                    edict.context,
-                    edict.status.value,
-                    edict.created_at.isoformat(),
-                    edict.idempotency_key,
-                    edict.source,
-                    edict.submitter,
-                    edict.priority,
-                    edict.review_policy,
-                    edict.output_format,
-                    json.dumps(edict.constraints),
-                    edict.schedule.model_dump_json(),
-                    edict.dispatch.model_dump_json() if edict.dispatch else None,
-                    edict.runtime.model_dump_json(),
-                    json.dumps(edict.metadata, default=str),
-                    edict.assigned_persona_id,
-                    edict.planner_persona_id,
-                    int(edict.plan_review),
-                    acceptance_json,
-                    edict.execution_profile,
-                ),
-            )
+            _insert_edict(self._conn, edict)
 
     def get_edict(self, edict_id: str) -> Edict | None:
         with self._lock:
             row = self._conn.execute("SELECT * FROM edicts WHERE id = ?", (edict_id,)).fetchone()
-        return _row_to_edict(row) if row else None
+        if row is None:
+            return None
+        record = self.get_requested_governance_contract_record(edict_id)
+        return _row_to_edict(
+            row,
+            governance_contract=record["contract"] if record else None,
+        )
 
     def list_edicts(
         self,
@@ -111,7 +207,16 @@ class EdictMixin:
                 f"SELECT COUNT(*) FROM edicts{where}",
                 params,
             ).fetchone()[0]
-        return [_row_to_edict(r) for r in rows], total
+        edicts = []
+        for row in rows:
+            record = self.get_requested_governance_contract_record(row["id"])
+            edicts.append(
+                _row_to_edict(
+                    row,
+                    governance_contract=record["contract"] if record else None,
+                )
+            )
+        return edicts, total
 
     def update_edict(
         self,
@@ -120,6 +225,18 @@ class EdictMixin:
         goal: str | None = None,
         context: str | None = None,
     ) -> None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT contract_json FROM requested_governance_contracts WHERE edict_id = ?",
+                (edict_id,),
+            ).fetchone()
+        if row is not None and (goal is not None or context is not None):
+            contract = RequestedGovernanceContractV1.model_validate_json(row["contract_json"])
+            if (goal is not None and goal != contract.objective.goal) or (
+                context is not None and context != contract.objective.context
+            ):
+                raise ValueError("goal/context are bound by a frozen governance contract")
+
         sets: list[str] = []
         params: list[str] = []
         if title is not None:
@@ -142,6 +259,10 @@ class EdictMixin:
 
     def delete_edict(self, edict_id: str) -> None:
         with self._lock, self._conn:
+            self._conn.execute(
+                "DELETE FROM submission_idempotency WHERE edict_id = ?",
+                (edict_id,),
+            )
             self._conn.execute("DELETE FROM events WHERE edict_id = ?", (edict_id,))
             self._conn.execute("DELETE FROM memorials WHERE edict_id = ?", (edict_id,))
             self._conn.execute("DELETE FROM edicts WHERE id = ?", (edict_id,))
@@ -190,7 +311,13 @@ class EdictMixin:
                     "SELECT * FROM edicts WHERE idempotency_key = ?",
                     (idempotency_key,),
                 ).fetchone()
-        return _row_to_edict(row) if row else None
+        if row is None:
+            return None
+        record = self.get_requested_governance_contract_record(row["id"])
+        return _row_to_edict(
+            row,
+            governance_contract=record["contract"] if record else None,
+        )
 
     def find_edicts_referencing_host(self, host_pattern: str) -> list[str]:
         """返回引用此 host 的未结束 Edict id 列表。仅匹配精确 host，通配模式统一视为精确。

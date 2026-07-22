@@ -7,15 +7,36 @@ import type { ShadowSnapshot } from "../../api/types";
 import MonoText from "../common/MonoText";
 import { formatTime } from "../../utils/format";
 import { useT } from "../../i18n";
+import { toApiProblem } from "../../api/client";
+import PageDataState from "../states/PageDataState";
+import { problemPageStatus } from "../states/problemPageStatus";
 
 export default function ShadowSnapshotPanel({ edictId }: { edictId: string }) {
   const t = useT();
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const snapshotsQuery = useQuery({
     queryKey: ["snapshots", edictId],
     queryFn: () => listSnapshots(edictId),
   });
+  const { data, isLoading } = snapshotsQuery;
   const snaps = data?.data ?? [];
+
+  if (snapshotsQuery.error) {
+    const problem = toApiProblem(snapshotsQuery.error);
+    return (
+      <Card size="small" title={t("shadow.title")} style={{ marginTop: 16 }}>
+        <PageDataState
+          status={problemPageStatus(problem)}
+          data={null}
+          problem={problem}
+          isEmpty={(items: ShadowSnapshot[]) => items.length === 0}
+          onRetry={() => void snapshotsQuery.refetch()}
+        >
+          {() => null}
+        </PageDataState>
+      </Card>
+    );
+  }
 
   // 客卿未执行 → 无快照,不渲染面板(避免噪音)
   if (!isLoading && snaps.length === 0) return null;

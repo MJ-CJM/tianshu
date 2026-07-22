@@ -13,6 +13,7 @@ from __future__ import annotations
 import sqlite3
 
 from tianshu.storage import Storage
+from tianshu.storage.migrations import MIGRATIONS
 
 
 def _build_old_db(path: str) -> None:
@@ -103,6 +104,18 @@ def test_migration_upgrades_old_session_tables(tmp_path):
     ).fetchone()
     assert row[0] == "telegram-default"
     assert row[1] == "ed_tg"
+
+    # 会话兼容升级与完整 schema 在同一 baseline 中落账，不再在 ledger 外运行。
+    assert [
+        tuple(item)
+        for item in conn.execute(
+            "SELECT version, name FROM schema_migrations ORDER BY version"
+        ).fetchall()
+    ] == [(migration.version, migration.name) for migration in MIGRATIONS]
+    assert (
+        conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='edicts'").fetchone()
+        is not None
+    )
 
     row = conn.execute(
         "SELECT instance_id, current_edict_id FROM feishu_session_anchor WHERE chat_id = 'oc_x'"

@@ -1,12 +1,13 @@
 """Tests for Scheduler."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
 
 from tianshu.bus.event_bus import EventBus
-from tianshu.models import Edict
+from tianshu.models import Edict, Memorial, TaskStatus
 from tianshu.models.edict import EdictSchedule
 from tianshu.models.events import make_event
 from tianshu.scheduler.scheduler import Scheduler
@@ -23,7 +24,7 @@ class TestScheduler:
 
     async def test_immediate_schedule(self, scheduler, event_bus, storage):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
 
         edict = Edict(goal="do now")
         storage.save_edict(edict)
@@ -34,7 +35,7 @@ class TestScheduler:
 
     async def test_once_past_time(self, scheduler, event_bus, storage):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
 
         past = datetime.now(UTC) - timedelta(hours=1)
         edict = Edict(
@@ -48,7 +49,7 @@ class TestScheduler:
 
     async def test_once_no_at(self, scheduler, event_bus, storage):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
 
         edict = Edict(
             goal="once no at",
@@ -58,6 +59,85 @@ class TestScheduler:
         await scheduler.schedule(edict)
 
         handler.assert_called_once()
+
+    async def test_future_once_preserves_initial_memorial_identity(
+        self,
+        scheduler,
+        event_bus,
+        storage,
+    ):
+        delivered = asyncio.Event()
+        received = []
+
+        async def capture(event):
+            received.append(event)
+            delivered.set()
+
+        event_bus.on("edict.scheduled", capture, consumer_name="test.initial_once.v1")
+        edict = Edict(
+            goal="future durable submission",
+            schedule=EdictSchedule(
+                type="once",
+                at=datetime.now(UTC) + timedelta(milliseconds=20),
+            ),
+        )
+        storage.save_edict(edict)
+        memorial = Memorial(
+            edict_id=edict.id,
+            instruction=edict.goal,
+            status=TaskStatus.SUBMITTED,
+        )
+        storage.save_memorial(memorial)
+
+        job_id = await scheduler.schedule(edict, memorial_id=memorial.id)
+        await asyncio.wait_for(delivered.wait(), timeout=1)
+
+        assert received[0].memorial_id == memorial.id
+        assert storage.get_memorial(memorial.id).status == TaskStatus.SCHEDULED
+        await scheduler.cancel(job_id)
+
+    async def test_cron_first_fire_uses_initial_memorial_before_concurrency_guard(
+        self,
+        scheduler,
+        event_bus,
+        storage,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "tianshu.scheduler.scheduler._next_cron_utc",
+            lambda *_args: datetime.now(UTC) + timedelta(milliseconds=20),
+        )
+        delivered = asyncio.Event()
+        received = []
+
+        async def capture(event):
+            received.append(event)
+            scheduler._running = False
+            delivered.set()
+
+        event_bus.on("edict.scheduled", capture, consumer_name="test.initial_cron.v1")
+        edict = Edict(
+            goal="cron durable submission",
+            schedule=EdictSchedule(type="cron", cron="* * * * *"),
+        )
+        storage.save_edict(edict)
+        memorial = Memorial(
+            edict_id=edict.id,
+            instruction=edict.goal,
+            status=TaskStatus.SUBMITTED,
+        )
+        storage.save_memorial(memorial)
+        scheduler._running = True
+
+        job_id = await scheduler.schedule(edict, memorial_id=memorial.id)
+        try:
+            await asyncio.wait_for(delivered.wait(), timeout=1)
+        finally:
+            scheduler._running = False
+            await scheduler.cancel(job_id)
+
+        assert received[0].memorial_id == memorial.id
+        assert storage.get_memorial(memorial.id).status == TaskStatus.SCHEDULED
 
     async def test_cancel_job(self, scheduler, storage):
         edict = Edict(
@@ -91,7 +171,7 @@ class TestScheduler:
 
     async def test_handle_submitted(self, scheduler, event_bus, storage):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
 
         edict = Edict(goal="via event")
         storage.save_edict(edict)
@@ -107,7 +187,7 @@ class TestScheduler:
 
     async def test_cron_fallback_to_immediate(self, scheduler, event_bus, storage):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
 
         edict = Edict(
             goal="cron task",
@@ -277,7 +357,7 @@ class TestSchedulerJobControl:
         storage,
     ):
         handler = AsyncMock()
-        event_bus.on("edict.scheduled", handler)
+        event_bus.on("edict.scheduled", handler, consumer_name="test.edict_scheduled.v1")
         edict = Edict(
             goal="立即触发一次",
             schedule=EdictSchedule(type="cron", cron="0 9 * * *"),
@@ -297,3 +377,52 @@ class TestSchedulerJobControl:
         assert await scheduler.pause("nope") is False
         assert await scheduler.resume("nope") is False
         assert await scheduler.run_now("nope") is False
+
+
+class TestSchedulerReadiness:
+    """G1.5 readiness 契约:运行中且常驻后台任务全部存活。"""
+
+    @pytest.fixture
+    def event_bus(self):
+        return EventBus()
+
+    @pytest.fixture
+    def scheduler(self, event_bus, storage):
+        return Scheduler(event_bus=event_bus, storage=storage)
+
+    async def test_ready_lifecycle_start_dead_task_stop(self, scheduler):
+        assert scheduler.is_ready is False  # 未 start
+        await scheduler.start()
+        assert scheduler.is_ready is True
+        scheduler._orphan_sweep_task.cancel()
+        import asyncio
+
+        await asyncio.sleep(0)
+        assert scheduler.is_ready is False  # 常驻任务死亡即不 ready
+        await scheduler.stop()
+        assert scheduler.is_ready is False
+
+
+class TestSchedulerReadinessWindow:
+    @pytest.fixture
+    def event_bus(self):
+        return EventBus()
+
+    @pytest.mark.asyncio
+    async def test_not_ready_until_job_restore_completes(self, event_bus, storage):
+        """start() 期间（_restore_jobs 未完成）不得报告 ready。"""
+        scheduler = Scheduler(event_bus=event_bus, storage=storage)
+        observed: list[bool] = []
+        original = scheduler._restore_jobs
+
+        async def _slow_restore():
+            observed.append(scheduler.is_ready)  # 恢复进行中的 readiness 快照
+            await original()
+
+        scheduler._restore_jobs = _slow_restore  # type: ignore[method-assign]
+        await scheduler.start()
+        try:
+            assert observed == [False], "任务恢复完成前不得 ready"
+            assert scheduler.is_ready is True
+        finally:
+            await scheduler.stop()

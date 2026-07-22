@@ -256,12 +256,7 @@ class SkillCurator:
                 errors.append(f"into '{into}' invalid: {msg}")
                 continue
             try:
-                if existing:
-                    self._loader.delete_skill(into)
-                self._loader.create_skill(into, into_content)
-                self._metrics.ensure_exists(into, created_by="agent")
-                self._metrics.set_state(into, "active")
-                created.append(into)
+                raise RuntimeError("governed_skill_service_required")
             except Exception as e:  # noqa: BLE001
                 errors.append(f"consolidation '{into}' write failed: {e}")
                 continue
@@ -272,9 +267,7 @@ class SkillCurator:
                 if live[name].pinned:
                     errors.append(f"absorb skip pinned '{name}'")
                     continue
-                if self._loader.archive_skill(name):
-                    self._metrics.mark_archived(name, into=into)
-                    archived.append(name)
+                errors.append(f"archive '{name}' requires governed skill service")
 
         for a in plan.archivals:
             name = (a.get("name") or "").strip()
@@ -286,9 +279,7 @@ class SkillCurator:
                 continue
             if name in created:
                 continue
-            if self._loader.archive_skill(name):
-                self._metrics.mark_archived(name)
-                archived.append(name)
+            errors.append(f"archive '{name}' requires governed skill service")
 
         return created, archived, errors
 
@@ -334,8 +325,10 @@ class SkillCurator:
                         {"skill": m.skill_name, "reason": reason},
                     )
                     continue
-                self._loader.save_skill(m.skill_name, new_md)
-                improved.append(m.skill_name)
+                logger.warning(
+                    "[CURATOR] governed_skill_service_required for iteration '%s'",
+                    m.skill_name,
+                )
             except Exception:  # noqa: BLE001
                 logger.debug("[CURATOR] iterate failed for %s", m.skill_name, exc_info=True)
         return improved

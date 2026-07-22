@@ -71,8 +71,18 @@ class OutboundEventBase:
     def start(self) -> None:
         """构造/重建传输客户端 + 注册 EventBus 订阅。仅在 XxxBot.start 时调用一次。"""
         self.rebuild_client()
-        self._event_bus.on("execution.completed", self._sub_completed, priority=200)
-        self._event_bus.on("execution.failed", self._sub_failed, priority=200)
+        self._event_bus.on(
+            "execution.completed",
+            self._sub_completed,
+            consumer_name=f"outbound.{self._instance_id}.execution_completed.v1",
+            priority=200,
+        )
+        self._event_bus.on(
+            "execution.failed",
+            self._sub_failed,
+            consumer_name=f"outbound.{self._instance_id}.execution_failed.v1",
+            priority=200,
+        )
 
     def stop(self) -> None:
         """取消 EventBus 订阅（实例停止时调用，避免已停实例继续投递）。"""

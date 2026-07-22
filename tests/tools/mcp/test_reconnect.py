@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import pytest
 
+from tianshu.executor.execution_gateway import ExecutionGateway
 from tianshu.tools.mcp import client as client_module
 from tianshu.tools.mcp.client import MCPServerSession
 from tianshu.tools.mcp.config import MCPServerConfig
@@ -26,6 +28,15 @@ def _make_cfg() -> MCPServerConfig:
     )
 
 
+def _make_session() -> MCPServerSession:
+    return MCPServerSession(
+        config=_make_cfg(),
+        execution_gateway=ExecutionGateway(),
+        workspace_root=Path.cwd(),
+        security_mode="trusted-local",
+    )
+
+
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_reconnect_gives_up_after_max_attempts(
@@ -37,14 +48,14 @@ async def test_reconnect_gives_up_after_max_attempts(
     attempts = {"count": 0}
 
     @asynccontextmanager
-    async def fake_open_session(_cfg) -> AsyncIterator[object]:
+    async def fake_open_session(_cfg, **_kwargs) -> AsyncIterator[object]:
         attempts["count"] += 1
         raise ConnectionError("simulated failure")
         yield  # type: ignore[unreachable]
 
     monkeypatch.setattr(client_module, "open_session", fake_open_session)
 
-    session = MCPServerSession(config=_make_cfg())
+    session = _make_session()
     connected = await session.start()
     try:
         assert connected is False
@@ -76,7 +87,7 @@ async def test_reconnect_succeeds_on_second_attempt(
             raise NotImplementedError
 
     @asynccontextmanager
-    async def fake_open_session(_cfg) -> AsyncIterator[FakeSession]:
+    async def fake_open_session(_cfg, **_kwargs) -> AsyncIterator[FakeSession]:
         attempts["count"] += 1
         if attempts["count"] == 1:
             raise TimeoutError("first attempt timeout")
@@ -84,7 +95,7 @@ async def test_reconnect_succeeds_on_second_attempt(
 
     monkeypatch.setattr(client_module, "open_session", fake_open_session)
 
-    session = MCPServerSession(config=_make_cfg())
+    session = _make_session()
     connected = await session.start()
     try:
         assert connected is True
@@ -105,13 +116,13 @@ async def test_reconnect_redacts_credentials_in_error(
     secret = "ghp_" + "a" * 40
 
     @asynccontextmanager
-    async def fake_open_session(_cfg) -> AsyncIterator[object]:
+    async def fake_open_session(_cfg, **_kwargs) -> AsyncIterator[object]:
         raise PermissionError(f"401 Unauthorized: token={secret}")
         yield  # type: ignore[unreachable]
 
     monkeypatch.setattr(client_module, "open_session", fake_open_session)
 
-    session = MCPServerSession(config=_make_cfg())
+    session = _make_session()
     connected = await session.start()
     try:
         assert connected is False
@@ -134,14 +145,14 @@ async def test_shutdown_aborts_reconnect_loop(
     attempts = {"count": 0}
 
     @asynccontextmanager
-    async def fake_open_session(_cfg) -> AsyncIterator[object]:
+    async def fake_open_session(_cfg, **_kwargs) -> AsyncIterator[object]:
         attempts["count"] += 1
         raise ConnectionError("nope")
         yield  # type: ignore[unreachable]
 
     monkeypatch.setattr(client_module, "open_session", fake_open_session)
 
-    session = MCPServerSession(config=_make_cfg())
+    session = _make_session()
     # 不 await start (会阻塞 5 次失败 + 退避)；改成手动启动 task
     import asyncio
 

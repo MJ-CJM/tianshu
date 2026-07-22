@@ -6,6 +6,9 @@ import { listEdicts, deleteEdict } from "../../api/edicts";
 import EdictTable from "../edict/EdictTable";
 import { PAGE_SIZE, useEdictStatusLabels } from "../../utils/constants";
 import { useT } from "../../i18n";
+import { toApiProblem } from "../../api/client";
+import PageDataState from "../states/PageDataState";
+import { problemPageStatus } from "../states/problemPageStatus";
 
 export default function AllEdictsView() {
   const t = useT();
@@ -57,6 +60,21 @@ export default function AllEdictsView() {
     await Promise.all(edictIds.map((id) => deleteEdict(id)));
     queryClient.invalidateQueries({ queryKey: ["edicts"] });
   };
+
+  if (edictsQuery.error) {
+    const problem = toApiProblem(edictsQuery.error);
+    return (
+      <PageDataState
+        status={problemPageStatus(problem)}
+        data={null}
+        problem={problem}
+        isEmpty={(items: typeof edicts) => items.length === 0}
+        onRetry={() => void edictsQuery.refetch()}
+      >
+        {() => null}
+      </PageDataState>
+    );
+  }
 
   return (
     <>

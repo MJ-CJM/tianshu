@@ -66,7 +66,7 @@ def test_message_creates_edict(app_with_feishu):
         sender_open_id="ou_test",
         text="帮我看看进度",
     )
-    resp = client.post("/feishu/webhook", json=payload)
+    resp = client.post("/channels/feishu/webhook", json=payload)
     assert resp.status_code == 200
 
     # dispatcher 是异步消费 inbound_queue → executor 异步任务，等一拍
@@ -88,11 +88,11 @@ def test_dedup_repeated_event_id(app_with_feishu):
         sender_open_id="ou_test",
         text="一次任务",
     )
-    r1 = client.post("/feishu/webhook", json=payload)
+    r1 = client.post("/channels/feishu/webhook", json=payload)
     assert r1.status_code == 200
     time.sleep(0.3)
     # 同 event_id 第二次：webhook 层去重 → 不会创建新 Edict
-    r2 = client.post("/feishu/webhook", json=payload)
+    r2 = client.post("/channels/feishu/webhook", json=payload)
     assert r2.status_code == 200
     time.sleep(1.5)
 
@@ -111,7 +111,7 @@ def test_message_from_non_allowlisted_user_ignored(app_with_feishu):
         sender_open_id="ou_attacker",  # 不在 allowlist
         text="malicious",
     )
-    resp = client.post("/feishu/webhook", json=payload)
+    resp = client.post("/channels/feishu/webhook", json=payload)
     assert resp.status_code == 200  # webhook 仍 200（避免飞书重投）
     time.sleep(0.5)
     # 不允许的用户不会落 Edict
@@ -122,7 +122,7 @@ def test_message_from_non_allowlisted_user_ignored(app_with_feishu):
 def test_url_verification_challenge(app_with_feishu):
     client, _ = app_with_feishu
     resp = client.post(
-        "/feishu/webhook",
+        "/channels/feishu/webhook",
         json={"type": "url_verification", "challenge": "abc123"},
     )
     assert resp.status_code == 200

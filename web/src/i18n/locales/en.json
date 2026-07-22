@@ -1,7 +1,9 @@
 {
   "nav": {
+    "control": "Control Center",
+    "evolution": "Evolution Center",
     "edictCreate": "New Task",
-    "approvals": "Approvals",
+    "approvals": "Decisions",
     "cabinet": "Planning",
     "tax": "Finance",
     "audit": "Audit",
@@ -30,19 +32,156 @@
     "switchToDark": "Switch to Dark",
     "switchToLight": "Switch to Light"
   },
+  "pageDataState": {
+    "loadingTitle": "Loading",
+    "loadingDescription": "Reading the latest data.",
+    "emptyTitle": "No data",
+    "emptyDescription": "There is no data in the current scope.",
+    "staleTitle": "Data may be stale",
+    "staleDescription": "Refresh failed; the last successful data remains visible.",
+    "errorTitle": "Request failed",
+    "errorDescription": "The data could not be loaded.",
+    "permissionTitle": "Permission denied",
+    "permissionDescription": "The current identity lacks the required permission.",
+    "unavailableTitle": "Service unavailable",
+    "unavailableDescription": "The service is recovering. Try again later.",
+    "chunkDescription": "The page resources failed to load. Try again.",
+    "renderDescription": "The page encountered an unexpected error. Try again.",
+    "correlation": "Correlation ID",
+    "retry": "Retry"
+  },
+  "governanceUi": {
+    "title": "Governance Contract",
+    "requestedExecutor": "Requested executor",
+    "effectiveExecutor": "Effective executor",
+    "executorLevel": "Executor level",
+    "executorLevelUnknown": "Executor level evidence is not available yet",
+    "containedCaveat": "Only verified container boundaries are shown; managed controls are not claimed.",
+    "capability": "Capability",
+    "requested": "Requested",
+    "effective": "Effective",
+    "mandatoryMismatches": "Mandatory mismatches",
+    "advisoryGaps": "Advisory gaps",
+    "requestedState": {
+      "mandatory": "Mandatory",
+      "advisory": "Advisory",
+      "unrequested": "Not requested"
+    },
+    "effectiveState": {
+      "enforced": "Enforced",
+      "best_effort": "Best effort",
+      "observed": "Observed",
+      "unsupported": "Unsupported"
+    }
+  },
+  "decisionUi": {
+    "title": "Decision",
+    "action": "Decision action",
+    "reason": "Decision reason",
+    "reasonRequired": "A decision reason is required",
+    "submit": "Submit decision",
+    "submitFailed": "Decision submission failed",
+    "versionConflict": "The decision changed. Review the latest version and try again.",
+    "resolvedBy": "Decision maker",
+    "resolvedAt": "Resolved at",
+    "status": {
+      "pending": "Pending",
+      "resolved": "Resolved",
+      "expired": "Expired",
+      "cancelled": "Cancelled"
+    },
+    "actions": {
+      "approve": "Allow",
+      "reject": "Reject",
+      "amend": "Amend",
+      "retry": "Retry",
+      "cancel": "Cancel",
+      "observe": "Observe",
+      "promote": "Promote",
+      "override": "Override",
+      "guide": "Guide and continue",
+      "continue": "Continue",
+      "accept_as_is": "Accept as is",
+      "abort": "Abort",
+      "modify_acceptance": "Modify acceptance"
+    }
+  },
+  "evidenceUi": {
+    "title": "Evidence Bundle",
+    "version": "Version",
+    "digest": "Digest",
+    "digestPending": "Generated after closure",
+    "download": "Download evidence bundle",
+    "executor": "Executor identity",
+    "executorName": "Executor",
+    "executorId": "Executor ID",
+    "executorLevel": "Executor level",
+    "artifacts": "Executor artifacts",
+    "checks": "Acceptance checks",
+    "policies": "Policy records",
+    "cost": "Cost",
+    "environment": "Environment",
+    "auditor": "Independent auditor conclusion",
+    "missingMandatory": "Missing mandatory evidence",
+    "replayWarning": "Replay creates a new governed task and never executes the original command in the browser.",
+    "replay": "Governed replay",
+    "status": {
+      "open": "Generating",
+      "closed": "Closed"
+    },
+    "checkStatus": {
+      "passed": "Passed",
+      "failed": "Failed",
+      "unavailable": "Unavailable",
+      "skipped": "Skipped"
+    },
+    "verdict": {
+      "pass": "Pass",
+      "fail": "Fail"
+    }
+  },
+  "evolutionUi": {
+    "title": "Evolution Gate",
+    "blockingGates": "Blocking gates",
+    "version": "Version",
+    "artifactHash": "Artifact hash",
+    "promotionAllowed": "Promotion allowed",
+    "promotionBlocked": "Promotion blocked",
+    "rollbackState": "Rollback state",
+    "routingTitle": "Authoritative routing",
+    "routingVersion": "Routing version",
+    "routingUnavailable": "No routing record",
+    "allocation": "Challenger allocation",
+    "championAssignments": "Champion assignments",
+    "challengerAssignments": "Challenger assignments",
+    "evidenceHash": "Evidence hash",
+    "viewEvidence": "View gate evidence"
+  },
+  "auth": {
+    "loading": "Verifying identity…",
+    "subtitle": "A governable, verifiable and continuously evolving Agent OS",
+    "tokenLabel": "Access token",
+    "tokenPlaceholder": "Enter an administrator or personal access token",
+    "login": "Sign in",
+    "invalid": "Invalid credentials. Please try again.",
+    "unavailable": "Identity verification is temporarily unavailable",
+    "retry": "Try again",
+    "currentUser": "Current identity",
+    "logout": "Sign out"
+  },
   "entity": {
     "edict": "Task",
     "memorial": "Run",
     "decree": "Decision"
   },
   "action": {
-    "approve": "Approve",
+    "approve": "Allow",
     "reject": "Reject",
     "cancel": "Cancel",
     "retry": "Retry",
     "amend": "Amend",
     "issue": "Issue",
-    "review": "Review",
+    "review": "Decide",
     "pause": "Pause",
     "resume": "Resume",
     "revoke": "Revoke",
@@ -56,7 +195,7 @@
   "status": {
     "submitted": "Submitted",
     "running": "Running",
-    "needs_review": "Pending Review",
+    "needs_review": "Pending Decision",
     "completed": "Completed",
     "failed": "Failed",
     "cancelled": "Cancelled",
@@ -71,7 +210,7 @@
   },
   "phase": {
     "running": "Running",
-    "needs_review": "Pending Review",
+    "needs_review": "Pending Decision",
     "idle": "Idle",
     "no_memorial": "Not Started"
   },
@@ -90,11 +229,11 @@
       "edict.closed": "Task Closed",
       "edict.scheduled": "Scheduled",
       "plan.completed": "Plan Completed",
-      "plan.pending_review": "Plan Pending Review",
-      "plan.approved": "Plan Approved",
+      "plan.pending_review": "Plan Pending Decision",
+      "plan.approved": "Plan Decision: Allowed",
       "plan.rejected": "Plan Rejected",
       "audit.completed": "Audit Completed",
-      "decree.approved": "Decision: Approved",
+      "decree.approved": "Decision: Allowed",
       "decree.rejected": "Decision: Rejected",
       "decree.retry": "Decision: Retry",
       "decree.cancelled": "Decision: Cancelled",
@@ -139,7 +278,7 @@
       "title": "Execution Log"
     },
     "decree": {
-      "approved": "Decision: Approved",
+      "approved": "Decision: Allowed",
       "rejected": "Decision: Rejected",
       "retry": "Decision: Retry",
       "cancelled": "Decision: Cancelled"
@@ -257,20 +396,20 @@
       "artifacts": "Artifacts"
     },
     "review": {
-      "pending": "Pending Review"
+      "pending": "Pending Decision"
     }
   },
   "pendingTool": {
-    "title": "Tool call pending approval",
+    "title": "Tool call pending decision",
     "grantScope": "Grant scope",
     "scope": {
       "once": "Once",
       "edict": "This task",
       "always": "Always"
     },
-    "approve": "Approve",
+    "approve": "Allow",
     "reject": "Reject",
-    "action": "Approve/Reject",
+    "action": "Allow/Reject",
     "comment": "Comment (optional)",
     "guide": "Reject + guide",
     "guideNeedsComment": "Please write guidance below first"
@@ -293,7 +432,7 @@
       "cancel": "Confirm Cancel"
     },
     "actionOption": {
-      "approve": "Approve — Confirm execution",
+      "approve": "Allow — Confirm execution",
       "reject": "Reject — Decline",
       "retry": "Retry — Same goal",
       "amend": "Amend — Edit goal then retry",
@@ -308,6 +447,57 @@
     "all": "All Phases"
   },
   "page": {
+    "onboarding": {
+      "title": "First-time setup",
+      "resourcesTitle": "Packaged resource check",
+      "resourcesDescription": "These department personas and skills come from the current service catalog.",
+      "departmentsTitle": "Packaged departments",
+      "skillsTitle": "Built-in skills",
+      "profileTitle": "Confirm runtime profile",
+      "profileDescription": "Explicitly confirm the profile reported by the service before creating the first task.",
+      "demoLabel": "Demo profile",
+      "liveLabel": "Live profile",
+      "demoDescription": "The demo profile uses a deterministic mock provider at zero cost and needs no external model key. It never silently switches to a live provider.",
+      "liveDescription": "The live profile uses the real provider and credentials currently enabled by the service.",
+      "degradedTitle": "Service is running in degraded mode",
+      "degradedDescription": "The service is responsive, but some capabilities may be unavailable. Review the contract preview.",
+      "edictTitle": "Create the first governed task",
+      "edictDescription": "Review both the requested contract and the server-computed effective contract before dispatch."
+    },
+    "controlCenter": {
+      "statusTitle": "Governance status",
+      "lastUpdated": "Last updated",
+      "readinessReady": "Ready",
+      "readinessDegraded": "Degraded",
+      "evolutionNotEnabled": "Not enabled",
+      "realCounts": "Authoritative Control Center counts",
+      "activeRunsMetric": "Total active runs",
+      "pendingDecisionsMetric": "Total pending decisions",
+      "evidenceMetric": "Total evidence bundles",
+      "activeRunsTitle": "Active governance runs",
+      "pendingDecisionsTitle": "Pending decisions",
+      "recentEvidenceTitle": "Recent evidence",
+      "activeRunsEmpty": "There are no active governance runs.",
+      "pendingDecisionsEmpty": "There are no pending decisions.",
+      "recentEvidenceEmpty": "There are no verifiable evidence bundles yet.",
+      "viewEdict": "View task",
+      "deadline": "Due",
+      "viewDecision": "View decisions",
+      "evidenceClosed": "Closed",
+      "evidenceOpen": "Generating",
+      "downloadEvidence": "Download evidence",
+      "evidenceAwaitingClose": "Awaiting closure"
+    },
+    "evolutionCenter": {
+      "notEnabledTitle": "Not enabled",
+      "notEnabledReason": "Governed evolution is not enabled before S5; there are no candidates, routing assignments, or gate results.",
+      "reasonCode": "Reason code",
+      "statusTitle": "Evolution status",
+      "enabled": "Enabled",
+      "degraded": "Degraded",
+      "lastGateHash": "Last gate hash",
+      "candidatesTitle": "Evolution candidates"
+    },
     "edictDetail": {
       "title": "Task Detail",
       "notFound": "Task not found",
@@ -321,14 +511,32 @@
         "depends": "Depends",
         "tools": "Tools"
       },
-      "planApprove": "Approve (execute plan)",
+      "planApprove": "Allow (execute plan)",
       "planReject": "Reject (decline plan)",
-      "decreePrompt": "Run pending review, choose an action:",
+      "decreePrompt": "Run pending decision, choose an action:",
       "followupTitle": "Follow Up",
       "followupPlaceholder": "Enter follow-up instruction...",
       "followupSubmit": "Submit (Ctrl+Enter)",
       "closeButton": "Close",
       "cancelButton": "Cancel",
+      "durable": {
+        "workspaceTitle": "Durable governance workspace",
+        "effectivePending": "No effective governance contract has been recorded yet.",
+        "runStateTitle": "Run state",
+        "runsEmpty": "No governed run has been recorded yet.",
+        "decisionsTitle": "Durable decisions",
+        "decisionsEmpty": "No durable decision has been recorded yet.",
+        "evidenceTitle": "Verifiable evidence",
+        "evidenceEmpty": "No verifiable Evidence bundle has been recorded yet.",
+        "memorial": "Memorial",
+        "phase": "Phase",
+        "version": "Version",
+        "sideEffectCursor": "Side-effect cursor",
+        "checkpoint": "Checkpoint",
+        "planLineage": "Plan revision lineage",
+        "yes": "Yes",
+        "no": "No"
+      },
       "confirmClose": {
         "title": "Confirm close?",
         "description": "Cannot send further instructions after close"
@@ -377,12 +585,12 @@
     },
     "sessionRules": {
       "title": "Session Rules",
-      "alertTitle": "Session Rules are pre-approval tokens for tool calls",
-      "alertDesc": "When approving a tool call in the Approval Center with scope \"This task\" or \"Global\", a session rule is automatically created. You can also add rules manually to pre-configure pre-approved permissions. Note: shell_exec/bash tools cannot be granted global pre-approval.",
+      "alertTitle": "Session Rules record reusable tool decisions",
+      "alertDesc": "When allowing a tool call in the Decision Center with scope \"This task\" or \"Global\", a session rule is automatically created. You can also add rules manually to pre-authorize permissions. Note: shell_exec/bash tools cannot receive global authorization.",
       "addRule": "Add Rule",
-      "addModalTitle": "Add Pre-Approval Rule",
+      "addModalTitle": "Add Pre-Authorization Rule",
       "summary": "{n} rules total",
-      "empty": "No rules — click \"Add Rule\" in the top right to create manually, or select \"This task / Global\" when approving tool calls to auto-generate"
+      "empty": "No rules — click \"Add Rule\" in the top right to create manually, or select \"This task / Global\" when allowing tool calls to auto-generate"
     }
   },
   "form": {
@@ -411,7 +619,7 @@
         "executionMode": "Execution Mode",
         "assignedPersona": "Assignee",
         "plannerPersona": "Planner (optional)",
-        "planReview": "Plan Review",
+        "planReview": "Plan Decision",
         "scheduleType": "Schedule",
         "cronExpr": "Cron Expression",
         "scheduleAt": "Run At",
@@ -479,7 +687,7 @@
       },
       "tooltip": {
         "plannerPersona": "Choose which planner persona to use; different personas may use different LLMs",
-        "planReview": "When enabled, plans require human approval before execution",
+        "planReview": "When enabled, plans require a human decision before execution",
         "longTaskEnabled": "When enabled, task runs actor → checks → critic loop with self-driven convergence; otherwise single-round agent loop (default)",
         "templatePreset": "One-click fill of common configs; you can still tweak below",
         "executionProfile": "foreground=in-process; checkpointed=resumable per round; background=runs in background (page can close)",
@@ -491,7 +699,7 @@
         "onCriticUnavailable": "Fallback when all critic LLM calls fail",
         "criticPersonas": "Who reviews task quality. Multi-select runs concurrent review per round, aggregated as 'all pass'; any FAIL = fail. Each critic produces an independent report on terminal state.",
         "sameIssueThreshold": "Escalate to L1 when critic reports same issue_class for N consecutive rounds",
-        "executor": "native = built-in engine (default); keqing:* = dispatch an external CLI agent (Claude Code/Codex) under full Tianshu governance (approval/audit/budget/shadow snapshots)"
+        "executor": "native = built-in engine (default); keqing:* = external CLI agent (Claude Code/Codex, contained + experimental): independent workspace, clean-env, outer timeout, and post-run audit only; no pre-tool interception, hard cost cap, or pre-run restore point"
       },
       "option": {
         "autoPlanning": "Auto Plan (system decides)",
@@ -516,7 +724,42 @@
       },
       "warning": {
         "criticSelfReviewTitle": "Executor and Critic overlap",
-        "criticSelfReviewDesc": "Same persona executing and self-reviewing significantly reduces critic objectivity. Recommend audit / knowledge-base personas not involved in execution."
+        "criticSelfReviewDesc": "Same persona executing and self-reviewing significantly reduces critic objectivity. Recommend audit / knowledge-base personas not involved in execution.",
+        "governanceBlocked": "Governance preview failed. The executor cannot enforce: {capabilities}",
+        "governanceAdvisory": "These advisory capabilities are best-effort or observed only: {capabilities}",
+        "governanceReview": "Review the requested and effective contracts before dispatch.",
+        "governanceUnavailable": "Governance preview is temporarily unavailable. Please try again.",
+        "governanceEffectiveMissing": "The governance preview returned no effective contract. Dispatch was stopped.",
+        "governanceRequestedTitle": "Requested contract",
+        "governanceEffectiveContractTitle": "Effective contract",
+        "governanceExecutorLabel": "Executor",
+        "governanceCapabilitiesLabel": "Capabilities",
+        "governanceCapabilitiesValue": "Mandatory: {mandatory}; advisory: {advisory}",
+        "governanceAllowedPathsLabel": "Allowed paths",
+        "governanceWorkspaceLabel": "Workspace source",
+        "governanceRevisionLabel": "Base revision",
+        "governanceNetworkLabel": "Network mode",
+        "governanceHostsLabel": "Allowed hosts",
+        "governanceReviewPolicyLabel": "Review policy",
+        "governanceBudgetLabel": "Budget",
+        "governanceBudgetValue": "Tokens {tokens}; cost {cost}; wall time {seconds}s",
+        "governanceAcceptanceLabel": "Acceptance checks",
+        "governanceDeadlineLabel": "Acceptance deadline (seconds)",
+        "governanceExhaustionLabel": "On exhaustion",
+        "governanceRecoveryLabel": "Recovery",
+        "governanceRecoveryValue": "Restore point {restore}; failure cleanup {cleanup}; rollback on apply failure {rollback}",
+        "governanceLevelLabel": "Governance level",
+        "governanceControlsLabel": "Capability states",
+        "governanceCapabilitySupportLabel": "Effective capability support",
+        "governanceHashLabel": "Requested contract summary",
+        "governanceEffectiveTitle": "Effective contract summary",
+        "governanceEffectiveExecutor": "Executor: {executor}",
+        "governanceEffectiveLevel": "Governance level: {level}",
+        "governanceEffectiveControls": "Capability states: enforced {enforced} · best-effort {bestEffort} · observed {observed} · unsupported {unsupported}",
+        "governanceEffectiveHash": "Requested contract: {hash}",
+        "governanceContinue": "Accept risk and dispatch",
+        "governanceConfirm": "Confirm contract and dispatch",
+        "governanceRevise": "Revise request"
       },
       "expertMode": "Expert mode",
       "expertHint": "Tweak field by field (usually not needed once you pick a task type)",
@@ -599,7 +842,7 @@
       "edict": "Task-level"
     },
     "source": {
-      "approval": "Approval-granted",
+      "approval": "Decision-granted",
       "profile": "Policy profile",
       "manual": "Manual"
     },
@@ -616,13 +859,13 @@
     },
     "sourceFilter": {
       "all": "All sources",
-      "approval": "Approval-granted",
+      "approval": "Decision-granted",
       "profile": "Policy profile",
       "manual": "Manual"
     },
     "popconfirm": {
       "title": "Revoke this rule?",
-      "description": "After revocation, related tool calls will require approval again"
+      "description": "After revocation, related tool calls will require a decision again"
     }
   },
   "priority": {
@@ -697,12 +940,14 @@
     "save": "Save"
   },
   "toast": {
-    "toolApproved": "Approved {tool}",
-    "toolApprovedWithRule": "Approved and saved session rule ({scope})",
+    "toolApproved": "Allowed {tool}",
+    "toolApprovedWithRule": "Allowed and saved session rule ({scope})",
+    "toolAlreadyDecided": "Already decided by another channel: {action} ({scope})",
+    "toolScopeDowngraded": "Allowed {tool}; requested {requestedScope} was downgraded to {scope}",
     "toolRejected": "Rejected {tool}",
     "actionFailed": "Action failed",
-    "planApproved": "Plan approved, starting execution",
-    "planApproveFailed": "Plan approve failed",
+    "planApproved": "Plan allowed, starting execution",
+    "planApproveFailed": "Plan decision failed",
     "planRejected": "Plan rejected",
     "planRejectFailed": "Plan reject failed",
     "followupFailed": "Submit follow-up failed",
@@ -817,7 +1062,7 @@
       "title": "Policy Timeline",
       "filterAll": "All events",
       "filterPolicy": "Policy decisions (policy.*)",
-      "filterApproval": "Tool approvals (tool.approval_required)",
+      "filterApproval": "Tool decisions (tool.approval_required)",
       "filterDecree": "Decrees (decree.*)",
       "filterHook": "Hook events (hook.*)",
       "emptyAll": "No policy events",
@@ -829,7 +1074,7 @@
       "allowedHosts": "Allowed API hosts",
       "allowedHostsDesc": "api_request tool can only access these hosts",
       "hostPlaceholder": "Pick from existing credentials or enter a host",
-      "allowWrite": "Allow write methods (POST/PUT/DELETE/PATCH) — requires approval",
+      "allowWrite": "Allow write methods (POST/PUT/DELETE/PATCH) — requires a decision",
       "writeHosts": "Hosts allowed for writes (must be a subset of the list above)",
       "writeHostPlaceholder": "Select from hosts above"
     },
@@ -862,8 +1107,8 @@
       "pathsPlaceholder": "One per line, e.g.:\nsrc/**\ntests/**",
       "bashLabel": "Allowed bash prefixes",
       "bashPlaceholder": "One per line, e.g.:\ngit status\nls\npytest",
-      "autoApproveLabel": "Auto-approve up to tier",
-      "autoApproveTooltip": "Tools at tier ≤ this value are auto-approved without confirmation",
+      "autoApproveLabel": "Governed auto-decision up to tier",
+      "autoApproveTooltip": "Rules automatically decide to allow tools at tier ≤ this value without requesting a human decision",
       "expiresLabel": "Rule TTL (seconds)",
       "expiresTooltip": "Empty = permanent (until task ends)",
       "expiresPlaceholder": "Empty = permanent",
@@ -910,13 +1155,16 @@
       "createdAt": "Created {time}",
       "initializing": "Initializing…",
       "executing": "Running…",
-      "auditReasons": "Audit reasons: "
+      "auditReasons": "Audit reasons: ",
+      "openDecision": "Open authoritative decision"
     },
     "appHeader": {
       "brand": "Tianshu",
       "tagline": "There is only one kind of success — to be able to spend your life in your own way."
     },
     "healthDot": {
+      "degraded": "Degraded",
+      "demo": "[DEMO]",
       "ok": "Online",
       "err": "Offline"
     },
@@ -959,7 +1207,7 @@
     "policyToast": {
       "downgradedTitle": "Permanent grant downgraded to once",
       "downgradedDescDefault": "{tool} does not support always grant; downgraded to once.",
-      "approvalRequired": "Approval required",
+      "approvalRequired": "Decision required",
       "policyDeny": "Policy denied",
       "fallbackTool": "the tool"
     },
@@ -1149,7 +1397,7 @@
       "allowedUsers": "Allowlist",
       "allowedUsersExtra": "Comma-separated open_ids; empty = allow anyone (same as hermes). Recommend setting in production to avoid accidental exposure.",
       "homeChannel": "Home channel (optional)",
-      "homeChannelExtra": "Fallback chat_id for cron-triggered results and source-less task approvals",
+      "homeChannelExtra": "Fallback chat_id for cron-triggered results and source-less task decisions",
       "botOpenId": "Bot Open ID (group @ detection)",
       "encryptKey": "Encrypt key (Webhook mode)",
       "verificationToken": "Verification token (Webhook mode)",
@@ -1197,7 +1445,7 @@
         "tip1": "Create a bot via @BotFather to get the Bot Token",
         "tip2": "Default long-polling needs no public URL; webhook needs public HTTPS + secret",
         "tip3": "Empty allowlist = anyone allowed; always configure it in production",
-        "tip4": "Home channel is the fallback chat for cron results / source-less approvals (chat_id, negative for groups)"
+        "tip4": "Home channel is the fallback chat for cron results / source-less decisions (chat_id, negative for groups)"
       },
       "field": {
         "botToken": "Bot Token",
@@ -1208,7 +1456,7 @@
         "allowedUsers": "Allowed users (user_id, comma-separated)",
         "allowedUsersExtra": "Telegram numeric user_id; empty = allow anyone",
         "homeChannel": "Home channel (optional)",
-        "homeChannelExtra": "Fallback chat_id for cron / source-less approvals",
+        "homeChannelExtra": "Fallback chat_id for cron / source-less decisions",
         "webhookPath": "Webhook path",
         "webhookSecret": "Webhook secret",
         "pollTimeout": "Polling timeout (s)",
@@ -1917,7 +2165,7 @@
         "headers": "Headers",
         "advanced": "Advanced",
         "defaultTier": "Default tier",
-        "defaultTierHint": "Per-tool tier. T2 = network, requires approval. T0 = readonly, fast path.",
+        "defaultTierHint": "Per-tool tier. T2 = network, requires a decision. T0 = readonly, fast path.",
         "timeout": "Tool timeout (s)",
         "connectTimeout": "Connect timeout (s)",
         "enabled": "Enabled",

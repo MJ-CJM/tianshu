@@ -1,6 +1,8 @@
 # 天枢 · 文档导航
 
-天枢（Tianshu）是一个**异步 AI 执行平台**：用户通过 Web、API、CLI、飞书或 Telegram 下达「诏令(Edict)」，系统把目标转成可调度、可审计、可审批、可复盘的执行链路，最终沉淀为执行记录、事件时间线、成本账本、记忆与监督报告。其核心是一套**长程自治 agent loop**（agent harness）：在 ReAct 主循环之外叠加 actor→critic→审计的外层循环，支持多级监督升级（L0–L3）、上下文压缩与 checkpoint 续跑，让长任务能自检、自纠并在必要时升级会诊或人工。系统以明朝「六部」隐喻组织，由若干「官员(Persona)」各司其职、与用户共同成长。
+天枢的长期定位是一个**可治理、可验证、持续成长的自进化 Agent OS**。用户可通过 Web、API、CLI、飞书或 Telegram 下达「诏令(Edict)」，系统把目标转成可调度、可审计、可裁决、可复盘的执行链路，并以明朝「六部」隐喻组织职责。
+
+> 当前版本是 v0.4.2，只面向可信本地、单机、单节点使用。文档中的设计目标不等于当前保证；稳定（有限边界）、实验与规划能力的唯一公开事实源是 [launch/capability-matrix.md](launch/capability-matrix.md)。尤其不要把无统一鉴权的 HTTP、WebSocket 或 MCP 入口暴露到不可信网络。
 
 核心闭环：
 
@@ -15,7 +17,7 @@
 - **执行壳 (agent harness)** — 包裹 LLM 的执行框架：prompt 构建、工具调度、hook 治理、压缩、取消与续跑都由 harness 负责，LLM 只管思考与决策。详见 [design/agent/README.md](design/agent/README.md)、[reference/glossary.md](reference/glossary.md)。
 - **ReAct loop (ReAct 主循环)** — 单任务的 Reason+Act 循环：思考→调用工具→观察结果→再思考，每轮状态做成可快照、可恢复的不可变对象。详见 [design/agent/react-loop.md](design/agent/react-loop.md)、[reference/glossary.md](reference/glossary.md)。
 - **context compaction (上下文压缩)** — 三层兜底（micro 每轮预防 / auto 阈值摘要 / reactive 溢出救急），「先便宜后昂贵、先预防后补救」地控制上下文体积。详见 [design/agent/compaction.md](design/agent/compaction.md)、[reference/glossary.md](reference/glossary.md)。
-- **checkpoint 续跑 (checkpoint resume)** — `checkpointed/background` 执行档保存/恢复 `outer_loop_checkpoints`，长任务被中断或暂停后可从断点继续，无需从头重跑。详见 [design/agent/orchestrator.md](design/agent/orchestrator.md)、[reference/glossary.md](reference/glossary.md)。
+- **checkpoint 续跑 (checkpoint resume)** — 实验能力：`checkpointed/background` 执行档支持部分轮次 checkpoint，并可在受支持路径暂停、恢复；不保证任意故障点或进程重启后的完整续跑。详见 [design/agent/orchestrator.md](design/agent/orchestrator.md)、[reference/glossary.md](reference/glossary.md)。
 - **consultation 会诊 (consultation)** — 监督升级到 L2 时触发 `ConsultationSession`，多名官员(Persona)协作给 actor 改进建议；L2 失败再降级到 L3 人工决策。详见 [design/agent/orchestrator.md](design/agent/orchestrator.md)、[reference/glossary.md](reference/glossary.md)。
 
 ## 文档地图

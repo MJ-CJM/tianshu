@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import threading
+import time
 from unittest.mock import MagicMock as _MM
 
 import pytest
@@ -97,7 +99,7 @@ def test_valid_signature_passes(storage):
     app = FastAPI()
     app.include_router(conn.router)
     body = json.dumps({"header": {"event_type": "im.test", "event_id": "ok"}, "event": {}}).encode()
-    timestamp = "1700000000"
+    timestamp = str(int(time.time()))
     nonce = "n"
     sig = hashlib.sha256(f"{timestamp}{nonce}{key}".encode() + body).hexdigest()
     with TestClient(app) as client:
@@ -114,6 +116,39 @@ def test_valid_signature_passes(storage):
         assert r.status_code == 200
 
 
+def test_stale_valid_signature_is_rejected_as_replay(storage):
+    queue: asyncio.Queue = asyncio.Queue()
+    key = "secret_key"
+    conn = WebhookConnection(
+        settings=_settings(encrypt_key=key),
+        storage=storage,
+        inbound_queue=queue,
+    )
+    app = FastAPI()
+    app.include_router(conn.router)
+    body = json.dumps(
+        {"header": {"event_type": "im.test", "event_id": "stale"}, "event": {}}
+    ).encode()
+    timestamp = str(int(time.time()) - 301)
+    nonce = "n"
+    signature = hashlib.sha256(f"{timestamp}{nonce}{key}".encode() + body).hexdigest()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/feishu/webhook",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "X-Lark-Request-Timestamp": timestamp,
+                "X-Lark-Request-Nonce": nonce,
+                "X-Lark-Signature": signature,
+            },
+        )
+
+    assert response.status_code == 401
+    assert queue.empty()
+
+
 def test_invalid_token_rejected(storage):
     queue: asyncio.Queue = asyncio.Queue()
     conn = WebhookConnection(
@@ -127,6 +162,28 @@ def test_invalid_token_rejected(storage):
     with TestClient(app) as client:
         r = client.post("/feishu/webhook", json=body)
         assert r.status_code == 401
+
+
+def test_url_verification_rejects_invalid_token(storage):
+    queue: asyncio.Queue = asyncio.Queue()
+    conn = WebhookConnection(
+        settings=_settings(token="expected_token"),
+        storage=storage,
+        inbound_queue=queue,
+    )
+    app = FastAPI()
+    app.include_router(conn.router)
+    with TestClient(app) as client:
+        response = client.post(
+            "/feishu/webhook",
+            json={
+                "type": "url_verification",
+                "challenge": "attacker-controlled",
+                "token": "wrong",
+            },
+        )
+
+    assert response.status_code == 401
 
 
 def test_bad_json_returns_400(conn_app):
@@ -222,11 +279,13 @@ def test_sdk_card_to_payload_with_full_event():
     event.event.operator.open_id = "ou_test"
     event.event.action.value = {"action": "approve"}
     event.event.context.open_chat_id = "oc_x"
+    event.event.context.open_message_id = "om_x"
     payload = WebSocketConnection._sdk_card_to_payload(event)
     assert payload["header"]["event_type"] == "card.action.trigger"
     assert payload["event"]["operator"]["open_id"] == "ou_test"
     assert payload["event"]["action"]["value"] == {"action": "approve"}
     assert payload["event"]["context"]["open_chat_id"] == "oc_x"
+    assert payload["event"]["context"]["open_message_id"] == "om_x"
 
 
 @pytest.mark.asyncio
@@ -302,3 +361,61 @@ async def test_websocket_stop_cancels_watchdog(storage):
     await conn.stop()
     await asyncio.sleep(0.05)
     assert conn._watchdog_task.cancelled() or conn._watchdog_task.done()
+
+
+def test_websocket_client_threads_keep_independent_event_loops(storage):
+    """两个飞书实例并发启动时，不得争用 SDK 的模块级 event loop。"""
+    import lark_oapi.ws.client as lark_ws_client
+
+    original_loop = lark_ws_client.loop
+    ready = threading.Barrier(2)
+    selected = threading.Barrier(2)
+    completed: list[int] = []
+    errors: list[BaseException] = []
+
+    class _LoopUsingClient:
+        def start(self) -> None:
+            # 两条连接线程都完成各自的 loop 初始化后，再同时读取 SDK loop。
+            ready.wait(timeout=2)
+            loop = lark_ws_client.loop
+            selected.wait(timeout=2)
+
+            async def _hold_loop() -> None:
+                await asyncio.sleep(0.05)
+                completed.append(threading.get_ident())
+
+            coroutine = _hold_loop()
+            try:
+                loop.run_until_complete(coroutine)
+            except BaseException as exc:
+                coroutine.close()
+                errors.append(exc)
+                raise
+
+    connections = [
+        WebSocketConnection(
+            settings=_settings(),
+            storage=storage,
+            inbound_queue=asyncio.Queue(),
+            loop=original_loop,
+        )
+        for _ in range(2)
+    ]
+    for connection in connections:
+        connection._client = _LoopUsingClient()
+
+    threads = [
+        threading.Thread(target=connection._run_client_in_thread) for connection in connections
+    ]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=3)
+    finally:
+        # 当前缺陷会把 SDK 全局变量留在某个已关闭的线程 loop，避免污染后续测试。
+        lark_ws_client.loop = original_loop
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert errors == []
+    assert len(completed) == 2

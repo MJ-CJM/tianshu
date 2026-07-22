@@ -64,13 +64,20 @@ def _msg_event(
     }
 
 
-def _card_event(*, event_id="evt", chat_id="oc_x", sender="ou_test", value=None) -> dict:
+def _card_event(
+    *,
+    event_id="evt",
+    chat_id="oc_x",
+    message_id="om_card",
+    sender="ou_test",
+    value=None,
+) -> dict:
     return {
         "header": {"event_type": "card.action.trigger", "event_id": event_id},
         "event": {
             "operator": {"open_id": sender},
             "action": {"value": value or {"action": "approve"}},
-            "context": {"open_chat_id": chat_id},
+            "context": {"open_chat_id": chat_id, "open_message_id": message_id},
         },
     }
 
@@ -129,6 +136,7 @@ async def test_text_batching_merges_consecutive(dispatcher):
     assert len(msgs) == 1
     assert "part1" in msgs[0].text
     assert "part2" in msgs[0].text
+    assert msgs[0].ingress_id == "e2"
 
 
 @pytest.mark.asyncio
@@ -169,6 +177,7 @@ async def test_card_event_dispatched(dispatcher):
     await asyncio.sleep(0.05)
     assert len(cards) == 1
     assert cards[0].value["action"] == "approve"
+    assert cards[0].message_id == "om_card"
 
 
 @pytest.mark.asyncio
@@ -177,6 +186,36 @@ async def test_card_event_non_allowlist_dropped(dispatcher):
     await queue.put(_card_event(sender="ou_attacker"))
     await asyncio.sleep(0.05)
     assert len(cards) == 0
+
+
+@pytest.mark.asyncio
+async def test_empty_sender_dropped_when_allowlist_is_empty():
+    queue: asyncio.Queue = asyncio.Queue()
+    messages: list[FeishuMessage] = []
+    cards: list[FeishuCardAction] = []
+
+    async def on_message(message: FeishuMessage) -> None:
+        messages.append(message)
+
+    async def on_card(card: FeishuCardAction) -> None:
+        cards.append(card)
+
+    dispatcher = Dispatcher(
+        settings=_settings(allowed=(), batch_delay=0.0),
+        inbound_queue=queue,
+        message_handler=on_message,
+        card_handler=on_card,
+    )
+    await dispatcher.start()
+    try:
+        await queue.put(_msg_event(event_id="empty-message", sender=""))
+        await queue.put(_card_event(event_id="empty-card", sender=""))
+        await asyncio.sleep(0.15)
+    finally:
+        await dispatcher.stop()
+
+    assert messages == []
+    assert cards == []
 
 
 @pytest.mark.asyncio

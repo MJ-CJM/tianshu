@@ -22,9 +22,10 @@ const AUDIT_COLORS: Record<string, string> = {
 interface MemorialCardProps {
   memorial: Memorial;
   index?: number;
+  readOnly?: boolean;
 }
 
-export default function MemorialCard({ memorial, index }: MemorialCardProps) {
+export default function MemorialCard({ memorial, index, readOnly = false }: MemorialCardProps) {
   const { token } = theme.useToken();
   const navigate = useNavigate();
   const { data: personas } = usePersonas();
@@ -42,7 +43,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
   return (
     <GlowCard
       title={
-        <Space size="middle">
+        <Space size="middle" wrap>
           <span>{title}</span>
           <StatusTag status={memorial.status} />
           {isRunning && <SyncOutlined spin style={{ color: token.colorInfo }} />}
@@ -54,7 +55,7 @@ export default function MemorialCard({ memorial, index }: MemorialCardProps) {
               {t(`audit.label.${memorial.audit.verdict}`)}
             </Tag>
           )}
-          {memorial.review_status === "pending" && (
+          {!readOnly && memorial.review_status === "pending" && (
             <Button
               type="link"
               size="small"

@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,8 @@ class KeqingAdapter(Protocol):
     auth_env_vars: tuple[str, ...]
 
     def build_argv(self, prompt: str, *, model: str | None = None) -> list[str]: ...
+
+    def is_canonical_argv(self, argv: Sequence[str]) -> bool: ...
 
     def parse_stream(self, lines: list[str]) -> KeqingRunResult: ...
 
@@ -79,6 +83,17 @@ class ClaudeCodeAdapter:
         if model:
             argv += ["--model", model]
         return argv
+
+    def is_canonical_argv(self, argv: Sequence[str]) -> bool:
+        values = tuple(argv)
+        return (
+            len(values) in {6, 8}
+            and Path(values[0]).name == "claude"
+            and values[1] == "-p"
+            and bool(values[2])
+            and values[3:6] == ("--output-format", "stream-json", "--verbose")
+            and (len(values) == 6 or (values[6] == "--model" and bool(values[7])))
+        )
 
     def parse_stream(self, lines: list[str]) -> KeqingRunResult:
         r = KeqingRunResult()
@@ -130,6 +145,16 @@ class CodexAdapter:
             argv += ["--model", model]
         return argv
 
+    def is_canonical_argv(self, argv: Sequence[str]) -> bool:
+        values = tuple(argv)
+        return (
+            len(values) in {4, 6}
+            and Path(values[0]).name == "codex"
+            and values[1:3] == ("exec", "--json")
+            and bool(values[3])
+            and (len(values) == 4 or (values[4] == "--model" and bool(values[5])))
+        )
+
     def parse_stream(self, lines: list[str]) -> KeqingRunResult:
         r = KeqingRunResult()
         texts: list[str] = []
@@ -170,6 +195,11 @@ _REGISTRY: dict[str, KeqingAdapter] = {
 
 def get_adapter(name: str) -> KeqingAdapter | None:
     return _REGISTRY.get(name)
+
+
+def is_canonical_adapter_argv(name: str, argv: Sequence[str]) -> bool:
+    adapter = get_adapter(name)
+    return adapter is not None and adapter.is_canonical_argv(argv)
 
 
 def list_adapters() -> list[str]:

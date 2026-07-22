@@ -7,14 +7,13 @@ validation (name, size, frontmatter).
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 import frontmatter as fm
 
 from tianshu.skills.guard import SkillsGuard
+from tianshu.skills.loader import validate_skill_name
 
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 _MAX_CONTENT_SIZE = 256 * 1024
 
 # agentskills.io 开放标准(2025-12-18)认可的顶层键。平台特有字段应收敛进
@@ -73,12 +72,14 @@ class SkillValidator:
 
     @staticmethod
     def _check_name_format(name: str) -> list[ValidationFinding]:
-        if not _NAME_RE.match(name):
+        try:
+            validate_skill_name(name)
+        except ValueError as exc:
             return [
                 ValidationFinding(
                     level="error",
                     check="name_format",
-                    message=f"Name '{name}' must match: ^[a-z0-9][a-z0-9._-]{{0,63}}$",
+                    message=str(exc),
                 )
             ]
         return []

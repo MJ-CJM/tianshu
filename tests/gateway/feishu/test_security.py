@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -31,7 +33,37 @@ def test_verify_signature_valid():
         "x-lark-request-nonce": nonce,
         "x-lark-signature": sig,
     }
-    assert verify_signature(headers, body, key) is True
+    assert verify_signature(headers, body, key, now=1700000000) is True
+
+
+@pytest.mark.parametrize("timestamp", [1699999699, 1700000301])
+def test_verify_signature_rejects_timestamp_outside_five_minute_window(timestamp: int):
+    key = "secret_key"
+    body = b'{"hello":"world"}'
+    nonce = "abc"
+    payload = f"{timestamp}{nonce}{key}".encode() + body
+    headers = {
+        "x-lark-request-timestamp": str(timestamp),
+        "x-lark-request-nonce": nonce,
+        "x-lark-signature": hashlib.sha256(payload).hexdigest(),
+    }
+
+    assert verify_signature(headers, body, key, now=1700000000) is False
+
+
+def test_verify_signature_rejects_non_numeric_timestamp():
+    key = "secret_key"
+    body = b"{}"
+    timestamp = "not-a-timestamp"
+    nonce = "abc"
+    payload = f"{timestamp}{nonce}{key}".encode() + body
+    headers = {
+        "x-lark-request-timestamp": timestamp,
+        "x-lark-request-nonce": nonce,
+        "x-lark-signature": hashlib.sha256(payload).hexdigest(),
+    }
+
+    assert verify_signature(headers, body, key, now=1700000000) is False
 
 
 def test_verify_signature_invalid_returns_false():
@@ -42,7 +74,7 @@ def test_verify_signature_invalid_returns_false():
         "x-lark-request-nonce": "n",
         "x-lark-signature": "deadbeef",
     }
-    assert verify_signature(headers, body, key) is False
+    assert verify_signature(headers, body, key, now=1) is False
 
 
 def test_verify_signature_missing_headers_returns_false():
@@ -92,3 +124,18 @@ async def test_dedup_checker_empty_id_passes(storage):
     d = DedupChecker(storage)
     assert d.check_and_mark("") is True
     assert d.check_and_mark("") is True
+
+
+def test_dedup_checker_claim_is_atomic_across_threads(storage):
+    workers = 8
+    barrier = Barrier(workers)
+
+    def claim_once() -> bool:
+        barrier.wait()
+        return DedupChecker(storage, max_entries=10).check_and_mark("evt_race")
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(lambda _index: claim_once(), range(workers)))
+
+    assert results.count(True) == 1
+    assert results.count(False) == workers - 1

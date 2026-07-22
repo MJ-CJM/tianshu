@@ -16,22 +16,20 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+from tianshu.executor.git_backend import (
+    GitBackend,
+    GitBackendError,
+    GitIdentity,
+    GitLocation,
+)
 
 logger = logging.getLogger(__name__)
 
 _SHADOW_ROOT = Path("~/.tianshu/shadow").expanduser()
-# git 环境变量:用固定身份提交,不读用户 gitconfig(避免签名/hook 干扰)
-_GIT_ENV = {
-    "GIT_AUTHOR_NAME": "tianshu-shadow",
-    "GIT_AUTHOR_EMAIL": "shadow@tianshu.local",
-    "GIT_COMMITTER_NAME": "tianshu-shadow",
-    "GIT_COMMITTER_EMAIL": "shadow@tianshu.local",
-    "GIT_CONFIG_GLOBAL": "/dev/null",  # 隔离用户全局 gitconfig
-    "GIT_CONFIG_SYSTEM": "/dev/null",
-}
+_SHADOW_IDENTITY = GitIdentity("tianshu-shadow", "shadow@tianshu.local")
 
 
 @dataclass(frozen=True)
@@ -48,70 +46,60 @@ class ShadowSnapshotError(RuntimeError):
 class ShadowSnapshot:
     """一个工作区的影子快照仓(独立 GIT_DIR,与工作区物理分离)。"""
 
-    def __init__(self, work_tree: Path, edict_id: str, *, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        work_tree: Path,
+        edict_id: str,
+        *,
+        root: Path | None = None,
+        git_backend: GitBackend | None = None,
+    ) -> None:
         self._work_tree = Path(work_tree).resolve()
         self._git_dir = (root or _SHADOW_ROOT) / edict_id / "gitdir"
+        self._git_backend = git_backend or GitBackend()
+        self._git_location = GitLocation(self._work_tree, git_dir=self._git_dir)
 
     @property
     def git_dir(self) -> Path:
         return self._git_dir
-
-    def _git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-        import os
-
-        env = {**os.environ, **_GIT_ENV}
-        return subprocess.run(
-            [
-                "git",
-                f"--git-dir={self._git_dir}",
-                f"--work-tree={self._work_tree}",
-                *args,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=check,
-            env=env,
-        )
 
     def init(self) -> bool:
         """初始化影子仓;git 不可用或失败时返回 False(优雅降级)。"""
         try:
             self._git_dir.mkdir(parents=True, exist_ok=True)
             if not (self._git_dir / "HEAD").exists():
-                self._git("init", "-q")
+                self._git_backend.init_repository(self._git_location)
                 # 独立仓需要自己的 excludesfile 语义;默认忽略 .git 自身即可
             return True
-        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+        except (GitBackendError, ValueError, OSError) as e:
             logger.warning("[shadow] init failed for %s: %s", self._work_tree, e)
             return False
 
     def snapshot(self, label: str) -> Snapshot | None:
         """打一次快照(add -A + commit);无变更时也提交空 commit 保留节点时间线。"""
         try:
-            self._git("add", "-A")
+            self._git_backend.stage_all(self._git_location)
             # --allow-empty:执行节点即便没改文件也留一个快照锚点
-            self._git("commit", "-q", "--allow-empty", "-m", label)
-            sha = self._git("rev-parse", "HEAD").stdout.strip()
-            created = self._git("show", "-s", "--format=%cI", sha).stdout.strip()
+            sha = self._git_backend.commit(
+                self._git_location,
+                label,
+                identity=_SHADOW_IDENTITY,
+                allow_empty=True,
+            )
+            created = self._git_backend.commit_timestamp(self._git_location, sha)
             logger.info("[shadow] snapshot %s (%s) @ %s", sha[:10], label, self._work_tree)
             return Snapshot(sha=sha, label=label, created_at=created)
-        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+        except (GitBackendError, ValueError, OSError) as e:
             logger.warning("[shadow] snapshot failed: %s", e)
             return None
 
     def list_snapshots(self) -> list[Snapshot]:
         try:
-            out = self._git("log", "--format=%H%x1f%s%x1f%cI", check=False)
-            if out.returncode != 0:
-                return []
-            snaps: list[Snapshot] = []
-            for line in out.stdout.splitlines():
-                parts = line.split("\x1f")
-                if len(parts) == 3:
-                    snaps.append(Snapshot(sha=parts[0], label=parts[1], created_at=parts[2]))
-            return snaps
-        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+            return [
+                Snapshot(sha=entry.sha, label=entry.subject, created_at=entry.committed_at)
+                for entry in self._git_backend.list_log(self._git_location)
+            ]
+        except (GitBackendError, ValueError, OSError):
             return []
 
     def revert(self, sha: str) -> bool:
@@ -123,12 +111,13 @@ class ShadowSnapshot:
         "revert" 节点保持时间线线性(快照不丢,可再向前)。
         """
         try:
-            self._git("read-tree", sha)
-            self._git("checkout-index", "-a", "-f")
-            self._git("clean", "-fd", check=False)
-            self._git("commit", "-q", "--allow-empty", "-m", f"revert to {sha[:10]}")
+            self._git_backend.restore_snapshot(
+                self._git_location,
+                sha,
+                identity=_SHADOW_IDENTITY,
+            )
             logger.info("[shadow] reverted %s to %s", self._work_tree, sha[:10])
             return True
-        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+        except (GitBackendError, ValueError, OSError) as e:
             logger.warning("[shadow] revert failed: %s", e)
             return False

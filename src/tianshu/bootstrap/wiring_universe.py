@@ -14,6 +14,7 @@ task-12 列出的 6 个待提升闭包之列，原样保留为行内 lambda。
 from __future__ import annotations
 
 import functools
+import logging
 import sys
 from pathlib import Path
 
@@ -27,10 +28,27 @@ from tianshu.universe.deployer import Deployer, DeployPointer
 from tianshu.universe.diagnostician import Diagnostician
 from tianshu.universe.eval_harness import EvalHarness
 from tianshu.universe.evolver import UniverseEvolver
+from tianshu.universe.execution import UniverseExecutionContextFactory
 from tianshu.universe.gate import Gate
 from tianshu.universe.manager import UniverseManager
 from tianshu.universe.sandbox import SandboxRunner
 from tianshu.universe.store import UniverseStore
+
+logger = logging.getLogger(__name__)
+
+
+def _universe_repo_root(settings: TianshuSettings) -> Path:
+    """自进化代码变体的源仓库根。wheel 部署必须显式配置；开发模式回退源码树根。"""
+    if settings.universe_repo_root:
+        return Path(settings.universe_repo_root).expanduser()
+    inferred = Path(__file__).resolve().parents[3]
+    if not (inferred / ".git").exists():
+        logger.warning(
+            "universe_repo_root 未配置且推断路径 %s 不是 git 仓库；"
+            "wheel 部署下请设置 TIANSHU_UNIVERSE_REPO_ROOT",
+            inferred,
+        )
+    return inferred
 
 
 def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
@@ -53,7 +71,7 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         live_skills_dir=skills.user_dir,
     )
     code_variant_store = CodeVariantStore(
-        repo_root=Path(__file__).resolve().parents[3],
+        repo_root=_universe_repo_root(settings),
         worktrees_root=Path("~/.tianshu/universes/worktrees").expanduser(),
     )
     deploy_pointer = DeployPointer(Path("~/.tianshu/universes/deploy_ptr.json").expanduser())
@@ -69,6 +87,7 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         agent_config=lambda: config_manager.agent_config,
         code_store=code_variant_store,
         deployer=code_deployer,
+        challenger_router=app.state.challenger_router,
     )
     # opt-in 持久化：env 开启，或库中已存在 champion 位面（此前已开启过）→ 续上开启状态，
     # 避免"重启后位面数据还在、功能却悄悄关闭"的困惑态。
@@ -80,15 +99,34 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
     app.state.code_deployer = code_deployer
 
     _cfg = config_manager.agent_config
-    code_gate = Gate(python_exe=sys.executable, timeout_s=_cfg.code_variant_sandbox_timeout_s)
-    code_sandbox = SandboxRunner(mem_mb=_cfg.code_variant_sandbox_mem_mb)
+    universe_execution_context_factory = UniverseExecutionContextFactory(
+        security_mode=settings.security_mode
+    )
+    code_gate = Gate(
+        app.state.execution_gateway,
+        context_factory=universe_execution_context_factory,
+        python_exe=sys.executable,
+        timeout_s=_cfg.code_variant_sandbox_timeout_s,
+    )
+    code_sandbox = SandboxRunner(
+        app.state.execution_gateway,
+        context_factory=universe_execution_context_factory,
+        runtime_timeout_s=_cfg.code_variant_sandbox_timeout_s,
+    )
+    app.state.universe_execution_context_factory = universe_execution_context_factory
+    app.state.code_gate = code_gate
+    app.state.code_sandbox = code_sandbox
     eval_base_env: dict[str, str] = {}
     if settings.eval_llm_api_key:
-        eval_base_env["TIANSHU_LLM_API_KEY"] = settings.eval_llm_api_key
-        if settings.eval_llm_api_base:
-            eval_base_env["TIANSHU_LLM_API_BASE"] = settings.eval_llm_api_base
-        if settings.eval_llm_model:
-            eval_base_env["TIANSHU_LLM_MODEL"] = settings.eval_llm_model
+        eval_base_env["TIANSHU_LLM_API_KEY"] = "${settings:eval_llm_api_key}"
+    elif settings.llm_api_key:
+        eval_base_env["TIANSHU_LLM_API_KEY"] = "${settings:llm_api_key}"
+    api_base = settings.eval_llm_api_base or settings.llm_api_base
+    model = settings.eval_llm_model or settings.llm_model
+    if api_base:
+        eval_base_env["TIANSHU_LLM_API_BASE"] = api_base
+    if model:
+        eval_base_env["TIANSHU_LLM_MODEL"] = model
     code_eval_harness = EvalHarness(
         storage,
         code_sandbox,

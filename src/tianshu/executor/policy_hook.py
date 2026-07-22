@@ -12,7 +12,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from tianshu.executor.workspace_context import WorkspaceBindingError, resolve_workspace_root
 from tianshu.kernel.hooks import HookResult
+from tianshu.security.sensitive_payload import redact_sensitive_mapping
 from tianshu.tools.policy import PolicyContext, PolicyDecision, PolicyEngine
 from tianshu.tools.types import ToolTier
 
@@ -54,6 +56,14 @@ class PolicyHook:
         if not tool_name or not edict:
             return None  # 没上下文就放行，交给别的 handler
 
+        try:
+            workspace_root = resolve_workspace_root(self._workspace_root)
+        except WorkspaceBindingError as exc:
+            return HookResult(
+                block=True,
+                reason=f"workspace binding rejected tool policy evaluation: {exc}",
+            )
+
         # 解析 tool tier（fail-secure → 缺失 = T3）
         defn = self._tool_registry.get_definition(tool_name) if self._tool_registry else None
         tier_val = defn.tier if defn else ToolTier.T4_DANGEROUS.value
@@ -68,7 +78,7 @@ class PolicyHook:
             args=dict(tool_args) if isinstance(tool_args, dict) else {},
             edict=edict,  # type: ignore[arg-type]
             memorial=memorial,  # type: ignore[arg-type]
-            workspace_root=self._workspace_root,
+            workspace_root=workspace_root,
             iteration=int(iteration),
         )
 
@@ -97,22 +107,32 @@ class PolicyHook:
         self._emit_event(ctx, "policy.decision", decision)
 
         if decision.verdict == "allow":
-            return None
+            return HookResult(authorization_source="policy-engine")
         if decision.verdict == "deny":
             return HookResult(
                 block=True,
                 reason=f"[{decision.rule_id}] {decision.reason}",
             )
         if decision.verdict == "require_approval":
-            return await self._request_approval(ctx, decision)
+            return await self._request_approval(
+                ctx,
+                decision,
+                invocation_id=context.get("invocation_id"),
+                messages=context.get("messages"),
+                usage=context.get("usage"),
+            )
         return None
 
     async def _request_approval(
         self,
         ctx: PolicyContext,
         decision: PolicyDecision,
+        *,
+        invocation_id: object,
+        messages: object,
+        usage: object,
     ) -> HookResult | None:
-        """走已有 ApprovalManager UI 流 —— 写 tool.approval_required 事件并 wait。"""
+        """Persist a durable tool suspension, notify, then poll generic authority."""
         if self._approval_manager is None:
             logger.error("policy_hook: require_approval but no ApprovalManager configured")
             return HookResult(
@@ -126,18 +146,53 @@ class PolicyHook:
                 block=True,
                 reason=f"[{decision.rule_id}] approval required but no memorial context",
             )
+        if not isinstance(invocation_id, str) or not invocation_id.strip():
+            return HookResult(
+                block=True,
+                reason=f"[{decision.rule_id}] approval required but no tool invocation identity",
+            )
+        if not isinstance(messages, list) or usage is None:
+            return HookResult(
+                block=True,
+                reason=f"[{decision.rule_id}] approval required but no continuation state",
+            )
 
-        # 司礼监·代批(迭代 7):低风险 + 历史高通过率 + 未急停 → 自动代批留痕放行,不扰人工
+        request = self._approval_manager.request_tool_decision(  # type: ignore[attr-defined]
+            edict=ctx.edict,
+            memorial=ctx.memorial,
+            invocation_id=invocation_id,
+            tool_name=ctx.tool_name,
+            tool_args=ctx.args,
+            tool_tier=ctx.tool_tier.name,
+            policy_rule_id=decision.rule_id,
+            messages=messages,
+            iteration=ctx.iteration,
+            usage=usage,
+        )
+
+        auto_resolved = False
         if self._silijian is not None:
-            auto = self._silijian.maybe_auto_approve(  # type: ignore[attr-defined]
+            proposal = self._silijian.maybe_auto_approve(  # type: ignore[attr-defined]
                 memorial_id, ctx.tool_tier, decision.rule_id
             )
-            if auto is not None:
-                self._emit_event(ctx, "decree.auto_approved", decision)
-                return None  # 放行
+            if proposal is not None:
+                try:
+                    self._approval_manager.resolve_tool_decision_as_silijian(  # type: ignore[attr-defined]
+                        request,
+                        reason=proposal.reason,
+                    )
+                except Exception:
+                    logger.exception(
+                        "policy_hook: Silijian proposal failed generic resolution; "
+                        "falling back to human review"
+                    )
+                else:
+                    auto_resolved = True
+                    self._emit_event(ctx, "decree.auto_approved", decision)
 
         # 写事件，触发前端 toast
         approval_payload = {
+            "decision_request_id": request.decision_request_id,
             "tool_name": ctx.tool_name,
             "rule_id": decision.rule_id,
             "reason": decision.reason,
@@ -148,7 +203,7 @@ class PolicyHook:
 
         # tool.approval_required 通过 EventBus.fire 单点持久化（_persist 自动写入 events 表）
         # + 派发给订阅者（飞书机器人等）。避免双写导致 PolicyTimeline/EventTimeline 重复显示。
-        if self._event_bus is not None:
+        if not auto_resolved and self._event_bus is not None:
             try:
                 from tianshu.models.events import make_event
 
@@ -165,7 +220,7 @@ class PolicyHook:
                 logger.exception("policy_hook: failed to fire tool.approval_required to EventBus")
 
         # Broadcast to WS so frontend can show toast
-        if self._notifier is not None:
+        if not auto_resolved and self._notifier is not None:
             try:
                 import asyncio
 
@@ -181,26 +236,29 @@ class PolicyHook:
             except Exception:
                 logger.exception("policy_hook: failed to broadcast tool.approval_required")
 
-        decree = await self._approval_manager.wait_for_approval(memorial_id, ctx.tool_name)  # type: ignore[attr-defined]
-        if decree is None:
+        resolution = await self._approval_manager.wait_for_tool_decision(  # type: ignore[attr-defined]
+            request.decision_request_id
+        )
+        if resolution is None:
             return HookResult(
                 block=True,
                 reason=f"[{decision.rule_id}] approval timed out or rejected",
             )
-        if decree.action == "approve":
-            return None  # 放行
-        if decree.action == "guide":
+        if resolution.action == "approve":
+            return HookResult(authorization_source="policy-engine")
+        if resolution.action == "guide":
             # 驳回+指导(迭代 5):驳回本次工具,但把纠正意见注入,agent 据此换方式续跑
             return HookResult(
                 block=True,
                 reason=(
                     f"[{decision.rule_id}] 本次操作被驳回并给出指导:"
-                    f"{decree.comment or '(未附具体指导)'}。请据此调整方式后重试,不要重复原操作。"
+                    f"{resolution.payload.get('guidance') or '(未附具体指导)'}。"
+                    "请据此调整方式后重试,不要重复原操作。"
                 ),
             )
         return HookResult(
             block=True,
-            reason=f"[{decision.rule_id}] rejected by decree: {decree.comment or 'no reason'}",
+            reason=f"[{decision.rule_id}] rejected by decision: {resolution.reason}",
         )
 
     def _emit_event(
@@ -258,7 +316,7 @@ class PolicyHook:
     def _summarize_args(args: dict) -> dict:
         """每字段截断到 200 字符，避免事件 payload 过大。"""
         out: dict = {}
-        for k, v in args.items():
+        for k, v in redact_sensitive_mapping(args).items():
             if isinstance(v, str):
                 out[k] = v if len(v) <= 200 else v[:200] + "...[truncated]"
             else:

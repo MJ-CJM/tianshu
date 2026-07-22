@@ -19,8 +19,10 @@ export default function PageContainer({
       <div
         style={{
           display: "flex",
+          flexWrap: "wrap",
           justifyContent: "space-between",
           alignItems: "center",
+          gap: 12,
           marginBottom: 24,
         }}
       >

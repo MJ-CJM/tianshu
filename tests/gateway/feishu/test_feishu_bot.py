@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.gateway.feishu import FeishuBot
 from tianshu.gateway.feishu.dispatcher import FeishuCardAction, FeishuMessage
@@ -40,12 +41,19 @@ def _settings(disable_assistant_mode: bool = True) -> FeishuSettings:
 
 @pytest.fixture
 def bot(storage):
-    bus = EventBus(storage=storage)
+    from tianshu.application.managed_run_ingress import ManagedRunIngress
+
+    class Reconciler:
+        async def reconcile_once(self) -> int:
+            return 0
+
+    bus = EventBus()
     approval = MagicMock()
     approval.submit_tool_decision = AsyncMock()
     executor = MagicMock()
     executor.execute_edict = AsyncMock()
     executor.running_tasks = set()
+    executor.managed_run_ingress = ManagedRunIngress(storage, Reconciler())
     notifier = MagicMock()
     persona_loader = MagicMock()
     persona_loader.get = MagicMock(return_value=None)
@@ -59,6 +67,7 @@ def bot(storage):
         persona_loader=persona_loader,
         provider_manager=None,
         cost_manager=None,
+        edict_application_service=EdictApplicationService(storage),
     )
     # 把 outbound.send_text 替换成 mock，避免 lark client 调用
     fb._outbound.send_text = AsyncMock(return_value="m1")
@@ -178,7 +187,10 @@ async def test_card_dispatch_routes_to_approval_handler(bot):
         event_id="e",
         chat_id="c",
         sender_open_id="ou_test",
-        value={"memorial_id": "m1", "action": "approve"},
+        value={
+            "decision_request_id": "01J00000000000000000000000",
+            "action": "approve",
+        },
     )
     await bot._on_card(action)
     bot._approval_card.handle_button_click.assert_awaited_once_with(action)

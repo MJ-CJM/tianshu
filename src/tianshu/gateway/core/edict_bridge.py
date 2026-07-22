@@ -14,18 +14,27 @@ Follow-up 路径与 gateway.api.follow_up_edict 行为对齐：
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 
+from tianshu.application.edicts import EdictApplicationService, SubmitEdictCommand
+from tianshu.application.ingress import (
+    make_ingress_auth_context,
+    requested_contract_for_edict,
+)
 from tianshu.bus.event_bus import EventBus
-from tianshu.edict_ops import submit_new_edict
 from tianshu.executor.executor import Executor
+from tianshu.executor.workspace_runtime import WORKSPACE_MAIN_SOURCE_ID
 from tianshu.gateway.core.errors import EdictBusyError  # re-export，向后兼容
 from tianshu.gateway.core.session_anchor import SessionAnchor
 from tianshu.models.common import EdictStatus, TaskStatus
 from tianshu.models.edict import Edict, title_from_goal
 from tianshu.models.memorial import Memorial
+from tianshu.models.principal import (
+    AuthenticationSource,
+    ClientKind,
+    PrincipalKind,
+)
 from tianshu.storage import Storage
 
 
@@ -88,6 +97,7 @@ class EdictBridge:
         instance_id: str = "feishu-default",
         user_meta_key: str = "feishu_user",
         chat_title_prefix: str = "飞书助手对话",
+        edict_application_service: EdictApplicationService | None = None,
     ) -> None:
         self._storage = storage
         self._event_bus = event_bus
@@ -101,6 +111,7 @@ class EdictBridge:
         self._instance_id = instance_id
         self._user_meta_key = user_meta_key
         self._chat_title_prefix = chat_title_prefix
+        self._edict_application = edict_application_service
 
     async def continue_or_create(
         self,
@@ -108,6 +119,7 @@ class EdictBridge:
         chat_id: str,
         sender_open_id: str,
         text: str,
+        source_message_id: str | None = None,
     ) -> EdictBridgeResult:
         """主入口。返回 (edict_id, memorial_id)。
 
@@ -118,13 +130,25 @@ class EdictBridge:
         if current_edict_id:
             edict = self._storage.get_edict(current_edict_id)
             if edict and edict.status not in CLOSED_STATES:
-                memorials = self._storage.list_memorials_by_edict(edict.id)
-                has_active = any(
-                    m.status in (TaskStatus.SUBMITTED, TaskStatus.RUNNING) for m in memorials
-                )
-                if has_active:
-                    raise EdictBusyError(f"敕令 #{edict.id[:8]} 仍在处理中，请等待完成后再继续")
-                memorial_id = await self._follow_up(edict, text, sender_open_id, memorials)
+                if source_message_id is None or not source_message_id.strip():
+                    raise ValueError("channel follow-up requires a stable source_message_id")
+                try:
+                    memorial_id = await self._follow_up(
+                        edict,
+                        text,
+                        sender_open_id,
+                        idempotency_key=(
+                            f"{self._channel}:{self._instance_id}:{source_message_id}"
+                        ),
+                    )
+                except RuntimeError as exc:
+                    from tianshu.application.managed_run_ingress import ManagedRunBusy
+
+                    if not isinstance(exc, ManagedRunBusy):
+                        raise
+                    raise EdictBusyError(
+                        f"敕令 #{edict.id[:8]} 仍在处理中，请等待完成后再继续"
+                    ) from exc
                 return EdictBridgeResult(edict_id=edict.id, memorial_id=memorial_id)
             # X1：已结案 → 自动新建（无感）
             logger.info(
@@ -136,6 +160,7 @@ class EdictBridge:
             chat_id=chat_id,
             sender_open_id=sender_open_id,
             goal=text,
+            source_message_id=source_message_id,
         )
 
     async def create_new(
@@ -144,6 +169,7 @@ class EdictBridge:
         chat_id: str,
         sender_open_id: str,
         goal: str,
+        source_message_id: str | None = None,
     ) -> EdictBridgeResult:
         """显式新建（来自 /new 或 anchor 已结案后的自动新建）。"""
         title = title_from_goal(goal)
@@ -151,34 +177,52 @@ class EdictBridge:
             title=title,
             goal=goal,
             source="channel",
-            submitter="emperor",
+            submitter=f"{self._channel}:{sender_open_id}",
             metadata={
                 "channel": self._channel,
                 "instance_id": self._instance_id,
                 "chat_id": chat_id,
                 self._user_meta_key: sender_open_id,
+                "workspace_id": WORKSPACE_MAIN_SOURCE_ID,
             },
         )
-        memorial = submit_new_edict(
-            self._storage,
-            self._event_bus,
+        instance_namespace = f"{self._channel}:{self._instance_id}"
+        correlation_id = f"{instance_namespace}:{source_message_id or edict.id}"
+        command = SubmitEdictCommand(
             edict,
-            producer=f"{self._channel}_bot",
+            idempotency_key=correlation_id,
+            requested_contract=requested_contract_for_edict(edict),
             extra_payload={
                 "channel": self._channel,
                 "instance_id": self._instance_id,
                 "chat_id": chat_id,
             },
         )
-        # fire 是后台异步任务，本协程内无 await，anchor.set 必在其执行前完成，无竞态。
-        self._anchor.set(chat_id, edict.id)
+        if self._edict_application is None:
+            raise RuntimeError("edict_application_service_required")
+        result = self._edict_application.submit(
+            command,
+            auth=make_ingress_auth_context(
+                principal_id=f"{instance_namespace}:{sender_open_id}",
+                principal_kind=PrincipalKind.WEBHOOK,
+                source=AuthenticationSource.WEBHOOK,
+                client_kind=ClientKind.WEBHOOK,
+                correlation_id=correlation_id,
+            ),
+            producer=f"{self._channel}_bot",
+            correlation_id=correlation_id,
+        )
+        self._anchor.set(chat_id, result.edict.id)
         logger.info(
             "[feishu/edict] created edict=%s chat=%s sender=%s",
-            edict.id,
+            result.edict.id,
             chat_id,
             sender_open_id,
         )
-        return EdictBridgeResult(edict_id=edict.id, memorial_id=memorial.id)
+        return EdictBridgeResult(
+            edict_id=result.edict.id,
+            memorial_id=result.memorial.id,
+        )
 
     async def ensure_chat_edict(
         self,
@@ -233,7 +277,7 @@ class EdictBridge:
             title=f"{self._chat_title_prefix} - {chat_id[:12]}",
             goal="持续对话上下文",
             source="channel",
-            submitter="emperor",
+            submitter=f"{self._channel}:{sender_open_id}",
             assigned_persona_id=assistant_persona_id,
             metadata={
                 "channel": self._channel,
@@ -241,6 +285,7 @@ class EdictBridge:
                 "chat_id": chat_id,
                 self._user_meta_key: sender_open_id,
                 "assistant_chat": True,
+                "workspace_id": WORKSPACE_MAIN_SOURCE_ID,
             },
         )
         self._storage.save_edict(edict)
@@ -260,39 +305,31 @@ class EdictBridge:
         edict: Edict,
         text: str,
         sender_open_id: str,
-        prev_memorials: list[Memorial],
+        *,
+        idempotency_key: str,
     ) -> str:
         """对应 gateway.api.follow_up_edict 的核心逻辑（无 HTTP 层）。返回 memorial_id。"""
-        history = _build_history(edict, prev_memorials)
-        memorial = Memorial(
-            edict_id=edict.id,
-            instruction=text,
-            status=TaskStatus.SUBMITTED,
-        )
-        self._storage.save_memorial(memorial)
-        self._storage.append_event(
-            edict.id,
-            memorial.id,
-            "followup.submitted",
-            {
-                "instruction": text,
-                "channel": self._channel,
-                self._user_meta_key: sender_open_id,
-            },
-        )
-        task = asyncio.create_task(
-            self._executor.execute_edict(
-                edict,
-                memorial=memorial,
-                history=history,
-                user_content=text,
+        from tianshu.application.managed_run_ingress import ManagedRunCommand
+
+        ingress = self._executor.managed_run_ingress
+        if ingress is None:
+            raise RuntimeError("managed run ingress is not configured")
+        result = await ingress.start(
+            ManagedRunCommand(
+                edict_id=edict.id,
+                idempotency_key=idempotency_key,
+                instruction=text,
+                event_type="followup.submitted",
+                event_payload={
+                    "instruction": text,
+                    "channel": self._channel,
+                    self._user_meta_key: sender_open_id,
+                },
             )
         )
-        self._executor.running_tasks.add(task)
-        task.add_done_callback(self._executor.running_tasks.discard)
         logger.info(
             "[feishu/edict] follow_up edict=%s memorial=%s",
             edict.id,
-            memorial.id,
+            result.memorial.id,
         )
-        return memorial.id
+        return result.memorial.id

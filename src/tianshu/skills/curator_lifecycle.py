@@ -52,12 +52,10 @@ def apply_automatic_transitions(
         if age is None:
             continue
         if age > archive_after_days:
-            if loader.archive_skill(m.skill_name):
-                metrics_store.mark_archived(m.skill_name)
-                counts["archived"] += 1
-            else:
-                # File already gone; still converge metrics state.
-                metrics_store.set_state(m.skill_name, "archived")
+            logger.warning(
+                "governed_skill_service_required for automatic archive '%s'",
+                m.skill_name,
+            )
         elif age > stale_after_days:
             if m.state != "stale":
                 metrics_store.set_state(m.skill_name, "stale")

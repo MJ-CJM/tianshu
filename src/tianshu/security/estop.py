@@ -13,13 +13,20 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
+from threading import RLock
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from tianshu.gateway.auth import SecurityAuditContext
     from tianshu.storage import Storage
+
+from ulid import ULID
+
+from tianshu.models.system_audit import AppendSystemAuditRequest
 
 logger = logging.getLogger(__name__)
 
@@ -66,25 +73,30 @@ class EstopManager:
 
     def __init__(self, storage: Storage) -> None:
         self._storage = storage
+        self._lock = RLock()
         self._state: EstopState = self._load()
 
     # --- 判定(工具管线入口热路径) ---
 
     def check(self, tool_name: str) -> str | None:
         """返回拒绝原因;None = 放行。"""
-        s = self._state
-        if not s.engaged:
+        with self._lock:
+            s = self._state
+            if not s.engaged:
+                return None
+            if s.kill_all:
+                return "emergency stop engaged (kill_all): all tool calls are rejected"
+            if s.network_kill and tool_name in NETWORK_TOOL_NAMES:
+                return (
+                    f"emergency stop engaged (network_kill): tool '{tool_name}' is network-capable"
+                )
+            if tool_name in s.frozen_tools:
+                return f"emergency stop engaged (tool_freeze): tool '{tool_name}' is frozen"
             return None
-        if s.kill_all:
-            return "emergency stop engaged (kill_all): all tool calls are rejected"
-        if s.network_kill and tool_name in NETWORK_TOOL_NAMES:
-            return f"emergency stop engaged (network_kill): tool '{tool_name}' is network-capable"
-        if tool_name in s.frozen_tools:
-            return f"emergency stop engaged (tool_freeze): tool '{tool_name}' is frozen"
-        return None
 
     def status(self) -> EstopState:
-        return self._state
+        with self._lock:
+            return self._state
 
     # --- 状态变更 ---
 
@@ -95,19 +107,28 @@ class EstopManager:
         network_kill: bool | None = None,
         freeze_tools: list[str] | None = None,
         reason: str | None = None,
+        audit_context: SecurityAuditContext | None = None,
     ) -> EstopState:
         """叠加式收紧:给定的档位开启,未给定的保持现状。"""
         from datetime import UTC, datetime
 
-        cur = self._state
-        new = EstopState(
-            kill_all=cur.kill_all if kill_all is None else kill_all,
-            network_kill=cur.network_kill if network_kill is None else network_kill,
-            frozen_tools=cur.frozen_tools | frozenset(freeze_tools or ()),
-            updated_at=datetime.now(UTC).isoformat(),
-            reason=reason or cur.reason,
-        )
-        self._persist(new)
+        with self._lock:
+            cur = self._state
+            new = EstopState(
+                kill_all=cur.kill_all if kill_all is None else kill_all,
+                network_kill=cur.network_kill if network_kill is None else network_kill,
+                frozen_tools=cur.frozen_tools | frozenset(freeze_tools or ()),
+                updated_at=datetime.now(UTC).isoformat(),
+                reason=reason or cur.reason,
+            )
+            self._persist(
+                new,
+                self._audit_request(
+                    new,
+                    action="estop.engaged",
+                    audit_context=audit_context,
+                ),
+            )
         logger.warning("[estop] engaged: %s", new.to_dict())
         return new
 
@@ -118,22 +139,31 @@ class EstopManager:
         network_kill: bool = False,
         unfreeze_tools: list[str] | None = None,
         all_clear: bool = False,
+        audit_context: SecurityAuditContext | None = None,
     ) -> EstopState:
         """选择性恢复;all_clear=True 一键全解。"""
         from datetime import UTC, datetime
 
-        if all_clear:
-            new = EstopState(updated_at=datetime.now(UTC).isoformat())
-        else:
-            cur = self._state
-            new = EstopState(
-                kill_all=False if kill_all else cur.kill_all,
-                network_kill=False if network_kill else cur.network_kill,
-                frozen_tools=cur.frozen_tools - frozenset(unfreeze_tools or ()),
-                updated_at=datetime.now(UTC).isoformat(),
-                reason=cur.reason,
+        with self._lock:
+            if all_clear:
+                new = EstopState(updated_at=datetime.now(UTC).isoformat())
+            else:
+                cur = self._state
+                new = EstopState(
+                    kill_all=False if kill_all else cur.kill_all,
+                    network_kill=False if network_kill else cur.network_kill,
+                    frozen_tools=cur.frozen_tools - frozenset(unfreeze_tools or ()),
+                    updated_at=datetime.now(UTC).isoformat(),
+                    reason=cur.reason,
+                )
+            self._persist(
+                new,
+                self._audit_request(
+                    new,
+                    action="estop.resumed",
+                    audit_context=audit_context,
+                ),
             )
-        self._persist(new)
         logger.warning("[estop] resumed: %s", new.to_dict())
         return new
 
@@ -159,14 +189,51 @@ class EstopManager:
             logger.exception("[estop] state corrupted — fail closed")
             return EstopState.fail_closed()
 
-    def _persist(self, state: EstopState) -> None:
-        self._storage.save_estop_state(
+    @staticmethod
+    def _audit_request(
+        state: EstopState,
+        *,
+        action: str,
+        audit_context: SecurityAuditContext | None,
+    ) -> AppendSystemAuditRequest:
+        correlation_id = (
+            audit_context.correlation_id
+            if audit_context is not None
+            else f"estop-internal:{ULID()}"
+        )
+        actor_digest = (
+            audit_context.actor_digest
+            if audit_context is not None and audit_context.actor_digest is not None
+            else hashlib.sha256(b"system").hexdigest()
+        )
+        return AppendSystemAuditRequest(
+            correlation_id=correlation_id,
+            actor_digest=actor_digest,
+            action=action,
+            outcome="succeeded",
+            reason_code="state_updated",
+            subject_kind="estop_state",
+            subject_digest=hashlib.sha256(b"estop-state").hexdigest(),
+            metadata={
+                "kill_all": state.kill_all,
+                "network_kill": state.network_kill,
+                "frozen_tool_count": len(state.frozen_tools),
+            },
+        )
+
+    def _persist(
+        self,
+        state: EstopState,
+        audit: AppendSystemAuditRequest,
+    ) -> None:
+        self._storage.save_estop_state_with_audit(
             {
                 "kill_all": state.kill_all,
                 "network_kill": state.network_kill,
                 "frozen_tools_json": json.dumps(sorted(state.frozen_tools)),
                 "updated_at": state.updated_at,
                 "reason": state.reason,
-            }
+            },
+            audit,
         )
         self._state = state

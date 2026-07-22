@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
+from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.checkpoint import OuterLoopCheckpoint
+from tianshu.executor.execution_gateway import (
+    ExecutionContext,
+    ExecutionGateway,
+    bind_execution_context,
+)
 from tianshu.executor.orchestrator.audit import (
     format_gaps_for_continuation,
     run_completion_audit,
@@ -110,6 +118,10 @@ class OrchestratorContext:
         approvals: object | None = None,
         persona_loader: object | None = None,  # PersonaLoader (rsv 循环 import)
         provider_manager: object | None = None,  # ProviderManager
+        execution_gateway: ExecutionGateway | None = None,
+        workspace_root: Path | None = None,
+        execution_context: ExecutionContext | None = None,
+        attempt_authority: AttemptAuthority | None = None,
     ) -> None:
         self.agent = agent
         self.storage = storage
@@ -122,6 +134,10 @@ class OrchestratorContext:
         self.approvals = approvals
         self.persona_loader = persona_loader
         self.provider_manager = provider_manager
+        self.execution_gateway = execution_gateway
+        self.workspace_root = workspace_root
+        self.execution_context = execution_context
+        self.attempt_authority = attempt_authority
 
 
 class OrchestratorResult:
@@ -548,12 +564,28 @@ async def _run_checks_phase(
     返回 (checks_result, 提前收工结果)；后者非 None 时 run() 应立即 return 它
     （此时 checks_result 恒为 None）。
     """
+    checks_started_at = datetime.now(UTC)
     try:
-        checks_result = await run_checks(
-            acceptance.checks,
-            actor_output,
-            ctx.actor_llm,
+        requires_process = any(check.kind in {"bash", "lint"} for check in acceptance.checks)
+        if requires_process and (
+            ctx.execution_gateway is None
+            or ctx.workspace_root is None
+            or ctx.execution_context is None
+        ):
+            raise ChecksConfigError("governed acceptance execution is not configured")
+        binding = (
+            bind_execution_context(ctx.execution_context)
+            if ctx.execution_context is not None
+            else nullcontext()
         )
+        with binding:
+            checks_result = await run_checks(
+                acceptance.checks,
+                actor_output,
+                ctx.actor_llm,
+                execution_gateway=ctx.execution_gateway,
+                workspace_root=ctx.workspace_root,
+            )
     except ChecksConfigError as e:
         last_output = state.history[-1].actor_output if state.history else actor_output
         return None, await _finalize_with_supervision(
@@ -564,6 +596,22 @@ async def _run_checks_phase(
             TaskStatus.FAILED,
             last_output,
             error=f"checks 配置错: {e}",
+        )
+
+    checks_completed_at = datetime.now(UTC)
+    for outcome in checks_result.outcomes:
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "acceptance.check.completed",
+            {
+                "name": outcome.name,
+                "status": "passed" if outcome.passed else "failed",
+                "started_at": checks_started_at.isoformat(),
+                "completed_at": checks_completed_at.isoformat(),
+            },
         )
 
     return checks_result, None
@@ -813,10 +861,29 @@ async def _init_outer_loop_state(
     edict: Edict,
     memorial: Memorial,
     acceptance: AcceptanceCriteria,
-) -> OuterLoopState:
-    """resume（仅 checkpointed/background）或新建 state，并发 outer_loop.started 事件。"""
-    # Resume：仅 checkpointed/background profile 启用
-    if edict.execution_profile in ("checkpointed", "background"):
+) -> tuple[OuterLoopState, HumanDecision | None]:
+    """Reconstruct durable state first, otherwise use the legacy checkpoint fallback."""
+
+    from tianshu.executor.continuation import load_outer_loop_resume
+
+    durable = load_outer_loop_resume(ctx.storage, memorial.id, edict.id)
+    decision: HumanDecision | None = None
+    if durable is not None:
+        state = durable.state
+        decision = durable.decision
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "outer_loop.resumed",
+            {
+                "iteration": state.iteration,
+                "level": state.current_level,
+                "source": "run_state",
+            },
+        )
+    elif edict.execution_profile in ("checkpointed", "background"):
         resumed = _load_checkpoint(ctx, edict.id)
         state = resumed if resumed else OuterLoopState(edict_id=edict.id)
         if resumed:
@@ -839,7 +906,7 @@ async def _init_outer_loop_state(
         "outer_loop.started",
         {"max_outer": acceptance.max_outer_iterations},
     )
-    return state
+    return state, decision
 
 
 async def run(
@@ -850,7 +917,32 @@ async def run(
     """outer loop 主入口。要求 edict.acceptance is not None。"""
     assert edict.acceptance is not None, "orchestrator.run 要求 acceptance 不为 None"
     acceptance = edict.acceptance
-    state = await _init_outer_loop_state(ctx, edict, memorial, acceptance)
+    state, resolved_decision = await _init_outer_loop_state(ctx, edict, memorial, acceptance)
+    if resolved_decision is not None:
+        state, edict, terminal = _apply_human_decision(state, resolved_decision, edict)
+        if terminal == "abort":
+            last = state.history[-1] if state.history else None
+            return await _finalize_with_supervision(
+                state,
+                edict,
+                ctx,
+                memorial,
+                TaskStatus.FAILED,
+                last.actor_output if last else None,
+                error="aborted by human",
+            )
+        if terminal == "accept_as_is":
+            last = state.history[-1] if state.history else None
+            return await _finalize_with_supervision(
+                state,
+                edict,
+                ctx,
+                memorial,
+                TaskStatus.COMPLETED,
+                last.actor_output if last else None,
+            )
+        assert edict.acceptance is not None
+        acceptance = edict.acceptance
 
     while state.iteration < acceptance.max_outer_iterations:
         iter_started = datetime.now(UTC)
@@ -1065,7 +1157,7 @@ async def _escalate_to_human(
     ctx: OrchestratorContext,
     memorial: Memorial,
 ) -> HumanDecision:
-    """发推送 + 等审批 —— duck-typed notifier + approvals 接口。"""
+    """Persist reconstruction state, notify, then await durable authority."""
     last = state.history[-1] if state.history else None
     payload = {
         "edict_id": edict.id,
@@ -1075,27 +1167,6 @@ async def _escalate_to_human(
         "critic_feedback": last.critic_result.feedback if last and last.critic_result else None,
         "history_length": len(state.history),
     }
-    await emit_audit(
-        ctx.bus,
-        ctx.storage,
-        edict.id,
-        memorial.id,
-        "outer_loop.approval.requested",
-        payload,
-    )
-
-    # 推送通知（如可用）
-    if ctx.notifier is not None:
-        try:
-            await ctx.notifier.notify(
-                channel="default",
-                title=f"长任务待审批 — Edict {edict.id[:8]}",
-                body=f"已迭代 {state.iteration} 轮仍未通过 critic，请审阅。",
-            )
-        except Exception:
-            logger.exception("notifier 推送失败，继续等审批")
-
-    # 等审批
     if ctx.approvals is None:
         # 无 approvals → 视为超时 → best_effort or abort（看 on_approval_timeout）
         on_timeout = edict.acceptance.on_approval_timeout if edict.acceptance else "best_effort"
@@ -1106,15 +1177,78 @@ async def _escalate_to_human(
         if edict.acceptance and edict.acceptance.deadline_seconds
         else 86400  # 默认 24h
     )
+    decision_request_id: str | None = None
     try:
-        # 优先用 ApprovalManager 的 outer-loop 接口（真审批等待）；
-        # 测试 mock 仍可走 .wait() 老接口
-        if hasattr(ctx.approvals, "wait_for_outer_loop_decision"):
-            raw = await ctx.approvals.wait_for_outer_loop_decision(
-                edict_id=edict.id,
-                payload=payload,
+        _save_checkpoint(ctx, state)
+        request_method = getattr(ctx.approvals, "request_outer_loop_decision", None)
+        if callable(request_method):
+            request = request_method(
+                edict=edict,
+                memorial=memorial,
+                state=state,
+                checkpoint_ref=f"outer-loop:{edict.id}",
+                side_effect_cursor=0,
                 timeout_seconds=float(timeout),
+                authority=ctx.attempt_authority,
             )
+            candidate = getattr(request, "decision_request_id", None)
+            if isinstance(candidate, str) and candidate.strip():
+                decision_request_id = candidate
+    except Exception:
+        logger.exception("durable outer-loop decision request failed; aborting fail-closed")
+        return HumanDecision(action="abort")
+
+    if ctx.attempt_authority is not None:
+        if decision_request_id is None:
+            raise RuntimeError("managed outer-loop suspension has no durable decision")
+        from tianshu.executor.managed_tools import ManagedRunSuspended
+
+        raise ManagedRunSuspended(decision_request_id)
+
+    try:
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "outer_loop.approval.requested",
+            {
+                **payload,
+                **(
+                    {"decision_request_id": decision_request_id}
+                    if decision_request_id is not None
+                    else {}
+                ),
+            },
+        )
+    except Exception:
+        logger.exception("outer-loop approval request audit projection failed")
+
+    if ctx.notifier is not None:
+        try:
+            await ctx.notifier.notify(
+                channel="default",
+                title=f"长任务待审批 — Edict {edict.id[:8]}",
+                body=f"已迭代 {state.iteration} 轮仍未通过 critic，请审阅。",
+            )
+        except Exception:
+            logger.exception("notifier 推送失败，继续等审批")
+
+    try:
+        # 测试 doubles 和尚未迁移的外部实现仍可走旧 wait 入口；生产 ApprovalManager
+        # 始终使用上面已持久化的 decision_request_id。
+        if hasattr(ctx.approvals, "wait_for_outer_loop_decision"):
+            if decision_request_id is not None:
+                raw = await ctx.approvals.wait_for_outer_loop_decision(
+                    decision_request_id,
+                    timeout_seconds=float(timeout),
+                )
+            else:
+                raw = await ctx.approvals.wait_for_outer_loop_decision(
+                    edict_id=edict.id,
+                    payload=payload,
+                    timeout_seconds=float(timeout),
+                )
         else:
             raw = await ctx.approvals.wait(
                 edict_id=edict.id,
@@ -1133,14 +1267,17 @@ async def _escalate_to_human(
         on_timeout = edict.acceptance.on_approval_timeout if edict.acceptance else "best_effort"
         return HumanDecision(action="accept_as_is" if on_timeout == "best_effort" else "abort")
 
-    await emit_audit(
-        ctx.bus,
-        ctx.storage,
-        edict.id,
-        memorial.id,
-        "outer_loop.approval.received",
-        {"action": decision.action},
-    )
+    try:
+        await emit_audit(
+            ctx.bus,
+            ctx.storage,
+            edict.id,
+            memorial.id,
+            "outer_loop.approval.received",
+            {"action": decision.action},
+        )
+    except Exception:
+        logger.exception("outer-loop approval received audit projection failed")
     return decision
 
 

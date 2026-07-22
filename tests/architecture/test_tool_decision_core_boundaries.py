@@ -1,0 +1,53 @@
+"""Architecture guards for the 3C1 durable tool-decision core boundary."""
+
+import inspect
+
+from tianshu.executor.agent import Agent
+from tianshu.executor.policy_hook import PolicyHook
+
+
+def test_agent_and_policy_core_use_durable_tool_invocation_boundary() -> None:
+    agent_source = inspect.getsource(Agent._handle_llm_response)
+    policy_source = inspect.getsource(PolicyHook._request_approval)
+
+    for context_key in ("invocation_id=", "messages=", "usage="):
+        assert context_key in agent_source
+    assert "request_tool_decision" in policy_source
+    assert "wait_for_tool_decision" in policy_source
+    assert "wait_for_approval" not in policy_source
+    assert "._pending" not in policy_source
+    assert "._results" not in policy_source
+
+
+def test_wiring_injects_one_decision_service_and_registers_projection_consumer() -> None:
+    from tianshu.bootstrap import wiring_executor
+
+    source = inspect.getsource(wiring_executor)
+    assert "decision_service=app.state.decision_service" in source
+    assert "approval_manager.tool_decree_projection.v1" in source
+    assert 'event_bus.on(\n        "decision.resolved"' in source
+
+
+def test_current_http_and_text_adapters_do_not_use_legacy_tool_authority() -> None:
+    from tianshu.gateway import execution_api
+    from tianshu.gateway.core import approval
+
+    for adapter in (execution_api.submit_tool_decision, approval.ApprovalCommandHandler.handle):
+        source = inspect.getsource(adapter)
+        assert ".submit_tool_decision(" not in source
+        assert "wait_for_approval(" not in source
+
+
+def test_channel_button_adapters_use_canonical_tool_authority() -> None:
+    from tianshu.gateway.feishu.approval_card import ApprovalCardHandler
+    from tianshu.gateway.telegram.approval_kb import ApprovalKeyboardHandler
+
+    for adapter in (
+        ApprovalCardHandler.handle_button_click,
+        ApprovalKeyboardHandler.handle_callback,
+    ):
+        source = inspect.getsource(adapter)
+        assert ".resolve_tool_decision(" in source
+        assert ".submit_tool_decision(" not in source
+        assert "actor=" not in source
+        assert "._pending" not in source

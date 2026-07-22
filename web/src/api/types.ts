@@ -51,6 +51,7 @@ export interface EdictRuntime {
   lifecycle_phase: "active" | "paused" | "winding_down" | "complete";
   /** 迭代 3.5：执行 backend（native | keqing:claude-code | keqing:codex） */
   executor?: string;
+  executor_model?: string | null;
 }
 
 export interface ShadowSnapshot {
@@ -103,6 +104,7 @@ export interface Edict {
   plan_review?: boolean;
   acceptance?: AcceptanceCriteria | null;
   execution_profile?: ExecutionProfile;
+  governance_contract?: Record<string, unknown> | null;
 }
 
 export interface AuditResult {
@@ -134,6 +136,7 @@ export interface Memorial {
   timeline: TimelineItem[];
   persona_id: string | null;
   dag_node_id: string | null;
+  effective_governance_contract?: GovernanceEffectiveContract | null;
 }
 
 export interface EdictEvent {
@@ -193,7 +196,6 @@ export interface EdictCreateRequest {
   title?: string;
   context?: string;
   idempotency_key?: string;
-  submitter?: string;
   schedule?: { type: string; cron?: string; at?: string };
   priority?: string;
   review_policy?: string;
@@ -205,6 +207,58 @@ export interface EdictCreateRequest {
   plan_review?: boolean;
   acceptance?: AcceptanceCriteria | null;
   execution_profile?: ExecutionProfile;
+  governance_contract?: Record<string, unknown>;
+}
+
+export interface GovernanceCapabilityMismatch {
+  capability: string;
+  required_state: "enforced";
+  available_state: "enforced" | "best_effort" | "observed" | "unsupported";
+  manifest_id: string;
+  reason: string;
+}
+
+export type GovernanceCapabilityState = "enforced" | "best_effort" | "observed" | "unsupported";
+
+export interface GovernanceEffectiveControl {
+  capability: string;
+  requested_mode: "mandatory" | "advisory" | "unrequested";
+  state: GovernanceCapabilityState;
+  evidence: string[];
+}
+
+export interface GovernanceEffectiveContract {
+  [key: string]: unknown;
+  requested_contract_hash: string;
+  executor: {
+    [key: string]: unknown;
+    adapter_id: string;
+    model?: string | null;
+  };
+  executor_manifest_id: string;
+  executor_manifest_version: string;
+  runtime_probe_id: string;
+  effective_controls: GovernanceEffectiveControl[];
+  unsupported_advisory: string[];
+}
+
+export interface GovernanceContractPreview {
+  compatible: boolean;
+  requested_contract: Record<string, unknown>;
+  requested_contract_hash: string;
+  effective_contract: GovernanceEffectiveContract | null;
+  mandatory_mismatches: GovernanceCapabilityMismatch[];
+  execution_mode: "single" | "outer_loop";
+  execution_mode_mismatches: Array<{
+    adapter_id: string;
+    requested_mode: "single" | "outer_loop";
+    supported_modes: Array<"single" | "dag" | "outer_loop">;
+  }>;
+  advisory_gaps: string[];
+  executor_level: "managed" | "contained" | "observe-only";
+  experimental: boolean;
+  manifest_hash: string;
+  runtime_probe_id: string;
 }
 
 export interface OuterLoopIteration {
@@ -244,27 +298,8 @@ export interface EdictUpdateRequest {
   context?: string;
 }
 
-export interface Decree {
-  id: string;
-  memorial_id: string;
-  action: "approve" | "reject" | "retry" | "amend" | "cancel";
-  comment: string | null;
-  amended_goal: string | null;
-  actor: string;
-  created_at: string;
-}
-
-export interface DecreeCreateRequest {
-  memorial_id: string;
-  action: string;
-  comment?: string;
-  amended_goal?: string;
-  actor?: string;
-}
-
-export type ToolGrantScope = "once" | "edict" | "always";
-
 export interface PendingToolCall {
+  decision_request_id: string;
   memorial_id: string;
   edict_id: string;
   tool_name: string;
@@ -273,16 +308,6 @@ export interface PendingToolCall {
   tool_tier: string | null;
   args_summary: Record<string, unknown>;
   created_at: string | null;
-}
-
-/** guide=驳回+指导(迭代 5):驳回本次工具但给纠正意见,agent 据此换方式续跑 */
-export interface ToolDecisionRequest {
-  memorial_id: string;
-  action: "approve" | "reject" | "guide";
-  comment?: string;
-  actor?: string;
-  grant_scope?: ToolGrantScope;
-  grant_reason?: string;
 }
 
 export interface WsMessage {

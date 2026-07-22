@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+from typing import Literal, cast
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from tianshu.application.edicts import validate_idempotency_key
 from tianshu.executor.approvals import ApprovalManager
 from tianshu.executor.executor import Executor
 from tianshu.executor.lanes import LaneManager
 from tianshu.executor.worker_pool import WorkerPool
-from tianshu.models import ApiResponse, Decree, DecreeCreateRequest, TaskStatus, ToolDecisionRequest
+from tianshu.gateway.auth import get_auth_context
+from tianshu.gateway.decisions_api import (
+    raise_decision_error,
+    raise_decision_service_error,
+    require_owned_decision,
+)
+from tianshu.governance.decision_service import DecisionServiceError
+from tianshu.models import ApiResponse, DecreeCreateRequest, TaskStatus, ToolDecisionRequest
+from tianshu.models.decision import DecisionKind
 from tianshu.scheduler.scheduler import Scheduler
 from tianshu.storage import Storage
 
@@ -68,33 +79,46 @@ async def cancel_scheduler_job(job_id: str, request: Request):
 @execution_router.post("/decrees", response_model=ApiResponse, status_code=201)
 async def create_decree(body: DecreeCreateRequest, request: Request):
     approval_manager: ApprovalManager = request.app.state.approval_manager
-
-    decree = Decree(
-        memorial_id=body.memorial_id,
-        action=body.action,
-        comment=body.comment,
-        amended_goal=body.amended_goal,
-        actor=body.actor,
-    )
-
+    context = get_auth_context(request)
+    existing = require_owned_decision(request, context, body.decision_request_id)
+    if existing.request.memorial_id != body.memorial_id:
+        raise_decision_error(context, 422, "decision_identity_conflict")
+    if existing.request.kind is not DecisionKind.TOOL:
+        raise_decision_error(context, 410, "legacy_decree_kind_unsupported")
+    if body.action in {"retry", "amend", "cancel"}:
+        raise_decision_error(context, 410, "legacy_decree_action_retired")
     try:
-        await approval_manager.submit_decree(decree)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-    return ApiResponse(success=True, data=decree.model_dump(mode="json"))
+        record = await approval_manager.resolve_tool_decision_strict(
+            body.decision_request_id,
+            action=cast(Literal["approve", "reject", "guide"], body.action),
+            comment=body.comment,
+            expected_version=body.expected_version,
+            auth=context,
+        )
+    except DecisionServiceError as error:
+        raise_decision_service_error(context, error)
+    decree = approval_manager.project_tool_decree(record)
+    return ApiResponse(
+        success=True,
+        data={
+            **decree.model_dump(mode="json"),
+            "decision_status": record.request.status.value,
+            "decision_version": record.request.version,
+        },
+    )
 
 
 @execution_router.get("/approvals/pending_tool_calls", response_model=ApiResponse)
-async def list_pending_tool_calls(request: Request):
-    """Return in-memory pending tool-call approvals awaited by PolicyHook.
-
-    Used by 御书房 to render mid-execution approval cards. The state is sourced
-    from `ApprovalManager._pending` (authoritative) and enriched with the latest
-    `tool.approval_required` event payload for each memorial.
-    """
+async def list_pending_tool_calls(
+    request: Request,
+    limit: int = Query(default=100, ge=1, le=200),
+):
+    """Return restart-visible durable tool decisions awaited by PolicyHook."""
     approval_manager: ApprovalManager = request.app.state.approval_manager
-    items = approval_manager.list_pending_tool_calls()
+    items = approval_manager.list_pending_tool_calls(
+        submitter=get_auth_context(request).principal.id,
+        limit=limit,
+    )
     return ApiResponse(success=True, data={"items": items})
 
 
@@ -109,18 +133,47 @@ async def list_pending_tool_calls(request: Request):
 async def submit_tool_decision(body: ToolDecisionRequest, request: Request):
     """Approve or reject a pending tool-call without mutating memorial status."""
     approval_manager: ApprovalManager = request.app.state.approval_manager
+    context = get_auth_context(request)
+    existing = require_owned_decision(request, context, body.decision_request_id)
+    if existing.request.kind is not DecisionKind.TOOL:
+        raise_decision_error(context, 422, "invalid_decision_kind")
     try:
-        decree = await approval_manager.submit_tool_decision(
-            memorial_id=body.memorial_id,
+        record = await approval_manager.resolve_tool_decision_strict(
+            body.decision_request_id,
             action=body.action,
             comment=body.comment,
+            expected_version=body.expected_version,
             grant_scope=body.grant_scope,
             grant_reason=body.grant_reason,
-            actor=body.actor,
+            auth=context,
         )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    return ApiResponse(success=True, data=decree.model_dump(mode="json"))
+    except DecisionServiceError as error:
+        raise_decision_service_error(context, error)
+    except ValueError:
+        raise_decision_error(context, 422, "invalid_decision_resolution")
+    resolution = record.resolution
+    if resolution is None:
+        raise HTTPException(status_code=409, detail="tool decision is not resolved")
+    return ApiResponse(
+        success=True,
+        data={
+            "decision_request_id": record.request.decision_request_id,
+            "memorial_id": record.request.memorial_id,
+            "edict_id": record.request.edict_id,
+            "action": resolution.action,
+            "comment": resolution.payload.get("guidance") or resolution.reason,
+            "actor": resolution.actor_principal_id,
+            "grant_scope": resolution.payload.get("grant_scope"),
+            "grant_reason": resolution.payload.get("grant_reason"),
+            "requested_grant_scope": resolution.payload.get("requested_grant_scope"),
+            "grant_downgraded": resolution.payload.get("grant_downgraded", False),
+            "grant_downgrade_reason": resolution.payload.get("grant_downgrade_reason"),
+            "resolved_at": resolution.resolved_at.isoformat(),
+            "status": record.request.status.value,
+            "version": record.request.version,
+            "record": record.model_dump(mode="json"),
+        },
+    )
 
 
 # --- DAG endpoints (Phase 3) ---
@@ -157,6 +210,13 @@ async def cancel_dag(dag_id: str, request: Request):
 @execution_router.post("/dag/{dag_id}/retry", response_model=ApiResponse)
 async def retry_dag(dag_id: str, request: Request):
     executor: Executor = request.app.state.executor
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if idempotency_key is None:
+        raise HTTPException(422, {"code": "idempotency_key_required"})
+    try:
+        validate_idempotency_key(idempotency_key)
+    except ValueError as exc:
+        raise HTTPException(422, {"code": "invalid_idempotency_key"}) from exc
     body = (
         await request.json()
         if request.headers.get("content-type", "").startswith("application/json")
@@ -164,7 +224,11 @@ async def retry_dag(dag_id: str, request: Request):
     )
     from_node_ids = body.get("from_node_ids")
     try:
-        reset_ids = await executor.retry_dag(dag_id, from_node_ids=from_node_ids)
+        reset_ids = await executor.retry_dag(
+            dag_id,
+            idempotency_key=idempotency_key,
+            from_node_ids=from_node_ids,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return ApiResponse(success=True, data={"dag_id": dag_id, "reset_node_ids": reset_ids})

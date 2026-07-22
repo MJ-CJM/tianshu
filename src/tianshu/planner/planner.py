@@ -5,13 +5,32 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import cast
 
+from ulid import ULID
+
+from tianshu.application.run_dispatcher import AttemptAuthority
+from tianshu.application.run_execution import ManagedPlanningResult
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
 from tianshu.llm import LLMClient
+from tianshu.models.canonical import JsonValue, canonical_sha256
+from tianshu.models.common import TaskStatus
+from tianshu.models.decision import DecisionKind, DecisionRecordV1, DecisionStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
+from tianshu.models.memorial import Memorial
 from tianshu.models.plan import Plan, PlanTask
+from tianshu.models.plan_revision import PlanRevisionV1, build_plan_revision
+from tianshu.models.run_state import (
+    AgentContinuationV1,
+    PersistedUsageSummaryV1,
+    RunPhase,
+    RunStateV1,
+    agent_plan_continuation,
+)
 from tianshu.persona.model import DEFAULT_EXECUTOR_ID
 from tianshu.planner.prompts import (
     PLANNING_USER_TEMPLATE,
@@ -19,7 +38,9 @@ from tianshu.planner.prompts import (
     format_officials_roster,
     format_tools_list,
 )
+from tianshu.security.sensitive_payload import redact_sensitive_mapping
 from tianshu.storage import Storage
+from tianshu.storage.decision_repo import DecisionDecodeError
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +57,8 @@ class Planner:
         persona_loader: object | None = None,
         prompt_builder: object | None = None,
         tool_registry: object | None = None,
+        approval_manager: object | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._bus = event_bus
         self._storage = storage
@@ -44,6 +67,117 @@ class Planner:
         self._persona_loader = persona_loader
         self._prompt_builder = prompt_builder
         self._tool_registry = tool_registry
+        self._approval_manager = approval_manager
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    def persist_plan_revision(
+        self,
+        *,
+        memorial_id: str,
+        plan: Plan,
+        parent_revision_id: str | None,
+        reason_code: str,
+        reason_summary: str,
+        scheduled_event_id: str | None = None,
+        scheduled_event_hash: str | None = None,
+    ) -> PlanRevisionV1:
+        """Append one immutable revision at a non-executing planning boundary."""
+
+        memorial = self._storage.get_memorial(memorial_id)
+        if memorial is None:
+            raise RuntimeError("plan revision memorial is unavailable")
+        now = self._clock()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("planner clock must be timezone-aware")
+        now = now.astimezone(UTC)
+        safe_plan = cast(
+            dict[str, JsonValue],
+            redact_sensitive_mapping(plan.model_dump(mode="json")),
+        )
+        with self._storage.unit_of_work() as unit_of_work:
+            current = self._storage.run_state_repo.load(
+                unit_of_work.connection,
+                memorial.id,
+            )
+            if current is not None and current.phase not in {
+                RunPhase.PLANNING,
+                RunPhase.PAUSED,
+            }:
+                raise RuntimeError("plan revision requires a non-executing planning boundary")
+            if current is not None and not isinstance(current.continuation, AgentContinuationV1):
+                raise RuntimeError("plan revision requires an agent continuation")
+            lineage = current.continuation.plan_revisions if current is not None else ()
+            expected_parent = lineage[-1].revision_id if lineage else None
+            if parent_revision_id != expected_parent:
+                raise RuntimeError("plan revision parent does not match the durable lineage head")
+            revision = build_plan_revision(
+                safe_plan,
+                revision_id=str(ULID()),
+                parent_revision_id=parent_revision_id,
+                reason_code=reason_code,
+                reason_summary=reason_summary,
+                created_at=now,
+            )
+            plan_ref = f"plan:{memorial.edict_id}:{len(lineage) + 1}"
+            if current is None:
+                continuation = AgentContinuationV1(
+                    messages=(),
+                    pending_tool=None,
+                    iteration=0,
+                    usage=PersistedUsageSummaryV1.model_validate(
+                        memorial.usage.model_dump(mode="python")
+                    ),
+                    checkpoint_ref=plan_ref,
+                    resolved_decision_id=None,
+                    side_effect_cursor=0,
+                    plan_ref=plan_ref,
+                    plan_hash=revision.plan_hash,
+                    plan_revision_id=revision.revision_id,
+                    plan_revisions=(revision,),
+                    plan_snapshot=safe_plan,
+                    scheduled_event_id=scheduled_event_id,
+                    scheduled_event_hash=scheduled_event_hash,
+                )
+                state = RunStateV1(
+                    memorial_id=memorial.id,
+                    edict_id=memorial.edict_id,
+                    phase=RunPhase.PLANNING,
+                    continuation=continuation,
+                    checkpoint_ref=plan_ref,
+                    side_effect_cursor=0,
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                self._storage.run_state_repo.create(unit_of_work.connection, state)
+            else:
+                continuation = current.continuation.model_copy(
+                    update={
+                        "checkpoint_ref": plan_ref,
+                        "pending_decision_id": None,
+                        "resolved_decision_id": None,
+                        "plan_ref": plan_ref,
+                        "plan_hash": revision.plan_hash,
+                        "plan_revision_id": revision.revision_id,
+                        "plan_revisions": (*lineage, revision),
+                        "plan_snapshot": safe_plan,
+                    }
+                )
+                state = current.model_copy(
+                    update={
+                        "phase": RunPhase.PLANNING,
+                        "continuation": continuation,
+                        "checkpoint_ref": plan_ref,
+                        "updated_at": max(current.updated_at, now),
+                    }
+                )
+                self._storage.run_state_repo.compare_and_swap(
+                    unit_of_work.connection,
+                    state,
+                    expected_version=current.version,
+                )
+            unit_of_work.commit()
+        return revision
 
     async def plan(self, edict: Edict) -> Plan:
         """Generate a plan via LLM, or return a single-task passthrough plan."""
@@ -220,6 +354,8 @@ class Planner:
         if not edict:
             logger.error("Planner: edict %s not found", edict_id)
             return
+        if self._is_retained_scheduled_replay(event):
+            return
 
         # Set PLANNING status on memorial
         memorial_id = event.memorial_id
@@ -237,24 +373,57 @@ class Planner:
         memorial_id = event.memorial_id
 
         if edict.plan_review and len(plan.tasks) > 0:
-            # 需要审批 → 发 plan.pending_review，不触发执行
-            if memorial_id:
-                from tianshu.models.common import TaskStatus as _TS
+            # 通用裁决先落库；pending_review 只是兼容展示投影。
+            if memorial_id is None or self._approval_manager is None:
+                raise RuntimeError("durable plan review requires a memorial and ApprovalManager")
+            memorial = self._storage.get_memorial(memorial_id)
+            if memorial is None:
+                raise RuntimeError("durable plan review memorial is unavailable")
+            from tianshu.models.common import TaskStatus as _TS
 
-                memorial = self._storage.get_memorial(memorial_id)
-                if memorial:
-                    memorial.status = _TS.NEEDS_REVIEW
-                    self._storage.update_memorial(memorial)
+            request_decision = getattr(
+                self._approval_manager,
+                "request_plan_review_decision",
+                None,
+            )
+            if not callable(request_decision):
+                raise RuntimeError("invalid ApprovalManager for durable plan review")
+            requested = request_decision(
+                edict=edict,
+                memorial=memorial,
+                plan=plan,
+                revision=1,
+                scheduled_event_id=event.event_id,
+                scheduled_event_hash=canonical_sha256(event),
+            )
+            memorial.status = _TS.NEEDS_REVIEW
+            self._storage.update_memorial(memorial)
             await self._bus.emit(
                 make_event(
                     "plan.pending_review",
                     edict_id=edict.id,
                     memorial_id=memorial_id,
                     producer="planner",
-                    payload=payload,
+                    payload={
+                        **payload,
+                        "decision_request_id": requested.decision_request_id,
+                        "revision": requested.payload["revision"],
+                        "plan_hash": requested.payload["plan_hash"],
+                    },
                 )
             )
+
         else:
+            if memorial_id is not None:
+                self.persist_plan_revision(
+                    memorial_id=memorial_id,
+                    plan=plan,
+                    parent_revision_id=None,
+                    reason_code="initial_plan",
+                    reason_summary="initial plan created",
+                    scheduled_event_id=event.event_id,
+                    scheduled_event_hash=canonical_sha256(event),
+                )
             # 无需审批 → 直接 plan.completed，触发执行
             await self._bus.emit(
                 make_event(
@@ -265,6 +434,156 @@ class Planner:
                     payload=payload,
                 )
             )
+
+    def _is_retained_scheduled_replay(self, event: EventEnvelope) -> bool:
+        """Recognize only the exact durable scheduled envelope, without re-emitting work."""
+
+        if event.memorial_id is None:
+            return False
+        with self._storage.unit_of_work() as unit_of_work:
+            state = self._storage.run_state_repo.load(
+                unit_of_work.connection,
+                event.memorial_id,
+            )
+            unit_of_work.commit()
+        if state is None:
+            return False
+        continuation = state.continuation
+        if not isinstance(continuation, AgentContinuationV1) or not continuation.plan_revisions:
+            raise RuntimeError("scheduled event conflicts with an existing RunState")
+        if continuation.scheduled_event_id is None:
+            raise RuntimeError("scheduled event conflicts with an unbound plan lineage")
+        if (
+            continuation.scheduled_event_id != event.event_id
+            or continuation.scheduled_event_hash != canonical_sha256(event)
+        ):
+            raise RuntimeError("scheduled event identity conflict")
+        Plan.model_validate(continuation.plan_snapshot)
+        return True
+
+    async def plan_attempt(self, authority: AttemptAuthority) -> ManagedPlanningResult:
+        """Plan inside a dispatcher-owned attempt, without an event hand-off."""
+        memorial = self._storage.get_memorial(authority.memorial_id)
+        if memorial is None or memorial.dag_node_id is not None:
+            raise RuntimeError("managed planning root is unavailable")
+        edict = self._storage.get_edict(memorial.edict_id)
+        if edict is None:
+            raise RuntimeError("managed planning edict is unavailable")
+
+        with self._storage.unit_of_work() as unit_of_work:
+            run_state = self._storage.run_state_repo.load(
+                unit_of_work.connection,
+                memorial.id,
+            )
+            decision_record: DecisionRecordV1 | None = None
+            durable_plan: Plan | None = None
+            plan_continuation: AgentContinuationV1 | None = None
+            if run_state is not None:
+                plan_continuation = agent_plan_continuation(run_state.continuation)
+            if (
+                plan_continuation is not None
+                and plan_continuation.plan_revisions
+                and plan_continuation.plan_snapshot is not None
+            ):
+                durable_plan = Plan.model_validate(plan_continuation.plan_snapshot)
+                decision_id = (
+                    plan_continuation.resolved_decision_id or plan_continuation.pending_decision_id
+                )
+                if decision_id is not None:
+                    try:
+                        decision_record = self._storage.decision_repo.get(
+                            unit_of_work.connection,
+                            decision_id,
+                        )
+                    except DecisionDecodeError as exc:
+                        raise RuntimeError("plan review approval authority is malformed") from exc
+            unit_of_work.commit()
+        if durable_plan is not None and plan_continuation is not None:
+            requires_authority = (
+                edict.plan_review
+                or plan_continuation.pending_decision_id is not None
+                or plan_continuation.resolved_decision_id is not None
+            )
+            if requires_authority:
+                durable_plan = self._require_approved_plan_review(
+                    memorial=memorial,
+                    edict=edict,
+                    continuation=plan_continuation,
+                    record=decision_record,
+                )
+        if (
+            durable_plan is not None
+            and run_state is not None
+            and run_state.phase
+            in {
+                RunPhase.PLANNING,
+                RunPhase.EXECUTING,
+                RunPhase.PAUSED,
+            }
+        ):
+            return ManagedPlanningResult(plan=durable_plan)
+
+        if memorial.status in {TaskStatus.SUBMITTED, TaskStatus.SCHEDULED}:
+            memorial.status = TaskStatus.PLANNING
+            self._storage.update_memorial(memorial)
+        plan = await self.plan(edict)
+        if not edict.plan_review or not plan.tasks:
+            self.persist_plan_revision(
+                memorial_id=memorial.id,
+                plan=plan,
+                parent_revision_id=None,
+                reason_code="initial_plan",
+                reason_summary="initial plan created",
+            )
+            return ManagedPlanningResult(plan=plan)
+        if self._approval_manager is None:
+            raise RuntimeError("durable plan review requires ApprovalManager")
+        requested = self._approval_manager.request_plan_review_decision(
+            edict=edict,
+            memorial=memorial,
+            plan=plan,
+            revision=1,
+        )
+        memorial.status = TaskStatus.NEEDS_REVIEW
+        self._storage.update_memorial(memorial)
+        return ManagedPlanningResult(
+            plan=plan,
+            suspended=True,
+            decision_request_id=requested.decision_request_id,
+        )
+
+    @staticmethod
+    def _require_approved_plan_review(
+        *,
+        memorial: Memorial,
+        edict: Edict,
+        continuation: AgentContinuationV1,
+        record: DecisionRecordV1 | None,
+    ) -> Plan:
+        """Return only the exact canonical plan authorized by a durable approval."""
+
+        persisted_plan = record.request.payload.get("plan") if record is not None else None
+        current_revision = continuation.plan_revisions[-1]
+        if (
+            record is None
+            or record.request.kind is not DecisionKind.PLAN_REVIEW
+            or record.request.memorial_id != memorial.id
+            or record.request.edict_id != edict.id
+            or record.request.decision_request_id != continuation.resolved_decision_id
+            or continuation.pending_decision_id is not None
+            or record.request.status is not DecisionStatus.RESOLVED
+            or record.resolution is None
+            or record.resolution.action != "approve"
+            or not isinstance(persisted_plan, dict)
+            or persisted_plan != continuation.plan_snapshot
+            or record.request.payload.get("plan_ref") != continuation.plan_ref
+            or record.request.payload.get("plan_hash") != continuation.plan_hash
+            or record.request.payload.get("plan_revision_id") != continuation.plan_revision_id
+            or record.request.payload.get("artifact_digest") != current_revision.artifact_digest
+            or canonical_sha256(persisted_plan) != continuation.plan_hash
+        ):
+            raise RuntimeError("plan review approval authority is missing or invalid")
+        return Plan.model_validate(persisted_plan)
 
     def _passthrough_plan(self, edict: Edict, persona_id: str = DEFAULT_EXECUTOR_ID) -> Plan:
         """Single-task plan that passes the entire goal to the executor."""

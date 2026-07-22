@@ -1,6 +1,6 @@
 """Persona role-template library — vendored agency-agents templates.
 
-Templates live under ``templates/persona/{lang}/{category}/*.md`` (vendored by
+Templates live under ``tianshu/resources/persona_templates/{lang}/{category}/*.md`` (vendored by
 ``scripts/sync_persona_templates.py``). Each is a single markdown file with
 YAML frontmatter (``name``/``description``/``emoji``/``color``) and a body split
 into a personality section and a mission/role section.

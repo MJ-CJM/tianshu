@@ -217,22 +217,7 @@ class SkillReviewHandler:
             logger.warning("[SKILL_REVIEW] Validation failed for '%s': %s", name, findings_str)
             return
 
-        try:
-            self._skills.create_skill(name, content)
-            # Tag provenance so the curator (修撰) can recognize agent-authored skills.
-            if self._metrics is not None:
-                try:
-                    self._metrics.ensure_exists(
-                        name,
-                        created_by="agent",
-                        source_edict_id=edict_id,
-                    )
-                except Exception:
-                    logger.debug("[SKILL_REVIEW] metrics ensure_exists failed", exc_info=True)
-            logger.info("[SKILL_REVIEW] Created skill '%s': %s", name, reason)
-            self._emit_learned(name, reason, edict_id, created_by="reviewer")
-        except ValueError as e:
-            logger.warning("[SKILL_REVIEW] Failed to create skill '%s': %s", name, e)
+        logger.warning("[SKILL_REVIEW] governed_skill_service_required for create '%s'", name)
 
     def _emit_learned(self, name: str, reason: str, edict_id: str | None, created_by: str) -> None:
         if not self._event_bus:
@@ -255,8 +240,4 @@ class SkillReviewHandler:
         if not patch_old or not patch_new:
             logger.warning("[SKILL_REVIEW] Update action but no patch_old/patch_new")
             return
-        try:
-            self._skills.patch_skill(name, patch_old, patch_new)
-            logger.info("[SKILL_REVIEW] Updated skill '%s': %s", name, reason)
-        except (FileNotFoundError, ValueError) as e:
-            logger.warning("[SKILL_REVIEW] Failed to update skill '%s': %s", name, e)
+        logger.warning("[SKILL_REVIEW] governed_skill_service_required for update '%s'", name)

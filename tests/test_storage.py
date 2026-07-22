@@ -66,9 +66,13 @@ class TestEdictStorage:
     def test_update_edict(self, storage):
         edict = Edict(goal="original", title="orig")
         storage.save_edict(edict)
-        storage.update_edict(edict.id, goal="updated")
+        storage.update_edict(edict.id, title="updated title")
         loaded = storage.get_edict(edict.id)
-        assert loaded.goal == "updated"
+        assert loaded.title == "updated title"
+
+        with pytest.raises(ValueError, match="frozen governance contract"):
+            storage.update_edict(edict.id, goal="updated")
+        assert storage.get_edict(edict.id).goal == "original"
 
     def test_delete_edict(self, storage):
         edict = Edict(goal="delete me")

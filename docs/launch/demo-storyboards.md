@@ -1,71 +1,37 @@
-# 名场面分镜脚本 · Demo Storyboards
+# Lean Developer Preview · 单一黄金 Demo 分镜
 
-> 宣发拍板(spec §七 #4):**双场面**。README GIF = 手机飞书一键批红;宣发视频
-> 高潮 = 客卿驱动 Claude Code 并全程审计。三镜头 GIF 覆盖放手四保险中的三条。
->
-> ⚠️ **这些需要人工录制**——本文件是分镜脚本(拍什么、怎么拍、要点),不是自动
-> 产物。录制前请用真实账号跑通对应流程。
+> 本分镜是本地 desktop Web only 的候选验收说明，不是公开宣传脚本。唯一 runner 命令
+> 只放在 [使用指南](../usage/lean-developer-preview.md)，避免出现多个互相漂移的入口。
 
-## GIF 三镜头(README 首屏)
+## 冻结产品壳层
 
-统一规格:≤ 15s/镜头,GIF ≤ 5MB(用 `gifsimple`/`gifski` 压),竖屏手机 + 桌面
-Web 分屏。落点:README 首屏「这是什么」之后。
+- 生产品牌资产：[`web/public/brand.png`](../../web/public/brand.png)，SHA-256
+  `3f2bb6cfdcac70092fce3a9b8b534c4a0627f444cb9db38a9651087688ace799`。
+- 格言：“成功只有一个——按照自己的方式，去度过人生。”
+- 右上五项：“彩蛋 / 通用 / English / 实时 / 通政”。
+- 左侧保留四组十四部门导航、深浅主题与收起控制。
+- 深度承诺仅覆盖中枢总览、敕令详情、演化中心三张核心真实页。
 
-### 镜头 A · 手机一键批红(放手四保险②)
+## 一条 13 步证据故事
 
-| 帧 | 画面 | 要点 |
+| 镜头 | 画面 | 必须说明的事实 |
 |---|---|---|
-| 0–3s | 桌面 Web:下一道诏令「把今天关注仓库的 PR 汇成日报」,`review_policy=on_flag` | 让观众看到"下旨"这一步 |
-| 3–7s | 手机飞书弹出审批卡片(`gateway/feishu/approval_card.py`),显示待执行的危险动作 + 成本预估 | **主角帧**:治理落到手机 |
-| 7–11s | 手指点「准」,卡片变已批红 | 一键、无需回电脑 |
-| 11–15s | Web 端任务继续推进,事件时间线新增 `decree.approved` | 闭环可见 |
+| 1. 就绪 | 本地桌面 Web 与已认证主体 | exact Wheel、fresh HOME、loopback；源码与 Wheel hash 已绑定 |
+| 2. 敕令 | 提交受治理敕令 | 用户术语为“敕令”；不是聊天记录或 mock 卡片 |
+| 3. 裁决 | 观察待裁决并附理由解决 | 持久 Decision 权威；空理由会被拒绝 |
+| 4. 运行与 Evidence | 奏折完成并下载 closed Evidence Bundle v1 | 展示 bundle/content hash，不用单一 success badge 替代证据 |
+| 5. 技能候选与门禁 | 提议技能候选并完成 evidence-bound Gate | 只展示技能候选；代码候选不晋升 |
+| 6. 分流 | canary-eligible run 获得真实 candidate overlay | assignment 在 dispatch 前持久化；不是永远返回 champion 的假分流 |
+| 7. 回滚 | 新流量归零，新 run 使用 champion | 保留回滚 receipt 与既有 assignment 证据 |
+| 8. 严格校验 | verifier 重算 report/artifact hash 与 provenance | 13 步全部 passed 才接受批次；失败批次不可覆盖 |
 
-拍摄要点:飞书用真实机器人(`TIANSHU_FEISHU_APP_ID` 配好);手机录屏 + 桌面录屏
-后期分屏对齐时间轴。
+## 状态与禁区
 
-### 镜头 B · 预算触顶自动停手(放手四保险①④)
-
-| 帧 | 画面 | 要点 |
-|---|---|---|
-| 0–4s | 下一道诏令,`runtime.cost_budget_cny=0.5`(故意设很低) | 演示预算护栏 |
-| 4–9s | 成本面板数字爬升,逼近上限 | 张力 |
-| 9–13s | 触顶,`cost.budget_exceeded` 事件,执行熔断停手 + 通知 | **主角帧**:对钱包放手 |
-| 13–15s | 事件时间线定格在熔断节点 | 可复盘 |
-
-### 镜头 C · 影子快照一键回滚(放手四保险③)
-
-| 帧 | 画面 | 要点 |
-|---|---|---|
-| 0–4s | 派客卿(`executor=keqing:claude-code`)改了几个文件,任务完成 | 双向互操作预热 |
-| 4–8s | 敕令详情页「影子快照」面板,列出快照节点 | 独立 GIT_DIR,不碰用户 .git |
-| 8–12s | 点某快照的「回滚到此」,确认 | **主角帧**:敢放手的底气 |
-| 12–15s | 工作区文件回到快照状态(编辑器里 diff 消失) | 可逆 |
-
-## 宣发视频高潮(2–3 分钟)
-
-**客卿驱动 Claude Code 并全程审计** —— 双向互操作的完整叙事。
-
-分镜:
-1. **0:00–0:20 定位**:一句话「Claude Code 替你干活,天枢替你管一群 AI 干活」+
-   双向桥示意图(MCP server ↔ 客卿)。
-2. **0:20–1:00 反向驱动**:Web 下一道诏令 `executor=keqing:claude-code`,终端里
-   Claude Code headless 被拉起(`claude -p ... --output-format stream-json`),
-   实时流出工具调用。**强调**:客卿用它自己的凭证(clean-env),不烧天枢的 key。
-3. **1:00–1:40 全程治理**:切到天枢事件时间线,客卿的每个工具调用都进了账本;
-   一个危险动作触发手机批红(接镜头 A);成本按 stream-json 归因进成本面板。
-4. **1:40–2:20 放手兜底**:任务完成,影子快照面板出现;演示一键回滚(接镜头 C)。
-5. **2:20–2:40 收尾**:「你睡觉时,你的 AI 衙门在干活——每一步可批、可审、可回滚。」
-   + GitHub/文档链接。
-
-拍摄要点:
-- 真跑一次端到端(需装 Claude Code CLI 并配 `ANTHROPIC_API_KEY`);
-- 客卿延期或 CLI 不稳时降级为单场面(镜头 A 三镜头 GIF),**宣发不推迟**(spec §七 #4);
-- 术语按 [CONTEXT.md](../../CONTEXT.md) canonical(说「诏令/批红/客卿」,不说「任务/审批/外部 agent」)。
-
-## 素材清单(录制前 checklist)
-
-- [ ] 飞书机器人配好、能收审批卡片
-- [ ] Claude Code CLI 装好、`claude -p` 能跑
-- [ ] 一个真实、观众有共鸣的 demo 任务(推荐:PR/issue 日报)
-- [ ] 录屏工具 + GIF 压缩链路(gifski)
-- [ ] 成本面板有真实数字(别用 0)
+- 黄金路径为 `implemented`；S5 整体仍是 `experimental` Lean Core。
+- S4 阶段自动化视觉证据已保留，但新的 Candidate final Gate 尚待执行；用户终审是
+  `user_approval_pending`，VoiceOver 是 `external_pending`。
+- remote MCP/open stdio MCP 为 `disabled`；official container/PyPI/GHCR 为
+  `deferred`。
+- OpenHands、ROI、cost calibration 和 full G4 为 `external_pending`；full G5 为
+  `deferred`。
+- 不录制外部渠道、移动端或十四部门伪深度；不展示 mock 数字；不暗示外部发布已授权。

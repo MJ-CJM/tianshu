@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 import jsonschema
 from pydantic import BaseModel
 
+from tianshu.models.side_effect import SideEffectSemantics
 from tianshu.tools.types import ToolHook, ToolResult, error_result
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class ToolDefinition(BaseModel):
     tier: int = 0  # T0-T3, Phase 0: label only, no runtime interception
     max_result_chars: int = 8000  # Per-tool result truncation limit
     side_effect: bool = False  # True = modifies state; intercepted in winding_down phase
+    managed_effect_semantics: SideEffectSemantics | None = None
 
 
 class ToolRegistry:
@@ -30,10 +32,28 @@ class ToolRegistry:
         self._disabled: set[str] = set()
         # 锦衣卫·分级急停(迭代 3):非 None 时每次 execute 入口先过 check()
         self._estop: object | None = None
+        self._managed_effect_executor: object | None = None
+        self._managed_receipt_lookups: dict[str, Callable[[str], Awaitable[object | None]]] = {}
 
     def set_estop(self, estop: object) -> None:
         """注入 EstopManager(security.estop);置于 execute 最前,含 T0 快路径。"""
         self._estop = estop
+
+    def set_managed_effect_executor(self, executor: object) -> None:
+        """Install the production durable side-effect adapter."""
+
+        self._managed_effect_executor = executor
+
+    def set_managed_receipt_lookup(
+        self,
+        name: str,
+        lookup: Callable[[str], Awaitable[object | None]],
+    ) -> None:
+        """Install the provider receipt lookup for one managed tool."""
+
+        if name not in self._tools:
+            raise ValueError(f"managed receipt lookup tool '{name}' is not registered")
+        self._managed_receipt_lookups[name] = lookup
 
     def register(
         self,
@@ -86,7 +106,12 @@ class ToolRegistry:
         return entry[0] if entry else None
 
     async def execute(
-        self, name: str, args: str | dict, lifecycle_phase: str = "active"
+        self,
+        name: str,
+        args: str | dict,
+        lifecycle_phase: str = "active",
+        *,
+        invocation_id: str | None = None,
     ) -> ToolResult:
         # Spec Section 2: function-local import to avoid top-level circular dependency
         from tianshu.tools.types import ToolTier
@@ -105,6 +130,22 @@ class ToolRegistry:
             return error_result(f"Tool '{name}' is disabled by admin")
 
         defn, func = self._tools[name]
+
+        from tianshu.executor.workspace_context import (
+            WorkspaceBindingError,
+            validate_current_workspace_binding,
+        )
+
+        try:
+            bound_workspace = validate_current_workspace_binding()
+        except WorkspaceBindingError as exc:
+            return error_result(f"Tool '{name}' rejected: {exc}")
+        from tianshu.tools.mcp.naming import is_mcp_tool
+
+        if bound_workspace is not None and is_mcp_tool(name):
+            return error_result(
+                f"Tool '{name}' rejected: MCP tools are not isolated to the bound workspace"
+            )
 
         # Spec Section 2: 未声明 tier 的工具 runtime 视为 T4_DANGEROUS
         if defn.tier is None or defn.tier not in (0, 1, 2, 3, 4):
@@ -131,6 +172,8 @@ class ToolRegistry:
                 args = json.loads(args)
         except json.JSONDecodeError as e:
             return error_result(f"Invalid JSON arguments: {e}")
+        if not isinstance(args, dict):
+            return error_result("Invalid arguments: expected a JSON object")
 
         try:
             jsonschema.validate(instance=args, schema=defn.parameters)
@@ -160,6 +203,68 @@ class ToolRegistry:
             list(args.keys()) if isinstance(args, dict) else "raw",
         )
 
+        from tianshu.executor.managed_tools import get_managed_attempt_authority
+
+        authority = get_managed_attempt_authority()
+        if defn.side_effect and authority is not None:
+            if self._managed_effect_executor is None:
+                return error_result(
+                    f"Tool '{name}' rejected: managed side-effect adapter is unavailable"
+                )
+            return await self._managed_effect_executor.execute(  # type: ignore[attr-defined]
+                authority=authority,
+                tool_name=name,
+                arguments=args,
+                invocation_id=invocation_id,
+                semantics=defn.managed_effect_semantics,
+                lookup_receipt=self._managed_receipt_lookups.get(name),
+                invoke=lambda provider_key: self._invoke_bound(
+                    name,
+                    args,
+                    defn,
+                    func,
+                    provider_key,
+                    bound_workspace,
+                ),
+            )
+        if defn.managed_effect_semantics is not None:
+            return error_result(f"Tool '{name}' rejected: managed attempt authority is unavailable")
+        return await self._invoke_bound(
+            name,
+            args,
+            defn,
+            func,
+            invocation_id,
+            bound_workspace,
+        )
+
+    async def _invoke_bound(
+        self,
+        name: str,
+        args: dict,
+        defn: ToolDefinition,
+        func: Callable[..., Awaitable[ToolResult]],
+        invocation_id: str | None,
+        bound_workspace: object | None,
+    ) -> ToolResult:
+        from tianshu.kernel.ambient import bind_tool_invocation_id
+
+        with bind_tool_invocation_id(invocation_id):
+            if bound_workspace is not None:
+                async with bound_workspace.tool_lock:  # type: ignore[attr-defined]
+                    bound_workspace.validate_identity()  # type: ignore[attr-defined]
+                    return await self._invoke(name, args, defn, func)
+            return await self._invoke(name, args, defn, func)
+
+    async def _invoke(
+        self,
+        name: str,
+        args: dict,
+        defn: ToolDefinition,
+        func: Callable[..., Awaitable[ToolResult]],
+    ) -> ToolResult:
+        from tianshu.tools.types import ToolTier
+
         # Spec Section 2: T0_READONLY 工具走快路径 — 跳过 _hooks 链
         # 仍然 validate schema + 日志，但不经过 ToolHook 的 before/after 回调。
         if defn.tier == ToolTier.T0_READONLY:
@@ -172,9 +277,9 @@ class ToolRegistry:
 
         # Before hooks
         for hook in self._hooks:
-            modified = await hook.before_tool_call(name, args)
-            if modified is not None:
-                args = modified
+            modified_args = await hook.before_tool_call(name, args)
+            if modified_args is not None:
+                args = modified_args
 
         try:
             result = await func(**args)
@@ -191,8 +296,8 @@ class ToolRegistry:
 
         # After hooks
         for hook in self._hooks:
-            modified = await hook.after_tool_call(name, args, result)
-            if modified is not None:
-                result = modified
+            modified_result = await hook.after_tool_call(name, args, result)
+            if modified_result is not None:
+                result = modified_result
 
         return result

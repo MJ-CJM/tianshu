@@ -34,6 +34,11 @@ function buildCssVars(mode: ThemeMode): Record<string, string> {
     "--ts-color-success": p.success,
     "--ts-color-warning": p.warning,
     "--ts-color-error": p.error,
+    "--ts-color-surface": p.surface,
+    "--ts-color-surface-raised": p.surfaceRaised,
+    "--ts-color-focus-ring": p.focusRing,
+    "--ts-color-decision": p.decision,
+    "--ts-color-blocked": p.blocked,
     "--ts-status-running": p.status.running,
     "--ts-status-completed": p.status.completed,
     "--ts-status-failed": p.status.failed,
@@ -53,7 +58,7 @@ function getStoredMode(): ThemeMode {
   } catch {
     // localStorage unavailable
   }
-  return "light";
+  return "dark";
 }
 
 function applyCssVars(mode: ThemeMode) {
@@ -92,7 +97,7 @@ function setMode(mode: ThemeMode) {
 applyCssVars(currentMode);
 
 export const ThemeContext = createContext<ThemeContextValue>({
-  mode: "light",
+  mode: "dark",
   toggleTheme: () => {},
 });
 

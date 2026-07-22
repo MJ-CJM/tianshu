@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.tools.registry import ToolRegistry
 from tianshu.tools.schedule_edict import register_schedule_edict
 
@@ -41,8 +42,8 @@ class FakeScheduler:
         self.calls.append(("resume", job_id))
         return True
 
-    async def run_now(self, job_id):
-        self.calls.append(("run_now", job_id))
+    async def run_now(self, job_id, *, idempotency_key=None):
+        self.calls.append(("run_now", job_id, idempotency_key))
         return True
 
 
@@ -50,7 +51,12 @@ class FakeScheduler:
 def setup(storage):
     sched = FakeScheduler()
     registry = ToolRegistry()
-    register_schedule_edict(registry, storage=storage, scheduler=sched)
+    register_schedule_edict(
+        registry,
+        storage=storage,
+        scheduler=sched,
+        edict_application_service=EdictApplicationService(storage),
+    )
     _, func = registry._tools["schedule_edict"]
     return func, storage, sched
 
@@ -64,7 +70,9 @@ async def test_create_interval(setup):
     assert edict.schedule.type == "interval"
     assert edict.schedule.interval_seconds == 7200
     assert result.details["schedule_type"] == "interval"
-    assert len(sched.scheduled) == 1
+    assert result.details["status"] == "queued"
+    assert storage.get_scheduler_job(result.details["job_id"]) is None
+    assert sched.scheduled == []
 
 
 @pytest.mark.asyncio
@@ -107,7 +115,7 @@ async def test_create_default_action_is_create(setup):
     # action 缺省即 create
     result = await func(goal="默认即创建", schedule="1h")
     assert result.is_error is False
-    assert len(sched.scheduled) == 1
+    assert sched.scheduled == []
 
 
 @pytest.mark.asyncio
@@ -127,15 +135,18 @@ async def test_manage_actions_require_job_id(setup):
 
 @pytest.mark.asyncio
 async def test_manage_actions_delegate(setup):
+    from tianshu.kernel.ambient import bind_tool_invocation_id
+
     func, _, sched = setup
     await func(action="cancel", job_id="j9")
     await func(action="pause", job_id="j9")
     await func(action="resume", job_id="j9")
-    await func(action="run_now", job_id="j9")
+    with bind_tool_invocation_id("tool-call-9"):
+        await func(action="run_now", job_id="j9")
     assert ("cancel", "j9") in sched.calls
     assert ("pause", "j9") in sched.calls
     assert ("resume", "j9") in sched.calls
-    assert ("run_now", "j9") in sched.calls
+    assert ("run_now", "j9", "tool:tool-call-9") in sched.calls
 
 
 @pytest.mark.asyncio
@@ -156,6 +167,7 @@ async def test_create_rejects_unknown_persona(storage):
         storage=storage,
         scheduler=sched,
         persona_loader=loader,
+        edict_application_service=EdictApplicationService(storage),
     )
     _, func = registry._tools["schedule_edict"]
     result = await func(
@@ -282,7 +294,12 @@ async def test_deliver_explicit_overrides_origin(setup):
 async def test_schema_and_tier(setup):
     func, _, _ = setup
     registry = ToolRegistry()
-    register_schedule_edict(registry, storage=MagicMock(), scheduler=FakeScheduler())
+    register_schedule_edict(
+        registry,
+        storage=MagicMock(),
+        scheduler=FakeScheduler(),
+        edict_application_service=MagicMock(),
+    )
     defn = registry.get_definition("schedule_edict")
     assert defn.tier == 2  # T2_NETWORK
     assert defn.side_effect is True

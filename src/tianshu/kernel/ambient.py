@@ -21,6 +21,10 @@ _current_persona: ContextVar[AgentPersona | None] = ContextVar(
     "current_persona",
     default=None,
 )
+_current_tool_invocation_id: ContextVar[str | None] = ContextVar(
+    "current_tool_invocation_id",
+    default=None,
+)
 
 
 def get_current_edict() -> Edict | None:
@@ -29,6 +33,10 @@ def get_current_edict() -> Edict | None:
 
 def get_current_persona() -> AgentPersona | None:
     return _current_persona.get()
+
+
+def get_current_tool_invocation_id() -> str | None:
+    return _current_tool_invocation_id.get()
 
 
 @contextmanager
@@ -47,3 +55,12 @@ def bind_persona(persona: AgentPersona | None):
         yield
     finally:
         _current_persona.reset(token)
+
+
+@contextmanager
+def bind_tool_invocation_id(invocation_id: str | None):
+    token: Token = _current_tool_invocation_id.set(invocation_id)
+    try:
+        yield
+    finally:
+        _current_tool_invocation_id.reset(token)

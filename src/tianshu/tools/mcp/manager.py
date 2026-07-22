@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
+from tianshu.executor.execution_gateway import ExecutionGateway, ExecutionReceipt
+from tianshu.models.system_audit import AppendSystemAuditRequest
 from tianshu.tools.mcp.client import MCPServerSession
 from tianshu.tools.mcp.config import (
     MCPConfig,
@@ -23,6 +28,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_MCP_RUNTIME_ACTOR_DIGEST = hashlib.sha256(b"internal:mcp-manager").hexdigest()
+_MCP_RUNTIME_CORRELATION = "mcp-runtime:admission"
+
+
+@dataclass(frozen=True, slots=True)
+class AdmissionDecision:
+    allowed: bool
+    reason_code: str
+
 
 class MCPManager:
     """负责 MCP server 的加载、启停和工具注册。"""
@@ -30,13 +44,21 @@ class MCPManager:
     def __init__(
         self,
         tool_registry: ToolRegistry,
+        execution_gateway: ExecutionGateway,
+        *,
+        workspace_root: str | Path = ".",
+        security_mode: Literal["trusted-local", "secure-remote"] = "trusted-local",
         config_path: str | Path = "~/.tianshu/mcp_servers.yaml",
         storage: object | None = None,
         allowlist: str | None = None,
     ) -> None:
         self._tools = tool_registry
+        self._execution_gateway = execution_gateway
+        self._workspace_root = Path(workspace_root).resolve()
+        self._security_mode = security_mode
         self._config_path = Path(config_path).expanduser()
         self._storage = storage
+        self._configured_stdio_commands: dict[str, tuple[str, ...]] = {}
         # MCP 治理·准入清单(D15):非空 → 只启动清单内 server。空/None → 不强制。
         self._allowlist: frozenset[str] | None = (
             frozenset(n.strip() for n in allowlist.split(",") if n.strip())
@@ -45,10 +67,65 @@ class MCPManager:
         )
         self._config: MCPConfig = MCPConfig()
         self._sessions: dict[str, MCPServerSession] = {}
+        self._terminal_receipts: dict[str, ExecutionReceipt] = {}
+        self._starting_sessions: dict[str, MCPServerSession] = {}
+        self._start_tasks: dict[str, asyncio.Task[tuple[str, MCPServerSession | None]]] = {}
+        self._stopping = False
+        self._shutdown_waiters = 0
+        self._shutdown_lock = asyncio.Lock()
 
     def _admitted(self, name: str) -> bool:
         """准入判定:无清单则全允(启动时另有明示告警);有清单则须在册。"""
         return self._allowlist is None or name in self._allowlist
+
+    def _admission_for(self, config: MCPServerConfig) -> AdmissionDecision:
+        if not config.enabled:
+            return AdmissionDecision(False, "disabled")
+        if config.transport == "streamable_http" and self._security_mode == "secure-remote":
+            return AdmissionDecision(False, "trusted_egress_unavailable")
+        if config.transport == "stdio" and not config.tools.include:
+            return AdmissionDecision(False, "approved_tools_required")
+        if not self._admitted(config.name):
+            return AdmissionDecision(False, "server_not_allowlisted")
+        return AdmissionDecision(True, "admitted")
+
+    def admission_for(self, config: MCPServerConfig) -> AdmissionDecision:
+        """Return the immutable Lean admission result without changing runtime state."""
+
+        return self._admission_for(config)
+
+    def _audit_admission_denial(
+        self,
+        config: MCPServerConfig,
+        decision: AdmissionDecision,
+    ) -> None:
+        if (
+            decision.allowed
+            or decision.reason_code == "disabled"
+            or self._storage is None
+            or not hasattr(self._storage, "append_system_audit")
+        ):
+            return
+        self._storage.append_system_audit(
+            AppendSystemAuditRequest(
+                correlation_id=_MCP_RUNTIME_CORRELATION,
+                actor_digest=_MCP_RUNTIME_ACTOR_DIGEST,
+                action="mcp.admission.denied",
+                outcome="denied",
+                reason_code=decision.reason_code,
+                subject_kind="mcp_server",
+                subject_digest=hashlib.sha256(config.name.encode()).hexdigest(),
+                metadata={},
+            )
+        )
+
+    def _sync_stdio_commands(self, commands: dict[str, tuple[str, ...]]) -> None:
+        if commands:
+            self._execution_gateway.configure_mcp_stdio_commands(commands)
+            self._configured_stdio_commands = dict(commands)
+        elif self._configured_stdio_commands:
+            self._execution_gateway.configure_mcp_stdio_commands({})
+            self._configured_stdio_commands = {}
 
     # -- 配置 ---------------------------------------------------------------
 
@@ -71,11 +148,7 @@ class MCPManager:
     def _load_overrides_from_storage(self) -> list[MCPServerOverride]:
         if self._storage is None or not hasattr(self._storage, "list_mcp_overrides"):
             return []
-        try:
-            rows = self._storage.list_mcp_overrides()
-        except Exception:
-            logger.exception("[mcp] failed to load overrides from storage")
-            return []
+        rows = self._storage.list_mcp_overrides()
         return [
             MCPServerOverride(
                 name=r["name"],
@@ -104,6 +177,42 @@ class MCPManager:
     def sessions(self) -> dict[str, MCPServerSession]:
         return dict(self._sessions)
 
+    @property
+    def starting_names(self) -> tuple[str, ...]:
+        """正在启动、尚未落地 ``_sessions`` 的 server 名。
+
+        MCP 在后台任务里启动（``wiring_tools._mcp_bg_start``），冷启动（如 npx 拉包）
+        可达数十秒。这段窗口内 server 既没连上也没失败——readiness 若把它算作失败，
+        每次重启都会先报一段假降级。
+        """
+        return tuple(sorted(self._starting_sessions))
+
+    @property
+    def admitted_enabled_names(self) -> tuple[str, ...]:
+        """``start()`` 会尝试启动的 server 名（enabled ∧ 准入）。
+
+        readiness 的"应连"基线：启动失败的 session 不会进 ``_sessions``
+        （``_start_one`` 返回 None），只看 ``sessions`` 就永远发现不了
+        "配置了却压根没连上"。
+        """
+        return tuple(
+            sorted(
+                name
+                for name, cfg in self._config.mcp_servers.items()
+                if self._admission_for(cfg).allowed
+            )
+        )
+
+    @property
+    def terminal_receipts(self) -> dict[str, ExecutionReceipt]:
+        receipts = dict(self._terminal_receipts)
+        receipts.update(
+            (name, session.terminal_receipt)
+            for name, session in self._sessions.items()
+            if session.terminal_receipt is not None
+        )
+        return receipts
+
     # -- 生命周期 -----------------------------------------------------------
 
     async def start(self) -> None:
@@ -112,31 +221,52 @@ class MCPManager:
         - 单个 server 启动失败不影响其他（degrade 模式）。
         - 并行启动避免慢 server（如 npx 首次拉包）拖延整体响应。
         """
-        import asyncio
-
+        if self._stopping:
+            return
         if self._allowlist is None:
             logger.warning(
                 "[mcp] 未设准入清单(TIANSHU_MCP_SERVER_ALLOWLIST):所有 enabled server "
                 "将被加载。生产环境建议显式配置白名单(D15 治理护栏)。"
             )
-        enabled = [
-            (name, cfg)
-            for name, cfg in self._config.mcp_servers.items()
-            if cfg.enabled and self._admitted(name)
+        decisions = {
+            name: self._admission_for(cfg) for name, cfg in self._config.mcp_servers.items()
+        }
+        admitted = [
+            (name, cfg) for name, cfg in self._config.mcp_servers.items() if decisions[name].allowed
         ]
+        stdio_commands = {
+            name: (cfg.command, *cfg.args)
+            for name, cfg in admitted
+            if cfg.transport == "stdio" and cfg.command is not None
+        }
+        self._sync_stdio_commands(stdio_commands)
         for name, cfg in self._config.mcp_servers.items():
-            if not cfg.enabled:
+            decision = decisions[name]
+            if decision.allowed:
+                continue
+            self._audit_admission_denial(cfg, decision)
+            if decision.reason_code == "disabled":
                 logger.info("[mcp] skip disabled server: %s", name)
-            elif not self._admitted(name):
-                logger.warning("[mcp] server %s 未在准入清单内,拒绝加载(D15)", name)
+            else:
+                logger.warning(
+                    "[mcp] server admission denied: reason=%s",
+                    decision.reason_code,
+                )
 
-        async def _start_one(name: str, cfg) -> tuple[str, MCPServerSession | None]:
-            session = MCPServerSession(config=cfg)
+        async def _start_one(
+            name: str,
+            session: MCPServerSession,
+        ) -> tuple[str, MCPServerSession | None]:
             try:
                 connected = await session.start()
+            except asyncio.CancelledError:
+                await session.shutdown()
+                raise
             except Exception:
                 logger.exception("[mcp] server %s failed to start, continuing without it", name)
                 await session.shutdown()
+                if session.terminal_receipt is not None:
+                    self._terminal_receipts[name] = session.terminal_receipt
                 return name, None
             if not connected:
                 logger.warning(
@@ -145,30 +275,82 @@ class MCPManager:
                     session.last_error,
                 )
                 await session.shutdown()
+                if session.terminal_receipt is not None:
+                    self._terminal_receipts[name] = session.terminal_receipt
                 return name, None
             return name, session
 
-        if not enabled:
+        if not admitted:
             return
 
+        for name, cfg in admitted:
+            session = MCPServerSession(
+                config=cfg,
+                execution_gateway=self._execution_gateway,
+                workspace_root=self._workspace_root,
+                security_mode=self._security_mode,
+            )
+            self._starting_sessions[name] = session
+            self._start_tasks[name] = asyncio.create_task(
+                _start_one(name, session),
+                name=f"mcp-start-{name}",
+            )
+
         results = await asyncio.gather(
-            *[_start_one(name, cfg) for name, cfg in enabled],
-            return_exceptions=False,
+            *self._start_tasks.values(),
+            return_exceptions=True,
         )
-        for name, session in results:
-            if session is None:
+        for result in results:
+            if isinstance(result, BaseException):
                 continue
-            self._sessions[name] = session
-            count = self._register_session_tools(session)
+            name, started_session = result
+            self._starting_sessions.pop(name, None)
+            self._start_tasks.pop(name, None)
+            if started_session is None:
+                continue
+            if self._stopping:
+                await started_session.shutdown()
+                if started_session.terminal_receipt is not None:
+                    self._terminal_receipts[name] = started_session.terminal_receipt
+                continue
+            self._sessions[name] = started_session
+            count = self._register_session_tools(started_session)
             logger.info("[mcp] registered %d tool(s) from server %s", count, name)
 
     async def shutdown(self) -> None:
-        for session in self._sessions.values():
-            try:
-                await session.shutdown()
-            except Exception:
-                logger.exception("[mcp] error shutting down session %s", session.config.name)
-        self._sessions.clear()
+        self._shutdown_waiters += 1
+        self._stopping = True
+        try:
+            async with self._shutdown_lock:
+                self._sync_stdio_commands({})
+                starting_sessions = tuple(self._starting_sessions.values())
+                if starting_sessions:
+                    await asyncio.gather(
+                        *(session.shutdown() for session in starting_sessions),
+                        return_exceptions=True,
+                    )
+                starting_tasks = tuple(self._start_tasks.values())
+                if starting_tasks:
+                    await asyncio.gather(*starting_tasks, return_exceptions=True)
+                for name, session in tuple(self._starting_sessions.items()):
+                    if session.terminal_receipt is not None:
+                        self._terminal_receipts[name] = session.terminal_receipt
+                self._starting_sessions.clear()
+                self._start_tasks.clear()
+
+                for name, session in self._sessions.items():
+                    try:
+                        await session.shutdown()
+                    except Exception:
+                        logger.exception(
+                            "[mcp] error shutting down session %s", session.config.name
+                        )
+                    if session.terminal_receipt is not None:
+                        self._terminal_receipts[name] = session.terminal_receipt
+                self._sessions.clear()
+        finally:
+            self._shutdown_waiters -= 1
+            self._stopping = self._shutdown_waiters > 0
 
     # -- 工具注册 -----------------------------------------------------------
 
@@ -177,6 +359,10 @@ class MCPManager:
 
         count = 0
         cfg = session.config
+        decision = self._admission_for(cfg)
+        if not decision.allowed:
+            self._audit_admission_denial(cfg, decision)
+            return 0
         for tool in session.tools:
             if not _passes_filter(tool.name, cfg):
                 continue

@@ -29,9 +29,13 @@ class ProviderManager:
         self,
         storage: Storage,
         config_manager: ConfigManager,
+        demo_mode: bool = False,
     ) -> None:
         self._storage = storage
         self._config_manager = config_manager
+        # demo 档位：get_client 全路径只解析 runtime demo 状态（不选 live provider、
+        # 不建 Router），sync_all 成为 no-op（providers 表零改动）。
+        self._demo_mode = demo_mode
         # 共享 litellm.Router(spec P1-A):configs 指纹变更时懒重建
         self._router: object | None = None
         self._router_fp: tuple | None = None
@@ -68,6 +72,10 @@ class ProviderManager:
 
     def sync_from_config(self, config: LLMConfigState) -> None:
         """Create or update a provider entry from an LLMConfigState."""
+        if self._demo_mode:
+            # demo 状态 runtime-only：任何同步路径都不得写 providers 表
+            logger.warning("demo profile: sync_from_config(%s) ignored", config.name)
+            return
         configs, active_name = self._config_manager.list_configs()
         is_active = config.name == active_name
         self._storage.save_provider(
@@ -83,6 +91,9 @@ class ProviderManager:
 
     def sync_all(self) -> None:
         """Sync all LLM configs to the providers table."""
+        if self._demo_mode:
+            # demo 状态是 runtime-only 的：不同步、不删除任何 providers 行
+            return
         configs, active_name = self._config_manager.list_configs()
         synced_names: set[str] = set()
         for cfg in configs:
@@ -177,6 +188,9 @@ class ProviderManager:
         return {"miss": miss, "hit": hit, "out": out, "source": source}
 
     def unregister(self, name: str) -> bool:
+        if self._demo_mode:
+            logger.warning("demo profile: unregister(%s) ignored", name)
+            return False
         return self._storage.delete_provider(name)
 
     def list_providers(self) -> list[ProviderInfo]:
@@ -191,12 +205,27 @@ class ProviderManager:
         self,
         requirements: TaskRequirements | None = None,
         config_name_override: str | None = None,
+        model_override: str | None = None,
     ) -> LLMClient:
         """Select the best provider and return an LLMClient.
 
         Falls back to ConfigManager's active config if no suitable provider found.
         If *config_name_override* is given (e.g. from a persona), use that config directly.
         """
+        if self._demo_mode:
+            # demo：任何 override/requirements 都解析到 runtime demo 状态，
+            # 不触碰 live provider 选择与 Router。
+            state = self._config_manager.state
+            return create_llm_client(
+                model=state.model,
+                api_key=state.api_key,
+                api_base=state.api_base,
+                max_retries=state.max_retries,
+                temperature=state.temperature,
+                top_p=state.top_p,
+                max_tokens=state.max_tokens,
+                provider_name=state.name,
+            )
         # Persona-level LLM config override
         if config_name_override:
             cfg = self._config_manager.get_config(config_name_override)
@@ -205,7 +234,7 @@ class ProviderManager:
                     self.get_effective_pricing(cfg.name) if self.get_provider(cfg.name) else None
                 )
                 return create_llm_client(
-                    model=cfg.model,
+                    model=model_override or cfg.model,
                     api_key=cfg.api_key,
                     api_base=cfg.api_base,
                     max_retries=cfg.max_retries,
@@ -214,7 +243,7 @@ class ProviderManager:
                     max_tokens=cfg.max_tokens,
                     provider_name=cfg.name,
                     pricing_override=pricing,
-                    **self._router_kwargs(cfg.name),
+                    **({} if model_override else self._router_kwargs(cfg.name)),
                 )
             logger.warning(
                 "Persona LLM config '%s' not found or disabled, falling back",
@@ -225,7 +254,7 @@ class ProviderManager:
         active_providers = [p for p in providers if p.status == "active"]
 
         if not active_providers or requirements is None:
-            return self._fallback_client()
+            return self._fallback_client(model_override=model_override)
 
         # Filter by capabilities
         if requirements.capabilities:
@@ -238,19 +267,19 @@ class ProviderManager:
         active_providers = [p for p in active_providers if self._within_quota(p)]
 
         if not active_providers:
-            return self._fallback_client()
+            return self._fallback_client(model_override=model_override)
 
         # Apply routing strategy
         selected = self._select(active_providers, requirements.strategy)
         if not selected:
-            return self._fallback_client()
+            return self._fallback_client(model_override=model_override)
 
         # Use the selected provider's own config for api_key if available
         cfg = self._config_manager.get_config(selected.name)
         fallback = self._config_manager.state
         state = cfg or fallback
         return create_llm_client(
-            model=selected.model,
+            model=model_override or selected.model,
             api_key=state.api_key,
             api_base=selected.api_base or state.api_base,
             max_retries=state.max_retries,
@@ -259,16 +288,16 @@ class ProviderManager:
             max_tokens=state.max_tokens,
             provider_name=selected.name,
             pricing_override=self.get_effective_pricing(selected.name),
-            **self._router_kwargs(selected.name),
+            **({} if model_override else self._router_kwargs(selected.name)),
         )
 
-    def _fallback_client(self) -> LLMClient:
+    def _fallback_client(self, *, model_override: str | None = None) -> LLMClient:
         """Create LLMClient from ConfigManager's active config."""
         state = self._config_manager.state
         # active config 通常也对应一个同名 provider；若有则注入 effective pricing
         pricing = self.get_effective_pricing(state.name) if self.get_provider(state.name) else None
         return LLMClient(
-            model=state.model,
+            model=model_override or state.model,
             api_key=state.api_key,
             api_base=state.api_base,
             max_retries=state.max_retries,
@@ -277,7 +306,7 @@ class ProviderManager:
             max_tokens=state.max_tokens,
             provider_name=state.name,
             pricing_override=pricing,
-            **self._router_kwargs(state.name),
+            **({} if model_override else self._router_kwargs(state.name)),
         )
 
     def record_usage(self, name: str, tokens: int = 0) -> None:

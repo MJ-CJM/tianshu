@@ -24,7 +24,7 @@ export const STATUS_LABELS: Record<TaskStatus, string> = {
   scheduled: "已排期",
   planning: "规划中",
   auditing: "审计中",
-  needs_review: "待朱批",
+  needs_review: "待裁决",
 };
 
 export const EDICT_STATUS_LABELS: Record<EdictStatus, string> = {

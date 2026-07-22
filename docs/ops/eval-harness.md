@@ -15,7 +15,6 @@
 | `code_variant_evolvable_paths` | selector/planner/tools 等 | 演化域 allowlist，限制变异只能落低风险路径 |
 | `code_variant_eval_set_size` | 20 | 回放评估集规模 |
 | `code_variant_sandbox_timeout_s` | 900 | Gate 全程 + 沙箱单步超时 |
-| `code_variant_sandbox_mem_mb` | 2048 | 沙箱内存闸 |
 | `universe_promote_margin` | 0.05 | 变体须赢冠军此差距才被标 `recommended` |
 | `code_variant_auto_promote` | False | 自动晋升，**保持关闭**（晋升前人工审 diff 是主控制）|
 
@@ -32,13 +31,16 @@
 branch_code_variant   起 worktree + 分支 universe/<id>
 code_mutator.mutate   LLM 在 worktree 内改一个文件并 commit
 Gate.run              ① compileall  ② import tianshu  ③ pytest -q   （fail-fast）
-EvalHarness.evaluate  起隔离沙箱 → 逐条回放历史 goal → 轮询至终态 → 聚合打分
+EvalHarness.evaluate  起受管评估进程 → 逐条回放历史 goal → 轮询至终态 → 聚合打分
 save_variant_eval_run 落 variant_eval_runs 表
 ```
 
 评估集来自历史：取最近若干条 **status=completed** 的 edict goal 去重（`select_eval_set`）。所以**评估只回放冠军已跑通的真实任务** —— 没有历史已完成诏令时评估集为空，fitness 各项归一为 0。
 
-沙箱是隔离子进程：临时端口 + 独立 `_eval.db`（worktree 同级）+ `TIANSHU_EVAL_MODE=1` + 内存 rlimit，跑完即 kill 进程删 DB，**绝不碰生产端口 / DB**。
+评估运行在受管子进程中：使用临时端口、独立 `_eval.db`（worktree 同级）和
+`TIANSHU_EVAL_MODE=1`，受 wall timeout 约束，退出时收敛进程组并删除 DB 及
+WAL/SHM。当前 `trusted-local` 宿主模式不提供可证明的内存、CPU、文件系统或网络
+强隔离；`secure-remote` 在没有受验证后端时直接拒绝启动。
 
 ## 3. 怎么解读 fitness 结果
 
@@ -105,9 +107,10 @@ PYTHONPATH=$PWD/src .venv/bin/python -m pytest -q
 
 `success_rate` 掉 = 变体让本来跑通的历史 goal 跑挂了。逐条对比：同一 goal 在冠军沙箱 vs 变体沙箱的 memorial 终态差异。`samples` 比 `code_variant_eval_set_size` 小，通常是历史已完成诏令不够。
 
-### 4.3 沙箱内存被闸
+### 4.3 受管评估进程的资源边界
 
-变体吃内存超 `code_variant_sandbox_mem_mb`（默认 2048）会被 `RLIMIT_AS` 杀，表现为沙箱不健康 / 子进程异常退出。确认变体无内存泄漏，必要时调高该值。
+`trusted-local` 的显式宿主回退不宣称内存或强沙箱隔离；执行收据会记录该能力缺口。
+`secure-remote` 在没有可证明隔离的后端时直接拒绝启动，不会静默回退宿主。
 
 ### 4.4 安全提醒
 

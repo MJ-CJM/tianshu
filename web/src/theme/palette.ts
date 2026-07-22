@@ -1,9 +1,9 @@
 /**
- * 天枢调色板 · 单一色源(方案 A「朱批」)
+ * 天枢调色板 · 单一色源(方案 A「朱砂」)
  *
  * 设计宪法:墨为骨,朱为睛,纸为气。
  * - 界面 98% 由墨/纸/灰阶构成(Geist 式克制);
- * - 朱砂只出现在「与主上朱笔有关」的地方:待朱批、选中态朱杠、品牌印、focus 环;
+ * - 朱砂只用于待裁决、选中态、品牌印和 focus 环等关键强调;
  * - 状态色一律低饱和「器物色」,浅/深各一套,不共用。
  *
  * 此文件是唯一的颜色事实来源:theme/index.ts(AntD token)与
@@ -55,6 +55,12 @@ export interface Palette {
   success: string;
   warning: string;
   error: string;
+  /** 组件语义别名；值仍来自本调色板，不形成第二套颜色系统。 */
+  surface: string;
+  surfaceRaised: string;
+  focusRing: string;
+  decision: string;
+  blocked: string;
   status: StatusColors;
 }
 
@@ -81,6 +87,11 @@ export const palettes: Record<ThemeMode, Palette> = {
     success: "#45775A",
     warning: "#8A6B24",
     error: "#A5403D",
+    surface: "#FFFFFF",
+    surfaceRaised: "#FFFFFF",
+    focusRing: "#AE3F2C",
+    decision: "#AE3F2C",
+    blocked: "#A5403D",
     status: {
       running: "#3D6C8E",
       completed: "#45775A",
@@ -101,7 +112,7 @@ export const palettes: Record<ThemeMode, Palette> = {
     bgCode: "#211F1B",
     text: "#EAE6DC",
     textSecondary: "#A29C8F",
-    textTertiary: "#7E7A6F",
+    textTertiary: "#8F8A80",
     border: "#33302A",
     borderSecondary: "#2A2823",
     borderHover: "#454138",
@@ -115,6 +126,11 @@ export const palettes: Record<ThemeMode, Palette> = {
     success: "#82B091",
     warning: "#C9A85C",
     error: "#D08079",
+    surface: "#1E1C19",
+    surfaceRaised: "#262420",
+    focusRing: "#D96C52",
+    decision: "#D96C52",
+    blocked: "#D08079",
     status: {
       running: "#7FA7C4",
       completed: "#82B091",
@@ -148,4 +164,24 @@ export const presetSeeds = {
   pink: "#96496B",
   geekblue: "#44618E",
   lime: "#6B7A3A",
+} as const;
+
+/**
+ * darkAlgorithm 会把浅色种子再次压暗；深色主题须从对应的深色语义色起算，
+ * 否则预设 Tag 的文字会落到 WCAG AA 对比度以下。
+ */
+export const darkPresetSeeds = {
+  blue: palettes.dark.info,
+  green: palettes.dark.success,
+  red: palettes.dark.error,
+  orange: palettes.dark.warning,
+  gold: palettes.dark.warning,
+  yellow: palettes.dark.warning,
+  purple: palettes.dark.status.planning,
+  cyan: palettes.dark.status.auditing,
+  volcano: palettes.dark.error,
+  magenta: palettes.dark.status.planning,
+  pink: palettes.dark.status.planning,
+  geekblue: palettes.dark.info,
+  lime: palettes.dark.success,
 } as const;

@@ -22,7 +22,7 @@
    - **label**（显示名，便于区分）
    - **persona**（兼任助手的内阁 persona）
    - **allowlist**（允许的用户）
-   - **home_channel**（cron / 无源审批的兜底投递目标，可选）
+   - **home_channel**（cron / 无来源裁决通知的兜底投递目标，可选）
 4. 保存即在线生效——后端 `reload_instance` 当场构造并启动该 bot，**无需重启**。
 
 停用同理：在实例列表关掉 `enabled` 即停止该 bot，不影响其它实例。
@@ -35,7 +35,7 @@
 |------|---------|
 | 聊天会话 anchor | 同一 chat_id 在不同实例互不碰撞（复合主键 `(instance_id, chat_id)`）|
 | `/list` 等查询 | 只列本实例的敕令（default 额外继承旧无标记敕令，见下）|
-| 审批按钮 / 卡片 | 只有发起实例能处理回调 |
+| 裁决入口 | Telegram 支持按钮与命令，飞书公开支持命令回复；仅发起实例处理对应待决项 |
 | 出站投递 | 一条敕令只由其所属实例投递；非本实例的敕令不会被错误下发 |
 
 敕令归属由 `metadata.instance_id` 决定，bot 接入消息时自动写入。出站 `_lookup_chat_id`
@@ -62,7 +62,7 @@
 |------|------|
 | persona | 该 bot 兼任助手时用哪个内阁 persona（决定工具集 / LLM 配置）|
 | allowlist | 该 bot 允许哪些用户交互 |
-| home_channel | 该 bot 的 cron / 无源审批兜底投递目标 |
+| home_channel | 该 bot 的 cron / 无来源裁决通知兜底投递目标 |
 | token / 凭证 | 该 bot 的身份（加密存于 `channel_instances.encrypted_secret`）|
 
 ## 存量 DB 迁移
@@ -84,4 +84,4 @@
 | 实例间消息串了 | 检查敕令 `metadata.instance_id` 是否正确；非 default 实例不应出现旧无标记敕令 |
 | 旧敕令在新实例看不到 | 设计如此——旧无标记敕令只由 `*-default` 继承 |
 | 看板显示了别的 bot 的敕令 | 设计如此——看板是全局视图，不按实例过滤 |
-| 停用后仍收到消息 | 确认 `stop_instance` 已 `event_bus.off` 退订；正常停用会立即退订出站/审批订阅 |
+| 停用后仍收到消息 | 确认 `stop_instance` 已 `event_bus.off` 退订；正常停用会立即退订出站/裁决事件订阅 |

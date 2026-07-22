@@ -7,6 +7,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from tianshu.app import create_app, lifespan
+from tianshu.models import Edict
 
 
 @pytest.fixture
@@ -18,18 +19,27 @@ async def client():
             yield c
 
 
+async def _create_edict(client, *, goal: str, idempotency_key: str):
+    with patch("tianshu.executor.agent.LLMClient"):
+        return await client.post(
+            "/api/edicts",
+            json={"idempotency_key": idempotency_key, "goal": goal},
+        )
+
+
 class TestEdictCRUD:
-    async def test_create_and_update(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post("/api/edicts", json={"goal": "update me"})
-        edict_id = resp.json()["data"]["id"]
+    async def test_update_open_edict_title_preserves_frozen_objective(self, client):
+        storage = client._transport.app.state.storage
+        edict = Edict(goal="update me")
+        storage.save_edict(edict)
 
         resp = await client.patch(
-            f"/api/edicts/{edict_id}",
-            json={"title": "New Title", "goal": "updated goal"},
+            f"/api/edicts/{edict.id}",
+            json={"title": "New Title"},
         )
         assert resp.status_code == 200
-        assert resp.json()["data"]["goal"] == "updated goal"
+        assert resp.json()["data"]["title"] == "New Title"
+        assert resp.json()["data"]["goal"] == "update me"
 
     async def test_update_nonexistent(self, client):
         resp = await client.patch(
@@ -39,15 +49,50 @@ class TestEdictCRUD:
         assert resp.status_code == 404
 
     async def test_delete_edict(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post("/api/edicts", json={"goal": "delete me"})
-        edict_id = resp.json()["data"]["id"]
+        resp = await _create_edict(
+            client,
+            goal="delete me",
+            idempotency_key="gateway-extended-delete-edict",
+        )
+        response = resp.json()
+        edict_id = response["data"]["id"]
+        event_id = response["metadata"]["event_id"]
 
         # 提交后 edict 会自动进入执行并产生活跃 memorial，按设计此时删除返回 409。
         # 等后台产生 memorial 后将其置为完成，模拟"已结束、可删除"状态，确定性验证删除。
         from tianshu.models.common import TaskStatus
 
         storage = client._transport.app.state.storage
+        with storage._conn:
+            storage._conn.execute(
+                """
+                INSERT OR IGNORE INTO outbox_consumptions (
+                    event_id, consumer_name, result_hash, consumed_at
+                ) VALUES (?, 'delete-contract-test', NULL, '2026-07-15T00:00:00+00:00')
+                """,
+                (event_id,),
+            )
+        assert (
+            storage._conn.execute(
+                "SELECT COUNT(*) FROM submission_idempotency WHERE edict_id = ?",
+                (edict_id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            storage._conn.execute(
+                "SELECT COUNT(*) FROM outbox_events WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            storage._conn.execute(
+                "SELECT COUNT(*) FROM outbox_consumptions WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()[0]
+            == 1
+        )
         mems = []
         for _ in range(50):
             mems = storage.list_memorials_by_edict(edict_id)
@@ -59,18 +104,43 @@ class TestEdictCRUD:
             storage.update_memorial(m)
 
         resp = await client.delete(f"/api/edicts/{edict_id}")
-        assert resp.status_code == 200
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "governed_evolution_history_retained"
 
         resp = await client.get(f"/api/edicts/{edict_id}")
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        assert (
+            storage._conn.execute(
+                "SELECT COUNT(*) FROM submission_idempotency WHERE edict_id = ?",
+                (edict_id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            storage._conn.execute(
+                "SELECT COUNT(*) FROM outbox_events WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            storage._conn.execute(
+                "SELECT COUNT(*) FROM outbox_consumptions WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()[0]
+            == 1
+        )
 
     async def test_delete_nonexistent(self, client):
         resp = await client.delete("/api/edicts/nonexistent")
         assert resp.status_code == 404
 
     async def test_list_with_filters(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            await client.post("/api/edicts", json={"goal": "searchable task"})
+        await _create_edict(
+            client,
+            goal="searchable task",
+            idempotency_key="gateway-extended-list-filter",
+        )
 
         resp = await client.get("/api/edicts?search=searchable")
         assert resp.status_code == 200
@@ -89,8 +159,11 @@ class TestEdictCRUD:
 
 class TestEdictStatus:
     async def test_update_status(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post("/api/edicts", json={"goal": "close me"})
+        resp = await _create_edict(
+            client,
+            goal="close me",
+            idempotency_key="gateway-extended-update-status",
+        )
         edict_id = resp.json()["data"]["id"]
 
         resp = await client.patch(
@@ -108,8 +181,11 @@ class TestEdictStatus:
         assert resp.status_code == 404
 
     async def test_update_completed_edict_rejected(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post("/api/edicts", json={"goal": "test"})
+        resp = await _create_edict(
+            client,
+            goal="test",
+            idempotency_key="gateway-extended-completed-rejected",
+        )
         edict_id = resp.json()["data"]["id"]
 
         await client.patch(f"/api/edicts/{edict_id}/status", json={"status": "completed"})
@@ -119,8 +195,11 @@ class TestEdictStatus:
 
 class TestMemorialEndpoints:
     async def test_get_memorial_by_edict(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post("/api/edicts", json={"goal": "memorial test"})
+        resp = await _create_edict(
+            client,
+            goal="memorial test",
+            idempotency_key="gateway-extended-get-memorial",
+        )
         edict_id = resp.json()["data"]["id"]
 
         # Wait a bit for the event chain to create memorial
@@ -130,8 +209,11 @@ class TestMemorialEndpoints:
         assert resp.status_code in (200, 404)  # May or may not exist yet
 
     async def test_list_memorials_by_edict(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post("/api/edicts", json={"goal": "test"})
+        resp = await _create_edict(
+            client,
+            goal="test",
+            idempotency_key="gateway-extended-list-memorials",
+        )
         edict_id = resp.json()["data"]["id"]
 
         resp = await client.get(f"/api/edicts/{edict_id}/memorials")
@@ -152,8 +234,11 @@ class TestMemorialEndpoints:
 
 class TestEventEndpoints:
     async def test_get_events(self, client):
-        with patch("tianshu.executor.agent.LLMClient"):
-            resp = await client.post("/api/edicts", json={"goal": "events test"})
+        resp = await _create_edict(
+            client,
+            goal="events test",
+            idempotency_key="gateway-extended-get-events",
+        )
         edict_id = resp.json()["data"]["id"]
 
         resp = await client.get(f"/api/edicts/{edict_id}/events")
@@ -227,6 +312,7 @@ class TestFollowUp:
         resp = await client.post(
             "/api/edicts/nonexistent/follow-up",
             json={"instruction": "more"},
+            headers={"Idempotency-Key": "follow-up-nonexistent"},
         )
         assert resp.status_code == 404
 

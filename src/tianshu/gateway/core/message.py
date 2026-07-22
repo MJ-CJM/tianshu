@@ -21,5 +21,8 @@ class ChatMessage(Protocol):
     @property
     def sender_open_id(self) -> str: ...
 
+    @property
+    def ingress_id(self) -> str: ...
+
 
 __all__ = ["ChatMessage"]

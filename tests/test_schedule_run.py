@@ -56,7 +56,7 @@ async def test_fire_scheduled_records_fired(storage):
     async def _cap(ev):
         fired.append(ev.edict_id)
 
-    bus.on("edict.scheduled", _cap)
+    bus.on("edict.scheduled", _cap, consumer_name="test.schedule_capture.v1")
     sched = Scheduler(bus, storage)
     e = Edict(goal="x", schedule=EdictSchedule(type="cron", cron="* * * * *"))
     storage.save_edict(e)
@@ -72,7 +72,7 @@ async def test_fire_scheduled_skips_when_unfinished(storage):
     async def _cap(ev):
         fired.append(ev.edict_id)
 
-    bus.on("edict.scheduled", _cap)
+    bus.on("edict.scheduled", _cap, consumer_name="test.schedule_capture.v1")
     sched = Scheduler(bus, storage)
     e = Edict(
         goal="x", schedule=EdictSchedule(type="cron", cron="* * * * *", concurrency_policy="skip")

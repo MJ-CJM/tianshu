@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from tianshu.executor.workspace_context import resolve_workspace_root
 from tianshu.tools.path_utils import safe_path
 from tianshu.tools.registry import ToolDefinition, ToolRegistry
 from tianshu.tools.types import ToolResult, ToolTier, error_result, ok_result
@@ -14,7 +15,7 @@ _MAX_ENTRIES = 500
 
 def register_list_dir(registry: ToolRegistry, workspace: Path) -> None:
     async def list_dir(path: str = ".") -> ToolResult:
-        dir_path = safe_path(workspace, path)
+        dir_path = safe_path(resolve_workspace_root(workspace), path)
         if not dir_path.is_dir():
             return error_result(f"Error: '{path}' is not a directory")
 

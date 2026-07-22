@@ -12,6 +12,11 @@ import logging
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from tianshu.gateway.auth import (
+    SecurityAuditContext,
+    get_auth_context,
+    hash_system_audit_identity,
+)
 from tianshu.models import ApiResponse
 
 logger = logging.getLogger(__name__)
@@ -35,6 +40,17 @@ class ResumeRequest(BaseModel):
 
 def _manager(request: Request):
     return getattr(request.app.state, "estop_manager", None)
+
+
+def _audit_context(request: Request) -> SecurityAuditContext:
+    correlation_id = getattr(request.state, "correlation_id", None)
+    if not isinstance(correlation_id, str) or not correlation_id:
+        return SecurityAuditContext(correlation_id="estop-internal")
+    context = get_auth_context(request)
+    return SecurityAuditContext(
+        correlation_id=correlation_id,
+        actor_digest=hash_system_audit_identity(context.principal.id),
+    )
 
 
 async def _emit(request: Request, action: str, state: dict) -> None:
@@ -71,6 +87,7 @@ async def engage_estop(request: Request, body: EngageRequest):
         network_kill=body.network_kill,
         freeze_tools=body.freeze_tools,
         reason=body.reason,
+        audit_context=_audit_context(request),
     )
     await _emit(request, "engaged", state.to_dict())
     return ApiResponse(success=True, data=state.to_dict())
@@ -86,6 +103,7 @@ async def resume_estop(request: Request, body: ResumeRequest):
         network_kill=body.network_kill,
         unfreeze_tools=body.unfreeze_tools,
         all_clear=body.all_clear,
+        audit_context=_audit_context(request),
     )
     await _emit(request, "resumed", state.to_dict())
     return ApiResponse(success=True, data=state.to_dict())

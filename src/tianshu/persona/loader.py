@@ -104,18 +104,21 @@ class PersonaLoader:
         self._personas[persona.id] = persona
 
     def delete(self, persona_id: str) -> bool:
-        """Delete a persona from SQLite, in-memory cache, and file system."""
+        """Delete a persona from SQLite, in-memory cache, and runtime overlay.
+
+        Packaged defaults (``self._dir``) are immutable and never touched;
+        the migration ledger guarantees a deleted default is not reseeded.
+        """
         if not self._storage:
             raise RuntimeError("Storage not configured for persona persistence")
         deleted = self._storage.delete_persona(persona_id)
         self._personas.pop(persona_id, None)
-        # Remove file system directory so _seed_from_files won't resurrect it
-        persona_dir = self._dir / persona_id
-        if persona_dir.is_dir():
+        runtime_dir = self._runtime_dir / persona_id
+        if runtime_dir.is_dir():
             import shutil
 
-            shutil.rmtree(persona_dir)
-            logger.info("Removed persona directory: %s", persona_dir)
+            shutil.rmtree(runtime_dir)
+            logger.info("Removed runtime persona overlay: %s", runtime_dir)
         return deleted
 
     # --- Internal ---

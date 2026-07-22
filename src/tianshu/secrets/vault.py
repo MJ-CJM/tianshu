@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
+from collections.abc import Mapping
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -26,6 +28,23 @@ class SecretVault:
             raise ValueError("credential decryption failed") from e
 
 
+def encrypt_canonical_mapping(vault: SecretVault, value: Mapping[str, str]) -> bytes:
+    payload = json.dumps(dict(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return vault.encrypt(payload)
+
+
+def decrypt_canonical_mapping(vault: SecretVault, ciphertext: bytes) -> dict[str, str]:
+    try:
+        value = json.loads(vault.decrypt(ciphertext))
+    except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+        raise ValueError("MCP secret mapping is invalid") from None
+    if not isinstance(value, dict) or not all(
+        isinstance(key, str) and isinstance(item, str) for key, item in value.items()
+    ):
+        raise ValueError("MCP secret mapping is invalid")
+    return value
+
+
 _vault: SecretVault | None = None
 _vault_lock = threading.Lock()
 
@@ -45,6 +64,18 @@ def get_vault() -> SecretVault | None:
         if _vault is None:
             _vault = SecretVault(key)
     return _vault
+
+
+def require_mcp_vault() -> SecretVault:
+    """Return the process vault or fail with a stable, redacted MCP error."""
+
+    try:
+        vault = get_vault()
+    except (TypeError, ValueError) as exc:
+        raise ValueError("MCP secret vault unavailable") from exc
+    if vault is None:
+        raise ValueError("MCP secret vault unavailable")
+    return vault
 
 
 def reset_vault() -> None:

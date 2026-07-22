@@ -30,8 +30,15 @@ import {
   deleteCredential,
   updateCredential,
 } from "../../api/credentials";
+import { isApiProblem } from "../../api/client";
 import { useT } from "../../i18n";
 import { monoStyle } from "./shared";
+
+function problemMessage(error: unknown): string {
+  if (isApiProblem(error)) return error.message;
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
 
 export default function ExternalCredentialsTab() {
   const t = useT();
@@ -54,13 +61,15 @@ export default function ExternalCredentialsTab() {
       const data = await listCredentials(kind);
       setItems(data);
       setVaultUnavailable(false);
-    } catch (e: any) {
-      const status = e?.response?.status;
-      const detail: string = String(
-        e?.response?.data?.detail ?? e?.message ?? e,
-      );
+    } catch (e: unknown) {
+      const status = isApiProblem(e) ? e.status : null;
+      const detail = problemMessage(e);
       // 503 + vault unavailable → 引导页（非错误提示）
-      if (status === 503 && /vault.*unavailable|MASTER_KEY/i.test(detail)) {
+      if (
+        status === 503 &&
+        ((isApiProblem(e) && e.code === "vault-unavailable") ||
+          /vault.*unavailable|MASTER_KEY/i.test(detail))
+      ) {
         setVaultUnavailable(true);
       } else {
         notification.error({
@@ -102,10 +111,10 @@ export default function ExternalCredentialsTab() {
       if (kind === "engine_provider") {
         qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       notification.error({
         message: t("system.toast.credCreateFailed"),
-        description: String(e?.response?.data?.detail ?? e?.message ?? e),
+        description: problemMessage(e),
       });
     }
   };
@@ -118,10 +127,10 @@ export default function ExternalCredentialsTab() {
       if (kind === "engine_provider") {
         qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       notification.error({
         message: t("system.toast.credDeleteFailed"),
-        description: String(e?.response?.data?.detail ?? e?.message ?? e),
+        description: problemMessage(e),
       });
     }
   };
@@ -156,10 +165,10 @@ export default function ExternalCredentialsTab() {
       if (editRow.kind === "engine_provider") {
         qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       notification.error({
         message: t("system.toast.credSaveFailed"),
-        description: String(e?.response?.data?.detail ?? e?.message ?? e),
+        description: problemMessage(e),
       });
     }
   };
@@ -172,10 +181,10 @@ export default function ExternalCredentialsTab() {
       if (row.kind === "engine_provider") {
         qc.invalidateQueries({ queryKey: ["hongluisi", "engine-status"] });
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       notification.error({
         message: t("system.toast.credToggleFailed"),
-        description: String(e?.response?.data?.detail ?? e?.message ?? e),
+        description: problemMessage(e),
       });
     }
   };

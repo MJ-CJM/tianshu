@@ -51,9 +51,9 @@ npm install
 npm run dev
 ```
 
-前端监听 `http://localhost:3000`，vite 自动将 `/api` 和 `/health` 代理到后端 8000。
+前端监听 `http://localhost:7999`，Vite 自动将 `/api` 和 `/health` 代理到后端 8000。
 
-**开发时访问 `http://localhost:3000`。**
+**开发时访问 `http://localhost:7999`。**
 
 ---
 
@@ -87,7 +87,7 @@ Dockerfile 采用两阶段构建，最终产出单容器：
 1. **Stage 1（frontend-builder）**：Node 20 环境，`npm ci` + `npm run build`，编译前端为静态文件
 2. **Stage 2（runtime）**：Python 3.12 环境，安装后端依赖，将 Stage 1 的构建产物复制到 `/app/static`
 
-最终镜像只包含 Python 运行时 + 前端静态文件，不含 Node.js 和 node_modules。
+两阶段构建不会把 Node.js 和 node_modules 带入运行阶段；运行镜像仍包含 Python 应用源码、后端依赖，以及 `git`、`curl`、`jq`、编译工具等执行器所需的系统工具。
 前端静态文件由 FastAPI 直接 serve，React 在用户浏览器中运行。
 
 ### 运行容器
@@ -95,12 +95,14 @@ Dockerfile 采用两阶段构建，最终产出单容器：
 ```bash
 docker run -d \
   --name tianshu \
-  -p 8000:8000 \
+  -p 127.0.0.1:8000:8000 \
   -v tianshu-data:/data \
-  -v $(pwd)/workspace:/workspace \
+  -v "$(pwd)/workspace:/workspace" \
   --env-file .env \
   tianshu
 ```
+
+> ⚠️ v0.4.2 无统一鉴权，仅限可信本地。必须把宿主端口绑定到 `127.0.0.1`，不要映射到公网或不可信网段。
 
 ### 常用操作
 
@@ -109,8 +111,8 @@ docker logs -f tianshu         # 查看日志
 docker stop tianshu            # 停止
 docker rm tianshu              # 删除容器
 docker build -t tianshu . && \
-  docker rm -f tianshu && \
-  docker run -d --name tianshu -p 8000:8000 \
+docker rm -f tianshu && \
+  docker run -d --name tianshu -p 127.0.0.1:8000:8000 \
     -v tianshu-data:/data --env-file .env tianshu   # 重新构建并运行
 ```
 
@@ -122,15 +124,27 @@ docker build -t tianshu . && \
 |------|--------|------|
 | `TIANSHU_LLM_MODEL` | `gpt-4o-mini` | LLM 模型 |
 | `TIANSHU_LLM_API_KEY` | （必填） | API 密钥 |
-| `TIANSHU_DB_PATH` | `.tianshu/tianshu.db` | SQLite 数据库路径 |
-| `TIANSHU_HOST` | `0.0.0.0` | 监听地址 |
+| `TIANSHU_DB_PATH` | `~/.tianshu/tianshu.db` | SQLite 数据库路径 |
+| `TIANSHU_HOST` | `127.0.0.1` | 默认仅监听回环；Docker helper 会在容器内单独覆盖 |
 | `TIANSHU_PORT` | `8000` | 监听端口 |
+| `TIANSHU_SECURITY_MODE` | `trusted-local` | 远程部署须显式设为 `secure-remote` 并补齐下列安全配置 |
+| `TIANSHU_PUBLIC_BASE_URL` | 空 | secure-remote 的 HTTPS 公共地址 |
+| `TIANSHU_ALLOWED_HOSTS` | 空 | secure-remote 精确 Host 列表，逗号分隔 |
+| `TIANSHU_ALLOWED_ORIGINS` | 空 | secure-remote 精确 HTTPS Origin 列表 |
+| `TIANSHU_TRUSTED_PROXY_CIDRS` | 空 | 可声明 HTTPS 的可信反代网段 |
+| `TIANSHU_AUTH_BOOTSTRAP_TOKEN_HASH` | 空 | `sha256:<64 hex>`；服务端不保存明文 token |
+| `TIANSHU_API_TOKEN` | 空 | CLI/MCP Bearer token，仅放客户端环境变量 |
 | `TIANSHU_WORKSPACE_DIR` | `.` | Agent 工作目录 |
 | `TIANSHU_STATIC_DIR` | `/app/static` | 前端静态文件目录 |
 | `TIANSHU_AGENT_MAX_ITERATIONS` | `20` | Agent 最大迭代次数 |
 | `TIANSHU_AGENT_TIMEOUT_SECONDS` | `300` | Agent 执行超时（秒） |
 
 Docker 容器中 `TIANSHU_DB_PATH`、`TIANSHU_WORKSPACE_DIR`、`TIANSHU_STATIC_DIR` 已通过 Dockerfile ENV 预设，无需手动指定。
+
+`secure-remote` 的 CLI 推荐先设置 `TIANSHU_API_URL`，再运行 `tianshu auth login`。
+登录时 PAT 只用于换取一次会话；后续 access token 到期会自动刷新一次，会话文件位于
+`~/.tianshu/credentials.json` 且强制为 `0600`。可用 `tianshu auth whoami` 查看当前主体，
+或用 `tianshu auth logout` 撤销并删除本机会话。`TIANSHU_API_TOKEN` 仍保持最高优先级。
 
 ---
 

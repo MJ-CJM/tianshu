@@ -1,30 +1,36 @@
-# 宣发工具包 · Launch Kit
+# Lean Developer Preview Candidate · Launch Kit
 
-v0.3.0 正式发布(spec §七宣发)的全部材料。**首发国内**(V2EX/即刻/掘金/公众号),
-英文 README 照做但 HN 留年末 v0.4 第二波。
+当前版本为 **0.4.2**。本目录是私有工作分支中的候选证据包，不是外部发布材料。
 
-| 材料 | 用途 | 状态 |
+> 旧 Candidate JSON/总报告已 fail-closed 撤销；当前没有被接受的 Candidate。历史 demo
+> 仅作 retained evidence，新 final-source Gate、provenance 与 demo 完成后才能重建 Candidate。
+
+> 天枢是一个可治理、可验证、持续成长的自进化 Agent OS。
+
+`publication_status`: `not_authorized`。不得据此公开仓库、push、tag、release、上传
+PyPI/GHCR、发布官方容器或对外宣发。
+
+## 当前证据
+
+| 材料 | 事实 | 状态 |
 |---|---|---|
-| [../../README.en.md](../../README.en.md) | 英文 README(双语对) | ✅ 已产出 |
-| [metaphor-map.md](metaphor-map.md) | 明制隐喻 ↔ 工程实体对照(中英) | ✅ 已产出 |
-| [blog-architecture.md](blog-architecture.md) | 架构深度博文(内容轨道 #1,掘金/公众号) | ✅ 已产出 |
-| [demo-storyboards.md](demo-storyboards.md) | 三镜头 GIF + 宣发视频分镜 | ✅ 脚本;👤 待录制 |
-| [cost-baseline.md](cost-baseline.md) + [scripts/cost_baseline.py](../../scripts/cost_baseline.py) | 成本区间测算方法+脚本 | ✅ 脚本;👤 待跑一周填数 |
-| [checklist.md](checklist.md) | 发布前 gate + GitHub 设置 + 首发帖草稿 | ✅ 清单;👤 待执行 |
+| [能力事实矩阵](capability-matrix.md) | 默认值、支持面、保证、非保证、证据 | `implemented` truth index |
+| [Lean Preview 使用指南](../usage/lean-developer-preview.md) | source/exact Wheel、单一黄金 Demo、严格 verifier | `implemented` |
+| [历史保留 Demo 报告](../cc-fable-v1/evidence/lean-preview/20260718T072917Z-b27f525fe4ef/demo-report.json) | 13 步、`fixture=false`、源码/Wheel/证据绑定；不复用为新 Candidate | retained local evidence |
+| [桌面 Web 报告](../cc-fable-v1/reports/s4-core-web-report.md) | 三张核心页自动化 | `automation_passed`; `user_approval_pending` |
+| [Lean Core evolution 报告](../cc-fable-v1/reports/s5-lean-evolution-report.md) | 技能候选、门禁、分流、回滚 | `implemented`; full G4 `external_pending` |
+| [延期路线图](../cc-fable-v1/06-deferred-work-backlog.md) | 恢复条件与验收证据 | 每项使用下方唯一映射状态 |
 
-## 一句话定位
+## 支持边界
 
-> Claude Code 替你干活,天枢替你管一群 AI 干活。
-> 你睡觉时,你的 AI 衙门在干活——每一步可批、可审、可回滚。
+- Ubuntu + Python 3.12 是首个正式目标；保留批次实际验证于
+  `Darwin/arm64/Python 3.12.12`，不能替代 Ubuntu 外部复验。
+- 产品面为 local desktop Web only；无移动端产品承诺。
+- 运行边界为单机、single-node SQLite、host-administrator trusted。
+- remote MCP 与 open stdio MCP 为 `disabled`；Keqing 为 `experimental`。
+- official container、PyPI 和 GHCR 为 `deferred`。
+- OpenHands、ROI、cost calibration 和 full G4 为 `external_pending`；full G5 为
+  `deferred`。
 
-## 卖点排序(≠ 稀缺度排序)
-
-1. **敢放手**(首屏)——治理=信任基础设施,直击"天天守着按 approve"痛点;
-2. **越用越懂你**(第二幕)——记忆+自进化,一周后系统上「臣请自我优化」奏折;
-3. **双向互操作**——Claude Code 下旨天枢 + 天枢派 Claude Code 出工。
-
-## 需要维护者手工做的(👤)
-
-宣发的临门一脚是人工的:录 GIF/视频、跑成本实测、改 GitHub 设置、发帖。
-本工具包把**能自动产出的**都产出了(文案/脚本/清单),剩下的见
-[checklist.md](checklist.md) 里带 👤 的项。
+状态词必须保持分离：`implemented`、`disabled`、`deferred`、`experimental`、
+`external_pending`、`user_approval_pending`。局部通过、历史计划或截图不能提升状态。

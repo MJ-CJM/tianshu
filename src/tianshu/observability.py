@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -34,12 +34,12 @@ _tracer: Any | None = None
 _enabled = False
 
 
-def init_tracing(settings) -> bool:
-    """按 settings 初始化 tracing;返回是否真正启用。lifespan 调一次。"""
+def init_tracing(settings) -> Callable[[], None] | None:
+    """按 settings 初始化 tracing;返回 lifespan 必须调用的关停函数。"""
     global _tracer, _enabled
     endpoint = getattr(settings, "otel_endpoint", "") or ""
     if not endpoint:
-        return False
+        return None
     try:
         from opentelemetry import trace
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -51,7 +51,7 @@ def init_tracing(settings) -> bool:
             "[otel] TIANSHU_OTEL_ENDPOINT 已配但未装 opentelemetry;"
             "运行 `pip install 'tianshu[otel]'` 后生效(当前埋点跳过)"
         )
-        return False
+        return None
 
     provider = TracerProvider(resource=Resource.create({"service.name": "tianshu"}))
     provider.add_span_processor(
@@ -61,7 +61,20 @@ def init_tracing(settings) -> bool:
     _tracer = trace.get_tracer("tianshu")
     _enabled = True
     logger.info("[otel] GenAI 埋点已启用 → %s", endpoint)
-    return True
+
+    stopped = False
+
+    def shutdown() -> None:
+        nonlocal stopped
+        global _tracer, _enabled
+        if stopped:
+            return
+        stopped = True
+        provider.shutdown()
+        _tracer = None
+        _enabled = False
+
+    return shutdown
 
 
 @contextlib.contextmanager

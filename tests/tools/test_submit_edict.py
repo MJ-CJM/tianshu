@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tianshu.application.edicts import EdictApplicationService
 from tianshu.bus.event_bus import EventBus
 from tianshu.models.common import TaskStatus
 from tianshu.tools.registry import ToolRegistry
@@ -14,9 +15,14 @@ from tianshu.tools.submit_edict import register_submit_edict
 
 @pytest.fixture
 def setup(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     registry = ToolRegistry()
-    register_submit_edict(registry, storage=storage, event_bus=bus)
+    register_submit_edict(
+        registry,
+        storage=storage,
+        event_bus=bus,
+        edict_application_service=EdictApplicationService(storage),
+    )
     return registry, storage, bus
 
 
@@ -40,20 +46,28 @@ async def test_submit_edict_creates_edict_and_memorial(setup):
 
 
 @pytest.mark.asyncio
-async def test_submit_edict_fires_event(setup):
-    registry, _, bus = setup
+async def test_submit_edict_enqueues_event(setup):
+    registry, storage, bus = setup
     received: list = []
 
     async def handler(ev):
         received.append(ev)
 
-    bus.on("edict.submitted", handler, priority=200)
+    bus.on(
+        "edict.submitted",
+        handler,
+        consumer_name="test.edict_submitted.v1",
+        priority=200,
+    )
     _, func = registry._tools["submit_edict"]
     res = await func(goal="x", priority="urgent")
-    import asyncio
-
-    await asyncio.sleep(0.05)
-    assert any(e.edict_id == res.details["edict_id"] for e in received)
+    row = storage._conn.execute(  # noqa: SLF001 - durable boundary proof
+        "SELECT status FROM outbox_events WHERE edict_id = ?",
+        (res.details["edict_id"],),
+    ).fetchone()
+    assert row is not None
+    assert row["status"] == "pending"
+    assert received == []
 
 
 @pytest.mark.asyncio
@@ -76,11 +90,17 @@ async def test_submit_edict_rejects_invalid_priority(setup):
 
 @pytest.mark.asyncio
 async def test_submit_edict_validates_persona_when_loader_provided(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     registry = ToolRegistry()
     loader = MagicMock()
     loader.get.return_value = None  # persona 不存在
-    register_submit_edict(registry, storage=storage, event_bus=bus, persona_loader=loader)
+    register_submit_edict(
+        registry,
+        storage=storage,
+        event_bus=bus,
+        persona_loader=loader,
+        edict_application_service=EdictApplicationService(storage),
+    )
     _, func = registry._tools["submit_edict"]
     result = await func(goal="x", assigned_persona_id="ghost_persona")
     assert result.is_error is True
@@ -89,13 +109,19 @@ async def test_submit_edict_validates_persona_when_loader_provided(storage):
 
 @pytest.mark.asyncio
 async def test_submit_edict_accepts_known_persona(storage):
-    bus = EventBus(storage=storage)
+    bus = EventBus()
     registry = ToolRegistry()
     loader = MagicMock()
     persona = MagicMock()
     persona.id = "bingbu"
     loader.get.return_value = persona
-    register_submit_edict(registry, storage=storage, event_bus=bus, persona_loader=loader)
+    register_submit_edict(
+        registry,
+        storage=storage,
+        event_bus=bus,
+        persona_loader=loader,
+        edict_application_service=EdictApplicationService(storage),
+    )
     _, func = registry._tools["submit_edict"]
     result = await func(goal="部署灰度", assigned_persona_id="bingbu")
     assert result.is_error is False

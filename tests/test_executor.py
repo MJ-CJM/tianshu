@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from tianshu.application.run_dispatcher import AttemptAuthority
 from tianshu.bus.event_bus import EventBus
 from tianshu.executor.executor import Executor
 from tianshu.kernel.hooks import HookRegistry
@@ -68,7 +69,9 @@ class TestExecutor:
         loaded = storage.get_memorial(memorial.id)
         assert loaded.status == TaskStatus.COMPLETED
 
-    async def test_handle_plan_completed(self, executor, event_bus, storage):
+    async def test_legacy_plan_completed_without_binding_fails_closed(
+        self, executor, event_bus, storage
+    ):
         edict = Edict(goal="via event")
         storage.save_edict(edict)
 
@@ -77,15 +80,42 @@ class TestExecutor:
             edict_id=edict.id,
             payload={"plan": {"tasks": [], "priority_order": []}},
         )
-        await executor.handle_plan_completed(event)
+        with pytest.raises(RuntimeError, match="managed run ingress is not configured"):
+            await executor.handle_plan_completed(event)
+        assert storage.list_memorials_by_edict(edict.id) == []
 
-        # Wait for background task
-        import asyncio
+    async def test_execute_attempt_defers_root_terminal_to_fenced_completer(
+        self, executor, event_bus, storage
+    ):
+        edict = Edict(id="edict-managed", goal="managed execution")
+        memorial = Memorial(id="root-managed", edict_id=edict.id, instruction=edict.goal)
+        storage.save_edict(edict)
+        storage.save_memorial(memorial)
+        terminal_events = AsyncMock()
+        event_bus.on(
+            "execution.completed",
+            terminal_events,
+            consumer_name="test.no_unfenced_terminal.v1",
+        )
+        authority = AttemptAuthority(
+            attempt_id="attempt-managed",
+            memorial_id=memorial.id,
+            owner_id="worker",
+            fencing_token=1,
+        )
+        from tianshu.models import Plan, PlanTask
 
-        await asyncio.sleep(0.1)
+        plan = Plan(
+            tasks=[PlanTask(task_id="main", description=edict.goal)],
+            priority_order=["main"],
+        )
 
-        memorials = storage.list_memorials_by_edict(edict.id)
-        assert len(memorials) >= 1
+        projection = await executor.execute_attempt(authority, plan)
+
+        assert projection.status is TaskStatus.COMPLETED
+        assert projection.result == "Task completed"
+        assert storage.get_memorial(memorial.id).status is TaskStatus.RUNNING
+        terminal_events.assert_not_called()
 
     async def test_shutdown(self, executor):
         await executor.shutdown()

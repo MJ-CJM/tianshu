@@ -1,5 +1,7 @@
 {
   "nav": {
+    "control": "中枢总览",
+    "evolution": "演化中心",
     "edictCreate": "颁发敕令",
     "approvals": "御书房",
     "cabinet": "内阁",
@@ -18,7 +20,7 @@
       "edict": "敕令",
       "gov": "政要",
       "growth": "百官",
-      "system": "外朝"
+      "system": "内府"
     },
     "evals": "考成"
   },
@@ -30,10 +32,147 @@
     "switchToDark": "切换深色",
     "switchToLight": "切换浅色"
   },
+  "pageDataState": {
+    "loadingTitle": "正在加载",
+    "loadingDescription": "正在读取最新数据。",
+    "emptyTitle": "暂无数据",
+    "emptyDescription": "当前范围内没有可展示的数据。",
+    "staleTitle": "数据可能已过期",
+    "staleDescription": "刷新失败，暂时保留上一次读取的数据。",
+    "errorTitle": "请求失败",
+    "errorDescription": "数据读取失败。",
+    "permissionTitle": "无权查看此内容",
+    "permissionDescription": "当前身份缺少所需权限。",
+    "unavailableTitle": "服务暂不可用",
+    "unavailableDescription": "服务正在恢复，请稍后重试。",
+    "chunkDescription": "页面资源加载失败，请重试。",
+    "renderDescription": "页面发生异常，请重试。",
+    "correlation": "关联标识",
+    "retry": "重试"
+  },
+  "governanceUi": {
+    "title": "治理契约",
+    "requestedExecutor": "请求执行器",
+    "effectiveExecutor": "生效执行器",
+    "executorLevel": "执行器级别",
+    "executorLevelUnknown": "尚无执行器等第凭据",
+    "containedCaveat": "仅展示可验证的容器边界，不承诺托管级控制。",
+    "capability": "能力",
+    "requested": "请求",
+    "effective": "生效",
+    "mandatoryMismatches": "强制项不匹配",
+    "advisoryGaps": "建议项缺口",
+    "requestedState": {
+      "mandatory": "强制",
+      "advisory": "建议",
+      "unrequested": "未请求"
+    },
+    "effectiveState": {
+      "enforced": "已强制",
+      "best_effort": "尽力而为",
+      "observed": "仅观测",
+      "unsupported": "不支持"
+    }
+  },
+  "decisionUi": {
+    "title": "裁决",
+    "action": "裁决动作",
+    "reason": "裁决理由",
+    "reasonRequired": "必须填写裁决理由",
+    "submit": "提交裁决",
+    "submitFailed": "裁决提交失败",
+    "versionConflict": "裁决已变化，请核对最新版本后重试",
+    "resolvedBy": "裁决人",
+    "resolvedAt": "裁决时间",
+    "status": {
+      "pending": "待裁决",
+      "resolved": "已裁决",
+      "expired": "已过期",
+      "cancelled": "已取消"
+    },
+    "actions": {
+      "approve": "准",
+      "reject": "驳",
+      "amend": "改批",
+      "retry": "重办",
+      "cancel": "撤回",
+      "observe": "观察",
+      "promote": "晋升",
+      "override": "越权放行",
+      "guide": "指导后继续",
+      "continue": "继续",
+      "accept_as_is": "照此验收",
+      "abort": "终止",
+      "modify_acceptance": "修改验收条件"
+    }
+  },
+  "evidenceUi": {
+    "title": "证据包",
+    "version": "版本",
+    "digest": "摘要",
+    "digestPending": "封存后生成",
+    "download": "下载证据包",
+    "executor": "执行器身份",
+    "executorName": "执行器",
+    "executorId": "执行器标识",
+    "executorLevel": "执行器级别",
+    "artifacts": "执行产物",
+    "checks": "验收检查",
+    "policies": "策略记录",
+    "cost": "成本",
+    "environment": "环境",
+    "auditor": "独立审计结论",
+    "missingMandatory": "缺少强制证据",
+    "replayWarning": "重放会创建新的受治理敕令，不会在浏览器执行原命令。",
+    "replay": "受治理重放",
+    "status": {
+      "open": "生成中",
+      "closed": "已封存"
+    },
+    "checkStatus": {
+      "passed": "通过",
+      "failed": "失败",
+      "unavailable": "不可用",
+      "skipped": "已跳过"
+    },
+    "verdict": {
+      "pass": "通过",
+      "fail": "未通过"
+    }
+  },
+  "evolutionUi": {
+    "title": "演化门禁",
+    "blockingGates": "阻断门禁",
+    "version": "版本",
+    "artifactHash": "制品哈希",
+    "promotionAllowed": "允许晋升",
+    "promotionBlocked": "晋升受阻",
+    "rollbackState": "回滚状态",
+    "routingTitle": "权威分流",
+    "routingVersion": "分流版本",
+    "routingUnavailable": "暂无分流记录",
+    "allocation": "挑战者流量",
+    "championAssignments": "冠军分配数",
+    "challengerAssignments": "挑战者分配数",
+    "evidenceHash": "证据哈希",
+    "viewEvidence": "查看门禁证据"
+  },
+  "auth": {
+    "loading": "正在核验身份…",
+    "subtitle": "可治理、可验证、持续成长的自进化 Agent OS",
+    "tokenLabel": "访问令牌",
+    "tokenPlaceholder": "请输入管理员或个人访问令牌",
+    "login": "登录",
+    "invalid": "凭证无效，请重试",
+    "unavailable": "暂时无法核验系统身份",
+    "retry": "重新核验",
+    "currentUser": "当前身份",
+    "logout": "退出登录"
+  },
   "entity": {
     "edict": "敕令",
     "memorial": "奏折",
-    "decree": "朱批"
+    "decree": "裁决"
   },
   "action": {
     "approve": "准",
@@ -42,7 +181,7 @@
     "retry": "重办",
     "amend": "改批",
     "issue": "颁发",
-    "review": "朱批",
+    "review": "裁决",
     "pause": "搁置",
     "resume": "续办",
     "revoke": "撤销",
@@ -56,7 +195,7 @@
   "status": {
     "submitted": "已呈递",
     "running": "办理中",
-    "needs_review": "待朱批",
+    "needs_review": "待裁决",
     "completed": "已完成",
     "failed": "已驳回",
     "cancelled": "已撤回",
@@ -71,8 +210,8 @@
   },
   "phase": {
     "running": "运行中",
-    "needs_review": "待朱批",
-    "idle": "待批示",
+    "needs_review": "待裁决",
+    "idle": "待裁定",
     "no_memorial": "待启动"
   },
   "event": {
@@ -90,14 +229,14 @@
       "edict.closed": "敕令结案",
       "edict.scheduled": "调度排期",
       "plan.completed": "规划完成",
-      "plan.pending_review": "规划待审批",
+      "plan.pending_review": "规划待裁决",
       "plan.approved": "规划已批准",
       "plan.rejected": "规划已驳回",
       "audit.completed": "审计完成",
-      "decree.approved": "朱批：准",
-      "decree.rejected": "朱批：驳",
-      "decree.retry": "朱批：重办",
-      "decree.cancelled": "朱批：撤回",
+      "decree.approved": "裁决：准",
+      "decree.rejected": "裁决：驳",
+      "decree.retry": "裁决：重办",
+      "decree.cancelled": "裁决：撤回",
       "tool.blocked": "工具拦截",
       "edict.audit.executed": "完成审计",
       "edict.continuation.injected": "续转反哺",
@@ -139,10 +278,10 @@
       "title": "办理记录"
     },
     "decree": {
-      "approved": "朱批：准",
-      "rejected": "朱批：驳",
-      "retry": "朱批：重办",
-      "cancelled": "朱批：撤回"
+      "approved": "裁决：准",
+      "rejected": "裁决：驳",
+      "retry": "裁决：重办",
+      "cancelled": "裁决：撤回"
     }
   },
   "lifecycle": {
@@ -257,11 +396,11 @@
       "artifacts": "附件"
     },
     "review": {
-      "pending": "待朱批"
+      "pending": "待裁决"
     }
   },
   "pendingTool": {
-    "title": "工具调用待批",
+    "title": "工具调用待裁决",
     "grantScope": "授权范围",
     "scope": {
       "once": "本次",
@@ -285,7 +424,7 @@
     "submit": "提交"
   },
   "decree": {
-    "title": "朱批",
+    "title": "裁决",
     "memorialId": "奏折 ID",
     "auditResult": "审计结果",
     "okText": {
@@ -308,6 +447,57 @@
     "all": "全部阶段"
   },
   "page": {
+    "onboarding": {
+      "title": "初启中枢",
+      "resourcesTitle": "核验预置资源",
+      "resourcesDescription": "下列部司角色与技能皆据当前服务实录。",
+      "departmentsTitle": "预置部门",
+      "skillsTitle": "内置技能",
+      "profileTitle": "确认运行配置",
+      "profileDescription": "请明示确认当前服务所报运行配置，再创建首道敕令。",
+      "demoLabel": "演示配置",
+      "liveLabel": "正式配置",
+      "demoDescription": "演示配置采用确定性模拟提供商，零成本运行且无须外部模型密钥；不会暗中改用正式提供商。",
+      "liveDescription": "正式配置采用服务端当前启用的真实提供商与凭据。",
+      "degradedTitle": "服务现处降级状态",
+      "degradedDescription": "当前服务尚能响应，惟部分能力或不可用。请核验契约预览。",
+      "edictTitle": "创建首道治理敕令",
+      "edictDescription": "下发前须核验请求契约与服务端计算之生效契约。"
+    },
+    "controlCenter": {
+      "statusTitle": "治理态势",
+      "lastUpdated": "最近更新",
+      "readinessReady": "运行就绪",
+      "readinessDegraded": "服务降级",
+      "evolutionNotEnabled": "尚未启用",
+      "realCounts": "中枢真实计数",
+      "activeRunsMetric": "活跃运行总数",
+      "pendingDecisionsMetric": "待裁决总数",
+      "evidenceMetric": "证据束总数",
+      "activeRunsTitle": "进行中的治理运行",
+      "pendingDecisionsTitle": "当前待裁决",
+      "recentEvidenceTitle": "近期证据",
+      "activeRunsEmpty": "当前没有进行中的治理运行。",
+      "pendingDecisionsEmpty": "当前没有待裁决事项。",
+      "recentEvidenceEmpty": "当前还没有可核验的证据束。",
+      "viewEdict": "查看敕令",
+      "deadline": "截止",
+      "viewDecision": "查看并裁决",
+      "evidenceClosed": "已封存",
+      "evidenceOpen": "生成中",
+      "downloadEvidence": "下载证据",
+      "evidenceAwaitingClose": "等待封存"
+    },
+    "evolutionCenter": {
+      "notEnabledTitle": "尚未启用",
+      "notEnabledReason": "S5 受治理演化尚未启用；当前没有候选、分流或门禁结果。",
+      "reasonCode": "原因码",
+      "statusTitle": "演化状态",
+      "enabled": "已启用",
+      "degraded": "降级",
+      "lastGateHash": "最近门禁哈希",
+      "candidatesTitle": "演化候选"
+    },
     "edictDetail": {
       "title": "敕令详情",
       "notFound": "未见此敕令",
@@ -323,12 +513,30 @@
       },
       "planApprove": "准（执行此方案）",
       "planReject": "驳（驳回方案）",
-      "decreePrompt": "有奏折待朱批，请选择操作：",
+      "decreePrompt": "有奏折待裁决，请选择操作：",
       "followupTitle": "继续批示",
       "followupPlaceholder": "输入后续指令...",
       "followupSubmit": "继续批示 (Ctrl+Enter)",
       "closeButton": "结案",
       "cancelButton": "废除",
+      "durable": {
+        "workspaceTitle": "持久治理案牍",
+        "effectivePending": "尚未成实授治理契约。",
+        "runStateTitle": "行止实录",
+        "runsEmpty": "尚无治理运行实录。",
+        "decisionsTitle": "持久裁决",
+        "decisionsEmpty": "尚无持久裁决实录。",
+        "evidenceTitle": "可验凭据",
+        "evidenceEmpty": "尚无可验凭据包。",
+        "memorial": "奏折",
+        "phase": "阶段",
+        "version": "版本",
+        "sideEffectCursor": "副作用游标",
+        "checkpoint": "检查点",
+        "planLineage": "筹划修订谱系",
+        "yes": "是",
+        "no": "否"
+      },
       "confirmClose": {
         "title": "确认结案？",
         "description": "结案后将无法继续下达指令"
@@ -378,11 +586,11 @@
     "sessionRules": {
       "title": "权印司",
       "alertTitle": "Session Rules 是工具调用的免审令牌",
-      "alertDesc": "当你在御书房朱批工具调用时选择「本敕令」或「全局」范围，系统会自动创建 session rule。你也可以手动添加规则来预配置免审权限。注意：shell_exec/bash 工具不允许设为全局免审。",
+      "alertDesc": "当你在御书房裁决工具调用时选择「本敕令」或「全局」范围，系统会自动创建 session rule。你也可以手动添加规则来预配置免审权限。注意：shell_exec/bash 工具不允许设为全局免审。",
       "addRule": "添加规则",
       "addModalTitle": "添加免审规则",
       "summary": "共 {n} 条规则",
-      "empty": "暂无规则 — 点击右上角「添加规则」手动创建，或在御书房朱批时选择「本敕令/全局」自动生成"
+      "empty": "暂无规则 — 点击右上角「添加规则」手动创建，或在御书房裁决时选择「本敕令/全局」自动生成"
     }
   },
   "form": {
@@ -411,7 +619,7 @@
         "executionMode": "执行方式",
         "assignedPersona": "执行官员",
         "plannerPersona": "规划官（可选）",
-        "planReview": "规划审批",
+        "planReview": "规划裁决",
         "scheduleType": "调度方式",
         "cronExpr": "Cron 表达式",
         "scheduleAt": "执行时间",
@@ -479,7 +687,7 @@
       },
       "tooltip": {
         "plannerPersona": "选择使用哪位内阁官员进行规划，不同官员可使用不同的 LLM",
-        "planReview": "开启后，规划方案需人工审批通过后才会执行",
+        "planReview": "开启后，规划方案需人工裁决通过后才会执行",
         "longTaskEnabled": "启用后 edict 走 actor → checks → critic 的多轮迭代路径，可自驱收敛；不启用则走单回合 agent loop（默认）",
         "templatePreset": "一键填入常用配置；填完仍可在下方继续微调",
         "executionProfile": "foreground=同进程；checkpointed=每轮 checkpoint 可续跑；background=后台跑（用户可关页面）",
@@ -491,7 +699,7 @@
         "onCriticUnavailable": "critic LLM 调用全部失败的兜底",
         "criticPersonas": "谁来监督任务质量。多选时每轮并发评审，按'全过则过'聚合；任意一位 FAIL 即不过。终态后每位监督官独立产出监督报告。",
         "sameIssueThreshold": "critic 连续 N 轮报同类问题（issue_class）则升 L1",
-        "executor": "native=自研引擎(默认);keqing:*=遣外府客卿(Claude Code/Codex)办差,全程受朝廷节制(批红/核验/度支/影卷)"
+        "executor": "native=自研引擎(默认);keqing:*=外府客卿(Claude Code/Codex，contained + experimental)：只保证独立工作目录、clean-env、外围 timeout 与事后审计；不保证事前工具拦截、硬成本上限或运行前恢复点"
       },
       "option": {
         "autoPlanning": "内阁决策（自动规划分配）",
@@ -516,7 +724,42 @@
       },
       "warning": {
         "criticSelfReviewTitle": "执行官与监督官重合",
-        "criticSelfReviewDesc": "同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议监督官选用都察院 / 文渊阁等不参与执行的 persona。"
+        "criticSelfReviewDesc": "同一位 persona 既执行又自我审议，会显著降低 critic 的客观性（自我评判倾向高 PASS）。建议监督官选用都察院 / 文渊阁等不参与执行的 persona。",
+        "governanceBlocked": "契约预检未通过，执行器无法强制能力：{capabilities}",
+        "governanceAdvisory": "以下建议能力仅为尽力或观测状态：{capabilities}",
+        "governanceReview": "请核验请求契约与生效契约后再行下发。",
+        "governanceUnavailable": "暂时无法完成治理契约预检，请稍后重试。",
+        "governanceEffectiveMissing": "治理预检未返回生效契约，已中止下发。",
+        "governanceRequestedTitle": "请求契约",
+        "governanceEffectiveContractTitle": "生效契约",
+        "governanceExecutorLabel": "执行器",
+        "governanceCapabilitiesLabel": "能力要求",
+        "governanceCapabilitiesValue": "强制：{mandatory}；建议：{advisory}",
+        "governanceAllowedPathsLabel": "许可路径",
+        "governanceWorkspaceLabel": "工作区来源",
+        "governanceRevisionLabel": "基准版本",
+        "governanceNetworkLabel": "网络模式",
+        "governanceHostsLabel": "许可主机",
+        "governanceReviewPolicyLabel": "审议策略",
+        "governanceBudgetLabel": "预算",
+        "governanceBudgetValue": "令牌 {tokens}；成本 {cost}；时限 {seconds} 秒",
+        "governanceAcceptanceLabel": "验收检查",
+        "governanceDeadlineLabel": "验收期限（秒）",
+        "governanceExhaustionLabel": "超限处置",
+        "governanceRecoveryLabel": "恢复策略",
+        "governanceRecoveryValue": "恢复点 {restore}；失败清理 {cleanup}；应用失败回滚 {rollback}",
+        "governanceLevelLabel": "治理级别",
+        "governanceControlsLabel": "能力状态",
+        "governanceCapabilitySupportLabel": "生效能力支持",
+        "governanceHashLabel": "请求契约摘要",
+        "governanceEffectiveTitle": "生效契约摘要",
+        "governanceEffectiveExecutor": "执行器：{executor}",
+        "governanceEffectiveLevel": "治理级别：{level}",
+        "governanceEffectiveControls": "能力状态：强制 {enforced} · 尽力 {bestEffort} · 观测 {observed} · 不支持 {unsupported}",
+        "governanceEffectiveHash": "请求契约：{hash}",
+        "governanceContinue": "知悉风险，继续下发",
+        "governanceConfirm": "确认契约并下发",
+        "governanceRevise": "返回修改"
       },
       "expertMode": "详参",
       "expertHint": "逐项细调(既择类别,通常无须展开)",
@@ -599,7 +842,7 @@
       "edict": "敕令级"
     },
     "source": {
-      "approval": "审批授予",
+      "approval": "裁决授予",
       "profile": "策略模板",
       "manual": "手动添加"
     },
@@ -616,13 +859,13 @@
     },
     "sourceFilter": {
       "all": "全部来源",
-      "approval": "审批授予",
+      "approval": "裁决授予",
       "profile": "策略模板",
       "manual": "手动添加"
     },
     "popconfirm": {
       "title": "确定撤销此规则？",
-      "description": "撤销后相关工具调用将重新需要审批"
+      "description": "撤销后相关工具调用将重新需要裁决"
     }
   },
   "priority": {
@@ -699,6 +942,8 @@
   "toast": {
     "toolApproved": "已放行 {tool}",
     "toolApprovedWithRule": "已放行并写入 session rule ({scope})",
+    "toolAlreadyDecided": "已由其他通道裁决：{action}（{scope}）",
+    "toolScopeDowngraded": "已放行 {tool}；请求的 {requestedScope} 已按安全策略降级为 {scope}",
     "toolRejected": "已拒绝 {tool}",
     "actionFailed": "操作失败",
     "planApproved": "规划方案已批准，开始执行",
@@ -817,7 +1062,7 @@
       "title": "Policy Timeline",
       "filterAll": "全部事件",
       "filterPolicy": "策略决策 (policy.*)",
-      "filterApproval": "工具审批 (tool.approval_required)",
+      "filterApproval": "工具裁决 (tool.approval_required)",
       "filterDecree": "决策令 (decree.*)",
       "filterHook": "Hook 事件 (hook.*)",
       "emptyAll": "暂无策略事件",
@@ -829,7 +1074,7 @@
       "allowedHosts": "允许调用的 API host",
       "allowedHostsDesc": "api_request 工具仅允许访问这些 host",
       "hostPlaceholder": "从已有凭证选择或输入 host",
-      "allowWrite": "允许写方法 (POST/PUT/DELETE/PATCH) — 需要审批",
+      "allowWrite": "允许写方法 (POST/PUT/DELETE/PATCH) — 需要裁决",
       "writeHosts": "允许写入的 host（必须是上面列表的子集）",
       "writeHostPlaceholder": "从上面的 host 中选择"
     },
@@ -862,8 +1107,8 @@
       "pathsPlaceholder": "每行一条，例如：\nsrc/**\ntests/**",
       "bashLabel": "允许 Bash 前缀",
       "bashPlaceholder": "每行一条，例如：\ngit status\nls\npytest",
-      "autoApproveLabel": "自动放行最高 Tier",
-      "autoApproveTooltip": "Tier ≤ 该值的工具将自动放行，不需要审批",
+      "autoApproveLabel": "自动裁决最高 Tier",
+      "autoApproveTooltip": "规则将对 Tier ≤ 该值的工具自动作出允许裁决，不再请求人工裁决",
       "expiresLabel": "规则有效期 (秒)",
       "expiresTooltip": "留空表示永久有效（直到敕令结束）",
       "expiresPlaceholder": "留空 = 永久",
@@ -906,17 +1151,20 @@
       }
     },
     "edictActivity": {
-      "pendingTool": "工具待批 ({n})",
+      "pendingTool": "工具待裁决 ({n})",
       "createdAt": "创建于 {time}",
       "initializing": "正在初始化…",
       "executing": "执行中…",
-      "auditReasons": "审计原因："
+      "auditReasons": "审计原因：",
+      "openDecision": "前往权威裁决"
     },
     "appHeader": {
       "brand": "天枢",
       "tagline": "成功只有一个——按照自己的方式，去度过人生。"
     },
     "healthDot": {
+      "degraded": "通政(降)",
+      "demo": "【演示】",
       "ok": "通政",
       "err": "断讯"
     },
@@ -959,7 +1207,7 @@
     "policyToast": {
       "downgradedTitle": "永久授权已降级为本次",
       "downgradedDescDefault": "{tool} 不支持 always 授权，已降级为 once。",
-      "approvalRequired": "需要审批",
+      "approvalRequired": "需要裁决",
       "policyDeny": "Policy 拒绝",
       "fallbackTool": "该工具"
     },
@@ -1092,7 +1340,8 @@
       "goto": "前往藏兵阁",
       "desc1": "外部 API 凭证（GitHub / Notion / ...）由",
       "desc2": " 藏兵阁 · 外部凭证 ",
-      "desc3": "加密托管（Fernet 对称加密，主密钥来自 env）。LLM 全程不可见 credential value，只按 host 匹配自动注入 Authorization header。"
+      "desc3": "加密托管（Fernet 对称加密，主密钥来自 env）。LLM 全程不可见 credential value，只按 host 匹配自动注入 Authorization header。",
+      "viewAll": "查看全部"
     },
     "recent": {
       "viewAll": "查看全部",
@@ -1148,7 +1397,7 @@
       "allowedUsers": "允许用户（Allowlist）",
       "allowedUsersExtra": "逗号分隔的 open_id；留空 = 任何人都放行（与 hermes 一致）。生产环境建议填写以避免误开放。",
       "homeChannel": "Home 频道（可选）",
-      "homeChannelExtra": "cron 触发结果与无源敕令审批的兜底 chat_id",
+      "homeChannelExtra": "cron 触发结果与无源敕令裁决的兜底 chat_id",
       "botOpenId": "机器人 Open ID（群 @ 检测）",
       "encryptKey": "加密密钥（Webhook 模式）",
       "verificationToken": "校验 Token（Webhook 模式）",
@@ -1196,7 +1445,7 @@
         "tip1": "在 @BotFather 创建机器人获取 Bot Token",
         "tip2": "默认长轮询（polling）无需公网；webhook 需公网 HTTPS + Secret",
         "tip3": "allowlist 为空 = 放行任意用户，生产环境务必配置",
-        "tip4": "Home 频道用于 cron 结果 / 无源审批兜底（私聊或群 chat_id，群为负数）"
+        "tip4": "Home 频道用于 cron 结果 / 无源裁决兜底（私聊或群 chat_id，群为负数）"
       },
       "field": {
         "botToken": "Bot Token",
@@ -1207,7 +1456,7 @@
         "allowedUsers": "允许用户（user_id，逗号分隔）",
         "allowedUsersExtra": "Telegram 数字 user_id；空 = 放行任意",
         "homeChannel": "Home 频道（可选）",
-        "homeChannelExtra": "cron / 无源审批兜底 chat_id",
+        "homeChannelExtra": "cron / 无源裁决兜底 chat_id",
         "webhookPath": "Webhook 路径",
         "webhookSecret": "Webhook Secret",
         "pollTimeout": "长轮询超时（秒）",

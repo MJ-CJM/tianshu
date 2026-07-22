@@ -27,6 +27,7 @@ import {
   type PersonaSummary,
 } from "../../api/tongzheng";
 import { useT, type TFunction } from "../../i18n";
+import { isApiProblem } from "../../api/client";
 
 type ChannelType = "feishu" | "telegram";
 
@@ -66,7 +67,7 @@ const TELEGRAM_CONFIG_FIELDS = [
 const FEISHU_DEFAULTS = {
   domain: "feishu",
   connection_mode: "websocket",
-  webhook_path: "/feishu/webhook",
+  webhook_path: "/channels/feishu/webhook",
   ws_reconnect_interval: 120,
   text_batch_delay: 0.6,
   dedup_cache_size: 2048,
@@ -77,7 +78,7 @@ const FEISHU_DEFAULTS = {
 
 const TELEGRAM_DEFAULTS = {
   connection_mode: "polling",
-  webhook_path: "/telegram/webhook",
+  webhook_path: "/channels/telegram/webhook",
   poll_timeout: 30,
   text_batch_delay: 0.6,
   dedup_cache_size: 2048,
@@ -90,10 +91,13 @@ function isDefaultInstance(id: string): boolean {
 }
 
 function notifyError(t: TFunction, err: unknown) {
-  const e = err as { response?: { data?: { detail?: string } }; message?: string };
   notification.error({
     message: t("tongzheng.toast.saveFailed"),
-    description: e?.response?.data?.detail ?? e?.message ?? String(err),
+    description: isApiProblem(err)
+      ? err.message
+      : err instanceof Error
+        ? err.message
+        : String(err),
   });
 }
 
@@ -303,7 +307,7 @@ function FeishuFields({ t, personaOptions }: FieldsProps) {
         />
       </Form.Item>
       <Form.Item label={t("tongzheng.field.webhookPath")} name="webhook_path">
-        <Input placeholder="/feishu/webhook" />
+        <Input placeholder="/channels/feishu/webhook" />
       </Form.Item>
       <Form.Item
         label={t("tongzheng.field.allowedUsers")}
@@ -412,7 +416,7 @@ function TelegramFields({ t, personaOptions }: FieldsProps) {
         <Input placeholder={t("tongzheng.tg.placeholder.homeChannel")} />
       </Form.Item>
       <Form.Item label={t("tongzheng.tg.field.webhookPath")} name="webhook_path">
-        <Input placeholder="/telegram/webhook" />
+        <Input placeholder="/channels/telegram/webhook" />
       </Form.Item>
       <Form.Item
         label={t("tongzheng.tg.field.webhookSecret")}

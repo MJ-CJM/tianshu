@@ -71,7 +71,9 @@ class MemoryManager:
         self._memory_config = memory_config or MemoryConfig()
 
         if personas_dir is None:
-            personas_dir = Path(__file__).parent.parent.parent.parent / "personas"
+            from tianshu.resources.overlay import packaged_defaults
+
+            personas_dir = packaged_defaults().personas_dir()
         self._personas_dir = personas_dir
 
         if memory_dir is None:

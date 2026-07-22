@@ -24,6 +24,7 @@ import {
   type TelegramChannelConfig,
 } from "../../api/tongzheng";
 import { useT } from "../../i18n";
+import { isApiProblem } from "../../api/client";
 
 /**
  * Telegram 通道配置表单（与飞书并列，自包含 query/mutation）。
@@ -80,10 +81,13 @@ export default function TelegramChannelForm() {
       qc.invalidateQueries({ queryKey: ["tongzheng"] });
     },
     onError: (err: unknown) => {
-      const e = err as { response?: { data?: { detail?: string } }; message?: string };
       notification.error({
         message: t("tongzheng.toast.saveFailed"),
-        description: e?.response?.data?.detail ?? e?.message ?? String(err),
+        description: isApiProblem(err)
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err),
       });
     },
   });
@@ -100,7 +104,7 @@ export default function TelegramChannelForm() {
       style={{ marginTop: 16 }}
       initialValues={{
         connection_mode: "polling",
-        webhook_path: "/telegram/webhook",
+        webhook_path: "/channels/telegram/webhook",
         poll_timeout: 30,
         text_batch_delay: 0.6,
         dedup_cache_size: 2048,
@@ -168,7 +172,7 @@ export default function TelegramChannelForm() {
           </Col>
           <Col span={12}>
             <Form.Item label={t("tongzheng.tg.field.webhookPath")} name="webhook_path">
-              <Input placeholder="/telegram/webhook" />
+              <Input placeholder="/channels/telegram/webhook" />
             </Form.Item>
           </Col>
         </Row>

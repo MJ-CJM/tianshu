@@ -2,9 +2,28 @@
 
 from __future__ import annotations
 
-from collections import deque
+from collections import Counter, deque
+from collections.abc import Sequence
 
 from tianshu.models.dag import DAGExecution, DAGNode, DAGNodeStatus
+
+
+def validate_dag_structure(nodes: Sequence[DAGNode]) -> None:
+    """Validate node identity, dependency references, and acyclicity without mutation."""
+    node_ids = [node.node_id for node in nodes]
+    duplicates = sorted(node_id for node_id, count in Counter(node_ids).items() if count > 1)
+    if duplicates:
+        raise ValueError(f"Duplicate DAG node ids: {', '.join(duplicates)}")
+
+    known = set(node_ids)
+    unknown = sorted({dependency for node in nodes for dependency in node.depends_on} - known)
+    if unknown:
+        raise ValueError(f"Unknown DAG dependencies: {', '.join(unknown)}")
+
+    DAG(
+        {node.node_id: node for node in nodes},
+        {node.node_id: list(node.depends_on) for node in nodes},
+    ).topological_sort()
 
 
 class DAG:

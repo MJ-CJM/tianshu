@@ -15,7 +15,7 @@ export default function AppLayout() {
   return (
     <Layout className={styles.root}>
       <AppHeader isWsConnected={isConnected} />
-      <Layout>
+      <Layout className={styles.body}>
         <AppSidebar />
         <Layout.Content className={styles.content}>
           <Outlet />
