@@ -29,6 +29,8 @@ from tianshu.executor.capabilities import (
     claude_code_manifest,
     codex_manifest,
     native_manifest,
+    opencode_manifest,
+    pi_manifest,
 )
 from tianshu.executor.execution_gateway import ExecutionGateway
 from tianshu.executor.managed_tools import ManagedRunSuspended
@@ -102,8 +104,11 @@ class Executor:
         )
         # 迭代 3.5「客卿」:外部 CLI 执行器(runtime.executor=keqing:<agent> 时路由)
         from tianshu.executor.keqing import KeqingExecutor
+        from tianshu.executor.keqing.session_executor import KeqingSessionExecutor
 
         self._keqing = KeqingExecutor(execution_gateway=self._execution_gateway)
+        # pi 走 RPC 会话档(follow_up 验收回灌);单发 PiAdapter 仍在 _REGISTRY 作降级 + grant 校验。
+        self._keqing_session = KeqingSessionExecutor(execution_gateway=self._execution_gateway)
         self._adapter_registry = ExecutorAdapterRegistry(
             (
                 DelegatingExecutorAdapter(
@@ -114,6 +119,16 @@ class Executor:
                 DelegatingExecutorAdapter(
                     adapter_id="keqing:codex",
                     manifest=codex_manifest(),
+                    delegate=self._keqing,
+                ),
+                DelegatingExecutorAdapter(
+                    adapter_id="keqing:pi",
+                    manifest=pi_manifest(),
+                    delegate=self._keqing_session,
+                ),
+                DelegatingExecutorAdapter(
+                    adapter_id="keqing:opencode",
+                    manifest=opencode_manifest(),
                     delegate=self._keqing,
                 ),
             )

@@ -14,7 +14,7 @@ from tianshu.executor.keqing.adapter import (
 
 class TestRegistry:
     def test_list_and_get(self):
-        assert list_adapters() == ["claude-code", "codex"]
+        assert list_adapters() == ["claude-code", "codex", "opencode", "pi"]
         assert isinstance(get_adapter("claude-code"), ClaudeCodeAdapter)
         assert isinstance(get_adapter("codex"), CodexAdapter)
         assert get_adapter("ghost") is None

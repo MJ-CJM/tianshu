@@ -42,6 +42,14 @@ def _runtime_secret_resolver(settings: TianshuSettings):
             return setting_refs[ref] or None
         if ref.startswith("settings:"):
             return None
+        if ref == "keqing-run:gateway-token":
+            # 客卿 scoped token:会话执行器 spawn 前铸并 set 到 contextvar(同 task 可见)。
+            # raw provider key 永不经此——客卿只拿这个一次性网关 token。
+            from tianshu.secrets.scoped_token import get_current_run_token
+
+            return get_current_run_token()
+        if ref.startswith("keqing-run:"):
+            return None
         return os.environ.get(ref)
 
     return resolve

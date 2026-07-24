@@ -645,8 +645,18 @@ class ExecutionGateway:
                 "reserved_secret_namespace",
                 "settings secret references are reserved for governed Universe execution",
             )
+        # keqing-run: 是天枢逐 run 铸造的 scoped token 命名空间(客卿 LLM 出口凭证)。
+        # 仅 keqing purpose 可用;且由天枢自身铸造(非用户/repo 供给),故豁免 contract
+        # 声明的 subset 检查——但其余所有 ref 仍须在 contract 授予集内。
+        keqing_run_refs = {ref for ref in requested_refs if ref.startswith("keqing-run:")}
+        if keqing_run_refs and request.purpose != "keqing":
+            self._deny(
+                "environment",
+                "reserved_secret_namespace",
+                "keqing-run secret references are reserved for keqing execution",
+            )
         declared_refs = set(request.effective_contract.permissions.secret_refs)
-        if not requested_refs.issubset(declared_refs):
+        if not (requested_refs - keqing_run_refs).issubset(declared_refs):
             self._deny("environment", "secret_not_granted", "secret reference is not in contract")
         explicit_names = {item.name for item in request.environment.values}
         if explicit_names and request.purpose not in {"universe_gate", "universe_sandbox"}:

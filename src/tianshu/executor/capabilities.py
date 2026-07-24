@@ -403,8 +403,33 @@ def codex_manifest() -> ExecutorCapabilityManifestV1:
     )
 
 
+def pi_manifest() -> ExecutorCapabilityManifestV1:
+    # pi(pi-mono, MIT, 多 provider)——天枢默认客卿。单发档预算走事后成本熔断(BEST_EFFORT);
+    # P3 网关就位后预算硬熔断上移至网关 402,此处可升级为 ENFORCED。
+    return _keqing_manifest(
+        "keqing:pi",
+        "Pi CLI",
+        budget_state=CapabilityState.BEST_EFFORT,
+    )
+
+
+def opencode_manifest() -> ExecutorCapabilityManifestV1:
+    # opencode(sst/opencode)——单发客卿。预算走事后成本熔断(OBSERVED,同 codex)。
+    return _keqing_manifest(
+        "keqing:opencode",
+        "OpenCode CLI",
+        budget_state=CapabilityState.OBSERVED,
+    )
+
+
 def default_executor_manifests() -> tuple[ExecutorCapabilityManifestV1, ...]:
-    return native_manifest(), claude_code_manifest(), codex_manifest()
+    return (
+        native_manifest(),
+        claude_code_manifest(),
+        codex_manifest(),
+        pi_manifest(),
+        opencode_manifest(),
+    )
 
 
 def get_executor_manifest(adapter_id: str) -> ExecutorCapabilityManifestV1:

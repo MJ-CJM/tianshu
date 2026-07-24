@@ -187,10 +187,100 @@ class CodexAdapter:
         return r
 
 
+class OpenCodeAdapter:
+    """opencode headless:`opencode run --format json <prompt>`。
+
+    json 模式逐行输出 `{type, timestamp, sessionID, ...data}`:
+    - ``message.part.updated`` 带 ``part``:type=text(终态 part.time.end)取文本;
+      type=tool(state.status=completed/error)记工具事件。
+    - ``message.updated``(info.role=assistant):取 info.tokens / info.cost。
+    宽容解析——opencode 事件 schema 随版本演进,字段对不上时降级不崩(同 codex 惯例);
+    生产使用前建议按实际 opencode 版本校准字段名。
+    """
+
+    name = "opencode"
+    # opencode 自管凭证(自己的 provider 配置/登录);天枢 clean-env 只放行这些候选变量。
+    auth_env_vars = (
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "GEMINI_API_KEY",
+        "GROQ_API_KEY",
+    )
+
+    def build_argv(self, prompt: str, *, model: str | None = None) -> list[str]:
+        argv = ["opencode", "run", "--format", "json", prompt]
+        if model:
+            argv += ["--model", model]
+        return argv
+
+    def is_canonical_argv(self, argv: Sequence[str]) -> bool:
+        values = tuple(argv)
+        return (
+            len(values) in {5, 7}
+            and Path(values[0]).name == "opencode"
+            and values[1:4] == ("run", "--format", "json")
+            and bool(values[4])
+            and (len(values) == 5 or (values[5] == "--model" and bool(values[6])))
+        )
+
+    def parse_stream(self, lines: list[str]) -> KeqingRunResult:
+        r = KeqingRunResult()
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            etype = evt.get("type")
+            if etype == "message.part.updated":
+                part = evt.get("part") or {}
+                ptype = part.get("type")
+                if ptype == "text" and (part.get("time") or {}).get("end"):
+                    text = (part.get("text") or "").strip()
+                    if text:
+                        r.final_text = text
+                elif ptype == "tool":
+                    state = part.get("state") or {}
+                    if state.get("status") in ("completed", "error"):
+                        r.tool_events.append(
+                            {"type": "tool.called", "tool": part.get("tool", "?")}
+                        )
+                        if state.get("status") == "error":
+                            r.is_error = True
+            elif etype == "message.updated":
+                info = evt.get("info") or {}
+                if info.get("role") == "assistant":
+                    tokens = info.get("tokens") or {}
+                    r.input_tokens = _as_int(tokens.get("input")) or r.input_tokens
+                    r.output_tokens = _as_int(tokens.get("output")) or r.output_tokens
+                    cost = info.get("cost")
+                    if isinstance(cost, int | float):
+                        r.cost_usd = float(cost)
+        return r
+
+
 _REGISTRY: dict[str, KeqingAdapter] = {
     ClaudeCodeAdapter.name: ClaudeCodeAdapter(),
     CodexAdapter.name: CodexAdapter(),
+    OpenCodeAdapter.name: OpenCodeAdapter(),
 }
+
+
+def _register_session_backends() -> None:
+    """会话/多档 backend(pi 等)在独立模块;延迟 import 破循环后注册进 _REGISTRY。
+
+    pi_adapter 反向 import 本模块的 KeqingRunResult/_as_int,故在此末尾延迟注册,
+    避免模块级循环 import。
+    """
+    from tianshu.executor.keqing.pi_adapter import PiAdapter
+
+    _REGISTRY.setdefault(PiAdapter.name, PiAdapter())
+
+
+_register_session_backends()
 
 
 def get_adapter(name: str) -> KeqingAdapter | None:

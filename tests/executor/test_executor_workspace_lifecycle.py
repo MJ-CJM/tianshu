@@ -20,6 +20,8 @@ from tianshu.executor.capabilities import (
     claude_code_manifest,
     codex_manifest,
     native_manifest,
+    opencode_manifest,
+    pi_manifest,
 )
 from tianshu.executor.executor import Executor
 from tianshu.executor.git_backend import GitBackend
@@ -1181,12 +1183,20 @@ async def test_outer_loop_failure_and_cancellation_capture_then_close(
         ("keqing:claude-code", claude_code_manifest, "rollback"),
         ("keqing:codex", codex_manifest, "success"),
         ("keqing:codex", codex_manifest, "rollback"),
+        ("keqing:pi", pi_manifest, "success"),
+        ("keqing:pi", pi_manifest, "rollback"),
+        ("keqing:opencode", opencode_manifest, "success"),
+        ("keqing:opencode", opencode_manifest, "rollback"),
     ],
     ids=[
         "keqing:claude-code-success",
         "keqing:claude-code-rollback",
         "keqing:codex-success",
         "keqing:codex-rollback",
+        "keqing:pi-success",
+        "keqing:pi-rollback",
+        "keqing:opencode-success",
+        "keqing:opencode-rollback",
     ],
 )
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
