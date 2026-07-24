@@ -9,7 +9,11 @@ revert 是危险动作(覆盖工作区文件),但影子仓独立于用户 .git,�
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -21,12 +25,108 @@ logger = logging.getLogger(__name__)
 
 keqing_router = APIRouter(tags=["keqing"])
 
+# 客卿 backend → CLI 二进制名(只读体检用)。
+_BACKEND_BINARY = {
+    "pi": "pi",
+    "claude-code": "claude",
+    "codex": "codex",
+    "opencode": "opencode",
+}
+
 
 @keqing_router.get("/keqing/agents")
 def get_keqing_agents():
     """可用客卿 backend 列表(前端执行器下拉:native + keqing:<agent>)。"""
     agents = ["native"] + [f"keqing:{name}" for name in list_adapters()]
     return ApiResponse(success=True, data=agents)
+
+
+def _detect_installed_version(binary: str) -> str | None:
+    """从 CLI 的 package.json **读文件**取安装版本(不 spawn 进程,遵守进程启动守卫)。
+
+    npm 全局装的 CLI:bin 符号链接 → realpath 落在包目录内,向上找 package.json 读 version。
+    非 npm 布局/找不到 → None。best-effort,任何异常吞掉。
+    """
+    path = shutil.which(binary)
+    if not path:
+        return None
+    try:
+        real = Path(os.path.realpath(path))
+        for parent in [real, *real.parents][:6]:
+            pkg = parent / "package.json"
+            if pkg.is_file():
+                data = json.loads(pkg.read_text(encoding="utf-8"))
+                ver = data.get("version")
+                return str(ver) if ver else None
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def _pinned_version(backend: str) -> str | None:
+    if backend == "pi":
+        from tianshu.executor.keqing.pi_wire import PINNED_PI_VERSION
+
+        return PINNED_PI_VERSION
+    return None
+
+
+def _capabilities(backend: str) -> dict | None:
+    if backend == "pi":
+        from tianshu.executor.keqing.pi_adapter import PiSessionAdapter
+
+        c = PiSessionAdapter.capabilities
+        return {
+            "permission_shaping": c.permission_shaping,
+            "hooks": c.hooks,
+            "stop_gate": c.stop_gate,
+            "session_resume": c.session_resume,
+            "interject": c.interject,
+            "usage_reporting": c.usage_reporting,
+        }
+    return None  # 单发档(claude-code/codex)能力见 manifest,本页只展示会话客卿能力声明
+
+
+@keqing_router.get("/keqing/status")
+def get_keqing_status(request: Request):
+    """客卿健康体检(只读):安装/版本漂移/能力声明/凭证来源。
+
+    客卿=外臣:本页展示的是「外聘人才」的能力与治理状态,**不含**人格/京察/自进化
+    (那是百官品类)。不读/不存 raw 凭证明文,凭证栏只报来源。
+    """
+    cm = request.app.state.config_manager
+    gateway_enabled = bool(getattr(cm.agent_config, "keqing_gateway_enabled", False))
+    backends = []
+    for name in list_adapters():
+        binary = _BACKEND_BINARY.get(name, name)
+        installed_version = _detect_installed_version(binary)
+        pinned = _pinned_version(name)
+        drift = (
+            installed_version is not None
+            and pinned is not None
+            and installed_version != pinned
+        )
+        # 客卿=外臣,自管凭证(自己 pi /login 或本地 CLI 配置);天枢**不管**客卿凭证——
+        # 唯一例外是开启凭证网关(天枢托管 scoped token)。故凭证来源只两态:
+        # 客卿自管(默认,天枢不碰)/ 网关托管(天枢注入 scoped token)。
+        credential_status = "gateway" if gateway_enabled else "self-managed"
+        backends.append(
+            {
+                "id": f"keqing:{name}",
+                "backend": name,
+                "binary": binary,
+                "installed": installed_version is not None,
+                "installed_version": installed_version,
+                "pinned_version": pinned,
+                "version_drift": drift,
+                "capabilities": _capabilities(name),
+                "credential_status": credential_status,
+            }
+        )
+    return ApiResponse(
+        success=True,
+        data={"backends": backends, "gateway_enabled": gateway_enabled},
+    )
 
 
 @keqing_router.get("/edicts/{edict_id}/snapshots")

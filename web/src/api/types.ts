@@ -366,6 +366,11 @@ export interface AgentConfig {
   agent_token_budget: number | null;
   agent_cost_budget_cny: number | null;
   skills_char_budget: number;
+  // 客卿治理默认(外聘 coding agent)
+  keqing_default_model?: string;
+  keqing_gateway_enabled?: boolean;
+  keqing_per_run_budget_cny?: number;
+  keqing_model_allowlist?: string;
 }
 
 export interface AgentConfigUpdateRequest {
@@ -376,6 +381,38 @@ export interface AgentConfigUpdateRequest {
   agent_token_budget?: number | null;
   agent_cost_budget_cny?: number | null;
   skills_char_budget?: number;
+  keqing_default_model?: string;
+  keqing_gateway_enabled?: boolean;
+  keqing_per_run_budget_cny?: number;
+  keqing_model_allowlist?: string;
+}
+
+// --- 客卿(keqing)健康状态 ---
+
+export interface KeqingCapabilities {
+  permission_shaping: string;
+  hooks: string;
+  stop_gate: boolean;
+  session_resume: boolean;
+  interject: boolean;
+  usage_reporting: string;
+}
+
+export interface KeqingBackendStatus {
+  id: string;
+  backend: string;
+  binary: string;
+  installed: boolean;
+  installed_version: string | null;
+  pinned_version: string | null;
+  version_drift: boolean;
+  capabilities: KeqingCapabilities | null;
+  credential_status: string;
+}
+
+export interface KeqingStatusData {
+  backends: KeqingBackendStatus[];
+  gateway_enabled: boolean;
 }
 
 // --- Audit types ---

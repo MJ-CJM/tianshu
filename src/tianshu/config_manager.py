@@ -88,6 +88,12 @@ class AgentConfigState:
     code_variant_eval_budget_cny: float = 20.0
     code_variant_auto_propose: bool = False
     code_variant_daily_propose_quota: int = 2
+    # 客卿（外聘 coding agent，外臣——见 domain-model「执行主体本体论」）治理默认。
+    # 敕令未指定时打底;网关/预算/白名单是天枢对下游客卿的治理策略。内存态,env 设持久值。
+    keqing_default_model: str = ""  # provider/id:thinking;空=交客卿自身默认
+    keqing_gateway_enabled: bool = False  # 走凭证网关(OpenShell:raw key 不进客卿进程)
+    keqing_per_run_budget_cny: float = 0.0  # per-run 预算,0=沿用全局护栏
+    keqing_model_allowlist: str = ""  # 逗号分隔;网关模式下约束可用模型
 
 
 class ConfigManager:

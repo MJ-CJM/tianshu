@@ -22,7 +22,8 @@
       "growth": "Growth",
       "system": "System"
     },
-    "evals": "Evals"
+    "evals": "Evals",
+    "keqing": "Keqing (Agents)"
   },
   "sidebar": {
     "darkMode": "Dark Mode",
@@ -651,7 +652,8 @@
         "nlButton": "Smart fill",
         "nlFailed": "Couldn't understand that — try rephrasing or fill the form manually.",
         "executor": "Executor",
-        "taskType": "Task type"
+        "taskType": "Task type",
+        "executorModel": "Agent model (optional)"
       },
       "placeholder": {
         "title": "Leave blank to auto-extract first 20 chars of goal",
@@ -699,7 +701,8 @@
         "onCriticUnavailable": "Fallback when all critic LLM calls fail",
         "criticPersonas": "Who reviews task quality. Multi-select runs concurrent review per round, aggregated as 'all pass'; any FAIL = fail. Each critic produces an independent report on terminal state.",
         "sameIssueThreshold": "Escalate to L1 when critic reports same issue_class for N consecutive rounds",
-        "executor": "native = built-in engine (default); keqing:* = external CLI agent (Claude Code/Codex, contained + experimental): independent workspace, clean-env, outer timeout, and post-run audit only; no pre-tool interception, hard cost cap, or pre-run restore point"
+        "executor": "native = built-in engine (default); keqing:* = external CLI agent (Claude Code/Codex, contained + experimental): independent workspace, clean-env, outer timeout, and post-run audit only; no pre-tool interception, hard cost cap, or pre-run restore point",
+        "executorModel": "Model the keqing agent uses (pi format provider/id:thinking). Empty = default from Keqing Management or the agent's own default."
       },
       "option": {
         "autoPlanning": "Auto Plan (system decides)",
@@ -2276,8 +2279,10 @@
   },
   "executor": {
     "native": "Built-in engine (default)",
+    "pi": "Keqing: Pi (default, open-source multi-model)",
     "claudeCode": "Keqing: Claude Code",
-    "codex": "Keqing: Codex"
+    "codex": "Keqing: Codex",
+    "opencode": "Keqing: OpenCode"
   },
   "preset": {
     "quick": {
@@ -2308,5 +2313,58 @@
     "send": "Inject",
     "submitted": "Injected, effective next turn",
     "failed": "Inject failed"
+  },
+  "keqing": {
+    "title": "Keqing Management",
+    "default": "default",
+    "pinned": "pinned",
+    "drift": "version drift",
+    "installedYes": "installed",
+    "installedNo": "not installed",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "save": "Save governance defaults",
+    "subtitle": "Govern external coding agents (guest ministers): capabilities, health, isolation and governance policy. Keqing are not 百官 — no persona, no jingcha, no self-evolution.",
+    "section": {
+      "registry": "Registry · Health",
+      "governance": "Governance defaults"
+    },
+    "col": {
+      "backend": "Agent",
+      "installed": "Install / Version",
+      "capabilities": "Capabilities",
+      "credential": "Credential"
+    },
+    "cap": {
+      "resume": "session resume",
+      "interject": "interject",
+      "stopGate": "acceptance gate",
+      "permission": "permission shaping",
+      "usage": "usage reporting",
+      "singleShot": "single-shot (see manifest)"
+    },
+    "cred": {
+      "gateway": "gateway (scoped token)",
+      "directEnv": "direct env",
+      "unconfigured": "unconfigured",
+      "title": "Credential isolation",
+      "note": "Keqing are guest ministers that manage their own credentials — this page never stores or accepts raw API keys. Default is self-managed: configure on the agent side (pi via `pi /login`; claude-code/codex/opencode via their own local login), and tianshu just invokes them. With the credential gateway on, tianshu instead hands out a per-run scoped token and the raw key never enters the agent process.",
+      "selfManaged": "self-managed"
+    },
+    "field": {
+      "defaultModel": "Default model",
+      "defaultModelTip": "Model the agent uses when an edict does not specify one (pi format provider/id:thinking). Empty = agent's own default.",
+      "gateway": "Credential gateway (OpenShell)",
+      "gatewayTip": "When on, the agent only gets a scoped token; raw provider keys never enter the agent process; hard budget cap via gateway 402.",
+      "budget": "Per-run budget",
+      "budgetTip": "Per-run budget cap (CNY); 0 = use the global guardrail.",
+      "allowlist": "Model allowlist",
+      "allowlistTip": "Comma-separated; constrains available models under gateway mode."
+    },
+    "group": {
+      "active": "Active governance",
+      "gateway": "Gateway-mode governance",
+      "gatewayNote": "The following is gateway-mode governance — hard enforcement takes effect only after the credential gateway (P3 upstream proxy) is wired. Under self-managed credentials the model allowlist cannot be hard-enforced (the agent picks any model it is logged into), and the gateway toggle is not yet runnable."
+    }
   }
 }

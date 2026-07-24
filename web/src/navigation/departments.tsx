@@ -10,6 +10,7 @@ import {
   ExperimentOutlined,
   GlobalOutlined,
   MessageOutlined,
+  RobotOutlined,
   SafetyCertificateOutlined,
   SafetyOutlined,
   ScheduleOutlined,
@@ -75,6 +76,7 @@ export const DEPARTMENT_GROUPS: readonly DepartmentGroupDefinition[] = [
     key: "group-system",
     labelKey: "nav.group.system",
     departments: [
+      { path: "/keqing", labelKey: "nav.keqing", icon: <RobotOutlined aria-hidden /> },
       { path: "/system", labelKey: "nav.system", icon: <ToolOutlined aria-hidden /> },
       { path: "/hongluisi", labelKey: "nav.foreign", icon: <GlobalOutlined aria-hidden /> },
       { path: "/tongzheng", labelKey: "nav.notify", icon: <MessageOutlined aria-hidden /> },

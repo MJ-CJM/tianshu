@@ -3,11 +3,19 @@ import type {
   AgentConfig,
   AgentConfigUpdateRequest,
   ApiResponse,
+  KeqingStatusData,
   LLMConfig,
   LLMConfigCreateRequest,
   LLMConfigListResponse,
   LLMConfigUpdateRequest,
 } from "./types";
+
+// --- 客卿(keqing)健康状态 ---
+
+export async function getKeqingStatus(): Promise<KeqingStatusData> {
+  const { data } = await apiClient.get<ApiResponse<KeqingStatusData>>("/keqing/status");
+  return data.data!;
+}
 
 // --- Agent Config ---
 

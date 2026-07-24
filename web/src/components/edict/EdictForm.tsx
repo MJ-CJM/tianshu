@@ -167,6 +167,10 @@ export default function EdictForm({
     const executor = values.executor as string | undefined;
     if (executor && executor !== "native") {
       runtime.executor = executor;
+      const executorModel = (values.executor_model as string | undefined)?.trim();
+      if (executorModel) {
+        runtime.executor_model = executorModel;
+      }
     }
     if (
       policyProfile &&
@@ -413,10 +417,29 @@ export default function EdictForm({
         <Select
           options={[
             { value: "native", label: t("executor.native") },
+            { value: "keqing:pi", label: t("executor.pi") },
             { value: "keqing:claude-code", label: t("executor.claudeCode") },
             { value: "keqing:codex", label: t("executor.codex") },
+            { value: "keqing:opencode", label: t("executor.opencode") },
           ]}
         />
+      </Form.Item>
+
+      <Form.Item
+        noStyle
+        shouldUpdate={(prev, cur) => prev.executor !== cur.executor}
+      >
+        {({ getFieldValue }) =>
+          String(getFieldValue("executor") ?? "").startsWith("keqing:") ? (
+            <Form.Item
+              name="executor_model"
+              label={t("form.edict.field.executorModel")}
+              tooltip={t("form.edict.tooltip.executorModel")}
+            >
+              <Input placeholder="anthropic/claude-opus-4-5:high" allowClear />
+            </Form.Item>
+          ) : null
+        }
       </Form.Item>
 
       <Form.Item name="review_policy" label={t("form.edict.field.reviewPolicy")}>

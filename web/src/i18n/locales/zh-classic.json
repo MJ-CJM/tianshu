@@ -22,7 +22,8 @@
       "growth": "百官",
       "system": "内府"
     },
-    "evals": "考成"
+    "evals": "考成",
+    "keqing": "客卿"
   },
   "sidebar": {
     "darkMode": "深色模式",
@@ -651,7 +652,8 @@
         "nlButton": "智能拟旨",
         "nlFailed": "未能会意，请换一种说法或移步下方手拟。",
         "executor": "执事",
-        "taskType": "差事类别"
+        "taskType": "差事类别",
+        "executorModel": "客卿模型（可选）"
       },
       "placeholder": {
         "title": "留空则自动截取旨意前 20 字",
@@ -699,7 +701,8 @@
         "onCriticUnavailable": "critic LLM 调用全部失败的兜底",
         "criticPersonas": "谁来监督任务质量。多选时每轮并发评审，按'全过则过'聚合；任意一位 FAIL 即不过。终态后每位监督官独立产出监督报告。",
         "sameIssueThreshold": "critic 连续 N 轮报同类问题（issue_class）则升 L1",
-        "executor": "native=自研引擎(默认);keqing:*=外府客卿(Claude Code/Codex，contained + experimental)：只保证独立工作目录、clean-env、外围 timeout 与事后审计；不保证事前工具拦截、硬成本上限或运行前恢复点"
+        "executor": "native=自研引擎(默认);keqing:*=外府客卿(Claude Code/Codex，contained + experimental)：只保证独立工作目录、clean-env、外围 timeout 与事后审计；不保证事前工具拦截、硬成本上限或运行前恢复点",
+        "executorModel": "指定客卿用何模型（pi 格式 provider/id:thinking）。留空=用客卿管理页默认 / 客卿自身默认。"
       },
       "option": {
         "autoPlanning": "内阁决策（自动规划分配）",
@@ -2276,8 +2279,10 @@
   },
   "executor": {
     "native": "自研引擎(默认)",
+    "pi": "客卿·Pi",
     "claudeCode": "客卿·Claude Code",
-    "codex": "客卿·Codex"
+    "codex": "客卿·Codex",
+    "opencode": "客卿·OpenCode"
   },
   "preset": {
     "quick": {
@@ -2308,5 +2313,58 @@
     "send": "降谕",
     "submitted": "谕已降,下轮即行",
     "failed": "降谕不果"
+  },
+  "keqing": {
+    "title": "客卿",
+    "default": "默认",
+    "pinned": "钉死",
+    "drift": "版本漂移",
+    "installedYes": "已安装",
+    "installedNo": "未安装",
+    "saved": "已保存",
+    "saveFailed": "保存未成",
+    "save": "保存治理默认",
+    "subtitle": "治理外聘之客卿（外臣）：能力、健康、隔离与治理方略。客卿非百官——无魂、不入京察、不自演化。",
+    "section": {
+      "registry": "客卿名册 · 体检",
+      "governance": "治理默认"
+    },
+    "col": {
+      "backend": "客卿",
+      "installed": "安装 / 版本",
+      "capabilities": "能力",
+      "credential": "凭证来源"
+    },
+    "cap": {
+      "resume": "会话续用",
+      "interject": "会中插话",
+      "stopGate": "收工验收",
+      "permission": "权限塑形",
+      "usage": "用量上报",
+      "singleShot": "单发档（能力见 manifest）"
+    },
+    "cred": {
+      "gateway": "网关（scoped token）",
+      "directEnv": "直连环境变量",
+      "unconfigured": "未配置",
+      "title": "凭证隔离",
+      "note": "客卿乃外臣,自管凭证——本页不存、不输入 raw API key。默认「客卿自管」:于客卿处配（pi 走 `pi /login`,claude-code/codex/opencode 走各自本地登录）,天枢直接调。开「凭证网关」后天枢改托管一次性 scoped token,raw key 永不入客卿进程。",
+      "selfManaged": "客卿自管"
+    },
+    "field": {
+      "defaultModel": "默认模型",
+      "defaultModelTip": "敕令未指定时客卿用此模型（pi 格式 provider/id:thinking）。空=交客卿自身默认。",
+      "gateway": "凭证网关（OpenShell 隔离）",
+      "gatewayTip": "开启后客卿只拿 scoped token，raw provider key 不入客卿进程；预算硬熔断在网关 402。",
+      "budget": "单次运行预算",
+      "budgetTip": "每次客卿运行的预算上限（CNY），0=沿用全局护栏。",
+      "allowlist": "模型白名单",
+      "allowlistTip": "逗号分隔；网关模式下约束客卿可用模型。"
+    },
+    "group": {
+      "active": "现行治理",
+      "gateway": "网关治理",
+      "gatewayNote": "下列为「网关治理」——硬管控须凭证网关接线（P3 上游反代）后方生效。自管模式下,模型白名单不可硬拦（客卿自择已登录之模型）,网关开关亦暂不可行。"
+    }
   }
 }

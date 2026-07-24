@@ -32,6 +32,7 @@ const EvalsPage = lazy(() => import("../pages/EvalsPage"));
 const DagBattleMapPage = lazy(() => import("../pages/DagBattleMapPage"));
 const OnboardingPage = lazy(() => import("../pages/OnboardingPage"));
 const EvolutionCenterPage = lazy(() => import("../pages/EvolutionCenterPage"));
+const KeqingManagementPage = lazy(() => import("../pages/KeqingManagementPage"));
 
 function OnboardingEntryRoute() {
   const query = useQuery({
@@ -175,6 +176,7 @@ export default function AppRoutes() {
             <Route path="/tongzheng" element={<TongzhengPage />} />
             <Route path="/personas" element={<PersonaDashboardPage />} />
             <Route path="/personas/:personaId" element={<PersonaDetailPage />} />
+            <Route path="/keqing" element={<KeqingManagementPage />} />
             <Route path="/system" element={<SystemManagementPage />} />
             <Route path="/session-rules" element={<SessionRulesPage />} />
             <Route path="/universes" element={<UniversePage />} />
