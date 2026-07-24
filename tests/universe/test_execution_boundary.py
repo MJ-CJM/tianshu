@@ -27,7 +27,7 @@ def test_gate_and_sandbox_require_the_shared_gateway() -> None:
 
 @pytest.mark.parametrize(
     "module_name",
-    ("gate.py", "sandbox.py", "sandbox_container.py"),
+    ("gate.py", "sandbox.py"),
 )
 def test_migrated_universe_modules_have_no_direct_process_launch(module_name: str) -> None:
     root = Path(__file__).resolve().parents[2]

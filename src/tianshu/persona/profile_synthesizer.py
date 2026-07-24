@@ -25,9 +25,15 @@ logger = logging.getLogger(__name__)
 def _narrow_list_result(value: object, label: str) -> list:
     """gather(return_exceptions=True) 结果正向窄化:非 list 一律降级为空列表并告警。
 
-    正向判定覆盖 Exception 与 BaseException(如 CancelledError)——
-    后者用 isinstance(x, Exception) 会漏判,导致异常对象流入后续格式化。
+    但取消(CancelledError)必须重新抛出、不得降级为空列表:否则子任务被取消时
+    合成会带空输入继续走到 persist,落一份退化/空 PROFILE.md,把"取消"掩码成
+    "无数据"。取消要中止整场合成,由上层 run() 的 finally 释放锁。
+
+    其余 Exception/BaseException 才正向降级——用 isinstance(x, Exception) 会漏判
+    BaseException 子类,导致异常对象流入后续格式化。
     """
+    if isinstance(value, asyncio.CancelledError):
+        raise value
     if isinstance(value, list):
         return value
     logger.warning("%s raised or returned non-list: %r", label, value)
@@ -660,6 +666,9 @@ class ProfileSynthesizer:
             )
             return result
 
+        except asyncio.CancelledError:
+            # 取消不是失败:不 emit failed、不吞异常,直接上抛;finally 仍释放锁。
+            raise
         except Exception as e:
             logger.exception("profile synthesis failed for %s", persona_id)
             await self._emit(

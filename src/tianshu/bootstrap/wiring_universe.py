@@ -1,4 +1,4 @@
-"""UniverseManager / evolver / deployer / code_store 装配。
+"""UniverseManager / evolver / code_store 装配。
 
 对应原 lifespan() 的 `# --- 平行位面（parallel universe）---` 单个分区
 （原文件里最大的一段连续代码）。
@@ -24,7 +24,6 @@ from tianshu.bootstrap.universe_hooks import _universe_config_apply, _universe_c
 from tianshu.config import TianshuSettings
 from tianshu.universe.code_mutator import CodeMutator
 from tianshu.universe.code_store import CodeVariantStore
-from tianshu.universe.deployer import Deployer, DeployPointer
 from tianshu.universe.diagnostician import Diagnostician
 from tianshu.universe.eval_harness import EvalHarness
 from tianshu.universe.evolver import UniverseEvolver
@@ -74,8 +73,6 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         repo_root=_universe_repo_root(settings),
         worktrees_root=Path("~/.tianshu/universes/worktrees").expanduser(),
     )
-    deploy_pointer = DeployPointer(Path("~/.tianshu/universes/deploy_ptr.json").expanduser())
-    code_deployer = Deployer(deploy_pointer)
     universe_manager = UniverseManager(
         storage=storage,
         store=universe_store,
@@ -86,7 +83,6 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         event_bus=event_bus,
         agent_config=lambda: config_manager.agent_config,
         code_store=code_variant_store,
-        deployer=code_deployer,
         challenger_router=app.state.challenger_router,
     )
     # opt-in 持久化：env 开启，或库中已存在 champion 位面（此前已开启过）→ 续上开启状态，
@@ -96,7 +92,6 @@ def wire_universe(app: FastAPI, settings: TianshuSettings) -> None:
         universe_manager.ensure_genesis()
     executor.set_universe_manager(universe_manager)
     app.state.universe_manager = universe_manager
-    app.state.code_deployer = code_deployer
 
     _cfg = config_manager.agent_config
     universe_execution_context_factory = UniverseExecutionContextFactory(

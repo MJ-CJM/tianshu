@@ -62,7 +62,6 @@ NON_NULLABLE_STATE_KEYS = [
     "profile_trigger",
     "skill_curator",
     "universe_manager",
-    "code_deployer",
     "universe_execution_context_factory",
     "code_gate",
     "code_sandbox",

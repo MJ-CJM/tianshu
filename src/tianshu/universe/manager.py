@@ -28,7 +28,6 @@ class UniverseManager:
         event_bus: Any | None = None,
         agent_config: Callable[[], Any] | None = None,
         code_store: Any | None = None,
-        deployer: Any | None = None,
         challenger_router: ChallengerRouter | None = None,
     ) -> None:
         self._storage = storage
@@ -40,7 +39,6 @@ class UniverseManager:
         self._bus = event_bus
         self._agent_config = agent_config or (lambda: None)
         self._code_store = code_store
-        self._deployer = deployer
         self._challenger_router = challenger_router
 
     def attach_event_bus(self, bus: Any) -> None:

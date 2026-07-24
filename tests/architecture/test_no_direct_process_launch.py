@@ -231,16 +231,6 @@ _ALLOWED_LAUNCH_SITES = (
         "GitBackend._invoke",
         "subprocess.run",
     ),
-    LaunchSite(
-        "src/tianshu/universe/deployer.py",
-        "_default_relaunch",
-        "os.execv",
-    ),
-    LaunchSite(
-        "src/tianshu/universe/launcher.py",
-        "main",
-        "os.execvpe",
-    ),
 )
 
 

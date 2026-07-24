@@ -118,62 +118,11 @@ def test_restore_code_variant_rebuilds_worktree(mgr: UniverseManager):
 
 
 # ---------------------------------------------------------------------------
-# promote_code_variant tests (uses a fake deployer)
+# promote_code_variant tests（治理化后恒拒绝：晋升须走 PromotionService）
 # ---------------------------------------------------------------------------
 
 
-class _FakeDeployer:
-    """Records stage() calls; does not relaunch."""
-
-    def __init__(self):
-        self.stage_calls: list[dict] = []
-
-    def stage(self, *, ref: str, worktree: str | None) -> None:
-        self.stage_calls.append({"ref": ref, "worktree": worktree})
-
-
-@pytest.fixture
-def mgr_with_deployer(tmp_path: Path):
-    """Build a fresh manager that has a fake deployer injected."""
-    (p := tmp_path / "personas" / "bingbu").mkdir(parents=True)
-    (p / "SOUL.md").write_text("v1")
-    (tmp_path / "skills").mkdir()
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=str(repo), capture_output=True, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "t@t.test"], cwd=str(repo), capture_output=True, check=True
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "t"], cwd=str(repo), capture_output=True, check=True
-    )
-    (repo / "src.txt").write_text("v1\n")
-    subprocess.run(["git", "add", "-A"], cwd=str(repo), capture_output=True, check=True)
-    subprocess.run(
-        ["git", "commit", "-q", "-m", "init"], cwd=str(repo), capture_output=True, check=True
-    )
-    s = Storage(str(tmp_path / "t.db"))
-    s.init_db()
-    store = UniverseStore(tmp_path / "universes", tmp_path / "personas", tmp_path / "skills")
-    code_store = CodeVariantStore(repo, tmp_path / "worktrees")
-    cfg = {"agent_config": {}}
-    fake_deployer = _FakeDeployer()
-    mgr = UniverseManager(
-        s,
-        store,
-        _FakePersona(tmp_path / "personas"),
-        _FakeSkills(tmp_path / "skills"),
-        config_snapshot=lambda: cfg,
-        config_apply=lambda m: None,
-        code_store=code_store,
-        deployer=fake_deployer,
-    )
-    yield mgr, fake_deployer
-    s.close()
-
-
-def test_promote_code_variant_is_stably_rejected_without_side_effect(mgr_with_deployer):
-    mgr, fake_deployer = mgr_with_deployer
+def test_promote_code_variant_is_stably_rejected_without_side_effect(mgr: UniverseManager):
     g = mgr.ensure_genesis()
     cv = mgr.branch_code_variant(g["id"], "perf-exp")
 
@@ -181,22 +130,9 @@ def test_promote_code_variant_is_stably_rejected_without_side_effect(mgr_with_de
         mgr.promote_code_variant(cv["id"])
     assert mgr._storage.get_universe(g["id"])["status"] == "champion"  # noqa: SLF001
     assert mgr._storage.get_universe(cv["id"])["status"] == "challenger"  # noqa: SLF001
-    assert fake_deployer.stage_calls == []
 
 
-def test_promote_code_variant_requires_deployer(mgr_with_deployer):
-    mgr, _ = mgr_with_deployer
-    # Replace deployer with None
-    mgr._deployer = None  # noqa: SLF001
-    g = mgr.ensure_genesis()
-    cv = mgr.branch_code_variant(g["id"], "exp")
-
-    with pytest.raises(RuntimeError, match="promotion_service_required"):
-        mgr.promote_code_variant(cv["id"])
-
-
-def test_promote_code_variant_rejects_data_universe(mgr_with_deployer):
-    mgr, _ = mgr_with_deployer
+def test_promote_code_variant_rejects_data_universe(mgr: UniverseManager):
     g = mgr.ensure_genesis()
 
     with pytest.raises(RuntimeError, match="promotion_service_required"):

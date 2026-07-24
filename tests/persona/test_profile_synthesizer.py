@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from tianshu.memory.drawer import Drawer
 from tianshu.persona.profile_synthesizer import ProfileSynthesisInput, ProfileSynthesizer
 
@@ -282,11 +284,18 @@ class TestNarrowListResult:
 
         assert _narrow_list_result(ValueError("boom"), "llm_specialties") == []
 
-    def test_cancelled_error_downgrades_to_empty(self):
-        # CancelledError 继承 BaseException 而非 Exception,
-        # 旧代码 isinstance(x, Exception) 漏判 —— 本缺陷的直接回归用例
+    def test_cancelled_error_is_reraised_not_downgraded(self):
+        # 取消必须上抛、不得降级为空列表:否则子任务被取消时合成会带空输入
+        # 走到 persist,落一份退化 PROFILE.md,把"取消"掩码成"无数据"。
         import asyncio
 
         from tianshu.persona.profile_synthesizer import _narrow_list_result
 
-        assert _narrow_list_result(asyncio.CancelledError(), "llm_specialties") == []
+        with pytest.raises(asyncio.CancelledError):
+            _narrow_list_result(asyncio.CancelledError(), "llm_specialties")
+
+    def test_ordinary_exception_still_downgrades(self):
+        # 普通 Exception 仍降级为空列表(区别于取消) —— 不因修复取消而误伤降级路径
+        from tianshu.persona.profile_synthesizer import _narrow_list_result
+
+        assert _narrow_list_result(RuntimeError("boom"), "llm_degradations") == []
