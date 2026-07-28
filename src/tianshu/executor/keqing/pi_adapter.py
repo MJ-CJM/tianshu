@@ -168,6 +168,9 @@ def _is_canonical_pi_session(argv: Sequence[str]) -> bool:
         if len(rest) < 2 or not rest[1]:
             return False
         rest = rest[2:]
+        # 可选 --continue(follow_up 续同会话上下文)——仅 --session-dir 后合法
+        if rest[:1] == ["--continue"]:
+            rest = rest[1:]
     elif rest[:1] == ["--no-session"]:
         rest = rest[1:]
     # 可选 --model <value>
@@ -198,11 +201,14 @@ class PiSessionAdapter:
     )
 
     def build_session_argv(
-        self, *, session_dir: str | None = None, model: str | None = None
+        self, *, session_dir: str | None = None, model: str | None = None, resume: bool = False
     ) -> list[str]:
         argv = ["pi", "--mode", "rpc"]
         if session_dir:
             argv += ["--session-dir", session_dir]
+            # follow_up 续同一会话:--continue 让 pi 加载上次对话上下文(连续对话有记忆)。
+            if resume:
+                argv += ["--continue"]
         else:
             argv += ["--no-session"]
         if model:
@@ -278,7 +284,12 @@ class PiSessionAdapter:
         return CanonicalAgentEvent(KIND_UNKNOWN, self.dialect, raw_type=etype)
 
     def is_settled(self, event: CanonicalAgentEvent) -> bool:
-        return event.kind == KIND_RUN_SETTLED
+        # pi 0.81.1 用 agent_settled(run_settled)作结算锚;0.79.3 无此事件,以
+        # agent_end(will_retry=False)为完成信号。兼容两版本:任一即视为 settle,
+        # 否则装 0.79.3 的用户会在 send prompt 后一直等 agent_settled 直到 session timeout。
+        return event.kind == KIND_RUN_SETTLED or (
+            event.kind == KIND_RUN_END and not event.will_retry
+        )
 
     def extract_stats(self, data: dict) -> SessionRunStats:
         tokens = data.get("tokens") or {}

@@ -22,6 +22,7 @@ from tianshu.executor.capabilities import (
     claude_code_manifest,
     codex_manifest,
     native_manifest,
+    pi_manifest,
     probe_host_capabilities,
     resolve_governance_contract,
 )
@@ -168,6 +169,27 @@ def test_host_probe_intersection_can_only_reduce_manifest_truth() -> None:
     assert effective.unsupported_advisory == ("network_control",)
     assert effective.degradations[0].capability == "network_control"
     assert effective.runtime_probe_id == probe.semantic_id
+
+
+def test_network_downgraded_when_backend_cannot_enforce() -> None:
+    # keqing:pi 的 network_control=UNSUPPORTED(host 模式无法强制网络);敕令默认 network=deny
+    # 无法被 backend enforce → 治理层降级为 unrestricted_requested,避免 gateway 死锁
+    # (enforcement_unavailable);客卿须能访问自身 LLM 出口。降级透明记 degradation。
+    requested = _requested("keqing:pi", advisory=("network_control",))
+    assert requested.network.mode == "deny"  # 前提:默认禁网
+    effective = resolve_governance_contract(requested, pi_manifest(), _probe())
+    assert effective.network.mode == "unrestricted_requested"
+    assert any(
+        d.capability == "network_control" and "unrestricted" in d.reason
+        for d in effective.degradations
+    )
+
+
+def test_network_not_downgraded_when_control_not_unsupported() -> None:
+    # native network_control=BEST_EFFORT(非 UNSUPPORTED)→ 不降级,保留原 network 语义。
+    requested = _requested(advisory=("network_control",))
+    effective = resolve_governance_contract(requested, native_manifest(), _probe())
+    assert effective.network.mode == requested.network.mode
 
 
 def test_git_unavailable_probe_downgrades_restore_and_apply_truth(monkeypatch) -> None:
@@ -363,6 +385,35 @@ async def test_prepared_executor_passes_run_bound_effective_contract_to_adapter(
     )
 
     assert adapter.execute_calls == 1
+
+
+async def test_keqing_network_downgrade_survives_runtime_consistency_check() -> None:
+    # 回归:keqing:pi 的 network_control=UNSUPPORTED → resolve 把 effective network 降级为
+    # unrestricted_requested。DelegatingExecutorAdapter 的防篡改校验须对 mapped 施加同一降级,
+    # 否则合法降级被误判为 "runtime policy does not match prepared effective contract"。
+    class _Delegate:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def execute(self, edict, **kwargs):
+            self.calls += 1
+            return None
+
+    delegate = _Delegate()
+    adapter = DelegatingExecutorAdapter(
+        adapter_id="keqing:pi", manifest=pi_manifest(), delegate=delegate
+    )
+    registry = ExecutorAdapterRegistry((adapter,))
+    requested = _requested("keqing:pi", advisory=("network_control",))
+    prepared = registry.prepare(
+        requested, run_id="run-1", instruction="hi", execution_mode="single"
+    )
+    assert prepared.effective.network.mode == "unrestricted_requested"  # 降级生效
+    await prepared.execute(
+        Edict(goal="hi", runtime=EdictRuntime(executor="keqing:pi")),
+        memorial=SimpleNamespace(id="run-1"),
+    )
+    assert delegate.calls == 1  # 校验通过,委托被调用(未抛 policy mismatch)
 
 
 def test_governed_policy_reports_verified_apply_capability() -> None:

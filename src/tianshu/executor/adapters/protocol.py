@@ -139,13 +139,21 @@ class DelegatingExecutorAdapter:
         mapped_permissions = mapped.permissions.model_copy(
             update={"secret_refs": prepared.effective.permissions.secret_refs}
         )
+        # backend 无法强制网络(network_control=unsupported)时 resolve 会把 effective network
+        # 降级为 unrestricted_requested;对 mapped 施加同一确定性变换后再比对,否则合法降级
+        # 会被误判为运行时篡改。真篡改仍会不匹配(降级是幂等且方向单一的)。
+        mapped_network = (
+            mapped.network.downgraded_for_unenforceable()
+            if prepared.effective.state("network_control") == "unsupported"
+            else mapped.network
+        )
         if any(
             actual != expected
             for actual, expected in (
                 (mapped.acceptance, prepared.effective.acceptance),
                 (mapped.executor, prepared.effective.executor),
                 (mapped_permissions, prepared.effective.permissions),
-                (mapped.network, prepared.effective.network),
+                (mapped_network, prepared.effective.network),
                 (mapped.budget, prepared.effective.budget),
                 (mapped.workspace, prepared.effective.workspace),
                 (mapped.recovery, prepared.effective.recovery),

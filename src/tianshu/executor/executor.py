@@ -106,9 +106,19 @@ class Executor:
         from tianshu.executor.keqing import KeqingExecutor
         from tianshu.executor.keqing.session_executor import KeqingSessionExecutor
 
-        self._keqing = KeqingExecutor(execution_gateway=self._execution_gateway)
+        # per-客卿默认模型:敕令未指定 executor_model 时,按客卿回退到治理默认(空则交客卿自身默认)。
+        def _keqing_default_model(backend: str) -> str | None:
+            return self._config_manager.agent_config.keqing_default_models.get(backend) or None
+
+        self._keqing = KeqingExecutor(
+            execution_gateway=self._execution_gateway,
+            default_model_provider=_keqing_default_model,
+        )
         # pi 走 RPC 会话档(follow_up 验收回灌);单发 PiAdapter 仍在 _REGISTRY 作降级 + grant 校验。
-        self._keqing_session = KeqingSessionExecutor(execution_gateway=self._execution_gateway)
+        self._keqing_session = KeqingSessionExecutor(
+            execution_gateway=self._execution_gateway,
+            default_model_provider=_keqing_default_model,
+        )
         self._adapter_registry = ExecutorAdapterRegistry(
             (
                 DelegatingExecutorAdapter(
@@ -204,6 +214,13 @@ class Executor:
             )
         error = None
         if memorial.status is not TaskStatus.COMPLETED:
+            # 服务端留真实失败原因(前端只收脱敏摘要);memorial.error 现由执行器透传具体原因。
+            logger.warning(
+                "[managed] edict %s not completed: reason=%s error=%s",
+                edict.id,
+                memorial.failure_reason,
+                memorial.error,
+            )
             retryable = memorial.failure_reason in {
                 "provider_timeout",
                 "provider_connection_error",

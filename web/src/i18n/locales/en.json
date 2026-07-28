@@ -577,7 +577,9 @@
         "exhaustionPrefix": "On Exhaustion → ",
         "checksCount": "{n} checks",
         "criticLabel": "Critic:"
-      }
+      },
+      "pendingReviewHint": "This report awaits your decision: Close (accept) or Discard (reject). To keep asking follow-ups like a chat, set the review policy to \"Review on failure only\"—successful output passes automatically, the edict stays open, and \"Follow up\" remains available.",
+      "auditSectionTitle": "Governance & audit — contract · records · evidence (click to expand)"
     },
     "edictCreate": {
       "title": "New Task",
@@ -762,7 +764,9 @@
         "governanceEffectiveHash": "Requested contract: {hash}",
         "governanceContinue": "Accept risk and dispatch",
         "governanceConfirm": "Confirm contract and dispatch",
-        "governanceRevise": "Revise request"
+        "governanceRevise": "Revise request",
+        "governanceCapMandatory": "Required:",
+        "governanceCapAdvisory": "Advisory:"
       },
       "expertMode": "Expert mode",
       "expertHint": "Tweak field by field (usually not needed once you pick a task type)",
@@ -1751,7 +1755,8 @@
           "memoryGlobalRead": "Read all personas' memory",
           "delegatesTo": "Delegation targets",
           "template": "Role template",
-          "templateLang": "Template language"
+          "templateLang": "Template language",
+          "createMode": "Create mode"
         },
         "placeholder": {
           "id": "e.g. bingbu, neige",
@@ -1804,6 +1809,20 @@
           "nameRequired": "Department name is required"
         }
       }
+    },
+    "createMode": {
+      "template": "Template library",
+      "import": "Import external"
+    },
+    "import": {
+      "source": "Source",
+      "path": "Config directory path",
+      "pathTip": "Leave empty to auto-detect the default dir (hermes: ~/.hermes; openclaw: ~/.openclaw/workspace). For another machine, copy the config dir here first.",
+      "preview": "Preview import",
+      "previewFailed": "Import preview failed (check path and config)",
+      "seedNote": "One-time seed import: takes persona + skills + prompts only, NOT memory/learning/channels (a guest minister's evolution belongs to Tianshu's jingcha). This official evolves independently after import.",
+      "suggestedModel": "Suggested model",
+      "skills": "Import skills (select)"
     }
   },
   "memory": {
@@ -2352,14 +2371,15 @@
       "selfManaged": "self-managed"
     },
     "field": {
-      "defaultModel": "Default model",
-      "defaultModelTip": "Model the agent uses when an edict does not specify one (pi format provider/id:thinking). Empty = agent's own default.",
+      "defaultModel": "Default model · per agent",
+      "defaultModelTip": "When an edict omits its executor model, that agent falls back to this default (format provider/id:thinking). Empty = the agent's own logged-in default.",
       "gateway": "Credential gateway (OpenShell)",
       "gatewayTip": "When on, the agent only gets a scoped token; raw provider keys never enter the agent process; hard budget cap via gateway 402.",
       "budget": "Per-run budget",
       "budgetTip": "Per-run budget cap (CNY); 0 = use the global guardrail.",
       "allowlist": "Model allowlist",
-      "allowlistTip": "Comma-separated; constrains available models under gateway mode."
+      "allowlistTip": "Comma-separated; constrains available models under gateway mode.",
+      "defaultModelPerAgentHint": "Each agent uses a different provider (pi=GLM, claude-code=anthropic, codex=openai…), so set it per agent; leave blank to use that agent's own logged-in default."
     },
     "group": {
       "active": "Active governance",

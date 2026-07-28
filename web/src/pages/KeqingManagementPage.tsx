@@ -22,6 +22,15 @@ import { useT } from "../i18n";
 
 const { Title, Paragraph, Text } = Typography;
 
+// 客卿 backend(与后端 adapter 注册一致)+ 各自 provider 的模型示例(仅 placeholder 提示格式)。
+const KEQING_BACKENDS = ["pi", "claude-code", "codex", "opencode"] as const;
+const KEQING_MODEL_HINTS: Record<string, string> = {
+  pi: "zai-coding-cn/glm-4.6",
+  "claude-code": "anthropic/claude-opus-4-5",
+  codex: "openai/gpt-5",
+  opencode: "provider/model",
+};
+
 /**
  * 客卿管理页 —— 治理「外聘人才」(外部 coding agent)。
  *
@@ -45,7 +54,7 @@ export default function KeqingManagementPage() {
   useEffect(() => {
     if (config) {
       form.setFieldsValue({
-        keqing_default_model: config.keqing_default_model ?? "",
+        keqing_default_models: config.keqing_default_models ?? {},
         keqing_gateway_enabled: config.keqing_gateway_enabled ?? false,
         keqing_per_run_budget_cny: config.keqing_per_run_budget_cny ?? 0,
         keqing_model_allowlist: config.keqing_model_allowlist ?? "",
@@ -153,7 +162,17 @@ export default function KeqingManagementPage() {
           <Form
             form={form}
             layout="vertical"
-            onFinish={(v) => mutation.mutate(v as AgentConfigUpdateRequest)}
+            onFinish={(v) => {
+              // 清理 per-客卿默认模型里的空值(空=不配,交客卿自身默认)。
+              const raw = (v.keqing_default_models ?? {}) as Record<string, string>;
+              const cleaned = Object.fromEntries(
+                Object.entries(raw).filter(([, val]) => val && val.trim()),
+              );
+              mutation.mutate({
+                ...v,
+                keqing_default_models: cleaned,
+              } as AgentConfigUpdateRequest);
+            }}
             style={{ maxWidth: 560 }}
           >
             {/* 生效中的治理:凭证自管下也一直有牙(上级机关定模型 + 户部管钱) */}
@@ -161,12 +180,27 @@ export default function KeqingManagementPage() {
               {t("keqing.group.active")}
             </Divider>
             <Form.Item
-              name="keqing_default_model"
               label={t("keqing.field.defaultModel")}
               tooltip={t("keqing.field.defaultModelTip")}
+              style={{ marginBottom: 4 }}
             >
-              <Input placeholder="anthropic/claude-opus-4-5:high" allowClear />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t("keqing.field.defaultModelPerAgentHint")}
+              </Text>
             </Form.Item>
+            {KEQING_BACKENDS.map((b) => (
+              <Form.Item
+                key={b}
+                name={["keqing_default_models", b]}
+                label={b}
+                style={{ marginBottom: 8 }}
+              >
+                <Input
+                  placeholder={KEQING_MODEL_HINTS[b] ?? "provider/model:thinking"}
+                  allowClear
+                />
+              </Form.Item>
+            ))}
             <Form.Item
               name="keqing_per_run_budget_cny"
               label={t("keqing.field.budget")}

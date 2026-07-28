@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -19,6 +20,8 @@ from tianshu.application.run_dispatcher import (
 from tianshu.models import Plan, TaskStatus, UsageSummary
 from tianshu.models.attempt import AttemptDisposition, AttemptOutcomeV1
 from tianshu.models.canonical import RedactedError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +94,9 @@ class ProductionRunRunner:
         except ManagedRunSuspended:
             return AttemptRunResult(AttemptDisposition.SUSPENDED)
         except Exception as exc:
+            # 前端仍收脱敏 RedactedError(跨租户安全),但服务端须留原始异常供排查——
+            # 否则像"pi 缺 anthropic key"这类可操作原因会成为无日志黑洞。
+            logger.exception("managed execution raised (redacted to client): %s", exc)
             failure = _redacted_failure(exc)
             self.store_projection(
                 authority,

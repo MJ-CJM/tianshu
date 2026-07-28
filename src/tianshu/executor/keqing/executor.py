@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from tianshu.executor.agent import AgentResult
@@ -59,9 +60,12 @@ class KeqingExecutor:
         *,
         root: Path | None = None,
         execution_gateway: ExecutionGateway | None = None,
+        default_model_provider: Callable[[str], str | None] | None = None,
     ) -> None:
         self._root = root or _KEQING_ROOT
         self._execution_gateway = execution_gateway or ExecutionGateway()
+        # 按客卿 backend 返回治理默认模型;敕令未指定 executor_model 时回退到它。
+        self._default_model_provider = default_model_provider
 
     def work_dir(self, edict_id: str) -> Path:
         return self._root / edict_id
@@ -86,7 +90,10 @@ class KeqingExecutor:
 
         work = resolve_workspace_root(self.work_dir(edict.id))
         work.mkdir(parents=True, exist_ok=True)
+        # 三级:敕令 executor_model > 治理默认[该客卿] > 客卿自身登录默认(model=None)
         model = model_override or getattr(edict.runtime, "executor_model", None)
+        if not model and self._default_model_provider is not None:
+            model = self._default_model_provider(backend)
         argv = adapter.build_argv(edict.goal, model=model)
         timeout = edict.runtime.timeout_seconds
         budget_cny = getattr(edict.runtime, "cost_budget_cny", None)

@@ -577,7 +577,9 @@
         "exhaustionPrefix": "耗尽 → ",
         "checksCount": "{n} 项 checks",
         "criticLabel": "审核者:"
-      }
+      },
+      "pendingReviewHint": "此奏报待你裁决:「结案」接受产出、「废除」驳回。要像对话一样连续追问,可把审核策略改为「仅失败时复核」——产出成功即自动通过、敕令保持进行,「继续批示」便一直可用。",
+      "auditSectionTitle": "治理与审计详情（契约 · 行止实录 · 证据包，点击展开）"
     },
     "edictCreate": {
       "title": "创建新任务",
@@ -762,7 +764,9 @@
         "governanceEffectiveHash": "请求契约：{hash}",
         "governanceContinue": "知悉风险，继续下发",
         "governanceConfirm": "确认契约并下发",
-        "governanceRevise": "返回修改"
+        "governanceRevise": "返回修改",
+        "governanceCapMandatory": "强制:",
+        "governanceCapAdvisory": "建议:"
       },
       "expertMode": "专家模式",
       "expertHint": "逐字段微调(选了任务类型通常无需展开)",
@@ -1751,7 +1755,8 @@
           "memoryGlobalRead": "读取全部记忆",
           "delegatesTo": "可委派目标",
           "template": "角色模板",
-          "templateLang": "模板语言"
+          "templateLang": "模板语言",
+          "createMode": "创建方式"
         },
         "placeholder": {
           "id": "如 bingbu, neige",
@@ -1804,6 +1809,20 @@
           "nameRequired": "请输入部门名称"
         }
       }
+    },
+    "createMode": {
+      "template": "模板库",
+      "import": "从外部导入"
+    },
+    "import": {
+      "source": "来源",
+      "path": "配置目录路径",
+      "pathTip": "留空则自动探测默认目录(hermes: ~/.hermes;openclaw: ~/.openclaw/workspace)。跨机器请先把配置目录拷到本机。",
+      "preview": "导入预览",
+      "previewFailed": "导入预览失败(检查路径与配置)",
+      "seedNote": "一次性种子导入:只取人格+技能+提示词,不导入记忆/学习/渠道(外臣之演化归天枢京察)。导入后此百官独立演化。",
+      "suggestedModel": "建议模型",
+      "skills": "导入技能(勾选)"
     }
   },
   "memory": {
@@ -2352,14 +2371,15 @@
       "selfManaged": "客卿自管"
     },
     "field": {
-      "defaultModel": "默认模型",
-      "defaultModelTip": "敕令未指定时客卿用此模型（pi 格式 provider/id:thinking）。空=交客卿自身默认。",
+      "defaultModel": "默认模型 · 按客卿",
+      "defaultModelTip": "敕令未指定「客卿模型」时,该客卿回退到此默认(格式 provider/id:thinking)。留空=交该客卿自身登录默认。",
       "gateway": "凭证网关（OpenShell 隔离）",
       "gatewayTip": "开启后客卿只拿 scoped token，raw provider key 不进客卿进程；预算硬熔断在网关 402。",
       "budget": "单次运行预算",
       "budgetTip": "每次客卿运行的预算上限（CNY），0=沿用全局护栏。",
       "allowlist": "模型白名单",
-      "allowlistTip": "逗号分隔；网关模式下约束客卿可用的模型。"
+      "allowlistTip": "逗号分隔；网关模式下约束客卿可用的模型。",
+      "defaultModelPerAgentHint": "每个客卿 provider 各异(pi=GLM、claude-code=anthropic、codex=openai…),故按客卿分设;留空即用该客卿自身登录的默认。"
     },
     "group": {
       "active": "生效中的治理",

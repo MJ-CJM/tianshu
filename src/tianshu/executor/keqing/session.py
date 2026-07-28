@@ -80,7 +80,7 @@ class KeqingSessionAdapter(Protocol):
     auth_env_vars: tuple[str, ...]
 
     def build_session_argv(
-        self, *, session_dir: str | None = None, model: str | None = None
+        self, *, session_dir: str | None = None, model: str | None = None, resume: bool = False
     ) -> list[str]: ...
 
     def encode_command(

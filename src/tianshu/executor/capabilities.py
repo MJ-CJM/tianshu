@@ -192,6 +192,8 @@ def resolve_governance_contract(
     degradations: list[CapabilityDegradationV1] = []
     mandatory = set(requested.capabilities.mandatory) | _semantic_mandatory_capabilities(requested)
     advisory = set(requested.capabilities.advisory)
+    network_control_state: CapabilityState | None = None
+    network_control_manifest_state: CapabilityState | None = None
 
     for capability in CAPABILITY_IDS:
         declaration = manifest.declaration(capability)
@@ -202,6 +204,9 @@ def resolve_governance_contract(
             else declaration.state
         )
         evidence = declaration.evidence + (host_override.evidence if host_override else ())
+        if capability == "network_control":
+            network_control_state = state
+            network_control_manifest_state = declaration.state
         requested_mode: Literal["mandatory", "advisory", "unrequested"] = "unrequested"
         if capability in mandatory:
             requested_mode = "mandatory"
@@ -239,13 +244,36 @@ def resolve_governance_contract(
     if mismatches:
         raise MandatoryCapabilityMismatch(tuple(mismatches))
 
+    # 网络策略与 backend 能力一致性:backend 明确不支持网络强制(UNSUPPORTED,如 host 模式
+    # 客卿)时,若仍带非 unrestricted 的 network 策略,gateway 会在 spawn 前硬拒
+    # (enforcement_unavailable)——而 network_control 本就在 advisory_gaps 里(非 mandatory)。
+    # 治理层据此把 network 降级为 unrestricted_requested(不能 enforce 就不假装 enforce;
+    # 客卿须能访问自身 LLM provider,网络出口自管),避免与 gateway 死锁,并透明记 degradation。
+    effective_network = requested.network
+    if (
+        network_control_state is CapabilityState.UNSUPPORTED
+        and requested.network.mode != "unrestricted_requested"
+    ):
+        effective_network = requested.network.downgraded_for_unenforceable()
+        degradations.append(
+            CapabilityDegradationV1(
+                capability="network_control",
+                manifest_state=(network_control_manifest_state or CapabilityState.UNSUPPORTED).value,
+                effective_state=CapabilityState.UNSUPPORTED.value,
+                reason=(
+                    "backend cannot enforce network policy; network downgraded to "
+                    "unrestricted (agent-managed egress)"
+                ),
+            )
+        )
+
     return EffectiveGovernanceContractV1(
         requested_contract_hash=requested.content_hash,
         objective=requested.objective,
         acceptance=requested.acceptance,
         executor=requested.executor,
         permissions=requested.permissions,
-        network=requested.network,
+        network=effective_network,
         workspace=requested.workspace,
         budget=requested.budget,
         recovery=requested.recovery,

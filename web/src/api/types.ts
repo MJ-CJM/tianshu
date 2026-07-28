@@ -367,7 +367,7 @@ export interface AgentConfig {
   agent_cost_budget_cny: number | null;
   skills_char_budget: number;
   // 客卿治理默认(外聘 coding agent)
-  keqing_default_model?: string;
+  keqing_default_models?: Record<string, string>;
   keqing_gateway_enabled?: boolean;
   keqing_per_run_budget_cny?: number;
   keqing_model_allowlist?: string;
@@ -381,7 +381,7 @@ export interface AgentConfigUpdateRequest {
   agent_token_budget?: number | null;
   agent_cost_budget_cny?: number | null;
   skills_char_budget?: number;
-  keqing_default_model?: string;
+  keqing_default_models?: Record<string, string>;
   keqing_gateway_enabled?: boolean;
   keqing_per_run_budget_cny?: number;
   keqing_model_allowlist?: string;
@@ -643,6 +643,31 @@ export interface PersonaCreateRequest {
   /** Optional role-template seed (see persona-templates endpoints). */
   template_id?: string;
   template_lang?: "zh" | "en";
+  /** 从外部(openclaw/hermes)导入作种子:SOUL/ROLE 裸正文 + 技能源目录。 */
+  imported_soul?: string;
+  imported_role?: string;
+  import_skill_paths?: string[];
+}
+
+// --- 从外部 coding agent 导入配置作百官种子(openclaw/hermes) ---
+
+export type PersonaImportSourceKind = "openclaw" | "hermes";
+
+export interface PersonaImportSkill {
+  name: string;
+  source_dir: string;
+  description: string;
+}
+
+export interface PersonaImportDraft {
+  source: PersonaImportSourceKind;
+  soul_body: string;
+  role_body: string;
+  suggested_name: string;
+  suggested_model: string | null;
+  skills: PersonaImportSkill[];
+  /** 已排除的运行态(记忆/学习/渠道),透明告知。 */
+  source_notes: string[];
 }
 
 export interface PersonaTemplateInfo {

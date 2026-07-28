@@ -79,7 +79,7 @@ describe("KeqingManagementPage", () => {
       ],
     });
     mocks.getAgentConfig.mockResolvedValue({
-      keqing_default_model: "",
+      keqing_default_models: {},
       keqing_gateway_enabled: false,
       keqing_per_run_budget_cny: 0,
       keqing_model_allowlist: "",
@@ -96,7 +96,7 @@ describe("KeqingManagementPage", () => {
   it("hydrates governance defaults form from agent-config", async () => {
     mocks.getKeqingStatus.mockResolvedValue({ gateway_enabled: false, backends: [] });
     mocks.getAgentConfig.mockResolvedValue({
-      keqing_default_model: "anthropic/claude-opus",
+      keqing_default_models: { "claude-code": "anthropic/claude-opus" },
       keqing_gateway_enabled: true,
       keqing_per_run_budget_cny: 5,
       keqing_model_allowlist: "",

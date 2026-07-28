@@ -91,9 +91,12 @@ class TestAgentConfigKeqingFields:
         from tianshu.config_manager import AgentConfigState
 
         s = AgentConfigState()
-        assert s.keqing_default_model == "" and s.keqing_gateway_enabled is False
-        s2 = replace(s, keqing_default_model="anthropic/x:high", keqing_per_run_budget_cny=5.0)
-        assert s2.keqing_default_model == "anthropic/x:high" and s2.keqing_per_run_budget_cny == 5.0
+        assert s.keqing_default_models == {} and s.keqing_gateway_enabled is False
+        s2 = replace(
+            s, keqing_default_models={"pi": "zai-coding-cn/glm-4.6"}, keqing_per_run_budget_cny=5.0
+        )
+        assert s2.keqing_default_models == {"pi": "zai-coding-cn/glm-4.6"}
+        assert s2.keqing_per_run_budget_cny == 5.0
 
     def test_update_request_rejects_negative_budget(self):
         from tianshu.models.api import AgentConfigUpdateRequest

@@ -9,6 +9,7 @@ from tianshu.auditor.rules import RulesEngine
 from tianshu.auditor.rules_config import AuditRulesConfig
 from tianshu.bus.event_bus import EventBus
 from tianshu.config_manager import ConfigManager
+from tianshu.executor.keqing.session_executor import is_conversational_executor
 from tianshu.models.common import AuditResult, EdictStatus, TaskStatus
 from tianshu.models.edict import Edict
 from tianshu.models.events import EventEnvelope, make_event
@@ -114,11 +115,14 @@ class Auditor:
         # Auto-close edict if no human review required and execution succeeded.
         # 周期性敕令（cron/interval）每次运行后必须保持 OPEN，否则 _cron_loop /
         # _interval_loop 下一轮会因 edict 非 open 而停止、重启时 _restore_jobs 也会取消。
+        # 对话式客卿（pi RPC 会话档，支持 follow_up 连续对话）同理保持 OPEN，
+        # 否则一次产出即 auto-close，用户无法「继续批示」连续追问。
         if (
             memorial.status == TaskStatus.COMPLETED
             and memorial.review_status == "not_required"
             and edict.status == EdictStatus.OPEN
             and edict.schedule.type not in ("cron", "interval")
+            and not is_conversational_executor(getattr(edict.runtime, "executor", None))
         ):
             self._storage.update_edict_status(edict.id, EdictStatus.COMPLETED.value)
 

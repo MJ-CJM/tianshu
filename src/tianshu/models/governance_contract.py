@@ -242,6 +242,18 @@ class NetworkPolicyV1(CanonicalContractModel):
             raise ValueError("deny network mode cannot include hosts")
         return self
 
+    def downgraded_for_unenforceable(self) -> NetworkPolicyV1:
+        """backend 无法强制网络时的等价降级:非 unrestricted 一律降为 unrestricted_requested。
+
+        确定性治理变换(非篡改)——resolve(build effective)与运行时防篡改一致性校验
+        (adapters/protocol)须用同一个变换,否则 effective 降级后会与 mapped 契约不匹配。
+        """
+        if self.mode == "unrestricted_requested":
+            return self
+        return self.model_copy(
+            update={"mode": "unrestricted_requested", "allowed_hosts": (), "write_hosts": ()}
+        )
+
 
 class WorkspacePolicyV1(CanonicalContractModel):
     source_id: str | None = None

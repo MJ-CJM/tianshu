@@ -43,6 +43,29 @@ class TestSessionArgv:
         assert not pi.is_canonical_argv(["pi", "--mode", "rpc", "--session-dir"])  # 缺值
         assert not pi.is_canonical_argv(["pi", "--mode", "rpc", "--model"])  # 缺值
 
+    def test_resume_adds_continue_flag(self):
+        # follow_up 续会话:resume=True → --continue(pi 加载上次对话上下文,连续对话有记忆)
+        assert PiSessionAdapter().build_session_argv(session_dir="/s", resume=True) == [
+            "pi", "--mode", "rpc", "--session-dir", "/s", "--continue",
+        ]
+        assert PiSessionAdapter().build_session_argv(session_dir="/s", model="m", resume=True) == [
+            "pi", "--mode", "rpc", "--session-dir", "/s", "--continue", "--model", "m",
+        ]
+        # resume=False 不加 --continue(首次执行,新会话)
+        assert "--continue" not in PiSessionAdapter().build_session_argv(session_dir="/s")
+
+    def test_resume_continue_passes_grant(self):
+        pi = get_adapter("pi")
+        assert pi.is_canonical_argv(
+            PiSessionAdapter().build_session_argv(session_dir="/s", resume=True)
+        )
+        assert pi.is_canonical_argv(
+            PiSessionAdapter().build_session_argv(session_dir="/s", model="m", resume=True)
+        )
+        # --continue 仅在 --session-dir 后合法;--no-session 后 / 位置错须拒绝(防夹带)
+        assert not pi.is_canonical_argv(["pi", "--mode", "rpc", "--no-session", "--continue"])
+        assert not pi.is_canonical_argv(["pi", "--mode", "rpc", "--continue", "--session-dir", "/s"])
+
 
 class TestEncodeCommand:
     def test_prompt_frame(self):
@@ -102,9 +125,14 @@ class TestParseEvent:
         ev = PiSessionAdapter().parse_event({"type": "future_event_2028"})
         assert ev.kind == KIND_UNKNOWN and ev.raw_type == "future_event_2028"
 
-    def test_is_settled_only_for_settled(self):
+    def test_is_settled_accepts_settled_or_terminal_agent_end(self):
+        # 0.81.1 发 agent_settled;0.79.3 无此事件,以 agent_end(willRetry=False)为完成信号。
         a = PiSessionAdapter()
-        assert not a.is_settled(a.parse_event({"type": "agent_end", "willRetry": False}))
+        assert a.is_settled(a.parse_event({"type": "agent_settled"}))
+        assert a.is_settled(a.parse_event({"type": "agent_end", "willRetry": False}))
+        # 但 willRetry=True 的 agent_end 是中途重试,不算 settle
+        assert not a.is_settled(a.parse_event({"type": "agent_end", "willRetry": True}))
+        assert not a.is_settled(a.parse_event({"type": "turn_end"}))
 
 
 class TestStats:

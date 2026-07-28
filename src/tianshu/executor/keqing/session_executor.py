@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from contextlib import suppress
 from uuid import uuid4
 
@@ -62,6 +63,16 @@ def get_session_adapter(backend: str) -> KeqingSessionAdapter | None:
     return cls() if cls is not None else None
 
 
+def is_conversational_executor(executor: str | None) -> bool:
+    """执行器是否为对话式 RPC 会话档(如 pi,支持 follow_up 连续对话)。
+
+    对话式客卿审计通过后应保持敕令 OPEN(类比周期性敕令),否则一次产出即
+    auto-close、canFollowUp 失效,用户无法连续追问——单发档/native 不受影响。
+    """
+    backend = parse_keqing_backend(executor)
+    return backend is not None and backend in _SESSION_ADAPTERS
+
+
 class _Accumulator:
     """会话运行的可变累加态(reader 写、主流程读)。"""
 
@@ -86,10 +97,13 @@ class KeqingSessionExecutor:
         follow_up_rounds: int = 3,
         gateway_base_url: str | None = None,
         token_ttl_seconds: float = 3600.0,
+        default_model_provider: Callable[[str], str | None] | None = None,
     ) -> None:
         self._execution_gateway = execution_gateway or ExecutionGateway()
         self._llm = llm  # 仅 acceptance 含 kind=rubric 时才需要
         self._follow_up_rounds = follow_up_rounds
+        # 按客卿 backend 返回治理默认模型;敕令未指定 executor_model 时回退到它。
+        self._default_model_provider = default_model_provider
         # 网关模式(OpenShell 凭证隔离):设了 base_url 则 spawn 前铸 scoped token 只注入
         # PI_GATEWAY_TOKEN,raw provider key 不进客卿 env;pi 侧由 P4 guard 的 registerProvider
         # 把 baseUrl 重定向到本 base_url + 用该 token。未设则直连档(auth_env_vars 放行 provider key)。
@@ -160,9 +174,15 @@ class KeqingSessionExecutor:
 
         work = resolve_workspace_root(self.work_dir(edict.id))
         work.mkdir(parents=True, exist_ok=True)
-        session_dir = str(work / ".tianshu" / "sessions")
+        sessions_path = work / ".tianshu" / "sessions"
+        session_dir = str(sessions_path)
+        # follow_up(同一敕令已有会话文件)→ resume 上下文,让连续对话有记忆;首次执行不 resume。
+        resume = sessions_path.is_dir() and any(sessions_path.glob("*.jsonl"))
+        # 三级:敕令 executor_model > 治理默认[该客卿] > 客卿自身登录默认(model=None)
         model = model_override or getattr(edict.runtime, "executor_model", None)
-        argv = adapter.build_session_argv(session_dir=session_dir, model=model)
+        if not model and self._default_model_provider is not None:
+            model = self._default_model_provider(backend)
+        argv = adapter.build_session_argv(session_dir=session_dir, model=model, resume=resume)
 
         base_timeout = edict.runtime.timeout_seconds
         # 整场会话覆盖:基础时长 ×(1 + follow_up 轮数);受 budget.wall_clock_seconds 夹逼(request 内 min)
@@ -256,6 +276,14 @@ class KeqingSessionExecutor:
                 fut = pending.pop(fid, None) if fid is not None else None
                 if fut is not None and not fut.done():
                     fut.set_result(frame)
+                elif frame.get("success") is False:
+                    # 客卿拒绝命令(如缺 provider key / 模型不识别):这类 fire-and-forget 命令
+                    # (prompt/follow_up)不注册 pending future,旧逻辑会丢弃此帧→干等 timeout。
+                    # 捕获 error 并即刻收尾,让"No API key"等可操作原因成为终态 error,而非黑洞。
+                    acc.is_error = True
+                    acc.error = str(frame.get("error") or "keqing rejected command")
+                    logger.warning("[keqing] %s rejected: %s", frame.get("command"), acc.error)
+                    settled.set()
                 return
             if frame.get("type") == "extension_ui_request":
                 # P2 裸跑无 guard:反向通道请求一律 fail-closed 取消(P4 接批红裁决)。
@@ -347,6 +375,10 @@ class KeqingSessionExecutor:
             await send("prompt", message=edict.goal)
             outcome = await wait_settle()
             exit_reason, err = _classify_outcome(outcome, state, budget_cny)
+            # 客卿拒绝命令(dispatch 已 settle):归为 LLM_ERROR 并透出 error,跳过 acceptance。
+            if acc.is_error and exit_reason == ExitReason.COMPLETED:
+                exit_reason = ExitReason.LLM_ERROR
+                err = err or acc.error
 
             if exit_reason == ExitReason.COMPLETED:
                 ok, acc_err = await self._acceptance_loop(

@@ -20,11 +20,13 @@ from tianshu.executor.orchestrator.checks import CheckOutcome, ChecksResult
 class FakePiHandle:
     """响应式假 pi RPC 进程:按 stdin 命令脚本化 emit LF-JSONL 事件到 stdout。"""
 
-    def __init__(self, rounds, *, crash_after_prompt=False):
+    def __init__(self, rounds, *, crash_after_prompt=False, reject_error=None, emit_settled=True):
         import asyncio
 
         self._rounds = rounds
         self._crash = crash_after_prompt
+        self._reject_error = reject_error
+        self._emit_settled = emit_settled  # False 模拟 pi 0.79.3(只发 agent_end,无 agent_settled)
         self._out: asyncio.Queue = asyncio.Queue()
         self._exited = asyncio.Event()
         self.stdin_cmds: list[dict] = []
@@ -46,6 +48,18 @@ class FakePiHandle:
     async def _react(self, cmd: dict) -> None:
         t = cmd.get("type")
         if t in ("prompt", "follow_up"):
+            if self._reject_error is not None:
+                # 模拟客卿拒绝命令(如缺 provider key):失败 response,不发 agent_settled
+                await self._emit(
+                    {
+                        "id": cmd.get("id"),
+                        "type": "response",
+                        "command": t,
+                        "success": False,
+                        "error": self._reject_error,
+                    }
+                )
+                return
             await self._emit({"type": "agent_start"})
             if self._crash:
                 # 模拟 pi 早退:发了 agent_start 就崩,不发 agent_settled
@@ -77,7 +91,8 @@ class FakePiHandle:
             self._stats["tokens"]["output"] += spec.get("output", 0)
             self._stats["cost"] += spec.get("cost", 0.0)
             await self._emit({"type": "agent_end", "messages": [], "willRetry": False})
-            await self._emit({"type": "agent_settled"})
+            if self._emit_settled:
+                await self._emit({"type": "agent_settled"})
         elif t == "get_session_stats":
             tokens = {**self._stats["tokens"]}
             tokens["total"] = tokens["input"] + tokens["output"]
@@ -148,6 +163,25 @@ class TestHappyPath:
         types = [c["type"] for c in handle.stdin_cmds]
         assert "prompt" in types and "get_session_stats" in types
         assert "follow_up" not in types
+
+    async def test_agent_end_without_settled_completes(self):
+        # pi 0.79.3 不发 agent_settled,以 agent_end(willRetry=False)为完成信号;天枢须据此
+        # settle,否则 send prompt 后会一直等到 session timeout(前端「办理中」一直转)。
+        handle = FakePiHandle(
+            [{"text": "done", "input": 10, "output": 5, "cost": 0.001}], emit_settled=False
+        )
+        result = await _drive(handle, edict=_edict())
+        assert result.status == TaskStatus.COMPLETED
+        assert result.exit_reason == ExitReason.COMPLETED
+        assert "done" in (result.result or "")
+
+    async def test_rejected_prompt_fails_fast_with_error(self):
+        # 客卿拒绝命令(如缺 anthropic key):不再干等 timeout,快速 FAILED 且透出可操作原因
+        handle = FakePiHandle([], reject_error="No API key found for anthropic.")
+        result = await _drive(handle, edict=_edict(), timeout=30.0)
+        assert result.status is TaskStatus.FAILED
+        assert result.exit_reason is ExitReason.LLM_ERROR
+        assert "No API key" in (result.error or "")
 
 
 class TestAcceptanceLoop:

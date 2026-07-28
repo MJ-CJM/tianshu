@@ -38,7 +38,7 @@ def _state_to_agent_config(state) -> AgentConfig:
         skill_review_enabled=state.skill_review_enabled,
         skill_review_interval=state.skill_review_interval,
         fallback_llm_config_name=state.fallback_llm_config_name,
-        keqing_default_model=state.keqing_default_model,
+        keqing_default_models=state.keqing_default_models,
         keqing_gateway_enabled=state.keqing_gateway_enabled,
         keqing_per_run_budget_cny=state.keqing_per_run_budget_cny,
         keqing_model_allowlist=state.keqing_model_allowlist,

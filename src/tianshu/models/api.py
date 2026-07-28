@@ -283,7 +283,7 @@ class AgentConfig(BaseModel):
     skill_review_interval: int
     fallback_llm_config_name: str | None
     # 客卿治理默认(外聘 coding agent)
-    keqing_default_model: str
+    keqing_default_models: dict[str, str]
     keqing_gateway_enabled: bool
     keqing_per_run_budget_cny: float
     keqing_model_allowlist: str
@@ -301,7 +301,7 @@ class AgentConfigUpdateRequest(BaseModel):
     skill_review_interval: int | None = Field(default=None, ge=1, le=100)
     fallback_llm_config_name: str | None = None
     # 客卿治理默认
-    keqing_default_model: str | None = None
+    keqing_default_models: dict[str, str] | None = None
     keqing_gateway_enabled: bool | None = None
     keqing_per_run_budget_cny: float | None = Field(default=None, ge=0)
     keqing_model_allowlist: str | None = None
