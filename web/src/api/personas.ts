@@ -1,11 +1,25 @@
 import apiClient from "./client";
 import type {
   ApiResponse,
+  PersonaCreateRequest,
+  PersonaImportDraft,
+  PersonaImportSourceKind,
   PersonaInfo,
   PersonaMetrics,
-  PersonaCreateRequest,
   PersonaUpdateRequest,
 } from "./types";
+
+/** 从外部(openclaw/hermes)读配置作导入预览(只读,不落库)。path 省略则服务端探测默认目录。 */
+export async function previewPersonaImport(
+  source: PersonaImportSourceKind,
+  path?: string,
+): Promise<PersonaImportDraft> {
+  const { data } = await apiClient.post<ApiResponse<PersonaImportDraft>>(
+    "/personas/import/preview",
+    { source, path },
+  );
+  return data.data!;
+}
 
 export async function listPersonas(): Promise<ApiResponse<PersonaInfo[]>> {
   const { data } = await apiClient.get<ApiResponse<PersonaInfo[]>>("/personas");

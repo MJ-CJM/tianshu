@@ -200,6 +200,95 @@ def list_personas(request: Request):
     )
 
 
+def _install_imported_skills(source_dirs: list[str]) -> list[str]:
+    """把导入来源的 agentskills.io SKILL.md 目录复制到 user skills(幂等,失败安全)。
+
+    返回成功关联的技能名列表(供并入 skills_allowed)。已存在则跳过复制仍关联;
+    坏 frontmatter / 非法名 / 复制失败则跳过。技能对运行中的 loader 于下次加载/重载生效。
+    """
+    import logging
+    import shutil
+
+    import frontmatter
+
+    from tianshu.bootstrap.wiring_skills import runtime_skills_target
+    from tianshu.skills.loader import validate_skill_name
+
+    log = logging.getLogger(__name__)
+    target_root = runtime_skills_target()
+    installed: list[str] = []
+    for src in source_dirs:
+        src_dir = Path(str(src)).expanduser()
+        skill_md = src_dir / "SKILL.md"
+        if not skill_md.is_file():
+            log.warning("import-skill: 跳过(无 SKILL.md): %s", src_dir)
+            continue
+        try:
+            post = frontmatter.load(str(skill_md))
+            name = validate_skill_name(str(post.get("name") or src_dir.name))
+        except Exception:  # noqa: BLE001 — 坏技能(名字非法/frontmatter 坏)不该拖垮 persona 创建
+            log.warning("import-skill: 跳过(名字非法/frontmatter 坏): %s", src_dir)
+            continue
+        dest = target_root / name
+        if dest.exists():
+            installed.append(name)  # 已装,仍关联到该 persona
+            continue
+        try:
+            target_root.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src_dir, dest)
+            installed.append(name)
+        except (OSError, shutil.Error) as exc:
+            log.warning("import-skill: 复制失败 %s → %s: %s", src_dir, dest, exc)
+    return installed
+
+
+@personas_router.post("/personas/import/preview", response_model=ApiResponse)
+async def preview_persona_import(request: Request):
+    """从 openclaw/hermes 读配置作**导入预览**(只读,不落库):供预填百官创建表单。
+
+    一次性 seed(非 sync):只取人格+能力(SOUL/职责/技能/模型),排除记忆/学习/渠道。
+    """
+    from tianshu.persona.import_source import (
+        PersonaImportError,
+        detect_default_path,
+        import_from,
+    )
+
+    body = await request.json()
+    source = body.get("source")
+    if source not in ("openclaw", "hermes"):
+        raise HTTPException(status_code=400, detail="source must be 'openclaw' or 'hermes'")
+    path_str = (body.get("path") or "").strip()
+    path = Path(path_str).expanduser() if path_str else detect_default_path(source)
+    if path is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"未提供路径,且未探测到默认 {source} 配置目录",
+        )
+    if not path.is_dir():
+        raise HTTPException(status_code=400, detail=f"路径不存在或非目录: {path}")
+    try:
+        draft = import_from(source, path)
+    except PersonaImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ApiResponse(
+        success=True,
+        data={
+            "source": draft.source,
+            "soul_body": draft.soul_body,
+            "role_body": draft.role_body,
+            "suggested_name": draft.suggested_name,
+            "suggested_model": draft.suggested_model,
+            "skills": [
+                {"name": s.name, "source_dir": s.source_dir, "description": s.description}
+                for s in draft.skills
+            ],
+            "source_notes": draft.source_notes,
+        },
+    )
+
+
 @personas_router.post("/personas", response_model=ApiResponse, status_code=201)
 async def create_persona(request: Request):
     from tianshu.persona.loader import PersonaLoader
@@ -247,7 +336,23 @@ async def create_persona(request: Request):
     runtime_personas_dir: Path = request.app.state.runtime_personas_dir
     runtime_dir = runtime_personas_dir / body["id"]
     template_id = body.get("template_id") or None
-    if template_id:
+    imported_soul = body.get("imported_soul")
+    if imported_soul is not None and not template_id:
+        # 从外部(openclaw/hermes)导入作种子:注天枢身份 frontmatter 到导入的 SOUL 正文,
+        # 职责取导入的 ROLE 正文(空则默认)。一次性种子,已存在不覆盖(与模板路径同语义)。
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        soul_path = runtime_dir / "SOUL.md"
+        role_path = runtime_dir / "ROLE.md"
+        fm = f"---\nname: {body['name']}\ndepartment: {body['department']}\n"
+        if title:
+            fm += f"title: {title}\n"
+        fm += "---\n"
+        if not soul_path.exists():
+            soul_path.write_text(fm + "\n" + str(imported_soul).strip() + "\n", encoding="utf-8")
+        if not role_path.exists():
+            role_body = str(body.get("imported_role") or "").strip() or f"# {body['name']} — 职责\n"
+            role_path.write_text(role_body + "\n", encoding="utf-8")
+    elif template_id:
         template_lang = body.get("template_lang") or "zh"
         if template_lang not in ("zh", "en"):
             raise HTTPException(
@@ -290,6 +395,12 @@ async def create_persona(request: Request):
     memory_manager = request.app.state.memory_manager
     memory_path = memory_manager.memory_dir / body["id"] / "MEMORY.md"
 
+    # 导入技能(agentskills.io):复制 SKILL.md 目录到 user skills + 并入 skills_allowed。
+    skills_allowed = list(body.get("skills_allowed", []))
+    for skill_name in _install_imported_skills(body.get("import_skill_paths") or []):
+        if skill_name not in skills_allowed:
+            skills_allowed.append(skill_name)
+
     persona = AgentPersona(
         id=body["id"],
         name=body["name"],
@@ -300,7 +411,7 @@ async def create_persona(request: Request):
         memory_path=memory_path,
         tools_allowed=body.get("tools_allowed", []),
         tools_denied=body.get("tools_denied", []),
-        skills_allowed=body.get("skills_allowed", []),
+        skills_allowed=skills_allowed,
         tool_tier_max=body.get("tool_tier_max", 0),
         can_delegate=body.get("can_delegate", False),
         memory_global_read=body.get("memory_global_read", False),

@@ -25,6 +25,10 @@ import {
   Tooltip,
   Radio,
   Collapse,
+  Segmented,
+  Checkbox,
+  Alert,
+  message,
 } from "antd";
 import {
   CheckCircleOutlined,
@@ -46,6 +50,11 @@ import {
   useUpdatePersona,
   useDeletePersona,
 } from "../hooks/usePersonas";
+import { previewPersonaImport } from "../api/personas";
+import type {
+  PersonaImportDraft,
+  PersonaImportSourceKind,
+} from "../api/types";
 import {
   useDepartments,
   useCreateDepartment,
@@ -414,6 +423,28 @@ function PersonaFormModal({
     }
   }, [templateDetail, form]);
 
+  // 创建方式(仅创建态):模板库 | 从外部(openclaw/hermes)导入作种子(一次性,非 sync)
+  const [createMode, setCreateMode] = useState<"template" | "import">("template");
+  const [importSource, setImportSource] = useState<PersonaImportSourceKind>("hermes");
+  const [importPath, setImportPath] = useState("");
+  const [importDraft, setImportDraft] = useState<PersonaImportDraft | null>(null);
+  const [importedSkillDirs, setImportedSkillDirs] = useState<string[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+
+  const runImportPreview = async () => {
+    setImportLoading(true);
+    try {
+      const draft = await previewPersonaImport(importSource, importPath || undefined);
+      setImportDraft(draft);
+      setImportedSkillDirs(draft.skills.map((s) => s.source_dir)); // 默认全选
+      form.setFieldsValue({ name: draft.suggested_name });
+    } catch {
+      message.error(t("persona.import.previewFailed"));
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
   const handleOpen = () => {
     if (editingPersona) {
       form.setFieldsValue({
@@ -428,11 +459,27 @@ function PersonaFormModal({
       form.resetFields();
       setTemplateLang("zh");
       setSelectedTemplateId(null);
+      setCreateMode("template");
+      setImportSource("hermes");
+      setImportPath("");
+      setImportDraft(null);
+      setImportedSkillDirs([]);
     }
   };
 
   const handleFinish = (values: PersonaCreateRequest | PersonaUpdateRequest) => {
-    if (!isEdit && selectedTemplateId) {
+    if (isEdit) {
+      onSubmit(values);
+      return;
+    }
+    if (createMode === "import" && importDraft) {
+      onSubmit({
+        ...(values as PersonaCreateRequest),
+        imported_soul: importDraft.soul_body,
+        imported_role: importDraft.role_body,
+        import_skill_paths: importedSkillDirs,
+      });
+    } else if (selectedTemplateId) {
       onSubmit({
         ...(values as PersonaCreateRequest),
         template_id: selectedTemplateId,
@@ -469,6 +516,120 @@ function PersonaFormModal({
         }}
       >
         {!isEdit && (
+          <Form.Item label={t("persona.form.persona.field.createMode")}>
+            <Segmented
+              value={createMode}
+              onChange={(v) => setCreateMode(v as "template" | "import")}
+              options={[
+                { value: "template", label: t("persona.createMode.template") },
+                { value: "import", label: t("persona.createMode.import") },
+              ]}
+            />
+          </Form.Item>
+        )}
+        {!isEdit && createMode === "import" && (
+          <>
+            <Form.Item label={t("persona.import.source")}>
+              <Radio.Group
+                value={importSource}
+                onChange={(e) => {
+                  setImportSource(e.target.value);
+                  setImportDraft(null);
+                }}
+                optionType="button"
+                options={[
+                  { value: "hermes", label: "Hermes" },
+                  { value: "openclaw", label: "OpenClaw" },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              label={t("persona.import.path")}
+              tooltip={t("persona.import.pathTip")}
+            >
+              <Input
+                value={importPath}
+                onChange={(e) => setImportPath(e.target.value)}
+                onPressEnter={runImportPreview}
+                placeholder={importSource === "hermes" ? "~/.hermes" : "~/.openclaw/workspace"}
+                allowClear
+              />
+            </Form.Item>
+            <Button
+              type="primary"
+              loading={importLoading}
+              onClick={runImportPreview}
+              style={{ marginBottom: 16 }}
+            >
+              {t("persona.import.preview")}
+            </Button>
+            {importDraft && (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message={t("persona.import.seedNote")}
+                  description={
+                    importDraft.source_notes.length ? (
+                      <ul style={{ margin: 0, paddingLeft: 18 }}>
+                        {importDraft.source_notes.map((n) => (
+                          <li key={n}>{n}</li>
+                        ))}
+                      </ul>
+                    ) : undefined
+                  }
+                />
+                {importDraft.suggested_model && (
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                    {t("persona.import.suggestedModel")}: <code>{importDraft.suggested_model}</code>
+                  </Typography.Paragraph>
+                )}
+                {importDraft.skills.length > 0 && (
+                  <Form.Item label={t("persona.import.skills")}>
+                    <Checkbox.Group
+                      value={importedSkillDirs}
+                      onChange={(v) => setImportedSkillDirs(v as string[])}
+                      options={importDraft.skills.map((s) => ({
+                        value: s.source_dir,
+                        label: `${s.name}${s.description ? ` — ${s.description}` : ""}`,
+                      }))}
+                    />
+                  </Form.Item>
+                )}
+                <Collapse
+                  size="small"
+                  style={{ marginBottom: 16 }}
+                  items={[
+                    {
+                      key: "soul",
+                      label: t("persona.form.persona.soulPreview"),
+                      children: (
+                        <Typography.Paragraph
+                          style={{ whiteSpace: "pre-wrap", maxHeight: 220, overflow: "auto", margin: 0 }}
+                        >
+                          {importDraft.soul_body}
+                        </Typography.Paragraph>
+                      ),
+                    },
+                    {
+                      key: "role",
+                      label: t("persona.form.persona.rolePreview"),
+                      children: (
+                        <Typography.Paragraph
+                          style={{ whiteSpace: "pre-wrap", maxHeight: 220, overflow: "auto", margin: 0 }}
+                        >
+                          {importDraft.role_body || "(空)"}
+                        </Typography.Paragraph>
+                      ),
+                    },
+                  ]}
+                />
+              </>
+            )}
+          </>
+        )}
+        {!isEdit && createMode === "template" && (
           <>
             <Form.Item label={t("persona.form.persona.field.templateLang")}>
               <Radio.Group
