@@ -332,6 +332,9 @@ describe("Edict detail durable governance workspace", () => {
     expect(screen.queryByRole("button", { name: "重办" })).not.toBeInTheDocument();
     expect(screen.queryByText("legacy.tool")).not.toBeInTheDocument();
 
+    // 审计区默认折叠,展开后才能操作裁决表单
+    await user.click(screen.getByText(/治理稽核|治理与审计|Governance & audit/));
+
     await user.type(screen.getAllByLabelText("裁决理由")[0]!, "只走权威裁决");
     await user.click(screen.getAllByRole("button", { name: "提交裁决" })[0]!);
 
@@ -349,6 +352,9 @@ describe("Edict detail durable governance workspace", () => {
     detailHook.useEdictDetail.mockReturnValue(state);
     const user = userEvent.setup();
     renderPage();
+
+    // 审计区默认折叠,展开后审计内容才可见(getByRole 忽略隐藏元素)
+    await user.click(screen.getByText(/治理稽核|治理与审计|Governance & audit/));
 
     const governance = screen.getByRole("heading", { name: "治理契约" }).closest("section");
     expect(governance).not.toBeNull();

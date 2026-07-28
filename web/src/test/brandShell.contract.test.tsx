@@ -56,7 +56,7 @@ const DEPARTMENT_STRUCTURE = [
   { group: "敕令", departments: ["御书房", "文书房"] },
   { group: "政要", departments: ["内阁", "廷议", "都察院", "权印司"] },
   { group: "百官", departments: ["百官阁", "文渊阁", "位面", "考成"] },
-  { group: "内府", departments: ["藏兵阁", "鸿胪寺", "通政司", "户部账房"] },
+  { group: "内府", departments: ["客卿", "藏兵阁", "鸿胪寺", "通政司", "户部账房"] },
 ];
 
 function memoryStorage(): Storage {
@@ -191,7 +191,7 @@ describe("S4 desktop brand shell contract", () => {
     expect(rootItems.map((item) => item.textContent?.trim())).toEqual(["中枢总览", "演化中心"]);
     expect(renderedStructure).toEqual(DEPARTMENT_STRUCTURE);
     expect(renderedStructure).toHaveLength(4);
-    expect(renderedStructure.flatMap(({ departments }) => departments)).toHaveLength(14);
+    expect(renderedStructure.flatMap(({ departments }) => departments)).toHaveLength(15);
 
     await user.click(screen.getByRole("button", { name: "切换浅色" }));
     expect(toggleTheme).toHaveBeenCalledOnce();

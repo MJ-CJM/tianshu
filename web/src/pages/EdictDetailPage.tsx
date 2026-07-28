@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Button, Input, Modal, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme, Tooltip } from "antd";
+import { Alert, Button, Input, Modal, Typography, Tag, Space, Popconfirm, Collapse, Descriptions, Table, message, theme, Tooltip } from "antd";
 import { ArrowLeftOutlined, SendOutlined, CheckOutlined, ClockCircleOutlined, EditOutlined, StopOutlined, DeploymentUnitOutlined, BulbOutlined, PauseCircleOutlined, PlayCircleOutlined, LikeOutlined, DislikeOutlined } from "@ant-design/icons";
 import { useEdictDetail } from "../hooks/useEdictDetail";
 import { followUpEdict, updateEdictStatus, updateEdict, pauseEdict, resumeEdict } from "../api/edicts";
@@ -517,15 +517,28 @@ export default function EdictDetailPage() {
       </GlowCard>
 
       {detail ? (
-        <EdictDurableGovernance
-          detail={detail}
-          onResolve={resolveDecision}
-          onConflict={refetch}
-          onReplay={async (source) => {
-            const nextEdictId = await replay(source);
-            navigate(`/edicts/${encodeURIComponent(nextEdictId)}`);
-            return nextEdictId;
-          }}
+        <Collapse
+          ghost
+          style={{ marginBottom: 24 }}
+          items={[
+            {
+              key: "governance",
+              label: t("page.edictDetail.auditSectionTitle"),
+              forceRender: true,
+              children: (
+                <EdictDurableGovernance
+                  detail={detail}
+                  onResolve={resolveDecision}
+                  onConflict={refetch}
+                  onReplay={async (source) => {
+                    const nextEdictId = await replay(source);
+                    navigate(`/edicts/${encodeURIComponent(nextEdictId)}`);
+                    return nextEdictId;
+                  }}
+                />
+              ),
+            },
+          ]}
         />
       ) : null}
 
@@ -702,6 +715,15 @@ export default function EdictDetailPage() {
             )}
           </div>
         </GlowCard>
+      )}
+
+      {hasPendingReview && edict.status === "open" && (
+        <Alert
+          type="info"
+          showIcon
+          message={t("page.edictDetail.pendingReviewHint")}
+          style={{ marginBottom: 12 }}
+        />
       )}
 
       {!canFollowUp && edict.status === "open" && (

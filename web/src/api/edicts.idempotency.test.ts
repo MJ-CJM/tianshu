@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AxiosAdapter, AxiosRequestConfig } from "axios";
 import apiClient from "./client";
-import { createEdict } from "./edicts";
+import { createEdict, followUpEdict } from "./edicts";
 import { resetAuthRefreshForTests } from "./authFetch";
 
 const originalAdapter = apiClient.defaults.adapter;
@@ -51,6 +51,32 @@ describe("Edict submission idempotency", () => {
       "00000000-0000-4000-8000-000000000001",
     ]);
     expect(bodies.map((body) => body.idempotency_key)).toEqual(keys);
+  });
+
+  it("followUpEdict sends an Idempotency-Key header (backend requires it, else 422)", async () => {
+    const randomUUID = vi.fn(() => "00000000-0000-4000-8000-0000000000f0");
+    vi.stubGlobal("crypto", { randomUUID });
+    const requests: AxiosRequestConfig[] = [];
+    const adapter: AxiosAdapter = async (config) => {
+      requests.push(config);
+      return {
+        config,
+        data: { success: true, data: { id: "m-1" }, error: null, metadata: null },
+        headers: {},
+        status: 202,
+        statusText: "Accepted",
+      };
+    };
+    apiClient.defaults.adapter = adapter;
+
+    await followUpEdict("edict-1", { instruction: "你是谁?" });
+
+    expect(requests).toHaveLength(1);
+    const req = requests[0]!;
+    expect(req.url).toContain("/edicts/edict-1/follow-up");
+    expect(req.headers?.["Idempotency-Key"]).toBe(
+      "00000000-0000-4000-8000-0000000000f0",
+    );
   });
 
   it("never sends browser-supplied actor fields", async () => {

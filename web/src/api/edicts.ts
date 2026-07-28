@@ -349,9 +349,12 @@ export async function followUpEdict(
   edictId: string,
   body: FollowUpRequest,
 ): Promise<ApiResponse<Memorial>> {
+  // 后端 follow-up 端点要求 Idempotency-Key header(缺失即 422),与 createEdict 一致。
+  const idempotencyKey = crypto.randomUUID();
   const { data } = await apiClient.post<ApiResponse<Memorial>>(
     `/edicts/${edictId}/follow-up`,
     body,
+    { headers: { "Idempotency-Key": idempotencyKey } },
   );
   return data;
 }

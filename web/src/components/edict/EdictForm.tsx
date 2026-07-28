@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Col,
   Collapse,
   Descriptions,
   Divider,
@@ -10,9 +11,11 @@ import {
   Input,
   InputNumber,
   Radio,
+  Row,
   Select,
   Space,
   Switch,
+  Tag,
   Typography,
 } from "antd";
 import { SendOutlined, ToolOutlined } from "@ant-design/icons";
@@ -340,6 +343,15 @@ export default function EdictForm({
   const effectiveAcceptance = effectiveContract?.acceptance as Record<string, unknown> | undefined;
   const effectiveRecovery = effectiveContract?.recovery as Record<string, unknown> | undefined;
 
+  const capabilityNames = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.map((item) =>
+          typeof item === "object" && item !== null && "name" in item
+            ? String((item as { name: unknown }).name)
+            : String(item),
+        )
+      : [];
+
   const contractValue = (value: unknown): string => {
     if (value === null || value === undefined || value === "") return "—";
     if (Array.isArray(value)) {
@@ -413,55 +425,65 @@ export default function EdictForm({
         </Form.Item>
       )}
 
-      <Form.Item name="executor" label={t("form.edict.field.executor")} tooltip={t("form.edict.tooltip.executor")}>
-        <Select
-          options={[
-            { value: "native", label: t("executor.native") },
-            { value: "keqing:pi", label: t("executor.pi") },
-            { value: "keqing:claude-code", label: t("executor.claudeCode") },
-            { value: "keqing:codex", label: t("executor.codex") },
-            { value: "keqing:opencode", label: t("executor.opencode") },
-          ]}
-        />
-      </Form.Item>
+      <Row gutter={16}>
+        <Col xs={24} sm={12}>
+          <Form.Item name="executor" label={t("form.edict.field.executor")} tooltip={t("form.edict.tooltip.executor")}>
+            <Select
+              options={[
+                { value: "native", label: t("executor.native") },
+                { value: "keqing:pi", label: t("executor.pi") },
+                { value: "keqing:claude-code", label: t("executor.claudeCode") },
+                { value: "keqing:codex", label: t("executor.codex") },
+                { value: "keqing:opencode", label: t("executor.opencode") },
+              ]}
+            />
+          </Form.Item>
+        </Col>
+        <Col xs={24} sm={12}>
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, cur) => prev.executor !== cur.executor}
+          >
+            {({ getFieldValue }) =>
+              String(getFieldValue("executor") ?? "").startsWith("keqing:") ? (
+                <Form.Item
+                  name="executor_model"
+                  label={t("form.edict.field.executorModel")}
+                  tooltip={t("form.edict.tooltip.executorModel")}
+                >
+                  <Input placeholder="anthropic/claude-opus-4-5:high" allowClear />
+                </Form.Item>
+              ) : null
+            }
+          </Form.Item>
+        </Col>
+      </Row>
 
-      <Form.Item
-        noStyle
-        shouldUpdate={(prev, cur) => prev.executor !== cur.executor}
-      >
-        {({ getFieldValue }) =>
-          String(getFieldValue("executor") ?? "").startsWith("keqing:") ? (
-            <Form.Item
-              name="executor_model"
-              label={t("form.edict.field.executorModel")}
-              tooltip={t("form.edict.tooltip.executorModel")}
-            >
-              <Input placeholder="anthropic/claude-opus-4-5:high" allowClear />
-            </Form.Item>
-          ) : null
-        }
-      </Form.Item>
-
-      <Form.Item name="review_policy" label={t("form.edict.field.reviewPolicy")}>
-        <Select
-          options={[
-            { value: "always", label: t("reviewPolicy.always") },
-            { value: "on_flag", label: t("reviewPolicy.on_flag") },
-            { value: "on_failure", label: t("reviewPolicy.on_failure") },
-            { value: "never", label: t("reviewPolicy.never") },
-          ]}
-        />
-      </Form.Item>
-
-      <Form.Item name="priority" label={t("form.edict.field.priority")}>
-        <Select
-          options={[
-            { value: "urgent", label: t("priority.urgent") },
-            { value: "normal", label: t("priority.normal") },
-            { value: "low", label: t("priority.low") },
-          ]}
-        />
-      </Form.Item>
+      <Row gutter={16}>
+        <Col xs={24} sm={12}>
+          <Form.Item name="review_policy" label={t("form.edict.field.reviewPolicy")}>
+            <Select
+              options={[
+                { value: "always", label: t("reviewPolicy.always") },
+                { value: "on_flag", label: t("reviewPolicy.on_flag") },
+                { value: "on_failure", label: t("reviewPolicy.on_failure") },
+                { value: "never", label: t("reviewPolicy.never") },
+              ]}
+            />
+          </Form.Item>
+        </Col>
+        <Col xs={24} sm={12}>
+          <Form.Item name="priority" label={t("form.edict.field.priority")}>
+            <Select
+              options={[
+                { value: "urgent", label: t("priority.urgent") },
+                { value: "normal", label: t("priority.normal") },
+                { value: "low", label: t("priority.low") },
+              ]}
+            />
+          </Form.Item>
+        </Col>
+      </Row>
 
       <Form.Item name="context" label={t("form.edict.field.context")}>
         <Input.TextArea rows={3} placeholder={t("form.edict.placeholder.context")} style={{ resize: "vertical" }} />
@@ -477,30 +499,46 @@ export default function EdictForm({
 
       <Divider style={{ margin: "12px 0" }} />
 
-      <Form.Item name="timeout_seconds" label={t("form.edict.field.timeoutSeconds")}>
-        <InputNumber min={10} max={3600} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.timeoutSeconds")} />
-      </Form.Item>
-      <Form.Item name="max_iterations" label={t("form.edict.field.maxIterations")}>
-        <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxIterations")} />
-      </Form.Item>
-      <Form.Item name="max_concurrency" label={t("form.edict.field.maxConcurrency")}>
-        <InputNumber min={1} max={8} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxConcurrency")} />
-      </Form.Item>
-      <Form.Item name="retry_limit" label={t("form.edict.field.retryLimit")}>
-        <InputNumber min={0} max={10} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.retryLimit")} />
-      </Form.Item>
+      <Row gutter={16}>
+        <Col xs={24} sm={12}>
+          <Form.Item name="timeout_seconds" label={t("form.edict.field.timeoutSeconds")}>
+            <InputNumber min={10} max={3600} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.timeoutSeconds")} />
+          </Form.Item>
+        </Col>
+        <Col xs={24} sm={12}>
+          <Form.Item name="max_iterations" label={t("form.edict.field.maxIterations")}>
+            <InputNumber min={1} max={200} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxIterations")} />
+          </Form.Item>
+        </Col>
+      </Row>
+      <Row gutter={16}>
+        <Col xs={24} sm={12}>
+          <Form.Item name="max_concurrency" label={t("form.edict.field.maxConcurrency")}>
+            <InputNumber min={1} max={8} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.maxConcurrency")} />
+          </Form.Item>
+        </Col>
+        <Col xs={24} sm={12}>
+          <Form.Item name="retry_limit" label={t("form.edict.field.retryLimit")}>
+            <InputNumber min={0} max={10} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.retryLimit")} />
+          </Form.Item>
+        </Col>
+      </Row>
     </>
   );
 
   const budgetGroup = (
-    <>
-      <Form.Item name="cost_budget_cny" label={t("form.edict.field.costBudget")}>
-        <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.costBudget")} />
-      </Form.Item>
-      <Form.Item name="token_budget" label={t("form.edict.field.tokenBudget")}>
-        <InputNumber min={1} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.tokenBudget")} />
-      </Form.Item>
-    </>
+    <Row gutter={16}>
+      <Col xs={24} sm={12}>
+        <Form.Item name="cost_budget_cny" label={t("form.edict.field.costBudget")}>
+          <InputNumber min={0} step={0.01} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.costBudget")} />
+        </Form.Item>
+      </Col>
+      <Col xs={24} sm={12}>
+        <Form.Item name="token_budget" label={t("form.edict.field.tokenBudget")}>
+          <InputNumber min={1} style={{ width: "100%" }} placeholder={t("form.edict.placeholder.tokenBudget")} />
+        </Form.Item>
+      </Col>
+    </Row>
   );
 
   const permissionGroup = (
@@ -521,8 +559,7 @@ export default function EdictForm({
       layout="vertical"
       onFinish={handleFinish}
       requiredMark={false}
-      initialValues={{ priority: "normal", review_policy: "always" }}
-      style={{ maxWidth: 640 }}
+      initialValues={{ priority: "normal", review_policy: "on_failure" }}
     >
       {/* --- 第一层:极简默认(标题 / 目标 / 智能填充) --- */}
       <Form.Item name="title" label={t("form.edict.field.title")}>
@@ -650,7 +687,8 @@ export default function EdictForm({
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+                  // 响应式:容器够宽并排,过窄自动堆叠成单栏——避免两栏硬挤致长文本字符级折行
+                  gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
                   gap: 16,
                   alignItems: "start",
                 }}
@@ -659,15 +697,45 @@ export default function EdictForm({
                   <Typography.Title level={5} id="requested-governance-contract-title">
                     {t("form.edict.warning.governanceRequestedTitle")}
                   </Typography.Title>
-                  <Descriptions size="small" column={1} bordered>
+                  <Descriptions
+                    size="small"
+                    column={1}
+                    bordered
+                    labelStyle={{ whiteSpace: "nowrap" }}
+                  >
                     <Descriptions.Item label={t("form.edict.warning.governanceExecutorLabel")}>
                       {contractValue(requestedExecutor?.adapter_id)}
                     </Descriptions.Item>
                     <Descriptions.Item label={t("form.edict.warning.governanceCapabilitiesLabel")}>
-                      {t("form.edict.warning.governanceCapabilitiesValue", {
-                        mandatory: contractValue(requestedCapabilities?.mandatory),
-                        advisory: contractValue(requestedCapabilities?.advisory),
-                      })}
+                      <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                        {(
+                          [
+                            ["governanceCapMandatory", requestedCapabilities?.mandatory, undefined],
+                            ["governanceCapAdvisory", requestedCapabilities?.advisory, "orange"],
+                          ] as const
+                        ).map(([labelKey, raw, color]) => {
+                          const names = capabilityNames(raw);
+                          return (
+                            <div key={labelKey}>
+                              <Typography.Text
+                                type="secondary"
+                                style={{ fontSize: 12, marginRight: 4 }}
+                              >
+                                {t(`form.edict.warning.${labelKey}`)}
+                              </Typography.Text>
+                              {names.length ? (
+                                names.map((c) => (
+                                  <Tag key={c} color={color} style={{ marginBottom: 4 }}>
+                                    {c}
+                                  </Tag>
+                                ))
+                              ) : (
+                                <Typography.Text type="secondary">—</Typography.Text>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </Space>
                     </Descriptions.Item>
                     <Descriptions.Item label={t("form.edict.warning.governanceAllowedPathsLabel")}>
                       {contractValue(requestedPermissions?.allowed_paths)}
@@ -716,7 +784,12 @@ export default function EdictForm({
                   <Typography.Title level={5} id="effective-governance-contract-title">
                     {t("form.edict.warning.governanceEffectiveContractTitle")}
                   </Typography.Title>
-                  <Descriptions size="small" column={1} bordered>
+                  <Descriptions
+                    size="small"
+                    column={1}
+                    bordered
+                    labelStyle={{ whiteSpace: "nowrap" }}
+                  >
                     <Descriptions.Item label={t("form.edict.warning.governanceExecutorLabel")}>
                       {effectiveContract?.executor_manifest_id ??
                         effectiveContract?.executor.adapter_id ??

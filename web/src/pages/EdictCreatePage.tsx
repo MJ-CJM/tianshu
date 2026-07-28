@@ -43,7 +43,7 @@ export function EdictCreationForm({
   };
 
   return (
-    <GlowCard style={{ maxWidth: 720 }}>
+    <GlowCard style={{ width: "100%" }}>
       <EdictForm
         onSubmit={handleSubmit}
         loading={loading}
@@ -56,7 +56,7 @@ export function EdictCreationForm({
 export default function EdictCreatePage() {
   const t = useT();
   return (
-    <PageContainer title={t("page.edictCreate.title")}>
+    <PageContainer title={t("page.edictCreate.title")} contentMaxWidth={960}>
       <EdictCreationForm />
     </PageContainer>
   );
