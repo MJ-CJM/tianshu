@@ -205,6 +205,7 @@ async def live_no_credentials_client(tmp_path, monkeypatch):
     monkeypatch.setenv("TIANSHU_MEMORY_DIR", str(tmp_path / "memory"))
     monkeypatch.setenv("TIANSHU_DB_PATH", str(tmp_path / "live-nocreds.db"))
     monkeypatch.setenv("TIANSHU_STARTUP_PROFILE", "live")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("TIANSHU_LLM_API_KEY", "")
     monkeypatch.setenv("TIANSHU_LLM_MODEL", "")
     app = create_app()
@@ -292,16 +293,31 @@ async def test_head_probes_on_health_endpoints_are_allowed(client):
 
 
 def _seed_active_llm_config(db_path, *, name: str, model: str, api_key: str) -> None:
-    """app 启动前把一个 active 配置写进 llm_configs（经 Web UI 配置的部署形态）。"""
+    """app 启动前按新形态种子（经 Web UI 配置的部署形态）。
+
+    key 已迁入加密凭证库（迁移 0020）：非空 key 经 provider 注册表落
+    network_credentials(kind='llm_provider')，配置行只存 provider_id。
+    需要 TIANSHU_SECRET_MASTER_KEY 在场（见 _master_key_env fixture）。
+    """
+    from tianshu.providers.model_catalog import ModelCatalog
+    from tianshu.providers.registry import ModelProviderRegistry
+    from tianshu.secrets.store import CredentialStore
+    from tianshu.secrets.vault import get_vault
     from tianshu.storage import Storage
 
     storage = Storage(str(db_path))
     storage.init_db()
+    provider_id = ""
+    if api_key:
+        vault = get_vault()
+        assert vault is not None, "seeding a key requires TIANSHU_SECRET_MASTER_KEY"
+        registry = ModelProviderRegistry(storage, ModelCatalog(), CredentialStore(storage, vault))
+        provider_id = registry.create_provider(profile_id="openai", api_key=api_key)["id"]
     storage.save_llm_config(
         {
             "name": name,
             "model": model,
-            "api_key": api_key,
+            "provider_id": provider_id,
             "api_base": "",
             "max_retries": 3,
             "temperature": 0.7,
@@ -321,6 +337,13 @@ async def live_db_configured_client(tmp_path, monkeypatch):
     运行时 ProviderManager 走 ConfigManager.state（=DB active 行）——完全可用，
     绝不能被判 not_ready（否则 k8s/LB 会永久摘除这个健康实例）。
     """
+    from cryptography.fernet import Fernet
+
+    from tianshu.secrets.vault import reset_vault
+
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", Fernet.generate_key().decode())
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    reset_vault()
     db = tmp_path / "live-db-configured.db"
     _seed_active_llm_config(db, name="web-config", model="gpt-4o-mini", api_key="sk-real-key")
     monkeypatch.setenv("TIANSHU_RUNTIME_PERSONAS_DIR", str(tmp_path / "runtime-personas"))
@@ -334,15 +357,23 @@ async def live_db_configured_client(tmp_path, monkeypatch):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             yield c, app
+    reset_vault()
 
 
 @pytest.fixture
 async def live_env_key_client(tmp_path, monkeypatch):
-    """live + env 有凭证（空库首启：ConfigManager 用 env 种子并落库）。"""
+    """live + env 有凭证（空库首启：ConfigManager 用 env 种子并加密落库）。"""
+    from cryptography.fernet import Fernet
+
+    from tianshu.secrets.vault import reset_vault
+
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", Fernet.generate_key().decode())
+    reset_vault()
     monkeypatch.setenv("TIANSHU_RUNTIME_PERSONAS_DIR", str(tmp_path / "runtime-personas"))
     monkeypatch.setenv("TIANSHU_MEMORY_DIR", str(tmp_path / "memory"))
     monkeypatch.setenv("TIANSHU_DB_PATH", str(tmp_path / "live-env-key.db"))
     monkeypatch.setenv("TIANSHU_STARTUP_PROFILE", "live")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("TIANSHU_LLM_API_KEY", "sk-env-key")
     monkeypatch.setenv("TIANSHU_LLM_MODEL", "gpt-4o-mini")
     app = create_app()
@@ -350,6 +381,7 @@ async def live_env_key_client(tmp_path, monkeypatch):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as c:
             yield c, app
+    reset_vault()
 
 
 async def test_db_configured_live_instance_is_ready_without_env_credentials(

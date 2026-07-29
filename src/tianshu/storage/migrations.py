@@ -7,6 +7,7 @@ import json
 import re
 import sqlite3
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from tianshu.storage.migration_ledger import (
@@ -721,8 +722,14 @@ _HISTORICAL_CORE_TEMP_TABLES = {
     "_memorials_v1",
     "_pending_notifications_v1",
 }
+_MODEL_REGISTRY_TEMP_TABLES = {
+    "_llm_configs_v20",
+}
 _RESERVED_TEMP_TABLES = (
-    _SUPERVISION_TEMP_TABLES | _SESSION_TEMP_TABLES | _HISTORICAL_CORE_TEMP_TABLES
+    _SUPERVISION_TEMP_TABLES
+    | _SESSION_TEMP_TABLES
+    | _HISTORICAL_CORE_TEMP_TABLES
+    | _MODEL_REGISTRY_TEMP_TABLES
 )
 
 _SESSION_LEGACY_TABLES = {
@@ -3652,12 +3659,322 @@ def _governed_evolution_candidates_upgrade(conn: MigrationConnection) -> None:
         conn.execute(statement)
 
 
+# --- V19-V21: 统一模型注册表（provider 一等实体 / key 加密入库 / app_settings KV）---
+
+_MODEL_PROVIDERS_MIGRATION_VERSION = _EVOLUTION_CANDIDATE_MIGRATION_VERSION + 1
+_MODEL_PROVIDERS_MIGRATION_NAME = f"{_MODEL_PROVIDERS_MIGRATION_VERSION:04d}_model_providers"
+_MODEL_PROVIDERS_STATEMENTS = (
+    """
+    CREATE TABLE model_providers (
+        id TEXT PRIMARY KEY CHECK (length(trim(id)) BETWEEN 1 AND 64),
+        profile_id TEXT NOT NULL,
+        display_name TEXT NOT NULL DEFAULT '',
+        base_url TEXT NOT NULL DEFAULT '',
+        api_key_ref TEXT NOT NULL DEFAULT '',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+    )
+    """,
+    "ALTER TABLE llm_configs ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''",
+)
+_MODEL_PROVIDERS_CHECKSUM = hashlib.sha256(
+    (
+        _MODEL_PROVIDERS_MIGRATION_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _MODEL_PROVIDERS_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+# 迁移期的模型名启发式（仅用于 api_base 为空的旧行；与 profiles.aliases 的
+# api_base 匹配互补）。故意冻结在迁移内：profile 清单演进不改变已发布迁移语义。
+_BARE_MODEL_PROFILE_HINTS = (
+    ("claude", "anthropic"),
+    ("gpt-", "openai"),
+    ("chatgpt", "openai"),
+    ("o1", "openai"),
+    ("o3", "openai"),
+    ("deepseek", "deepseek"),
+    ("gemini", "gemini"),
+    ("glm", "zhipu"),
+    ("moonshot", "moonshot"),
+    ("kimi", "moonshot"),
+    ("qwen", "dashscope"),
+)
+
+_DEMO_MODEL_SENTINEL = "mock/tianshu-demo"
+
+
+def _match_migration_profile(model: str, api_base: str):
+    """迁移回填的 profile 匹配：api_base 别名 → 模型前缀段 → 裸模型启发式。"""
+    from tianshu.providers.profiles import get_profile, match_profile_by_base_url
+
+    profile = match_profile_by_base_url(api_base)
+    if profile is not None:
+        return profile
+    if "/" in model:
+        head = model.split("/", 1)[0].lower()
+        profile = get_profile(head)
+        if profile is not None:
+            return profile
+    if not api_base:
+        lowered = model.lower()
+        for prefix, profile_id in _BARE_MODEL_PROFILE_HINTS:
+            if lowered.startswith(prefix):
+                return get_profile(profile_id)
+    return None
+
+
+def _model_providers_upgrade(conn: MigrationConnection) -> None:
+    for statement in _MODEL_PROVIDERS_STATEMENTS:
+        conn.execute(statement)
+
+    rows = conn.execute(
+        "SELECT name, model, api_base, api_key FROM llm_configs ORDER BY name"
+    ).fetchall()
+    if not rows:
+        return
+
+    now = datetime.now(UTC).isoformat()
+    assigned: dict[tuple[str, str, str], str] = {}
+    used_ids: set[str] = set()
+    for row in rows:
+        name = str(row[0])
+        model = str(row[1] or "")
+        api_base = str(row[2] or "").strip()
+        api_key = str(row[3] or "")
+        if model == _DEMO_MODEL_SENTINEL:
+            # demo 保留名是 runtime-only 档位，不建 provider（provider_id 留空）
+            continue
+        profile = _match_migration_profile(model, api_base)
+        profile_id = profile.id if profile is not None else "custom"
+        triple = (profile_id, api_base, api_key)
+        provider_id = assigned.get(triple)
+        if provider_id is None:
+            if profile is not None and profile.id != "custom":
+                base_id = profile.id
+            else:
+                digest = hashlib.sha256(f"{api_base}|{api_key}".encode()).hexdigest()[:8]
+                base_id = f"custom-{digest}"
+            provider_id = base_id
+            suffix = 2
+            while provider_id in used_ids:
+                provider_id = f"{base_id}-{suffix}"
+                suffix += 1
+            used_ids.add(provider_id)
+            assigned[triple] = provider_id
+            # base_url 只存与 profile 默认值的差异；custom 必存
+            default_base = profile.default_base_url if profile is not None else ""
+            stored_base = api_base if api_base != default_base else ""
+            conn.execute(
+                """INSERT INTO model_providers
+                   (id, profile_id, display_name, base_url, api_key_ref, enabled, created_at)
+                   VALUES (?, ?, '', ?, '', 1, ?)""",
+                (provider_id, profile_id, stored_base, now),
+            )
+        conn.execute(
+            "UPDATE llm_configs SET provider_id = ? WHERE name = ?",
+            (provider_id, name),
+        )
+
+
+_ENCRYPT_LLM_KEYS_MIGRATION_VERSION = _MODEL_PROVIDERS_MIGRATION_VERSION + 1
+_ENCRYPT_LLM_KEYS_MIGRATION_NAME = (
+    f"{_ENCRYPT_LLM_KEYS_MIGRATION_VERSION:04d}_encrypt_llm_config_keys"
+)
+_LLM_CONFIGS_V20_TABLE_SQL = """
+    CREATE TABLE _llm_configs_v20 (
+        name TEXT PRIMARY KEY,
+        model TEXT NOT NULL,
+        provider_id TEXT NOT NULL DEFAULT '',
+        api_base TEXT NOT NULL DEFAULT '',
+        max_retries INTEGER NOT NULL DEFAULT 3,
+        temperature REAL NOT NULL DEFAULT 0.7,
+        top_p REAL NOT NULL DEFAULT 1.0,
+        max_tokens INTEGER NOT NULL DEFAULT 4096,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        is_active INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    )
+"""
+_ENCRYPT_LLM_KEYS_CHECKSUM = hashlib.sha256(
+    (_ENCRYPT_LLM_KEYS_MIGRATION_NAME + "\n" + " ".join(_LLM_CONFIGS_V20_TABLE_SQL.split())).encode(
+        "utf-8"
+    )
+).hexdigest()
+
+
+def _require_llm_vault() -> SecretVault:
+    from tianshu.secrets.vault import get_vault
+
+    vault = get_vault()
+    if vault is None:
+        raise ValueError(
+            "迁移 0020_encrypt_llm_config_keys 需要 TIANSHU_SECRET_MASTER_KEY 才能把 "
+            "llm_configs 中的明文 API key 加密入库。请设置该环境变量后重启（生成方式："
+            'python -c "from cryptography.fernet import Fernet; '
+            'print(Fernet.generate_key().decode())"）。'
+        )
+    return vault
+
+
+def _encrypt_llm_config_keys_upgrade(conn: MigrationConnection) -> None:
+    rows = conn.execute(
+        "SELECT name, provider_id, api_key FROM llm_configs ORDER BY name"
+    ).fetchall()
+    provider_keys: dict[str, str] = {}
+    for row in rows:
+        provider_id = str(row[1] or "")
+        api_key = str(row[2] or "")
+        if provider_id and api_key:
+            provider_keys.setdefault(provider_id, api_key)
+
+    to_encrypt: dict[str, str] = {}
+    for provider_id, api_key in provider_keys.items():
+        existing = conn.execute(
+            "SELECT id FROM network_credentials "
+            "WHERE kind = 'llm_provider' AND provider_name = ? AND deleted_at IS NULL",
+            (provider_id,),
+        ).fetchone()
+        if existing is None:
+            to_encrypt[provider_id] = api_key
+
+    if to_encrypt:
+        vault = _require_llm_vault()
+        now = datetime.now(UTC).isoformat()
+        for provider_id, api_key in sorted(to_encrypt.items()):
+            ciphertext = vault.encrypt(api_key)
+            if vault.decrypt(ciphertext) != api_key:
+                raise ValueError("LLM api key encryption verification failed")
+            cred_name = f"llm:{provider_id}"
+            while conn.execute(
+                "SELECT 1 FROM network_credentials WHERE name = ?", (cred_name,)
+            ).fetchone():
+                cred_name = f"{cred_name}+"
+            conn.execute(
+                """INSERT INTO network_credentials
+                   (id, name, host_pattern, header_template, extra_headers,
+                    encrypted_value, created_at, updated_at, kind, provider_name)
+                   VALUES (?, ?, '', '', '{}', ?, ?, ?, 'llm_provider', ?)""",
+                (f"llmprov-{provider_id}", cred_name, ciphertext, now, now, provider_id),
+            )
+
+    if provider_keys:
+        now = datetime.now(UTC).isoformat()
+        for provider_id in sorted(provider_keys):
+            conn.execute(
+                "UPDATE model_providers SET api_key_ref = 'credential', updated_at = ? "
+                "WHERE id = ? AND api_key_ref = ''",
+                (now, provider_id),
+            )
+
+    conn.execute("PRAGMA secure_delete=ON")
+    conn.execute(_LLM_CONFIGS_V20_TABLE_SQL)
+    conn.execute(
+        """INSERT INTO _llm_configs_v20
+           (name, model, provider_id, api_base, max_retries, temperature,
+            top_p, max_tokens, enabled, is_active, created_at)
+           SELECT name, model, COALESCE(provider_id, ''), api_base, max_retries,
+                  temperature, top_p, max_tokens, enabled, is_active, created_at
+           FROM llm_configs"""
+    )
+    conn.execute("DROP TABLE llm_configs")
+    conn.execute("ALTER TABLE _llm_configs_v20 RENAME TO llm_configs")
+
+
+_APP_SETTINGS_MIGRATION_VERSION = _ENCRYPT_LLM_KEYS_MIGRATION_VERSION + 1
+_APP_SETTINGS_MIGRATION_NAME = f"{_APP_SETTINGS_MIGRATION_VERSION:04d}_app_settings"
+_APP_SETTINGS_STATEMENTS = (
+    """
+    CREATE TABLE app_settings (
+        key TEXT PRIMARY KEY CHECK (length(trim(key)) BETWEEN 1 AND 128),
+        value_json TEXT NOT NULL CHECK (json_valid(value_json)),
+        updated_at TEXT NOT NULL
+    )
+    """,
+)
+_APP_SETTINGS_CHECKSUM = hashlib.sha256(
+    (
+        _APP_SETTINGS_MIGRATION_NAME
+        + "\n"
+        + "\n".join(" ".join(statement.split()) for statement in _APP_SETTINGS_STATEMENTS)
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _app_settings_upgrade(conn: MigrationConnection) -> None:
+    for statement in _APP_SETTINGS_STATEMENTS:
+        conn.execute(statement)
+
+
+# --- V22: legacy 分流占位可随敕令清理（真实验记录保持不可变）---
+#
+# 零实验状态下 ChallengerRouter 仍为每次运行写一行 candidate_id=NULL 的
+# legacy 占位（保证重试路由稳定），而 v18 的无条件 no_delete 触发器 +
+# memorials FK RESTRICT 使**每条敕令都永久不可删**。占位不是实验证据：
+# 触发器改为仅保护 candidate_id 非空的真实验记录。
+
+_LEGACY_ASSIGNMENT_CLEANUP_VERSION = _APP_SETTINGS_MIGRATION_VERSION + 1
+_LEGACY_ASSIGNMENT_CLEANUP_NAME = (
+    f"{_LEGACY_ASSIGNMENT_CLEANUP_VERSION:04d}_legacy_assignment_cleanup"
+)
+_LEGACY_ASSIGNMENT_CLEANUP_STATEMENTS = (
+    "DROP TRIGGER run_evolution_assignments_no_delete",
+    """
+    CREATE TRIGGER run_evolution_assignments_no_delete
+    BEFORE DELETE ON run_evolution_assignments
+    WHEN OLD.candidate_id IS NOT NULL
+    BEGIN
+        SELECT RAISE(ABORT, 'evolution assignment is immutable');
+    END
+    """,
+)
+_LEGACY_ASSIGNMENT_CLEANUP_CHECKSUM = hashlib.sha256(
+    (
+        _LEGACY_ASSIGNMENT_CLEANUP_NAME
+        + "\n"
+        + "\n".join(
+            " ".join(statement.split()) for statement in _LEGACY_ASSIGNMENT_CLEANUP_STATEMENTS
+        )
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _legacy_assignment_cleanup_upgrade(conn: MigrationConnection) -> None:
+    for statement in _LEGACY_ASSIGNMENT_CLEANUP_STATEMENTS:
+        conn.execute(statement)
+
+
 MIGRATIONS = _PRE_EVOLUTION_MIGRATIONS + (
     Migration(
         version=_EVOLUTION_CANDIDATE_MIGRATION_VERSION,
         name=_EVOLUTION_CANDIDATE_MIGRATION_NAME,
         checksum=_EVOLUTION_CANDIDATE_CHECKSUM,
         upgrade=_governed_evolution_candidates_upgrade,
+    ),
+    Migration(
+        version=_MODEL_PROVIDERS_MIGRATION_VERSION,
+        name=_MODEL_PROVIDERS_MIGRATION_NAME,
+        checksum=_MODEL_PROVIDERS_CHECKSUM,
+        upgrade=_model_providers_upgrade,
+    ),
+    Migration(
+        version=_ENCRYPT_LLM_KEYS_MIGRATION_VERSION,
+        name=_ENCRYPT_LLM_KEYS_MIGRATION_NAME,
+        checksum=_ENCRYPT_LLM_KEYS_CHECKSUM,
+        upgrade=_encrypt_llm_config_keys_upgrade,
+    ),
+    Migration(
+        version=_APP_SETTINGS_MIGRATION_VERSION,
+        name=_APP_SETTINGS_MIGRATION_NAME,
+        checksum=_APP_SETTINGS_CHECKSUM,
+        upgrade=_app_settings_upgrade,
+    ),
+    Migration(
+        version=_LEGACY_ASSIGNMENT_CLEANUP_VERSION,
+        name=_LEGACY_ASSIGNMENT_CLEANUP_NAME,
+        checksum=_LEGACY_ASSIGNMENT_CLEANUP_CHECKSUM,
+        upgrade=_legacy_assignment_cleanup_upgrade,
     ),
 )
 

@@ -96,6 +96,7 @@ def wire_memory_manager(app: FastAPI, settings: TianshuSettings) -> None:
         memory_dir=memory_dir,
         drawer_store=drawer_store,
         memory_config=memory_config,
+        provider_manager=getattr(app.state, "provider_manager", None),
     )
     memory_manager.ensure_memory_dirs()
     app.state.memory_manager = memory_manager

@@ -117,12 +117,15 @@ class Auditor:
         # _interval_loop 下一轮会因 edict 非 open 而停止、重启时 _restore_jobs 也会取消。
         # 对话式客卿（pi RPC 会话档，支持 follow_up 连续对话）同理保持 OPEN，
         # 否则一次产出即 auto-close，用户无法「继续批示」连续追问。
+        # runtime.conversation（对话模式）：百官/native 执行的显式选择——成功后
+        # 保持 OPEN 由人工结案，follow_up 回放多轮上下文，等同与百官连续对话。
         if (
             memorial.status == TaskStatus.COMPLETED
             and memorial.review_status == "not_required"
             and edict.status == EdictStatus.OPEN
             and edict.schedule.type not in ("cron", "interval")
             and not is_conversational_executor(getattr(edict.runtime, "executor", None))
+            and not getattr(edict.runtime, "conversation", False)
         ):
             self._storage.update_edict_status(edict.id, EdictStatus.COMPLETED.value)
 

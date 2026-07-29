@@ -71,7 +71,7 @@ class ProfileSynthesizer:
         skill_metrics_store: Any,
         personas_runtime_dir: Path,
         persona_loader: Any,
-        model_name: str = "claude-sonnet-4-6",
+        model_name: str = "",
         memory_dir: Path | None = None,
         personas_dir: Path | None = None,
     ) -> None:
@@ -81,7 +81,8 @@ class ProfileSynthesizer:
         self._skill_metrics = skill_metrics_store
         self._runtime_dir = Path(personas_runtime_dir).expanduser()
         self._personas = persona_loader
-        self._model = model_name
+        # 空 model_name 从注入的 llm_client 读取（记录到 profile 元数据用）
+        self._model = model_name or str(getattr(llm_client, "_model", "") or "")
         # 用于 piggyback memory review：在 PROFILE 合成同周期把"值得长期记住的事"写入私有 MEMORY.md
         # 任一为 None 则跳过 review，不影响主合成流程
         self._memory_dir = Path(memory_dir).expanduser() if memory_dir else None

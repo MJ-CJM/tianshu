@@ -60,10 +60,11 @@ class MemoryManager:
         memory_dir: Path | None = None,
         drawer_store: MemoryBackend | None = None,
         memory_config: MemoryConfig | None = None,
+        provider_manager: object | None = None,
     ) -> None:
         self._storage = storage
         self._backend = SQLiteMemoryBackend(storage)
-        self._compactor = MemoryCompactor(config_manager)
+        self._compactor = MemoryCompactor(config_manager, provider_manager=provider_manager)
         self._access_control = MemoryAccessControl(storage)
         self._config_manager = config_manager
         self._hooks = hook_registry
@@ -84,7 +85,9 @@ class MemoryManager:
             memory_dir=self._memory_dir,
             personas_dir=self._personas_dir,
         )
-        self._reflector = Reflector(config_manager, md_backend=self._md_backend)
+        self._reflector = Reflector(
+            config_manager, md_backend=self._md_backend, provider_manager=provider_manager
+        )
         self._synced_personas: set[str] = set()
 
     # ------------------------------------------------------------------
@@ -430,10 +433,20 @@ class MemoryManager:
     def _resolve_persona_id(context: dict, plan: object = None) -> str:
         """Extract persona ID from context with consistent fallback chain.
 
-        Priority: context["persona"].id > plan.tasks[0].assigned_official > DEFAULT_EXECUTOR_ID
+        Priority: memorial.persona_id > context["persona"].id >
+        plan.tasks[0].assigned_official > DEFAULT_EXECUTOR_ID
+
+        memorial.persona_id 是执行期真值（execute_edict 在 hook 之前已定），
+        放最高优先级保证 BEFORE_AGENT_START 召回与 AGENT_END 写入同源——
+        否则 AGENT_END 的 context 没带 plan 时会退到 bingbu，执行官写的
+        记忆自己永远召不回。
         """
         from tianshu.persona.model import DEFAULT_EXECUTOR_ID
 
+        memorial = context.get("memorial")
+        memorial_persona = getattr(memorial, "persona_id", None) if memorial else None
+        if memorial_persona:
+            return str(memorial_persona)
         persona = context.get("persona")
         if persona and hasattr(persona, "id") and persona.id:
             return persona.id

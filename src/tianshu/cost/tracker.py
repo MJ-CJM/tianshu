@@ -1,54 +1,50 @@
 """In-memory per-execution cost accumulator + model pricing.
 
-Pricing 表 3 维语义：(input_miss, input_hit, output) 单位 CNY/1K tokens。
+Pricing 3 维语义：(input_miss, input_hit, output) 单位 CNY/1K tokens。
 - input_miss = 输入未命中缓存价（普通输入）
 - input_hit  = 输入命中缓存价（折扣价）
 - output     = 输出价
 
-如果某模型只有 2 维数据，input_hit 默认与 input_miss 相同（无折扣）。
+默认价来源是 models.dev 目录快照（providers/model_catalog.py，打包随发行、
+可手动刷新），替代原先手工维护的 _DEFAULT_PRICING 硬编码字典；目录与
+litellm.model_cost 都未命中时落保守兜底价。
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
-# Default pricing per 1K tokens (CNY, ≈ USD × 7.2)
-# Tuple = (input_miss, input_hit, output)
-# cache hit 折扣比例参考各家公开数据：deepseek 1/50、claude 1/10、gpt 1/2
-_DEFAULT_PRICING: dict[str, tuple[float, float, float]] = {
-    # OpenAI
-    "gpt-4o": (0.018, 0.009, 0.072),  # cache hit 1/2
-    "gpt-4o-mini": (0.0011, 0.00055, 0.0043),
-    "gpt-4-turbo": (0.072, 0.036, 0.216),
-    "gpt-3.5-turbo": (0.0036, 0.0018, 0.0108),
-    # Anthropic Claude（cache hit 1/10，cache write ≈ 1.25× miss，本期未单独建模）
-    "claude-3-opus": (0.108, 0.0108, 0.54),
-    "claude-3-sonnet": (0.0216, 0.00216, 0.108),
-    "claude-3-haiku": (0.0018, 0.00018, 0.009),
-    "claude-sonnet-4-6": (0.0216, 0.00216, 0.108),
-    "claude-opus-4-6": (0.108, 0.0108, 0.54),
-    "claude-haiku-4-5": (0.0072, 0.00072, 0.036),
-    # DeepSeek（cache hit ≈ 1/50；v3 系列；v4-flash/pro 待官方价新鲜度更新）
-    "deepseek-chat": (0.001, 0.00002, 0.002),  # 注：旧 output 价 0.008 已纠正为 v4 实际 0.002
-    "deepseek-reasoner": (0.004, 0.00008, 0.016),
-    "deepseek-v4-flash": (0.001, 0.00002, 0.002),  # 官方原价
-    "deepseek-v4-pro": (
-        0.012,
-        0.0001,
-        0.024,
-    ),  # 官方原价 (12/0.1/24 元每百万)；限时 2.5 折期间可在户部账房手动覆盖为 (0.003, 0.000025, 0.006)
-    # 国产其他（cache 比例未公开则 hit=miss 无折扣）
-    "qwen-max": (0.04, 0.04, 0.12),
-    "qwen-plus": (0.004, 0.004, 0.012),
-    "moonshot-v1-8k": (0.012, 0.012, 0.012),
-    # MiniMax（无公开 cache 价，hit=miss）
-    "MiniMax-M2.7": (0.001, 0.001, 0.008),
-}
-
-# 模型未命中价表时的兜底（保守估计；hit = miss）
+# 模型未命中目录时的兜底（保守估计；hit = miss）
 _FALLBACK_PRICING: tuple[float, float, float] = (0.0072, 0.0072, 0.0144)
+
+# 定价解析器：模型串 → 3 维价 | None。wiring 注入带磁盘缓存与配置汇率的
+# 目录实例；未装配时懒建打包快照默认目录（单测/脚本/doctor 同样拿到目录价）。
+_pricing_resolver: Callable[[str], tuple[float, float, float] | None] | None = None
+
+
+def set_pricing_resolver(
+    resolver: Callable[[str], tuple[float, float, float] | None] | None,
+) -> None:
+    global _pricing_resolver
+    _pricing_resolver = resolver
+
+
+def lookup_pricing(model: str) -> tuple[float, float, float]:
+    """按模型串查 3 维价（CNY/1K）；目录未命中落兜底价。"""
+    resolver = _pricing_resolver
+    if resolver is None:
+        from tianshu.providers.model_catalog import default_catalog
+
+        resolver = default_catalog().pricing_cny_by_model
+    try:
+        pricing = resolver(model)
+    except Exception:  # noqa: BLE001 - 定价查询失败等同未知，落兜底
+        logger.exception("pricing resolver failed for model %r", model)
+        pricing = None
+    return pricing if pricing is not None else _FALLBACK_PRICING
 
 
 class CostTracker:
@@ -61,6 +57,7 @@ class CostTracker:
         self._total_tokens: int = 0
         self._cost_cny: float = 0.0
         self._last_provider_name: str | None = None
+        self._last_model: str | None = None
 
     @property
     def prompt_tokens(self) -> int:
@@ -86,6 +83,10 @@ class CostTracker:
     def last_provider_name(self) -> str | None:
         return self._last_provider_name
 
+    @property
+    def last_model(self) -> str | None:
+        return self._last_model
+
     def accumulate(
         self,
         model: str,
@@ -94,14 +95,23 @@ class CostTracker:
         cache_read_tokens: int = 0,
         provider_pricing: tuple[float, float] | tuple[float, float, float] | None = None,
         provider_name: str | None = None,
+        cost_cny: float | None = None,
     ) -> float:
-        """Add token usage and return incremental cost in CNY."""
-        cost = estimate_cost(
-            model,
-            prompt_tokens,
-            completion_tokens,
-            cache_read_tokens=cache_read_tokens,
-            provider_pricing=provider_pricing,
+        """Add token usage and return incremental cost in CNY.
+
+        cost_cny 给定时直接采信（LLM 客户端已按供应商生效价——含订阅归零——
+        算好的权威值），不再按模型名重新估价；None 时才落估价路径（旧调用兼容）。
+        """
+        cost = (
+            cost_cny
+            if cost_cny is not None
+            else estimate_cost(
+                model,
+                prompt_tokens,
+                completion_tokens,
+                cache_read_tokens=cache_read_tokens,
+                provider_pricing=provider_pricing,
+            )
         )
         self._prompt_tokens += prompt_tokens
         self._completion_tokens += completion_tokens
@@ -110,18 +120,9 @@ class CostTracker:
         self._cost_cny += cost
         if provider_name:
             self._last_provider_name = provider_name
+        if model:
+            self._last_model = model
         return cost
-
-    @staticmethod
-    def _lookup_pricing(model: str) -> tuple[float, float, float]:
-        """Look up pricing for a model, returns (input_miss, input_hit, output)."""
-        if model in _DEFAULT_PRICING:
-            return _DEFAULT_PRICING[model]
-        # Try prefix match (strip openai/ or similar)
-        base = model.split("/")[-1] if "/" in model else model
-        if base in _DEFAULT_PRICING:
-            return _DEFAULT_PRICING[base]
-        return _FALLBACK_PRICING
 
     def reset(self) -> None:
         self._prompt_tokens = 0
@@ -130,11 +131,6 @@ class CostTracker:
         self._total_tokens = 0
         self._cost_cny = 0.0
         self._last_provider_name = None
-
-
-def lookup_pricing(model: str) -> tuple[float, float, float]:
-    """Module-level alias for CostTracker._lookup_pricing。返回 3-tuple。"""
-    return CostTracker._lookup_pricing(model)
 
 
 def _normalize_pricing(

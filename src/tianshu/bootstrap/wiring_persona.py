@@ -144,7 +144,7 @@ def wire_profile(app: FastAPI, settings: TianshuSettings) -> None:
 
     # --- ProfileSynthesizer + ProfileTrigger ---
     profile_synthesizer = ProfileSynthesizer(
-        llm_client=provider_manager.get_client(),
+        llm_client=provider_manager.get_client_for_slot("synthesis"),
         drawer_store=drawer_store,
         storage=storage,
         skill_metrics_store=metrics_store,

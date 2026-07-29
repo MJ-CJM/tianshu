@@ -77,6 +77,7 @@ where = ["src"]
 tianshu = [
     "py.typed",
     "resources/LICENSE",
+    "resources/models_catalog.json",
     "resources/personas/**/*",
     "resources/persona_templates/**/*",
     "skills/builtin/**/*",

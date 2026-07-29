@@ -23,7 +23,7 @@ from tianshu.application.ingress import (
 from tianshu.kernel.ambient import get_current_edict, get_current_tool_invocation_id
 from tianshu.models.acceptance import AcceptanceCriteria, CheckSpec
 from tianshu.models.common import VALID_EXECUTION_PROFILES, VALID_PRIORITIES
-from tianshu.models.edict import Edict, title_from_goal
+from tianshu.models.edict import Edict, EdictRuntime, title_from_goal
 from tianshu.models.principal import (
     AuthenticationSource,
     ClientKind,
@@ -114,6 +114,9 @@ def register_submit_edict(
             "priority": priority,
             "execution_profile": execution_profile,
             "review_policy": review_policy,
+            # 机器自动化入口保持一次性闭环：办成即结案，不等人工「结案」
+            # （人下的敕令默认多轮，见 EdictRuntime.conversation）。
+            "runtime": EdictRuntime(conversation=False),
         }
         if output_format and output_format.strip():
             edict_kwargs["output_format"] = output_format.strip()

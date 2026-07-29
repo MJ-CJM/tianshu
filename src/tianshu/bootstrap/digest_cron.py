@@ -90,11 +90,14 @@ def wire_digest(app: FastAPI, settings: TianshuSettings) -> None:
     from tianshu.memory.historian import Historian
     from tianshu.memory.kg import KnowledgeGraph
 
-    historian = Historian(storage, app.state.config_manager)
+    provider_manager = getattr(app.state, "provider_manager", None)
+    historian = Historian(storage, app.state.config_manager, provider_manager=provider_manager)
     app.state.historian = historian
     kg = KnowledgeGraph(storage)
     app.state.knowledge_graph = kg
-    diarist = Diarist(storage, app.state.config_manager, kg)
+    diarist = Diarist(
+        storage, app.state.config_manager, kg, provider_manager=provider_manager
+    )
     app.state.diarist = diarist
 
     # --- 自进化请旨解锁(迭代 6,ADR-0004)——同周期检查行为层是否达阈值上奏折 ---

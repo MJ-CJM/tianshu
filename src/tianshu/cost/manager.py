@@ -90,11 +90,12 @@ class CostManager:
         completion_tokens = getattr(usage, "completion_tokens", 0)
         cache_read_tokens = getattr(usage, "cache_read_tokens", 0)
         provider_name = context.get("provider_name") or None
-        model = ""
-        # Try to get model from config_manager if available
-        state = context.get("config_state")
-        if state:
-            model = getattr(state, "model", "")
+        # 归因模型：上游真实回显（真身）优先，其次运行时配置的模型名
+        model = getattr(usage, "actual_model", None) or ""
+        if not model:
+            state = context.get("config_state")
+            if state:
+                model = getattr(state, "model", "")
 
         tracker.accumulate(
             model,
@@ -102,6 +103,9 @@ class CostManager:
             completion_tokens,
             cache_read_tokens=cache_read_tokens,
             provider_name=provider_name,
+            # 采信客户端按供应商生效价算好的权威成本（订阅制归零在此生效），
+            # 不再按模型名重新估价——户部与奏折用墨统计自此同源。
+            cost_cny=getattr(usage, "cost_cny", None),
         )
 
     async def on_before_iteration(self, **context: object) -> object:
@@ -170,7 +174,7 @@ class CostManager:
             edict_id=edict_id,
             memorial_id=event.memorial_id,
             provider_name=tracker.last_provider_name or "default",
-            model="",
+            model=tracker.last_model or "",
             prompt_tokens=tracker.prompt_tokens,
             completion_tokens=tracker.completion_tokens,
             total_tokens=tracker.total_tokens,

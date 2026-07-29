@@ -28,7 +28,7 @@ def _row_to_credential(row) -> Credential:
     # Handle old schema rows pre-migration defensively.
     # NOTE: row 是 sqlite3.Row，非 dict —— `in row` 会走 __iter__ 逐值比较，
     # 语义与 `in row.keys()`（比较列名）不同，不能按 SIM118 建议改写。
-    kind: Literal["edict_auth", "engine_provider"]
+    kind: Literal["edict_auth", "engine_provider", "llm_provider"]
     try:
         kind = row["kind"] if "kind" in row.keys() else "edict_auth"  # noqa: SIM118
     except (IndexError, KeyError):
@@ -79,6 +79,20 @@ class CredentialStore:
                 )
             host_pattern = ""
             header_template = ""
+        elif req.kind == "llm_provider":
+            # LLM 供应商 key：provider_name = model_providers.id（动态注册表，无白名单）
+            if not req.provider_name:
+                raise ValueError("llm_provider credential requires provider_name")
+            existing = self._storage.find_credentials_by_provider(
+                req.provider_name, kind="llm_provider"
+            )
+            if existing is not None:
+                raise ValueError(
+                    f"llm provider '{req.provider_name}' already configured; "
+                    "update existing credential instead"
+                )
+            host_pattern = ""
+            header_template = ""
         else:  # edict_auth
             if not req.host_pattern or not req.header_template:
                 raise ValueError("edict_auth credential requires host_pattern and header_template")
@@ -109,8 +123,10 @@ class CredentialStore:
         row = self._storage.get_credential_by_id(cred_id)
         return _row_to_credential(row) if row else None
 
-    def find_for_provider(self, provider_name: str) -> Credential | None:
-        row = self._storage.find_credentials_by_provider(provider_name)
+    def find_for_provider(
+        self, provider_name: str, kind: str = "engine_provider"
+    ) -> Credential | None:
+        row = self._storage.find_credentials_by_provider(provider_name, kind=kind)
         return _row_to_credential(row) if row else None
 
     def decrypt_value(self, cred: Credential) -> str:

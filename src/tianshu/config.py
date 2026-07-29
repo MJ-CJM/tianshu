@@ -39,6 +39,8 @@ class TianshuSettings(BaseSettings):
     llm_temperature: float = 0.7
     llm_top_p: float = 1.0
     llm_max_tokens: int = 4096
+    # models.dev 目录价（USD）→ 天枢记账口径（CNY）的换算汇率；不做实时汇率。
+    llm_usd_cny_rate: float = 7.2
     agent_max_iterations: int = 20
     agent_timeout_seconds: int = 300
     db_path: str = "~/.tianshu/tianshu.db"

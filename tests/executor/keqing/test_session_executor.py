@@ -6,15 +6,13 @@ import json
 from contextlib import suppress
 from types import SimpleNamespace
 
-import pytest
-
 from tianshu.executor.keqing import session_executor as se_mod
 from tianshu.executor.keqing.pi_adapter import PiSessionAdapter
 from tianshu.executor.keqing.session_executor import KeqingSessionExecutor
+from tianshu.executor.orchestrator.checks import CheckOutcome, ChecksResult
 from tianshu.kernel.exit_reason import ExitReason
 from tianshu.models import TaskStatus
 from tianshu.models.acceptance import AcceptanceCriteria, CheckSpec
-from tianshu.executor.orchestrator.checks import CheckOutcome, ChecksResult
 
 
 class FakePiHandle:

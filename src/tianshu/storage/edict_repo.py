@@ -197,6 +197,9 @@ class EdictMixin:
                 "(json_extract(metadata_json, '$.assistant_chat') IS NULL "
                 "OR json_extract(metadata_json, '$.assistant_chat') != 1)"
             )
+        # 归档敕令（metadata.archived_at 非空）不进列表：含治理证据的敕令
+        # 物理删除被证据链拦截时降级为归档（见 edicts_api.delete_edict）。
+        conditions.append("json_extract(metadata_json, '$.archived_at') IS NULL")
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         with self._lock:
             rows = self._conn.execute(
@@ -264,8 +267,33 @@ class EdictMixin:
                 (edict_id,),
             )
             self._conn.execute("DELETE FROM events WHERE edict_id = ?", (edict_id,))
+            # legacy 分流占位（candidate_id NULL，零实验状态的冠军空转记录）随
+            # 敕令清理；真实验记录（candidate_id 非空）仍受触发器保护，命中时
+            # memorials 的 RESTRICT 会让整个删除 409（治理证据不可删语义保留）。
+            self._conn.execute(
+                "DELETE FROM run_evolution_assignments WHERE candidate_id IS NULL "
+                "AND memorial_id IN (SELECT id FROM memorials WHERE edict_id = ?)",
+                (edict_id,),
+            )
             self._conn.execute("DELETE FROM memorials WHERE edict_id = ?", (edict_id,))
             self._conn.execute("DELETE FROM edicts WHERE id = ?", (edict_id,))
+
+    def archive_edict(self, edict_id: str) -> None:
+        """归档：metadata.archived_at 打标，列表隐藏；治理证据链原样保留。"""
+        from datetime import UTC, datetime
+
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT metadata_json FROM edicts WHERE id = ?", (edict_id,)
+            ).fetchone()
+            if not row:
+                return
+            metadata = json.loads(row["metadata_json"] or "{}")
+            metadata["archived_at"] = datetime.now(UTC).isoformat()
+            self._conn.execute(
+                "UPDATE edicts SET metadata_json = ? WHERE id = ?",
+                (json.dumps(metadata, ensure_ascii=False), edict_id),
+            )
 
     def update_edict_status(self, edict_id: str, status: str) -> None:
         with self._lock, self._conn:

@@ -50,6 +50,10 @@ _COMPLETE_MIGRATION_LEDGER = [
     (16, _ARTIFACTS_EVIDENCE_MIGRATION_NAME),
     (17, _INTERNAL_NOTIFICATION_DELIVERY_MIGRATION_NAME),
     (18, _GOVERNED_EVOLUTION_MIGRATION_NAME),
+    (19, "0019_model_providers"),
+    (20, "0020_encrypt_llm_config_keys"),
+    (21, "0021_app_settings"),
+    (22, "0022_legacy_assignment_cleanup"),
 ]
 _POST_BASELINE_TABLES = {
     "auth_tokens",
@@ -81,6 +85,9 @@ _POST_BASELINE_TABLES = {
     "evolution_promotion_journal",
     "evolution_routing_allocations",
     "run_evolution_assignments",
+    # v19-v21 统一模型注册表
+    "model_providers",
+    "app_settings",
 }
 _POST_BASELINE_INDEXES = {
     "idx_auth_tokens_principal",
@@ -386,6 +393,33 @@ def _build_canonical_preledger(
                 connect_timeout      INTEGER,
                 tool_overrides_json  TEXT,
                 updated_at           TEXT NOT NULL
+            );
+
+            -- 早于 v22 的历史库：run_evolution_assignments 的 no_delete 触发器
+            -- 是 v18 原始无条件形状。
+            DROP TRIGGER run_evolution_assignments_no_delete;
+            CREATE TRIGGER run_evolution_assignments_no_delete
+            BEFORE DELETE ON run_evolution_assignments BEGIN
+                SELECT RAISE(ABORT, 'evolution assignment is immutable');
+            END;
+
+            -- 早于 v19-v21 统一模型注册表的历史库：无新表，llm_configs 保留明文
+            -- api_key 列（v1 形状）。
+            DROP TABLE model_providers;
+            DROP TABLE app_settings;
+            DROP TABLE llm_configs;
+            CREATE TABLE llm_configs (
+                name TEXT PRIMARY KEY,
+                model TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                api_base TEXT NOT NULL DEFAULT '',
+                max_retries INTEGER NOT NULL DEFAULT 3,
+                temperature REAL NOT NULL DEFAULT 0.7,
+                top_p REAL NOT NULL DEFAULT 1.0,
+                max_tokens INTEGER NOT NULL DEFAULT 4096,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
             );
             """
         )

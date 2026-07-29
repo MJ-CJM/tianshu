@@ -18,7 +18,7 @@ class Credential(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_used_at: datetime | None = None
-    kind: Literal["edict_auth", "engine_provider"] = "edict_auth"
+    kind: Literal["edict_auth", "engine_provider", "llm_provider"] = "edict_auth"
     provider_name: str | None = None
     enabled: bool = True
 
@@ -26,12 +26,12 @@ class Credential(BaseModel):
 class CredentialCreate(BaseModel):
     name: str
     value: str  # plaintext，加密后丢
-    kind: Literal["edict_auth", "engine_provider"] = "edict_auth"
-    # edict_auth required fields（engine_provider 忽略）
+    kind: Literal["edict_auth", "engine_provider", "llm_provider"] = "edict_auth"
+    # edict_auth required fields（engine_provider / llm_provider 忽略）
     host_pattern: str = ""
     header_template: str = ""
     extra_headers: dict[str, str] = Field(default_factory=dict)
-    # engine_provider required field
+    # engine_provider / llm_provider required field
     provider_name: str | None = None
 
 
@@ -52,6 +52,6 @@ class CredentialView(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_used_at: datetime | None
-    kind: Literal["edict_auth", "engine_provider"] = "edict_auth"
+    kind: Literal["edict_auth", "engine_provider", "llm_provider"] = "edict_auth"
     provider_name: str | None = None
     enabled: bool = True

@@ -74,6 +74,11 @@ class EdictRuntime(BaseModel):
     # "keqing:<agent>"=派外部 CLI 客卿出工(如 keqing:claude-code / keqing:codex)。
     executor: str = "native"
     executor_model: str | None = None
+    # 对话模式：成功过审后不自动结案，敕令保持进行、「继续批示」持续可用，
+    # 由人工「结案」终止（follow-up 回放历史奏折的多轮上下文，等同与百官连续对话）。
+    # 默认开启（2026-07-29 拍板）：人下的敕令天然是多轮的，结案权在人；
+    # 机器自动化入口（agent 的 submit_edict 工具等）显式传 False 保持一次性闭环。
+    conversation: bool = True
 
 
 class Edict(BaseModel):

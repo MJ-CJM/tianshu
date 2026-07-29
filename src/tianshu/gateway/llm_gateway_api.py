@@ -17,8 +17,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Awaitable, Callable
 
 from fastapi import APIRouter, Request, Response
 

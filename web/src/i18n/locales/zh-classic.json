@@ -655,7 +655,8 @@
         "nlFailed": "未能会意，请换一种说法或移步下方手拟。",
         "executor": "执事",
         "taskType": "差事类别",
-        "executorModel": "客卿模型（可选）"
+        "executorModel": "客卿模型（可选）",
+        "conversation": "对答模式"
       },
       "placeholder": {
         "title": "留空则自动截取旨意前 20 字",
@@ -704,7 +705,8 @@
         "criticPersonas": "谁来监督任务质量。多选时每轮并发评审，按'全过则过'聚合；任意一位 FAIL 即不过。终态后每位监督官独立产出监督报告。",
         "sameIssueThreshold": "critic 连续 N 轮报同类问题（issue_class）则升 L1",
         "executor": "native=自研引擎(默认);keqing:*=外府客卿(Claude Code/Codex，contained + experimental)：只保证独立工作目录、clean-env、外围 timeout 与事后审计；不保证事前工具拦截、硬成本上限或运行前恢复点",
-        "executorModel": "指定客卿用何模型（pi 格式 provider/id:thinking）。留空=用客卿管理页默认 / 客卿自身默认。"
+        "executorModel": "指定客卿用何模型（pi 格式 provider/id:thinking）。留空=用客卿管理页默认 / 客卿自身默认。",
+        "conversation": "启之：奏功不辄结案，敕令常开、可续批示（前情皆随），至卿亲结方止。宜与百官对答之用。"
       },
       "option": {
         "autoPlanning": "内阁决策（自动规划分配）",
@@ -1560,7 +1562,8 @@
       "sourceLabel": {
         "custom": "自定义",
         "mixed": "部分自定义",
-        "default": "默认价表"
+        "default": "默认价表",
+        "subscription": "订契（记账归零）"
       },
       "edit": "编辑",
       "reset": "重置",
@@ -1573,8 +1576,9 @@
       "cachePlaceholder": "留空 = 与未中价相同（无折扣）",
       "outputLabel": "Output ¥/1K",
       "tip": "提示：留空字段会落回 _DEFAULT_PRICING。修改立即生效，下次 LLM 调用按新价计费。",
-      "defaultTitle": "默认价表 (_DEFAULT_PRICING)",
-      "defaultIntro": "provider 自定义价格未填字段时，按 model 名匹配此表。匹配不到则用兜底价。",
+      "defaultTitle": "例价名录（models.dev）",
+      "defaultIntro": "商行未定专价者，按模型名从 models.dev 名录快照查取；查无所得，则用兜底价。",
+      "catalogSummary": "名录快照：{providerCount} 家 / {modelCount} 型 · {generatedAt}（{source}）",
       "fallback": "兜底价（未命中表时）：",
       "saved": "已保存",
       "saveFailed": "保存失败：{err}",
@@ -2008,7 +2012,7 @@
       "empty": "暂无 Provider",
       "confirmDeleteProvider": "确定删除？",
       "confirmDeleteConfig": "确认删除此配置？",
-      "costNoCustom": "未配置自定义价 — 落 _DEFAULT_PRICING 默认表",
+      "costNoCustom": "未定专价 — 依 models.dev 名录例价",
       "costAllCustom": "全部自定义",
       "costPartial": "部分自定义（其余字段落默认价表）",
       "table": {
@@ -2030,7 +2034,71 @@
         "apiBaseExample": "https://open.bigmodel.cn/api/paas/v4",
         "nameRequired": "请输入配置名称",
         "modelRequired": "请输入模型名"
-      }
+      },
+      "registry": {
+        "title": "供奉商行",
+        "refreshCatalog": "重修名录",
+        "addProvider": "增设商行",
+        "catalogStatus": "名录: {providerCount} 家 / {modelCount} 型 · 修撰于 {generatedAt}（{source}）",
+        "catalogRefreshed": "名录已重修（修撰于 {generatedAt}）",
+        "empty": "尚无供奉商行",
+        "table": {
+          "displayName": "名号",
+          "profile": "谱牒",
+          "endpoint": "通路",
+          "keyStatus": "密匙",
+          "billing": "计费",
+          "enabled": "启用"
+        },
+        "keyVault": "密匙入库",
+        "keyEnv": "取自环境",
+        "keyNone": "未设",
+        "billingSubscription": "订契",
+        "billingPerToken": "按量",
+        "actionKey": "录入密匙",
+        "actionTest": "试通",
+        "confirmDelete": "确要裁撤此商行？",
+        "deleted": "商行 \"{id}\" 已裁撤",
+        "keyModalTitle": "录入密匙 — {name}",
+        "keyHint": "可以 $ENV:VAR_NAME 引环境变量；留空即销去",
+        "keySaved": "密匙已更新",
+        "keyCleared": "密匙已销，转依谱牒环境变量",
+        "testModalTitle": "试通 — {name}",
+        "testRun": "试通",
+        "testModelPlaceholder": "择选或手书模型",
+        "testOk": "通达 · {latency} ms",
+        "testFail": "试通未果",
+        "addTitle": "增设供奉商行",
+        "created": "商行 \"{id}\" 已增设",
+        "providerSelect": "商行",
+        "providerSelectPlaceholder": "留空 = 自行择配",
+        "providerKeyPlaceholder": "留空则用该商行已录密匙",
+        "modelPlaceholder": "择选或手书模型",
+        "form": {
+          "profile": "商行谱牒",
+          "profileRequired": "请择商行谱牒",
+          "profilePlaceholder": "择内置谱牒",
+          "keyEnvHint": "默认取环境变量 {env}",
+          "id": "行号",
+          "idPlaceholder": "留空 = 谱牒之号（{id}）",
+          "displayName": "名号",
+          "displayNamePlaceholder": "可缺",
+          "baseUrlRequired": "custom 谱牒须书 Base URL",
+          "baseUrlPlaceholder": "可缺",
+          "apiKeyPlaceholder": "sk-... 或 $ENV:VAR_NAME，留空则依环境变量"
+        }
+      },
+      "slots": {
+        "title": "内廷差遣",
+        "desc": "按差事指派模型配置；空缺者用当值全局配置",
+        "court": "廷议",
+        "memory": "记注",
+        "synthesis": "人格合成",
+        "edict_parse": "敕令解读",
+        "placeholder": "当值全局配置",
+        "updated": "差遣已更定"
+      },
+      "costSubscription": "订契 ¥0"
     },
     "plugins": {
       "empty": "暂无插件",

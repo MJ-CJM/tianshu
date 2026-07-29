@@ -5,6 +5,7 @@ import {
   Switch,
   Button,
   Popconfirm,
+  Select,
   Table,
   Tag,
   Tooltip,
@@ -26,12 +27,16 @@ import {
   useDeleteConfig,
   useActivateConfig,
 } from "../../hooks/useConfig";
+import { useModelProviders } from "../../hooks/useModelProviders";
 import type {
   LLMConfig,
   LLMConfigCreateRequest,
   LLMConfigUpdateRequest,
   ProviderInfo,
 } from "../../api/types";
+import ModelProvidersSection from "./ModelProvidersSection";
+import ModelSelect from "./ModelSelect";
+import TaskSlotsSection from "./TaskSlotsSection";
 import { useT } from "../../i18n";
 
 interface ConfigFormState extends LLMConfigUpdateRequest {
@@ -86,11 +91,20 @@ function ConfigPanelBody({
     <div>
       <div style={{ marginBottom: 12 }}>
         <div style={labelStyle}>Model</div>
-        <Input
-          size="small"
-          value={form.model ?? ""}
-          onChange={(e) => onFieldChange("model", e.target.value)}
-        />
+        {config.provider_id ? (
+          <ModelSelect
+            providerId={config.provider_id}
+            size="small"
+            value={form.model ?? ""}
+            onChange={(v) => onFieldChange("model", v)}
+          />
+        ) : (
+          <Input
+            size="small"
+            value={form.model ?? ""}
+            onChange={(e) => onFieldChange("model", e.target.value)}
+          />
+        )}
       </div>
 
       <div style={{ marginBottom: 12 }}>
@@ -219,6 +233,8 @@ export default function ProvidersTab() {
   const activateMutation = useActivateConfig();
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addForm] = Form.useForm<LLMConfigCreateRequest>();
+  const addProviderId = Form.useWatch("provider_id", addForm);
+  const { data: modelProviders } = useModelProviders();
   const [forms, setForms] = useState<Record<string, ConfigFormState>>({});
 
   useEffect(() => {
@@ -329,16 +345,20 @@ export default function ProvidersTab() {
     {
       title: t("system.providers.table.cost"), key: "cost", width: 200, align: "right",
       render: (_, r) => {
-        const miss = r.cost_per_1k_prompt;
-        const hit = r.cost_per_1k_cache_read;
-        const out = r.cost_per_1k_completion;
-        const customCount = [miss, hit, out].filter((v) => v != null).length;
+        const eff = r.pricing_effective;
+        if (eff?.billing === "subscription") {
+          return <Tag color="purple">{t("system.providers.costSubscription")}</Tag>;
+        }
+        const miss = eff ? eff.miss : r.cost_per_1k_prompt;
+        const hit = eff ? eff.hit : r.cost_per_1k_cache_read;
+        const out = eff ? eff.out : r.cost_per_1k_completion;
+        const source = eff?.source ?? "default";
         const tooltip =
-          customCount === 0
-            ? t("system.providers.costNoCustom")
-            : customCount === 3
+          source === "custom"
             ? t("system.providers.costAllCustom")
-            : t("system.providers.costPartial");
+            : source === "mixed"
+            ? t("system.providers.costPartial")
+            : t("system.providers.costNoCustom");
         const fmt = (v: number | null) => (v != null ? v.toFixed(5).replace(/0+$/, "").replace(/\.$/, "") : "—");
         return (
           <Tooltip title={tooltip}>
@@ -377,6 +397,11 @@ export default function ProvidersTab() {
               {t("system.providers.active")}
             </Tag>
           )}
+          {c.provider_id && (
+            <Tag color="blue" style={{ marginLeft: 8, fontSize: 11 }}>
+              {c.provider_id}
+            </Tag>
+          )}
         </span>
         <span style={{ fontSize: 12, color: token.colorTextTertiary }}>
           {c.model}
@@ -412,6 +437,11 @@ export default function ProvidersTab() {
 
   return (
     <>
+      {/* 模型供应商注册表 */}
+      <ModelProvidersSection />
+
+      <Divider />
+
       {/* Provider 列表 */}
       <Typography.Title level={5} style={{ marginBottom: 12 }}>{t("system.providers.listTitle")}</Typography.Title>
       <Table<ProviderInfo>
@@ -456,6 +486,11 @@ export default function ProvidersTab() {
         />
       )}
 
+      <Divider />
+
+      {/* 内部任务槽位 */}
+      <TaskSlotsSection />
+
       {/* Add Config Modal */}
       <Modal
         title={t("system.providers.addConfigTitle")}
@@ -478,18 +513,43 @@ export default function ProvidersTab() {
             <Input placeholder={t("system.providers.form.namePlaceholder")} />
           </Form.Item>
           <Form.Item
+            name="provider_id"
+            label={t("system.providers.registry.providerSelect")}
+          >
+            <Select
+              allowClear
+              placeholder={t("system.providers.registry.providerSelectPlaceholder")}
+              options={(modelProviders ?? []).map((p) => ({
+                value: p.id,
+                label: `${p.display_name} (${p.id})`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item
             name="model"
             label={t("system.providers.form.model")}
             rules={[{ required: true, message: t("system.providers.form.modelRequired") }]}
           >
-            <Input placeholder={t("system.providers.form.modelPlaceholder")} />
+            {addProviderId ? (
+              <ModelSelect providerId={addProviderId} />
+            ) : (
+              <Input placeholder={t("system.providers.form.modelPlaceholder")} />
+            )}
           </Form.Item>
           <Form.Item name="api_key" label="API Key">
-            <Input.Password placeholder={t("system.providers.form.apiKeyPlaceholder")} />
+            <Input.Password
+              placeholder={
+                addProviderId
+                  ? t("system.providers.registry.providerKeyPlaceholder")
+                  : t("system.providers.form.apiKeyPlaceholder")
+              }
+            />
           </Form.Item>
-          <Form.Item name="api_base" label="API Base">
-            <Input placeholder={t("system.providers.form.apiBasePlaceholder")} />
-          </Form.Item>
+          {!addProviderId && (
+            <Form.Item name="api_base" label="API Base" preserve={false}>
+              <Input placeholder={t("system.providers.form.apiBasePlaceholder")} />
+            </Form.Item>
+          )}
           <Form.Item name="max_retries" label="Max Retries" initialValue={3}>
             <InputNumber min={0} max={10} style={{ width: "100%" }} />
           </Form.Item>

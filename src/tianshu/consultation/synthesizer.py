@@ -30,7 +30,9 @@ class Synthesizer:
         from tianshu.llm import LLMClient
 
         state = self._config_manager.state
-        if self._provider_manager and hasattr(self._provider_manager, "get_client"):
+        if self._provider_manager and hasattr(self._provider_manager, "get_client_for_slot"):
+            llm = self._provider_manager.get_client_for_slot("court")
+        elif self._provider_manager and hasattr(self._provider_manager, "get_client"):
             llm = self._provider_manager.get_client()
         else:
             llm = LLMClient(

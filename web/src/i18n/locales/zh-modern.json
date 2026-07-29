@@ -655,7 +655,8 @@
         "nlFailed": "没太理解，请换种说法或手动填写下方表单。",
         "executor": "执行器",
         "taskType": "任务类型",
-        "executorModel": "客卿模型（可选）"
+        "executorModel": "客卿模型（可选）",
+        "conversation": "对话模式"
       },
       "placeholder": {
         "title": "留空则自动截取目标前 20 字",
@@ -704,7 +705,8 @@
         "criticPersonas": "谁来审核任务质量。多选时每轮并发评审，按'全过则过'聚合；任意一位 FAIL 即不过。终态后每位审核者独立产出审核报告。",
         "sameIssueThreshold": "critic 连续 N 轮报同类问题（issue_class）则升 L1",
         "executor": "native=自研引擎(默认);keqing:*=外部 CLI 客卿(Claude Code/Codex，contained + experimental)：只保证独立工作目录、clean-env、外围 timeout 与事后审计；不保证事前工具拦截、硬成本上限或运行前恢复点",
-        "executorModel": "指定客卿用哪个模型（pi 格式 provider/id:thinking）。留空=用客卿管理页的默认模型 / 客卿自身默认。"
+        "executorModel": "指定客卿用哪个模型（pi 格式 provider/id:thinking）。留空=用客卿管理页的默认模型 / 客卿自身默认。",
+        "conversation": "开启后：执行成功不自动结案，敕令保持进行、可持续「继续批示」（携带多轮上下文），直到你手动结案。适合与百官连续对话。"
       },
       "option": {
         "autoPlanning": "自动规划（系统决策分配）",
@@ -1560,7 +1562,8 @@
       "sourceLabel": {
         "custom": "自定义",
         "mixed": "部分自定义",
-        "default": "默认价表"
+        "default": "默认价表",
+        "subscription": "订阅（¥0 记账）"
       },
       "edit": "编辑",
       "reset": "重置",
@@ -1573,8 +1576,9 @@
       "cachePlaceholder": "留空 = 与未中价相同（无折扣）",
       "outputLabel": "Output ¥/1K",
       "tip": "提示：留空字段会落回 _DEFAULT_PRICING。修改立即生效，下次 LLM 调用按新价计费。",
-      "defaultTitle": "默认价表 (_DEFAULT_PRICING)",
-      "defaultIntro": "provider 自定义价格未填字段时，按 model 名匹配此表。匹配不到则用兜底价。",
+      "defaultTitle": "默认价表（models.dev 目录）",
+      "defaultIntro": "provider 自定义价格未填字段时，按模型名从 models.dev 目录快照匹配。匹配不到则用兜底价。",
+      "catalogSummary": "目录快照：{providerCount} 家 / {modelCount} 模型 · {generatedAt}（{source}）",
       "fallback": "兜底价（未命中表时）：",
       "saved": "已保存",
       "saveFailed": "保存失败：{err}",
@@ -2008,7 +2012,7 @@
       "empty": "暂无 Provider",
       "confirmDeleteProvider": "确定删除？",
       "confirmDeleteConfig": "确认删除此配置？",
-      "costNoCustom": "未配置自定义价 — 落 _DEFAULT_PRICING 默认表",
+      "costNoCustom": "未配置自定义价 — 落 models.dev 目录默认价",
       "costAllCustom": "全部自定义",
       "costPartial": "部分自定义（其余字段落默认价表）",
       "table": {
@@ -2030,7 +2034,71 @@
         "apiBaseExample": "https://open.bigmodel.cn/api/paas/v4",
         "nameRequired": "请输入配置名称",
         "modelRequired": "请输入模型名"
-      }
+      },
+      "registry": {
+        "title": "模型供应商",
+        "refreshCatalog": "刷新目录",
+        "addProvider": "添加供应商",
+        "catalogStatus": "目录: {providerCount} 家 / {modelCount} 模型 · 快照 {generatedAt}（{source}）",
+        "catalogRefreshed": "目录已刷新（快照 {generatedAt}）",
+        "empty": "暂无模型供应商",
+        "table": {
+          "displayName": "名称",
+          "profile": "档案",
+          "endpoint": "端点",
+          "keyStatus": "Key 状态",
+          "billing": "计费",
+          "enabled": "启用"
+        },
+        "keyVault": "已加密",
+        "keyEnv": "环境变量",
+        "keyNone": "未配置",
+        "billingSubscription": "订阅",
+        "billingPerToken": "按量",
+        "actionKey": "录入 Key",
+        "actionTest": "测试",
+        "confirmDelete": "确认删除该供应商？",
+        "deleted": "供应商 \"{id}\" 已删除",
+        "keyModalTitle": "录入 Key — {name}",
+        "keyHint": "支持 $ENV:VAR_NAME 引用环境变量；留空则清除",
+        "keySaved": "Key 已更新",
+        "keyCleared": "Key 已清除，回落 profile 环境变量",
+        "testModalTitle": "连通性测试 — {name}",
+        "testRun": "测试",
+        "testModelPlaceholder": "选择或输入模型",
+        "testOk": "连通正常 · {latency} ms",
+        "testFail": "测试失败",
+        "addTitle": "添加模型供应商",
+        "created": "供应商 \"{id}\" 已添加",
+        "providerSelect": "供应商",
+        "providerSelectPlaceholder": "留空 = 自动匹配",
+        "providerKeyPlaceholder": "留空则用该供应商已配置的 key",
+        "modelPlaceholder": "选择或输入模型",
+        "form": {
+          "profile": "供应商档案",
+          "profileRequired": "请选择供应商档案",
+          "profilePlaceholder": "选择内置档案",
+          "keyEnvHint": "默认读取环境变量 {env}",
+          "id": "实例 ID",
+          "idPlaceholder": "留空 = 档案 ID（{id}）",
+          "displayName": "显示名称",
+          "displayNamePlaceholder": "可选",
+          "baseUrlRequired": "custom 档案必须填写 Base URL",
+          "baseUrlPlaceholder": "可选",
+          "apiKeyPlaceholder": "sk-... 或 $ENV:VAR_NAME，可留空用环境变量"
+        }
+      },
+      "slots": {
+        "title": "内部任务槽位",
+        "desc": "按任务类型指派模型配置；留空使用全局激活配置",
+        "court": "廷议",
+        "memory": "记忆",
+        "synthesis": "人格合成",
+        "edict_parse": "敕令解析",
+        "placeholder": "全局激活配置",
+        "updated": "任务槽位已更新"
+      },
+      "costSubscription": "订阅制 ¥0"
     },
     "plugins": {
       "empty": "暂无插件",

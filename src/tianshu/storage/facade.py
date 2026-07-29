@@ -26,6 +26,7 @@ from tianshu.storage.flag_repo import FlagMixin
 from tianshu.storage.kg_repo import KgMixin
 from tianshu.storage.memorial_repo import MemorialMixin
 from tianshu.storage.memory_repo import MemoryMixin
+from tianshu.storage.model_provider_repo import ModelProviderMixin
 from tianshu.storage.notify_repo import NotifyMixin
 from tianshu.storage.orchestrator_repo import OrchestratorMixin
 from tianshu.storage.persona_repo import PersonaMixin
@@ -52,6 +53,7 @@ class Storage(
     DagMixin,
     SchedulerMixin,
     ConfigMixin,
+    ModelProviderMixin,
     PersonaMixin,
     UniverseMixin,
     EvalsMixin,

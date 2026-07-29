@@ -210,7 +210,8 @@ def _import_hermes(home: Path) -> PersonaImportDraft:
         if isinstance(cfg, dict):
             # model 三形态兼容(裸字符串旧代码会 crash,{model:} 别名会静默丢失)
             model = _extract_hermes_model(cfg.get("model"))
-            agent_cfg = cfg.get("agent") if isinstance(cfg.get("agent"), dict) else {}
+            agent_cfg_raw = cfg.get("agent")
+            agent_cfg = agent_cfg_raw if isinstance(agent_cfg_raw, dict) else {}
             disabled = agent_cfg.get("disabled_toolsets") or []
             if disabled:
                 notes.append(f"hermes 禁用工具集(仅提示,未自动映射): {', '.join(map(str, disabled))}")
@@ -253,11 +254,13 @@ def _import_openclaw(workspace: Path) -> PersonaImportDraft:
     # openclaw 是多助理架构:模型偏好优先取 default agent 条目,回退 agents.defaults。
     # model 可为字符串或 {primary, fallbacks},两者都兼容(否则字符串形式会 crash)。
     cfg = _tolerant_json(_read_text(workspace.parent / "openclaw.json"))
-    agents = cfg.get("agents") if isinstance(cfg.get("agents"), dict) else {}
+    agents_raw = cfg.get("agents")
+    agents = agents_raw if isinstance(agents_raw, dict) else {}
     chosen = _select_openclaw_agent(agents)
     model = _extract_openclaw_model(chosen.get("model")) if chosen else None
     if model is None:
-        defaults = agents.get("defaults") if isinstance(agents.get("defaults"), dict) else {}
+        defaults_raw = agents.get("defaults")
+        defaults = defaults_raw if isinstance(defaults_raw, dict) else {}
         model = _extract_openclaw_model(defaults.get("model"))
     # 白名单技能:bundled 技能在 openclaw 安装目录(非用户配置目录),无法解析全文 → 透明提示。
     if chosen and isinstance(chosen.get("skills"), list) and chosen["skills"]:

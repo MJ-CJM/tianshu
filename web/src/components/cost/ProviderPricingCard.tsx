@@ -141,6 +141,9 @@ export default function ProviderPricingCard() {
       title: t("cost.pricing.source"),
       key: "source",
       render: (_: unknown, r: RowData) => {
+        if (r.effective?.billing === "subscription") {
+          return <Tag color="purple">{t("cost.pricing.sourceLabel.subscription")}</Tag>;
+        }
         const src = r.effective?.source ?? "default";
         const color = SOURCE_COLOR[src] ?? "default";
         return <Tag color={color}>{t(`cost.pricing.sourceLabel.${src}`)}</Tag>;
@@ -271,41 +274,21 @@ export default function ProviderPricingCard() {
         open={defaultTableOpen}
         onCancel={() => setDefaultTableOpen(false)}
         footer={null}
-        width={720}
+        width={480}
       >
         <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
           {t("cost.pricing.defaultIntro")}
         </Typography.Paragraph>
-        <Table
-          dataSource={defaultTable?.entries ?? []}
-          rowKey="model"
-          size="small"
-          pagination={false}
-          columns={[
-            { title: t("cost.pricing.model"), dataIndex: "model", key: "model" },
-            {
-              title: t("cost.pricing.miss"),
-              dataIndex: "miss",
-              key: "miss",
-              render: (v: number) => formatPrice(v),
-              align: "right" as const,
-            },
-            {
-              title: t("cost.pricing.hit"),
-              dataIndex: "hit",
-              key: "hit",
-              render: (v: number) => formatPrice(v),
-              align: "right" as const,
-            },
-            {
-              title: t("cost.pricing.out"),
-              dataIndex: "out",
-              key: "out",
-              render: (v: number) => formatPrice(v),
-              align: "right" as const,
-            },
-          ]}
-        />
+        {defaultTable && (
+          <Typography.Paragraph style={{ fontSize: 13 }}>
+            {t("cost.pricing.catalogSummary", {
+              providerCount: defaultTable.provider_count,
+              modelCount: defaultTable.model_count,
+              generatedAt: defaultTable.generated_at,
+              source: defaultTable.source,
+            })}
+          </Typography.Paragraph>
+        )}
         {defaultTable?.fallback && (
           <Typography.Paragraph
             type="secondary"

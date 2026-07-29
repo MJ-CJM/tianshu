@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from tianshu.config_manager import ConfigManager, LLMConfigState
 from tianshu.models import (
@@ -42,6 +42,7 @@ def _state_to_agent_config(state) -> AgentConfig:
         keqing_gateway_enabled=state.keqing_gateway_enabled,
         keqing_per_run_budget_cny=state.keqing_per_run_budget_cny,
         keqing_model_allowlist=state.keqing_model_allowlist,
+        task_slots=state.task_slots,
     )
 
 
@@ -74,6 +75,7 @@ def _state_to_config(s: LLMConfigState) -> LLMConfig:
         top_p=s.top_p,
         max_tokens=s.max_tokens,
         enabled=s.enabled,
+        provider_id=s.provider_id,
     )
 
 
@@ -90,14 +92,20 @@ def _require_writable_provider_config(request: Request) -> None:
         )
 
 
-@config_router.get("/config", response_model=ApiResponse)
-def get_config(request: Request):
+@config_router.get("/config", response_model=ApiResponse, deprecated=True)
+def get_config(request: Request, response: Response):
+    """[deprecated] 单配置读面；请改用 GET /configs（多配置视图）。"""
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = '</api/configs>; rel="successor-version"'
     cm: ConfigManager = request.app.state.config_manager
     return ApiResponse(success=True, data=_state_to_config(cm.state).model_dump())
 
 
-@config_router.put("/config", response_model=ApiResponse)
-def update_config(body: LLMConfigUpdateRequest, request: Request):
+@config_router.put("/config", response_model=ApiResponse, deprecated=True)
+def update_config(body: LLMConfigUpdateRequest, request: Request, response: Response):
+    """[deprecated] 单配置写面（只改内存态的 legacy 怪癖保留）；请改用 PUT /configs/{name}。"""
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = '</api/configs>; rel="successor-version"'
     _require_writable_provider_config(request)
     cm: ConfigManager = request.app.state.config_manager
     updates = body.model_dump(exclude_none=True)
@@ -136,6 +144,7 @@ def create_config(body: LLMConfigCreateRequest, request: Request):
         top_p=body.top_p,
         max_tokens=body.max_tokens,
         enabled=body.enabled,
+        provider_id=body.provider_id,
     )
     try:
         cm.add_config(state)

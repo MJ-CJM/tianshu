@@ -92,6 +92,7 @@ class Executor:
         self._dag_scheduler = None  # set via set_dag_scheduler()
         self._lane_manager = None  # set via set_lane_manager()
         self._persona_loader = None  # set via set_persona_loader()
+        self._cabinet_dispatcher = None  # set via set_cabinet_dispatcher()
         self._universe_manager = None  # set via set_universe_manager()
         self._running_tasks: set[asyncio.Task] = set()
         self._orchestrator_ctx = None  # set via set_orchestrator_context()
@@ -162,6 +163,10 @@ class Executor:
 
     def set_persona_loader(self, persona_loader: object) -> None:
         self._persona_loader = persona_loader
+
+    def set_cabinet_dispatcher(self, dispatcher: object) -> None:
+        """内阁派官器（persona/dispatcher.py）；未装配时保持默认执行官兜底。"""
+        self._cabinet_dispatcher = dispatcher
 
     def set_universe_manager(self, manager: object) -> None:
         self._universe_manager = manager
@@ -1028,12 +1033,29 @@ class Executor:
             )
             return
 
-        # Set persona_id: plan assignment > edict assignment > default
+        # Set persona_id: 显式指派 > 规划分派 > 内阁派官 > 默认执行官
         if not memorial.persona_id:
             plan_persona = None
             if plan and plan.tasks:
                 plan_persona = plan.tasks[0].assigned_official
-            memorial.persona_id = edict.assigned_persona_id or plan_persona or DEFAULT_EXECUTOR_ID
+            persona_id = edict.assigned_persona_id or plan_persona
+            # 内阁派官：未显式指派、规划也只给出默认兜底（或没给）时，由内阁
+            # 按百官名册拣选（对齐「执行方式：内阁决策」语义）；失败静默落默认。
+            if (
+                self._cabinet_dispatcher is not None
+                and not edict.assigned_persona_id
+                and persona_id in (None, "", DEFAULT_EXECUTOR_ID)
+            ):
+                dispatched = await self._cabinet_dispatcher.dispatch(edict)
+                if dispatched is not None:
+                    persona_id, dispatch_reason = dispatched
+                    self._storage.append_event(
+                        edict.id,
+                        memorial.id,
+                        "cabinet.dispatched",
+                        {"persona_id": persona_id, "reason": dispatch_reason},
+                    )
+            memorial.persona_id = persona_id or DEFAULT_EXECUTOR_ID
         logger.debug(
             "[EXEC] Edict %s: start execution, persona=%s, timeout=%ds, max_iter=%d",
             edict.id,
@@ -1041,6 +1063,25 @@ class Executor:
             edict.runtime.timeout_seconds,
             edict.runtime.max_iterations,
         )
+        # 跟进批示的多轮上下文：回放本敕令先前奏折（native 路径；客卿会话档
+        # 自带连续性，单发客卿的 prompt 形态不消费 history）。
+        # 周期性敕令（cron/interval）每次触发都是独立任务，不回放——否则历次
+        # 输出线性累积，第 N 次触发要付前 N-1 次的全部 token。
+        if (
+            history is None
+            and edict.schedule.type not in ("cron", "interval")
+            and not prepared_executor.adapter.adapter_id.startswith("keqing:")
+        ):
+            from tianshu.executor.conversation import build_conversation_history
+
+            history = (
+                build_conversation_history(
+                    edict,
+                    self._storage.list_memorials_by_edict(edict.id),
+                    exclude_memorial_id=memorial.id,
+                )
+                or None
+            )
         result = None
         event_type = "execution.failed"
         cancelled_error: asyncio.CancelledError | None = None
@@ -1088,7 +1129,11 @@ class Executor:
                     if hook_result.modified_args:
                         memory_history = hook_result.modified_args.get("memory_history")
                         if memory_history:
-                            history = (history or []) + memory_history
+                            # 记忆是对话前的背景，放在对话历史之前——否则会插在
+                            # 上一轮 assistant 与本轮 user 之间，形成连续多条 user
+                            # 消息（严格交替校验的端点 400），且语义上把陈旧记忆
+                            # 排得比真实上一轮答复更近。
+                            history = memory_history + (history or [])
 
                     persona = None
                     if self._persona_loader and memorial.persona_id:

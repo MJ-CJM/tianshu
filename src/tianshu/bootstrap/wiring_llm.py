@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 
 from fastapi import FastAPI
 
@@ -53,14 +54,43 @@ def _assistant_persona_id_provider(storage: Storage) -> str | None:
 
 
 def wire_llm_config(app: FastAPI, settings: TianshuSettings) -> None:
-    """创建 ConfigManager（LLM 配置 + agent 配置）。"""
+    """创建 模型注册表（catalog + registry）与 ConfigManager（LLM 配置 + agent 配置）。"""
+    from pathlib import Path
+
+    from tianshu.cost.tracker import set_pricing_resolver
+    from tianshu.providers.model_catalog import ModelCatalog
+    from tianshu.providers.registry import ModelProviderRegistry
+    from tianshu.secrets.store import CredentialStore
+    from tianshu.secrets.vault import get_vault
+
     storage = app.state.storage
 
+    # --- 模型注册表（provider 一等实体 + models.dev 目录）---
+    cache_path = Path(settings.db_path).expanduser().parent / "cache" / "models_catalog.json"
+    catalog = ModelCatalog(cache_path=cache_path, usd_cny_rate=settings.llm_usd_cny_rate)
+    vault = get_vault()
+    credential_store = CredentialStore(storage, vault) if vault is not None else None
+    model_registry = ModelProviderRegistry(storage, catalog, credential_store)
+    app.state.model_catalog = catalog
+    app.state.model_registry = model_registry
+    # 成本核算的默认价换到目录快照（含配置汇率与磁盘缓存）
+    set_pricing_resolver(catalog.pricing_cny_by_model)
+
     # --- LLM Config Manager ---
+    # env 种子转译（仅库空时生效一次）：vault 在场 → key 加密入凭证库（重启后
+    # 与 env 无关，doctor/readiness 判定一致）；vault 缺失 → 退为 $ENV 引用
+    # （pydantic 只读 .env 不导出到进程 env，补一次 setdefault 保证可解析）。
+    seed_api_key = ""
+    if settings.llm_api_key:
+        if vault is not None:
+            seed_api_key = settings.llm_api_key
+        else:
+            os.environ.setdefault("TIANSHU_LLM_API_KEY", settings.llm_api_key)
+            seed_api_key = "$ENV:TIANSHU_LLM_API_KEY"
     initial_state = LLMConfigState(
         name=settings.llm_model,
         model=settings.llm_model,
-        api_key=settings.llm_api_key,
+        api_key=seed_api_key,
         api_base=settings.llm_api_base,
         max_retries=settings.llm_max_retries,
         temperature=settings.llm_temperature,
@@ -84,6 +114,7 @@ def wire_llm_config(app: FastAPI, settings: TianshuSettings) -> None:
         agent_config=agent_config,
         storage=storage,
         runtime_override=runtime_override,
+        model_registry=model_registry,
     )
     app.state.config_manager = config_manager
 
@@ -105,7 +136,10 @@ def wire_provider_and_agent(
     # --- ProviderManager ---
     demo_mode = settings.startup_profile == "demo"
     provider_manager = ProviderManager(
-        storage=storage, config_manager=config_manager, demo_mode=demo_mode
+        storage=storage,
+        config_manager=config_manager,
+        demo_mode=demo_mode,
+        model_registry=getattr(app.state, "model_registry", None),
     )
     if not demo_mode:
         # demo 档位绝不把 runtime 状态同步/删除到 providers 表

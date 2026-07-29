@@ -26,7 +26,12 @@ from tianshu.storage.migration_ledger import MigrationExecutionError, apply_migr
 from tianshu.storage.migrations import (
     _EVOLUTION_CANDIDATE_OBJECT_NAMES,
     _EVOLUTION_CANDIDATE_STATEMENTS,
+    _LEGACY_ASSIGNMENT_CLEANUP_STATEMENTS,
     MIGRATIONS,
+)
+
+_V18_VERSION = next(
+    m.version for m in MIGRATIONS if m.name == "0018_governed_evolution_candidates"
 )
 
 NOW = datetime(2026, 7, 17, 9, 0, tzinfo=UTC)
@@ -287,7 +292,7 @@ def _unique_column_sets(connection: sqlite3.Connection, table: str) -> set[tuple
 
 
 def _declared_v18_objects() -> dict[str, str]:
-    return {
+    declared = {
         name: " ".join(statement.split())
         for name, statement in zip(
             _EVOLUTION_CANDIDATE_OBJECT_NAMES,
@@ -295,6 +300,11 @@ def _declared_v18_objects() -> dict[str, str]:
             strict=True,
         )
     }
+    # v22 重建了 no_delete 触发器（legacy 占位可清理）；完整重放后的实况以 v22 为准
+    declared["run_evolution_assignments_no_delete"] = " ".join(
+        _LEGACY_ASSIGNMENT_CLEANUP_STATEMENTS[1].split()
+    )
+    return declared
 
 
 def _durable_v18_objects(connection: sqlite3.Connection) -> dict[str, str]:
@@ -377,23 +387,30 @@ def test_v18_locks_complete_table_fk_unique_and_cas_shape(
     } == _V18_UNIQUE_COLUMN_SETS
 
 
-def test_v18_exact_shape_is_adopted_without_recreating_objects(
-    connection: sqlite3.Connection,
-) -> None:
+def test_v18_exact_shape_is_adopted_without_recreating_objects() -> None:
+    # v18 采纳语义的纯净环境：只迁到 v18（完整库的 no_delete 触发器已是 v22 形状，
+    # 与 v18 采纳比对必然不符——真实历史库要么无 v18 表、要么是 v18 原始形状）。
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys=ON")
+    through_v18 = tuple(m for m in MIGRATIONS if m.version <= _V18_VERSION)
+    apply_migrations(connection, through_v18)
     _seed_immutable_rows(connection)
     data_before = _v18_data_snapshot(connection)
     objects_before = _durable_v18_objects(connection)
-    connection.execute("DELETE FROM schema_migrations WHERE version = ?", (MIGRATIONS[-1].version,))
+    connection.execute("DELETE FROM schema_migrations WHERE version = ?", (_V18_VERSION,))
     connection.commit()
 
-    assert apply_migrations(connection, MIGRATIONS) == (MIGRATIONS[-1].version,)
+    assert apply_migrations(connection, through_v18) == (_V18_VERSION,)
     assert _durable_v18_objects(connection) == objects_before
     _assert_v18_data_preserved(data_before, _v18_data_snapshot(connection))
 
 
-def test_v18_adopt_sentinel_detects_same_sql_destructive_recreation(
-    connection: sqlite3.Connection,
-) -> None:
+def test_v18_adopt_sentinel_detects_same_sql_destructive_recreation() -> None:
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys=ON")
+    apply_migrations(connection, tuple(m for m in MIGRATIONS if m.version <= _V18_VERSION))
     _seed_immutable_rows(connection)
     objects_before = _durable_v18_objects(connection)
     data_before = _v18_data_snapshot(connection)
@@ -411,12 +428,14 @@ def test_v18_partial_or_drifted_shape_is_rejected_and_rolled_back(mode: str) -> 
     connection.execute("PRAGMA foreign_keys=ON")
     try:
         if mode == "partial":
-            apply_migrations(connection, MIGRATIONS[:-1])
+            apply_migrations(
+                connection, tuple(m for m in MIGRATIONS if m.version < _V18_VERSION)
+            )
             connection.execute("CREATE TABLE evolution_candidates (candidate_id TEXT PRIMARY KEY)")
         else:
             apply_migrations(connection, MIGRATIONS)
             connection.execute(
-                "DELETE FROM schema_migrations WHERE version = ?", (MIGRATIONS[-1].version,)
+                "DELETE FROM schema_migrations WHERE version >= ?", (_V18_VERSION,)
             )
             connection.execute("DROP INDEX idx_evolution_candidates_lifecycle")
             connection.execute(
@@ -428,7 +447,7 @@ def test_v18_partial_or_drifted_shape_is_rejected_and_rolled_back(mode: str) -> 
             apply_migrations(connection, MIGRATIONS)
         assert connection.execute(
             "SELECT COUNT(*) FROM schema_migrations WHERE version = ?",
-            (MIGRATIONS[-1].version,),
+            (_V18_VERSION,),
         ).fetchone() == (0,)
         if mode == "partial":
             assert (

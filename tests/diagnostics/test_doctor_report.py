@@ -439,16 +439,32 @@ def test_clean_database_snapshot_mode_is_reported_honestly(tmp_path):
 # --- provider 判定源：运行时实际生效的 active 配置，而不是 env ---
 
 
-def _seed_active_llm_config(db_path: Path, *, name: str, model: str, api_key: str) -> None:
+def _seed_active_llm_config(db_path, *, name: str, model: str, api_key: str) -> None:
+    """app 启动前按新形态种子（经 Web UI 配置的部署形态）。
+
+    key 已迁入加密凭证库（迁移 0020）：非空 key 经 provider 注册表落
+    network_credentials(kind='llm_provider')，配置行只存 provider_id。
+    需要 TIANSHU_SECRET_MASTER_KEY 在场（见 _master_key_env fixture）。
+    """
+    from tianshu.providers.model_catalog import ModelCatalog
+    from tianshu.providers.registry import ModelProviderRegistry
+    from tianshu.secrets.store import CredentialStore
+    from tianshu.secrets.vault import get_vault
     from tianshu.storage import Storage
 
     storage = Storage(str(db_path))
     storage.init_db()
+    provider_id = ""
+    if api_key:
+        vault = get_vault()
+        assert vault is not None, "seeding a key requires TIANSHU_SECRET_MASTER_KEY"
+        registry = ModelProviderRegistry(storage, ModelCatalog(), CredentialStore(storage, vault))
+        provider_id = registry.create_provider(profile_id="openai", api_key=api_key)["id"]
     storage.save_llm_config(
         {
             "name": name,
             "model": model,
-            "api_key": api_key,
+            "provider_id": provider_id,
             "api_base": "",
             "max_retries": 3,
             "temperature": 0.7,
@@ -461,8 +477,22 @@ def _seed_active_llm_config(db_path: Path, *, name: str, model: str, api_key: st
     storage.close()
 
 
-def test_provider_check_reads_active_db_config_not_env(tmp_path):
-    """env 空但 llm_configs 的 active 配置有 key → 运行时可用 → pass。"""
+@pytest.fixture
+def _master_key_env(monkeypatch):
+    """临时主密钥 + vault 单例隔离（种子加密凭证与 doctor 判定都需要它在场）。"""
+    from cryptography.fernet import Fernet
+
+    from tianshu.secrets.vault import reset_vault
+
+    monkeypatch.setenv("TIANSHU_SECRET_MASTER_KEY", Fernet.generate_key().decode())
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    reset_vault()
+    yield
+    reset_vault()
+
+
+def test_provider_check_reads_active_db_config_not_env(tmp_path, _master_key_env):
+    """env 空但 active 配置的 key 在加密凭证库可解 → 运行时可用 → pass。"""
     db = tmp_path / "configured.db"
     _seed_active_llm_config(db, name="web-config", model="gpt-4o-mini", api_key="sk-real")
     settings = _fresh_settings(

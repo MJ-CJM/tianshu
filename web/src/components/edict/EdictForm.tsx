@@ -175,6 +175,9 @@ export default function EdictForm({
         runtime.executor_model = executorModel;
       }
     }
+    if (values.conversation) {
+      runtime.conversation = true;
+    }
     if (
       policyProfile &&
       (policyProfile.template_name ||
@@ -459,6 +462,15 @@ export default function EdictForm({
         </Col>
       </Row>
 
+      <Form.Item
+        name="conversation"
+        valuePropName="checked"
+        label={t("form.edict.field.conversation")}
+        tooltip={t("form.edict.tooltip.conversation")}
+      >
+        <Switch size="small" />
+      </Form.Item>
+
       <Row gutter={16}>
         <Col xs={24} sm={12}>
           <Form.Item name="review_policy" label={t("form.edict.field.reviewPolicy")}>
@@ -559,7 +571,7 @@ export default function EdictForm({
       layout="vertical"
       onFinish={handleFinish}
       requiredMark={false}
-      initialValues={{ priority: "normal", review_policy: "on_failure" }}
+      initialValues={{ priority: "normal", review_policy: "on_failure", conversation: true }}
     >
       {/* --- 第一层:极简默认(标题 / 目标 / 智能填充) --- */}
       <Form.Item name="title" label={t("form.edict.field.title")}>

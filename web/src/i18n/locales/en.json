@@ -655,7 +655,8 @@
         "nlFailed": "Couldn't understand that — try rephrasing or fill the form manually.",
         "executor": "Executor",
         "taskType": "Task type",
-        "executorModel": "Agent model (optional)"
+        "executorModel": "Agent model (optional)",
+        "conversation": "Conversation mode"
       },
       "placeholder": {
         "title": "Leave blank to auto-extract first 20 chars of goal",
@@ -704,7 +705,8 @@
         "criticPersonas": "Who reviews task quality. Multi-select runs concurrent review per round, aggregated as 'all pass'; any FAIL = fail. Each critic produces an independent report on terminal state.",
         "sameIssueThreshold": "Escalate to L1 when critic reports same issue_class for N consecutive rounds",
         "executor": "native = built-in engine (default); keqing:* = external CLI agent (Claude Code/Codex, contained + experimental): independent workspace, clean-env, outer timeout, and post-run audit only; no pre-tool interception, hard cost cap, or pre-run restore point",
-        "executorModel": "Model the keqing agent uses (pi format provider/id:thinking). Empty = default from Keqing Management or the agent's own default."
+        "executorModel": "Model the keqing agent uses (pi format provider/id:thinking). Empty = default from Keqing Management or the agent's own default.",
+        "conversation": "When enabled: successful runs do not auto-close the edict; it stays open for continued follow-ups (with multi-turn context) until you close it manually. Ideal for chatting with an official."
       },
       "option": {
         "autoPlanning": "Auto Plan (system decides)",
@@ -1560,7 +1562,8 @@
       "sourceLabel": {
         "custom": "Custom",
         "mixed": "Partial custom",
-        "default": "Default"
+        "default": "Default",
+        "subscription": "Subscription (¥0)"
       },
       "edit": "Edit",
       "reset": "Reset",
@@ -1573,8 +1576,9 @@
       "cachePlaceholder": "Empty = same as miss (no discount)",
       "outputLabel": "Output ¥/1K",
       "tip": "Tip: empty fields fall back to _DEFAULT_PRICING. Changes take effect on the next LLM call.",
-      "defaultTitle": "Default pricing table (_DEFAULT_PRICING)",
-      "defaultIntro": "When custom pricing is empty, matches by model name from this table. If no match, the fallback price is used.",
+      "defaultTitle": "Default pricing (models.dev catalog)",
+      "defaultIntro": "When custom pricing is empty, prices are matched by model name from the models.dev catalog snapshot. If no match, the fallback price is used.",
+      "catalogSummary": "Catalog snapshot: {providerCount} providers / {modelCount} models · {generatedAt} ({source})",
       "fallback": "Fallback (when no match): ",
       "saved": "Saved",
       "saveFailed": "Save failed: {err}",
@@ -2008,7 +2012,7 @@
       "empty": "No providers",
       "confirmDeleteProvider": "Confirm delete?",
       "confirmDeleteConfig": "Delete this config?",
-      "costNoCustom": "No custom pricing — falls back to _DEFAULT_PRICING",
+      "costNoCustom": "No custom pricing — falls back to models.dev catalog defaults",
       "costAllCustom": "All custom",
       "costPartial": "Partially custom (other fields fall back to default pricing)",
       "table": {
@@ -2030,7 +2034,71 @@
         "apiBaseExample": "https://open.bigmodel.cn/api/paas/v4",
         "nameRequired": "Config name is required",
         "modelRequired": "Model name is required"
-      }
+      },
+      "registry": {
+        "title": "Model Providers",
+        "refreshCatalog": "Refresh catalog",
+        "addProvider": "Add provider",
+        "catalogStatus": "Catalog: {providerCount} providers / {modelCount} models · snapshot {generatedAt} ({source})",
+        "catalogRefreshed": "Catalog refreshed (snapshot {generatedAt})",
+        "empty": "No model providers",
+        "table": {
+          "displayName": "Name",
+          "profile": "Profile",
+          "endpoint": "Endpoint",
+          "keyStatus": "Key",
+          "billing": "Billing",
+          "enabled": "Enabled"
+        },
+        "keyVault": "Encrypted",
+        "keyEnv": "Env var",
+        "keyNone": "Not set",
+        "billingSubscription": "Subscription",
+        "billingPerToken": "Per token",
+        "actionKey": "Set key",
+        "actionTest": "Test",
+        "confirmDelete": "Delete this provider?",
+        "deleted": "Provider \"{id}\" deleted",
+        "keyModalTitle": "Set key — {name}",
+        "keyHint": "Supports $ENV:VAR_NAME to reference an environment variable; leave empty to clear",
+        "keySaved": "Key updated",
+        "keyCleared": "Key cleared — falls back to the profile env var",
+        "testModalTitle": "Connectivity test — {name}",
+        "testRun": "Run test",
+        "testModelPlaceholder": "Select or type a model",
+        "testOk": "Connected · {latency} ms",
+        "testFail": "Test failed",
+        "addTitle": "Add model provider",
+        "created": "Provider \"{id}\" added",
+        "providerSelect": "Provider",
+        "providerSelectPlaceholder": "Leave empty = auto match",
+        "providerKeyPlaceholder": "Leave empty to use the provider's configured key",
+        "modelPlaceholder": "Select or type a model",
+        "form": {
+          "profile": "Provider profile",
+          "profileRequired": "Please select a provider profile",
+          "profilePlaceholder": "Select a built-in profile",
+          "keyEnvHint": "Reads env var {env} by default",
+          "id": "Instance ID",
+          "idPlaceholder": "Leave empty = profile id ({id})",
+          "displayName": "Display name",
+          "displayNamePlaceholder": "Optional",
+          "baseUrlRequired": "Base URL is required for the custom profile",
+          "baseUrlPlaceholder": "Optional",
+          "apiKeyPlaceholder": "sk-... or $ENV:VAR_NAME; leave empty to use the env var"
+        }
+      },
+      "slots": {
+        "title": "Internal task slots",
+        "desc": "Assign an LLM config per task type; empty = use the globally active config",
+        "court": "Court consultation",
+        "memory": "Memory",
+        "synthesis": "Persona synthesis",
+        "edict_parse": "Edict parsing",
+        "placeholder": "Globally active config",
+        "updated": "Task slots updated"
+      },
+      "costSubscription": "Subscription ¥0"
     },
     "plugins": {
       "empty": "No plugins",

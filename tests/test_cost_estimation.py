@@ -13,10 +13,12 @@ from tianshu.models.common import UsageSummary
 
 @pytest.mark.unit
 def test_lookup_pricing_known_model():
-    """已知模型返回 3-tuple。"""
+    """已知模型命中 models.dev 目录价（非兜底），且 hit 有缓存折扣。"""
     p = lookup_pricing("deepseek-chat")
-    assert p == (0.001, 0.00002, 0.002)
     assert len(p) == 3
+    assert p != (0.0072, 0.0072, 0.0144)  # 不是兜底价
+    miss, hit, out = p
+    assert 0 < hit < miss < out  # deepseek cache hit 深折扣、输出贵于输入
 
 
 @pytest.mark.unit
@@ -28,17 +30,17 @@ def test_lookup_pricing_unknown_falls_back():
 
 @pytest.mark.unit
 def test_lookup_pricing_strips_provider_prefix():
-    """openai/gpt-4o 应剥离 prefix 找到 gpt-4o。"""
-    p = lookup_pricing("openai/gpt-4o")
-    assert p == (0.018, 0.009, 0.072)
+    """openai/gpt-4o 应剥离 prefix 命中目录里的 gpt-4o。"""
+    assert lookup_pricing("openai/gpt-4o") == lookup_pricing("gpt-4o")
+    assert lookup_pricing("gpt-4o") != (0.0072, 0.0072, 0.0144)
 
 
 @pytest.mark.unit
 def test_estimate_cost_basic_no_cache():
     """cache_read=0 退化到 prompt × miss + completion × out。"""
+    miss, _hit, out = lookup_pricing("deepseek-chat")
     cost = estimate_cost("deepseek-chat", 1000, 500)
-    # 1.0 × 0.001 + 0.5 × 0.002 = 0.001 + 0.001 = 0.002
-    assert abs(cost - 0.002) < 1e-6
+    assert abs(cost - (1.0 * miss + 0.5 * out)) < 1e-9
 
 
 @pytest.mark.unit
@@ -49,27 +51,25 @@ def test_estimate_cost_zero_tokens():
 @pytest.mark.unit
 def test_estimate_cost_full_cache_hit():
     """全部命中：input_miss = 0，所有 prompt 走 hit 价。"""
+    _miss, hit, out = lookup_pricing("deepseek-chat")
     cost = estimate_cost("deepseek-chat", 1000, 500, cache_read_tokens=1000)
-    # 0/1000×0.001 + 1.0×0.00002 + 0.5×0.002 = 0 + 0.00002 + 0.001 = 0.00102
-    assert abs(cost - 0.00102) < 1e-6
+    assert abs(cost - (1.0 * hit + 0.5 * out)) < 1e-9
 
 
 @pytest.mark.unit
 def test_estimate_cost_partial_cache_hit():
     """部分命中。"""
+    miss, hit, out = lookup_pricing("deepseek-chat")
     cost = estimate_cost("deepseek-chat", 1000, 500, cache_read_tokens=600)
-    # (1000-600)/1000×0.001 + 600/1000×0.00002 + 500/1000×0.002
-    # = 0.0004 + 0.000012 + 0.001 = 0.001412
-    assert abs(cost - 0.001412) < 1e-6
+    assert abs(cost - (0.4 * miss + 0.6 * hit + 0.5 * out)) < 1e-9
 
 
 @pytest.mark.unit
 def test_estimate_cost_cache_exceeds_prompt_clamped_to_zero():
     """异常：cache_read > prompt → input_miss 不为负。"""
+    _miss, hit, out = lookup_pricing("deepseek-chat")
     cost = estimate_cost("deepseek-chat", 100, 50, cache_read_tokens=200)
-    # input_miss = max(0, 100-200) = 0
-    # 0 + 200/1000×0.00002 + 50/1000×0.002 = 0 + 0.000004 + 0.0001 = 0.000104
-    assert abs(cost - 0.000104) < 1e-6
+    assert abs(cost - (0.2 * hit + 0.05 * out)) < 1e-9
 
 
 @pytest.mark.unit
@@ -112,8 +112,10 @@ def test_cost_tracker_accumulate_with_cache():
         cache_read_tokens=600,
         provider_name="test-pn",
     )
-    assert abs(incr - 0.001412) < 1e-6
-    assert abs(t.cost_cny - 0.001412) < 1e-6
+    miss, hit, out = lookup_pricing("deepseek-chat")
+    expected = 0.4 * miss + 0.6 * hit + 0.5 * out
+    assert abs(incr - expected) < 1e-9
+    assert abs(t.cost_cny - expected) < 1e-9
     assert t.cache_read_tokens == 600
     assert t.last_provider_name == "test-pn"
     assert t.total_tokens == 1500

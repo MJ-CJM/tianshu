@@ -85,6 +85,20 @@ _FROZEN_UPGRADE_FINGERPRINTS: dict[str, str] = {
     "0018_governed_evolution_candidates": (
         "b064609eb8d0ba0b5dc7d50d43512a0f3aa56bff1d1badcb7f861d650b5bef42"
     ),
+    # v19 建 model_providers 表并按 profile 匹配回填 llm_configs.provider_id（统一模型注册表）。
+    "0019_model_providers": ("719bc4cf0b2543d88294bf1a23f1ff41621e1c5398b9f9ea4c586406f2316cc0"),
+    # v20 把 llm_configs 明文 api_key 加密入 network_credentials(kind='llm_provider')
+    # 后经临时表重建物理删除明文列（照抄 v8 secure_delete 模式，登记为 sensitive migration）。
+    "0020_encrypt_llm_config_keys": (
+        "dea4ecedab5a639ee4e4449807f96981670e56528480ae5a409f84e5c7bbea31"
+    ),
+    # v21 追加 app_settings KV 表（agent_config/任务槽位持久化）。
+    "0021_app_settings": ("cb71789ef38e922fee424f7cbfe458f82ae59543eb6087f711c64b2f05e1efa0"),
+    # v22 重建 run_evolution_assignments 的 no_delete 触发器：仅保护真实验记录
+    # （candidate_id 非空），legacy 冠军占位可随敕令清理。
+    "0022_legacy_assignment_cleanup": (
+        "01b7aa95582bc808f20c0e715ce3ecc43e6081218a2ec2900bcbe7c0f462f31f"
+    ),
 }
 
 _FROZEN_HELPER_FINGERPRINTS: dict[tuple[str, str], str] = {

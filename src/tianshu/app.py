@@ -36,6 +36,7 @@ from tianshu.gateway.keqing_api import keqing_router
 from tianshu.gateway.llm_gateway_api import llm_gateway_router
 from tianshu.gateway.mcp_api import mcp_router
 from tianshu.gateway.memory_api import memory_router
+from tianshu.gateway.model_providers_api import model_providers_router
 from tianshu.gateway.personas_api import personas_router
 from tianshu.gateway.providers_api import providers_router
 from tianshu.gateway.skills_api import skills_router
@@ -434,6 +435,7 @@ def create_app(settings: TianshuSettings | None = None) -> FastAPI:
     app.include_router(llm_gateway_router, prefix="/api")
     app.include_router(mcp_router, prefix="/api")
     app.include_router(memory_router, prefix="/api")
+    app.include_router(model_providers_router, prefix="/api")
     app.include_router(personas_router, prefix="/api")
     app.include_router(providers_router, prefix="/api")
     app.include_router(skills_router, prefix="/api")

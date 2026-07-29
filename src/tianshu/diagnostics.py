@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import socket
 import sqlite3
 from collections.abc import Callable
@@ -216,27 +217,69 @@ def _resolve_effective_llm_config(settings) -> tuple[object | None, str]:
         # 被**最后**一个 is_active 行覆盖。多 active 行时若这里取第一行，Doctor 会
         # 与运行时选中不同的配置——同一事实两个结论。
         rows = conn.execute(
-            "SELECT name, model, api_key, api_base, is_active FROM llm_configs "
+            "SELECT name, model, provider_id, api_base, is_active FROM llm_configs "
             "ORDER BY is_active DESC, name ASC"
         ).fetchall()
+        active = next((row for row in reversed(rows) if row[4]), None) if rows else None
+        provider_row = None
+        credential_present = False
+        if active is not None and str(active[2] or ""):
+            provider_row = conn.execute(
+                "SELECT profile_id, api_key_ref FROM model_providers WHERE id = ?",
+                (str(active[2]),),
+            ).fetchone()
+            if provider_row is not None and str(provider_row[1] or "") == "credential":
+                credential_present = (
+                    conn.execute(
+                        "SELECT 1 FROM network_credentials WHERE kind = 'llm_provider' "
+                        "AND provider_name = ? AND deleted_at IS NULL AND enabled = 1",
+                        (str(active[2]),),
+                    ).fetchone()
+                    is not None
+                )
     except sqlite3.Error:
         return None, "unknown"
     finally:
         conn.close()
     if not rows:
         return env_seed, "env_seed"
-    active = next((row for row in reversed(rows) if row[4]), None)
     if active is None:
         return None, "unknown"
     return (
         LLMConfigState(
             name=str(active[0]),
             model=str(active[1]),
-            api_key=str(active[2]),
+            api_key=_infer_provider_key(provider_row, credential_present),
             api_base=str(active[3] or ""),
+            provider_id=str(active[2] or ""),
         ),
         "db_active",
     )
+
+
+def _infer_provider_key(provider_row: object | None, credential_present: bool) -> str:
+    """只读推断 active 配置的 key 可用性（与 registry.resolve_key 同构，不解密）。
+
+    key 已迁入 network_credentials(kind='llm_provider')/env 引用（迁移 0020，
+    llm_configs 明文列已删）。Doctor 不持有 vault，只判"运行时能否解出 key"：
+    加密凭证在库且主密钥在场 → 可用（占位串 '<vault>'，仅供 bool 判定与证据，
+    永不外泄真实 key）；$ENV / profile env 引用直接读环境变量。
+    """
+    from tianshu.providers.profiles import get_profile
+
+    if provider_row is None:
+        return ""
+    ref = str(provider_row[1] or "")
+    if ref == "credential":
+        if credential_present and os.getenv("TIANSHU_SECRET_MASTER_KEY"):
+            return "<vault>"
+        return ""
+    if ref.startswith("$ENV:"):
+        return os.getenv(ref[len("$ENV:") :], "")
+    profile = get_profile(str(provider_row[0] or ""))
+    if profile is not None and profile.key_env:
+        return os.getenv(profile.key_env, "")
+    return ""
 
 
 class DoctorDatabaseUnavailable(Exception):

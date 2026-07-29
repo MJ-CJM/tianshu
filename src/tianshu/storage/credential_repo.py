@@ -80,15 +80,21 @@ class CredentialMixin:
             )
             return cur.fetchall()
 
-    def find_credentials_by_provider(self, provider_name: str) -> sqlite3.Row | None:
-        """disabled 的 provider 凭证视为未配置，返回 None 让 resolve 回落 env。"""
+    def find_credentials_by_provider(
+        self, provider_name: str, kind: str = "engine_provider"
+    ) -> sqlite3.Row | None:
+        """disabled 的 provider 凭证视为未配置，返回 None 让 resolve 回落 env。
+
+        kind 缺省保持鸿胪寺（engine_provider）语义；LLM 供应商 key 用
+        kind='llm_provider' 查询，两个命名空间互不可见。
+        """
         with self._lock:
             cur = self._conn.execute(
                 "SELECT * FROM network_credentials "
-                "WHERE deleted_at IS NULL AND kind='engine_provider' "
+                "WHERE deleted_at IS NULL AND kind=? "
                 "AND enabled = 1 "
                 "AND provider_name=?",
-                (provider_name,),
+                (kind, provider_name),
             )
             return cur.fetchone()
 

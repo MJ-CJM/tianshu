@@ -435,10 +435,7 @@ async def parse_edict_nl(body: ParseEdictRequest, request: Request):
     )
 
     pm = request.app.state.provider_manager
-    try:
-        client = pm.get_client(config_name_override="deepseek-flash")
-    except Exception:
-        client = pm.get_client()
+    client = pm.get_client_for_slot("edict_parse")
 
     messages = build_parse_messages(body.text)
     try:
@@ -574,14 +571,13 @@ def delete_edict(edict_id: str, request: Request):
         )
     try:
         storage.delete_edict(edict_id)
-    except sqlite3.IntegrityError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "governed_evolution_history_retained",
-                "message": "敕令存在不可变的治理演进历史，不能删除",
-            },
-        ) from exc
+    except sqlite3.IntegrityError:
+        # 含不可变治理证据（closed evidence bundle / 真实验分流记录）的敕令
+        # 不能物理删除——证据链是治理承诺。降级为归档：列表隐藏、证据保留。
+        storage.archive_edict(edict_id)
+        storage.append_event(edict_id, None, "edict.archived", {"reason": "governed_evidence"})
+        logger.info("[API] Edict %s: 含治理证据，物理删除降级为归档", edict_id)
+        return ApiResponse(success=True, data={"id": edict_id, "archived": True})
     return ApiResponse(success=True, data={"id": edict_id})
 
 

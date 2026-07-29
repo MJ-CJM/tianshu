@@ -2,6 +2,6 @@
   "enabledPlugins": {
     "everything-claude-code@everything-claude-code": true,
     "superpowers@superpowers-marketplace": false,
-    "superpowers@claude-plugins-official": true
+    "superpowers@claude-plugins-official": false
   }
 }

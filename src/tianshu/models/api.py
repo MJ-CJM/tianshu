@@ -29,6 +29,10 @@ class EdictRuntimeRequest(BaseModel):
     policy_profile: PolicyProfilePayload | None = None
     executor: str | None = Field(default=None, min_length=1)
     executor_model: str | None = Field(default=None, min_length=1)
+    conversation: bool | None = Field(
+        default=None,
+        description="对话模式：成功后保持进行（人工结案），继续批示持续可用",
+    )
     fetch_engine_override: str | None = Field(
         default=None,
         description="Pin web_fetch to specific engine: local | jina | firecrawl",
@@ -241,6 +245,7 @@ class LLMConfig(BaseModel):
     top_p: float
     max_tokens: int
     enabled: bool
+    provider_id: str = ""  # 关联的 model_providers.id；"" = 未关联
 
 
 class LLMConfigCreateRequest(BaseModel):
@@ -248,6 +253,7 @@ class LLMConfigCreateRequest(BaseModel):
     model: str = Field(min_length=1)
     api_key: str = ""
     api_base: str = ""
+    provider_id: str = ""
     max_retries: int = Field(default=3, ge=0, le=10)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     top_p: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -259,6 +265,7 @@ class LLMConfigUpdateRequest(BaseModel):
     model: str | None = None
     api_key: str | None = None
     api_base: str | None = None
+    provider_id: str | None = None
     max_retries: int | None = Field(default=None, ge=0, le=10)
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     top_p: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -287,6 +294,8 @@ class AgentConfig(BaseModel):
     keqing_gateway_enabled: bool
     keqing_per_run_budget_cny: float
     keqing_model_allowlist: str
+    # 内部任务槽位 → 配置名（court/memory/synthesis/edict_parse）
+    task_slots: dict[str, str]
 
 
 class AgentConfigUpdateRequest(BaseModel):
@@ -305,3 +314,4 @@ class AgentConfigUpdateRequest(BaseModel):
     keqing_gateway_enabled: bool | None = None
     keqing_per_run_budget_cny: float | None = Field(default=None, ge=0)
     keqing_model_allowlist: str | None = None
+    task_slots: dict[str, str] | None = None

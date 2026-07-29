@@ -85,8 +85,8 @@ class TestAuditor:
     async def test_conversational_executor_keeps_edict_open(self, auditor, storage):
         # 对话式客卿(pi RPC 会话档)审计通过后须保持 OPEN,供连续 follow_up;
         # 否则一次产出即 auto-close、canFollowUp 失效,用户无法「继续批示」追问。
-        from tianshu.models.edict import EdictRuntime
         from tianshu.models.common import EdictStatus
+        from tianshu.models.edict import EdictRuntime
         from tianshu.models.events import make_event
 
         edict = Edict(goal="hi", runtime=EdictRuntime(executor="keqing:pi"))
@@ -99,12 +99,46 @@ class TestAuditor:
         await auditor.handle_execution_completed(event)
         assert storage.get_edict(edict.id).status == EdictStatus.OPEN.value  # 保持 open
 
-    async def test_single_shot_executor_auto_closes(self, auditor, storage):
-        # 单发/native 审计通过后仍 auto-close(一次性任务语义不变)。
+    async def test_conversation_mode_keeps_native_edict_open(self, auditor, storage):
+        # runtime.conversation（对话模式）：百官/native 执行成功过审后保持 OPEN，
+        # 由人工结案——「继续批示」持续可用（follow_up 回放多轮上下文）。
+        from tianshu.models.common import EdictStatus
+        from tianshu.models.edict import EdictRuntime
+        from tianshu.models.events import make_event
+
+        edict = Edict(goal="chat", runtime=EdictRuntime(conversation=True))
+        memorial = Memorial(edict_id=edict.id, result="Hi!", status=TaskStatus.COMPLETED)
+        storage.save_edict(edict)
+        storage.save_memorial(memorial)
+        event = make_event(
+            "execution.completed", edict_id=edict.id, memorial_id=memorial.id, producer="test"
+        )
+        await auditor.handle_execution_completed(event)
+        assert storage.get_edict(edict.id).status == EdictStatus.OPEN.value  # 保持 open
+
+    async def test_default_native_edict_stays_open(self, auditor, storage):
+        # 2026-07-29 拍板：conversation 默认开启——人下的敕令默认多轮批示，
+        # 审计通过后保持 OPEN，结案权在人。
         from tianshu.models.common import EdictStatus
         from tianshu.models.events import make_event
 
-        edict = Edict(goal="task")  # 默认 native 执行器
+        edict = Edict(goal="chat-by-default")
+        memorial = Memorial(edict_id=edict.id, result="done", status=TaskStatus.COMPLETED)
+        storage.save_edict(edict)
+        storage.save_memorial(memorial)
+        event = make_event(
+            "execution.completed", edict_id=edict.id, memorial_id=memorial.id, producer="test"
+        )
+        await auditor.handle_execution_completed(event)
+        assert storage.get_edict(edict.id).status == EdictStatus.OPEN.value
+
+    async def test_single_shot_executor_auto_closes(self, auditor, storage):
+        # 显式 conversation=False（机器自动化入口）保持一次性闭环语义。
+        from tianshu.models.common import EdictStatus
+        from tianshu.models.edict import EdictRuntime
+        from tianshu.models.events import make_event
+
+        edict = Edict(goal="task", runtime=EdictRuntime(conversation=False))
         memorial = Memorial(edict_id=edict.id, result="done", status=TaskStatus.COMPLETED)
         storage.save_edict(edict)
         storage.save_memorial(memorial)

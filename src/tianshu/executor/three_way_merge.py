@@ -12,8 +12,9 @@ WorkspaceApplyEngine 的 preimage 漂移当前是「整单放弃」;P7 升级为
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Literal
+from typing import Literal
 
 ThreeWayDecision = Literal["take_theirs", "keep_ours", "skip", "merge", "conflict"]
 

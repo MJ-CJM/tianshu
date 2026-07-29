@@ -44,16 +44,21 @@ def _is_anthropic_model(model: str) -> bool:
     return any(lower.startswith(p) for p in _ANTHROPIC_PREFIXES)
 
 
-def _apply_prompt_caching(messages: list[dict], model: str) -> list[dict]:
+def _apply_prompt_caching(
+    messages: list[dict], model: str, enabled: bool | None = None
+) -> list[dict]:
     """Add cache_control breakpoints for Anthropic models.
 
     Strategy: mark system messages and the last 3 non-system messages with
     cache_control: {"type": "ephemeral"}. This enables Anthropic's prompt
     caching (~75% input token savings on cached portions).
 
-    For non-Anthropic models, returns messages unchanged.
+    enabled 由 ProviderProfile.supports_prompt_caching 显式传入；None 时回落
+    模型名启发式（直接构造 LLMClient 的旧路径）。
     """
-    if not _is_anthropic_model(model):
+    if enabled is None:
+        enabled = _is_anthropic_model(model)
+    if not enabled:
         return messages
 
     result = [dict(m) for m in messages]
@@ -183,21 +188,20 @@ def _log_model_echo(
     _MODEL_ECHO_CACHE[key] = new_value
 
 
-def _extract_cache_read_tokens(usage_obj: object, model: str) -> int:
+def _extract_cache_read_tokens(usage_obj: object, model: str, dialect: str | None = None) -> int:
     """从不同 provider 的 usage 对象提取 cache hit token 数。
 
-    多 provider 字段差异（litellm 没统一）：
-    - claude/anthropic: usage.cache_read_input_tokens
-    - deepseek:         usage.prompt_cache_hit_tokens
-    - openai/兼容:      usage.prompt_tokens_details.cached_tokens
-    - 其它:             0（保守）
+    多 provider 字段差异（litellm 没统一），方言由
+    ProviderProfile.cache_usage_field 显式传入：
+    - anthropic: usage.cache_read_input_tokens
+    - deepseek:  usage.prompt_cache_hit_tokens
+    - openai:    usage.prompt_tokens_details.cached_tokens
 
+    dialect 为 None 时回落模型名启发式（直接构造 LLMClient 的旧路径）。
     用 getattr + dict.get 双路径访问（litellm Usage 对象有时是 pydantic、有时是 dict）。
     """
     if usage_obj is None:
         return 0
-    model_lower = (model or "").lower()
-    base = model_lower.split("/")[-1] if "/" in model_lower else model_lower
 
     def _get(obj: object, key: str, default: int = 0) -> int:
         if obj is None:
@@ -207,11 +211,19 @@ def _extract_cache_read_tokens(usage_obj: object, model: str) -> int:
             v = obj.get(key)
         return int(v) if v else default
 
-    # claude/anthropic 系列
-    if "claude" in base or "anthropic" in base:
+    if dialect is None:
+        model_lower = (model or "").lower()
+        base = model_lower.split("/")[-1] if "/" in model_lower else model_lower
+        if "claude" in base or "anthropic" in base:
+            dialect = "anthropic"
+        elif "deepseek" in base:
+            dialect = "deepseek"
+        else:
+            dialect = "openai"
+
+    if dialect == "anthropic":
         return _get(usage_obj, "cache_read_input_tokens")
-    # deepseek 系列
-    if "deepseek" in base:
+    if dialect == "deepseek":
         return _get(usage_obj, "prompt_cache_hit_tokens")
     # openai/兼容（gpt、qwen-openai-compat 等）
     details = getattr(usage_obj, "prompt_tokens_details", None)
@@ -237,6 +249,10 @@ class LLMClient:
         pricing_override: tuple[float, float, float] | None = None,
         router: object | None = None,
         router_model_name: str | None = None,
+        litellm_prefix: str | None = None,
+        usage_dialect: str | None = None,
+        prompt_caching: bool | None = None,
+        context_window: int | None = None,
     ) -> None:
         self._model = model
         self._api_key = api_key
@@ -248,6 +264,13 @@ class LLMClient:
         self._timeout = timeout
         self._provider_name = provider_name
         self._pricing_override = pricing_override
+        # ProviderProfile 驱动的三个显式声明（None = 回落模型名启发式旧路径）：
+        # litellm 前缀映射 / usage cache 字段方言 / 是否注入 anthropic cache_control
+        self._litellm_prefix = litellm_prefix
+        self._usage_dialect = usage_dialect
+        self._prompt_caching = prompt_caching
+        # 模型目录元数据（agent 压缩阈值用）；None = 未知，调用方自行兜底
+        self.context_window = context_window
         # litellm.Router 注入(可选):有 router + router_model_name 时,chat/chat_stream
         # 走 Router(fallback/按类型重试/冷却见 llm_router.py),凭证由 deployment 自带;
         # 否则保持直连 acompletion(沙箱评估凭证隔离、doctor 等场景依赖此路径)。
@@ -257,6 +280,29 @@ class LLMClient:
     @property
     def provider_name(self) -> str | None:
         return self._provider_name
+
+    def with_params(
+        self, *, temperature: float | None = None, max_tokens: int | None = None
+    ) -> LLMClient:
+        """返回调整采样参数后的新副本（不改本实例）；任务槽位的 per-task 微调用。"""
+        return LLMClient(
+            model=self._model,
+            api_key=self._api_key,
+            api_base=self._api_base,
+            max_retries=self._max_retries,
+            temperature=self._temperature if temperature is None else temperature,
+            top_p=self._top_p,
+            max_tokens=self._max_tokens if max_tokens is None else max_tokens,
+            timeout=self._timeout,
+            provider_name=self._provider_name,
+            pricing_override=self._pricing_override,
+            router=self._router,
+            router_model_name=self._router_model_name,
+            litellm_prefix=self._litellm_prefix,
+            usage_dialect=self._usage_dialect,
+            prompt_caching=self._prompt_caching,
+            context_window=self.context_window,
+        )
 
     async def chat(
         self,
@@ -291,7 +337,7 @@ class LLMClient:
         tools: list[dict] | None = None,
     ) -> LLMResponse:
         model, api_base = self._resolve_model()
-        messages = _apply_prompt_caching(messages, model)
+        messages = _apply_prompt_caching(messages, model, self._prompt_caching)
 
         kwargs: dict = {
             "model": model,
@@ -338,7 +384,7 @@ class LLMClient:
             if response.usage:
                 pt = response.usage.prompt_tokens or 0
                 ct = response.usage.completion_tokens or 0
-                cr = _extract_cache_read_tokens(response.usage, model)
+                cr = _extract_cache_read_tokens(response.usage, model, self._usage_dialect)
                 usage = UsageSummary(
                     prompt_tokens=pt,
                     completion_tokens=ct,
@@ -397,7 +443,7 @@ class LLMClient:
                 yield chunk
             return
         model, api_base = self._resolve_model()
-        messages = _apply_prompt_caching(messages, model)
+        messages = _apply_prompt_caching(messages, model, self._prompt_caching)
 
         kwargs: dict = {
             "model": model,
@@ -475,7 +521,7 @@ class LLMClient:
             if chunk.usage:
                 pt = chunk.usage.prompt_tokens or 0
                 ct = chunk.usage.completion_tokens or 0
-                cr = _extract_cache_read_tokens(chunk.usage, model)
+                cr = _extract_cache_read_tokens(chunk.usage, model, self._usage_dialect)
                 usage = UsageSummary(
                     prompt_tokens=pt,
                     completion_tokens=ct,
@@ -508,9 +554,18 @@ class LLMClient:
         )
 
     def _resolve_model(self) -> tuple[str, str]:
-        """Resolve model name with provider prefix and clean api_base."""
+        """Resolve model name with provider prefix and clean api_base.
+
+        litellm_prefix 显式给定（ProviderProfile 驱动的注册表路径）时做确定性
+        映射；None 时保留旧的 api_base 子串启发式（直接构造 LLMClient 的
+        doctor / 沙箱评估等路径）。
+        """
         model = self._model
         api_base = self._api_base.strip() if self._api_base else ""
+        if self._litellm_prefix is not None:
+            if self._litellm_prefix and "/" not in model:
+                model = f"{self._litellm_prefix}/{model}"
+            return model, api_base
         if "/" not in model and api_base:
             base_lower = api_base.lower()
             prefix = "openai"

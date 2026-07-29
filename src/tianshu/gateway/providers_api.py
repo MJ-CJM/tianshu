@@ -18,6 +18,14 @@ providers_router = APIRouter(tags=["providers"])
 def list_providers(request: Request):
     storage: Storage = request.app.state.storage
     providers = storage.list_providers()
+    # 附带生效价与来源/计费方式：三维自定义列全 NULL 时前端不再显示 "-/-/-"，
+    # 而是目录价（或订阅归零）+ 来源标记。
+    pm = getattr(request.app.state, "provider_manager", None)
+    if pm is not None:
+        providers = [
+            {**row, "pricing_effective": pm.get_pricing_with_source(row["name"])}
+            for row in providers
+        ]
     return ApiResponse(success=True, data=providers)
 
 
@@ -93,7 +101,7 @@ def update_provider_pricing(
 
 @providers_router.delete("/providers/{name}/pricing", response_model=ApiResponse)
 def reset_provider_pricing(name: str, request: Request):
-    """重置 provider 三维价格为 NULL（落 _DEFAULT_PRICING）。"""
+    """重置 provider 三维价格为 NULL（落 models.dev 目录默认价）。"""
     storage: Storage = request.app.state.storage
     provider = storage.get_provider(name)
     if not provider:
@@ -112,17 +120,15 @@ def reset_provider_pricing(name: str, request: Request):
 
 @providers_router.get("/providers/pricing/defaults", response_model=ApiResponse)
 def get_default_pricing_table(request: Request):
-    """返回 _DEFAULT_PRICING 全部条目（用于户部账房"查看默认价表"展示）。"""
-    from tianshu.cost.tracker import _DEFAULT_PRICING, _FALLBACK_PRICING
+    """默认价来源已切换为 models.dev 目录快照；返回快照状态 + 兜底价。"""
+    from tianshu.cost.tracker import _FALLBACK_PRICING
+    from tianshu.providers.model_catalog import default_catalog
 
-    rows = [
-        {"model": model, "miss": p[0], "hit": p[1], "out": p[2]}
-        for model, p in _DEFAULT_PRICING.items()
-    ]
+    catalog = getattr(request.app.state, "model_catalog", None) or default_catalog()
     return ApiResponse(
         success=True,
         data={
-            "entries": rows,
+            **catalog.status(),
             "fallback": {
                 "miss": _FALLBACK_PRICING[0],
                 "hit": _FALLBACK_PRICING[1],

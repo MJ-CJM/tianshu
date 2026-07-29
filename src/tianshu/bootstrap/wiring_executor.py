@@ -75,6 +75,12 @@ def wire_executor(app: FastAPI, settings: TianshuSettings) -> None:
     )
     executor.set_agent(agent)
     executor.set_persona_loader(persona_loader)
+    # 内阁派官：未指派官员的敕令由内阁按名册拣选（走 edict_parse 便宜槽位）
+    from tianshu.persona.dispatcher import CabinetDispatcher
+
+    executor.set_cabinet_dispatcher(
+        CabinetDispatcher(persona_loader, app.state.provider_manager)
+    )
     app.state.executor = executor
 
     # --- DAGScheduler ---

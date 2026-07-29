@@ -52,6 +52,8 @@ export interface EdictRuntime {
   /** 迭代 3.5：执行 backend（native | keqing:claude-code | keqing:codex） */
   executor?: string;
   executor_model?: string | null;
+  /** 对话模式：成功后保持进行（人工结案），继续批示持续可用 */
+  conversation?: boolean;
 }
 
 export interface ShadowSnapshot {
@@ -328,6 +330,8 @@ export interface LLMConfig {
   top_p: number;
   max_tokens: number;
   enabled: boolean;
+  /** 关联的模型供应商实例 id（"" = 未关联） */
+  provider_id: string;
 }
 
 export interface LLMConfigCreateRequest {
@@ -340,6 +344,7 @@ export interface LLMConfigCreateRequest {
   top_p?: number;
   max_tokens?: number;
   enabled?: boolean;
+  provider_id?: string;
 }
 
 export interface LLMConfigUpdateRequest {
@@ -351,6 +356,7 @@ export interface LLMConfigUpdateRequest {
   top_p?: number;
   max_tokens?: number;
   enabled?: boolean;
+  provider_id?: string;
 }
 
 export interface LLMConfigListResponse {
@@ -366,6 +372,8 @@ export interface AgentConfig {
   agent_token_budget: number | null;
   agent_cost_budget_cny: number | null;
   skills_char_budget: number;
+  /** 内部任务槽位（court/memory/synthesis/edict_parse → LLM 配置名；空/缺省=全局 active 配置） */
+  task_slots: Record<string, string>;
   // 客卿治理默认(外聘 coding agent)
   keqing_default_models?: Record<string, string>;
   keqing_gateway_enabled?: boolean;
@@ -381,6 +389,7 @@ export interface AgentConfigUpdateRequest {
   agent_token_budget?: number | null;
   agent_cost_budget_cny?: number | null;
   skills_char_budget?: number;
+  task_slots?: Record<string, string>;
   keqing_default_models?: Record<string, string>;
   keqing_gateway_enabled?: boolean;
   keqing_per_run_budget_cny?: number;
@@ -520,6 +529,8 @@ export interface ProviderInfo {
   cost_per_1k_completion: number | null;
   cost_per_1k_cache_read: number | null;
   created_at: string;
+  /** 生效价 + 来源/计费方式（服务端按目录/订阅/自定义合成） */
+  pricing_effective?: EffectivePricing;
 }
 
 /** Provider 当前生效的 3 维价（来自 GET /providers/:name/pricing/effective） */
@@ -527,8 +538,10 @@ export interface EffectivePricing {
   miss: number | null;
   hit: number | null;
   out: number | null;
-  /** custom = 三维都自定义；default = 三维都未自定义；mixed = 部分自定义 */
+  /** custom = 三维都自定义；default = 三维都未自定义（目录价）；mixed = 部分自定义 */
   source: "custom" | "default" | "mixed";
+  /** per_token = 按量（目录/自定义价）；subscription = 订阅制（按 0 记账） */
+  billing?: "per_token" | "subscription";
 }
 
 export interface ProviderPricingUpdate {
@@ -537,17 +550,96 @@ export interface ProviderPricingUpdate {
   cost_per_1k_completion?: number | null;
 }
 
-/** 默认价表条目（GET /providers/pricing/defaults） */
-export interface DefaultPricingEntry {
-  model: string;
+/** 默认价表状态（GET /providers/pricing/defaults）— models.dev 目录快照摘要 + 兜底价（原 entries 数组已废） */
+export interface DefaultPricingTable {
+  source: string;
+  generated_at: string;
+  provider_count: number;
+  model_count: number;
+  fallback: { miss: number; hit: number; out: number };
+}
+
+// --- 统一模型注册表（Model Provider Registry） ---
+
+/** 内置供应商声明（GET /model-providers/profiles） */
+export interface ModelProviderProfile {
+  id: string;
+  display_name: string;
+  api_protocol: string;
+  default_base_url: string;
+  key_env: string;
+  billing: "per_token" | "subscription";
+  has_catalog: boolean;
+  notes: string;
+}
+
+/** 用户 provider 实例视图（GET /model-providers） */
+export interface ModelProviderView {
+  id: string;
+  profile_id: string;
+  display_name: string;
+  base_url: string;
+  effective_base_url: string;
+  api_key_ref: string;
+  key_source: "vault" | "env" | "none";
+  key_masked: string;
+  enabled: boolean;
+  billing: "per_token" | "subscription";
+  api_protocol: string;
+  key_env: string;
+  has_catalog: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelProviderCreateRequest {
+  profile_id: string;
+  id?: string;
+  display_name?: string;
+  base_url?: string;
+  /** 字面量或 "$ENV:VAR_NAME" */
+  api_key?: string;
+}
+
+export interface ModelProviderUpdateRequest {
+  display_name?: string;
+  base_url?: string;
+  enabled?: boolean;
+}
+
+/** models.dev 目录三维价（¥/1K） */
+export interface CatalogPricing {
   miss: number;
   hit: number;
   out: number;
 }
 
-export interface DefaultPricingTable {
-  entries: DefaultPricingEntry[];
-  fallback: { miss: number; hit: number; out: number };
+/** 目录模型条目（GET /model-providers/{id}/models） */
+export interface CatalogModelEntry {
+  id: string;
+  name: string;
+  context_window: number | null;
+  max_output_tokens: number | null;
+  tool_call: boolean;
+  reasoning: boolean;
+  vision: boolean;
+  pricing_cny_per_1k: CatalogPricing | null;
+  release_date: string | null;
+}
+
+/** 目录快照状态（GET /model-catalog/status） */
+export interface CatalogStatus {
+  source: string;
+  generated_at: string;
+  provider_count: number;
+  model_count: number;
+}
+
+/** 连通性测试结果（POST /model-providers/{id}/test） */
+export interface ConnectivityTestResult {
+  ok: boolean;
+  latency_ms: number;
+  error: string | null;
 }
 
 // --- Plugin types ---

@@ -13,7 +13,9 @@ from tianshu.storage.migration_ledger import Migration, MigrationError, pending_
 from tianshu.storage.migrations import MIGRATIONS, run_migrations
 from tianshu.storage.sqlite_backup import create_online_backup, remove_backup
 
-_SENSITIVE_MIGRATION_NAMES = frozenset({"0008_encrypt_mcp_secret_mappings"})
+_SENSITIVE_MIGRATION_NAMES = frozenset(
+    {"0008_encrypt_mcp_secret_mappings", "0020_encrypt_llm_config_keys"}
+)
 
 
 class SensitiveMigrationWALCheckpointError(RuntimeError):

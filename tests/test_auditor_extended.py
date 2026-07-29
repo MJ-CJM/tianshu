@@ -6,6 +6,7 @@ import pytest
 
 from tianshu.auditor.auditor import Auditor
 from tianshu.bus.event_bus import EventBus
+from tianshu.models.edict import EdictRuntime
 from tianshu.models import Edict, EdictStatus, Memorial, TaskStatus
 from tianshu.models.events import make_event
 
@@ -31,7 +32,10 @@ class TestAuditorHandler:
             consumer_name="test.audit_completed.v1",
         )
 
-        edict = Edict(goal="test", review_policy="never")
+        # conversation=False：本用例验证一次性闭环语义（默认已是多轮保持 open）
+        edict = Edict(
+            goal="test", review_policy="never", runtime=EdictRuntime(conversation=False)
+        )
         storage.save_edict(edict)
         memorial = Memorial(
             edict_id=edict.id,
@@ -98,7 +102,9 @@ class TestAuditorHandler:
             consumer_name="test.audit_completed.v1",
         )
         auditor.audit = AsyncMock()
-        edict = Edict(goal="test", review_policy="on_failure")
+        edict = Edict(
+            goal="test", review_policy="on_failure", runtime=EdictRuntime(conversation=False)
+        )
         storage.save_edict(edict)
         memorial = Memorial(
             edict_id=edict.id,

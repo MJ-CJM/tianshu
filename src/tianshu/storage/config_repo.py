@@ -95,16 +95,18 @@ class ConfigMixin:
     # --- LLM Configs ---
 
     def save_llm_config(self, config: dict) -> None:
+        # api_key 不落盘：明文列已由迁移 0020 删除，key 在 network_credentials
+        # (kind='llm_provider') 加密存储，经 provider_id 关联。
         with self._lock, self._conn:
             self._conn.execute(
                 """INSERT OR REPLACE INTO llm_configs
-                   (name, model, api_key, api_base, max_retries, temperature,
+                   (name, model, provider_id, api_base, max_retries, temperature,
                     top_p, max_tokens, enabled, is_active, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     config["name"],
                     config["model"],
-                    config["api_key"],
+                    config.get("provider_id", ""),
                     config.get("api_base", ""),
                     config.get("max_retries", 3),
                     config.get("temperature", 0.7),
@@ -217,6 +219,29 @@ class ConfigMixin:
         params.append(name)
         with self._lock, self._conn:
             self._conn.execute(f"UPDATE providers SET {', '.join(sets)} WHERE name = ?", params)
+
+    # --- App Settings（KV 持久化；value 统一 JSON）---
+
+    def get_app_setting(self, key: str) -> object | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value_json FROM app_settings WHERE key = ?", (key,)
+            ).fetchone()
+        if row is None:
+            return None
+        return json.loads(row["value_json"])
+
+    def set_app_setting(self, key: str, value: object) -> None:
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                """INSERT INTO app_settings (key, value_json, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(key) DO UPDATE SET
+                     value_json = excluded.value_json,
+                     updated_at = excluded.updated_at""",
+                (key, json.dumps(value, ensure_ascii=False), now),
+            )
 
     # --- Plugins ---
 

@@ -242,8 +242,10 @@ class Agent:
                 on_event(event)
 
         max_iterations = edict.runtime.max_iterations or agent_cfg.agent_max_iterations
-        # Context window size for compaction thresholds (separate from spending budget)
-        context_limit = 128000  # TODO: derive from model config / provider metadata
+        # Context window size for compaction thresholds (separate from spending budget).
+        # 模型注册表路径的客户端携带目录里的真实窗口（小窗模型及时压缩、
+        # 大窗模型不过早压缩）；直构客户端无此元数据时回落 128K。
+        context_limit = getattr(llm, "context_window", None) or 128000
 
         # --- New: LoopState replaces mutable messages list ---
         state = LoopState(messages=tuple(messages), iteration=0)
@@ -510,7 +512,11 @@ class Agent:
                 response = await llm.chat(current_messages, tools=openai_tools)
         except Exception as e:
             if _is_context_overflow(e):
-                recovered = await reactive_compact(state, llm=llm, context_limit=context_limit)
+                # 恢复次数硬上限：压缩后仍反复 overflow 说明已无可压空间，
+                # 继续重试只是烧 API 直到超时（且把溢出误报成 provider_timeout）。
+                recovered = None
+                if recovery_attempts.get("context_overflow", 0) < 2:
+                    recovered = await reactive_compact(state, llm=llm, context_limit=context_limit)
                 if recovered is not None and not state.compact_attempted:
                     state = recovered
                     recovery_attempts["context_overflow"] = (

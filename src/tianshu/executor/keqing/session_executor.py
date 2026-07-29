@@ -442,7 +442,7 @@ class KeqingSessionExecutor:
             return
         try:
             resp = await asyncio.wait_for(fut, _MGMT_CMD_TIMEOUT)
-        except (TimeoutError, asyncio.TimeoutError):
+        except TimeoutError:
             return
         if not resp.get("success"):
             return

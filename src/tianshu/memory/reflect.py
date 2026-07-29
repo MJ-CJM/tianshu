@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from tianshu.memory.models import MemoryEntry
 
@@ -34,9 +34,11 @@ class Reflector:
         self,
         config_manager: ConfigManager,
         md_backend: MarkdownMemoryBackend | None = None,
+        provider_manager: Any = None,
     ) -> None:
         self._config_manager = config_manager
         self._md_backend = md_backend
+        self._provider_manager = provider_manager
         self._last_reflection: dict[str, datetime] = {}
 
     def can_reflect(self, persona_id: str) -> bool:
@@ -62,16 +64,21 @@ class Reflector:
 
         obs_text = "\n".join(f"- {o.content}" for o in observations[:20])
 
-        from tianshu.llm import LLMClient
+        if self._provider_manager is not None:
+            llm = self._provider_manager.get_client_for_slot(
+                "memory", temperature=0.5, max_tokens=512
+            )
+        else:
+            from tianshu.llm import LLMClient
 
-        state = self._config_manager.state
-        llm = LLMClient(
-            model=state.model,
-            api_key=state.api_key,
-            api_base=state.api_base,
-            temperature=0.5,
-            max_tokens=512,
-        )
+            state = self._config_manager.state
+            llm = LLMClient(
+                model=state.model,
+                api_key=state.api_key,
+                api_base=state.api_base,
+                temperature=0.5,
+                max_tokens=512,
+            )
 
         prompt = _REFLECTION_PROMPT.format(
             persona_id=persona_id,

@@ -24,7 +24,7 @@ import logging
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from tianshu.config_manager import ConfigManager
@@ -58,11 +58,14 @@ class Diarist:
         config_manager: ConfigManager,
         kg: KnowledgeGraph,
         memory_dir: Path | None = None,
+        provider_manager: Any = None,
     ) -> None:
         self._storage = storage
         self._config_manager = config_manager
         self._kg = kg
         self._memory_dir = Path(memory_dir or Path("~/.tianshu/memory").expanduser())
+        # 有 provider_manager 时走 "memory" 任务槽位（可指派便宜模型 + Router/定价）
+        self._provider_manager = provider_manager
 
     async def synthesize(self) -> bool:
         """蒸馏一次用户画像;信号不足返回 False(不覆盖已有画像)。"""
@@ -104,16 +107,21 @@ class Diarist:
         }
 
     async def _distill(self, signals: dict) -> tuple[str, list[tuple[str, str]]]:
-        from tianshu.llm import LLMClient
+        if self._provider_manager is not None:
+            llm = self._provider_manager.get_client_for_slot(
+                "memory", temperature=0.4, max_tokens=512
+            )
+        else:
+            from tianshu.llm import LLMClient
 
-        state = self._config_manager.state
-        llm = LLMClient(
-            model=state.model,
-            api_key=state.api_key,
-            api_base=state.api_base,
-            temperature=0.4,
-            max_tokens=512,
-        )
+            state = self._config_manager.state
+            llm = LLMClient(
+                model=state.model,
+                api_key=state.api_key,
+                api_base=state.api_base,
+                temperature=0.4,
+                max_tokens=512,
+            )
         resp = await llm.chat(
             [
                 {"role": "system", "content": "你是简洁的起居注官。"},
